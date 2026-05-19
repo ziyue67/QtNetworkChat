@@ -1767,6 +1767,15 @@ void MainWindow::refreshFriendList() {
         }
     }
 
+    auto appendSection = [this](const QString& title) {
+        QStandardItem* section = new QStandardItem(title);
+        section->setEditable(false);
+        section->setEnabled(false);
+        section->setForeground(QColor(176, 212, 232));
+        section->setBackground(QColor(22, 46, 64));
+        m_userListModel->appendRow(section);
+    };
+
     int visibleCount = 0;
     auto matchesFilter = [this](const QString& id, const QString& name) {
         return m_contactFilter.isEmpty()
@@ -1774,6 +1783,7 @@ void MainWindow::refreshFriendList() {
             || name.contains(m_contactFilter, Qt::CaseInsensitive);
     };
 
+    appendSection("我的好友");
     for (const QString& friendId : m_friendIds) {
         if (m_knownUsers.contains(friendId)) continue;
         QString name = m_friendNames.value(friendId, friendId);
@@ -1785,6 +1795,7 @@ void MainWindow::refreshFriendList() {
         ++visibleCount;
     }
 
+    appendSection("群聊");
     for (const QString& groupId : m_localGroupIds) {
         QString groupName = m_localGroupNames.value(groupId, "群聊");
         if (!matchesFilter(groupId, groupName)) continue;
@@ -1795,6 +1806,7 @@ void MainWindow::refreshFriendList() {
         ++visibleCount;
     }
 
+    appendSection("在线成员");
     for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
         const ChatUser& user = it.value();
         if (user.name == m_currentUserName) continue;
