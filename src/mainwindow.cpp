@@ -477,6 +477,23 @@ void MainWindow::onSendMessage() {
     QString text = ui->messageEdit->toPlainText().trimmed();
     if (text.isEmpty()) return;
 
+    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
+        QString line = QString("[%1] <%2> %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, text);
+        saveHistory(m_privateChatTarget, line);
+
+        QStandardItem* item = new QStandardItem(line);
+        item->setEditable(false);
+        item->setForeground(QColor(20, 92, 160));
+        item->setBackground(QColor(218, 241, 255));
+        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(item);
+        ui->messageEdit->clear();
+        ui->chatHintLabel->setText(QString("本地群聊 · %1 · 消息已保存在本地记录").arg(groupName));
+        ui->chatListView->scrollToBottom();
+        return;
+    }
+
     bool ok = false;
     if (!m_privateChatTarget.isEmpty()) {
         ok = m_client->sendPrivateMessage(m_privateChatTarget, text);
@@ -666,6 +683,10 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     if (!index.isValid()) return;
     QString targetId = index.data(Qt::UserRole + 1).toString();
     if (targetId.isEmpty()) return;
+    if (m_localGroupIds.contains(targetId)) {
+        switchToLocalGroup(targetId, m_localGroupNames.value(targetId, "群聊"));
+        return;
+    }
     QString userName = contactDisplayName(targetId);
     m_privateChatTarget = targetId;
     m_chatModel->clear();
@@ -919,7 +940,16 @@ void MainWindow::onShowCreateMenu() {
     QAction* sendFileAction = menu.addAction("闪传文件");
     QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
     if (selected == createGroupAction) {
-        QMessageBox::information(this, "创建群聊", "群聊创建功能将在下一轮迭代加入。当前可先使用公共聊天室。");
+        bool ok = false;
+        QString groupName = QInputDialog::getText(this, "创建群聊", "群聊名称:", QLineEdit::Normal, "我的群聊", &ok).trimmed();
+        if (!ok) return;
+        if (groupName.isEmpty()) groupName = "我的群聊";
+        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+        m_localGroupIds << groupId;
+        m_localGroupNames[groupId] = groupName;
+        refreshFriendList();
+        switchToLocalGroup(groupId, groupName);
+        appendSystemMessage("已创建群聊: " + groupName);
     } else if (selected == addFriendAction) {
         onShowGlobalSearch();
     } else if (selected == editAnnouncementAction) {
@@ -927,6 +957,18 @@ void MainWindow::onShowCreateMenu() {
     } else if (selected == sendFileAction) {
         onSendFile();
     }
+}
+
+void MainWindow::switchToLocalGroup(const QString& groupId, const QString& groupName) {
+    m_privateChatTarget = groupId;
+    m_chatModel->clear();
+    m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
+    loadHistory(groupId);
+    setWindowTitle(QString("QtNetworkChat - 群聊: %1").arg(groupName));
+    ui->chatTitleLabel->setText(groupName);
+    ui->chatHintLabel->setText(QString("本地群聊 · 群号 %1 · 当前成员会自动显示在右侧").arg(groupId.mid(QString("local_group_").size())));
+    ui->announcementBodyLabel->setText(QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName));
+    refreshGroupMemberPanel();
 }
 
 void MainWindow::onEditGroupAnnouncement() {
@@ -1658,7 +1700,9 @@ QString MainWindow::getHistoryFilePath(const QString& peerId) {
     QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (dir.isEmpty()) dir = ".";
     QDir().mkpath(dir);
-    return dir + "/chat_history_" + peerId + ".txt";
+    QString safePeerId = peerId;
+    safePeerId.replace(QRegularExpression("[^A-Za-z0-9_-]"), "_");
+    return dir + "/chat_history_" + safePeerId + ".txt";
 }
 
 QStandardItem* MainWindow::findUserItem(const QString& userId) {
@@ -1705,6 +1749,16 @@ void MainWindow::refreshFriendList() {
         QStandardItem* item = new QStandardItem(QString("☆ QQ:%1\n   %2 [离线]").arg(friendId, name));
         item->setData(friendId, Qt::UserRole + 1);
         item->setForeground(QColor(180, 215, 235));
+        m_userListModel->appendRow(item);
+        ++visibleCount;
+    }
+
+    for (const QString& groupId : m_localGroupIds) {
+        QString groupName = m_localGroupNames.value(groupId, "群聊");
+        if (!matchesFilter(groupId, groupName)) continue;
+        QStandardItem* item = new QStandardItem(QString("群聊 QQ:%1\n   %2 [本地]").arg(groupId.mid(QString("local_group_").size()), groupName));
+        item->setData(groupId, Qt::UserRole + 1);
+        item->setForeground(QColor(164, 220, 255));
         m_userListModel->appendRow(item);
         ++visibleCount;
     }

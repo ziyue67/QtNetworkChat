@@ -72,6 +72,7 @@ private:
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
     void refreshGroupMemberPanel();
+    void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();
     QString contactDisplayName(const QString& userId) const;
@@ -93,8 +94,10 @@ private:
     QString m_currentUserId;
     QString m_currentUserName;
     QStringList m_friendIds;
+    QStringList m_localGroupIds;
     QStringList m_pendingFriendRequests;
     QMap<QString, QString> m_friendNames;
+    QMap<QString, QString> m_localGroupNames;
     QMap<QString, ChatUser> m_knownUsers;
     QString m_contactFilter;
     QString m_privateChatTarget;
