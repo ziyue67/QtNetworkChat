@@ -24,6 +24,7 @@ public:
     bool searchFriendByAccount(const QString& account);
     bool sendFriendResponse(const QString& receiverId, bool accepted);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
+    bool sendImage(const QString& filePath, const QString& receiverId = QString());
     void setUserInfo(const QString& userId, const QString& userName);
     bool waitForLoginResult(int timeoutMs = 5000);
 

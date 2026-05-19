@@ -336,7 +336,7 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.receiverId = obj["receiverId"].toString();
     msg.content = obj["content"].toString();
     msg.fileName = obj["fileName"].toString();
-    msg.type = MessageType::File;
+    msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::File)));
     msg.timestamp = QDateTime::currentDateTime();
 
     QString base64Data = obj["fileData"].toString();
@@ -504,7 +504,7 @@ void Server::saveOfflineMessage(const Message& msg) const {
     if (!file.open(QIODevice::Append | QIODevice::Text)) return;
 
     QJsonObject obj;
-    obj["type"] = msg.type == MessageType::File ? "file" : "private";
+    obj["type"] = msg.type == MessageType::File || msg.type == MessageType::Image ? "file" : "private";
     obj["messageType"] = static_cast<int>(msg.type);
     obj["senderId"] = msg.senderId;
     obj["senderName"] = msg.senderName;
@@ -535,7 +535,7 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) cons
 
 void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
     QJsonObject obj;
-    obj["type"] = msg.type == MessageType::System ? "system" : (msg.type == MessageType::File ? "file" : (msg.isPrivate() ? "private" : "message"));
+    obj["type"] = msg.type == MessageType::System ? "system" : ((msg.type == MessageType::File || msg.type == MessageType::Image) ? "file" : (msg.isPrivate() ? "private" : "message"));
     obj["messageType"] = static_cast<int>(msg.type);
     obj["senderId"] = msg.senderId;
     obj["senderName"] = msg.senderName;
@@ -563,7 +563,7 @@ void Server::sendToUser(const Message& msg) {
     QTcpSocket* targetSocket = m_userSockets.value(receiverId);
     if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
         QJsonObject obj;
-        obj["type"] = msg.type == MessageType::File ? "file" : "private";
+        obj["type"] = msg.type == MessageType::File || msg.type == MessageType::Image ? "file" : "private";
         obj["messageType"] = static_cast<int>(msg.type);
         obj["senderId"] = msg.senderId;
         obj["senderName"] = msg.senderName;

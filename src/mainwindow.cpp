@@ -384,7 +384,7 @@ void MainWindow::setupUi() {
 
     connect(ui->sendBtn, &QPushButton::clicked, this, &MainWindow::onSendMessage);
     connect(ui->fileBtn, &QPushButton::clicked, this, &MainWindow::onSendFile);
-    connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendFile);
+    connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendImage);
     connect(ui->emojiBtn, &QPushButton::clicked, this, &MainWindow::onInsertEmoji);
     connect(ui->mentionBtn, &QPushButton::clicked, this, &MainWindow::onInsertMention);
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
@@ -519,6 +519,20 @@ void MainWindow::onSendFile() {
     }
 }
 
+void MainWindow::onSendImage() {
+    QString filePath = QFileDialog::getOpenFileName(this, "选择图片", QString(),
+        "图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;所有文件 (*.*)");
+    if (filePath.isEmpty()) return;
+
+    bool ok = m_client->sendImage(filePath, m_privateChatTarget);
+    if (ok) {
+        QFileInfo info(filePath);
+        appendSystemMessage("已发送图片: " + info.fileName());
+    } else {
+        QMessageBox::warning(this, "发送失败", "图片发送失败");
+    }
+}
+
 void MainWindow::onNewMessage(const Message& msg) {
     QString displayName = msg.senderName;
     if (msg.type == MessageType::System) {
@@ -529,7 +543,9 @@ void MainWindow::onNewMessage(const Message& msg) {
     QString timeStr = msg.timestamp.toString("hh:mm:ss");
     QString line;
 
-    if (msg.type == MessageType::File) {
+    if (msg.type == MessageType::Image) {
+        line = QString("[%1] <%2> [图片] %3").arg(timeStr, displayName, msg.fileName);
+    } else if (msg.type == MessageType::File) {
         line = QString("[%1] <%2> %3").arg(timeStr, displayName, msg.content);
     } else if (msg.isPrivate()) {
         line = QString("[%1] <%2> [私聊] %3").arg(timeStr, displayName, msg.content);
@@ -567,7 +583,17 @@ void MainWindow::onNewMessage(const Message& msg) {
     m_chatModel->appendRow(item);
     saveHistory(msg.isPrivate() ? (msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId) : "group", line);
 
-    if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
+    if (msg.type == MessageType::Image && !msg.fileData.isEmpty()) {
+        QPixmap pixmap;
+        if (pixmap.loadFromData(msg.fileData)) {
+            QStandardItem* previewItem = new QStandardItem;
+            previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
+            previewItem->setText(QString("%1\n点击另存为可保存图片").arg(msg.fileName));
+            previewItem->setEditable(false);
+            previewItem->setBackground(QColor(246, 250, 253));
+            m_chatModel->appendRow(previewItem);
+        }
+    } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
         QString savePath = QFileDialog::getSaveFileName(this, "保存文件",
             QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/" + msg.fileName);
         if (!savePath.isEmpty()) {

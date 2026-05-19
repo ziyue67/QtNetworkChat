@@ -159,8 +159,32 @@ bool Client::sendFile(const QString& filePath, const QString& receiverId) {
     obj["senderId"] = m_userId;
     obj["senderName"] = m_userName;
     obj["receiverId"] = receiverId;
+    obj["messageType"] = static_cast<int>(MessageType::File);
     obj["fileName"] = fileInfo.fileName();
     obj["content"] = "发送了文件: " + fileInfo.fileName();
+    obj["fileData"] = QString::fromLatin1(fileData.toBase64());
+
+    return sendJson(obj);
+}
+
+bool Client::sendImage(const QString& filePath, const QString& receiverId) {
+    if (!isConnected()) return false;
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+
+    QFileInfo fileInfo(filePath);
+    QByteArray fileData = file.readAll();
+    file.close();
+
+    QJsonObject obj;
+    obj["type"] = "file";
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    obj["receiverId"] = receiverId;
+    obj["messageType"] = static_cast<int>(MessageType::Image);
+    obj["fileName"] = fileInfo.fileName();
+    obj["content"] = "发送了图片: " + fileInfo.fileName();
     obj["fileData"] = QString::fromLatin1(fileData.toBase64());
 
     return sendJson(obj);
@@ -283,7 +307,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
 
     if (type == "file") {
         Message msg;
-        msg.type = MessageType::File;
+        msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::File)));
         msg.senderId = obj["senderId"].toString();
         msg.senderName = obj["senderName"].toString();
         msg.receiverId = obj["receiverId"].toString();

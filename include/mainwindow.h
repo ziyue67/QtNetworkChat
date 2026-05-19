@@ -27,6 +27,7 @@ public:
 private slots:
     void onSendMessage();
     void onSendFile();
+    void onSendImage();
     void onNewMessage(const Message& msg);
     void onUserJoined(const QString& userId, const QString& userName);
     void onUserLeft(const QString& userId, const QString& userName);
