@@ -588,23 +588,34 @@ void MainWindow::onNewMessage(const Message& msg) {
         if (pixmap.loadFromData(msg.fileData)) {
             QStandardItem* previewItem = new QStandardItem;
             previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
-            previewItem->setText(QString("%1\n点击另存为可保存图片").arg(msg.fileName));
+            previewItem->setText(msg.fileName);
             previewItem->setEditable(false);
             previewItem->setBackground(QColor(246, 250, 253));
             m_chatModel->appendRow(previewItem);
         }
+
+        QString imageDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Images";
+        QDir().mkpath(imageDirPath);
+        QString savePath = imageDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + msg.fileName;
+        QFile f(savePath);
+        if (f.open(QIODevice::WriteOnly)) {
+            f.write(msg.fileData);
+            f.close();
+            QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1").arg(savePath));
+            savedItem->setForeground(Qt::darkGreen);
+            m_chatModel->appendRow(savedItem);
+        }
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
-        QString savePath = QFileDialog::getSaveFileName(this, "保存文件",
-            QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/" + msg.fileName);
-        if (!savePath.isEmpty()) {
-            QFile f(savePath);
-            if (f.open(QIODevice::WriteOnly)) {
-                f.write(msg.fileData);
-                f.close();
-                QStandardItem* item2 = new QStandardItem(QString("文件已保存: %1").arg(savePath));
-                item2->setForeground(Qt::darkGreen);
-                m_chatModel->appendRow(item2);
-            }
+        QString fileDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Files";
+        QDir().mkpath(fileDirPath);
+        QString savePath = fileDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + msg.fileName;
+        QFile f(savePath);
+        if (f.open(QIODevice::WriteOnly)) {
+            f.write(msg.fileData);
+            f.close();
+            QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1").arg(savePath));
+            item2->setForeground(Qt::darkGreen);
+            m_chatModel->appendRow(item2);
         }
     }
 
