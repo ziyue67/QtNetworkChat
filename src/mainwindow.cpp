@@ -830,6 +830,16 @@ void MainWindow::onShowGlobalSearch() {
             item->setSizeHint(QSize(0, 66));
             resultList->addItem(item);
         }
+        for (const QString& groupId : m_localGroupIds) {
+            QString groupName = m_localGroupNames.value(groupId, "群聊");
+            if (!filter.isEmpty()
+                && !groupId.contains(filter, Qt::CaseInsensitive)
+                && !groupName.contains(filter, Qt::CaseInsensitive)) continue;
+            QListWidgetItem* item = new QListWidgetItem(QString("群聊  QQ:%1\n%2 · 本地群聊 · 双击进入").arg(groupId.mid(QString("local_group_").size()), groupName));
+            item->setData(Qt::UserRole, groupId);
+            item->setSizeHint(QSize(0, 66));
+            resultList->addItem(item);
+        }
         if (!filter.isEmpty()) {
             QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索 QQ 账号：%1\n点击右侧搜索按钮可从服务器查找并自动添加").arg(filter));
             searchItem->setFlags(Qt::NoItemFlags);
@@ -915,6 +925,11 @@ void MainWindow::onShowGlobalSearch() {
     connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog](QListWidgetItem* item) {
         QString id = item->data(Qt::UserRole).toString();
         if (id.isEmpty()) return;
+        if (m_localGroupIds.contains(id)) {
+            dialog.accept();
+            switchToLocalGroup(id, m_localGroupNames.value(id, "群聊"));
+            return;
+        }
         if (!m_friendIds.contains(id)) {
             m_friendNames[id] = contactDisplayName(id);
             m_client->sendFriendRequest(id);
