@@ -69,6 +69,7 @@ private:
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
     void refreshGroupMemberPanel();
+    void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();
     QString contactDisplayName(const QString& userId) const;
     bool isContactOnline(const QString& userId) const;

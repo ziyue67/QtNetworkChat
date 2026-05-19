@@ -367,7 +367,17 @@ void MainWindow::setupUi() {
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
     connect(ui->userListView, &QListView::customContextMenuRequested, this, &MainWindow::onUserContextMenu);
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
-    connect(ui->globalSearchBtn, &QPushButton::clicked, this, &MainWindow::onShowGlobalSearch);
+    connect(ui->contactSearchEdit, &QLineEdit::returnPressed, this, [this]() {
+        searchAndAddAccount(ui->contactSearchEdit->text().trimmed(), this);
+    });
+    connect(ui->globalSearchBtn, &QPushButton::clicked, this, [this]() {
+        QString text = ui->contactSearchEdit->text().trimmed();
+        if (text.isEmpty()) {
+            onShowGlobalSearch();
+        } else {
+            searchAndAddAccount(text, this);
+        }
+    });
     connect(ui->createMenuBtn, &QPushButton::clicked, this, &MainWindow::onShowCreateMenu);
     connect(ui->friendNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendNotifications);
     connect(ui->groupNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowGroupNotifications);
@@ -652,16 +662,24 @@ void MainWindow::onAddFriend() {
     bool ok = false;
     QString account = QInputDialog::getText(this, "加好友", "请输入对方 QQ 账号:", QLineEdit::Normal, QString(), &ok).trimmed();
     if (!ok || account.isEmpty()) return;
+    searchAndAddAccount(account, this);
+}
+
+void MainWindow::searchAndAddAccount(const QString& account, QWidget* warningParent) {
+    QWidget* parent = warningParent ? warningParent : this;
+    if (account.isEmpty()) return;
     if (account == m_currentUserId) {
-        QMessageBox::information(this, "加好友", "不能添加自己为好友");
+        QMessageBox::information(parent, "加好友", "不能添加自己为好友");
         return;
     }
     if (m_friendIds.contains(account)) {
-        QMessageBox::information(this, "加好友", "该账号已经是你的好友");
+        QMessageBox::information(parent, "加好友", "该账号已经是你的好友");
         return;
     }
     if (!m_client->searchFriendByAccount(account)) {
-        QMessageBox::warning(this, "加好友", "当前未连接，无法搜索账号");
+        QMessageBox::warning(parent, "加好友", "当前未连接，无法搜索账号");
+    } else {
+        ui->statusbar->showMessage("正在搜索 QQ 账号: " + account, 2500);
     }
 }
 
@@ -810,18 +828,7 @@ void MainWindow::onShowGlobalSearch() {
             QMessageBox::warning(&dialog, "综合搜索", "请输入 QQ 号");
             return;
         }
-        if (account == m_currentUserId) {
-            QMessageBox::information(&dialog, "综合搜索", "不能添加自己为好友");
-            return;
-        }
-        if (m_friendIds.contains(account)) {
-            QMessageBox::information(&dialog, "综合搜索", "该账号已经是你的好友");
-            return;
-        }
-        if (!m_client->searchFriendByAccount(account)) {
-            QMessageBox::warning(&dialog, "综合搜索", "当前未连接，无法搜索账号");
-            return;
-        }
+        searchAndAddAccount(account, &dialog);
         dialog.accept();
     });
     connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog](QListWidgetItem* item) {
@@ -969,18 +976,7 @@ void MainWindow::onShowQuickAddFriend() {
             QMessageBox::warning(&dialog, "加好友", "请输入对方 QQ 账号");
             return;
         }
-        if (account == m_currentUserId) {
-            QMessageBox::information(&dialog, "加好友", "不能添加自己为好友");
-            return;
-        }
-        if (m_friendIds.contains(account)) {
-            QMessageBox::information(&dialog, "加好友", "该账号已经是你的好友");
-            return;
-        }
-        if (!m_client->searchFriendByAccount(account)) {
-            QMessageBox::warning(&dialog, "加好友", "当前未连接，无法搜索账号");
-            return;
-        }
+        searchAndAddAccount(account, &dialog);
         dialog.accept();
     });
 
