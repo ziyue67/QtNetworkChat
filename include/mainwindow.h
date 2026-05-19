@@ -82,6 +82,7 @@ private:
     Client* m_client;
     QStandardItemModel* m_userListModel;
     QStandardItemModel* m_chatModel;
+    QStandardItemModel* m_groupMemberModel;
     QString m_currentUserId;
     QString m_currentUserName;
     QStringList m_friendIds;

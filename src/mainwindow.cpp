@@ -36,6 +36,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_client(client)
     , m_userListModel(new QStandardItemModel(this))
     , m_chatModel(new QStandardItemModel(this))
+    , m_groupMemberModel(new QStandardItemModel(this))
     , m_currentUserId(userId)
     , m_currentUserName(userName)
     , m_privateChatTarget(QString())
@@ -105,6 +106,9 @@ void MainWindow::setupUi() {
 
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     ui->chatListView->setModel(m_chatModel);
+
+    m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
+    ui->groupMemberListView->setModel(m_groupMemberModel);
 
     ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Ctrl+Enter 换行)");
     ui->messageEdit->setFocus();
@@ -222,6 +226,48 @@ void MainWindow::setupUi() {
         QFrame#chatPanel {
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #EEF5FB, stop:1 #F7FAFD);
         }
+        QFrame#groupInfoPanel {
+            background: #F7FAFD;
+            border-left: 1px solid #E4EBF2;
+        }
+        QFrame#announcementCard {
+            background: white;
+            border: 1px solid #E4EBF2;
+            border-radius: 14px;
+        }
+        QLabel#announcementTitleLabel, QLabel#memberTitleLabel {
+            color: #1F2D3D;
+            font-size: 14px;
+            font-weight: 800;
+        }
+        QLabel#announcementBodyLabel {
+            color: #7B8A99;
+            font-size: 12px;
+            line-height: 18px;
+        }
+        QLineEdit#memberSearchEdit {
+            background: white;
+            color: #263238;
+            border: 1px solid #DDE7F0;
+            border-radius: 15px;
+            min-height: 30px;
+            padding: 3px 12px;
+        }
+        QListView#groupMemberListView {
+            background: white;
+            border: 1px solid #E4EBF2;
+            border-radius: 14px;
+            padding: 6px;
+            outline: none;
+        }
+        QListView#groupMemberListView::item {
+            min-height: 34px;
+            border-radius: 9px;
+            padding-left: 6px;
+        }
+        QListView#groupMemberListView::item:selected, QListView#groupMemberListView::item:hover {
+            background: #EAF7FF;
+        }
         QLabel#chatTitleLabel {
             color: #1F2D3D;
             font-size: 18px;
@@ -311,8 +357,20 @@ void MainWindow::setupUi() {
     connect(ui->addFriendBtn, &QPushButton::clicked, this, &MainWindow::onShowQuickAddFriend);
     connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
     connect(ui->groupChatBtn, &QPushButton::clicked, this, &MainWindow::onBackToGroupChat);
-    connect(ui->uploadAvatarBtn, &QPushButton::clicked, this, &MainWindow::onUploadAvatar);
+    connect(ui->memberSearchEdit, &QLineEdit::textChanged, this, [this]() { refreshGroupMemberPanel(); });
+    connect(ui->groupMemberListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        QString targetId = index.data(Qt::UserRole + 1).toString();
+        if (targetId.isEmpty() || targetId == m_currentUserId) return;
+        m_privateChatTarget = targetId;
+        m_chatModel->clear();
+        m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
+        loadHistory(targetId);
+        ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(targetId)));
+        ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, isContactOnline(targetId) ? "在线" : "离线"));
+    });
     connect(ui->clearBtn, &QPushButton::clicked, this, &MainWindow::onClearHistory);
+    refreshGroupMemberPanel();
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -509,6 +567,7 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
         .arg(users.size())
         .arg(m_friendIds.size())
         .arg(m_currentUserId));
+    refreshGroupMemberPanel();
 }
 
 void MainWindow::onPrivateChat(const QModelIndex& index) {
