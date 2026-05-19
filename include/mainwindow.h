@@ -53,6 +53,7 @@ private slots:
     void onShowCreateMenu();
     void onShowFriendNotifications();
     void onShowGroupNotifications();
+    void onEditGroupAnnouncement();
 
 signals:
     void logoutRequested();

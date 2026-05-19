@@ -252,6 +252,10 @@ void MainWindow::setupUi() {
             font-size: 14px;
             font-weight: 800;
         }
+        QLabel#announcementTitleLabel a {
+            color: #1296F7;
+            text-decoration: none;
+        }
         QLabel#announcementBodyLabel {
             color: #7B8A99;
             font-size: 12px;
@@ -367,6 +371,7 @@ void MainWindow::setupUi() {
     connect(ui->createMenuBtn, &QPushButton::clicked, this, &MainWindow::onShowCreateMenu);
     connect(ui->friendNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendNotifications);
     connect(ui->groupNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowGroupNotifications);
+    connect(ui->announcementTitleLabel, &QLabel::linkActivated, this, &MainWindow::onEditGroupAnnouncement);
     connect(ui->copyAccountBtn, &QPushButton::clicked, this, &MainWindow::onCopyAccount);
     connect(ui->addFriendBtn, &QPushButton::clicked, this, &MainWindow::onShowQuickAddFriend);
     connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
@@ -384,6 +389,9 @@ void MainWindow::setupUi() {
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, isContactOnline(targetId) ? "在线" : "离线"));
     });
     connect(ui->clearBtn, &QPushButton::clicked, this, &MainWindow::onClearHistory);
+    ui->announcementTitleLabel->setText("群公告 <a href=\"edit\">+</a>");
+    ui->announcementTitleLabel->setTextFormat(Qt::RichText);
+    ui->announcementTitleLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     refreshGroupMemberPanel();
 }
 
@@ -840,15 +848,34 @@ void MainWindow::onShowCreateMenu() {
     QMenu menu(this);
     QAction* createGroupAction = menu.addAction("创建群聊");
     QAction* addFriendAction = menu.addAction("加好友/群");
+    QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* sendFileAction = menu.addAction("闪传文件");
     QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
     if (selected == createGroupAction) {
         QMessageBox::information(this, "创建群聊", "群聊创建功能将在下一轮迭代加入。当前可先使用公共聊天室。");
     } else if (selected == addFriendAction) {
         onShowGlobalSearch();
+    } else if (selected == editAnnouncementAction) {
+        onEditGroupAnnouncement();
     } else if (selected == sendFileAction) {
         onSendFile();
     }
+}
+
+void MainWindow::onEditGroupAnnouncement() {
+    bool ok = false;
+    QString text = QInputDialog::getMultiLineText(
+        this,
+        "编辑群公告",
+        "群公告内容:",
+        ui->announcementBodyLabel->text(),
+        &ok).trimmed();
+    if (!ok) return;
+    if (text.isEmpty()) {
+        text = "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。";
+    }
+    ui->announcementBodyLabel->setText(text);
+    appendSystemMessage("群公告已更新");
 }
 
 void MainWindow::onShowQuickAddFriend() {
