@@ -181,7 +181,21 @@
        <item>
         <widget class="QLabel" name="onlineTitleLabel">
          <property name="text">
-          <string>在线成员</string>
+          <string>联系人</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="friendNoticeBtn">
+         <property name="text">
+          <string>好友通知  ›</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="groupNoticeBtn">
+         <property name="text">
+          <string>群通知  ›</string>
          </property>
         </widget>
        </item>
