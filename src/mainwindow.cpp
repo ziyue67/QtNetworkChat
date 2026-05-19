@@ -115,7 +115,10 @@ void MainWindow::setupUi() {
     ui->messageEdit->installEventFilter(this);
 
     ui->clearBtn->setObjectName("clearBtn");
-    ui->fileBtn->setObjectName("secondaryBtn");
+    ui->fileBtn->setObjectName("toolBtn");
+    ui->imageBtn->setObjectName("toolBtn");
+    ui->emojiBtn->setObjectName("iconToolBtn");
+    ui->mentionBtn->setObjectName("iconToolBtn");
     setStyleSheet(R"(
         QMainWindow, QWidget#centralwidget {
             background: #EEF3F8;
@@ -332,6 +335,23 @@ void MainWindow::setupUi() {
         QPushButton#sendBtn:hover {
             background: #0AA4E5;
         }
+        QPushButton#toolBtn, QPushButton#iconToolBtn {
+            background: transparent;
+            color: #52616F;
+            border: none;
+            border-radius: 14px;
+            padding: 5px 10px;
+            font-weight: 700;
+        }
+        QPushButton#iconToolBtn {
+            min-width: 30px;
+            font-size: 16px;
+            padding: 4px 6px;
+        }
+        QPushButton#toolBtn:hover, QPushButton#iconToolBtn:hover {
+            background: #EAF7FF;
+            color: #1296F7;
+        }
         QPushButton#clearBtn {
             color: #D35454;
         }
@@ -364,6 +384,9 @@ void MainWindow::setupUi() {
 
     connect(ui->sendBtn, &QPushButton::clicked, this, &MainWindow::onSendMessage);
     connect(ui->fileBtn, &QPushButton::clicked, this, &MainWindow::onSendFile);
+    connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendFile);
+    connect(ui->emojiBtn, &QPushButton::clicked, this, &MainWindow::onInsertEmoji);
+    connect(ui->mentionBtn, &QPushButton::clicked, this, &MainWindow::onInsertMention);
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
     connect(ui->userListView, &QListView::customContextMenuRequested, this, &MainWindow::onUserContextMenu);
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
@@ -883,6 +906,39 @@ void MainWindow::onEditGroupAnnouncement() {
     }
     ui->announcementBodyLabel->setText(text);
     appendSystemMessage("群公告已更新");
+}
+
+void MainWindow::onInsertEmoji() {
+    QMenu menu(this);
+    const QStringList emojis = {"😀", "😂", "😊", "😍", "😎", "😭", "👍", "🎉", "❤️", "🔥"};
+    for (const QString& emoji : emojis) {
+        QAction* action = menu.addAction(emoji);
+        connect(action, &QAction::triggered, this, [this, emoji]() {
+            ui->messageEdit->insertPlainText(emoji);
+            ui->messageEdit->setFocus();
+        });
+    }
+    menu.exec(ui->emojiBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
+}
+
+void MainWindow::onInsertMention() {
+    QMenu menu(this);
+    QAction* allAction = menu.addAction("@全体成员");
+    connect(allAction, &QAction::triggered, this, [this]() {
+        ui->messageEdit->insertPlainText("@全体成员 ");
+        ui->messageEdit->setFocus();
+    });
+    if (!m_knownUsers.isEmpty()) menu.addSeparator();
+    for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
+        const ChatUser& user = it.value();
+        if (user.id == m_currentUserId) continue;
+        QAction* action = menu.addAction(QString("@%1 (QQ:%2)").arg(user.name, user.id));
+        connect(action, &QAction::triggered, this, [this, user]() {
+            ui->messageEdit->insertPlainText(QString("@%1 ").arg(user.name));
+            ui->messageEdit->setFocus();
+        });
+    }
+    menu.exec(ui->mentionBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
 }
 
 void MainWindow::onShowQuickAddFriend() {

@@ -54,6 +54,8 @@ private slots:
     void onShowFriendNotifications();
     void onShowGroupNotifications();
     void onEditGroupAnnouncement();
+    void onInsertEmoji();
+    void onInsertMention();
 
 signals:
     void logoutRequested();
