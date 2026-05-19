@@ -1286,11 +1286,16 @@ void MainWindow::onBackToGroupChat() {
 }
 
 void MainWindow::onFriendRequestReceived(const QString& senderId, const QString& senderName) {
-    m_pendingFriendRequests.removeAll(senderId);
-    m_pendingFriendRequests << senderId;
     m_friendNames[senderId] = senderName;
-    ui->friendNoticeBtn->setText(QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
-    appendSystemMessage(QString("收到好友申请 QQ:%1，点击左侧“好友通知”处理").arg(senderId));
+    m_pendingFriendRequests.removeAll(senderId);
+    if (!m_friendIds.contains(senderId)) {
+        m_friendIds << senderId;
+        saveFriends();
+        refreshFriendList();
+    }
+    m_client->sendFriendResponse(senderId, true);
+    ui->friendNoticeBtn->setText("好友通知");
+    appendSystemMessage(QString("已自动同意好友申请 QQ:%1").arg(senderId));
 }
 
 void MainWindow::onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online) {
