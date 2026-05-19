@@ -1409,6 +1409,42 @@ void MainWindow::onContactSearchChanged(const QString& text) {
     refreshFriendList();
 }
 
+void MainWindow::refreshGroupMemberPanel() {
+    if (!ui->groupMemberListView || !m_groupMemberModel) return;
+    QString filter = ui->memberSearchEdit ? ui->memberSearchEdit->text().trimmed() : QString();
+    m_groupMemberModel->clear();
+    m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
+
+    QStandardItem* selfItem = new QStandardItem(QString("我  QQ:%1\n%2 · 在线").arg(m_currentUserId, m_currentUserName));
+    selfItem->setData(m_currentUserId, Qt::UserRole + 1);
+    selfItem->setEditable(false);
+    selfItem->setForeground(QColor(18, 150, 247));
+    if (filter.isEmpty() || m_currentUserId.contains(filter, Qt::CaseInsensitive) || m_currentUserName.contains(filter, Qt::CaseInsensitive)) {
+        m_groupMemberModel->appendRow(selfItem);
+    } else {
+        delete selfItem;
+    }
+
+    int memberCount = 1;
+    for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
+        const ChatUser& user = it.value();
+        if (user.id == m_currentUserId) continue;
+        ++memberCount;
+        if (!filter.isEmpty()
+            && !user.id.contains(filter, Qt::CaseInsensitive)
+            && !user.name.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        bool isFriend = m_friendIds.contains(user.id);
+        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · 在线").arg(isFriend ? "好友" : "成员", user.id, user.name));
+        item->setData(user.id, Qt::UserRole + 1);
+        item->setEditable(false);
+        item->setForeground(isFriend ? QColor(18, 150, 247) : QColor(38, 50, 56));
+        m_groupMemberModel->appendRow(item);
+    }
+    ui->memberTitleLabel->setText(QString("群聊成员 %1").arg(memberCount));
+}
+
 void MainWindow::loadAvatar() {
     QPixmap pixmap(getAvatarFilePath());
     if (!pixmap.isNull()) {
