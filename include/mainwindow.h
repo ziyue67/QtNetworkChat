@@ -51,6 +51,8 @@ private slots:
     void onShowFriendManager();
     void onShowGlobalSearch();
     void onShowCreateMenu();
+    void onShowFriendNotifications();
+    void onShowGroupNotifications();
 
 signals:
     void logoutRequested();
