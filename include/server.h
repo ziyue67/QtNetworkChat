@@ -1,0 +1,65 @@
+#ifndef SERVER_H
+#define SERVER_H
+
+#include <QObject>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QMap>
+#include <QVector>
+#include <QSet>
+#include <QJsonObject>
+#include "chatuser.h"
+#include "message.h"
+
+class Server : public QObject {
+    Q_OBJECT
+
+public:
+    explicit Server(QObject* parent = nullptr);
+    ~Server();
+
+    bool start(quint16 port = 8888);
+    void stop();
+    quint16 serverPort() const { return m_serverPort; }
+
+signals:
+    void newMessage(const Message& msg);
+    void userJoined(const QString& userId, const QString& userName);
+    void userLeft(const QString& userId, const QString& userName);
+    void clientConnected(const QString& userId);
+    void clientDisconnected(const QString& userId);
+
+private slots:
+    void onNewConnection();
+    void onClientReadyRead();
+    void onClientDisconnected();
+
+private:
+    void broadcastMessage(const Message& msg, QTcpSocket* excludeSocket = nullptr);
+    void sendUserList(QTcpSocket* socket);
+    void sendToUser(const Message& msg);
+    void handleLogin(const QJsonObject& obj, QTcpSocket* socket);
+    void handleMessage(const QJsonObject& obj);
+    void handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket = nullptr);
+    void handleFile(const QJsonObject& obj, QTcpSocket* socket);
+    ChatUser* findUserBySocket(QTcpSocket* socket);
+    bool ensureAccountDatabase() const;
+    QJsonObject loadAccountsFromSqlite() const;
+    bool insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const;
+    QString generateAccountId(const QJsonObject& accounts) const;
+    QString accountDbPath() const;
+    QJsonObject loadAccounts() const;
+    void saveAccounts(const QJsonObject& accounts) const;
+    QString accountsFilePath() const;
+    QString offlineFilePath(const QString& userId) const;
+    void saveOfflineMessage(const Message& msg) const;
+    void sendOfflineMessages(const QString& userId, QTcpSocket* socket) const;
+
+    QTcpServer* m_tcpServer;
+    quint16 m_serverPort;
+    QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
+    QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
+    QSet<QString> m_usedNames;
+};
+
+#endif // SERVER_H

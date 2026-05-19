@@ -1,0 +1,46 @@
+# Build outputs
+build/
+build-*/
+bin/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.o
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.user
+*.autosave
+
+# Qt generated files
+*_autogen/
+ui_*.h
+moc_*.cpp
+qrc_*.cpp
+Makefile
+.qmake.stash
+
+# IDE / local tooling
+.vscode/
+.idea/
+.qtcreator/
+.claude/
+CMakeUserPresets.json
+
+# Runtime data / private local state
+*.sqlite
+*.sqlite3
+accounts.sqlite3
+chat_history_*.txt
+friends_*.txt
+avatar_*.png
+
+# OS files
+.DS_Store
+Thumbs.db

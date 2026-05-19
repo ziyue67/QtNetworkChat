@@ -1,0 +1,580 @@
+#include <QApplication>
+#include <QStyleFactory>
+#include "mainwindow.h"
+#include "server.h"
+#include "client.h"
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QSpinBox>
+#include <QMessageBox>
+#include <QHostAddress>
+#include <QGridLayout>
+#include <QFrame>
+#include <QCheckBox>
+#include <QSettings>
+#include <QButtonGroup>
+#include <QStyle>
+
+class LoginDialog : public QDialog {
+public:
+    LoginDialog(bool isServer, QString& userName, QString& host, quint16& port, QWidget* parent = nullptr)
+        : QDialog(parent), m_isServer(isServer), m_userName(userName), m_host(host), m_port(port)
+    {
+        m_registerMode = isServer;
+        setWindowTitle(isServer ? "注册 QQ" : "QQ 登录");
+        setFixedSize(322, isServer ? 520 : 486);
+        setupUi();
+        loadSettings();
+        setRegisterMode(m_registerMode);
+    }
+
+    QString serverAddress() const { return m_host; }
+    quint16 serverPort() const { return m_port; }
+    QString userName() const { return m_userName; }
+    QString account() const { return m_account; }
+    QString password() const { return m_password; }
+    bool registerMode() const { return m_registerMode; }
+    bool serverMode() const { return m_isServer; }
+
+private:
+    void setupUi() {
+        setObjectName("qqLoginDialog");
+        QVBoxLayout* mainLayout = new QVBoxLayout(this);
+        mainLayout->setContentsMargins(0, 0, 0, 0);
+        mainLayout->setSpacing(0);
+
+        QFrame* header = new QFrame(this);
+        header->setObjectName("qqHeader");
+        header->setFixedHeight(190);
+        QVBoxLayout* headerLayout = new QVBoxLayout(header);
+        headerLayout->setContentsMargins(22, 8, 22, 10);
+        headerLayout->setSpacing(0);
+
+        QHBoxLayout* titleBarLayout = new QHBoxLayout;
+        QLabel* brandLabel = new QLabel("QQ", header);
+        brandLabel->setObjectName("brandLabel");
+        titleBarLayout->addWidget(brandLabel);
+        titleBarLayout->addStretch();
+        QPushButton* closeBtn = new QPushButton("×", header);
+        closeBtn->setObjectName("windowCloseBtn");
+        closeBtn->setFixedSize(28, 28);
+        titleBarLayout->addWidget(closeBtn);
+        headerLayout->addLayout(titleBarLayout);
+
+        m_avatarLabel = new QLabel("Q", header);
+        m_avatarLabel->setObjectName("qqAvatar");
+        m_avatarLabel->setAlignment(Qt::AlignCenter);
+        m_avatarLabel->setFixedSize(92, 92);
+        headerLayout->addSpacing(24);
+        headerLayout->addWidget(m_avatarLabel, 0, Qt::AlignCenter);
+
+        m_titleLabel = new QLabel(header);
+        m_titleLabel->setObjectName("qqTitle");
+        m_titleLabel->setAlignment(Qt::AlignCenter);
+        headerLayout->addWidget(m_titleLabel);
+        mainLayout->addWidget(header);
+
+        QFrame* formCard = new QFrame(this);
+        formCard->setObjectName("qqFormCard");
+        QVBoxLayout* formLayout = new QVBoxLayout(formCard);
+        formLayout->setContentsMargins(33, 16, 33, 24);
+        formLayout->setSpacing(10);
+
+        m_accountEdit = new QLineEdit(formCard);
+        m_accountEdit->setObjectName("qqInput");
+        m_accountEdit->setPlaceholderText("QQ 号 / 账号");
+        formLayout->addWidget(m_accountEdit);
+
+        m_nameEdit = new QLineEdit(formCard);
+        m_nameEdit->setObjectName("qqInput");
+        m_nameEdit->setPlaceholderText("昵称");
+        m_nameEdit->setMaxLength(20);
+        formLayout->addWidget(m_nameEdit);
+
+        m_passwordEdit = new QLineEdit(formCard);
+        m_passwordEdit->setObjectName("qqInput");
+        m_passwordEdit->setPlaceholderText("密码");
+        m_passwordEdit->setEchoMode(QLineEdit::Password);
+        formLayout->addWidget(m_passwordEdit);
+
+        m_confirmPasswordEdit = new QLineEdit(formCard);
+        m_confirmPasswordEdit->setObjectName("qqInput");
+        m_confirmPasswordEdit->setPlaceholderText("确认密码");
+        m_confirmPasswordEdit->setEchoMode(QLineEdit::Password);
+        formLayout->addWidget(m_confirmPasswordEdit);
+
+        QHBoxLayout* optionLayout = new QHBoxLayout;
+        m_autoLoginCheck = new QCheckBox("自动登录", formCard);
+        m_rememberCheck = new QCheckBox("记住密码", formCard);
+        optionLayout->addWidget(m_autoLoginCheck);
+        optionLayout->addWidget(m_rememberCheck);
+        optionLayout->addStretch();
+        formLayout->addLayout(optionLayout);
+
+        m_agreementCheck = new QCheckBox("已阅读并同意服务协议和隐私政策", formCard);
+        m_agreementCheck->setObjectName("agreementCheck");
+        formLayout->addWidget(m_agreementCheck);
+
+        m_okBtn = new QPushButton(formCard);
+        m_okBtn->setObjectName("primaryBtn");
+        m_okBtn->setMinimumHeight(44);
+        m_okBtn->setDefault(true);
+        formLayout->addWidget(m_okBtn);
+
+        QHBoxLayout* bottomLayout = new QHBoxLayout;
+        bottomLayout->addStretch();
+        m_loginLinkBtn = new QPushButton("账号登录", formCard);
+        m_loginLinkBtn->setObjectName("linkBtn");
+        m_registerLinkBtn = new QPushButton("注册账号", formCard);
+        m_registerLinkBtn->setObjectName("linkBtn");
+        bottomLayout->addWidget(m_loginLinkBtn);
+        bottomLayout->addWidget(m_registerLinkBtn);
+        bottomLayout->addStretch();
+        formLayout->addLayout(bottomLayout);
+        formLayout->addStretch();
+        mainLayout->addWidget(formCard);
+
+        if (m_isServer) {
+            m_portSpin = new QSpinBox(formCard);
+            m_portSpin->setRange(1024, 65535);
+            m_portSpin->setValue(8888);
+            m_portSpin->hide();
+        }
+
+        setStyleSheet(R"(
+            QDialog#qqLoginDialog {
+                background: #ECF8FF;
+                font-family: "Microsoft YaHei", "Segoe UI";
+            }
+            QFrame#qqHeader {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFF5FF, stop:0.55 #DDF5FF, stop:1 #C6ECFF);
+            }
+            QLabel#brandLabel {
+                color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #65D6FF, stop:1 #B58CFF);
+                font-size: 28px;
+                font-weight: 900;
+                letter-spacing: -3px;
+            }
+            QPushButton#windowCloseBtn {
+                background: transparent;
+                color: #243447;
+                border: none;
+                font-size: 20px;
+                font-weight: 300;
+            }
+            QPushButton#windowCloseBtn:hover {
+                background: rgba(255, 255, 255, 90);
+                border-radius: 14px;
+            }
+            QLabel#qqAvatar {
+                background: white;
+                color: #12B7F5;
+                border: 3px solid rgba(255, 255, 255, 220);
+                border-radius: 46px;
+                font-size: 42px;
+                font-weight: 900;
+            }
+            QLabel#qqTitle {
+                color: #202B3D;
+                font-size: 17px;
+                font-weight: 600;
+                padding-top: 14px;
+            }
+            QFrame#qqFormCard {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F7FCFF, stop:1 #E7F7FF);
+            }
+            QLineEdit#qqInput {
+                min-height: 38px;
+                border: none;
+                border-bottom: 1px solid rgba(102, 156, 190, 90);
+                padding: 4px 6px;
+                background: transparent;
+                color: #1F2D3D;
+                font-size: 14px;
+            }
+            QLineEdit#qqInput:focus {
+                border-bottom: 2px solid #1296F7;
+            }
+            QCheckBox {
+                color: #8AA0B2;
+                font-size: 12px;
+                spacing: 6px;
+            }
+            QCheckBox#agreementCheck {
+                margin-top: 2px;
+            }
+            QPushButton#primaryBtn {
+                background: #1296F7;
+                color: white;
+                border: none;
+                border-radius: 7px;
+                font-size: 16px;
+                font-weight: 600;
+            }
+            QPushButton#primaryBtn:hover {
+                background: #0688EA;
+            }
+            QPushButton#linkBtn {
+                background: transparent;
+                color: #159CE8;
+                border: none;
+                padding: 6px 10px;
+                font-size: 13px;
+            }
+            QPushButton#linkBtn:hover {
+                color: #0B82E6;
+                text-decoration: underline;
+            }
+        )");
+
+        connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
+        connect(m_okBtn, &QPushButton::clicked, this, &LoginDialog::onOk);
+        connect(m_loginLinkBtn, &QPushButton::clicked, this, [this]() { setRegisterMode(false); });
+        connect(m_registerLinkBtn, &QPushButton::clicked, this, [this]() { setRegisterMode(true); });
+    }
+
+    void setRegisterMode(bool registerMode) {
+        m_registerMode = registerMode;
+        setWindowTitle(registerMode ? "注册 QQ" : "QQ 登录");
+        setFixedSize(322, registerMode ? 520 : 486);
+        m_titleLabel->setText(registerMode ? "欢迎注册 QQ" : (m_accountEdit->text().trimmed().isEmpty() ? "QQ 账号登录" : m_accountEdit->text().trimmed()));
+        m_avatarLabel->setText(registerMode ? "注" : "Q");
+        m_accountEdit->setVisible(!registerMode);
+        m_accountEdit->setReadOnly(false);
+        m_accountEdit->setPlaceholderText("请输入 QQ 账号");
+        m_nameEdit->setVisible(registerMode);
+        m_confirmPasswordEdit->setVisible(registerMode);
+        m_autoLoginCheck->setVisible(!registerMode);
+        m_rememberCheck->setVisible(!registerMode);
+        m_loginLinkBtn->setVisible(registerMode);
+        m_registerLinkBtn->setVisible(!registerMode && !m_isServer);
+        m_okBtn->setText(registerMode ? "立即注册" : "登录");
+        if (registerMode) {
+            m_accountEdit->clear();
+        }
+    }
+
+    void onOk() {
+        m_account = m_registerMode ? QString() : m_accountEdit->text().trimmed();
+        m_password = m_passwordEdit->text();
+        if (!m_agreementCheck->isChecked()) {
+            QMessageBox::warning(this, "错误", "请先勾选同意服务协议和隐私政策");
+            return;
+        }
+        if (!m_registerMode && m_account.isEmpty()) {
+            QMessageBox::warning(this, "错误", "请输入 QQ 账号");
+            return;
+        }
+        if (m_password.isEmpty()) {
+            QMessageBox::warning(this, "错误", "请输入密码");
+            return;
+        }
+        if (m_password.length() < 6) {
+            QMessageBox::warning(this, "错误", "密码至少需要 6 位");
+            return;
+        }
+        if (m_registerMode && m_password != m_confirmPasswordEdit->text()) {
+            QMessageBox::warning(this, "错误", "两次输入的密码不一致");
+            return;
+        }
+        m_userName = m_nameEdit->text().trimmed();
+        if (m_userName.isEmpty()) {
+            if (m_registerMode) {
+                QMessageBox::warning(this, "错误", "注册时请输入昵称");
+                return;
+            }
+            m_userName = m_account;
+        }
+        saveSettings();
+        m_host = "127.0.0.1";
+        m_port = 8888;
+        accept();
+    }
+
+    void loadSettings() {
+        if (m_isServer) return;
+        QSettings settings("QtNetworkChat", "QtNetworkChat");
+        m_accountEdit->setText(settings.value("login/account").toString());
+        m_passwordEdit->setText(settings.value("login/password").toString());
+        m_nameEdit->setText(settings.value("login/name").toString());
+        m_rememberCheck->setChecked(settings.value("login/remember", false).toBool());
+    }
+
+    void saveSettings() {
+        if (m_registerMode || !m_rememberCheck || !m_rememberCheck->isChecked()) return;
+        QSettings settings("QtNetworkChat", "QtNetworkChat");
+        settings.setValue("login/account", m_accountEdit->text().trimmed());
+        settings.setValue("login/password", m_passwordEdit->text());
+        settings.setValue("login/name", m_nameEdit->text().trimmed());
+        settings.setValue("login/remember", true);
+    }
+
+    bool m_isServer;
+    QString& m_userName;
+    QString& m_host;
+    quint16& m_port;
+    QString m_account;
+    QString m_password;
+    bool m_registerMode = false;
+    QLabel* m_avatarLabel = nullptr;
+    QLabel* m_titleLabel = nullptr;
+    QLineEdit* m_accountEdit = nullptr;
+    QLineEdit* m_passwordEdit = nullptr;
+    QLineEdit* m_confirmPasswordEdit = nullptr;
+    QLineEdit* m_nameEdit = nullptr;
+    QCheckBox* m_autoLoginCheck = nullptr;
+    QCheckBox* m_rememberCheck = nullptr;
+    QCheckBox* m_agreementCheck = nullptr;
+    QPushButton* m_okBtn = nullptr;
+    QPushButton* m_loginLinkBtn = nullptr;
+    QPushButton* m_registerLinkBtn = nullptr;
+    QSpinBox* m_portSpin = nullptr;
+};
+
+int main(int argc, char *argv[])
+{
+    QApplication a(argc, argv);
+    a.setApplicationName("QtNetworkChat");
+    a.setApplicationVersion("1.0.0");
+    a.setStyle(QStyleFactory::create("Fusion"));
+
+    QString userName, host;
+    quint16 port = 8888;
+
+    QDialog* modeDialog = new QDialog;
+    modeDialog->setObjectName("modeDialog");
+    modeDialog->setWindowTitle("QtNetworkChat");
+    modeDialog->setFixedSize(322, 460);
+    QVBoxLayout* layout = new QVBoxLayout(modeDialog);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    QFrame* modeCard = new QFrame(modeDialog);
+    modeCard->setObjectName("modeCard");
+    QVBoxLayout* modeCardLayout = new QVBoxLayout(modeCard);
+    modeCardLayout->setContentsMargins(32, 10, 32, 22);
+    modeCardLayout->setSpacing(0);
+
+    QHBoxLayout* topBarLayout = new QHBoxLayout;
+    topBarLayout->addStretch();
+    QPushButton* menuBtn = new QPushButton("☰", modeCard);
+    menuBtn->setObjectName("topIconBtn");
+    menuBtn->setFixedSize(32, 28);
+    QPushButton* closeBtn = new QPushButton("×", modeCard);
+    closeBtn->setObjectName("topIconBtn");
+    closeBtn->setFixedSize(32, 28);
+    topBarLayout->addWidget(menuBtn);
+    topBarLayout->addWidget(closeBtn);
+    modeCardLayout->addLayout(topBarLayout);
+
+    QLabel* logoLabel = new QLabel("QQ", modeCard);
+    logoLabel->setObjectName("logoLabel");
+    logoLabel->setAlignment(Qt::AlignCenter);
+    modeCardLayout->addWidget(logoLabel, 0, Qt::AlignCenter);
+
+    modeCardLayout->addSpacing(28);
+
+    QLabel* avatarLabel = new QLabel("Q", modeCard);
+    avatarLabel->setObjectName("avatarLabel");
+    avatarLabel->setAlignment(Qt::AlignCenter);
+    avatarLabel->setFixedSize(92, 92);
+    modeCardLayout->addWidget(avatarLabel, 0, Qt::AlignCenter);
+
+    QLabel* nameLabel = new QLabel("QtNetworkChat", modeCard);
+    nameLabel->setObjectName("accountNameLabel");
+    nameLabel->setAlignment(Qt::AlignCenter);
+    modeCardLayout->addWidget(nameLabel);
+
+    QCheckBox* autoLoginCheck = new QCheckBox("自动登录", modeCard);
+    autoLoginCheck->setObjectName("autoLoginCheck");
+    autoLoginCheck->setChecked(true);
+    modeCardLayout->addWidget(autoLoginCheck, 0, Qt::AlignCenter);
+
+    modeCardLayout->addSpacing(28);
+
+    QPushButton* clientBtn = new QPushButton("登录", modeCard);
+    clientBtn->setObjectName("primaryBtn");
+    clientBtn->setMinimumHeight(40);
+    modeCardLayout->addWidget(clientBtn);
+
+    modeCardLayout->addStretch();
+
+    QHBoxLayout* bottomLinkLayout = new QHBoxLayout;
+    bottomLinkLayout->addStretch();
+    QPushButton* accountLoginBtn = new QPushButton("账号登录", modeCard);
+    accountLoginBtn->setObjectName("linkBtn");
+    QPushButton* serverBtn = new QPushButton("注册账号", modeCard);
+    serverBtn->setObjectName("linkBtn");
+    bottomLinkLayout->addWidget(accountLoginBtn);
+    QLabel* splitLabel = new QLabel("|", modeCard);
+    splitLabel->setObjectName("splitLabel");
+    bottomLinkLayout->addWidget(splitLabel);
+    bottomLinkLayout->addWidget(serverBtn);
+    bottomLinkLayout->addStretch();
+    modeCardLayout->addLayout(bottomLinkLayout);
+    layout->addWidget(modeCard);
+
+    modeDialog->setStyleSheet(R"(
+        QDialog#modeDialog {
+            background: #EEF7FF;
+            font-family: "Microsoft YaHei", "Segoe UI";
+        }
+        QFrame#modeCard {
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFF5FF, stop:0.55 #DDF5FF, stop:1 #C6ECFF);
+        }
+        QPushButton#topIconBtn {
+            background: transparent;
+            color: #243447;
+            border: none;
+            font-size: 17px;
+        }
+        QPushButton#topIconBtn:hover {
+            background: rgba(255, 255, 255, 90);
+            border-radius: 14px;
+        }
+        QLabel#logoLabel {
+            color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #65D6FF, stop:1 #B58CFF);
+            font-size: 30px;
+            font-weight: 900;
+            letter-spacing: -3px;
+        }
+        QLabel#avatarLabel {
+            background: white;
+            color: #12B7F5;
+            border: 3px solid rgba(255, 255, 255, 220);
+            border-radius: 46px;
+            font-size: 42px;
+            font-weight: 900;
+        }
+        QLabel#accountNameLabel {
+            color: #202B3D;
+            font-size: 17px;
+            font-weight: 600;
+            padding-top: 16px;
+            padding-bottom: 8px;
+        }
+        QCheckBox#autoLoginCheck {
+            color: #8AA0B2;
+            font-size: 12px;
+            spacing: 6px;
+        }
+        QPushButton#primaryBtn {
+            background: #1296F7;
+            color: white;
+            border: none;
+            border-radius: 7px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        QPushButton#primaryBtn:hover {
+            background: #0688EA;
+        }
+        QPushButton#linkBtn {
+            background: transparent;
+            color: #168DE8;
+            border: none;
+            padding: 5px 6px;
+            font-size: 13px;
+        }
+        QPushButton#linkBtn:hover {
+            color: #006FCE;
+            text-decoration: underline;
+        }
+        QLabel#splitLabel {
+            color: #7CA8C8;
+        }
+    )");
+    QObject::connect(closeBtn, &QPushButton::clicked, modeDialog, &QDialog::reject);
+    QObject::connect(accountLoginBtn, &QPushButton::clicked, clientBtn, &QPushButton::click);
+
+    LoginDialog* loginDlg = nullptr;
+    Server* server = new Server;
+    if (!server->start(port)) {
+        QMessageBox::critical(nullptr, "错误", "本地测试服务器启动失败，端口可能被占用");
+        delete server;
+        return 1;
+    }
+    Client* client = nullptr;
+
+    QObject::connect(serverBtn, &QPushButton::clicked, [&]() {
+        loginDlg = new LoginDialog(true, userName, host, port, modeDialog);
+        modeDialog->hide();
+        if (loginDlg->exec() == QDialog::Accepted) {
+            port = 8888;
+            client = new Client;
+            client->setUserInfo("", userName);
+            client->setAccountInfo(loginDlg->account(), loginDlg->password(), true);
+            client->connectToServer("127.0.0.1", port);
+            if (!client->isConnected() || !client->waitForLoginResult()) {
+                QString reason = client->lastLoginError().isEmpty() ? "无法连接本地测试服务" : client->lastLoginError();
+                QMessageBox::critical(nullptr, "注册失败", reason);
+                delete client;
+                client = nullptr;
+                modeDialog->show();
+                return;
+            }
+            if (client->currentLoginWasRegister()) {
+                QMessageBox::information(nullptr, "注册成功", QString("你的 QQ 账号是：%1\n请记住该账号，之后登录和加好友都使用它。").arg(client->currentUserId()));
+            }
+            MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
+            w->setAttribute(Qt::WA_DeleteOnClose);
+            QObject::connect(w, &MainWindow::logoutRequested, [&]() {
+                w->close();
+                delete client;
+                client = nullptr;
+                modeDialog->show();
+            });
+            QObject::connect(w, &QObject::destroyed, [&]() {
+                client = nullptr;
+            });
+            w->show();
+        } else {
+            modeDialog->show();
+        }
+    });
+
+    QObject::connect(clientBtn, &QPushButton::clicked, [&]() {
+        loginDlg = new LoginDialog(false, userName, host, port, modeDialog);
+        modeDialog->hide();
+        if (loginDlg->exec() == QDialog::Accepted) {
+            host = "127.0.0.1";
+            port = 8888;
+            userName = loginDlg->userName();
+            client = new Client;
+            client->setUserInfo("", userName);
+            client->setAccountInfo(loginDlg->account(), loginDlg->password(), loginDlg->registerMode());
+            client->connectToServer(host, port);
+            if (!client->isConnected() || !client->waitForLoginResult()) {
+                QString reason = client->lastLoginError().isEmpty()
+                    ? QString("无法连接本地测试服务")
+                    : client->lastLoginError();
+                QMessageBox::critical(nullptr, "连接失败", reason);
+                delete client;
+                client = nullptr;
+                modeDialog->show();
+                return;
+            }
+            MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
+            w->setAttribute(Qt::WA_DeleteOnClose);
+            QObject::connect(w, &MainWindow::logoutRequested, [&]() {
+                w->close();
+                delete client;
+                client = nullptr;
+                modeDialog->show();
+            });
+            QObject::connect(w, &QObject::destroyed, [&]() {
+                client = nullptr;
+            });
+            w->show();
+        } else {
+            modeDialog->show();
+        }
+    });
+
+    modeDialog->show();
+    return a.exec();
+}

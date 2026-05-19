@@ -1,0 +1,604 @@
+#include "server.h"
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QHostAddress>
+#include <QNetworkInterface>
+#include <QDataStream>
+#include <QJsonArray>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
+#include <QCryptographicHash>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QVariant>
+#include <QRandomGenerator>
+
+Server::Server(QObject* parent)
+    : QObject(parent)
+    , m_tcpServer(new QTcpServer(this))
+    , m_serverPort(0)
+{
+    connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
+}
+
+Server::~Server() {
+    stop();
+}
+
+bool Server::start(quint16 port) {
+    if (m_tcpServer->listen(QHostAddress::Any, port)) {
+        m_serverPort = port;
+        qDebug() << "Server started on port" << port;
+
+        QList<QHostAddress> interfaces = QNetworkInterface::allAddresses();
+        for (const QHostAddress& addr : interfaces) {
+            if (addr.protocol() == QAbstractSocket::IPv4Protocol && addr != QHostAddress::LocalHost) {
+                qDebug() << "Server IP:" << addr.toString();
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+void Server::stop() {
+    for (QTcpSocket* socket : m_clients.keys()) {
+        socket->disconnectFromHost();
+    }
+    m_clients.clear();
+    m_userSockets.clear();
+    m_tcpServer->close();
+    qDebug() << "Server stopped";
+}
+
+void Server::onNewConnection() {
+    QTcpSocket* clientSocket = m_tcpServer->nextPendingConnection();
+    if (!clientSocket) return;
+
+    qDebug() << "New connection from:" << clientSocket->peerAddress().toString()
+             << "port:" << clientSocket->peerPort();
+
+    connect(clientSocket, &QTcpSocket::readyRead, this, &Server::onClientReadyRead);
+    connect(clientSocket, &QTcpSocket::disconnected, this, &Server::onClientDisconnected);
+}
+
+void Server::onClientReadyRead() {
+    QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket) return;
+
+    QByteArray buffer = socket->property("buffer").toByteArray();
+    buffer.append(socket->readAll());
+    qDebug() << "Received from" << socket->peerAddress().toString() << ":" << buffer.size() << "bytes";
+
+    while (buffer.contains('\n')) {
+        int newlineIndex = buffer.indexOf('\n');
+        QByteArray line = buffer.left(newlineIndex);
+        buffer = buffer.mid(newlineIndex + 1);
+        if (line.isEmpty()) continue;
+
+        QJsonDocument doc = QJsonDocument::fromJson(line);
+        if (doc.isNull() || !doc.isObject()) {
+            qWarning() << "Invalid JSON received";
+            continue;
+        }
+
+        QJsonObject obj = doc.object();
+        QString type = obj["type"].toString();
+
+        if (type == "login") {
+            handleLogin(obj, socket);
+        } else if (type == "message") {
+            handleMessage(obj);
+        } else if (type == "file") {
+            handleFile(obj, socket);
+        } else if (type == "private") {
+            handleMessage(obj);
+        } else if (type == "friend_request" || type == "friend_response" || type == "friend_search") {
+            handleFriendEvent(obj, socket);
+        } else if (type == "heartbeat") {
+            ChatUser* user = findUserBySocket(socket);
+            if (user) user->lastActive = QDateTime::currentDateTime();
+        }
+    }
+
+    socket->setProperty("buffer", buffer);
+}
+
+void Server::onClientDisconnected() {
+    QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket) return;
+
+    ChatUser* user = findUserBySocket(socket);
+    if (user) {
+        QString userId = user->id;
+        QString userName = user->name;
+        m_userSockets.remove(userId);
+        m_clients.remove(socket);
+        m_usedNames.remove(userName);
+
+        emit userLeft(userId, userName);
+        emit clientDisconnected(userId);
+
+        Message sysMsg;
+        sysMsg.type = MessageType::System;
+        sysMsg.content = userName + " 离开了聊天室";
+        sysMsg.timestamp = QDateTime::currentDateTime();
+        broadcastMessage(sysMsg, socket);
+        for (QTcpSocket* clientSocket : m_clients.keys()) {
+            if (clientSocket->state() == QAbstractSocket::ConnectedState) {
+                sendUserList(clientSocket);
+            }
+        }
+
+        qDebug() << "User disconnected:" << userName;
+    }
+    socket->deleteLater();
+}
+
+void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
+    QString mode = obj["mode"].toString("login");
+    QString account = obj["account"].toString().trimmed();
+    QString password = obj["password"].toString();
+    QString userName = obj["userName"].toString().trimmed();
+
+    if (mode != "register" && account.isEmpty()) account = userName;
+    if (userName.isEmpty()) userName = account.isEmpty() ? "User" : account;
+
+    QJsonObject accounts = loadAccountsFromSqlite();
+    if (mode == "register") {
+        if (password.isEmpty()) {
+            QJsonObject response;
+            response["type"] = "login_failed";
+            response["reason"] = "密码不能为空";
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+            return;
+        }
+        if (account.isEmpty()) {
+            account = generateAccountId(accounts);
+        }
+        QString passwordHash = QString::fromLatin1(QCryptographicHash::hash((account + ":" + password).toUtf8(), QCryptographicHash::Sha256).toHex());
+        if (accounts.contains(account)) {
+            QJsonObject response;
+            response["type"] = "login_failed";
+            response["reason"] = "账号已存在";
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+            return;
+        }
+        QJsonObject accountObj;
+        accountObj["passwordHash"] = passwordHash;
+        accountObj["userName"] = userName;
+        accountObj["userId"] = account;
+        accounts[account] = accountObj;
+        insertAccountToSqlite(account, passwordHash, userName);
+    } else if (accounts.contains(account)) {
+        QString passwordHash = QString::fromLatin1(QCryptographicHash::hash((account + ":" + password).toUtf8(), QCryptographicHash::Sha256).toHex());
+        QJsonObject accountObj = accounts[account].toObject();
+        QString storedHash = accountObj["passwordHash"].toString();
+        if (storedHash.isEmpty()) {
+            storedHash = QString::fromLatin1(QCryptographicHash::hash((account + ":" + accountObj["password"].toString()).toUtf8(), QCryptographicHash::Sha256).toHex());
+            accountObj.remove("password");
+            accountObj["passwordHash"] = storedHash;
+            accounts[account] = accountObj;
+            insertAccountToSqlite(account, storedHash, accountObj["userName"].toString(userName));
+        }
+        if (storedHash != passwordHash) {
+            QJsonObject response;
+            response["type"] = "login_failed";
+            response["reason"] = "密码错误";
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+            return;
+        }
+        userName = accountObj["userName"].toString(userName);
+    } else if (!account.isEmpty()) {
+        QJsonObject response;
+        response["type"] = "login_failed";
+        response["reason"] = "账号不存在，请先注册";
+        socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+        socket->write("\n");
+        socket->flush();
+        return;
+    }
+
+    if (m_usedNames.contains(userName)) {
+        userName += "_" + QString::number(QDateTime::currentMSecsSinceEpoch() % 10000);
+    }
+
+    ChatUser user;
+    user.id = account.isEmpty() ? QString::number(QDateTime::currentMSecsSinceEpoch()) : account;
+    user.name = userName;
+    user.address = socket->peerAddress();
+    user.port = socket->peerPort();
+    user.isOnline = true;
+    user.lastActive = QDateTime::currentDateTime();
+
+    m_clients[socket] = user;
+    m_userSockets[user.id] = socket;
+    m_usedNames.insert(userName);
+
+    QJsonObject response;
+    response["type"] = "login_success";
+    response["userId"] = user.id;
+    response["userName"] = user.name;
+    response["account"] = account;
+    response["registered"] = mode == "register";
+    socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+
+    sendUserList(socket);
+    for (QTcpSocket* clientSocket : m_clients.keys()) {
+        if (clientSocket != socket && clientSocket->state() == QAbstractSocket::ConnectedState) {
+            sendUserList(clientSocket);
+        }
+    }
+    sendOfflineMessages(user.id, socket);
+
+    emit userJoined(user.id, user.name);
+    emit clientConnected(user.id);
+
+    Message sysMsg;
+    sysMsg.type = MessageType::System;
+    sysMsg.content = userName + " 加入了聊天室";
+    sysMsg.timestamp = QDateTime::currentDateTime();
+    broadcastMessage(sysMsg, socket);
+
+    qDebug() << "User logged in:" << user.name << "id:" << user.id;
+}
+
+void Server::handleMessage(const QJsonObject& obj) {
+    Message msg;
+    msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::Text)));
+    msg.senderId = obj["senderId"].toString();
+    msg.senderName = obj["senderName"].toString();
+    msg.content = obj["content"].toString();
+    msg.receiverId = obj["receiverId"].toString();
+    msg.timestamp = QDateTime::currentDateTime();
+
+    if (!msg.receiverId.isEmpty()) {
+        sendToUser(msg);
+    } else {
+        broadcastMessage(msg);
+    }
+
+    emit newMessage(msg);
+}
+
+void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
+    QString type = obj["type"].toString();
+    if (type == "friend_search") {
+        QString account = obj["account"].toString().trimmed();
+        QJsonObject response;
+        response["type"] = "friend_search_result";
+        response["account"] = account;
+
+        QJsonObject accounts = loadAccountsFromSqlite();
+        if (!account.isEmpty() && accounts.contains(account)) {
+            QJsonObject accountObj = accounts[account].toObject();
+            response["found"] = true;
+            response["userId"] = account;
+            response["userName"] = accountObj["userName"].toString(account);
+            response["online"] = m_userSockets.contains(account);
+        } else {
+            response["found"] = false;
+        }
+
+        if (socket && socket->state() == QAbstractSocket::ConnectedState) {
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+        }
+        return;
+    }
+
+    QString receiverId = obj["receiverId"].toString();
+    QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+    if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+        if (type == "friend_request" && socket && socket->state() == QAbstractSocket::ConnectedState) {
+            QJsonObject response;
+            response["type"] = "friend_request_sent";
+            response["receiverId"] = receiverId;
+            response["delivered"] = false;
+            socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+            socket->write("\n");
+            socket->flush();
+        }
+        return;
+    }
+
+    QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    targetSocket->write(data);
+    targetSocket->write("\n");
+    targetSocket->flush();
+
+    if (type == "friend_request" && socket && socket->state() == QAbstractSocket::ConnectedState) {
+        QJsonObject response;
+        response["type"] = "friend_request_sent";
+        response["receiverId"] = receiverId;
+        response["delivered"] = true;
+        socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+        socket->write("\n");
+        socket->flush();
+    }
+}
+
+void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
+    Message msg;
+    msg.senderId = obj["senderId"].toString();
+    msg.senderName = obj["senderName"].toString();
+    msg.receiverId = obj["receiverId"].toString();
+    msg.content = obj["content"].toString();
+    msg.fileName = obj["fileName"].toString();
+    msg.type = MessageType::File;
+    msg.timestamp = QDateTime::currentDateTime();
+
+    QString base64Data = obj["fileData"].toString();
+    if (!base64Data.isEmpty()) {
+        msg.fileData = QByteArray::fromBase64(base64Data.toLatin1());
+    }
+
+    if (!msg.receiverId.isEmpty()) {
+        sendToUser(msg);
+    } else {
+        broadcastMessage(msg);
+    }
+}
+
+ChatUser* Server::findUserBySocket(QTcpSocket* socket) {
+    auto it = m_clients.find(socket);
+    if (it != m_clients.end()) {
+        return &it.value();
+    }
+    return nullptr;
+}
+
+QString Server::generateAccountId(const QJsonObject& accounts) const {
+    for (int i = 0; i < 200; ++i) {
+        int length = QRandomGenerator::global()->bounded(1, 10);
+        int minValue = 1;
+        for (int j = 1; j < length; ++j) {
+            minValue *= 10;
+        }
+        int maxValue = minValue * 10;
+        QString account = QString::number(QRandomGenerator::global()->bounded(minValue, maxValue));
+        if (!accounts.contains(account)) return account;
+    }
+    return QString::number(QDateTime::currentMSecsSinceEpoch() % 1000000000).rightJustified(1, '1');
+}
+
+QJsonObject Server::loadAccountsFromSqlite() const {
+    ensureAccountDatabase();
+
+    QJsonObject accounts;
+    QString connectionName = "accounts_read_" + QString::number(reinterpret_cast<quintptr>(this));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (!db.open()) return accounts;
+
+        QSqlQuery query(db);
+        if (query.exec("SELECT account, password_hash, user_name FROM accounts")) {
+            while (query.next()) {
+                QJsonObject accountObj;
+                accountObj["passwordHash"] = query.value(1).toString();
+                accountObj["userName"] = query.value(2).toString();
+                accountObj["userId"] = query.value(0).toString();
+                accounts[query.value(0).toString()] = accountObj;
+            }
+        }
+        db.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    if (accounts.isEmpty()) {
+        QJsonObject legacyAccounts = loadAccounts();
+        for (auto it = legacyAccounts.begin(); it != legacyAccounts.end(); ++it) {
+            QJsonObject accountObj = it.value().toObject();
+            QString passwordHash = accountObj["passwordHash"].toString();
+            if (passwordHash.isEmpty() && accountObj.contains("password")) {
+                passwordHash = QString::fromLatin1(QCryptographicHash::hash((it.key() + ":" + accountObj["password"].toString()).toUtf8(), QCryptographicHash::Sha256).toHex());
+            }
+            QString userName = accountObj["userName"].toString(it.key());
+            if (!passwordHash.isEmpty() && insertAccountToSqlite(it.key(), passwordHash, userName)) {
+                QJsonObject migratedObj;
+                migratedObj["passwordHash"] = passwordHash;
+                migratedObj["userName"] = userName;
+                migratedObj["userId"] = it.key();
+                accounts[it.key()] = migratedObj;
+            }
+        }
+    }
+
+    return accounts;
+}
+
+bool Server::insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const {
+    if (!ensureAccountDatabase()) return false;
+
+    QString connectionName = "accounts_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT OR REPLACE INTO accounts(account, password_hash, user_name, updated_at) VALUES(?, ?, ?, datetime('now'))");
+            query.addBindValue(account);
+            query.addBindValue(passwordHash);
+            query.addBindValue(userName);
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool Server::ensureAccountDatabase() const {
+    QString connectionName = "accounts_init_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            ok = query.exec("CREATE TABLE IF NOT EXISTS accounts ("
+                            "account TEXT PRIMARY KEY, "
+                            "password_hash TEXT NOT NULL, "
+                            "user_name TEXT NOT NULL, "
+                            "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                            "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+QString Server::accountDbPath() const {
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dir.isEmpty()) dir = ".";
+    QDir().mkpath(dir);
+    return dir + "/accounts.sqlite3";
+}
+
+QJsonObject Server::loadAccounts() const {
+    QFile file(accountsFilePath());
+    if (!file.open(QIODevice::ReadOnly)) return {};
+
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) return {};
+    return doc.object();
+}
+
+void Server::saveAccounts(const QJsonObject& accounts) const {
+    QFile file(accountsFilePath());
+    if (!file.open(QIODevice::WriteOnly)) return;
+    file.write(QJsonDocument(accounts).toJson(QJsonDocument::Indented));
+}
+
+QString Server::accountsFilePath() const {
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dir.isEmpty()) dir = ".";
+    QDir().mkpath(dir);
+    return dir + "/accounts.json";
+}
+
+QString Server::offlineFilePath(const QString& userId) const {
+    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (baseDir.isEmpty()) baseDir = ".";
+    QString dir = baseDir + "/offline";
+    QDir().mkpath(dir);
+    return dir + "/" + userId + ".jsonl";
+}
+
+void Server::saveOfflineMessage(const Message& msg) const {
+    QFile file(offlineFilePath(msg.receiverId));
+    if (!file.open(QIODevice::Append | QIODevice::Text)) return;
+
+    QJsonObject obj;
+    obj["type"] = msg.type == MessageType::File ? "file" : "private";
+    obj["messageType"] = static_cast<int>(msg.type);
+    obj["senderId"] = msg.senderId;
+    obj["senderName"] = msg.senderName;
+    obj["receiverId"] = msg.receiverId;
+    obj["content"] = msg.content;
+    obj["fileName"] = msg.fileName;
+    if (!msg.fileData.isEmpty()) {
+        obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
+    }
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    file.write("\n");
+}
+
+void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) const {
+    QFile file(offlineFilePath(userId));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    while (!file.atEnd()) {
+        QByteArray line = file.readLine().trimmed();
+        if (line.isEmpty()) continue;
+        socket->write(line);
+        socket->write("\n");
+    }
+    socket->flush();
+    file.close();
+    file.remove();
+}
+
+void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
+    QJsonObject obj;
+    obj["type"] = msg.type == MessageType::System ? "system" : (msg.type == MessageType::File ? "file" : (msg.isPrivate() ? "private" : "message"));
+    obj["messageType"] = static_cast<int>(msg.type);
+    obj["senderId"] = msg.senderId;
+    obj["senderName"] = msg.senderName;
+    obj["receiverId"] = msg.receiverId;
+    obj["content"] = msg.content;
+    obj["fileName"] = msg.fileName;
+    if (!msg.fileData.isEmpty()) {
+        obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
+    }
+    QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
+        QTcpSocket* socket = it.key();
+        if (socket != excludeSocket && socket->state() == QAbstractSocket::ConnectedState) {
+            socket->write(data);
+            socket->write("\n");
+            socket->flush();
+        }
+    }
+}
+
+void Server::sendToUser(const Message& msg) {
+    QString receiverId = msg.receiverId;
+    if (receiverId.isEmpty()) return;
+
+    QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+    if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
+        QJsonObject obj;
+        obj["type"] = msg.type == MessageType::File ? "file" : "private";
+        obj["messageType"] = static_cast<int>(msg.type);
+        obj["senderId"] = msg.senderId;
+        obj["senderName"] = msg.senderName;
+        obj["receiverId"] = msg.receiverId;
+        obj["content"] = msg.content;
+        obj["fileName"] = msg.fileName;
+        if (!msg.fileData.isEmpty()) {
+            obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
+        }
+        QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+        targetSocket->write(data);
+        targetSocket->write("\n");
+        targetSocket->flush();
+    } else {
+        saveOfflineMessage(msg);
+    }
+}
+
+void Server::sendUserList(QTcpSocket* socket) {
+    QJsonObject obj;
+    obj["type"] = "userlist";
+
+    QJsonArray users;
+    for (const ChatUser& user : m_clients.values()) {
+        if (user.isOnline) {
+            QJsonObject u;
+            u["id"] = user.id;
+            u["name"] = user.name;
+            u["online"] = user.isOnline;
+            users.append(u);
+        }
+    }
+    obj["users"] = users;
+
+    socket->write(QJsonDocument(obj).toJson());
+    socket->write("\n");
+    socket->flush();
+}
