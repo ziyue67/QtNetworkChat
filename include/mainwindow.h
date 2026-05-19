@@ -78,8 +78,10 @@ private:
     QString contactDisplayName(const QString& userId) const;
     bool isContactOnline(const QString& userId) const;
     QString getFriendFilePath() const;
+    QString getGroupFilePath() const;
     QString getAvatarFilePath() const;
     void saveFriends() const;
+    void saveLocalGroups() const;
     void updateUnreadState();
     void clearUnreadState();
     bool eventFilter(QObject* watched, QEvent* event) override;

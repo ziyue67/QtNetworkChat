@@ -947,6 +947,7 @@ void MainWindow::onShowCreateMenu() {
         QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
         m_localGroupIds << groupId;
         m_localGroupNames[groupId] = groupName;
+        saveLocalGroups();
         refreshFriendList();
         switchToLocalGroup(groupId, groupName);
         appendSystemMessage("已创建群聊: " + groupName);
@@ -1735,6 +1736,22 @@ void MainWindow::refreshFriendList() {
         }
     }
 
+    QFile groupFile(getGroupFilePath());
+    if (m_localGroupIds.isEmpty() && groupFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&groupFile);
+        while (!in.atEnd()) {
+            QString line = in.readLine().trimmed();
+            QString id = line.section('|', 0, 0);
+            QString name = line.section('|', 1);
+            if (!id.isEmpty() && !m_localGroupIds.contains(id)) {
+                m_localGroupIds << id;
+            }
+            if (!id.isEmpty() && !name.isEmpty()) {
+                m_localGroupNames[id] = name;
+            }
+        }
+    }
+
     int visibleCount = 0;
     auto matchesFilter = [this](const QString& id, const QString& name) {
         return m_contactFilter.isEmpty()
@@ -1851,6 +1868,13 @@ QString MainWindow::getFriendFilePath() const {
     return dir + "/friends_" + m_currentUserName + ".txt";
 }
 
+QString MainWindow::getGroupFilePath() const {
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dir.isEmpty()) dir = ".";
+    QDir().mkpath(dir);
+    return dir + "/groups_" + m_currentUserName + ".txt";
+}
+
 QString MainWindow::getAvatarFilePath() const {
     QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (dir.isEmpty()) dir = ".";
@@ -1865,6 +1889,16 @@ void MainWindow::saveFriends() const {
     QTextStream out(&file);
     for (const QString& id : m_friendIds) {
         out << id << "|" << m_friendNames.value(id, id) << "\n";
+    }
+}
+
+void MainWindow::saveLocalGroups() const {
+    QFile file(getGroupFilePath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+
+    QTextStream out(&file);
+    for (const QString& id : m_localGroupIds) {
+        out << id << "|" << m_localGroupNames.value(id, "群聊") << "\n";
     }
 }
 
