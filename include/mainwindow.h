@@ -88,6 +88,7 @@ private:
     QString m_currentUserId;
     QString m_currentUserName;
     QStringList m_friendIds;
+    QStringList m_pendingFriendRequests;
     QMap<QString, QString> m_friendNames;
     QMap<QString, ChatUser> m_knownUsers;
     QString m_contactFilter;

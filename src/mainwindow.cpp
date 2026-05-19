@@ -174,6 +174,18 @@ void MainWindow::setupUi() {
             font-weight: 600;
             padding-top: 8px;
         }
+        QPushButton#friendNoticeBtn, QPushButton#groupNoticeBtn {
+            background: rgba(255, 255, 255, 225);
+            color: #0B8DDF;
+            border: none;
+            border-radius: 13px;
+            min-height: 28px;
+            padding: 3px 8px;
+            font-weight: 700;
+        }
+        QPushButton#friendNoticeBtn:hover, QPushButton#groupNoticeBtn:hover {
+            background: white;
+        }
         QLineEdit#contactSearchEdit {
             background: rgba(255, 255, 255, 235);
             color: #263238;
@@ -353,6 +365,8 @@ void MainWindow::setupUi() {
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
     connect(ui->globalSearchBtn, &QPushButton::clicked, this, &MainWindow::onShowGlobalSearch);
     connect(ui->createMenuBtn, &QPushButton::clicked, this, &MainWindow::onShowCreateMenu);
+    connect(ui->friendNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendNotifications);
+    connect(ui->groupNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowGroupNotifications);
     connect(ui->copyAccountBtn, &QPushButton::clicked, this, &MainWindow::onCopyAccount);
     connect(ui->addFriendBtn, &QPushButton::clicked, this, &MainWindow::onShowQuickAddFriend);
     connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
@@ -1156,27 +1170,11 @@ void MainWindow::onBackToGroupChat() {
 }
 
 void MainWindow::onFriendRequestReceived(const QString& senderId, const QString& senderName) {
-    QMessageBox::StandardButton reply = QMessageBox::question(
-        this,
-        "好友申请",
-        QString("%1 请求添加你为好友，是否同意？").arg(senderName),
-        QMessageBox::Yes | QMessageBox::No);
-
-    bool accepted = reply == QMessageBox::Yes;
-    m_client->sendFriendResponse(senderId, accepted);
-    if (accepted && !m_friendIds.contains(senderId)) {
-        m_friendIds << senderId;
-        m_friendNames[senderId] = senderName;
-        QFile file(getFriendFilePath());
-        if (file.open(QIODevice::Append | QIODevice::Text)) {
-            QTextStream out(&file);
-            out << senderId << "|" << senderName << "\n";
-        }
-        refreshFriendList();
-        appendSystemMessage("已同意好友申请: " + senderName);
-    } else if (!accepted) {
-        appendSystemMessage("已拒绝好友申请: " + senderName);
-    }
+    m_pendingFriendRequests.removeAll(senderId);
+    m_pendingFriendRequests << senderId;
+    m_friendNames[senderId] = senderName;
+    ui->friendNoticeBtn->setText(QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
+    appendSystemMessage(QString("收到好友申请 QQ:%1，点击左侧“好友通知”处理").arg(senderId));
 }
 
 void MainWindow::onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online) {
@@ -1229,12 +1227,16 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
             }
         }
         refreshFriendList();
+        m_pendingFriendRequests.removeAll(senderId);
+        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         appendSystemMessage(senderName + " 已同意你的好友申请");
     } else {
         m_friendIds.removeAll(senderId);
         m_friendNames.remove(senderId);
         saveFriends();
         refreshFriendList();
+        m_pendingFriendRequests.removeAll(senderId);
+        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         appendSystemMessage(senderName + " 已拒绝你的好友申请");
     }
 }
@@ -1280,6 +1282,212 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             appendSystemMessage("已删除好友: " + userName);
         }
     }
+}
+
+void MainWindow::onShowFriendNotifications() {
+    QDialog dialog(this);
+    dialog.setObjectName("noticeDialog");
+    dialog.setWindowTitle("好友通知");
+    dialog.setFixedSize(760, 620);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(28, 24, 28, 24);
+    layout->setSpacing(18);
+
+    QHBoxLayout* titleLayout = new QHBoxLayout;
+    QLabel* titleLabel = new QLabel("好友通知", &dialog);
+    titleLabel->setObjectName("noticeTitle");
+    titleLayout->addWidget(titleLabel);
+    titleLayout->addStretch();
+    QPushButton* clearBtn = new QPushButton("清空", &dialog);
+    clearBtn->setObjectName("noticeGhostBtn");
+    titleLayout->addWidget(clearBtn);
+    layout->addLayout(titleLayout);
+
+    QListWidget* noticeList = new QListWidget(&dialog);
+    noticeList->setObjectName("noticeList");
+    layout->addWidget(noticeList, 1);
+
+    auto fillList = [this, noticeList]() {
+        noticeList->clear();
+        if (m_pendingFriendRequests.isEmpty()) {
+            QListWidgetItem* emptyItem = new QListWidgetItem("暂无新的好友申请");
+            emptyItem->setFlags(Qt::NoItemFlags);
+            emptyItem->setForeground(QColor(135, 150, 165));
+            emptyItem->setSizeHint(QSize(0, 68));
+            noticeList->addItem(emptyItem);
+            return;
+        }
+        for (const QString& id : m_pendingFriendRequests) {
+            QString name = m_friendNames.value(id, id);
+            QListWidgetItem* item = new QListWidgetItem(QString("%1  请求加为好友\n留言：请求添加对方为好友\n来源：QQ号-%2").arg(name, id));
+            item->setData(Qt::UserRole, id);
+            item->setSizeHint(QSize(0, 92));
+            noticeList->addItem(item);
+        }
+    };
+    fillList();
+
+    QHBoxLayout* buttonLayout = new QHBoxLayout;
+    QPushButton* acceptBtn = new QPushButton("同意", &dialog);
+    acceptBtn->setObjectName("noticePrimaryBtn");
+    QPushButton* rejectBtn = new QPushButton("拒绝", &dialog);
+    rejectBtn->setObjectName("noticeDangerBtn");
+    QPushButton* closeBtn = new QPushButton("关闭", &dialog);
+    closeBtn->setObjectName("noticeGhostBtn");
+    buttonLayout->addWidget(acceptBtn);
+    buttonLayout->addWidget(rejectBtn);
+    buttonLayout->addStretch();
+    buttonLayout->addWidget(closeBtn);
+    layout->addLayout(buttonLayout);
+
+    dialog.setStyleSheet(R"(
+        QDialog#noticeDialog {
+            background: #F4F4F4;
+            font-family: "Microsoft YaHei", "Segoe UI";
+        }
+        QLabel#noticeTitle {
+            color: #111111;
+            font-size: 20px;
+            font-weight: 900;
+        }
+        QListWidget#noticeList {
+            background: #F4F4F4;
+            border: none;
+            outline: none;
+        }
+        QListWidget#noticeList::item {
+            background: white;
+            border-radius: 10px;
+            margin: 8px 80px;
+            padding: 14px 18px;
+            color: #263238;
+        }
+        QListWidget#noticeList::item:selected, QListWidget#noticeList::item:hover {
+            background: #EAF7FF;
+        }
+        QPushButton {
+            min-height: 34px;
+            border-radius: 17px;
+            padding: 6px 18px;
+            font-weight: 700;
+        }
+        QPushButton#noticePrimaryBtn {
+            background: #1296F7;
+            color: white;
+            border: none;
+        }
+        QPushButton#noticeDangerBtn {
+            background: white;
+            color: #D35454;
+            border: 1px solid #F1CCCC;
+        }
+        QPushButton#noticeGhostBtn {
+            background: white;
+            color: #3A4A5A;
+            border: 1px solid #D4E1EC;
+        }
+    )");
+
+    auto updateBadge = [this]() {
+        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
+    };
+    connect(acceptBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
+        QListWidgetItem* item = noticeList->currentItem();
+        if (!item) return;
+        QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty()) return;
+        QString name = m_friendNames.value(id, id);
+        m_client->sendFriendResponse(id, true);
+        if (!m_friendIds.contains(id)) {
+            m_friendIds << id;
+        }
+        m_friendNames[id] = name;
+        m_pendingFriendRequests.removeAll(id);
+        saveFriends();
+        refreshFriendList();
+        updateBadge();
+        fillList();
+        appendSystemMessage("已同意好友申请 QQ: " + id);
+    });
+    connect(rejectBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
+        QListWidgetItem* item = noticeList->currentItem();
+        if (!item) return;
+        QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty()) return;
+        m_client->sendFriendResponse(id, false);
+        m_pendingFriendRequests.removeAll(id);
+        updateBadge();
+        fillList();
+        appendSystemMessage("已拒绝好友申请 QQ: " + id);
+    });
+    connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
+        m_pendingFriendRequests.clear();
+        updateBadge();
+        fillList();
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    dialog.exec();
+}
+
+void MainWindow::onShowGroupNotifications() {
+    QDialog dialog(this);
+    dialog.setObjectName("noticeDialog");
+    dialog.setWindowTitle("群通知");
+    dialog.setFixedSize(760, 520);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(28, 24, 28, 24);
+    layout->setSpacing(18);
+
+    QLabel* titleLabel = new QLabel("群通知", &dialog);
+    titleLabel->setObjectName("noticeTitle");
+    layout->addWidget(titleLabel);
+
+    QListWidget* noticeList = new QListWidget(&dialog);
+    noticeList->setObjectName("noticeList");
+    QListWidgetItem* item = new QListWidgetItem(QString("%1  当前公共聊天室\n你已加入默认群聊，可直接发送消息和文件。\n群成员列表会根据在线用户自动刷新。").arg(m_currentUserName));
+    item->setSizeHint(QSize(0, 92));
+    noticeList->addItem(item);
+    layout->addWidget(noticeList, 1);
+
+    QPushButton* closeBtn = new QPushButton("关闭", &dialog);
+    closeBtn->setObjectName("noticeGhostBtn");
+    layout->addWidget(closeBtn, 0, Qt::AlignRight);
+    dialog.setStyleSheet(R"(
+        QDialog#noticeDialog {
+            background: #F4F4F4;
+            font-family: "Microsoft YaHei", "Segoe UI";
+        }
+        QLabel#noticeTitle {
+            color: #111111;
+            font-size: 20px;
+            font-weight: 900;
+        }
+        QListWidget#noticeList {
+            background: #F4F4F4;
+            border: none;
+            outline: none;
+        }
+        QListWidget#noticeList::item {
+            background: white;
+            border-radius: 10px;
+            margin: 8px 80px;
+            padding: 14px 18px;
+            color: #263238;
+        }
+        QPushButton#noticeGhostBtn {
+            min-height: 34px;
+            border-radius: 17px;
+            padding: 6px 18px;
+            font-weight: 700;
+            background: white;
+            color: #3A4A5A;
+            border: 1px solid #D4E1EC;
+        }
+    )");
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    dialog.exec();
 }
 
 void MainWindow::appendMessage(const Message& msg) {
