@@ -429,12 +429,18 @@ void MainWindow::setupUi() {
         if (text.isEmpty()) return;
         QMenu menu(this);
         QAction* copyAction = menu.addAction("复制消息");
+        QAction* copyPlainAction = menu.addAction("只复制内容");
         QAction* quoteAction = menu.addAction("引用回复");
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (selected == copyAction) {
             QApplication::clipboard()->setText(text);
             ui->statusbar->showMessage("消息已复制", 1800);
+        } else if (selected == copyPlainAction) {
+            QString content = text.section(']', 2).trimmed();
+            if (content.isEmpty()) content = text;
+            QApplication::clipboard()->setText(content);
+            ui->statusbar->showMessage("消息内容已复制", 1800);
         } else if (selected == quoteAction) {
             ui->messageEdit->setPlainText(QString("> %1\n").arg(text));
             ui->messageEdit->setFocus();
