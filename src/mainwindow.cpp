@@ -886,6 +886,20 @@ void MainWindow::onShowGlobalSearch() {
     resultList->setObjectName("globalResultList");
     layout->addWidget(resultList, 1);
 
+    QHBoxLayout* actionLayout = new QHBoxLayout;
+    actionLayout->setContentsMargins(18, 10, 18, 18);
+    QLabel* actionHint = new QLabel("双击结果可聊天、进群或自动添加好友", &dialog);
+    actionHint->setObjectName("globalActionHint");
+    QPushButton* openBtn = new QPushButton("打开/添加", &dialog);
+    openBtn->setObjectName("globalSearchPrimaryBtn");
+    QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
+    copyBtn->setObjectName("globalSearchGhostBtn");
+    actionLayout->addWidget(actionHint);
+    actionLayout->addStretch();
+    actionLayout->addWidget(copyBtn);
+    actionLayout->addWidget(openBtn);
+    layout->addLayout(actionLayout);
+
     auto fillResults = [this, resultList](const QString& filter = QString()) {
         resultList->clear();
         for (const QString& id : m_friendIds) {
@@ -920,8 +934,8 @@ void MainWindow::onShowGlobalSearch() {
             resultList->addItem(item);
         }
         if (!filter.isEmpty()) {
-            QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索 QQ 账号：%1\n点击右侧搜索按钮可从服务器查找并自动添加").arg(filter));
-            searchItem->setFlags(Qt::NoItemFlags);
+            QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索 QQ 账号：%1\n双击或点击搜索可从服务器查找并自动添加").arg(filter));
+            searchItem->setData(Qt::UserRole, "search_add:" + filter);
             searchItem->setForeground(QColor(92, 110, 128));
             searchItem->setSizeHint(QSize(0, 58));
             resultList->addItem(searchItem);
@@ -971,6 +985,20 @@ void MainWindow::onShowGlobalSearch() {
             color: #1F2D3D;
             padding: 8px 12px;
         }
+        QLabel#globalActionHint {
+            color: #6B7A88;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        QPushButton#globalSearchGhostBtn {
+            min-width: 76px;
+            min-height: 36px;
+            background: white;
+            color: #3A4A5A;
+            border: 1px solid #D4E1EC;
+            border-radius: 10px;
+            font-weight: 700;
+        }
         QListWidget#globalResultList {
             background: #F4F4F4;
             border: none;
@@ -1001,11 +1029,16 @@ void MainWindow::onShowGlobalSearch() {
         searchAndAddAccount(account, &dialog);
         dialog.accept();
     };
-    connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
-    connect(searchEdit, &QLineEdit::returnPressed, &dialog, runServerSearch);
-    connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog](QListWidgetItem* item) {
+    auto openResult = [this, &dialog, resultList]() {
+        QListWidgetItem* item = resultList->currentItem();
+        if (!item) return;
         QString id = item->data(Qt::UserRole).toString();
         if (id.isEmpty()) return;
+        if (id.startsWith("search_add:")) {
+            searchAndAddAccount(id.mid(QString("search_add:").size()), &dialog);
+            dialog.accept();
+            return;
+        }
         if (m_localGroupIds.contains(id)) {
             dialog.accept();
             switchToLocalGroup(id, m_localGroupNames.value(id, "群聊"));
@@ -1022,7 +1055,22 @@ void MainWindow::onShowGlobalSearch() {
         loadHistory(id);
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
+    };
+
+    connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
+    connect(searchEdit, &QLineEdit::returnPressed, &dialog, runServerSearch);
+    connect(openBtn, &QPushButton::clicked, &dialog, openResult);
+    connect(copyBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
+        QListWidgetItem* item = resultList->currentItem();
+        if (!item) return;
+        QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty()) return;
+        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        if (id.startsWith("local_group_")) id = id.mid(QString("local_group_").size());
+        QApplication::clipboard()->setText(id);
+        ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
     });
+    connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [openResult](QListWidgetItem*) { openResult(); });
 
     searchEdit->setFocus();
     dialog.exec();
