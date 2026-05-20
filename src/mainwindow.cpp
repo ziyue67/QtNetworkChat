@@ -747,18 +747,18 @@ void MainWindow::onAddFriend() {
 }
 
 void MainWindow::searchAndAddAccount(const QString& account, QWidget* warningParent) {
-    QWidget* parent = warningParent ? warningParent : this;
+    Q_UNUSED(warningParent)
     if (account.isEmpty()) return;
     if (account == m_currentUserId) {
-        QMessageBox::information(parent, "加好友", "不能添加自己为好友");
+        ui->statusbar->showMessage("不能添加自己为好友", 2500);
         return;
     }
     if (m_friendIds.contains(account)) {
-        QMessageBox::information(parent, "加好友", "该账号已经是你的好友");
+        ui->statusbar->showMessage("该账号已经是你的好友: " + account, 2500);
         return;
     }
     if (!m_client->searchFriendByAccount(account)) {
-        QMessageBox::warning(parent, "加好友", "当前未连接，无法搜索账号");
+        ui->statusbar->showMessage("当前未连接，无法搜索账号", 2500);
     } else {
         ui->statusbar->showMessage("正在搜索 QQ 账号: " + account, 2500);
     }
@@ -1358,15 +1358,16 @@ void MainWindow::onFriendRequestReceived(const QString& senderId, const QString&
 
 void MainWindow::onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online) {
     if (!found) {
-        QMessageBox::information(this, "加好友", QString("没有找到 QQ 账号：%1").arg(account));
+        ui->statusbar->showMessage(QString("没有找到 QQ 账号：%1").arg(account), 3000);
+        appendSystemMessage(QString("没有找到 QQ 账号: %1").arg(account));
         return;
     }
     if (userId == m_currentUserId) {
-        QMessageBox::information(this, "加好友", "不能添加自己为好友");
+        ui->statusbar->showMessage("不能添加自己为好友", 2500);
         return;
     }
     if (m_friendIds.contains(userId)) {
-        QMessageBox::information(this, "加好友", QString("QQ 账号 %1 已经是你的好友").arg(userId));
+        ui->statusbar->showMessage(QString("QQ 账号 %1 已经是你的好友").arg(userId), 2500);
         return;
     }
 
