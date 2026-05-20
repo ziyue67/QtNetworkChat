@@ -1169,6 +1169,15 @@ void MainWindow::onInsertEmoji() {
             ui->messageEdit->setFocus();
         });
     }
+    menu.addSeparator();
+    const QStringList quickMessages = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说"};
+    for (const QString& message : quickMessages) {
+        QAction* action = menu.addAction("快捷语 · " + message);
+        connect(action, &QAction::triggered, this, [this, message]() {
+            ui->messageEdit->setPlainText(message);
+            ui->messageEdit->setFocus();
+        });
+    }
     menu.exec(ui->emojiBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
 }
 
