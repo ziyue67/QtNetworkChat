@@ -1125,6 +1125,8 @@ void MainWindow::onShowGlobalSearch() {
     openBtn->setObjectName("globalSearchPrimaryBtn");
     QPushButton* createGroupBtn = new QPushButton("用搜索创建群", &dialog);
     createGroupBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* inviteVisibleBtn = new QPushButton("可见用户建群", &dialog);
+    inviteVisibleBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* addVisibleBtn = new QPushButton("添加可见用户", &dialog);
     addVisibleBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
@@ -1136,6 +1138,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(actionHint);
     actionLayout->addStretch();
     actionLayout->addWidget(createGroupBtn);
+    actionLayout->addWidget(inviteVisibleBtn);
     actionLayout->addWidget(addVisibleBtn);
     actionLayout->addWidget(copyBtn);
     actionLayout->addWidget(copyListBtn);
@@ -1328,6 +1331,33 @@ void MainWindow::onShowGlobalSearch() {
         dialog.accept();
         switchToLocalGroup(groupId, groupName);
         appendSystemMessage("已从搜索创建群聊: " + groupName);
+    });
+    connect(inviteVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit, &dialog]() {
+        QString groupName = searchEdit->text().trimmed();
+        if (groupName.isEmpty()) groupName = "搜索群聊";
+        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+        QStringList members = QStringList{m_currentUserId};
+        for (int i = 0; i < resultList->count(); ++i) {
+            QListWidgetItem* item = resultList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty() || id.startsWith("local_group_") || id.startsWith("search_add:") || id == m_currentUserId || members.contains(id)) continue;
+            members << id;
+            if (!m_friendIds.contains(id)) {
+                m_friendIds << id;
+                m_friendNames[id] = contactDisplayName(id);
+                m_client->sendFriendRequest(id);
+            }
+        }
+        m_localGroupIds << groupId;
+        m_localGroupNames[groupId] = groupName;
+        m_localGroupAnnouncements[groupId] = QString("%1 已从综合搜索创建，已邀请可见用户。").arg(groupName);
+        m_localGroupMembers[groupId] = members;
+        saveFriends();
+        saveLocalGroups();
+        refreshFriendList();
+        dialog.accept();
+        switchToLocalGroup(groupId, groupName);
+        appendSystemMessage(QString("已从综合搜索建群并邀请 %1 位可见用户").arg(qMax(0, members.size() - 1)));
     });
     connect(addVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
         int addedCount = 0;
