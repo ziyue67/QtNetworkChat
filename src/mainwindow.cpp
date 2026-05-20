@@ -1787,9 +1787,11 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
 
     QAction* chatAction = menu.addAction("发送消息");
     QAction* copyAction = menu.addAction("复制QQ号");
+    QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
     QAction* removeAction = nullptr;
     if (m_friendIds.contains(userId)) {
+        renameAction = menu.addAction("设置备注");
         removeAction = menu.addAction("删除好友");
     } else {
         addAction = menu.addAction("加为好友");
@@ -1801,6 +1803,16 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     } else if (selected == copyAction) {
         QApplication::clipboard()->setText(userId);
         ui->statusbar->showMessage("QQ 号已复制: " + userId, 2500);
+    } else if (selected == renameAction) {
+        bool ok = false;
+        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(userId), &ok).trimmed();
+        if (ok && !remark.isEmpty()) {
+            m_friendNames[userId] = remark;
+            saveFriends();
+            refreshFriendList();
+            refreshGroupMemberPanel();
+            appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(userId, remark));
+        }
     } else if (selected == addAction) {
         if (!m_friendIds.contains(userId)) {
             m_friendIds << userId;
