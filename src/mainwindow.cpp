@@ -437,6 +437,7 @@ void MainWindow::setupUi() {
         if (memberId.isEmpty() || memberId == m_currentUserId) return;
         QMenu menu(this);
         QAction* chatAction = menu.addAction("私聊");
+        QAction* copyAction = menu.addAction("复制QQ号");
         QAction* removeAction = menu.addAction("移出群聊");
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
@@ -453,6 +454,9 @@ void MainWindow::setupUi() {
             loadHistory(memberId);
             ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(memberId)));
             ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(memberId, isContactOnline(memberId) ? "在线" : "离线"));
+        } else if (selected == copyAction) {
+            QApplication::clipboard()->setText(memberId);
+            ui->statusbar->showMessage("QQ 号已复制: " + memberId, 2500);
         } else if (selected == removeAction) {
             m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
             saveLocalGroups();
@@ -1533,6 +1537,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QMenu menu(this);
     if (m_localGroupIds.contains(userId)) {
         QAction* openGroupAction = menu.addAction("进入群聊");
+        QAction* copyGroupAction = menu.addAction("复制群号");
         QAction* inviteFriendAction = menu.addAction("邀请好友");
         QAction* inviteAllAction = menu.addAction("邀请全部好友");
         QAction* renameGroupAction = menu.addAction("重命名群聊");
@@ -1540,6 +1545,10 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
         if (selected == openGroupAction) {
             switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
+        } else if (selected == copyGroupAction) {
+            QString groupNumber = userId.mid(QString("local_group_").size());
+            QApplication::clipboard()->setText(groupNumber);
+            ui->statusbar->showMessage("群号已复制: " + groupNumber, 2500);
         } else if (selected == inviteFriendAction) {
             if (m_friendIds.isEmpty()) {
                 appendSystemMessage("当前没有好友可邀请");
@@ -1602,6 +1611,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     }
 
     QAction* chatAction = menu.addAction("发送消息");
+    QAction* copyAction = menu.addAction("复制QQ号");
     QAction* addAction = nullptr;
     QAction* removeAction = nullptr;
     if (m_friendIds.contains(userId)) {
@@ -1613,6 +1623,9 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
     if (selected == chatAction) {
         onPrivateChat(index);
+    } else if (selected == copyAction) {
+        QApplication::clipboard()->setText(userId);
+        ui->statusbar->showMessage("QQ 号已复制: " + userId, 2500);
     } else if (selected == addAction) {
         if (!m_friendIds.contains(userId)) {
             m_friendIds << userId;
