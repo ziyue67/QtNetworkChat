@@ -3145,30 +3145,38 @@ void MainWindow::refreshGroupMemberPanel() {
         QStringList members = m_localGroupMembers.value(m_privateChatTarget);
         if (members.isEmpty()) members << m_currentUserId;
         int visibleMembers = 0;
+        int onlineMembers = 0;
+        int friendMembers = 0;
         for (const QString& memberId : members) {
             QString name = memberId == m_currentUserId ? m_currentUserName : m_friendNames.value(memberId, memberId);
+            bool online = isContactOnline(memberId) || memberId == m_currentUserId;
+            bool isFriend = m_friendIds.contains(memberId);
+            if (online) ++onlineMembers;
+            if (isFriend) ++friendMembers;
             if (!filter.isEmpty()
                 && !memberId.contains(filter, Qt::CaseInsensitive)
                 && !name.contains(filter, Qt::CaseInsensitive)) {
                 continue;
             }
-            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4").arg(memberId == m_currentUserId ? "我" : "群成员", memberId, name, isContactOnline(memberId) || memberId == m_currentUserId ? "在线" : "离线"));
+            QString role = memberId == m_currentUserId ? "我" : (isFriend ? "好友" : "群成员");
+            QString state = online ? "在线" : "离线";
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, isFriend || memberId == m_currentUserId ? "已在好友/本人" : "可双击加好友"));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
-            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : QColor(38, 50, 56));
+            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(20, 92, 160) : QColor(38, 50, 56)));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
-        ui->memberTitleLabel->setText(QString("群聊成员 %1").arg(members.size()));
+        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3").arg(members.size()).arg(onlineMembers).arg(friendMembers));
         if (visibleMembers == 0 && !filter.isEmpty()) {
             QStandardItem* addItem = new QStandardItem(QString("邀请 QQ:%1\n双击自动加入当前群聊").arg(filter));
             addItem->setData("group_invite:" + filter, Qt::UserRole + 1);
             addItem->setEditable(false);
             addItem->setForeground(QColor(18, 150, 247));
             m_groupMemberModel->appendRow(addItem);
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 可邀请QQ:%2").arg(members.size()).arg(filter));
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3 · 可邀请QQ:%4").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(filter));
         } else if (!filter.isEmpty()) {
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 匹配%2").arg(members.size()).arg(visibleMembers));
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3 · 匹配%4").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(visibleMembers));
         }
         return;
     }
@@ -3185,6 +3193,8 @@ void MainWindow::refreshGroupMemberPanel() {
 
     int memberCount = 1;
     int visibleMembers = 0;
+    int friendMembers = 0;
+    int onlineMembers = 1;
     for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
         const ChatUser& user = it.value();
         if (user.id == m_currentUserId) continue;
@@ -3195,7 +3205,9 @@ void MainWindow::refreshGroupMemberPanel() {
             continue;
         }
         bool isFriend = m_friendIds.contains(user.id);
-        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · 在线").arg(isFriend ? "好友" : "成员", user.id, user.name));
+        if (isFriend) ++friendMembers;
+        ++onlineMembers;
+        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · 在线 · %4").arg(isFriend ? "好友" : "成员", user.id, user.name, isFriend ? "已是好友" : "双击加好友"));
         item->setData(user.id, Qt::UserRole + 1);
         item->setEditable(false);
         item->setForeground(isFriend ? QColor(18, 150, 247) : QColor(38, 50, 56));
@@ -3208,12 +3220,12 @@ void MainWindow::refreshGroupMemberPanel() {
         addItem->setEditable(false);
         addItem->setForeground(QColor(18, 150, 247));
         m_groupMemberModel->appendRow(addItem);
-        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 可搜索QQ:%2").arg(memberCount).arg(filter));
+        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 可搜索QQ:%3").arg(memberCount).arg(onlineMembers).arg(filter));
         return;
     }
     ui->memberTitleLabel->setText(filter.isEmpty()
-        ? QString("群聊成员 %1").arg(memberCount)
-        : QString("群聊成员 %1 · 匹配%2").arg(memberCount).arg(visibleMembers));
+        ? QString("群聊成员 %1 · 在线%2 · 好友%3").arg(memberCount).arg(onlineMembers).arg(friendMembers)
+        : QString("群聊成员 %1 · 在线%2 · 好友%3 · 匹配%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(visibleMembers));
 }
 
 void MainWindow::loadAvatar() {
