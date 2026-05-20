@@ -921,15 +921,17 @@ void MainWindow::onShowGlobalSearch() {
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillResults](const QString& text) {
         fillResults(text.trimmed());
     });
-    connect(searchBtn, &QPushButton::clicked, &dialog, [this, searchEdit, &dialog]() {
+    auto runServerSearch = [this, searchEdit, &dialog]() {
         QString account = searchEdit->text().trimmed();
         if (account.isEmpty()) {
-            QMessageBox::warning(&dialog, "综合搜索", "请输入 QQ 号");
+            ui->statusbar->showMessage("请输入 QQ 号", 2500);
             return;
         }
         searchAndAddAccount(account, &dialog);
         dialog.accept();
-    });
+    };
+    connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
+    connect(searchEdit, &QLineEdit::returnPressed, &dialog, runServerSearch);
     connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog](QListWidgetItem* item) {
         QString id = item->data(Qt::UserRole).toString();
         if (id.isEmpty()) return;
