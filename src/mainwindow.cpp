@@ -754,6 +754,10 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     if (!index.isValid()) return;
     QString targetId = index.data(Qt::UserRole + 1).toString();
     if (targetId.isEmpty()) return;
+    if (targetId.startsWith("search_add:")) {
+        searchAndAddAccount(targetId.mid(QString("search_add:").size()), this);
+        return;
+    }
     if (m_localGroupIds.contains(targetId)) {
         switchToLocalGroup(targetId, m_localGroupNames.value(targetId, "群聊"));
         return;
@@ -2060,17 +2064,20 @@ void MainWindow::refreshFriendList() {
     ui->onlineTitleLabel->setText(QString("联系人 · 好友%1 · 群聊%2 · 在线%3").arg(visibleFriends).arg(visibleGroups).arg(visibleOnlineUsers));
 
     if (visibleCount == 0 && !m_contactFilter.isEmpty()) {
-        QStandardItem* emptyItem = new QStandardItem("没有匹配的联系人");
-        emptyItem->setEditable(false);
-        emptyItem->setEnabled(false);
-        emptyItem->setForeground(QColor(220, 240, 255));
-        m_userListModel->appendRow(emptyItem);
+        QStandardItem* addItem = new QStandardItem(QString("搜索并添加 QQ:%1\n   回车或双击自动查找好友").arg(m_contactFilter));
+        addItem->setData("search_add:" + m_contactFilter, Qt::UserRole + 1);
+        addItem->setForeground(QColor(255, 255, 255));
+        addItem->setBackground(QColor(18, 183, 245));
+        m_userListModel->appendRow(addItem);
     }
 }
 
 void MainWindow::onContactSearchChanged(const QString& text) {
     m_contactFilter = text.trimmed();
     refreshFriendList();
+    if (!m_contactFilter.isEmpty()) {
+        ui->statusbar->showMessage(QString("未找到时可双击列表底部一键搜索 QQ:%1").arg(m_contactFilter), 1800);
+    }
 }
 
 void MainWindow::refreshGroupMemberPanel() {
