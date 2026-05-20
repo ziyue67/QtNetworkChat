@@ -106,6 +106,7 @@ void MainWindow::setupUi() {
 
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     ui->chatListView->setModel(m_chatModel);
+    ui->chatListView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
     ui->groupMemberListView->setModel(m_groupMemberModel);
@@ -390,6 +391,23 @@ void MainWindow::setupUi() {
     connect(ui->mentionBtn, &QPushButton::clicked, this, &MainWindow::onInsertMention);
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
     connect(ui->userListView, &QListView::customContextMenuRequested, this, &MainWindow::onUserContextMenu);
+    connect(ui->chatListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QModelIndex index = ui->chatListView->indexAt(pos);
+        if (!index.isValid()) return;
+        QString text = index.data().toString();
+        if (text.isEmpty()) return;
+        QMenu menu(this);
+        QAction* copyAction = menu.addAction("复制消息");
+        QAction* quoteAction = menu.addAction("引用回复");
+        QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
+        if (selected == copyAction) {
+            QApplication::clipboard()->setText(text);
+            ui->statusbar->showMessage("消息已复制", 1800);
+        } else if (selected == quoteAction) {
+            ui->messageEdit->setPlainText(QString("> %1\n").arg(text));
+            ui->messageEdit->setFocus();
+        }
+    });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
     connect(ui->contactSearchEdit, &QLineEdit::returnPressed, this, [this]() {
         searchAndAddAccount(ui->contactSearchEdit->text().trimmed(), this);
