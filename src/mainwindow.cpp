@@ -489,6 +489,7 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         QAction* chatAction = menu.addAction("私聊");
         QAction* copyAction = menu.addAction("复制QQ号");
+        QAction* renameAction = menu.addAction("设置备注");
         QAction* removeAction = menu.addAction("移出群聊");
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
@@ -508,6 +509,17 @@ void MainWindow::setupUi() {
         } else if (selected == copyAction) {
             QApplication::clipboard()->setText(memberId);
             ui->statusbar->showMessage("QQ 号已复制: " + memberId, 2500);
+        } else if (selected == renameAction) {
+            bool ok = false;
+            QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(memberId), &ok).trimmed();
+            if (ok && !remark.isEmpty()) {
+                m_friendNames[memberId] = remark;
+                if (!m_friendIds.contains(memberId)) m_friendIds << memberId;
+                saveFriends();
+                refreshFriendList();
+                refreshGroupMemberPanel();
+                appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
+            }
         } else if (selected == removeAction) {
             m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
             saveLocalGroups();
