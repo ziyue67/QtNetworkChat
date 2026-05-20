@@ -1165,6 +1165,7 @@ void MainWindow::onShowCreateMenu() {
     QMenu menu(this);
     QAction* createGroupAction = menu.addAction("创建群聊");
     QAction* addFriendAction = menu.addAction("加好友/群");
+    QAction* copyChatIdAction = menu.addAction("复制当前会话号");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* sendImageAction = menu.addAction("发送图片");
     QAction* sendFileAction = menu.addAction("闪传文件");
@@ -1185,6 +1186,12 @@ void MainWindow::onShowCreateMenu() {
         appendSystemMessage("已创建群聊: " + groupName);
     } else if (selected == addFriendAction) {
         onShowGlobalSearch();
+    } else if (selected == copyChatIdAction) {
+        QString chatId = m_privateChatTarget;
+        if (chatId.startsWith("local_group_")) chatId = chatId.mid(QString("local_group_").size());
+        if (chatId.isEmpty()) chatId = m_currentUserId;
+        QApplication::clipboard()->setText(chatId);
+        ui->statusbar->showMessage("当前会话号已复制: " + chatId, 2500);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
     } else if (selected == sendImageAction) {
