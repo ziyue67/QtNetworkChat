@@ -1172,6 +1172,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* clearSearchAction = menu.addAction("清空搜索");
     QAction* copyChatIdAction = menu.addAction("复制当前会话号");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
+    QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* sendImageAction = menu.addAction("发送图片");
     QAction* sendFileAction = menu.addAction("闪传文件");
     QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
@@ -1210,6 +1211,10 @@ void MainWindow::onShowCreateMenu() {
         ui->statusbar->showMessage("当前会话号已复制: " + chatId, 2500);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
+    } else if (selected == copyAnnouncementAction) {
+        QString announcement = ui->announcementBodyLabel->text();
+        QApplication::clipboard()->setText(announcement);
+        ui->statusbar->showMessage("群公告已复制", 1800);
     } else if (selected == sendImageAction) {
         onSendImage();
     } else if (selected == sendFileAction) {
