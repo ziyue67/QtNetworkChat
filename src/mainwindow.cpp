@@ -448,6 +448,23 @@ void MainWindow::setupUi() {
     connect(ui->groupMemberListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
         QString targetId = index.data(Qt::UserRole + 1).toString();
+        if (targetId.startsWith("group_invite:")) {
+            QString account = targetId.mid(QString("group_invite:").size()).trimmed();
+            if (!account.isEmpty() && !m_localGroupMembers[m_privateChatTarget].contains(account)) {
+                m_localGroupMembers[m_privateChatTarget] << account;
+                if (!m_friendIds.contains(account)) {
+                    m_friendIds << account;
+                    m_friendNames[account] = contactDisplayName(account);
+                    saveFriends();
+                    m_client->sendFriendRequest(account);
+                }
+                saveLocalGroups();
+                refreshFriendList();
+                refreshGroupMemberPanel();
+                appendSystemMessage("已按 QQ 号邀请入群: " + account);
+            }
+            return;
+        }
         if (targetId.isEmpty() || targetId == m_currentUserId) return;
         if (!m_friendIds.contains(targetId)) {
             m_friendIds << targetId;
@@ -2265,10 +2282,11 @@ void MainWindow::refreshGroupMemberPanel() {
         }
         ui->memberTitleLabel->setText(QString("群聊成员 %1").arg(members.size()));
         if (visibleMembers == 0 && !filter.isEmpty()) {
-            QStandardItem* emptyItem = new QStandardItem("没有匹配的群成员");
-            emptyItem->setEditable(false);
-            emptyItem->setEnabled(false);
-            m_groupMemberModel->appendRow(emptyItem);
+            QStandardItem* addItem = new QStandardItem(QString("邀请 QQ:%1\n双击自动加入当前群聊").arg(filter));
+            addItem->setData("group_invite:" + filter, Qt::UserRole + 1);
+            addItem->setEditable(false);
+            addItem->setForeground(QColor(18, 150, 247));
+            m_groupMemberModel->appendRow(addItem);
         }
         return;
     }
