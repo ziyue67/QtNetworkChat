@@ -985,10 +985,13 @@ void MainWindow::onShowGlobalSearch() {
     createGroupBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
     copyBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
+    profileBtn->setObjectName("globalSearchGhostBtn");
     actionLayout->addWidget(actionHint);
     actionLayout->addStretch();
     actionLayout->addWidget(createGroupBtn);
     actionLayout->addWidget(copyBtn);
+    actionLayout->addWidget(profileBtn);
     actionLayout->addWidget(openBtn);
     layout->addLayout(actionLayout);
 
@@ -1175,6 +1178,24 @@ void MainWindow::onShowGlobalSearch() {
         if (id.startsWith("local_group_")) id = id.mid(QString("local_group_").size());
         QApplication::clipboard()->setText(id);
         ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
+    });
+    connect(profileBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
+        QListWidgetItem* item = resultList->currentItem();
+        if (!item) return;
+        QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty()) return;
+        QString text = item->text();
+        if (id.startsWith("search_add:")) {
+            id = id.mid(QString("search_add:").size());
+            text = QString("QQ:%1\n一键搜索并添加好友").arg(id);
+        } else if (id.startsWith("local_group_")) {
+            QString groupNumber = id.mid(QString("local_group_").size());
+            text = QString("群聊 QQ:%1\n%2").arg(groupNumber, m_localGroupNames.value(id, "群聊"));
+        } else {
+            text = QString("QQ:%1\n%2 · %3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+        }
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("名片信息已复制", 1800);
     });
     connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [openResult](QListWidgetItem*) { openResult(); });
 
