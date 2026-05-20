@@ -820,6 +820,10 @@ void MainWindow::onSendMessage() {
         ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(targetName).arg(text.size()), 1800);
 
         ui->messageEdit->clear();
+    } else {
+        ui->chatHintLabel->setText(QString("发送失败 · 目标 %1 · 消息已保留在输入框").arg(targetName));
+        ui->statusbar->showMessage(QString("发送失败，请检查连接 · %1").arg(targetName), 3000);
+        appendSystemMessage(QString("发送失败，消息未送达 %1").arg(targetName));
     }
 }
 
