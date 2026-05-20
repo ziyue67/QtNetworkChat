@@ -2383,6 +2383,8 @@ void MainWindow::onShowFriendNotifications() {
     acceptAllBtn->setObjectName("noticePrimaryBtn");
     QPushButton* rejectBtn = new QPushButton("拒绝", &dialog);
     rejectBtn->setObjectName("noticeDangerBtn");
+    QPushButton* rejectAllBtn = new QPushButton("一键拒绝全部", &dialog);
+    rejectAllBtn->setObjectName("noticeDangerBtn");
     QPushButton* copyBtn = new QPushButton("复制名片", &dialog);
     copyBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
@@ -2390,6 +2392,7 @@ void MainWindow::onShowFriendNotifications() {
     buttonLayout->addWidget(acceptBtn);
     buttonLayout->addWidget(acceptAllBtn);
     buttonLayout->addWidget(rejectBtn);
+    buttonLayout->addWidget(rejectAllBtn);
     buttonLayout->addWidget(copyBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
@@ -2493,6 +2496,19 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         appendSystemMessage("已拒绝好友申请 QQ: " + id);
+    });
+    connect(rejectAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
+        QStringList pending = m_pendingFriendRequests;
+        if (pending.isEmpty()) return;
+        for (const QString& id : pending) {
+            if (!id.isEmpty()) {
+                m_client->sendFriendResponse(id, false);
+            }
+        }
+        m_pendingFriendRequests.clear();
+        updateBadge();
+        fillList();
+        appendSystemMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()));
     });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* item = noticeList->currentItem();
