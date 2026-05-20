@@ -544,6 +544,7 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
+        QAction* addVisibleAction = menu.addAction("添加可见成员为好友");
         QAction* copyVisibleAction = menu.addAction("复制可见成员");
         QAction* clearAction = menu.addAction("清空搜索");
         QAction* selected = menu.exec(ui->memberSearchEdit->mapToGlobal(pos));
@@ -553,6 +554,25 @@ void MainWindow::setupUi() {
             ui->memberSearchEdit->clear();
             ui->memberSearchEdit->paste();
             refreshGroupMemberPanel();
+        } else if (selected == addVisibleAction) {
+            int addedCount = 0;
+            for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
+                QStandardItem* item = m_groupMemberModel->item(i);
+                if (!item) continue;
+                QString id = item->data(Qt::UserRole + 1).toString();
+                if (id.isEmpty() || id == m_currentUserId || id.startsWith("group_search_add:") || id.startsWith("group_invite:") || m_friendIds.contains(id)) continue;
+                m_friendIds << id;
+                m_friendNames[id] = contactDisplayName(id);
+                m_client->sendFriendRequest(id);
+                ++addedCount;
+            }
+            if (addedCount > 0) {
+                saveFriends();
+                refreshFriendList();
+                ui->statusbar->showMessage(QString("已添加 %1 个可见群成员为好友").arg(addedCount), 2500);
+            } else {
+                ui->statusbar->showMessage("暂无可添加的可见群成员", 2200);
+            }
         } else if (selected == copyVisibleAction) {
             QStringList cards;
             for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
