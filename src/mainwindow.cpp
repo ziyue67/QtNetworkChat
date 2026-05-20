@@ -1059,6 +1059,8 @@ void MainWindow::onShowGlobalSearch() {
     openBtn->setObjectName("globalSearchPrimaryBtn");
     QPushButton* createGroupBtn = new QPushButton("用搜索创建群", &dialog);
     createGroupBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* addVisibleBtn = new QPushButton("添加可见用户", &dialog);
+    addVisibleBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
     copyBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
@@ -1066,6 +1068,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(actionHint);
     actionLayout->addStretch();
     actionLayout->addWidget(createGroupBtn);
+    actionLayout->addWidget(addVisibleBtn);
     actionLayout->addWidget(copyBtn);
     actionLayout->addWidget(profileBtn);
     actionLayout->addWidget(openBtn);
@@ -1256,6 +1259,26 @@ void MainWindow::onShowGlobalSearch() {
         dialog.accept();
         switchToLocalGroup(groupId, groupName);
         appendSystemMessage("已从搜索创建群聊: " + groupName);
+    });
+    connect(addVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
+        int addedCount = 0;
+        for (int i = 0; i < resultList->count(); ++i) {
+            QListWidgetItem* item = resultList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty() || id.startsWith("local_group_") || id.startsWith("search_add:") || id == m_currentUserId || m_friendIds.contains(id)) continue;
+            m_friendIds << id;
+            m_friendNames[id] = contactDisplayName(id);
+            m_client->sendFriendRequest(id);
+            ++addedCount;
+        }
+        if (addedCount > 0) {
+            saveFriends();
+            refreshFriendList();
+            ui->statusbar->showMessage(QString("已添加 %1 个可见用户").arg(addedCount), 2500);
+        } else {
+            ui->statusbar->showMessage("当前没有可批量添加的用户", 2200);
+        }
+        searchEdit->setFocus();
     });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
