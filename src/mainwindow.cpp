@@ -1428,9 +1428,37 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     if (userId.isEmpty()) return;
     QString userName = index.data().toString();
     userName.remove(QRegularExpression("^[★☆○]\\s*"));
-    userName.remove(QRegularExpression("\\s*\\[(在线|离线)\\]$"));
+    userName.remove(QRegularExpression("^群聊\\s+QQ:[^\\n]+\\n\\s*"));
+    userName.remove(QRegularExpression("\\s*\\[(在线|离线|本地)\\]$"));
 
     QMenu menu(this);
+    if (m_localGroupIds.contains(userId)) {
+        QAction* openGroupAction = menu.addAction("进入群聊");
+        QAction* renameGroupAction = menu.addAction("重命名群聊");
+        QAction* deleteGroupAction = menu.addAction("删除群聊");
+        QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
+        if (selected == openGroupAction) {
+            switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
+        } else if (selected == renameGroupAction) {
+            bool ok = false;
+            QString newName = QInputDialog::getText(this, "重命名群聊", "群聊名称:", QLineEdit::Normal, m_localGroupNames.value(userId, "群聊"), &ok).trimmed();
+            if (ok && !newName.isEmpty()) {
+                m_localGroupNames[userId] = newName;
+                saveLocalGroups();
+                refreshFriendList();
+                if (m_privateChatTarget == userId) switchToLocalGroup(userId, newName);
+            }
+        } else if (selected == deleteGroupAction) {
+            m_localGroupIds.removeAll(userId);
+            m_localGroupNames.remove(userId);
+            saveLocalGroups();
+            refreshFriendList();
+            if (m_privateChatTarget == userId) onBackToGroupChat();
+            appendSystemMessage("已删除群聊: " + userName);
+        }
+        return;
+    }
+
     QAction* chatAction = menu.addAction("发送消息");
     QAction* addAction = nullptr;
     QAction* removeAction = nullptr;
