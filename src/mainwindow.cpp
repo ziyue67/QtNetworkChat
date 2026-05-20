@@ -2120,9 +2120,15 @@ void MainWindow::onShowGroupNotifications() {
     actionLayout->addStretch();
     QPushButton* openBtn = new QPushButton("进入选中群聊", &dialog);
     openBtn->setObjectName("noticePrimaryBtn");
+    QPushButton* copyBtn = new QPushButton("复制群号", &dialog);
+    copyBtn->setObjectName("noticeGhostBtn");
+    QPushButton* announceBtn = new QPushButton("复制公告", &dialog);
+    announceBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     actionLayout->addWidget(openBtn);
+    actionLayout->addWidget(copyBtn);
+    actionLayout->addWidget(announceBtn);
     actionLayout->addWidget(closeBtn);
     layout->addLayout(actionLayout);
 
@@ -2189,6 +2195,24 @@ void MainWindow::onShowGroupNotifications() {
         }
     )");
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
+    connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        if (!current) return;
+        QString groupId = current->data(Qt::UserRole).toString();
+        QString copyId = groupId.isEmpty() ? "公共聊天室" : groupId.mid(QString("local_group_").size());
+        QApplication::clipboard()->setText(copyId);
+        ui->statusbar->showMessage("群号已复制: " + copyId, 2500);
+    });
+    connect(announceBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        if (!current) return;
+        QString groupId = current->data(Qt::UserRole).toString();
+        QString announcement = groupId.isEmpty()
+            ? "你已加入默认群聊，可直接发送消息、图片和文件。"
+            : m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
+        QApplication::clipboard()->setText(announcement);
+        ui->statusbar->showMessage("群公告已复制", 1800);
+    });
     connect(noticeList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedGroup](QListWidgetItem*) { openSelectedGroup(); });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
     dialog.exec();
