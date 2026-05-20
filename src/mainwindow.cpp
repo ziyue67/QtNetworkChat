@@ -1826,6 +1826,9 @@ void MainWindow::refreshFriendList() {
     };
 
     int visibleCount = 0;
+    int visibleFriends = 0;
+    int visibleGroups = 0;
+    int visibleOnlineUsers = 0;
     auto matchesFilter = [this](const QString& id, const QString& name) {
         return m_contactFilter.isEmpty()
             || id.contains(m_contactFilter, Qt::CaseInsensitive)
@@ -1842,6 +1845,7 @@ void MainWindow::refreshFriendList() {
         item->setForeground(QColor(180, 215, 235));
         m_userListModel->appendRow(item);
         ++visibleCount;
+        ++visibleFriends;
     }
 
     appendSection("群聊");
@@ -1853,6 +1857,7 @@ void MainWindow::refreshFriendList() {
         item->setForeground(QColor(164, 220, 255));
         m_userListModel->appendRow(item);
         ++visibleCount;
+        ++visibleGroups;
     }
 
     appendSection("在线成员");
@@ -1869,7 +1874,10 @@ void MainWindow::refreshFriendList() {
         item->setForeground(isFriend ? Qt::white : QColor(220, 240, 255));
         m_userListModel->appendRow(item);
         ++visibleCount;
+        ++visibleOnlineUsers;
     }
+
+    ui->onlineTitleLabel->setText(QString("联系人 · 好友%1 · 群聊%2 · 在线%3").arg(visibleFriends).arg(visibleGroups).arg(visibleOnlineUsers));
 
     if (visibleCount == 0 && !m_contactFilter.isEmpty()) {
         QStandardItem* emptyItem = new QStandardItem("没有匹配的联系人");
