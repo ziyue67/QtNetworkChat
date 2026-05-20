@@ -892,10 +892,13 @@ void MainWindow::onShowGlobalSearch() {
     actionHint->setObjectName("globalActionHint");
     QPushButton* openBtn = new QPushButton("打开/添加", &dialog);
     openBtn->setObjectName("globalSearchPrimaryBtn");
+    QPushButton* createGroupBtn = new QPushButton("用搜索创建群", &dialog);
+    createGroupBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
     copyBtn->setObjectName("globalSearchGhostBtn");
     actionLayout->addWidget(actionHint);
     actionLayout->addStretch();
+    actionLayout->addWidget(createGroupBtn);
     actionLayout->addWidget(copyBtn);
     actionLayout->addWidget(openBtn);
     layout->addLayout(actionLayout);
@@ -1060,6 +1063,20 @@ void MainWindow::onShowGlobalSearch() {
     connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, runServerSearch);
     connect(openBtn, &QPushButton::clicked, &dialog, openResult);
+    connect(createGroupBtn, &QPushButton::clicked, &dialog, [this, searchEdit, &dialog]() {
+        QString groupName = searchEdit->text().trimmed();
+        if (groupName.isEmpty()) groupName = "我的群聊";
+        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+        m_localGroupIds << groupId;
+        m_localGroupNames[groupId] = groupName;
+        m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
+        m_localGroupMembers[groupId] = QStringList{m_currentUserId};
+        saveLocalGroups();
+        refreshFriendList();
+        dialog.accept();
+        switchToLocalGroup(groupId, groupName);
+        appendSystemMessage("已从搜索创建群聊: " + groupName);
+    });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
         if (!item) return;
