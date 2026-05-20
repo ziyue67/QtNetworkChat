@@ -414,6 +414,14 @@ void MainWindow::setupUi() {
         if (!index.isValid()) return;
         QString targetId = index.data(Qt::UserRole + 1).toString();
         if (targetId.isEmpty() || targetId == m_currentUserId) return;
+        if (!m_friendIds.contains(targetId)) {
+            m_friendIds << targetId;
+            m_friendNames[targetId] = contactDisplayName(targetId);
+            saveFriends();
+            refreshFriendList();
+            m_client->sendFriendRequest(targetId);
+            appendSystemMessage("已自动添加群成员 QQ: " + targetId);
+        }
         m_privateChatTarget = targetId;
         m_chatModel->clear();
         m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
