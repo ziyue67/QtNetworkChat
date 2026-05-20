@@ -1459,6 +1459,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     if (m_localGroupIds.contains(userId)) {
         QAction* openGroupAction = menu.addAction("进入群聊");
         QAction* inviteFriendAction = menu.addAction("邀请好友");
+        QAction* inviteAllAction = menu.addAction("邀请全部好友");
         QAction* renameGroupAction = menu.addAction("重命名群聊");
         QAction* deleteGroupAction = menu.addAction("删除群聊");
         QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
@@ -1489,6 +1490,20 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                     saveHistory(userId, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), friendName));
                 }
             }
+        } else if (selected == inviteAllAction) {
+            int addedCount = 0;
+            for (const QString& friendId : m_friendIds) {
+                if (!m_localGroupMembers[userId].contains(friendId)) {
+                    m_localGroupMembers[userId] << friendId;
+                    ++addedCount;
+                }
+            }
+            if (addedCount > 0) {
+                saveLocalGroups();
+            }
+            switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
+            appendSystemMessage(QString("已自动邀请 %1 位好友加入群聊").arg(addedCount));
+            saveHistory(userId, QString("[%1] [系统] 已自动邀请 %2 位好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(addedCount));
         } else if (selected == renameGroupAction) {
             bool ok = false;
             QString newName = QInputDialog::getText(this, "重命名群聊", "群聊名称:", QLineEdit::Normal, m_localGroupNames.value(userId, "群聊"), &ok).trimmed();
