@@ -535,9 +535,21 @@ void MainWindow::onSendFile() {
         "所有文件 (*.*);;文本文件 (*.txt);;图片 (*.png *.jpg *.jpeg *.gif)");
     if (filePath.isEmpty()) return;
 
+    QFileInfo info(filePath);
+    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        QString line = QString("[%1] <%2> 发送了文件: %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName());
+        saveHistory(m_privateChatTarget, line);
+        QStandardItem* item = new QStandardItem(line);
+        item->setEditable(false);
+        item->setForeground(QColor(20, 92, 160));
+        item->setBackground(QColor(218, 241, 255));
+        m_chatModel->appendRow(item);
+        ui->chatListView->scrollToBottom();
+        return;
+    }
+
     bool ok = m_client->sendFile(filePath, m_privateChatTarget);
     if (ok) {
-        QFileInfo info(filePath);
         appendSystemMessage("已发送文件: " + info.fileName());
     } else {
         QMessageBox::warning(this, "发送失败", "文件发送失败");
@@ -549,9 +561,29 @@ void MainWindow::onSendImage() {
         "图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;所有文件 (*.*)");
     if (filePath.isEmpty()) return;
 
+    QFileInfo info(filePath);
+    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        QPixmap pixmap(filePath);
+        QString line = QString("[%1] <%2> [图片] %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName());
+        saveHistory(m_privateChatTarget, line);
+        QStandardItem* item = new QStandardItem(line);
+        item->setEditable(false);
+        item->setForeground(QColor(20, 92, 160));
+        item->setBackground(QColor(218, 241, 255));
+        m_chatModel->appendRow(item);
+        if (!pixmap.isNull()) {
+            QStandardItem* previewItem = new QStandardItem(info.fileName());
+            previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
+            previewItem->setEditable(false);
+            previewItem->setBackground(QColor(246, 250, 253));
+            m_chatModel->appendRow(previewItem);
+        }
+        ui->chatListView->scrollToBottom();
+        return;
+    }
+
     bool ok = m_client->sendImage(filePath, m_privateChatTarget);
     if (ok) {
-        QFileInfo info(filePath);
         appendSystemMessage("已发送图片: " + info.fileName());
     } else {
         QMessageBox::warning(this, "发送失败", "图片发送失败");
