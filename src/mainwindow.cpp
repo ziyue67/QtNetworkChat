@@ -1169,6 +1169,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* createGroupAction = menu.addAction("创建群聊");
     QAction* addFriendAction = menu.addAction("加好友/群");
     QAction* refreshContactsAction = menu.addAction("刷新联系人");
+    QAction* clearSearchAction = menu.addAction("清空搜索");
     QAction* copyChatIdAction = menu.addAction("复制当前会话号");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* sendImageAction = menu.addAction("发送图片");
@@ -1194,6 +1195,13 @@ void MainWindow::onShowCreateMenu() {
         refreshFriendList();
         refreshGroupMemberPanel();
         ui->statusbar->showMessage("联系人和群成员已刷新", 2000);
+    } else if (selected == clearSearchAction) {
+        ui->contactSearchEdit->clear();
+        ui->memberSearchEdit->clear();
+        m_contactFilter.clear();
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        ui->statusbar->showMessage("搜索条件已清空", 1800);
     } else if (selected == copyChatIdAction) {
         QString chatId = m_privateChatTarget;
         if (chatId.startsWith("local_group_")) chatId = chatId.mid(QString("local_group_").size());
