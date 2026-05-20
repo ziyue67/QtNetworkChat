@@ -1503,13 +1503,11 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             appendSystemMessage("已发送好友申请: " + userName);
         }
     } else if (selected == removeAction) {
-        if (QMessageBox::question(this, "删除好友", "确定删除好友 " + userName + " 吗？") == QMessageBox::Yes) {
-            m_friendIds.removeAll(userId);
-            m_friendNames.remove(userId);
-            saveFriends();
-            refreshFriendList();
-            appendSystemMessage("已删除好友: " + userName);
-        }
+        m_friendIds.removeAll(userId);
+        m_friendNames.remove(userId);
+        saveFriends();
+        refreshFriendList();
+        appendSystemMessage("已删除好友: " + userName);
     }
 }
 
