@@ -410,6 +410,8 @@ void MainWindow::setupUi() {
         QAction* mentionAction = menu.addAction("@成员");
         QAction* friendCardAction = menu.addAction("插入我的QQ名片");
         QAction* groupCardAction = menu.addAction("插入当前会话名片");
+        QAction* fileTemplateAction = menu.addAction("插入发文件模板");
+        QAction* groupInviteTemplateAction = menu.addAction("插入拉群模板");
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->messageEdit->paste();
@@ -441,6 +443,14 @@ void MainWindow::setupUi() {
                 card = QString("公共聊天室 当前QQ:%1").arg(m_currentUserId);
             }
             ui->messageEdit->insertPlainText(card);
+            ui->messageEdit->setFocus();
+        } else if (selected == fileTemplateAction) {
+            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+            ui->messageEdit->insertPlainText(QString("我准备发一个文件到 %1，请注意查收。").arg(target));
+            ui->messageEdit->setFocus();
+        } else if (selected == groupInviteTemplateAction) {
+            QString target = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
+            ui->messageEdit->insertPlainText(QString("我想邀请你加入 %1，一起在群里沟通。").arg(target));
             ui->messageEdit->setFocus();
         }
     });
