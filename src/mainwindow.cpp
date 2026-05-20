@@ -1434,11 +1434,33 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QMenu menu(this);
     if (m_localGroupIds.contains(userId)) {
         QAction* openGroupAction = menu.addAction("进入群聊");
+        QAction* inviteFriendAction = menu.addAction("邀请好友");
         QAction* renameGroupAction = menu.addAction("重命名群聊");
         QAction* deleteGroupAction = menu.addAction("删除群聊");
         QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
         if (selected == openGroupAction) {
             switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
+        } else if (selected == inviteFriendAction) {
+            if (m_friendIds.isEmpty()) {
+                appendSystemMessage("当前没有好友可邀请");
+            } else {
+                QStringList friendLabels;
+                QMap<QString, QString> labelToId;
+                for (const QString& friendId : m_friendIds) {
+                    QString label = QString("%1 (QQ:%2)").arg(m_friendNames.value(friendId, friendId), friendId);
+                    friendLabels << label;
+                    labelToId[label] = friendId;
+                }
+                bool ok = false;
+                QString selectedFriend = QInputDialog::getItem(this, "邀请好友", "选择好友:", friendLabels, 0, false, &ok);
+                if (ok && !selectedFriend.isEmpty()) {
+                    QString friendId = labelToId.value(selectedFriend);
+                    QString friendName = m_friendNames.value(friendId, friendId);
+                    switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
+                    appendSystemMessage(QString("已邀请 %1 加入群聊").arg(friendName));
+                    saveHistory(userId, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), friendName));
+                }
+            }
         } else if (selected == renameGroupAction) {
             bool ok = false;
             QString newName = QInputDialog::getText(this, "重命名群聊", "群聊名称:", QLineEdit::Normal, m_localGroupNames.value(userId, "群聊"), &ok).trimmed();
