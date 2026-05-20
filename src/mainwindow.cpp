@@ -2507,12 +2507,15 @@ void MainWindow::onShowGroupNotifications() {
     cardBtn->setObjectName("noticeGhostBtn");
     QPushButton* announceBtn = new QPushButton("复制公告", &dialog);
     announceBtn->setObjectName("noticeGhostBtn");
+    QPushButton* memberBtn = new QPushButton("复制成员", &dialog);
+    memberBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     actionLayout->addWidget(openBtn);
     actionLayout->addWidget(copyBtn);
     actionLayout->addWidget(cardBtn);
     actionLayout->addWidget(announceBtn);
+    actionLayout->addWidget(memberBtn);
     actionLayout->addWidget(closeBtn);
     layout->addLayout(actionLayout);
 
@@ -2614,6 +2617,19 @@ void MainWindow::onShowGroupNotifications() {
             : m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
         QApplication::clipboard()->setText(announcement);
         ui->statusbar->showMessage("群公告已复制", 1800);
+    });
+    connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        if (!current) return;
+        QString groupId = current->data(Qt::UserRole).toString();
+        QStringList members = groupId.isEmpty() ? QStringList{m_currentUserId} : m_localGroupMembers.value(groupId);
+        if (members.isEmpty()) members << m_currentUserId;
+        QStringList cards;
+        for (const QString& id : members) {
+            cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
+        }
+        QApplication::clipboard()->setText(cards.join('\n'));
+        ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
     });
     connect(noticeList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedGroup](QListWidgetItem*) { openSelectedGroup(); });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
