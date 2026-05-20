@@ -1168,6 +1168,7 @@ void MainWindow::onShowCreateMenu() {
     QMenu menu(this);
     QAction* createGroupAction = menu.addAction("创建群聊");
     QAction* addFriendAction = menu.addAction("加好友/群");
+    QAction* refreshContactsAction = menu.addAction("刷新联系人");
     QAction* copyChatIdAction = menu.addAction("复制当前会话号");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* sendImageAction = menu.addAction("发送图片");
@@ -1189,6 +1190,10 @@ void MainWindow::onShowCreateMenu() {
         appendSystemMessage("已创建群聊: " + groupName);
     } else if (selected == addFriendAction) {
         onShowGlobalSearch();
+    } else if (selected == refreshContactsAction) {
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        ui->statusbar->showMessage("联系人和群成员已刷新", 2000);
     } else if (selected == copyChatIdAction) {
         QString chatId = m_privateChatTarget;
         if (chatId.startsWith("local_group_")) chatId = chatId.mid(QString("local_group_").size());
