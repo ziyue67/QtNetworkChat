@@ -1777,26 +1777,66 @@ void MainWindow::onShowGroupNotifications() {
     QDialog dialog(this);
     dialog.setObjectName("noticeDialog");
     dialog.setWindowTitle("群通知");
-    dialog.setFixedSize(760, 520);
+    dialog.setFixedSize(760, 560);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(18);
 
+    QHBoxLayout* titleLayout = new QHBoxLayout;
     QLabel* titleLabel = new QLabel("群通知", &dialog);
     titleLabel->setObjectName("noticeTitle");
-    layout->addWidget(titleLabel);
+    titleLayout->addWidget(titleLabel);
+    titleLayout->addStretch();
+    QLabel* countLabel = new QLabel(QString("已加入 %1 个群聊").arg(m_localGroupIds.size() + 1), &dialog);
+    countLabel->setObjectName("noticeSubTitle");
+    titleLayout->addWidget(countLabel);
+    layout->addLayout(titleLayout);
 
     QListWidget* noticeList = new QListWidget(&dialog);
     noticeList->setObjectName("noticeList");
-    QListWidgetItem* item = new QListWidgetItem(QString("%1  当前公共聊天室\n你已加入默认群聊，可直接发送消息和文件。\n群成员列表会根据在线用户自动刷新。").arg(m_currentUserName));
-    item->setSizeHint(QSize(0, 92));
-    noticeList->addItem(item);
+    QListWidgetItem* publicItem = new QListWidgetItem(QString("默认公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人").arg(m_knownUsers.size()));
+    publicItem->setData(Qt::UserRole, QString());
+    publicItem->setSizeHint(QSize(0, 96));
+    noticeList->addItem(publicItem);
+
+    for (const QString& groupId : m_localGroupIds) {
+        QString groupName = m_localGroupNames.value(groupId, "群聊");
+        QStringList members = m_localGroupMembers.value(groupId);
+        if (members.isEmpty()) members << m_currentUserId;
+        QString announcement = m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName));
+        QListWidgetItem* item = new QListWidgetItem(QString("%1\n群号：%2 · 成员：%3 人\n%4").arg(groupName, groupId.mid(QString("local_group_").size())).arg(members.size()).arg(announcement));
+        item->setData(Qt::UserRole, groupId);
+        item->setSizeHint(QSize(0, 108));
+        noticeList->addItem(item);
+    }
     layout->addWidget(noticeList, 1);
 
+    QHBoxLayout* actionLayout = new QHBoxLayout;
+    QLabel* hintLabel = new QLabel("双击群通知可直接进入群聊", &dialog);
+    hintLabel->setObjectName("noticeHint");
+    actionLayout->addWidget(hintLabel);
+    actionLayout->addStretch();
+    QPushButton* openBtn = new QPushButton("进入选中群聊", &dialog);
+    openBtn->setObjectName("noticePrimaryBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
-    layout->addWidget(closeBtn, 0, Qt::AlignRight);
+    actionLayout->addWidget(openBtn);
+    actionLayout->addWidget(closeBtn);
+    layout->addLayout(actionLayout);
+
+    auto openSelectedGroup = [this, noticeList, &dialog]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        if (!current) return;
+        QString groupId = current->data(Qt::UserRole).toString();
+        dialog.accept();
+        if (groupId.isEmpty()) {
+            onBackToGroupChat();
+            return;
+        }
+        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, "群聊"));
+    };
+
     dialog.setStyleSheet(R"(
         QDialog#noticeDialog {
             background: #F4F4F4;
@@ -1807,6 +1847,11 @@ void MainWindow::onShowGroupNotifications() {
             font-size: 20px;
             font-weight: 900;
         }
+        QLabel#noticeSubTitle, QLabel#noticeHint {
+            color: #6B7A88;
+            font-size: 13px;
+            font-weight: 700;
+        }
         QListWidget#noticeList {
             background: #F4F4F4;
             border: none;
@@ -1815,9 +1860,22 @@ void MainWindow::onShowGroupNotifications() {
         QListWidget#noticeList::item {
             background: white;
             border-radius: 10px;
-            margin: 8px 80px;
+            margin: 7px 44px;
             padding: 14px 18px;
             color: #263238;
+        }
+        QListWidget#noticeList::item:selected {
+            background: #DFF2FF;
+            color: #102A43;
+        }
+        QPushButton#noticePrimaryBtn {
+            min-height: 34px;
+            border-radius: 17px;
+            padding: 6px 18px;
+            font-weight: 800;
+            background: #12B7F5;
+            color: white;
+            border: none;
         }
         QPushButton#noticeGhostBtn {
             min-height: 34px;
@@ -1829,6 +1887,8 @@ void MainWindow::onShowGroupNotifications() {
             border: 1px solid #D4E1EC;
         }
     )");
+    connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
+    connect(noticeList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedGroup](QListWidgetItem*) { openSelectedGroup(); });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
     dialog.exec();
 }
