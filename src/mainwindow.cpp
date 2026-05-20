@@ -109,6 +109,7 @@ void MainWindow::setupUi() {
 
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
     ui->groupMemberListView->setModel(m_groupMemberModel);
+    ui->groupMemberListView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Ctrl+Enter 换行)");
     ui->messageEdit->setFocus();
@@ -428,6 +429,36 @@ void MainWindow::setupUi() {
         loadHistory(targetId);
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(targetId)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, isContactOnline(targetId) ? "在线" : "离线"));
+    });
+    connect(ui->groupMemberListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QModelIndex index = ui->groupMemberListView->indexAt(pos);
+        if (!index.isValid() || !m_privateChatTarget.startsWith("local_group_")) return;
+        QString memberId = index.data(Qt::UserRole + 1).toString();
+        if (memberId.isEmpty() || memberId == m_currentUserId) return;
+        QMenu menu(this);
+        QAction* chatAction = menu.addAction("私聊");
+        QAction* removeAction = menu.addAction("移出群聊");
+        QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
+        if (selected == chatAction) {
+            if (!m_friendIds.contains(memberId)) {
+                m_friendIds << memberId;
+                m_friendNames[memberId] = contactDisplayName(memberId);
+                saveFriends();
+                refreshFriendList();
+                m_client->sendFriendRequest(memberId);
+            }
+            m_privateChatTarget = memberId;
+            m_chatModel->clear();
+            m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
+            loadHistory(memberId);
+            ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(memberId)));
+            ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(memberId, isContactOnline(memberId) ? "在线" : "离线"));
+        } else if (selected == removeAction) {
+            m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
+            saveLocalGroups();
+            refreshGroupMemberPanel();
+            appendSystemMessage(QString("已将 %1 移出群聊").arg(contactDisplayName(memberId)));
+        }
     });
     connect(ui->clearBtn, &QPushButton::clicked, this, &MainWindow::onClearHistory);
     ui->announcementTitleLabel->setText("群公告 <a href=\"edit\">+</a>");
