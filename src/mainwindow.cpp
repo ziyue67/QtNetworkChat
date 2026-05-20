@@ -462,6 +462,7 @@ void MainWindow::setupUi() {
                 refreshFriendList();
                 refreshGroupMemberPanel();
                 appendSystemMessage("已按 QQ 号邀请入群: " + account);
+                saveHistory(m_privateChatTarget, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
             }
             return;
         }
