@@ -840,6 +840,8 @@ void MainWindow::onSendFile() {
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         appendSystemMessage(QString("文件发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
         ui->chatListView->scrollToBottom();
         return;
     }
@@ -847,6 +849,8 @@ void MainWindow::onSendFile() {
     bool ok = m_client->sendFile(filePath, m_privateChatTarget);
     if (ok) {
         appendSystemMessage(QString("已发送文件: %1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
     } else {
         QMessageBox::warning(this, "发送失败", "文件发送失败");
     }
@@ -877,6 +881,8 @@ void MainWindow::onSendImage() {
             m_chatModel->appendRow(previewItem);
         }
         appendSystemMessage(QString("图片发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        ui->chatHintLabel->setText(QString("已发送图片到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送图片到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
         ui->chatListView->scrollToBottom();
         return;
     }
@@ -884,6 +890,8 @@ void MainWindow::onSendImage() {
     bool ok = m_client->sendImage(filePath, m_privateChatTarget);
     if (ok) {
         appendSystemMessage(QString("已发送图片: %1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        ui->chatHintLabel->setText(QString("已发送图片到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送图片到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
     } else {
         QMessageBox::warning(this, "发送失败", "图片发送失败");
     }
