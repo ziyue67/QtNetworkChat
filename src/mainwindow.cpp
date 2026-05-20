@@ -418,12 +418,18 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         QAction* copyAction = menu.addAction("复制消息");
         QAction* quoteAction = menu.addAction("引用回复");
+        QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (selected == copyAction) {
             QApplication::clipboard()->setText(text);
             ui->statusbar->showMessage("消息已复制", 1800);
         } else if (selected == quoteAction) {
             ui->messageEdit->setPlainText(QString("> %1\n").arg(text));
+            ui->messageEdit->setFocus();
+        } else if (selected == mentionReplyAction) {
+            QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();
+            if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
+            ui->messageEdit->setPlainText(QString("@%1 ").arg(name));
             ui->messageEdit->setFocus();
         }
     });
