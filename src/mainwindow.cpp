@@ -1799,7 +1799,7 @@ void MainWindow::onShowFriendManager() {
     QDialog dialog(this);
     dialog.setObjectName("friendManagerDialog");
     dialog.setWindowTitle("好友管理器");
-    dialog.setFixedSize(520, 560);
+    dialog.setFixedSize(620, 560);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -1877,6 +1877,8 @@ void MainWindow::onShowFriendManager() {
     remarkBtn->setObjectName("managerSecondaryBtn");
     QPushButton* inviteBtn = new QPushButton("邀入群", body);
     inviteBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* inviteVisibleBtn = new QPushButton("邀请可见", body);
+    inviteVisibleBtn->setObjectName("managerSecondaryBtn");
     QPushButton* deleteBtn = new QPushButton("删除好友", body);
     deleteBtn->setObjectName("managerDangerBtn");
     QPushButton* closeBtn = new QPushButton("关闭", body);
@@ -1890,6 +1892,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(profileBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
+    buttonLayout->addWidget(inviteVisibleBtn);
     buttonLayout->addWidget(deleteBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
@@ -2072,6 +2075,31 @@ void MainWindow::onShowFriendManager() {
         refreshGroupMemberPanel();
         appendSystemMessage(QString("已邀请 %1 加入群聊").arg(contactDisplayName(friendId)));
         saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), contactDisplayName(friendId)));
+    });
+    connect(inviteVisibleBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
+        if (m_localGroupIds.isEmpty()) {
+            QString groupName = "好友群聊";
+            QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+            m_localGroupIds << groupId;
+            m_localGroupNames[groupId] = groupName;
+            m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
+            m_localGroupMembers[groupId] = QStringList{m_currentUserId};
+        }
+        QString targetGroup = m_privateChatTarget.startsWith("local_group_") ? m_privateChatTarget : m_localGroupIds.last();
+        int invitedCount = 0;
+        for (int i = 0; i < friendList->count(); ++i) {
+            QListWidgetItem* item = friendList->item(i);
+            QString friendId = item->data(Qt::UserRole).toString();
+            if (friendId.isEmpty() || friendId.startsWith("search_add:") || m_localGroupMembers[targetGroup].contains(friendId)) continue;
+            m_localGroupMembers[targetGroup] << friendId;
+            ++invitedCount;
+        }
+        saveLocalGroups();
+        refreshFriendList();
+        switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
+        refreshGroupMemberPanel();
+        appendSystemMessage(QString("已邀请 %1 位可见好友加入群聊").arg(invitedCount));
+        saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 位可见好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(invitedCount));
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
