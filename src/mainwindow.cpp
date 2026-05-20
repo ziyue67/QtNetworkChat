@@ -2432,7 +2432,9 @@ void MainWindow::refreshFriendList() {
         ++visibleOnlineUsers;
     }
 
-    ui->onlineTitleLabel->setText(QString("联系人 · 好友%1 · 群聊%2 · 在线%3").arg(visibleFriends).arg(visibleGroups).arg(visibleOnlineUsers));
+    ui->onlineTitleLabel->setText(m_contactFilter.isEmpty()
+        ? QString("联系人 · 好友%1 · 群聊%2 · 在线%3").arg(visibleFriends).arg(visibleGroups).arg(visibleOnlineUsers)
+        : QString("联系人 · 匹配%1 · 好友%2 · 群聊%3 · 在线%4").arg(visibleCount).arg(visibleFriends).arg(visibleGroups).arg(visibleOnlineUsers));
 
     if (visibleCount == 0 && !m_contactFilter.isEmpty()) {
         QStandardItem* addItem = new QStandardItem(QString("搜索并添加 QQ:%1\n   回车或双击自动查找好友").arg(m_contactFilter));
@@ -2440,6 +2442,7 @@ void MainWindow::refreshFriendList() {
         addItem->setForeground(QColor(255, 255, 255));
         addItem->setBackground(QColor(18, 183, 245));
         m_userListModel->appendRow(addItem);
+        ui->onlineTitleLabel->setText(QString("联系人 · 未匹配 · 可搜索QQ:%1").arg(m_contactFilter));
     }
 }
 
