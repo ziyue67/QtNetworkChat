@@ -1462,7 +1462,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(360, 230);
+    dialog.setFixedSize(420, 300);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -1483,6 +1483,37 @@ void MainWindow::onShowQuickAddFriend() {
     hintLabel->setObjectName("quickAddHint");
     hintLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(hintLabel);
+
+    QListWidget* suggestionList = new QListWidget(&dialog);
+    suggestionList->setObjectName("quickAddSuggestionList");
+    suggestionList->setFixedHeight(76);
+    layout->addWidget(suggestionList);
+
+    auto fillSuggestions = [this, accountEdit, suggestionList]() {
+        suggestionList->clear();
+        QString filter = accountEdit->text().trimmed();
+        int count = 0;
+        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end() && count < 3; ++it) {
+            const ChatUser& user = it.value();
+            if (user.id == m_currentUserId || m_friendIds.contains(user.id)) continue;
+            if (!filter.isEmpty()
+                && !user.id.contains(filter, Qt::CaseInsensitive)
+                && !user.name.contains(filter, Qt::CaseInsensitive)) continue;
+            QListWidgetItem* item = new QListWidgetItem(QString("QQ:%1 · %2 · 在线").arg(user.id, user.name));
+            item->setData(Qt::UserRole, user.id);
+            item->setSizeHint(QSize(0, 34));
+            suggestionList->addItem(item);
+            ++count;
+        }
+        if (suggestionList->count() == 0) {
+            QListWidgetItem* item = new QListWidgetItem(filter.isEmpty() ? "输入 QQ 号后回车搜索添加" : QString("回车搜索并添加 QQ:%1").arg(filter));
+            item->setData(Qt::UserRole, filter.isEmpty() ? QString() : filter);
+            item->setForeground(QColor(135, 150, 165));
+            item->setSizeHint(QSize(0, 34));
+            suggestionList->addItem(item);
+        }
+    };
+    fillSuggestions();
 
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* cancelBtn = new QPushButton("取消", &dialog);
@@ -1521,6 +1552,22 @@ void MainWindow::onShowQuickAddFriend() {
             border: 1px solid #12B7F5;
             background: white;
         }
+        QListWidget#quickAddSuggestionList {
+            background: #F8FBFE;
+            border: 1px solid #E4EEF6;
+            border-radius: 12px;
+            padding: 4px;
+            outline: none;
+        }
+        QListWidget#quickAddSuggestionList::item {
+            border-radius: 8px;
+            padding: 4px 8px;
+            color: #3A4A5A;
+        }
+        QListWidget#quickAddSuggestionList::item:selected, QListWidget#quickAddSuggestionList::item:hover {
+            background: #EAF7FF;
+            color: #1296F7;
+        }
         QPushButton {
             min-height: 36px;
             border-radius: 18px;
@@ -1553,6 +1600,13 @@ void MainWindow::onShowQuickAddFriend() {
         searchAndAddAccount(account, &dialog);
         dialog.accept();
     };
+    connect(accountEdit, &QLineEdit::textChanged, &dialog, [fillSuggestions]() { fillSuggestions(); });
+    connect(suggestionList, &QListWidget::itemDoubleClicked, &dialog, [accountEdit, runQuickAdd](QListWidgetItem* item) {
+        QString account = item->data(Qt::UserRole).toString();
+        if (account.isEmpty()) return;
+        accountEdit->setText(account);
+        runQuickAdd();
+    });
     connect(searchBtn, &QPushButton::clicked, &dialog, runQuickAdd);
     connect(accountEdit, &QLineEdit::returnPressed, &dialog, runQuickAdd);
 
