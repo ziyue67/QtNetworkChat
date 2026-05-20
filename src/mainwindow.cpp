@@ -2156,6 +2156,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* openGroupAction = menu.addAction("进入群聊");
         QAction* copyGroupAction = menu.addAction("复制群号");
         QAction* copyGroupCardAction = menu.addAction("复制群名片");
+        QAction* copyMembersAction = menu.addAction("复制成员列表");
         QAction* inviteFriendAction = menu.addAction("邀请好友");
         QAction* inviteByAccountAction = menu.addAction("按QQ号邀请");
         QAction* inviteAllAction = menu.addAction("邀请全部好友");
@@ -2177,6 +2178,13 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                      m_localGroupAnnouncements.value(userId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(m_localGroupNames.value(userId, "群聊"))));
             QApplication::clipboard()->setText(card);
             ui->statusbar->showMessage("群名片已复制", 1800);
+        } else if (selected == copyMembersAction) {
+            QStringList cards;
+            for (const QString& id : m_localGroupMembers.value(userId)) {
+                cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
+            }
+            QApplication::clipboard()->setText(cards.join('\n'));
+            ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
         } else if (selected == inviteFriendAction) {
             if (m_friendIds.isEmpty()) {
                 appendSystemMessage("当前没有好友可邀请");
