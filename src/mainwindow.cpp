@@ -1596,11 +1596,13 @@ void MainWindow::onShowFriendManager() {
         QString targetGroup = m_privateChatTarget.startsWith("local_group_") ? m_privateChatTarget : m_localGroupIds.last();
         if (!m_localGroupMembers[targetGroup].contains(friendId)) {
             m_localGroupMembers[targetGroup] << friendId;
-            saveLocalGroups();
         }
+        saveLocalGroups();
         refreshFriendList();
         switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
+        refreshGroupMemberPanel();
         appendSystemMessage(QString("已邀请 %1 加入群聊").arg(contactDisplayName(friendId)));
+        saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), contactDisplayName(friendId)));
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
