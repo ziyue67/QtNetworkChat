@@ -1605,6 +1605,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* openGroupAction = menu.addAction("进入群聊");
         QAction* copyGroupAction = menu.addAction("复制群号");
         QAction* inviteFriendAction = menu.addAction("邀请好友");
+        QAction* inviteByAccountAction = menu.addAction("按QQ号邀请");
         QAction* inviteAllAction = menu.addAction("邀请全部好友");
         QAction* renameGroupAction = menu.addAction("重命名群聊");
         QAction* deleteGroupAction = menu.addAction("删除群聊");
@@ -1639,6 +1640,25 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                     appendSystemMessage(QString("已邀请 %1 加入群聊").arg(friendName));
                     saveHistory(userId, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), friendName));
                 }
+            }
+        } else if (selected == inviteByAccountAction) {
+            bool ok = false;
+            QString account = QInputDialog::getText(this, "按QQ号邀请", "输入 QQ 账号:", QLineEdit::Normal, QString(), &ok).trimmed();
+            if (ok && !account.isEmpty() && account != m_currentUserId) {
+                if (!m_localGroupMembers[userId].contains(account)) {
+                    m_localGroupMembers[userId] << account;
+                    if (!m_friendIds.contains(account)) {
+                        m_friendIds << account;
+                        m_friendNames[account] = contactDisplayName(account);
+                        saveFriends();
+                        m_client->sendFriendRequest(account);
+                    }
+                    saveLocalGroups();
+                    refreshFriendList();
+                }
+                switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
+                appendSystemMessage(QString("已按 QQ 号邀请 %1 加入群聊").arg(account));
+                saveHistory(userId, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
             }
         } else if (selected == inviteAllAction) {
             int addedCount = 0;
