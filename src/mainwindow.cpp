@@ -849,9 +849,11 @@ void MainWindow::onNewMessage(const Message& msg) {
         QString peerId = msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId;
         if (!m_privateChatTarget.isEmpty() && peerId != m_privateChatTarget) {
             saveHistory(peerId, line);
-            if (!isActiveWindow()) {
-                ++m_unreadCount;
-                updateUnreadState();
+            ++m_unreadCount;
+            updateUnreadState();
+            ui->statusbar->showMessage(QString("新的私聊消息 · %1：%2").arg(displayName, msg.content.left(24)), 5000);
+            if (m_trayIcon->isVisible()) {
+                m_trayIcon->showMessage("新的私聊消息", QString("%1: %2").arg(displayName, msg.content), QSystemTrayIcon::Information, 3000);
             }
             return;
         }
@@ -920,7 +922,9 @@ void MainWindow::onNewMessage(const Message& msg) {
         ++m_unreadCount;
         updateUnreadState();
         if (m_trayIcon->isVisible()) {
-            m_trayIcon->showMessage("QtNetworkChat", QString("%1: %2").arg(displayName, msg.content), QSystemTrayIcon::Information, 3000);
+            QString preview = msg.type == MessageType::File ? msg.content : msg.content.left(60);
+            if (msg.type == MessageType::Image) preview = "[图片] " + msg.fileName;
+            m_trayIcon->showMessage("QtNetworkChat", QString("%1: %2").arg(displayName, preview), QSystemTrayIcon::Information, 3000);
         }
     }
 
