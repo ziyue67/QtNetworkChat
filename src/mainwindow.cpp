@@ -1446,6 +1446,8 @@ void MainWindow::onShowFriendManager() {
     copyBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
     remarkBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* inviteBtn = new QPushButton("邀入群", body);
+    inviteBtn->setObjectName("managerSecondaryBtn");
     QPushButton* deleteBtn = new QPushButton("删除好友", body);
     deleteBtn->setObjectName("managerDangerBtn");
     QPushButton* closeBtn = new QPushButton("关闭", body);
@@ -1454,6 +1456,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(chatBtn);
     buttonLayout->addWidget(copyBtn);
     buttonLayout->addWidget(remarkBtn);
+    buttonLayout->addWidget(inviteBtn);
     buttonLayout->addWidget(deleteBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
@@ -1576,6 +1579,19 @@ void MainWindow::onShowFriendManager() {
             fillList(searchEdit->text().trimmed());
             appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(id, remark));
         }
+    });
+    connect(inviteBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
+        QListWidgetItem* selected = friendList->currentItem();
+        if (!selected || m_localGroupIds.isEmpty()) return;
+        QString friendId = selected->data(Qt::UserRole).toString();
+        if (friendId.isEmpty() || friendId.startsWith("search_add:")) return;
+        QString targetGroup = m_privateChatTarget.startsWith("local_group_") ? m_privateChatTarget : m_localGroupIds.last();
+        if (!m_localGroupMembers[targetGroup].contains(friendId)) {
+            m_localGroupMembers[targetGroup] << friendId;
+            saveLocalGroups();
+        }
+        switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
+        appendSystemMessage(QString("已邀请 %1 加入群聊").arg(contactDisplayName(friendId)));
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
