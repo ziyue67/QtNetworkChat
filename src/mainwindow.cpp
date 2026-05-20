@@ -1938,15 +1938,18 @@ void MainWindow::onShowFriendManager() {
 
     QFrame* header = new QFrame(&dialog);
     header->setObjectName("managerHeader");
-    header->setFixedHeight(118);
+    header->setFixedHeight(132);
     QVBoxLayout* headerLayout = new QVBoxLayout(header);
     headerLayout->setContentsMargins(26, 18, 26, 16);
     QLabel* titleLabel = new QLabel("好友管理器", header);
     titleLabel->setObjectName("managerTitle");
     QLabel* subTitleLabel = new QLabel(QString("当前 QQ：%1 · 好友 %2 人").arg(m_currentUserId).arg(m_friendIds.size()), header);
     subTitleLabel->setObjectName("managerSubTitle");
+    QLabel* statsLabel = new QLabel(header);
+    statsLabel->setObjectName("managerStats");
     headerLayout->addWidget(titleLabel);
     headerLayout->addWidget(subTitleLabel);
+    headerLayout->addWidget(statsLabel);
     layout->addWidget(header);
 
     QFrame* body = new QFrame(&dialog);
@@ -1965,21 +1968,33 @@ void MainWindow::onShowFriendManager() {
     friendList->setObjectName("managerList");
     bodyLayout->addWidget(friendList, 1);
 
-    auto fillList = [this, friendList](const QString& filter = QString()) {
+    auto fillList = [this, friendList, subTitleLabel, statsLabel](const QString& filter = QString()) {
         friendList->clear();
+        int onlineCount = 0;
+        int offlineCount = 0;
+        int visibleCount = 0;
         for (const QString& id : m_friendIds) {
             QString name = m_friendNames.value(id, id);
+            bool online = isContactOnline(id);
+            if (online) {
+                ++onlineCount;
+            } else {
+                ++offlineCount;
+            }
             if (!filter.isEmpty()
                 && !id.contains(filter, Qt::CaseInsensitive)
                 && !name.contains(filter, Qt::CaseInsensitive)) {
                 continue;
             }
-            QString state = isContactOnline(id) ? "在线" : "离线";
+            QString state = online ? "在线" : "离线";
             QListWidgetItem* item = new QListWidgetItem(QString("QQ:%1\n%2 · %3").arg(id, name, state));
             item->setData(Qt::UserRole, id);
             item->setSizeHint(QSize(0, 58));
             friendList->addItem(item);
+            ++visibleCount;
         }
+        subTitleLabel->setText(QString("当前 QQ：%1 · 好友 %2 人 · 可见 %3 人").arg(m_currentUserId).arg(m_friendIds.size()).arg(visibleCount));
+        statsLabel->setText(QString("在线 %1 · 离线 %2 · 本地群 %3").arg(onlineCount).arg(offlineCount).arg(m_localGroupIds.size()));
         if (friendList->count() == 0) {
             QListWidgetItem* emptyItem = new QListWidgetItem(filter.isEmpty() ? "暂无好友，点击下方加好友" : QString("未找到好友，双击搜索并添加 QQ:%1").arg(filter));
             emptyItem->setData(Qt::UserRole, filter.isEmpty() ? QString() : "search_add:" + filter);
@@ -2046,6 +2061,14 @@ void MainWindow::onShowFriendManager() {
         QLabel#managerSubTitle {
             color: rgba(255, 255, 255, 220);
             font-size: 13px;
+        }
+        QLabel#managerStats {
+            color: white;
+            background: rgba(255, 255, 255, 35);
+            border-radius: 12px;
+            padding: 3px 10px;
+            font-size: 12px;
+            font-weight: 800;
         }
         QFrame#managerBody {
             background: #F7FAFD;
