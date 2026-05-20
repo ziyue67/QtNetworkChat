@@ -456,6 +456,7 @@ void MainWindow::setupUi() {
         QAction* copyPlainAction = menu.addAction("只复制内容");
         QAction* copySenderAction = menu.addAction("复制发送者");
         QAction* quoteAction = menu.addAction("引用回复");
+        QAction* forwardAction = menu.addAction("转发到输入框");
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (selected == copyAction) {
@@ -473,6 +474,11 @@ void MainWindow::setupUi() {
             ui->statusbar->showMessage("发送者已复制", 1800);
         } else if (selected == quoteAction) {
             ui->messageEdit->setPlainText(QString("> %1\n").arg(text));
+            ui->messageEdit->setFocus();
+        } else if (selected == forwardAction) {
+            QString content = text.section(']', 2).trimmed();
+            if (content.isEmpty()) content = text;
+            ui->messageEdit->setPlainText(QString("转发：%1").arg(content));
             ui->messageEdit->setFocus();
         } else if (selected == mentionReplyAction) {
             QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();
