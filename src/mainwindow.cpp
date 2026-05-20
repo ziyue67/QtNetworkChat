@@ -393,11 +393,14 @@ void MainWindow::setupUi() {
     connect(ui->messageEdit, &QTextEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu menu(this);
         QAction* pasteAction = menu.addAction("粘贴");
+        QAction* sendAction = menu.addAction("立即发送");
         QAction* clearAction = menu.addAction("清空输入");
         QAction* quickAction = menu.addAction("插入快捷语");
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->messageEdit->paste();
+        } else if (selected == sendAction) {
+            onSendMessage();
         } else if (selected == clearAction) {
             ui->messageEdit->clear();
         } else if (selected == quickAction) {
