@@ -2174,6 +2174,8 @@ void MainWindow::onShowFriendNotifications() {
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* acceptBtn = new QPushButton("同意", &dialog);
     acceptBtn->setObjectName("noticePrimaryBtn");
+    QPushButton* acceptAllBtn = new QPushButton("一键同意全部", &dialog);
+    acceptAllBtn->setObjectName("noticePrimaryBtn");
     QPushButton* rejectBtn = new QPushButton("拒绝", &dialog);
     rejectBtn->setObjectName("noticeDangerBtn");
     QPushButton* copyBtn = new QPushButton("复制名片", &dialog);
@@ -2181,6 +2183,7 @@ void MainWindow::onShowFriendNotifications() {
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     buttonLayout->addWidget(acceptBtn);
+    buttonLayout->addWidget(acceptAllBtn);
     buttonLayout->addWidget(rejectBtn);
     buttonLayout->addWidget(copyBtn);
     buttonLayout->addStretch();
@@ -2255,6 +2258,25 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         appendSystemMessage("已同意好友申请 QQ: " + id);
+    });
+    connect(acceptAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
+        QStringList pending = m_pendingFriendRequests;
+        if (pending.isEmpty()) return;
+        for (const QString& id : pending) {
+            if (id.isEmpty()) continue;
+            QString name = m_friendNames.value(id, id);
+            m_client->sendFriendResponse(id, true);
+            if (!m_friendIds.contains(id)) {
+                m_friendIds << id;
+            }
+            m_friendNames[id] = name;
+        }
+        m_pendingFriendRequests.clear();
+        saveFriends();
+        refreshFriendList();
+        updateBadge();
+        fillList();
+        appendSystemMessage(QString("已一键同意 %1 个好友申请").arg(pending.size()));
     });
     connect(rejectBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
         QListWidgetItem* item = noticeList->currentItem();
@@ -2333,12 +2355,15 @@ void MainWindow::onShowGroupNotifications() {
     openBtn->setObjectName("noticePrimaryBtn");
     QPushButton* copyBtn = new QPushButton("复制群号", &dialog);
     copyBtn->setObjectName("noticeGhostBtn");
+    QPushButton* cardBtn = new QPushButton("复制群名片", &dialog);
+    cardBtn->setObjectName("noticeGhostBtn");
     QPushButton* announceBtn = new QPushButton("复制公告", &dialog);
     announceBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     actionLayout->addWidget(openBtn);
     actionLayout->addWidget(copyBtn);
+    actionLayout->addWidget(cardBtn);
     actionLayout->addWidget(announceBtn);
     actionLayout->addWidget(closeBtn);
     layout->addLayout(actionLayout);
@@ -2413,6 +2438,24 @@ void MainWindow::onShowGroupNotifications() {
         QString copyId = groupId.isEmpty() ? "公共聊天室" : groupId.mid(QString("local_group_").size());
         QApplication::clipboard()->setText(copyId);
         ui->statusbar->showMessage("群号已复制: " + copyId, 2500);
+    });
+    connect(cardBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        if (!current) return;
+        QString groupId = current->data(Qt::UserRole).toString();
+        QString card;
+        if (groupId.isEmpty()) {
+            card = QString("公共聊天室\n当前账号:%1\n在线成员:%2").arg(m_currentUserId).arg(m_knownUsers.size());
+        } else {
+            QString groupNumber = groupId.mid(QString("local_group_").size());
+            QString groupName = m_localGroupNames.value(groupId, "群聊");
+            QStringList members = m_localGroupMembers.value(groupId);
+            QString announcement = m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
+            card = QString("群聊 QQ:%1\n%2\n成员:%3\n公告:%4")
+                .arg(groupNumber, groupName, QString::number(members.size()), announcement);
+        }
+        QApplication::clipboard()->setText(card);
+        ui->statusbar->showMessage("群名片已复制", 1800);
     });
     connect(announceBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
