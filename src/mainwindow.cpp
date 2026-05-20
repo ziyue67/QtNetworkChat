@@ -2482,6 +2482,9 @@ void MainWindow::refreshGroupMemberPanel() {
             addItem->setEditable(false);
             addItem->setForeground(QColor(18, 150, 247));
             m_groupMemberModel->appendRow(addItem);
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 可邀请QQ:%2").arg(members.size()).arg(filter));
+        } else if (!filter.isEmpty()) {
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 匹配%2").arg(members.size()).arg(visibleMembers));
         }
         return;
     }
@@ -2521,8 +2524,12 @@ void MainWindow::refreshGroupMemberPanel() {
         addItem->setEditable(false);
         addItem->setForeground(QColor(18, 150, 247));
         m_groupMemberModel->appendRow(addItem);
+        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 可搜索QQ:%2").arg(memberCount).arg(filter));
+        return;
     }
-    ui->memberTitleLabel->setText(QString("群聊成员 %1").arg(memberCount));
+    ui->memberTitleLabel->setText(filter.isEmpty()
+        ? QString("群聊成员 %1").arg(memberCount)
+        : QString("群聊成员 %1 · 匹配%2").arg(memberCount).arg(visibleMembers));
 }
 
 void MainWindow::loadAvatar() {
