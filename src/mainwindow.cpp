@@ -970,6 +970,7 @@ void MainWindow::onShowCreateMenu() {
         QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
         m_localGroupIds << groupId;
         m_localGroupNames[groupId] = groupName;
+        m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
         m_localGroupMembers[groupId] = QStringList{m_currentUserId};
         saveLocalGroups();
         refreshFriendList();
@@ -992,7 +993,7 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     setWindowTitle(QString("QtNetworkChat - 群聊: %1").arg(groupName));
     ui->chatTitleLabel->setText(groupName);
     ui->chatHintLabel->setText(QString("本地群聊 · 群号 %1 · 当前成员会自动显示在右侧").arg(groupId.mid(QString("local_group_").size())));
-    ui->announcementBodyLabel->setText(QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName));
+    ui->announcementBodyLabel->setText(m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName)));
     refreshGroupMemberPanel();
 }
 
@@ -1009,6 +1010,11 @@ void MainWindow::onEditGroupAnnouncement() {
         text = "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。";
     }
     ui->announcementBodyLabel->setText(text);
+    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        m_localGroupAnnouncements[m_privateChatTarget] = text;
+        saveLocalGroups();
+        saveHistory(m_privateChatTarget, QString("[%1] [系统] 群公告已更新: %2").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), text));
+    }
     appendSystemMessage("群公告已更新");
 }
 
@@ -1487,6 +1493,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         } else if (selected == deleteGroupAction) {
             m_localGroupIds.removeAll(userId);
             m_localGroupNames.remove(userId);
+            m_localGroupAnnouncements.remove(userId);
             m_localGroupMembers.remove(userId);
             saveLocalGroups();
             refreshFriendList();
@@ -1830,6 +1837,8 @@ void MainWindow::refreshFriendList() {
             QStringList members = line.section('|', 2).split(',', Qt::SkipEmptyParts);
             if (members.isEmpty() && !id.isEmpty()) members << m_currentUserId;
             if (!id.isEmpty()) m_localGroupMembers[id] = members;
+            QString announcement = line.section('|', 3);
+            if (!id.isEmpty()) m_localGroupAnnouncements[id] = announcement.isEmpty() ? QString("%1 已创建，可继续邀请好友并发送消息。").arg(m_localGroupNames.value(id, "群聊")) : announcement;
         }
     }
 
@@ -2029,7 +2038,7 @@ void MainWindow::saveLocalGroups() const {
     for (const QString& id : m_localGroupIds) {
         QStringList members = m_localGroupMembers.value(id);
         if (members.isEmpty()) members << m_currentUserId;
-        out << id << "|" << m_localGroupNames.value(id, "群聊") << "|" << members.join(',') << "\n";
+        out << id << "|" << m_localGroupNames.value(id, "群聊") << "|" << members.join(',') << "|" << m_localGroupAnnouncements.value(id) << "\n";
     }
 }
 
