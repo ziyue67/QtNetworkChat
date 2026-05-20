@@ -1444,6 +1444,8 @@ void MainWindow::onShowFriendManager() {
     chatBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", body);
     copyBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* remarkBtn = new QPushButton("备注", body);
+    remarkBtn->setObjectName("managerSecondaryBtn");
     QPushButton* deleteBtn = new QPushButton("删除好友", body);
     deleteBtn->setObjectName("managerDangerBtn");
     QPushButton* closeBtn = new QPushButton("关闭", body);
@@ -1451,6 +1453,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(addBtn);
     buttonLayout->addWidget(chatBtn);
     buttonLayout->addWidget(copyBtn);
+    buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(deleteBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
@@ -1557,6 +1560,22 @@ void MainWindow::onShowFriendManager() {
         if (id.isEmpty() || id.startsWith("search_add:")) return;
         QApplication::clipboard()->setText(id);
         ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
+    });
+    connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
+        QListWidgetItem* selected = friendList->currentItem();
+        if (!selected) return;
+        QString id = selected->data(Qt::UserRole).toString();
+        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        bool ok = false;
+        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(id), &ok).trimmed();
+        if (ok && !remark.isEmpty()) {
+            m_friendNames[id] = remark;
+            saveFriends();
+            refreshFriendList();
+            refreshGroupMemberPanel();
+            fillList(searchEdit->text().trimmed());
+            appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(id, remark));
+        }
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
