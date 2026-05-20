@@ -84,6 +84,8 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     m_currentUserName = m_client->currentUserName();
     ui->profileNameLabel->setText("QQ: " + m_currentUserId);
     ui->profileIdLabel->setText("昵称: " + m_currentUserName);
+    ui->addFriendBtn->hide();
+    ui->uploadAvatarBtn->setText("换头像");
 
     if (m_currentUserId.isEmpty()) {
         ui->statusbar->showMessage("已连接");
@@ -120,6 +122,8 @@ void MainWindow::setupUi() {
     ui->clearBtn->setObjectName("clearBtn");
     ui->fileBtn->setObjectName("toolBtn");
     ui->imageBtn->setObjectName("toolBtn");
+    ui->imageBtn->setText("图片");
+    ui->imageBtn->setToolTip("发送图片");
     ui->emojiBtn->setObjectName("iconToolBtn");
     ui->mentionBtn->setObjectName("iconToolBtn");
     setStyleSheet(R"(
@@ -345,6 +349,7 @@ void MainWindow::setupUi() {
             border-radius: 14px;
             padding: 5px 10px;
             font-weight: 700;
+            min-width: 44px;
         }
         QPushButton#iconToolBtn {
             min-width: 30px;
@@ -364,20 +369,17 @@ void MainWindow::setupUi() {
         }
     )");
 
-    QAction* addFriendAction = new QAction("加好友", this);
     QAction* friendManagerAction = new QAction("好友管理器", this);
     QAction* backGroupAction = new QAction("返回群聊", this);
     QAction* avatarAction = new QAction("上传头像", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
     QAction* logoutAction = new QAction("退出登录", this);
-    ui->menubar->addAction(addFriendAction);
     ui->menubar->addAction(friendManagerAction);
     ui->menubar->addAction(backGroupAction);
     ui->menubar->addAction(avatarAction);
     ui->menubar->addAction(copyAccountAction);
     ui->menubar->addAction(logoutAction);
 
-    connect(addFriendAction, &QAction::triggered, this, &MainWindow::onAddFriend);
     connect(friendManagerAction, &QAction::triggered, this, &MainWindow::onShowFriendManager);
     connect(backGroupAction, &QAction::triggered, this, &MainWindow::onBackToGroupChat);
     connect(avatarAction, &QAction::triggered, this, &MainWindow::onUploadAvatar);
@@ -911,6 +913,10 @@ void MainWindow::onNewMessage(const Message& msg) {
             }
             return;
         }
+    }
+
+    if (msg.senderId == m_currentUserId) {
+        return;
     }
 
     QStandardItem* item = new QStandardItem(line);
