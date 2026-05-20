@@ -1582,14 +1582,23 @@ void MainWindow::onShowFriendManager() {
     });
     connect(inviteBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
-        if (!selected || m_localGroupIds.isEmpty()) return;
+        if (!selected) return;
         QString friendId = selected->data(Qt::UserRole).toString();
         if (friendId.isEmpty() || friendId.startsWith("search_add:")) return;
+        if (m_localGroupIds.isEmpty()) {
+            QString groupName = "我的群聊";
+            QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+            m_localGroupIds << groupId;
+            m_localGroupNames[groupId] = groupName;
+            m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
+            m_localGroupMembers[groupId] = QStringList{m_currentUserId};
+        }
         QString targetGroup = m_privateChatTarget.startsWith("local_group_") ? m_privateChatTarget : m_localGroupIds.last();
         if (!m_localGroupMembers[targetGroup].contains(friendId)) {
             m_localGroupMembers[targetGroup] << friendId;
             saveLocalGroups();
         }
+        refreshFriendList();
         switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
         appendSystemMessage(QString("已邀请 %1 加入群聊").arg(contactDisplayName(friendId)));
     });
