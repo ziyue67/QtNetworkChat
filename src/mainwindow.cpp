@@ -1138,15 +1138,18 @@ void MainWindow::onShowQuickAddFriend() {
     )");
 
     connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
-    connect(searchBtn, &QPushButton::clicked, &dialog, [&]() {
+    auto runQuickAdd = [this, accountEdit, hintLabel, &dialog]() {
         QString account = accountEdit->text().trimmed();
         if (account.isEmpty()) {
-            QMessageBox::warning(&dialog, "加好友", "请输入对方 QQ 账号");
+            hintLabel->setText("请输入对方 QQ 账号");
+            ui->statusbar->showMessage("请输入对方 QQ 账号", 2500);
             return;
         }
         searchAndAddAccount(account, &dialog);
         dialog.accept();
-    });
+    };
+    connect(searchBtn, &QPushButton::clicked, &dialog, runQuickAdd);
+    connect(accountEdit, &QLineEdit::returnPressed, &dialog, runQuickAdd);
 
     accountEdit->setFocus();
     dialog.exec();
