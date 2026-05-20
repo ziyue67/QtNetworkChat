@@ -1127,6 +1127,8 @@ void MainWindow::onShowGlobalSearch() {
     addVisibleBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
     copyBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* copyListBtn = new QPushButton("复制结果列表", &dialog);
+    copyListBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
     profileBtn->setObjectName("globalSearchGhostBtn");
     actionLayout->addWidget(actionHint);
@@ -1134,6 +1136,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(createGroupBtn);
     actionLayout->addWidget(addVisibleBtn);
     actionLayout->addWidget(copyBtn);
+    actionLayout->addWidget(copyListBtn);
     actionLayout->addWidget(profileBtn);
     actionLayout->addWidget(openBtn);
     layout->addLayout(actionLayout);
@@ -1353,6 +1356,24 @@ void MainWindow::onShowGlobalSearch() {
         if (id.startsWith("local_group_")) id = id.mid(QString("local_group_").size());
         QApplication::clipboard()->setText(id);
         ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
+    });
+    connect(copyListBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
+        QStringList rows;
+        for (int i = 0; i < resultList->count(); ++i) {
+            QListWidgetItem* item = resultList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) continue;
+            if (id.startsWith("search_add:")) {
+                rows << QString("搜索添加 QQ:%1").arg(id.mid(QString("search_add:").size()));
+            } else if (id.startsWith("local_group_")) {
+                rows << QString("群聊 QQ:%1 名称:%2").arg(id.mid(QString("local_group_").size()), m_localGroupNames.value(id, "群聊"));
+            } else {
+                rows << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+            }
+        }
+        if (rows.isEmpty()) return;
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage(QString("已复制 %1 条搜索结果").arg(rows.size()), 2200);
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
