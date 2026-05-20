@@ -115,6 +115,7 @@ void MainWindow::setupUi() {
     ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Ctrl+Enter 换行)");
     ui->messageEdit->setFocus();
     ui->messageEdit->installEventFilter(this);
+    ui->messageEdit->setContextMenuPolicy(Qt::CustomContextMenu);
 
     ui->clearBtn->setObjectName("clearBtn");
     ui->fileBtn->setObjectName("toolBtn");
@@ -389,6 +390,21 @@ void MainWindow::setupUi() {
     connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendImage);
     connect(ui->emojiBtn, &QPushButton::clicked, this, &MainWindow::onInsertEmoji);
     connect(ui->mentionBtn, &QPushButton::clicked, this, &MainWindow::onInsertMention);
+    connect(ui->messageEdit, &QTextEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        QAction* pasteAction = menu.addAction("粘贴");
+        QAction* clearAction = menu.addAction("清空输入");
+        QAction* quickAction = menu.addAction("插入快捷语");
+        QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
+        if (selected == pasteAction) {
+            ui->messageEdit->paste();
+        } else if (selected == clearAction) {
+            ui->messageEdit->clear();
+        } else if (selected == quickAction) {
+            ui->messageEdit->setPlainText("收到，我马上看。");
+            ui->messageEdit->setFocus();
+        }
+    });
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
     connect(ui->userListView, &QListView::customContextMenuRequested, this, &MainWindow::onUserContextMenu);
     connect(ui->chatListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
