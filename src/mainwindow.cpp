@@ -1220,6 +1220,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* refreshContactsAction = menu.addAction("刷新联系人");
     QAction* clearSearchAction = menu.addAction("清空搜索");
     QAction* copyChatIdAction = menu.addAction("复制当前会话号");
+    QAction* copyChatCardAction = menu.addAction("复制当前会话名片");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* sendImageAction = menu.addAction("发送图片");
@@ -1258,6 +1259,20 @@ void MainWindow::onShowCreateMenu() {
         if (chatId.isEmpty()) chatId = m_currentUserId;
         QApplication::clipboard()->setText(chatId);
         ui->statusbar->showMessage("当前会话号已复制: " + chatId, 2500);
+    } else if (selected == copyChatCardAction) {
+        QString card;
+        if (m_privateChatTarget.startsWith("local_group_")) {
+            card = QString("群聊 QQ:%1\n%2\n公告:%3")
+                .arg(m_privateChatTarget.mid(QString("local_group_").size()),
+                     m_localGroupNames.value(m_privateChatTarget, "群聊"),
+                     m_localGroupAnnouncements.value(m_privateChatTarget, ui->announcementBodyLabel->text()));
+        } else if (!m_privateChatTarget.isEmpty()) {
+            card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(m_privateChatTarget, contactDisplayName(m_privateChatTarget), isContactOnline(m_privateChatTarget) ? "在线" : "离线");
+        } else {
+            card = QString("公共聊天室\n当前账号:%1\n在线成员:%2").arg(m_currentUserId).arg(m_knownUsers.size());
+        }
+        QApplication::clipboard()->setText(card);
+        ui->statusbar->showMessage("当前会话名片已复制", 1800);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
     } else if (selected == copyAnnouncementAction) {
