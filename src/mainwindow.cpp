@@ -396,6 +396,16 @@ void MainWindow::setupUi() {
         QAction* sendAction = menu.addAction("立即发送");
         QAction* clearAction = menu.addAction("清空输入");
         QAction* quickAction = menu.addAction("插入快捷语");
+        QMenu* phraseMenu = menu.addMenu("常用话术");
+        const QStringList quickPhrases = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说"};
+        for (const QString& phrase : quickPhrases) {
+            QAction* phraseAction = phraseMenu->addAction(phrase);
+            connect(phraseAction, &QAction::triggered, ui->messageEdit, [this, phrase]() {
+                ui->messageEdit->insertPlainText(phrase);
+                ui->messageEdit->setFocus();
+            });
+        }
+        QAction* mentionAction = menu.addAction("@成员");
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->messageEdit->paste();
@@ -406,6 +416,8 @@ void MainWindow::setupUi() {
         } else if (selected == quickAction) {
             ui->messageEdit->setPlainText("收到，我马上看。");
             ui->messageEdit->setFocus();
+        } else if (selected == mentionAction) {
+            onInsertMention();
         }
     });
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
