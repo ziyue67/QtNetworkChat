@@ -503,6 +503,8 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
+        QAction* globalSearchAction = menu.addAction("打开综合搜索");
+        QAction* createGroupAction = menu.addAction("用关键词建群");
         QAction* clearAction = menu.addAction("清空搜索");
         QAction* selected = menu.exec(ui->contactSearchEdit->mapToGlobal(pos));
         if (selected == pasteAction) {
@@ -511,6 +513,20 @@ void MainWindow::setupUi() {
             ui->contactSearchEdit->clear();
             ui->contactSearchEdit->paste();
             searchAndAddAccount(ui->contactSearchEdit->text().trimmed(), this);
+        } else if (selected == globalSearchAction) {
+            onShowGlobalSearch();
+        } else if (selected == createGroupAction) {
+            QString groupName = ui->contactSearchEdit->text().trimmed();
+            if (groupName.isEmpty()) groupName = "搜索群聊";
+            QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+            m_localGroupIds << groupId;
+            m_localGroupNames[groupId] = groupName;
+            m_localGroupAnnouncements[groupId] = QString("%1 已从 QQ 搜索框创建，可继续邀请好友并发送消息。").arg(groupName);
+            m_localGroupMembers[groupId] = QStringList{m_currentUserId};
+            saveLocalGroups();
+            refreshFriendList();
+            switchToLocalGroup(groupId, groupName);
+            ui->statusbar->showMessage("已从 QQ 搜索框创建群聊: " + groupName, 2500);
         } else if (selected == clearAction) {
             ui->contactSearchEdit->clear();
         }
