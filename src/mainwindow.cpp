@@ -1516,6 +1516,8 @@ void MainWindow::onShowFriendManager() {
     chatBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", body);
     copyBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* profileBtn = new QPushButton("复制名片", body);
+    profileBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
     remarkBtn->setObjectName("managerSecondaryBtn");
     QPushButton* inviteBtn = new QPushButton("邀入群", body);
@@ -1527,6 +1529,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(addBtn);
     buttonLayout->addWidget(chatBtn);
     buttonLayout->addWidget(copyBtn);
+    buttonLayout->addWidget(profileBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
     buttonLayout->addWidget(deleteBtn);
@@ -1635,6 +1638,15 @@ void MainWindow::onShowFriendManager() {
         if (id.isEmpty() || id.startsWith("search_add:")) return;
         QApplication::clipboard()->setText(id);
         ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
+    });
+    connect(profileBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
+        QListWidgetItem* selected = friendList->currentItem();
+        if (!selected) return;
+        QString id = selected->data(Qt::UserRole).toString();
+        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        QString card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+        QApplication::clipboard()->setText(card);
+        ui->statusbar->showMessage("好友名片已复制", 1800);
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
