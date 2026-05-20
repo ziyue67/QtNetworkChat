@@ -962,6 +962,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* createGroupAction = menu.addAction("创建群聊");
     QAction* addFriendAction = menu.addAction("加好友/群");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
+    QAction* sendImageAction = menu.addAction("发送图片");
     QAction* sendFileAction = menu.addAction("闪传文件");
     QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
     if (selected == createGroupAction) {
@@ -982,6 +983,8 @@ void MainWindow::onShowCreateMenu() {
         onShowGlobalSearch();
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
+    } else if (selected == sendImageAction) {
+        onSendImage();
     } else if (selected == sendFileAction) {
         onSendFile();
     }
