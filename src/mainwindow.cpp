@@ -522,6 +522,7 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
+        QAction* copyVisibleAction = menu.addAction("复制可见成员");
         QAction* clearAction = menu.addAction("清空搜索");
         QAction* selected = menu.exec(ui->memberSearchEdit->mapToGlobal(pos));
         if (selected == pasteAction) {
@@ -530,6 +531,19 @@ void MainWindow::setupUi() {
             ui->memberSearchEdit->clear();
             ui->memberSearchEdit->paste();
             refreshGroupMemberPanel();
+        } else if (selected == copyVisibleAction) {
+            QStringList cards;
+            for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
+                QStandardItem* item = m_groupMemberModel->item(i);
+                if (!item) continue;
+                QString id = item->data(Qt::UserRole + 1).toString();
+                if (id.isEmpty() || id.startsWith("group_search_add:") || id.startsWith("group_invite:")) continue;
+                cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
+            }
+            if (!cards.isEmpty()) {
+                QApplication::clipboard()->setText(cards.join('\n'));
+                ui->statusbar->showMessage(QString("已复制 %1 个可见成员").arg(cards.size()), 2200);
+            }
         } else if (selected == clearAction) {
             ui->memberSearchEdit->clear();
         }
@@ -584,6 +598,7 @@ void MainWindow::setupUi() {
         QAction* chatAction = menu.addAction("私聊");
         QAction* copyAction = menu.addAction("复制QQ号");
         QAction* profileAction = menu.addAction("复制名片");
+        QAction* copyAllAction = menu.addAction("复制群成员列表");
         QAction* renameAction = menu.addAction("设置备注");
         QAction* removeAction = menu.addAction("移出群聊");
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
@@ -608,6 +623,13 @@ void MainWindow::setupUi() {
             QString card = QString("QQ:%1\n昵称:%2\n群聊:%3").arg(memberId, contactDisplayName(memberId), m_localGroupNames.value(m_privateChatTarget, "群聊"));
             QApplication::clipboard()->setText(card);
             ui->statusbar->showMessage("群成员名片已复制", 1800);
+        } else if (selected == copyAllAction) {
+            QStringList cards;
+            for (const QString& id : m_localGroupMembers.value(m_privateChatTarget)) {
+                cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
+            }
+            QApplication::clipboard()->setText(cards.join('\n'));
+            ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
         } else if (selected == renameAction) {
             bool ok = false;
             QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(memberId), &ok).trimmed();
