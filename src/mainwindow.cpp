@@ -774,6 +774,7 @@ void MainWindow::onSendMessage() {
     QString text = ui->messageEdit->toPlainText().trimmed();
     if (text.isEmpty()) return;
 
+    QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
         QString line = QString("[%1] <%2> %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, text);
@@ -786,7 +787,8 @@ void MainWindow::onSendMessage() {
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         ui->messageEdit->clear();
-        ui->chatHintLabel->setText(QString("本地群聊 · %1 · 消息已保存在本地记录").arg(groupName));
+        ui->chatHintLabel->setText(QString("本地群聊 · %1 · 已发送 %2 字").arg(groupName).arg(text.size()));
+        ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(groupName).arg(text.size()), 1800);
         ui->chatListView->scrollToBottom();
         return;
     }
@@ -814,6 +816,8 @@ void MainWindow::onSendMessage() {
             m_chatModel->removeRows(0, rowCount - MAX_HISTORY_LINES);
         }
         ui->chatListView->scrollToBottom();
+        ui->chatHintLabel->setText(QString("已发送到 %1 · %2 字 · %3").arg(targetName).arg(text.size()).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(targetName).arg(text.size()), 1800);
 
         ui->messageEdit->clear();
     }
