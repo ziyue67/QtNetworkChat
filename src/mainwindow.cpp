@@ -1223,6 +1223,8 @@ void MainWindow::onShowCreateMenu() {
     QAction* copyChatCardAction = menu.addAction("复制当前会话名片");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
+    QAction* friendNoticeAction = menu.addAction("好友通知");
+    QAction* groupNoticeAction = menu.addAction("群通知");
     QAction* sendImageAction = menu.addAction("发送图片");
     QAction* sendFileAction = menu.addAction("闪传文件");
     QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
@@ -1279,6 +1281,10 @@ void MainWindow::onShowCreateMenu() {
         QString announcement = ui->announcementBodyLabel->text();
         QApplication::clipboard()->setText(announcement);
         ui->statusbar->showMessage("群公告已复制", 1800);
+    } else if (selected == friendNoticeAction) {
+        onShowFriendNotifications();
+    } else if (selected == groupNoticeAction) {
+        onShowGroupNotifications();
     } else if (selected == sendImageAction) {
         onSendImage();
     } else if (selected == sendFileAction) {
