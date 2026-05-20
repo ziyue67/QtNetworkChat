@@ -448,6 +448,10 @@ void MainWindow::setupUi() {
     connect(ui->groupMemberListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
         QString targetId = index.data(Qt::UserRole + 1).toString();
+        if (targetId.startsWith("group_search_add:")) {
+            searchAndAddAccount(targetId.mid(QString("group_search_add:").size()).trimmed(), this);
+            return;
+        }
         if (targetId.startsWith("group_invite:")) {
             QString account = targetId.mid(QString("group_invite:").size()).trimmed();
             if (!account.isEmpty() && !m_localGroupMembers[m_privateChatTarget].contains(account)) {
@@ -2373,6 +2377,7 @@ void MainWindow::refreshGroupMemberPanel() {
     }
 
     int memberCount = 1;
+    int visibleMembers = 0;
     for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
         const ChatUser& user = it.value();
         if (user.id == m_currentUserId) continue;
@@ -2388,6 +2393,14 @@ void MainWindow::refreshGroupMemberPanel() {
         item->setEditable(false);
         item->setForeground(isFriend ? QColor(18, 150, 247) : QColor(38, 50, 56));
         m_groupMemberModel->appendRow(item);
+        ++visibleMembers;
+    }
+    if (visibleMembers == 0 && !filter.isEmpty()) {
+        QStandardItem* addItem = new QStandardItem(QString("搜索并添加 QQ:%1\n双击自动查找好友").arg(filter));
+        addItem->setData("group_search_add:" + filter, Qt::UserRole + 1);
+        addItem->setEditable(false);
+        addItem->setForeground(QColor(18, 150, 247));
+        m_groupMemberModel->appendRow(addItem);
     }
     ui->memberTitleLabel->setText(QString("群聊成员 %1").arg(memberCount));
 }
