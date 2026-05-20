@@ -1917,6 +1917,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
 
     QAction* chatAction = menu.addAction("发送消息");
     QAction* copyAction = menu.addAction("复制QQ号");
+    QAction* profileAction = menu.addAction("复制名片");
     QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
     QAction* removeAction = nullptr;
@@ -1933,6 +1934,10 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     } else if (selected == copyAction) {
         QApplication::clipboard()->setText(userId);
         ui->statusbar->showMessage("QQ 号已复制: " + userId, 2500);
+    } else if (selected == profileAction) {
+        QString card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(userId, contactDisplayName(userId), isContactOnline(userId) ? "在线" : "离线");
+        QApplication::clipboard()->setText(card);
+        ui->statusbar->showMessage("联系人名片已复制", 1800);
     } else if (selected == renameAction) {
         bool ok = false;
         QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(userId), &ok).trimmed();
