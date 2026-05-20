@@ -503,6 +503,23 @@ void MainWindow::setupUi() {
     connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
     connect(ui->groupChatBtn, &QPushButton::clicked, this, &MainWindow::onBackToGroupChat);
     connect(ui->memberSearchEdit, &QLineEdit::textChanged, this, [this]() { refreshGroupMemberPanel(); });
+    ui->memberSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->memberSearchEdit, &QLineEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        QAction* pasteAction = menu.addAction("粘贴");
+        QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
+        QAction* clearAction = menu.addAction("清空搜索");
+        QAction* selected = menu.exec(ui->memberSearchEdit->mapToGlobal(pos));
+        if (selected == pasteAction) {
+            ui->memberSearchEdit->paste();
+        } else if (selected == pasteSearchAction) {
+            ui->memberSearchEdit->clear();
+            ui->memberSearchEdit->paste();
+            refreshGroupMemberPanel();
+        } else if (selected == clearAction) {
+            ui->memberSearchEdit->clear();
+        }
+    });
     connect(ui->groupMemberListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
         QString targetId = index.data(Qt::UserRole + 1).toString();
