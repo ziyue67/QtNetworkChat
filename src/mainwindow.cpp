@@ -1563,6 +1563,8 @@ void MainWindow::onShowFriendManager() {
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* addBtn = new QPushButton("加好友", body);
     addBtn->setObjectName("managerPrimaryBtn");
+    QPushButton* searchAddBtn = new QPushButton("搜索添加", body);
+    searchAddBtn->setObjectName("managerPrimaryBtn");
     QPushButton* chatBtn = new QPushButton("发消息", body);
     chatBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", body);
@@ -1578,6 +1580,7 @@ void MainWindow::onShowFriendManager() {
     QPushButton* closeBtn = new QPushButton("关闭", body);
     closeBtn->setObjectName("managerSecondaryBtn");
     buttonLayout->addWidget(addBtn);
+    buttonLayout->addWidget(searchAddBtn);
     buttonLayout->addWidget(chatBtn);
     buttonLayout->addWidget(copyBtn);
     buttonLayout->addWidget(profileBtn);
@@ -1679,6 +1682,16 @@ void MainWindow::onShowFriendManager() {
     connect(addBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
         dialog.accept();
         onShowQuickAddFriend();
+    });
+    connect(searchAddBtn, &QPushButton::clicked, &dialog, [this, searchEdit, &dialog]() {
+        QString account = searchEdit->text().trimmed();
+        if (account.isEmpty()) {
+            searchEdit->setFocus();
+            ui->statusbar->showMessage("请输入 QQ 账号后搜索添加", 2200);
+            return;
+        }
+        dialog.accept();
+        searchAndAddAccount(account, this);
     });
     connect(chatBtn, &QPushButton::clicked, &dialog, openSelectedFriend);
     connect(friendList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedFriend](QListWidgetItem*) { openSelectedFriend(); });
