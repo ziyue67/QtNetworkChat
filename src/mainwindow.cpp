@@ -966,6 +966,22 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
         searchAndAddAccount(targetId.mid(QString("search_add:").size()), this);
         return;
     }
+    if (targetId.startsWith("create_group:")) {
+        QString groupName = targetId.mid(QString("create_group:").size()).trimmed();
+        if (groupName.isEmpty()) groupName = "我的群聊";
+        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+        m_localGroupIds << groupId;
+        m_localGroupNames[groupId] = groupName;
+        m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
+        m_localGroupMembers[groupId] = QStringList{m_currentUserId};
+        saveLocalGroups();
+        m_contactFilter.clear();
+        ui->contactSearchEdit->clear();
+        refreshFriendList();
+        switchToLocalGroup(groupId, groupName);
+        appendSystemMessage("已从联系人搜索创建群聊: " + groupName);
+        return;
+    }
     if (m_localGroupIds.contains(targetId)) {
         switchToLocalGroup(targetId, m_localGroupNames.value(targetId, "群聊"));
         return;
@@ -2814,7 +2830,12 @@ void MainWindow::refreshFriendList() {
         addItem->setForeground(QColor(255, 255, 255));
         addItem->setBackground(QColor(18, 183, 245));
         m_userListModel->appendRow(addItem);
-        ui->onlineTitleLabel->setText(QString("联系人 · 未匹配 · 可搜索QQ:%1").arg(m_contactFilter));
+        QStandardItem* groupItem = new QStandardItem(QString("创建群聊:%1\n   双击立即建群并进入").arg(m_contactFilter));
+        groupItem->setData("create_group:" + m_contactFilter, Qt::UserRole + 1);
+        groupItem->setForeground(QColor(255, 255, 255));
+        groupItem->setBackground(QColor(36, 203, 162));
+        m_userListModel->appendRow(groupItem);
+        ui->onlineTitleLabel->setText(QString("联系人 · 未匹配 · 可搜索QQ或建群:%1").arg(m_contactFilter));
     }
 }
 
