@@ -1620,7 +1620,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(420, 300);
+    dialog.setFixedSize(420, 350);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -1679,7 +1679,10 @@ void MainWindow::onShowQuickAddFriend() {
     QPushButton* searchBtn = new QPushButton("搜索并添加", &dialog);
     searchBtn->setObjectName("quickSearchBtn");
     searchBtn->setDefault(true);
+    QPushButton* recommendBtn = new QPushButton("添加推荐", &dialog);
+    recommendBtn->setObjectName("quickSearchBtn");
     buttonLayout->addWidget(cancelBtn);
+    buttonLayout->addWidget(recommendBtn);
     buttonLayout->addWidget(searchBtn);
     layout->addLayout(buttonLayout);
 
@@ -1764,6 +1767,26 @@ void MainWindow::onShowQuickAddFriend() {
         if (account.isEmpty()) return;
         accountEdit->setText(account);
         runQuickAdd();
+    });
+    connect(recommendBtn, &QPushButton::clicked, &dialog, [this, suggestionList, &dialog]() {
+        int addedCount = 0;
+        for (int i = 0; i < suggestionList->count(); ++i) {
+            QListWidgetItem* item = suggestionList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty() || id == m_currentUserId || m_friendIds.contains(id)) continue;
+            m_friendIds << id;
+            m_friendNames[id] = contactDisplayName(id);
+            m_client->sendFriendRequest(id);
+            ++addedCount;
+        }
+        if (addedCount == 0) {
+            ui->statusbar->showMessage("暂无可添加的推荐好友", 2200);
+            return;
+        }
+        saveFriends();
+        refreshFriendList();
+        ui->statusbar->showMessage(QString("已添加 %1 个推荐好友").arg(addedCount), 2500);
+        dialog.accept();
     });
     connect(searchBtn, &QPushButton::clicked, &dialog, runQuickAdd);
     connect(accountEdit, &QLineEdit::returnPressed, &dialog, runQuickAdd);
