@@ -1339,6 +1339,7 @@ void MainWindow::onShowGlobalSearch() {
 void MainWindow::onShowCreateMenu() {
     QMenu menu(this);
     QAction* createGroupAction = menu.addAction("创建群聊");
+    QAction* createGroupWithFriendsAction = menu.addAction("创建群并拉全部好友");
     QAction* addFriendAction = menu.addAction("加好友/群");
     QAction* focusSearchAction = menu.addAction("定位QQ搜索框");
     QAction* refreshContactsAction = menu.addAction("刷新联系人");
@@ -1366,6 +1367,23 @@ void MainWindow::onShowCreateMenu() {
         refreshFriendList();
         switchToLocalGroup(groupId, groupName);
         appendSystemMessage("已创建群聊: " + groupName);
+    } else if (selected == createGroupWithFriendsAction) {
+        QString groupName = ui->contactSearchEdit->text().trimmed();
+        if (groupName.isEmpty()) groupName = "好友群聊";
+        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+        QStringList members = QStringList{m_currentUserId};
+        for (const QString& friendId : m_friendIds) {
+            if (!members.contains(friendId)) members << friendId;
+        }
+        m_localGroupIds << groupId;
+        m_localGroupNames[groupId] = groupName;
+        m_localGroupAnnouncements[groupId] = QString("%1 已创建，已自动邀请全部好友。").arg(groupName);
+        m_localGroupMembers[groupId] = members;
+        saveLocalGroups();
+        refreshFriendList();
+        switchToLocalGroup(groupId, groupName);
+        appendSystemMessage(QString("已创建群聊并邀请 %1 位好友").arg(qMax(0, members.size() - 1)));
+        saveHistory(groupId, QString("[%1] [系统] 已创建群聊并邀请 %2 位好友").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(qMax(0, members.size() - 1)));
     } else if (selected == addFriendAction) {
         onShowGlobalSearch();
     } else if (selected == focusSearchAction) {
