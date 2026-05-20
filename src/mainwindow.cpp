@@ -2015,10 +2015,13 @@ void MainWindow::onShowFriendNotifications() {
     acceptBtn->setObjectName("noticePrimaryBtn");
     QPushButton* rejectBtn = new QPushButton("拒绝", &dialog);
     rejectBtn->setObjectName("noticeDangerBtn");
+    QPushButton* copyBtn = new QPushButton("复制名片", &dialog);
+    copyBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     buttonLayout->addWidget(acceptBtn);
     buttonLayout->addWidget(rejectBtn);
+    buttonLayout->addWidget(copyBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
     layout->addLayout(buttonLayout);
@@ -2102,6 +2105,15 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         appendSystemMessage("已拒绝好友申请 QQ: " + id);
+    });
+    connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QListWidgetItem* item = noticeList->currentItem();
+        if (!item) return;
+        QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty()) return;
+        QString card = QString("QQ:%1\n昵称:%2\n来源:好友申请").arg(id, m_friendNames.value(id, id));
+        QApplication::clipboard()->setText(card);
+        ui->statusbar->showMessage("申请人名片已复制", 1800);
     });
     connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
         m_pendingFriendRequests.clear();
