@@ -1023,8 +1023,9 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(openBtn);
     layout->addLayout(actionLayout);
 
-    auto fillResults = [this, resultList](const QString& filter = QString()) {
+    auto fillResults = [this, resultList, actionHint](const QString& filter = QString()) {
         resultList->clear();
+        int directResultCount = 0;
         for (const QString& id : m_friendIds) {
             QString name = m_friendNames.value(id, id);
             if (!filter.isEmpty()
@@ -1034,6 +1035,7 @@ void MainWindow::onShowGlobalSearch() {
             item->setData(Qt::UserRole, id);
             item->setSizeHint(QSize(0, 66));
             resultList->addItem(item);
+            ++directResultCount;
         }
         for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
             const ChatUser& user = it.value();
@@ -1045,6 +1047,7 @@ void MainWindow::onShowGlobalSearch() {
             item->setData(Qt::UserRole, user.id);
             item->setSizeHint(QSize(0, 66));
             resultList->addItem(item);
+            ++directResultCount;
         }
         for (const QString& groupId : m_localGroupIds) {
             QString groupName = m_localGroupNames.value(groupId, "群聊");
@@ -1055,6 +1058,7 @@ void MainWindow::onShowGlobalSearch() {
             item->setData(Qt::UserRole, groupId);
             item->setSizeHint(QSize(0, 66));
             resultList->addItem(item);
+            ++directResultCount;
         }
         if (!filter.isEmpty()) {
             QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索 QQ 账号：%1\n双击或点击搜索可从服务器查找并自动添加").arg(filter));
@@ -1069,6 +1073,9 @@ void MainWindow::onShowGlobalSearch() {
             emptyItem->setForeground(QColor(135, 150, 165));
             resultList->addItem(emptyItem);
         }
+        actionHint->setText(filter.isEmpty()
+            ? QString("双击结果可聊天、进群或自动添加好友 · 共%1项").arg(directResultCount)
+            : QString("匹配%1项 · 可继续搜索QQ:%2").arg(directResultCount).arg(filter));
     };
     fillResults();
 
