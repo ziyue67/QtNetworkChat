@@ -1718,7 +1718,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(420, 350);
+    dialog.setFixedSize(460, 410);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -1740,26 +1740,45 @@ void MainWindow::onShowQuickAddFriend() {
     hintLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(hintLabel);
 
+    QLabel* statsLabel = new QLabel(&dialog);
+    statsLabel->setObjectName("quickAddStats");
+    statsLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(statsLabel);
+
     QListWidget* suggestionList = new QListWidget(&dialog);
     suggestionList->setObjectName("quickAddSuggestionList");
-    suggestionList->setFixedHeight(76);
+    suggestionList->setFixedHeight(112);
     layout->addWidget(suggestionList);
 
-    auto fillSuggestions = [this, accountEdit, suggestionList]() {
+    auto fillSuggestions = [this, accountEdit, suggestionList, statsLabel]() {
         suggestionList->clear();
         QString filter = accountEdit->text().trimmed();
-        int count = 0;
-        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end() && count < 3; ++it) {
+        int onlineCandidates = 0;
+        int visibleCount = 0;
+        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
             const ChatUser& user = it.value();
             if (user.id == m_currentUserId || m_friendIds.contains(user.id)) continue;
+            ++onlineCandidates;
             if (!filter.isEmpty()
                 && !user.id.contains(filter, Qt::CaseInsensitive)
                 && !user.name.contains(filter, Qt::CaseInsensitive)) continue;
-            QListWidgetItem* item = new QListWidgetItem(QString("QQ:%1 · %2 · 在线").arg(user.id, user.name));
-            item->setData(Qt::UserRole, user.id);
-            item->setSizeHint(QSize(0, 34));
-            suggestionList->addItem(item);
-            ++count;
+            if (visibleCount < 5) {
+                QListWidgetItem* item = new QListWidgetItem(QString("QQ:%1 · %2 · 在线 · 双击添加").arg(user.id, user.name));
+                item->setData(Qt::UserRole, user.id);
+                item->setSizeHint(QSize(0, 34));
+                suggestionList->addItem(item);
+            }
+            ++visibleCount;
+        }
+        statsLabel->setText(filter.isEmpty()
+            ? QString("在线推荐 %1 人 · 已有好友 %2 人").arg(onlineCandidates).arg(m_friendIds.size())
+            : QString("匹配推荐 %1 人 · 输入回车可搜索 QQ:%2").arg(visibleCount).arg(filter));
+        if (visibleCount > 5) {
+            QListWidgetItem* moreItem = new QListWidgetItem(QString("还有 %1 位匹配用户，可缩小关键词继续筛选").arg(visibleCount - 5));
+            moreItem->setFlags(Qt::NoItemFlags);
+            moreItem->setForeground(QColor(135, 150, 165));
+            moreItem->setSizeHint(QSize(0, 34));
+            suggestionList->addItem(moreItem);
         }
         if (suggestionList->count() == 0) {
             QListWidgetItem* item = new QListWidgetItem(filter.isEmpty() ? "输入 QQ 号后回车搜索添加" : QString("回车搜索并添加 QQ:%1").arg(filter));
@@ -1797,6 +1816,15 @@ void MainWindow::onShowQuickAddFriend() {
         QLabel#quickAddHint {
             color: #8A99A8;
             font-size: 12px;
+        }
+        QLabel#quickAddStats {
+            min-height: 24px;
+            border-radius: 12px;
+            background: #EAF7FF;
+            color: #1296F7;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 2px 10px;
         }
         QLineEdit#quickAddInput {
             min-height: 42px;
@@ -1866,23 +1894,28 @@ void MainWindow::onShowQuickAddFriend() {
         accountEdit->setText(account);
         runQuickAdd();
     });
-    connect(recommendBtn, &QPushButton::clicked, &dialog, [this, suggestionList, &dialog]() {
+    connect(recommendBtn, &QPushButton::clicked, &dialog, [this, suggestionList, hintLabel, &dialog]() {
         int addedCount = 0;
+        QStringList addedNames;
         for (int i = 0; i < suggestionList->count(); ++i) {
             QListWidgetItem* item = suggestionList->item(i);
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty() || id == m_currentUserId || m_friendIds.contains(id)) continue;
             m_friendIds << id;
-            m_friendNames[id] = contactDisplayName(id);
+            QString name = contactDisplayName(id);
+            m_friendNames[id] = name;
+            addedNames << QString("%1(%2)").arg(name, id);
             m_client->sendFriendRequest(id);
             ++addedCount;
         }
         if (addedCount == 0) {
+            hintLabel->setText("暂无可添加的推荐好友，可输入 QQ 号搜索");
             ui->statusbar->showMessage("暂无可添加的推荐好友", 2200);
             return;
         }
         saveFriends();
         refreshFriendList();
+        appendSystemMessage(QString("已添加推荐好友：%1").arg(addedNames.join("、")));
         ui->statusbar->showMessage(QString("已添加 %1 个推荐好友").arg(addedCount), 2500);
         dialog.accept();
     });
