@@ -827,13 +827,15 @@ void MainWindow::onSendFile() {
     QFileInfo info(filePath);
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        QString line = QString("[%1] <%2> 发送了文件: %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName());
+        QString line = QString("[%1] <%2> 发送了文件: %3 · %4 KB").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
         item->setForeground(QColor(20, 92, 160));
         item->setBackground(QColor(218, 241, 255));
+        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
+        appendSystemMessage(QString("文件发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
         ui->chatListView->scrollToBottom();
         return;
     }
@@ -855,20 +857,22 @@ void MainWindow::onSendImage() {
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QPixmap pixmap(filePath);
-        QString line = QString("[%1] <%2> [图片] %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName());
+        QString line = QString("[%1] <%2> [图片] %3 · %4 KB").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
         item->setForeground(QColor(20, 92, 160));
         item->setBackground(QColor(218, 241, 255));
+        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         if (!pixmap.isNull()) {
-            QStandardItem* previewItem = new QStandardItem(info.fileName());
+            QStandardItem* previewItem = new QStandardItem(QString("%1 · %2 KB").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)));
             previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
             previewItem->setEditable(false);
             previewItem->setBackground(QColor(246, 250, 253));
             m_chatModel->appendRow(previewItem);
         }
+        appendSystemMessage(QString("图片发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
         ui->chatListView->scrollToBottom();
         return;
     }
