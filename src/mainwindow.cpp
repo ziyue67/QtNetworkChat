@@ -1217,6 +1217,7 @@ void MainWindow::onShowCreateMenu() {
     QMenu menu(this);
     QAction* createGroupAction = menu.addAction("创建群聊");
     QAction* addFriendAction = menu.addAction("加好友/群");
+    QAction* focusSearchAction = menu.addAction("定位QQ搜索框");
     QAction* refreshContactsAction = menu.addAction("刷新联系人");
     QAction* clearSearchAction = menu.addAction("清空搜索");
     QAction* copyChatIdAction = menu.addAction("复制当前会话号");
@@ -1244,6 +1245,10 @@ void MainWindow::onShowCreateMenu() {
         appendSystemMessage("已创建群聊: " + groupName);
     } else if (selected == addFriendAction) {
         onShowGlobalSearch();
+    } else if (selected == focusSearchAction) {
+        ui->contactSearchEdit->setFocus();
+        ui->contactSearchEdit->selectAll();
+        ui->statusbar->showMessage("已定位到 QQ 搜索框，输入账号后回车自动查找", 2500);
     } else if (selected == refreshContactsAction) {
         refreshFriendList();
         refreshGroupMemberPanel();
