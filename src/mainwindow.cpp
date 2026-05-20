@@ -980,8 +980,11 @@ void MainWindow::onShowGlobalSearch() {
     searchEdit->setClearButtonEnabled(true);
     QPushButton* searchBtn = new QPushButton("搜索", header);
     searchBtn->setObjectName("globalSearchPrimaryBtn");
+    QPushButton* clearBtn = new QPushButton("清空", header);
+    clearBtn->setObjectName("globalSearchGhostBtn");
     searchLayout->addWidget(searchEdit, 1);
     searchLayout->addWidget(searchBtn);
+    searchLayout->addWidget(clearBtn);
     headerLayout->addLayout(searchLayout);
 
     QHBoxLayout* tabLayout = new QHBoxLayout;
@@ -1178,6 +1181,11 @@ void MainWindow::onShowGlobalSearch() {
     };
 
     connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
+    connect(clearBtn, &QPushButton::clicked, &dialog, [searchEdit, fillResults]() {
+        searchEdit->clear();
+        fillResults();
+        searchEdit->setFocus();
+    });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, runServerSearch);
     connect(openBtn, &QPushButton::clicked, &dialog, openResult);
     connect(createGroupBtn, &QPushButton::clicked, &dialog, [this, searchEdit, &dialog]() {
