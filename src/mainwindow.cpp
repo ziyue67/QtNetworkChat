@@ -962,6 +962,7 @@ void MainWindow::onShowCreateMenu() {
         QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
         m_localGroupIds << groupId;
         m_localGroupNames[groupId] = groupName;
+        m_localGroupMembers[groupId] = QStringList{m_currentUserId};
         saveLocalGroups();
         refreshFriendList();
         switchToLocalGroup(groupId, groupName);
@@ -1457,6 +1458,10 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                 if (ok && !selectedFriend.isEmpty()) {
                     QString friendId = labelToId.value(selectedFriend);
                     QString friendName = m_friendNames.value(friendId, friendId);
+                    if (!m_localGroupMembers[userId].contains(friendId)) {
+                        m_localGroupMembers[userId] << friendId;
+                        saveLocalGroups();
+                    }
                     switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
                     appendSystemMessage(QString("已邀请 %1 加入群聊").arg(friendName));
                     saveHistory(userId, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), friendName));
@@ -1474,6 +1479,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         } else if (selected == deleteGroupAction) {
             m_localGroupIds.removeAll(userId);
             m_localGroupNames.remove(userId);
+            m_localGroupMembers.remove(userId);
             saveLocalGroups();
             refreshFriendList();
             if (m_privateChatTarget == userId) onBackToGroupChat();
@@ -1813,6 +1819,9 @@ void MainWindow::refreshFriendList() {
             if (!id.isEmpty() && !name.isEmpty()) {
                 m_localGroupNames[id] = name;
             }
+            QStringList members = line.section('|', 2).split(',', Qt::SkipEmptyParts);
+            if (members.isEmpty() && !id.isEmpty()) members << m_currentUserId;
+            if (!id.isEmpty()) m_localGroupMembers[id] = members;
         }
     }
 
@@ -1899,6 +1908,34 @@ void MainWindow::refreshGroupMemberPanel() {
     m_groupMemberModel->clear();
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
 
+    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        QStringList members = m_localGroupMembers.value(m_privateChatTarget);
+        if (members.isEmpty()) members << m_currentUserId;
+        int visibleMembers = 0;
+        for (const QString& memberId : members) {
+            QString name = memberId == m_currentUserId ? m_currentUserName : m_friendNames.value(memberId, memberId);
+            if (!filter.isEmpty()
+                && !memberId.contains(filter, Qt::CaseInsensitive)
+                && !name.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4").arg(memberId == m_currentUserId ? "我" : "群成员", memberId, name, isContactOnline(memberId) || memberId == m_currentUserId ? "在线" : "离线"));
+            item->setData(memberId, Qt::UserRole + 1);
+            item->setEditable(false);
+            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : QColor(38, 50, 56));
+            m_groupMemberModel->appendRow(item);
+            ++visibleMembers;
+        }
+        ui->memberTitleLabel->setText(QString("群聊成员 %1").arg(members.size()));
+        if (visibleMembers == 0 && !filter.isEmpty()) {
+            QStandardItem* emptyItem = new QStandardItem("没有匹配的群成员");
+            emptyItem->setEditable(false);
+            emptyItem->setEnabled(false);
+            m_groupMemberModel->appendRow(emptyItem);
+        }
+        return;
+    }
+
     QStandardItem* selfItem = new QStandardItem(QString("我  QQ:%1\n%2 · 在线").arg(m_currentUserId, m_currentUserName));
     selfItem->setData(m_currentUserId, Qt::UserRole + 1);
     selfItem->setEditable(false);
@@ -1982,7 +2019,9 @@ void MainWindow::saveLocalGroups() const {
 
     QTextStream out(&file);
     for (const QString& id : m_localGroupIds) {
-        out << id << "|" << m_localGroupNames.value(id, "群聊") << "\n";
+        QStringList members = m_localGroupMembers.value(id);
+        if (members.isEmpty()) members << m_currentUserId;
+        out << id << "|" << m_localGroupNames.value(id, "群聊") << "|" << members.join(',') << "\n";
     }
 }
 

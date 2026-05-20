@@ -100,6 +100,7 @@ private:
     QStringList m_pendingFriendRequests;
     QMap<QString, QString> m_friendNames;
     QMap<QString, QString> m_localGroupNames;
+    QMap<QString, QStringList> m_localGroupMembers;
     QMap<QString, ChatUser> m_knownUsers;
     QString m_contactFilter;
     QString m_privateChatTarget;
