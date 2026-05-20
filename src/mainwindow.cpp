@@ -777,6 +777,7 @@ void MainWindow::onSendFile() {
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
+    QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QString line = QString("[%1] <%2> 发送了文件: %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName());
         saveHistory(m_privateChatTarget, line);
@@ -791,7 +792,7 @@ void MainWindow::onSendFile() {
 
     bool ok = m_client->sendFile(filePath, m_privateChatTarget);
     if (ok) {
-        appendSystemMessage("已发送文件: " + info.fileName());
+        appendSystemMessage(QString("已发送文件: %1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
     } else {
         QMessageBox::warning(this, "发送失败", "文件发送失败");
     }
@@ -803,6 +804,7 @@ void MainWindow::onSendImage() {
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
+    QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QPixmap pixmap(filePath);
         QString line = QString("[%1] <%2> [图片] %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName());
@@ -825,7 +827,7 @@ void MainWindow::onSendImage() {
 
     bool ok = m_client->sendImage(filePath, m_privateChatTarget);
     if (ok) {
-        appendSystemMessage("已发送图片: " + info.fileName());
+        appendSystemMessage(QString("已发送图片: %1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
     } else {
         QMessageBox::warning(this, "发送失败", "图片发送失败");
     }
