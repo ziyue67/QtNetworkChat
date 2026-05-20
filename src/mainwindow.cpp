@@ -466,6 +466,23 @@ void MainWindow::setupUi() {
         }
     });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
+    ui->contactSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->contactSearchEdit, &QLineEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        QAction* pasteAction = menu.addAction("粘贴");
+        QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
+        QAction* clearAction = menu.addAction("清空搜索");
+        QAction* selected = menu.exec(ui->contactSearchEdit->mapToGlobal(pos));
+        if (selected == pasteAction) {
+            ui->contactSearchEdit->paste();
+        } else if (selected == pasteSearchAction) {
+            ui->contactSearchEdit->clear();
+            ui->contactSearchEdit->paste();
+            searchAndAddAccount(ui->contactSearchEdit->text().trimmed(), this);
+        } else if (selected == clearAction) {
+            ui->contactSearchEdit->clear();
+        }
+    });
     connect(ui->contactSearchEdit, &QLineEdit::returnPressed, this, [this]() {
         searchAndAddAccount(ui->contactSearchEdit->text().trimmed(), this);
     });
