@@ -1075,13 +1075,21 @@ void MainWindow::onInsertMention() {
         ui->messageEdit->insertPlainText("@全体成员 ");
         ui->messageEdit->setFocus();
     });
-    if (!m_knownUsers.isEmpty()) menu.addSeparator();
-    for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
-        const ChatUser& user = it.value();
-        if (user.id == m_currentUserId) continue;
-        QAction* action = menu.addAction(QString("@%1 (QQ:%2)").arg(user.name, user.id));
-        connect(action, &QAction::triggered, this, [this, user]() {
-            ui->messageEdit->insertPlainText(QString("@%1 ").arg(user.name));
+    QStringList mentionIds;
+    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        mentionIds = m_localGroupMembers.value(m_privateChatTarget);
+    } else {
+        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
+            mentionIds << it.key();
+        }
+    }
+    mentionIds.removeAll(m_currentUserId);
+    if (!mentionIds.isEmpty()) menu.addSeparator();
+    for (const QString& memberId : mentionIds) {
+        QString name = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
+        QAction* action = menu.addAction(QString("@%1 (QQ:%2)").arg(name, memberId));
+        connect(action, &QAction::triggered, this, [this, name]() {
+            ui->messageEdit->insertPlainText(QString("@%1 ").arg(name));
             ui->messageEdit->setFocus();
         });
     }
