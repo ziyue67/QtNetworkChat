@@ -399,7 +399,7 @@ void MainWindow::setupUi() {
         QAction* quickAction = menu.addAction("插入快捷语");
         QAction* quoteTemplateAction = menu.addAction("插入引用模板");
         QMenu* phraseMenu = menu.addMenu("常用话术");
-        const QStringList quickPhrases = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说"};
+        const QStringList quickPhrases = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说", "方便的话加个好友", "拉我进群聊一下", "这个 QQ 号是我"};
         for (const QString& phrase : quickPhrases) {
             QAction* phraseAction = phraseMenu->addAction(phrase);
             connect(phraseAction, &QAction::triggered, ui->messageEdit, [this, phrase]() {
@@ -408,6 +408,8 @@ void MainWindow::setupUi() {
             });
         }
         QAction* mentionAction = menu.addAction("@成员");
+        QAction* friendCardAction = menu.addAction("插入我的QQ名片");
+        QAction* groupCardAction = menu.addAction("插入当前会话名片");
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->messageEdit->paste();
@@ -426,6 +428,20 @@ void MainWindow::setupUi() {
             ui->messageEdit->setFocus();
         } else if (selected == mentionAction) {
             onInsertMention();
+        } else if (selected == friendCardAction) {
+            ui->messageEdit->insertPlainText(QString("我的QQ名片：%1（%2）").arg(m_currentUserId, m_currentUserName));
+            ui->messageEdit->setFocus();
+        } else if (selected == groupCardAction) {
+            QString card;
+            if (m_privateChatTarget.startsWith("local_group_")) {
+                card = QString("群聊名片：%1 QQ:%2").arg(m_localGroupNames.value(m_privateChatTarget, "群聊"), m_privateChatTarget.mid(QString("local_group_").size()));
+            } else if (!m_privateChatTarget.isEmpty()) {
+                card = QString("好友名片：%1 QQ:%2").arg(contactDisplayName(m_privateChatTarget), m_privateChatTarget);
+            } else {
+                card = QString("公共聊天室 当前QQ:%1").arg(m_currentUserId);
+            }
+            ui->messageEdit->insertPlainText(card);
+            ui->messageEdit->setFocus();
         }
     });
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
