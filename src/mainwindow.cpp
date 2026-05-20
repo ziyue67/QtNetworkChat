@@ -1292,8 +1292,8 @@ void MainWindow::onShowFriendManager() {
             friendList->addItem(item);
         }
         if (friendList->count() == 0) {
-            QListWidgetItem* emptyItem = new QListWidgetItem(filter.isEmpty() ? "暂无好友，点击下方加好友" : "没有匹配的好友");
-            emptyItem->setFlags(Qt::NoItemFlags);
+            QListWidgetItem* emptyItem = new QListWidgetItem(filter.isEmpty() ? "暂无好友，点击下方加好友" : QString("未找到好友，双击搜索并添加 QQ:%1").arg(filter));
+            emptyItem->setData(Qt::UserRole, filter.isEmpty() ? QString() : "search_add:" + filter);
             emptyItem->setForeground(QColor(135, 150, 165));
             friendList->addItem(emptyItem);
         }
@@ -1305,12 +1305,15 @@ void MainWindow::onShowFriendManager() {
     addBtn->setObjectName("managerPrimaryBtn");
     QPushButton* chatBtn = new QPushButton("发消息", body);
     chatBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* copyBtn = new QPushButton("复制QQ", body);
+    copyBtn->setObjectName("managerSecondaryBtn");
     QPushButton* deleteBtn = new QPushButton("删除好友", body);
     deleteBtn->setObjectName("managerDangerBtn");
     QPushButton* closeBtn = new QPushButton("关闭", body);
     closeBtn->setObjectName("managerSecondaryBtn");
     buttonLayout->addWidget(addBtn);
     buttonLayout->addWidget(chatBtn);
+    buttonLayout->addWidget(copyBtn);
     buttonLayout->addWidget(deleteBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
@@ -1382,18 +1385,16 @@ void MainWindow::onShowFriendManager() {
         }
     )");
 
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList](const QString& text) {
-        fillList(text.trimmed());
-    });
-    connect(addBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
-        dialog.accept();
-        onShowQuickAddFriend();
-    });
-    connect(chatBtn, &QPushButton::clicked, &dialog, [this, &dialog, friendList]() {
+    auto openSelectedFriend = [this, &dialog, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
         if (!selected) return;
         QString id = selected->data(Qt::UserRole).toString();
         if (id.isEmpty()) return;
+        if (id.startsWith("search_add:")) {
+            dialog.accept();
+            searchAndAddAccount(id.mid(QString("search_add:").size()), this);
+            return;
+        }
         dialog.accept();
         m_privateChatTarget = id;
         m_chatModel->clear();
@@ -1401,13 +1402,30 @@ void MainWindow::onShowFriendManager() {
         loadHistory(id);
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList](const QString& text) {
+        fillList(text.trimmed());
+    });
+    connect(addBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onShowQuickAddFriend();
+    });
+    connect(chatBtn, &QPushButton::clicked, &dialog, openSelectedFriend);
+    connect(friendList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedFriend](QListWidgetItem*) { openSelectedFriend(); });
+    connect(copyBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
+        QListWidgetItem* selected = friendList->currentItem();
+        if (!selected) return;
+        QString id = selected->data(Qt::UserRole).toString();
+        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        QApplication::clipboard()->setText(id);
+        ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
         if (!selected) return;
         QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty()) return;
-        if (QMessageBox::question(this, "删除好友", QString("确定删除 QQ:%1 吗？").arg(id)) != QMessageBox::Yes) return;
+        if (id.isEmpty() || id.startsWith("search_add:")) return;
         m_friendIds.removeAll(id);
         m_friendNames.remove(id);
         saveFriends();
