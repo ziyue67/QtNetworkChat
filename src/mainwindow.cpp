@@ -535,6 +535,7 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         QAction* chatAction = menu.addAction("私聊");
         QAction* copyAction = menu.addAction("复制QQ号");
+        QAction* profileAction = menu.addAction("复制名片");
         QAction* renameAction = menu.addAction("设置备注");
         QAction* removeAction = menu.addAction("移出群聊");
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
@@ -555,6 +556,10 @@ void MainWindow::setupUi() {
         } else if (selected == copyAction) {
             QApplication::clipboard()->setText(memberId);
             ui->statusbar->showMessage("QQ 号已复制: " + memberId, 2500);
+        } else if (selected == profileAction) {
+            QString card = QString("QQ:%1\n昵称:%2\n群聊:%3").arg(memberId, contactDisplayName(memberId), m_localGroupNames.value(m_privateChatTarget, "群聊"));
+            QApplication::clipboard()->setText(card);
+            ui->statusbar->showMessage("群成员名片已复制", 1800);
         } else if (selected == renameAction) {
             bool ok = false;
             QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(memberId), &ok).trimmed();
