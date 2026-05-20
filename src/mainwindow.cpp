@@ -503,6 +503,20 @@ void MainWindow::setupUi() {
     connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
     connect(ui->groupChatBtn, &QPushButton::clicked, this, &MainWindow::onBackToGroupChat);
     connect(ui->memberSearchEdit, &QLineEdit::textChanged, this, [this]() { refreshGroupMemberPanel(); });
+    connect(ui->memberSearchEdit, &QLineEdit::returnPressed, this, [this]() {
+        QString text = ui->memberSearchEdit->text().trimmed();
+        if (text.isEmpty()) return;
+        if (m_privateChatTarget.startsWith("local_group_")) {
+            if (!m_localGroupMembers[m_privateChatTarget].contains(text)) {
+                m_localGroupMembers[m_privateChatTarget] << text;
+                saveLocalGroups();
+                refreshGroupMemberPanel();
+                appendSystemMessage("已按 QQ 号邀请入群: " + text);
+            }
+        } else {
+            searchAndAddAccount(text, this);
+        }
+    });
     ui->memberSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->memberSearchEdit, &QLineEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu menu(this);
