@@ -578,6 +578,35 @@ void MainWindow::setupUi() {
     connect(ui->groupNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowGroupNotifications);
     connect(ui->announcementTitleLabel, &QLabel::linkActivated, this, &MainWindow::onEditGroupAnnouncement);
     connect(ui->copyAccountBtn, &QPushButton::clicked, this, &MainWindow::onCopyAccount);
+    ui->profileCard->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->profileCard, &QFrame::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        QAction* copyAccountAction = menu.addAction("复制QQ号");
+        QAction* copyCardAction = menu.addAction("复制我的名片");
+        QAction* copyStatusAction = menu.addAction("复制在线状态");
+        QAction* globalSearchAction = menu.addAction("打开综合搜索");
+        QAction* friendManagerAction = menu.addAction("打开好友管理");
+        QAction* selected = menu.exec(ui->profileCard->mapToGlobal(pos));
+        if (selected == copyAccountAction) {
+            onCopyAccount();
+        } else if (selected == copyCardAction) {
+            QString card = QString("QQ:%1\n昵称:%2\n好友:%3\n群聊:%4")
+                .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()));
+            QApplication::clipboard()->setText(card);
+            ui->statusbar->showMessage("我的 QQ 名片已复制", 2200);
+        } else if (selected == copyStatusAction) {
+            QString status = QString("QQ:%1 · %2 · 在线 · 好友%3 · 群聊%4")
+                .arg(m_currentUserId, m_currentUserName)
+                .arg(m_friendIds.size())
+                .arg(m_localGroupIds.size());
+            QApplication::clipboard()->setText(status);
+            ui->statusbar->showMessage("在线状态已复制", 2200);
+        } else if (selected == globalSearchAction) {
+            onShowGlobalSearch();
+        } else if (selected == friendManagerAction) {
+            onShowFriendManager();
+        }
+    });
     connect(ui->addFriendBtn, &QPushButton::clicked, this, &MainWindow::onShowQuickAddFriend);
     connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
     connect(ui->groupChatBtn, &QPushButton::clicked, this, &MainWindow::onBackToGroupChat);
@@ -1124,8 +1153,10 @@ void MainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason) {
 }
 
 void MainWindow::onCopyAccount() {
-    QApplication::clipboard()->setText(m_currentUserId);
-    ui->statusbar->showMessage("QQ 账号已复制: " + m_currentUserId, 3000);
+    QString card = QString("QQ:%1\n昵称:%2\n好友:%3\n群聊:%4")
+        .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()));
+    QApplication::clipboard()->setText(card);
+    ui->statusbar->showMessage(QString("QQ 名片已复制: %1 · 好友%2 · 群聊%3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()), 3000);
 }
 
 void MainWindow::onLogout() {
