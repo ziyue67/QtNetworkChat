@@ -469,6 +469,8 @@ void MainWindow::setupUi() {
         QAction* copySenderAction = menu.addAction("复制发送者");
         QAction* quoteAction = menu.addAction("引用回复");
         QAction* forwardAction = menu.addAction("转发到输入框");
+        QAction* resendAction = menu.addAction("再次发送");
+        QAction* copyTimeAction = menu.addAction("复制时间");
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (selected == copyAction) {
@@ -492,6 +494,18 @@ void MainWindow::setupUi() {
             if (content.isEmpty()) content = text;
             ui->messageEdit->setPlainText(QString("转发：%1").arg(content));
             ui->messageEdit->setFocus();
+        } else if (selected == resendAction) {
+            QString content = text.section(']', 2).trimmed();
+            if (content.isEmpty()) content = text.section('>', 1).trimmed();
+            if (content.isEmpty()) content = text;
+            ui->messageEdit->setPlainText(content);
+            ui->messageEdit->setFocus();
+            onSendMessage();
+        } else if (selected == copyTimeAction) {
+            QString timeText = text.section(']', 0, 0).section('[', 1).trimmed();
+            if (timeText.isEmpty()) timeText = QDateTime::currentDateTime().toString("hh:mm:ss");
+            QApplication::clipboard()->setText(timeText);
+            ui->statusbar->showMessage("消息时间已复制: " + timeText, 1800);
         } else if (selected == mentionReplyAction) {
             QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();
             if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
