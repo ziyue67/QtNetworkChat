@@ -2612,6 +2612,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* inviteFriendAction = menu.addAction("邀请好友");
         QAction* inviteByAccountAction = menu.addAction("按QQ号邀请");
         QAction* inviteAllAction = menu.addAction("邀请全部好友");
+        QAction* copyOnlineMembersAction = menu.addAction("复制在线成员");
         QAction* renameGroupAction = menu.addAction("重命名群聊");
         QAction* deleteGroupAction = menu.addAction("删除群聊");
         QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
@@ -2701,6 +2702,14 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
             appendSystemMessage(QString("已自动邀请 %1 位好友加入群聊").arg(addedCount));
             saveHistory(userId, QString("[%1] [系统] 已自动邀请 %2 位好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(addedCount));
+        } else if (selected == copyOnlineMembersAction) {
+            QStringList rows;
+            for (const QString& id : m_localGroupMembers.value(userId)) {
+                if (id != m_currentUserId && !isContactOnline(id)) continue;
+                rows << QString("在线成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
+            }
+            QApplication::clipboard()->setText(rows.join('\n'));
+            ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(rows.size()), 2200);
         } else if (selected == renameGroupAction) {
             bool ok = false;
             QString newName = QInputDialog::getText(this, "重命名群聊", "群聊名称:", QLineEdit::Normal, m_localGroupNames.value(userId, "群聊"), &ok).trimmed();
@@ -2727,6 +2736,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* copyAction = menu.addAction("复制QQ号");
     QAction* profileAction = menu.addAction("复制名片");
     QAction* copyAddTextAction = menu.addAction("复制加好友话术");
+    QAction* copyOnlineCardAction = menu.addAction("复制在线名片");
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
     QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
@@ -2753,6 +2763,15 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             .arg(m_currentUserName, m_currentUserId);
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("加好友话术已复制", 2200);
+    } else if (selected == copyOnlineCardAction) {
+        QString card = QString("QQ:%1\n昵称:%2\n状态:%3\n关系:%4\n当前会话:%5")
+            .arg(userId,
+                 contactDisplayName(userId),
+                 isContactOnline(userId) ? "在线" : "离线",
+                 m_friendIds.contains(userId) ? "好友" : "陌生人",
+                 m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+        QApplication::clipboard()->setText(card);
+        ui->statusbar->showMessage("在线名片已复制", 2200);
     } else if (selected == inviteCurrentGroupAction) {
         if (!m_friendIds.contains(userId)) {
             m_friendIds << userId;
