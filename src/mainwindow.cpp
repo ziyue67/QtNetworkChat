@@ -1602,6 +1602,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* clearSearchAction = menu.addAction("清空搜索");
     QAction* copyChatIdAction = menu.addAction("复制当前会话号");
     QAction* copyChatCardAction = menu.addAction("复制当前会话名片");
+    QAction* copyCurrentInviteAction = menu.addAction("复制当前邀请语");
     QAction* copyCurrentMembersAction = menu.addAction("复制当前成员列表");
     QAction* copyAllContactsAction = menu.addAction("复制全部联系人");
     QAction* copySearchSummaryAction = menu.addAction("复制搜索摘要");
@@ -1680,6 +1681,22 @@ void MainWindow::onShowCreateMenu() {
         }
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("当前会话名片已复制", 1800);
+    } else if (selected == copyCurrentInviteAction) {
+        QString text;
+        if (m_privateChatTarget.startsWith("local_group_")) {
+            text = QString("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后我们一起沟通。")
+                .arg(m_localGroupNames.value(m_privateChatTarget, "群聊"),
+                     m_privateChatTarget.mid(QString("local_group_").size()),
+                     m_currentUserName,
+                     m_currentUserId);
+        } else if (!m_privateChatTarget.isEmpty()) {
+            text = QString("你好 %1，我是 %2（QQ:%3）。方便的话加个好友，我们可以继续私聊。")
+                .arg(contactDisplayName(m_privateChatTarget), m_currentUserName, m_currentUserId);
+        } else {
+            text = QString("你好，我是 %1（QQ:%2），欢迎加入公共聊天室，也可以通过 QQ 搜索加我好友。").arg(m_currentUserName, m_currentUserId);
+        }
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("当前会话邀请语已复制", 2200);
     } else if (selected == copyCurrentMembersAction) {
         QStringList cards;
         QStringList ids = m_privateChatTarget.startsWith("local_group_") ? m_localGroupMembers.value(m_privateChatTarget) : QStringList();
