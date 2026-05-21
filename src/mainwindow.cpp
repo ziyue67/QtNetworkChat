@@ -1866,7 +1866,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(460, 410);
+    dialog.setFixedSize(500, 470);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -1893,16 +1893,24 @@ void MainWindow::onShowQuickAddFriend() {
     statsLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(statsLabel);
 
+    QLabel* cardLabel = new QLabel(&dialog);
+    cardLabel->setObjectName("quickAddPreviewCard");
+    cardLabel->setAlignment(Qt::AlignCenter);
+    cardLabel->setWordWrap(true);
+    layout->addWidget(cardLabel);
+
     QListWidget* suggestionList = new QListWidget(&dialog);
     suggestionList->setObjectName("quickAddSuggestionList");
     suggestionList->setFixedHeight(112);
     layout->addWidget(suggestionList);
 
-    auto fillSuggestions = [this, accountEdit, suggestionList, statsLabel]() {
+    auto fillSuggestions = [this, accountEdit, suggestionList, statsLabel, cardLabel]() {
         suggestionList->clear();
         QString filter = accountEdit->text().trimmed();
         int onlineCandidates = 0;
         int visibleCount = 0;
+        QString firstPreviewId;
+        QString firstPreviewName;
         for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
             const ChatUser& user = it.value();
             if (user.id == m_currentUserId || m_friendIds.contains(user.id)) continue;
@@ -1915,6 +1923,10 @@ void MainWindow::onShowQuickAddFriend() {
                 item->setData(Qt::UserRole, user.id);
                 item->setSizeHint(QSize(0, 34));
                 suggestionList->addItem(item);
+            }
+            if (firstPreviewId.isEmpty()) {
+                firstPreviewId = user.id;
+                firstPreviewName = user.name;
             }
             ++visibleCount;
         }
@@ -1935,6 +1947,10 @@ void MainWindow::onShowQuickAddFriend() {
             item->setSizeHint(QSize(0, 34));
             suggestionList->addItem(item);
         }
+        QString previewId = firstPreviewId.isEmpty() ? filter : firstPreviewId;
+        QString previewName = firstPreviewName.isEmpty() ? (previewId.isEmpty() ? "待搜索好友" : contactDisplayName(previewId)) : firstPreviewName;
+        cardLabel->setText(QString("邀请预览：%1（QQ:%2）\n你好，我是 %3（QQ:%4），方便加个好友吗？")
+            .arg(previewName, previewId.isEmpty() ? "-" : previewId, m_currentUserName, m_currentUserId));
     };
     fillSuggestions();
 
@@ -1973,6 +1989,16 @@ void MainWindow::onShowQuickAddFriend() {
             font-size: 12px;
             font-weight: 800;
             padding: 2px 10px;
+        }
+        QLabel#quickAddPreviewCard {
+            min-height: 54px;
+            border-radius: 14px;
+            background: #F6FBFF;
+            border: 1px solid #DCEFFF;
+            color: #3A4A5A;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 8px 12px;
         }
         QLineEdit#quickAddInput {
             min-height: 42px;
