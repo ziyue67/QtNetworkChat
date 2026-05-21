@@ -1828,6 +1828,20 @@ void MainWindow::onInsertEmoji() {
         });
     }
     menu.addSeparator();
+    QMenu* commandMenu = menu.addMenu("QQ快捷指令");
+    const QMap<QString, QString> commands = {
+        {"/card", "发送我的QQ名片"},
+        {"/invite", "发送加好友/入群邀请"},
+        {"/qq", "发送我的QQ号"}
+    };
+    for (auto it = commands.begin(); it != commands.end(); ++it) {
+        QAction* action = commandMenu->addAction(QString("%1 · %2").arg(it.key(), it.value()));
+        QString command = it.key();
+        connect(action, &QAction::triggered, this, [this, command]() {
+            ui->messageEdit->setPlainText(command);
+            ui->messageEdit->setFocus();
+        });
+    }
     const QStringList quickMessages = {
         "在吗？",
         "收到，我马上看。",
