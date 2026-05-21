@@ -1269,6 +1269,8 @@ void MainWindow::onShowGlobalSearch() {
     copyListBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyAddTextBtn = new QPushButton("复制加好友话术", &dialog);
     copyAddTextBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* copyInviteCardBtn = new QPushButton("复制邀请卡", &dialog);
+    copyInviteCardBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
     profileBtn->setObjectName("globalSearchGhostBtn");
     actionLayout->addWidget(actionHint);
@@ -1280,6 +1282,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(copyBtn);
     actionLayout->addWidget(copyListBtn);
     actionLayout->addWidget(copyAddTextBtn);
+    actionLayout->addWidget(copyInviteCardBtn);
     actionLayout->addWidget(profileBtn);
     actionLayout->addWidget(openBtn);
     layout->addLayout(actionLayout);
@@ -1567,6 +1570,24 @@ void MainWindow::onShowGlobalSearch() {
             : QString("你好，我是 %1（QQ:%2），通过 QQ 搜索找到你，方便加个好友吗？").arg(m_currentUserName, m_currentUserId);
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("加好友/邀请话术已复制", 2200);
+    });
+    connect(copyInviteCardBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
+        QListWidgetItem* item = resultList->currentItem();
+        QString id = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
+        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        if (id.isEmpty()) id = searchEdit->text().trimmed();
+        QString title;
+        QString detail;
+        if (id.startsWith("local_group_")) {
+            title = QString("邀请加入群聊：%1").arg(m_localGroupNames.value(id, "群聊"));
+            detail = QString("群号:%1 · 成员:%2 · 邀请人:%3(QQ:%4)")
+                .arg(id.mid(QString("local_group_").size()), QString::number(m_localGroupMembers.value(id).size()), m_currentUserName, m_currentUserId);
+        } else {
+            title = QString("好友邀请：%1").arg(id.isEmpty() ? "QQ搜索" : contactDisplayName(id));
+            detail = QString("目标QQ:%1 · 我的QQ:%2 · 昵称:%3 · 可搜索后直接添加").arg(id, m_currentUserId, m_currentUserName);
+        }
+        QApplication::clipboard()->setText(title + '\n' + detail);
+        ui->statusbar->showMessage("搜索邀请卡已复制", 2200);
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
