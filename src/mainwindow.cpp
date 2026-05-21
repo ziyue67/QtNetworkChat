@@ -832,6 +832,20 @@ void MainWindow::onSendMessage() {
     QString text = ui->messageEdit->toPlainText().trimmed();
     if (text.isEmpty()) return;
 
+    const QString originalText = text;
+    if (text == "/card" || text == "名片") {
+        text = QString("我的名片：%1（QQ:%2） · 好友%3 · 群聊%4")
+            .arg(m_currentUserName, m_currentUserId, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()));
+    } else if (text == "/invite" || text == "邀请") {
+        text = m_privateChatTarget.startsWith("local_group_")
+            ? QString("邀请加入群聊“%1”，我是 %2（QQ:%3），进群后一起沟通。")
+                .arg(m_localGroupNames.value(m_privateChatTarget, "群聊"), m_currentUserName, m_currentUserId)
+            : QString("你好，我是 %1（QQ:%2），方便的话加个好友继续聊。")
+                .arg(m_currentUserName, m_currentUserId);
+    } else if (text == "/qq" || text == "QQ") {
+        text = QString("我的 QQ 号：%1，昵称：%2").arg(m_currentUserId, m_currentUserName);
+    }
+
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
@@ -845,7 +859,7 @@ void MainWindow::onSendMessage() {
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         ui->messageEdit->clear();
-        ui->chatHintLabel->setText(QString("本地群聊 · %1 · 已发送 %2 字").arg(groupName).arg(text.size()));
+        ui->chatHintLabel->setText(QString("本地群聊 · %1 · 已发送 %2 字%3").arg(groupName).arg(text.size()).arg(originalText == text ? QString() : " · 快捷指令已展开"));
         ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(groupName).arg(text.size()), 1800);
         ui->chatListView->scrollToBottom();
         return;
@@ -874,7 +888,7 @@ void MainWindow::onSendMessage() {
             m_chatModel->removeRows(0, rowCount - MAX_HISTORY_LINES);
         }
         ui->chatListView->scrollToBottom();
-        ui->chatHintLabel->setText(QString("已发送到 %1 · %2 字 · %3").arg(targetName).arg(text.size()).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->chatHintLabel->setText(QString("已发送到 %1 · %2 字 · %3%4").arg(targetName).arg(text.size()).arg(QDateTime::currentDateTime().toString("hh:mm:ss"), originalText == text ? QString() : " · 快捷指令已展开"));
         ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(targetName).arg(text.size()), 1800);
 
         ui->messageEdit->clear();
