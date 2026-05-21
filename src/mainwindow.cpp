@@ -373,17 +373,29 @@ void MainWindow::setupUi() {
     QAction* backGroupAction = new QAction("返回群聊", this);
     QAction* avatarAction = new QAction("上传头像", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
+    QAction* copySummaryAction = new QAction("复制账号摘要", this);
     QAction* logoutAction = new QAction("退出登录", this);
     ui->menubar->addAction(friendManagerAction);
     ui->menubar->addAction(backGroupAction);
     ui->menubar->addAction(avatarAction);
     ui->menubar->addAction(copyAccountAction);
+    ui->menubar->addAction(copySummaryAction);
     ui->menubar->addAction(logoutAction);
 
     connect(friendManagerAction, &QAction::triggered, this, &MainWindow::onShowFriendManager);
     connect(backGroupAction, &QAction::triggered, this, &MainWindow::onBackToGroupChat);
     connect(avatarAction, &QAction::triggered, this, &MainWindow::onUploadAvatar);
     connect(copyAccountAction, &QAction::triggered, this, &MainWindow::onCopyAccount);
+    connect(copySummaryAction, &QAction::triggered, this, [this]() {
+        QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n好友:%3\n群聊:%4\n当前会话:%5")
+            .arg(m_currentUserId,
+                 m_currentUserName,
+                 QString::number(m_friendIds.size()),
+                 QString::number(m_localGroupIds.size()),
+                 m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+        QApplication::clipboard()->setText(summary);
+        ui->statusbar->showMessage("账号摘要已复制", 2200);
+    });
     connect(logoutAction, &QAction::triggered, this, &MainWindow::onLogout);
     refreshFriendList();
 
