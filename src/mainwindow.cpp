@@ -2123,7 +2123,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(560, 540);
+    dialog.setFixedSize(620, 560);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -2229,9 +2229,12 @@ void MainWindow::onShowQuickAddFriend() {
     copyPreviewBtn->setObjectName("quickCancelBtn");
     QPushButton* copyRequestBtn = new QPushButton("复制申请话术", &dialog);
     copyRequestBtn->setObjectName("quickCancelBtn");
+    QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
+    copySearchCardBtn->setObjectName("quickCancelBtn");
     buttonLayout->addWidget(cancelBtn);
     buttonLayout->addWidget(copyPreviewBtn);
     buttonLayout->addWidget(copyRequestBtn);
+    buttonLayout->addWidget(copySearchCardBtn);
     buttonLayout->addWidget(recommendBtn);
     buttonLayout->addWidget(searchBtn);
     layout->addLayout(buttonLayout);
@@ -2356,6 +2359,21 @@ void MainWindow::onShowQuickAddFriend() {
             .arg(name, m_currentUserName, m_currentUserId, cardLabel->text());
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("好友申请话术已复制", 2200);
+    });
+    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, accountEdit, suggestionList]() {
+        QString keyword = accountEdit->text().trimmed();
+        QStringList rows;
+        rows << QString("快速加好友搜索卡片");
+        rows << QString("关键词:%1").arg(keyword.isEmpty() ? "推荐好友" : keyword);
+        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        for (int i = 0; i < suggestionList->count(); ++i) {
+            QListWidgetItem* item = suggestionList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) continue;
+            rows << QString("候选 QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "待搜索");
+        }
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("快速加好友搜索卡片已复制", 2200);
     });
     connect(suggestionList, &QListWidget::itemDoubleClicked, &dialog, [accountEdit, runQuickAdd](QListWidgetItem* item) {
         QString account = item->data(Qt::UserRole).toString();
