@@ -1984,7 +1984,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(500, 470);
+    dialog.setFixedSize(560, 540);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -2016,6 +2016,12 @@ void MainWindow::onShowQuickAddFriend() {
     cardLabel->setAlignment(Qt::AlignCenter);
     cardLabel->setWordWrap(true);
     layout->addWidget(cardLabel);
+
+    QLabel* actionTipLabel = new QLabel("输入 QQ 后可一键搜索添加，也可以复制申请话术发给对方。", &dialog);
+    actionTipLabel->setObjectName("quickAddActionTip");
+    actionTipLabel->setAlignment(Qt::AlignCenter);
+    actionTipLabel->setWordWrap(true);
+    layout->addWidget(actionTipLabel);
 
     QListWidget* suggestionList = new QListWidget(&dialog);
     suggestionList->setObjectName("quickAddSuggestionList");
@@ -2082,8 +2088,11 @@ void MainWindow::onShowQuickAddFriend() {
     recommendBtn->setObjectName("quickSearchBtn");
     QPushButton* copyPreviewBtn = new QPushButton("复制预览", &dialog);
     copyPreviewBtn->setObjectName("quickCancelBtn");
+    QPushButton* copyRequestBtn = new QPushButton("复制申请话术", &dialog);
+    copyRequestBtn->setObjectName("quickCancelBtn");
     buttonLayout->addWidget(cancelBtn);
     buttonLayout->addWidget(copyPreviewBtn);
+    buttonLayout->addWidget(copyRequestBtn);
     buttonLayout->addWidget(recommendBtn);
     buttonLayout->addWidget(searchBtn);
     layout->addLayout(buttonLayout);
@@ -2120,6 +2129,16 @@ void MainWindow::onShowQuickAddFriend() {
             font-size: 12px;
             font-weight: 700;
             padding: 8px 12px;
+        }
+        QLabel#quickAddActionTip {
+            min-height: 28px;
+            border-radius: 14px;
+            background: #FFF8E8;
+            border: 1px solid #FFE1A8;
+            color: #A36800;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 5px 10px;
         }
         QLineEdit#quickAddInput {
             min-height: 42px;
@@ -2186,6 +2205,18 @@ void MainWindow::onShowQuickAddFriend() {
     connect(copyPreviewBtn, &QPushButton::clicked, &dialog, [this, cardLabel]() {
         QApplication::clipboard()->setText(cardLabel->text());
         ui->statusbar->showMessage("加好友预览已复制", 2200);
+    });
+    connect(copyRequestBtn, &QPushButton::clicked, &dialog, [this, accountEdit, suggestionList, cardLabel]() {
+        QString account = accountEdit->text().trimmed();
+        if (account.isEmpty()) {
+            QListWidgetItem* item = suggestionList->currentItem();
+            if (item) account = item->data(Qt::UserRole).toString();
+        }
+        QString name = account.isEmpty() ? "朋友" : contactDisplayName(account);
+        QString text = QString("%1，你好，我是 %2（QQ:%3）。我通过 QQ 搜索看到你，想加你为好友继续沟通。\n%4")
+            .arg(name, m_currentUserName, m_currentUserId, cardLabel->text());
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("好友申请话术已复制", 2200);
     });
     connect(suggestionList, &QListWidget::itemDoubleClicked, &dialog, [accountEdit, runQuickAdd](QListWidgetItem* item) {
         QString account = item->data(Qt::UserRole).toString();
