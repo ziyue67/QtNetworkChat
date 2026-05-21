@@ -2625,12 +2625,25 @@ void MainWindow::onShowFriendNotifications() {
     titleLayout->addWidget(clearBtn);
     layout->addLayout(titleLayout);
 
+    QLabel* statsLabel = new QLabel(&dialog);
+    statsLabel->setObjectName("noticeSubTitle");
+    layout->addWidget(statsLabel);
+
+    QLineEdit* searchEdit = new QLineEdit(&dialog);
+    searchEdit->setObjectName("noticeSearch");
+    searchEdit->setPlaceholderText("搜索申请人 QQ 号 / 昵称");
+    searchEdit->setClearButtonEnabled(true);
+    layout->addWidget(searchEdit);
+
     QListWidget* noticeList = new QListWidget(&dialog);
     noticeList->setObjectName("noticeList");
     layout->addWidget(noticeList, 1);
 
-    auto fillList = [this, noticeList]() {
+    auto fillList = [this, noticeList, statsLabel, searchEdit]() {
         noticeList->clear();
+        QString filter = searchEdit->text().trimmed();
+        int visibleCount = 0;
+        statsLabel->setText(QString("待处理 %1 个申请 · 已有好友 %2 人").arg(m_pendingFriendRequests.size()).arg(m_friendIds.size()));
         if (m_pendingFriendRequests.isEmpty()) {
             QListWidgetItem* emptyItem = new QListWidgetItem("暂无新的好友申请");
             emptyItem->setFlags(Qt::NoItemFlags);
@@ -2641,10 +2654,24 @@ void MainWindow::onShowFriendNotifications() {
         }
         for (const QString& id : m_pendingFriendRequests) {
             QString name = m_friendNames.value(id, id);
+            if (!filter.isEmpty()
+                && !id.contains(filter, Qt::CaseInsensitive)
+                && !name.contains(filter, Qt::CaseInsensitive)) continue;
             QListWidgetItem* item = new QListWidgetItem(QString("%1  请求加为好友\n留言：请求添加对方为好友\n来源：QQ号-%2").arg(name, id));
             item->setData(Qt::UserRole, id);
             item->setSizeHint(QSize(0, 92));
             noticeList->addItem(item);
+            ++visibleCount;
+        }
+        statsLabel->setText(filter.isEmpty()
+            ? QString("待处理 %1 个申请 · 已有好友 %2 人").arg(m_pendingFriendRequests.size()).arg(m_friendIds.size())
+            : QString("待处理 %1 个申请 · 匹配 %2 个 · 已有好友 %3 人").arg(m_pendingFriendRequests.size()).arg(visibleCount).arg(m_friendIds.size()));
+        if (visibleCount == 0 && !filter.isEmpty()) {
+            QListWidgetItem* emptyItem = new QListWidgetItem(QString("未找到申请人，可清空搜索或直接添加 QQ:%1").arg(filter));
+            emptyItem->setData(Qt::UserRole, "search_add:" + filter);
+            emptyItem->setForeground(QColor(18, 150, 247));
+            emptyItem->setSizeHint(QSize(0, 68));
+            noticeList->addItem(emptyItem);
         }
     };
     fillList();
@@ -2680,6 +2707,23 @@ void MainWindow::onShowFriendNotifications() {
             color: #111111;
             font-size: 20px;
             font-weight: 900;
+        }
+        QLabel#noticeSubTitle {
+            color: #6B7A88;
+            font-size: 13px;
+            font-weight: 800;
+            padding-left: 4px;
+        }
+        QLineEdit#noticeSearch {
+            min-height: 38px;
+            background: white;
+            border: 1px solid #DDE7F0;
+            border-radius: 18px;
+            padding: 4px 14px;
+            color: #263238;
+        }
+        QLineEdit#noticeSearch:focus {
+            border: 1px solid #12B7F5;
         }
         QListWidget#noticeList {
             background: #F4F4F4;
@@ -2722,10 +2766,19 @@ void MainWindow::onShowFriendNotifications() {
     auto updateBadge = [this]() {
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
     };
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList]() { fillList(); });
+    connect(searchEdit, &QLineEdit::returnPressed, &dialog, [this, searchEdit]() {
+        QString account = searchEdit->text().trimmed();
+        if (!account.isEmpty()) searchAndAddAccount(account, this);
+    });
     connect(acceptBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
         QListWidgetItem* item = noticeList->currentItem();
         if (!item) return;
         QString id = item->data(Qt::UserRole).toString();
+        if (id.startsWith("search_add:")) {
+            searchAndAddAccount(id.mid(QString("search_add:").size()), this);
+            return;
+        }
         if (id.isEmpty()) return;
         QString name = m_friendNames.value(id, id);
         m_client->sendFriendResponse(id, true);
@@ -2763,7 +2816,7 @@ void MainWindow::onShowFriendNotifications() {
         QListWidgetItem* item = noticeList->currentItem();
         if (!item) return;
         QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty()) return;
+        if (id.isEmpty() || id.startsWith("search_add:")) return;
         m_client->sendFriendResponse(id, false);
         m_pendingFriendRequests.removeAll(id);
         updateBadge();
