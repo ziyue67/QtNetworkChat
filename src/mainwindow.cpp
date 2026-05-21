@@ -3245,6 +3245,8 @@ void MainWindow::refreshFriendList() {
     int visibleFriends = 0;
     int visibleGroups = 0;
     int visibleOnlineUsers = 0;
+    int onlineFriendCount = 0;
+    int visibleStrangers = 0;
     auto matchesFilter = [this](const QString& id, const QString& name) {
         return m_contactFilter.isEmpty()
             || id.contains(m_contactFilter, Qt::CaseInsensitive)
@@ -3284,6 +3286,7 @@ void MainWindow::refreshFriendList() {
         bool isFriend = m_friendIds.contains(user.id);
         if (isFriend) {
             m_friendNames[user.id] = user.name;
+            ++onlineFriendCount;
         }
         QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n   %3%4").arg(isFriend ? "★" : "○", user.id, user.name, isFriend ? " [在线]" : ""));
         item->setData(user.id, Qt::UserRole + 1);
@@ -3291,11 +3294,12 @@ void MainWindow::refreshFriendList() {
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleOnlineUsers;
+        if (!isFriend) ++visibleStrangers;
     }
 
     ui->onlineTitleLabel->setText(m_contactFilter.isEmpty()
-        ? QString("联系人 · 好友%1 · 群聊%2 · 在线%3").arg(visibleFriends).arg(visibleGroups).arg(visibleOnlineUsers)
-        : QString("联系人 · 匹配%1 · 好友%2 · 群聊%3 · 在线%4").arg(visibleCount).arg(visibleFriends).arg(visibleGroups).arg(visibleOnlineUsers));
+        ? QString("联系人 · 好友%1/%2在线 · 群聊%3 · 陌生人%4").arg(onlineFriendCount).arg(m_friendIds.size()).arg(visibleGroups).arg(visibleStrangers)
+        : QString("联系人 · 匹配%1 · 好友%2 · 群聊%3 · 在线%4 · 陌生人%5").arg(visibleCount).arg(visibleFriends + onlineFriendCount).arg(visibleGroups).arg(visibleOnlineUsers).arg(visibleStrangers));
 
     if (visibleCount == 0 && !m_contactFilter.isEmpty()) {
         QStandardItem* addItem = new QStandardItem(QString("搜索并添加 QQ:%1\n   回车或双击自动查找好友").arg(m_contactFilter));
@@ -3316,7 +3320,9 @@ void MainWindow::onContactSearchChanged(const QString& text) {
     m_contactFilter = text.trimmed();
     refreshFriendList();
     if (!m_contactFilter.isEmpty()) {
-        ui->statusbar->showMessage(QString("未找到时可双击列表底部一键搜索 QQ:%1").arg(m_contactFilter), 1800);
+        ui->statusbar->showMessage(QString("QQ搜索:%1 · 无结果可双击搜索添加或建群").arg(m_contactFilter), 1800);
+    } else {
+        ui->statusbar->showMessage(QString("联系人已显示 · 好友%1 · 本地群%2 · 在线%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size()), 1200);
     }
 }
 
