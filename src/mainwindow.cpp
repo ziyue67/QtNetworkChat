@@ -401,9 +401,24 @@ void MainWindow::setupUi() {
         QAction* quickAction = menu.addAction("插入快捷语");
         QAction* quoteTemplateAction = menu.addAction("插入引用模板");
         QMenu* phraseMenu = menu.addMenu("常用话术");
+        QMenu* qqPhraseMenu = menu.addMenu("QQ快捷话术");
         const QStringList quickPhrases = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说", "方便的话加个好友", "拉我进群聊一下", "这个 QQ 号是我"};
+        const QStringList qqPhrases = {
+            "你好，我是通过 QQ 搜索找到你的，方便加个好友吗？",
+            "我已经发送好友申请了，通过后我们私聊。",
+            "我建了一个群聊，等下把大家拉进去一起沟通。",
+            "这个是我的 QQ 号，请复制保存。",
+            "收到文件后麻烦回复一下。"
+        };
         for (const QString& phrase : quickPhrases) {
             QAction* phraseAction = phraseMenu->addAction(phrase);
+            connect(phraseAction, &QAction::triggered, ui->messageEdit, [this, phrase]() {
+                ui->messageEdit->insertPlainText(phrase);
+                ui->messageEdit->setFocus();
+            });
+        }
+        for (const QString& phrase : qqPhrases) {
+            QAction* phraseAction = qqPhraseMenu->addAction(phrase);
             connect(phraseAction, &QAction::triggered, ui->messageEdit, [this, phrase]() {
                 ui->messageEdit->insertPlainText(phrase);
                 ui->messageEdit->setFocus();
@@ -1680,7 +1695,7 @@ void MainWindow::onEditGroupAnnouncement() {
 
 void MainWindow::onInsertEmoji() {
     QMenu menu(this);
-    const QStringList emojis = {"😀", "😂", "😊", "😍", "😎", "😭", "👍", "🎉", "❤️", "🔥"};
+    const QStringList emojis = {"😀", "😂", "😊", "😍", "😎", "😭", "👍", "🎉", "❤️", "🔥", "👏", "🙏", "💪", "🤝", "📌", "📎"};
     for (const QString& emoji : emojis) {
         QAction* action = menu.addAction(emoji);
         connect(action, &QAction::triggered, this, [this, emoji]() {
@@ -1689,7 +1704,16 @@ void MainWindow::onInsertEmoji() {
         });
     }
     menu.addSeparator();
-    const QStringList quickMessages = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说"};
+    const QStringList quickMessages = {
+        "在吗？",
+        "收到，我马上看。",
+        "稍等一下",
+        "我发你文件",
+        "我们群里说",
+        "你好，我是通过 QQ 搜索找到你的。",
+        "方便的话加个好友。",
+        "我建了群聊，拉大家一起沟通。"
+    };
     for (const QString& message : quickMessages) {
         QAction* action = menu.addAction("快捷语 · " + message);
         connect(action, &QAction::triggered, this, [this, message]() {
