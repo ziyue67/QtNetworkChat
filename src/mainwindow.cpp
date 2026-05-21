@@ -686,6 +686,7 @@ void MainWindow::setupUi() {
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
         QAction* addVisibleAction = menu.addAction("添加可见成员为好友");
         QAction* copyVisibleAction = menu.addAction("复制可见成员");
+        QAction* copyOnlineVisibleAction = menu.addAction("复制在线成员");
         QAction* clearAction = menu.addAction("清空搜索");
         QAction* selected = menu.exec(ui->memberSearchEdit->mapToGlobal(pos));
         if (selected == pasteAction) {
@@ -726,6 +727,22 @@ void MainWindow::setupUi() {
                 QApplication::clipboard()->setText(cards.join('\n'));
                 ui->statusbar->showMessage(QString("已复制 %1 个可见成员").arg(cards.size()), 2200);
             }
+        } else if (selected == copyOnlineVisibleAction) {
+            QStringList cards;
+            for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
+                QStandardItem* item = m_groupMemberModel->item(i);
+                if (!item) continue;
+                QString id = item->data(Qt::UserRole + 1).toString();
+                if (id.isEmpty() || id.startsWith("group_search_add:") || id.startsWith("group_invite:")) continue;
+                if (id != m_currentUserId && !isContactOnline(id)) continue;
+                cards << QString("在线成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
+            }
+            if (cards.isEmpty()) {
+                ui->statusbar->showMessage("当前筛选没有在线成员", 2200);
+                return;
+            }
+            QApplication::clipboard()->setText(cards.join('\n'));
+            ui->statusbar->showMessage(QString("已复制 %1 个在线成员").arg(cards.size()), 2200);
         } else if (selected == clearAction) {
             ui->memberSearchEdit->clear();
         }
