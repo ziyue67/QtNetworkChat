@@ -2515,6 +2515,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* openGroupAction = menu.addAction("进入群聊");
         QAction* copyGroupAction = menu.addAction("复制群号");
         QAction* copyGroupCardAction = menu.addAction("复制群名片");
+        QAction* copyGroupInviteAction = menu.addAction("复制群邀请语");
         QAction* copyMembersAction = menu.addAction("复制成员列表");
         QAction* inviteFriendAction = menu.addAction("邀请好友");
         QAction* inviteByAccountAction = menu.addAction("按QQ号邀请");
@@ -2537,6 +2538,12 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                      m_localGroupAnnouncements.value(userId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(m_localGroupNames.value(userId, "群聊"))));
             QApplication::clipboard()->setText(card);
             ui->statusbar->showMessage("群名片已复制", 1800);
+        } else if (selected == copyGroupInviteAction) {
+            QString groupName = m_localGroupNames.value(userId, "群聊");
+            QString groupNumber = userId.mid(QString("local_group_").size());
+            QString inviteText = QString("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后我们一起沟通。").arg(groupName, groupNumber, m_currentUserName, m_currentUserId);
+            QApplication::clipboard()->setText(inviteText);
+            ui->statusbar->showMessage("群邀请语已复制", 2200);
         } else if (selected == copyMembersAction) {
             QStringList cards;
             for (const QString& id : m_localGroupMembers.value(userId)) {
@@ -2627,6 +2634,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* chatAction = menu.addAction("发送消息");
     QAction* copyAction = menu.addAction("复制QQ号");
     QAction* profileAction = menu.addAction("复制名片");
+    QAction* copyAddTextAction = menu.addAction("复制加好友话术");
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
     QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
@@ -2648,6 +2656,11 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QString card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(userId, contactDisplayName(userId), isContactOnline(userId) ? "在线" : "离线");
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("联系人名片已复制", 1800);
+    } else if (selected == copyAddTextAction) {
+        QString text = QString("你好，我是 %1（QQ:%2），通过 QQ 搜索看到你。方便的话加个好友，我们可以私聊或一起进群沟通。")
+            .arg(m_currentUserName, m_currentUserId);
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("加好友话术已复制", 2200);
     } else if (selected == inviteCurrentGroupAction) {
         if (!m_friendIds.contains(userId)) {
             m_friendIds << userId;
