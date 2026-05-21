@@ -1254,9 +1254,12 @@ void MainWindow::onShowGlobalSearch() {
     searchBtn->setObjectName("globalSearchPrimaryBtn");
     QPushButton* clearBtn = new QPushButton("清空", header);
     clearBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* quickAddBtn = new QPushButton("快速加好友", header);
+    quickAddBtn->setObjectName("globalSearchGhostBtn");
     searchLayout->addWidget(searchEdit, 1);
     searchLayout->addWidget(searchBtn);
     searchLayout->addWidget(clearBtn);
+    searchLayout->addWidget(quickAddBtn);
     headerLayout->addLayout(searchLayout);
 
     QHBoxLayout* tabLayout = new QHBoxLayout;
@@ -1492,6 +1495,10 @@ void MainWindow::onShowGlobalSearch() {
         searchEdit->clear();
         fillResults();
         searchEdit->setFocus();
+    });
+    connect(quickAddBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onShowQuickAddFriend();
     });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, runServerSearch);
     connect(openBtn, &QPushButton::clicked, &dialog, openResult);
