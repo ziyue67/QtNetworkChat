@@ -1990,7 +1990,10 @@ void MainWindow::onShowQuickAddFriend() {
     searchBtn->setDefault(true);
     QPushButton* recommendBtn = new QPushButton("添加推荐", &dialog);
     recommendBtn->setObjectName("quickSearchBtn");
+    QPushButton* copyPreviewBtn = new QPushButton("复制预览", &dialog);
+    copyPreviewBtn->setObjectName("quickCancelBtn");
     buttonLayout->addWidget(cancelBtn);
+    buttonLayout->addWidget(copyPreviewBtn);
     buttonLayout->addWidget(recommendBtn);
     buttonLayout->addWidget(searchBtn);
     layout->addLayout(buttonLayout);
@@ -2090,6 +2093,10 @@ void MainWindow::onShowQuickAddFriend() {
         dialog.accept();
     };
     connect(accountEdit, &QLineEdit::textChanged, &dialog, [fillSuggestions]() { fillSuggestions(); });
+    connect(copyPreviewBtn, &QPushButton::clicked, &dialog, [this, cardLabel]() {
+        QApplication::clipboard()->setText(cardLabel->text());
+        ui->statusbar->showMessage("加好友预览已复制", 2200);
+    });
     connect(suggestionList, &QListWidget::itemDoubleClicked, &dialog, [accountEdit, runQuickAdd](QListWidgetItem* item) {
         QString account = item->data(Qt::UserRole).toString();
         if (account.isEmpty()) return;
