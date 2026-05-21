@@ -1698,6 +1698,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* copyChatCardAction = menu.addAction("复制当前会话名片");
     QAction* copyCurrentInviteAction = menu.addAction("复制当前邀请语");
     QAction* copyCurrentMembersAction = menu.addAction("复制当前成员列表");
+    QAction* copyCurrentOnlineAction = menu.addAction("复制当前在线成员");
     QAction* copyAllContactsAction = menu.addAction("复制全部联系人");
     QAction* copySearchSummaryAction = menu.addAction("复制搜索摘要");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
@@ -1803,6 +1804,19 @@ void MainWindow::onShowCreateMenu() {
         if (cards.isEmpty()) return;
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个当前成员").arg(cards.size()), 2200);
+    } else if (selected == copyCurrentOnlineAction) {
+        QStringList cards;
+        QStringList ids = m_privateChatTarget.startsWith("local_group_") ? m_localGroupMembers.value(m_privateChatTarget) : QStringList();
+        if (ids.isEmpty()) {
+            for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) ids << it.key();
+        }
+        for (const QString& id : ids) {
+            if (id != m_currentUserId && !isContactOnline(id)) continue;
+            cards << QString("在线 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
+        }
+        if (cards.isEmpty()) return;
+        QApplication::clipboard()->setText(cards.join('\n'));
+        ui->statusbar->showMessage(QString("已复制 %1 个在线成员").arg(cards.size()), 2200);
     } else if (selected == copyAllContactsAction) {
         QStringList rows;
         rows << QString("我的QQ:%1 昵称:%2").arg(m_currentUserId, m_currentUserName);
