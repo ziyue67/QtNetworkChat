@@ -2129,6 +2129,8 @@ void MainWindow::onShowFriendManager() {
     copyAllBtn->setObjectName("managerSecondaryBtn");
     QPushButton* profileBtn = new QPushButton("复制名片", body);
     profileBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* inviteTextBtn = new QPushButton("复制邀请语", body);
+    inviteTextBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
     remarkBtn->setObjectName("managerSecondaryBtn");
     QPushButton* inviteBtn = new QPushButton("邀入群", body);
@@ -2146,6 +2148,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(copyBtn);
     buttonLayout->addWidget(copyAllBtn);
     buttonLayout->addWidget(profileBtn);
+    buttonLayout->addWidget(inviteTextBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
     buttonLayout->addWidget(inviteVisibleBtn);
@@ -2299,6 +2302,17 @@ void MainWindow::onShowFriendManager() {
         QString card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("好友名片已复制", 1800);
+    });
+    connect(inviteTextBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
+        QListWidgetItem* selected = friendList->currentItem();
+        QString id = selected ? selected->data(Qt::UserRole).toString() : QString();
+        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        QString targetName = id.isEmpty() ? "朋友" : contactDisplayName(id);
+        QString groupName = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
+        QString text = QString("%1，你好，我是 %2（QQ:%3）。方便的话加个好友，我也可以邀请你加入 %4 一起沟通。")
+            .arg(targetName, m_currentUserName, m_currentUserId, groupName);
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("好友邀请话术已复制", 2200);
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
