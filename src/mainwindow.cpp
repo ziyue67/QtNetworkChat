@@ -2260,7 +2260,7 @@ void MainWindow::onShowFriendManager() {
     QDialog dialog(this);
     dialog.setObjectName("friendManagerDialog");
     dialog.setWindowTitle("好友管理器");
-    dialog.setFixedSize(680, 600);
+    dialog.setFixedSize(760, 640);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -2338,6 +2338,11 @@ void MainWindow::onShowFriendManager() {
     selectionPreviewLabel->setObjectName("managerSelectionPreview");
     bodyLayout->addWidget(selectionPreviewLabel);
 
+    QLabel* operationGuideLabel = new QLabel("可在列表内双击私聊；搜索无结果时可直接按“搜索添加”完成 QQ 加好友。", body);
+    operationGuideLabel->setObjectName("managerOperationGuide");
+    operationGuideLabel->setWordWrap(true);
+    bodyLayout->addWidget(operationGuideLabel);
+
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* addBtn = new QPushButton("加好友", body);
     addBtn->setObjectName("managerPrimaryBtn");
@@ -2357,6 +2362,8 @@ void MainWindow::onShowFriendManager() {
     inviteTextBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyStatsBtn = new QPushButton("复制好友统计", body);
     copyStatsBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* copyOnlineBtn = new QPushButton("复制在线", body);
+    copyOnlineBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
     remarkBtn->setObjectName("managerSecondaryBtn");
     QPushButton* inviteBtn = new QPushButton("邀入群", body);
@@ -2376,6 +2383,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(profileBtn);
     buttonLayout->addWidget(inviteTextBtn);
     buttonLayout->addWidget(copyStatsBtn);
+    buttonLayout->addWidget(copyOnlineBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
     buttonLayout->addWidget(inviteVisibleBtn);
@@ -2414,6 +2422,15 @@ void MainWindow::onShowFriendManager() {
             color: #3A4A5A;
             background: #EAF7FF;
             border: 1px solid #DCEFFF;
+            border-radius: 14px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#managerOperationGuide {
+            color: #7A5310;
+            background: #FFF8E8;
+            border: 1px solid #FFE1A8;
             border-radius: 14px;
             padding: 7px 12px;
             font-size: 12px;
@@ -2595,6 +2612,21 @@ void MainWindow::onShowFriendManager() {
             .arg(visibleRows.isEmpty() ? "无" : visibleRows.join("、"));
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("好友统计已复制", 2200);
+    });
+    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
+        QStringList rows;
+        for (int i = 0; i < friendList->count(); ++i) {
+            QListWidgetItem* item = friendList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty() || id.startsWith("search_add:") || !isContactOnline(id)) continue;
+            rows << QString("在线好友 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
+        }
+        if (rows.isEmpty()) {
+            ui->statusbar->showMessage("当前筛选没有在线好友", 2200);
+            return;
+        }
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage(QString("已复制 %1 个在线好友").arg(rows.size()), 2200);
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
