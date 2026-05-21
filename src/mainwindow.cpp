@@ -1905,7 +1905,10 @@ void MainWindow::onInsertEmoji() {
     const QMap<QString, QString> commands = {
         {"/card", "发送我的QQ名片"},
         {"/invite", "发送加好友/入群邀请"},
-        {"/qq", "发送我的QQ号"}
+        {"/qq", "发送我的QQ号"},
+        {"名片", "中文名片快捷语"},
+        {"邀请", "中文邀请快捷语"},
+        {"QQ", "中文QQ号快捷语"}
     };
     for (auto it = commands.begin(); it != commands.end(); ++it) {
         QAction* action = commandMenu->addAction(QString("%1 · %2").arg(it.key(), it.value()));
