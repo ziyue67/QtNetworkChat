@@ -888,6 +888,20 @@ void MainWindow::onSendMessage() {
                 .arg(m_currentUserName, m_currentUserId);
     } else if (text == "/qq" || text == "QQ") {
         text = QString("我的 QQ 号：%1，昵称：%2").arg(m_currentUserId, m_currentUserName);
+    } else if (text == "/summary" || text == "摘要") {
+        if (m_privateChatTarget.startsWith("local_group_")) {
+            text = QString("当前群聊：%1（群号:%2）· 成员%3人 · 我的QQ:%4")
+                .arg(m_localGroupNames.value(m_privateChatTarget, "群聊"),
+                     m_privateChatTarget.mid(QString("local_group_").size()),
+                     QString::number(m_localGroupMembers.value(m_privateChatTarget).size()),
+                     m_currentUserId);
+        } else if (!m_privateChatTarget.isEmpty()) {
+            text = QString("当前私聊：%1 · QQ:%2 · %3 · 我的QQ:%4")
+                .arg(contactDisplayName(m_privateChatTarget), m_privateChatTarget, isContactOnline(m_privateChatTarget) ? "在线" : "离线", m_currentUserId);
+        } else {
+            text = QString("公共聊天室 · 我的QQ:%1 · 好友%2人 · 群聊%3个 · 在线成员%4人")
+                .arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
+        }
     }
 
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
@@ -1969,9 +1983,11 @@ void MainWindow::onInsertEmoji() {
         {"/card", "发送我的QQ名片"},
         {"/invite", "发送加好友/入群邀请"},
         {"/qq", "发送我的QQ号"},
+        {"/summary", "发送当前会话摘要"},
         {"名片", "中文名片快捷语"},
         {"邀请", "中文邀请快捷语"},
-        {"QQ", "中文QQ号快捷语"}
+        {"QQ", "中文QQ号快捷语"},
+        {"摘要", "中文会话摘要"}
     };
     for (auto it = commands.begin(); it != commands.end(); ++it) {
         QAction* action = commandMenu->addAction(QString("%1 · %2").arg(it.key(), it.value()));
