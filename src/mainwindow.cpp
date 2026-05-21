@@ -1247,7 +1247,7 @@ void MainWindow::onShowGlobalSearch() {
     QDialog dialog(this);
     dialog.setObjectName("globalSearchDialog");
     dialog.setWindowTitle("综合搜索");
-    dialog.setFixedSize(680, 620);
+    dialog.setFixedSize(760, 660);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -1319,6 +1319,8 @@ void MainWindow::onShowGlobalSearch() {
     copyAddTextBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyInviteCardBtn = new QPushButton("复制邀请卡", &dialog);
     copyInviteCardBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* copyOnlineBtn = new QPushButton("复制在线", &dialog);
+    copyOnlineBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
     profileBtn->setObjectName("globalSearchGhostBtn");
     actionLayout->addWidget(actionHint);
@@ -1332,6 +1334,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(copyListBtn);
     actionLayout->addWidget(copyAddTextBtn);
     actionLayout->addWidget(copyInviteCardBtn);
+    actionLayout->addWidget(copyOnlineBtn);
     actionLayout->addWidget(profileBtn);
     actionLayout->addWidget(openBtn);
     layout->addLayout(actionLayout);
@@ -1345,11 +1348,12 @@ void MainWindow::onShowGlobalSearch() {
         QString id = item->data(Qt::UserRole).toString();
         if (id.startsWith("search_add:")) {
             QString account = id.mid(QString("search_add:").size());
-            previewLabel->setText(QString("准备搜索并添加 QQ:%1").arg(account));
+            previewLabel->setText(QString("准备搜索并添加 QQ:%1 · 可复制申请话术").arg(account));
         } else if (id.startsWith("local_group_")) {
-            previewLabel->setText(QString("群聊 · %1 · 成员%2人").arg(m_localGroupNames.value(id, "群聊")).arg(m_localGroupMembers.value(id).size()));
+            previewLabel->setText(QString("群聊 · %1 · 群号:%2 · 成员%3人").arg(m_localGroupNames.value(id, "群聊"), id.mid(QString("local_group_").size())).arg(m_localGroupMembers.value(id).size()));
         } else if (!id.isEmpty()) {
-            previewLabel->setText(QString("联系人 · %1 · QQ:%2 · %3").arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线"));
+            previewLabel->setText(QString("联系人 · %1 · QQ:%2 · %3 · %4")
+                .arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线", m_friendIds.contains(id) ? "好友" : "可添加"));
         } else {
             previewLabel->setText("输入 QQ 号后可继续搜索添加");
         }
@@ -1675,6 +1679,22 @@ void MainWindow::onShowGlobalSearch() {
         }
         QApplication::clipboard()->setText(title + '\n' + detail);
         ui->statusbar->showMessage("搜索邀请卡已复制", 2200);
+    });
+    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
+        QStringList rows;
+        for (int i = 0; i < resultList->count(); ++i) {
+            QListWidgetItem* item = resultList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty() || id.startsWith("search_add:") || id.startsWith("local_group_") || !isContactOnline(id)) continue;
+            rows << QString("在线搜索结果 QQ:%1 昵称:%2 关系:%3")
+                .arg(id, contactDisplayName(id), m_friendIds.contains(id) ? "好友" : "可添加");
+        }
+        if (rows.isEmpty()) {
+            ui->statusbar->showMessage("当前搜索结果没有在线用户", 2200);
+            return;
+        }
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage(QString("已复制 %1 个在线搜索结果").arg(rows.size()), 2200);
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
