@@ -402,6 +402,9 @@ void MainWindow::setupUi() {
         QAction* commandCardAction = menu.addAction("插入/card指令");
         QAction* commandInviteAction = menu.addAction("插入/invite指令");
         QAction* commandQqAction = menu.addAction("插入/qq指令");
+        QAction* searchFriendAction = menu.addAction("插入QQ搜索话术");
+        QAction* addFriendAction = menu.addAction("插入加好友话术");
+        QAction* inviteGroupAction = menu.addAction("插入入群邀请话术");
         QAction* quoteTemplateAction = menu.addAction("插入引用模板");
         QMenu* phraseMenu = menu.addMenu("常用话术");
         QMenu* qqPhraseMenu = menu.addMenu("QQ快捷话术");
@@ -453,6 +456,17 @@ void MainWindow::setupUi() {
             ui->messageEdit->setFocus();
         } else if (selected == commandQqAction) {
             ui->messageEdit->setPlainText("/qq");
+            ui->messageEdit->setFocus();
+        } else if (selected == searchFriendAction) {
+            ui->messageEdit->insertPlainText(QString("请在综合搜索里搜索 QQ:%1，确认资料后可以直接加好友。").arg(m_currentUserId));
+            ui->messageEdit->setFocus();
+        } else if (selected == addFriendAction) {
+            QString target = m_privateChatTarget.isEmpty() ? "你" : contactDisplayName(m_privateChatTarget);
+            ui->messageEdit->insertPlainText(QString("%1，你好，我是 %2（QQ:%3），方便加个好友继续聊吗？").arg(target, m_currentUserName, m_currentUserId));
+            ui->messageEdit->setFocus();
+        } else if (selected == inviteGroupAction) {
+            QString groupName = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
+            ui->messageEdit->insertPlainText(QString("我邀请你加入群聊“%1”，进群后可以一起聊天、发图片和传文件。").arg(groupName));
             ui->messageEdit->setFocus();
         } else if (selected == quoteTemplateAction) {
             ui->messageEdit->insertPlainText("> 引用消息\n我的回复：");
