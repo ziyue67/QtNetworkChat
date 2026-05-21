@@ -3165,6 +3165,8 @@ void MainWindow::onShowFriendNotifications() {
     copyBtn->setObjectName("noticeGhostBtn");
     QPushButton* copyInviteBtn = new QPushButton("复制申请话术", &dialog);
     copyInviteBtn->setObjectName("noticeGhostBtn");
+    QPushButton* copyAllBtn = new QPushButton("复制全部申请", &dialog);
+    copyAllBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     buttonLayout->addWidget(acceptBtn);
@@ -3173,6 +3175,7 @@ void MainWindow::onShowFriendNotifications() {
     buttonLayout->addWidget(rejectAllBtn);
     buttonLayout->addWidget(copyBtn);
     buttonLayout->addWidget(copyInviteBtn);
+    buttonLayout->addWidget(copyAllBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
     layout->addLayout(buttonLayout);
@@ -3360,6 +3363,20 @@ void MainWindow::onShowFriendNotifications() {
             .arg(name, m_currentUserName, m_currentUserId);
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("申请回复话术已复制", 2200);
+    });
+    connect(copyAllBtn, &QPushButton::clicked, &dialog, [this]() {
+        QStringList rows;
+        for (const QString& id : m_pendingFriendRequests) {
+            if (id.isEmpty()) continue;
+            rows << QString("好友申请 QQ:%1 昵称:%2 回复:%3，你好，我是 %4（QQ:%5），已看到你的好友申请。")
+                .arg(id, m_friendNames.value(id, contactDisplayName(id)), m_friendNames.value(id, contactDisplayName(id)), m_currentUserName, m_currentUserId);
+        }
+        if (rows.isEmpty()) {
+            ui->statusbar->showMessage("暂无好友申请可复制", 2200);
+            return;
+        }
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage(QString("已复制 %1 条好友申请").arg(rows.size()), 2200);
     });
     connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
         m_pendingFriendRequests.clear();
