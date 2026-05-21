@@ -3146,6 +3146,8 @@ void MainWindow::onShowGroupNotifications() {
     cardBtn->setObjectName("noticeGhostBtn");
     QPushButton* announceBtn = new QPushButton("复制公告", &dialog);
     announceBtn->setObjectName("noticeGhostBtn");
+    QPushButton* inviteTextBtn = new QPushButton("复制入群话术", &dialog);
+    inviteTextBtn->setObjectName("noticeGhostBtn");
     QPushButton* memberBtn = new QPushButton("复制成员", &dialog);
     memberBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
@@ -3154,6 +3156,7 @@ void MainWindow::onShowGroupNotifications() {
     actionLayout->addWidget(copyBtn);
     actionLayout->addWidget(cardBtn);
     actionLayout->addWidget(announceBtn);
+    actionLayout->addWidget(inviteTextBtn);
     actionLayout->addWidget(memberBtn);
     actionLayout->addWidget(closeBtn);
     layout->addLayout(actionLayout);
@@ -3284,6 +3287,25 @@ void MainWindow::onShowGroupNotifications() {
             : m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
         QApplication::clipboard()->setText(announcement);
         ui->statusbar->showMessage("群公告已复制", 1800);
+    });
+    connect(inviteTextBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        QString groupId = current ? current->data(Qt::UserRole).toString() : QString();
+        QString groupName = searchEdit->text().trimmed();
+        QString groupNumber = "公共聊天室";
+        if (groupId.startsWith("group_create:")) {
+            groupName = groupId.mid(QString("group_create:").size()).trimmed();
+            groupNumber = "待创建";
+        } else if (groupId.startsWith("local_group_")) {
+            groupName = m_localGroupNames.value(groupId, "群聊");
+            groupNumber = groupId.mid(QString("local_group_").size());
+        } else if (groupName.isEmpty()) {
+            groupName = "公共聊天室";
+        }
+        QString text = QString("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后可以一起聊天、发图片和传文件。")
+            .arg(groupName, groupNumber, m_currentUserName, m_currentUserId);
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("入群邀请话术已复制", 2200);
     });
     connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
