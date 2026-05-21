@@ -3301,6 +3301,10 @@ void MainWindow::onShowGroupNotifications() {
         }
     };
     fillGroups();
+
+    QLabel* groupPreviewLabel = new QLabel("选择群聊后可复制群号、公告、成员或入群话术", &dialog);
+    groupPreviewLabel->setObjectName("noticePreviewLabel");
+    layout->addWidget(groupPreviewLabel);
     layout->addWidget(noticeList, 1);
 
     QHBoxLayout* actionLayout = new QHBoxLayout;
@@ -3373,6 +3377,15 @@ void MainWindow::onShowGroupNotifications() {
             font-size: 13px;
             font-weight: 700;
         }
+        QLabel#noticePreviewLabel {
+            color: #3A4A5A;
+            background: #EAF7FF;
+            border: 1px solid #DCEFFF;
+            border-radius: 14px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
+        }
         QLineEdit#noticeSearch {
             min-height: 38px;
             background: white;
@@ -3420,7 +3433,26 @@ void MainWindow::onShowGroupNotifications() {
         }
     )");
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillGroups]() { fillGroups(); });
+    auto updateGroupPreview = [this, noticeList, groupPreviewLabel]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        if (!current) {
+            groupPreviewLabel->setText("选择群聊后可复制群号、公告、成员或入群话术");
+            return;
+        }
+        QString groupId = current->data(Qt::UserRole).toString();
+        if (groupId.startsWith("group_create:")) {
+            QString name = groupId.mid(QString("group_create:").size()).trimmed();
+            groupPreviewLabel->setText(QString("待创建群聊 · %1 · 创建后可邀请好友").arg(name.isEmpty() ? "搜索群聊" : name));
+        } else if (groupId.startsWith("local_group_")) {
+            groupPreviewLabel->setText(QString("群聊 · %1 · 群号:%2 · 成员%3人")
+                .arg(m_localGroupNames.value(groupId, "群聊"), groupId.mid(QString("local_group_").size()), QString::number(m_localGroupMembers.value(groupId).size())));
+        } else {
+            groupPreviewLabel->setText(QString("公共聊天室 · 在线成员%1人 · 可直接进入").arg(m_knownUsers.size()));
+        }
+    };
+    updateGroupPreview();
+    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateGroupPreview](QListWidgetItem*, QListWidgetItem*) { updateGroupPreview(); });
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillGroups, updateGroupPreview]() { fillGroups(); updateGroupPreview(); });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
