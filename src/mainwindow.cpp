@@ -638,6 +638,7 @@ void MainWindow::setupUi() {
         QAction* copyAccountAction = menu.addAction("复制QQ号");
         QAction* copyCardAction = menu.addAction("复制我的名片");
         QAction* copyStatusAction = menu.addAction("复制在线状态");
+        QAction* copyProfileSummaryAction = menu.addAction("复制账号摘要");
         QAction* globalSearchAction = menu.addAction("打开综合搜索");
         QAction* friendManagerAction = menu.addAction("打开好友管理");
         QAction* selected = menu.exec(ui->profileCard->mapToGlobal(pos));
@@ -655,6 +656,15 @@ void MainWindow::setupUi() {
                 .arg(m_localGroupIds.size());
             QApplication::clipboard()->setText(status);
             ui->statusbar->showMessage("在线状态已复制", 2200);
+        } else if (selected == copyProfileSummaryAction) {
+            QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n在线状态:在线\n好友:%3\n群聊:%4\n当前会话:%5\n可通过综合搜索添加好友或创建群聊")
+                .arg(m_currentUserId,
+                     m_currentUserName,
+                     QString::number(m_friendIds.size()),
+                     QString::number(m_localGroupIds.size()),
+                     m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+            QApplication::clipboard()->setText(summary);
+            ui->statusbar->showMessage("账号摘要已复制", 2200);
         } else if (selected == globalSearchAction) {
             onShowGlobalSearch();
         } else if (selected == friendManagerAction) {
