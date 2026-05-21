@@ -3037,6 +3037,10 @@ void MainWindow::onShowFriendNotifications() {
     };
     fillList();
 
+    QLabel* requestPreviewLabel = new QLabel("选择申请后可同意、拒绝、复制名片或回复话术", &dialog);
+    requestPreviewLabel->setObjectName("noticePreviewLabel");
+    layout->addWidget(requestPreviewLabel);
+
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* acceptBtn = new QPushButton("同意", &dialog);
     acceptBtn->setObjectName("noticePrimaryBtn");
@@ -3077,6 +3081,15 @@ void MainWindow::onShowFriendNotifications() {
             font-size: 13px;
             font-weight: 800;
             padding-left: 4px;
+        }
+        QLabel#noticePreviewLabel {
+            color: #3A4A5A;
+            background: #EAF7FF;
+            border: 1px solid #DCEFFF;
+            border-radius: 14px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
         }
         QLineEdit#noticeSearch {
             min-height: 38px;
@@ -3130,7 +3143,24 @@ void MainWindow::onShowFriendNotifications() {
     auto updateBadge = [this]() {
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
     };
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList]() { fillList(); });
+    auto updateRequestPreview = [this, noticeList, requestPreviewLabel]() {
+        QListWidgetItem* item = noticeList->currentItem();
+        if (!item) {
+            requestPreviewLabel->setText("选择申请后可同意、拒绝、复制名片或回复话术");
+            return;
+        }
+        QString id = item->data(Qt::UserRole).toString();
+        if (id.startsWith("search_add:")) {
+            requestPreviewLabel->setText(QString("未找到申请人，可搜索并添加 QQ:%1").arg(id.mid(QString("search_add:").size())));
+        } else if (!id.isEmpty()) {
+            requestPreviewLabel->setText(QString("申请人 · %1 · QQ:%2 · 可自动同意并加为好友").arg(m_friendNames.value(id, contactDisplayName(id)), id));
+        } else {
+            requestPreviewLabel->setText("暂无可处理申请");
+        }
+    };
+    updateRequestPreview();
+    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateRequestPreview](QListWidgetItem*, QListWidgetItem*) { updateRequestPreview(); });
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList, updateRequestPreview]() { fillList(); updateRequestPreview(); });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, [this, searchEdit]() {
         QString account = searchEdit->text().trimmed();
         if (!account.isEmpty()) searchAndAddAccount(account, this);
