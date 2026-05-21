@@ -1287,6 +1287,8 @@ void MainWindow::onShowGlobalSearch() {
     actionHint->setObjectName("globalActionHint");
     QLabel* statsLabel = new QLabel(&dialog);
     statsLabel->setObjectName("globalStatsLabel");
+    QLabel* previewLabel = new QLabel("选择结果后可复制QQ、名片、邀请卡或直接打开", &dialog);
+    previewLabel->setObjectName("globalPreviewLabel");
     QPushButton* openBtn = new QPushButton("打开/添加", &dialog);
     openBtn->setObjectName("globalSearchPrimaryBtn");
     QPushButton* createGroupBtn = new QPushButton("用搜索创建群", &dialog);
@@ -1307,6 +1309,7 @@ void MainWindow::onShowGlobalSearch() {
     profileBtn->setObjectName("globalSearchGhostBtn");
     actionLayout->addWidget(actionHint);
     actionLayout->addWidget(statsLabel);
+    actionLayout->addWidget(previewLabel);
     actionLayout->addStretch();
     actionLayout->addWidget(createGroupBtn);
     actionLayout->addWidget(inviteVisibleBtn);
@@ -1319,7 +1322,26 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(openBtn);
     layout->addLayout(actionLayout);
 
-    auto fillResults = [this, resultList, actionHint, statsLabel](const QString& filter = QString()) {
+    auto updatePreview = [this, resultList, previewLabel]() {
+        QListWidgetItem* item = resultList->currentItem();
+        if (!item) {
+            previewLabel->setText("选择结果后可复制QQ、名片、邀请卡或直接打开");
+            return;
+        }
+        QString id = item->data(Qt::UserRole).toString();
+        if (id.startsWith("search_add:")) {
+            QString account = id.mid(QString("search_add:").size());
+            previewLabel->setText(QString("准备搜索并添加 QQ:%1").arg(account));
+        } else if (id.startsWith("local_group_")) {
+            previewLabel->setText(QString("群聊 · %1 · 成员%2人").arg(m_localGroupNames.value(id, "群聊")).arg(m_localGroupMembers.value(id).size()));
+        } else if (!id.isEmpty()) {
+            previewLabel->setText(QString("联系人 · %1 · QQ:%2 · %3").arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线"));
+        } else {
+            previewLabel->setText("输入 QQ 号后可继续搜索添加");
+        }
+    };
+
+    auto fillResults = [this, resultList, actionHint, statsLabel, updatePreview](const QString& filter = QString()) {
         resultList->clear();
         int friendCount = 0;
         int userCount = 0;
@@ -1376,6 +1398,8 @@ void MainWindow::onShowGlobalSearch() {
             ? QString("双击结果可聊天、进群或自动添加好友 · 共%1项").arg(directResultCount)
             : QString("匹配%1项 · 可继续搜索QQ:%2").arg(directResultCount).arg(filter));
         statsLabel->setText(QString("好友%1 · 用户%2 · 群聊%3").arg(friendCount).arg(userCount).arg(groupCount));
+        if (resultList->count() > 0) resultList->setCurrentRow(0);
+        updatePreview();
     };
     fillResults();
 
@@ -1425,6 +1449,14 @@ void MainWindow::onShowGlobalSearch() {
             font-size: 12px;
             font-weight: 800;
             padding-left: 10px;
+        }
+        QLabel#globalPreviewLabel {
+            color: #3A4A5A;
+            background: #EAF7FF;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 5px 10px;
         }
         QPushButton#globalSearchGhostBtn {
             min-width: 76px;
@@ -1494,6 +1526,7 @@ void MainWindow::onShowGlobalSearch() {
     };
 
     connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
+    connect(resultList, &QListWidget::currentItemChanged, &dialog, [updatePreview](QListWidgetItem*, QListWidgetItem*) { updatePreview(); });
     connect(clearBtn, &QPushButton::clicked, &dialog, [searchEdit, fillResults]() {
         searchEdit->clear();
         fillResults();
