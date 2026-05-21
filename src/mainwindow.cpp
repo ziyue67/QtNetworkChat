@@ -399,6 +399,9 @@ void MainWindow::setupUi() {
         QAction* sendAction = menu.addAction("立即发送");
         QAction* clearAction = menu.addAction("清空输入");
         QAction* quickAction = menu.addAction("插入快捷语");
+        QAction* commandCardAction = menu.addAction("插入/card指令");
+        QAction* commandInviteAction = menu.addAction("插入/invite指令");
+        QAction* commandQqAction = menu.addAction("插入/qq指令");
         QAction* quoteTemplateAction = menu.addAction("插入引用模板");
         QMenu* phraseMenu = menu.addMenu("常用话术");
         QMenu* qqPhraseMenu = menu.addMenu("QQ快捷话术");
@@ -441,6 +444,15 @@ void MainWindow::setupUi() {
             ui->messageEdit->clear();
         } else if (selected == quickAction) {
             ui->messageEdit->setPlainText("收到，我马上看。");
+            ui->messageEdit->setFocus();
+        } else if (selected == commandCardAction) {
+            ui->messageEdit->setPlainText("/card");
+            ui->messageEdit->setFocus();
+        } else if (selected == commandInviteAction) {
+            ui->messageEdit->setPlainText("/invite");
+            ui->messageEdit->setFocus();
+        } else if (selected == commandQqAction) {
+            ui->messageEdit->setPlainText("/qq");
             ui->messageEdit->setFocus();
         } else if (selected == quoteTemplateAction) {
             ui->messageEdit->insertPlainText("> 引用消息\n我的回复：");
