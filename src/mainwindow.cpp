@@ -2286,6 +2286,10 @@ void MainWindow::onShowFriendManager() {
     };
     fillList();
 
+    QLabel* selectionPreviewLabel = new QLabel("选择好友后可复制名片、邀请语或邀入群", body);
+    selectionPreviewLabel->setObjectName("managerSelectionPreview");
+    bodyLayout->addWidget(selectionPreviewLabel);
+
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* addBtn = new QPushButton("加好友", body);
     addBtn->setObjectName("managerPrimaryBtn");
@@ -2358,6 +2362,15 @@ void MainWindow::onShowFriendManager() {
             font-size: 12px;
             font-weight: 800;
         }
+        QLabel#managerSelectionPreview {
+            color: #3A4A5A;
+            background: #EAF7FF;
+            border: 1px solid #DCEFFF;
+            border-radius: 14px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
+        }
         QFrame#managerBody {
             background: #F7FAFD;
         }
@@ -2425,8 +2438,27 @@ void MainWindow::onShowFriendManager() {
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
     };
 
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList](const QString& text) {
+    auto updateSelectionPreview = [this, friendList, selectionPreviewLabel]() {
+        QListWidgetItem* selected = friendList->currentItem();
+        if (!selected) {
+            selectionPreviewLabel->setText("选择好友后可复制名片、邀请语或邀入群");
+            return;
+        }
+        QString id = selected->data(Qt::UserRole).toString();
+        if (id.startsWith("search_add:")) {
+            selectionPreviewLabel->setText(QString("未找到好友，可搜索并添加 QQ:%1").arg(id.mid(QString("search_add:").size())));
+        } else if (!id.isEmpty()) {
+            selectionPreviewLabel->setText(QString("%1 · QQ:%2 · %3 · %4")
+                .arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线", m_privateChatTarget.startsWith("local_group_") ? "可邀入当前群" : "可发起私聊"));
+        } else {
+            selectionPreviewLabel->setText("输入 QQ 号或昵称可搜索好友");
+        }
+    };
+    updateSelectionPreview();
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList, updateSelectionPreview](const QString& text) {
         fillList(text.trimmed());
+        updateSelectionPreview();
     });
     connect(addBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
         dialog.accept();
@@ -2442,12 +2474,14 @@ void MainWindow::onShowFriendManager() {
         dialog.accept();
         searchAndAddAccount(account, this);
     });
-    connect(clearSearchBtn, &QPushButton::clicked, &dialog, [searchEdit, fillList]() {
+    connect(clearSearchBtn, &QPushButton::clicked, &dialog, [searchEdit, fillList, updateSelectionPreview]() {
         searchEdit->clear();
         fillList();
+        updateSelectionPreview();
         searchEdit->setFocus();
     });
     connect(chatBtn, &QPushButton::clicked, &dialog, openSelectedFriend);
+    connect(friendList, &QListWidget::currentItemChanged, &dialog, [updateSelectionPreview](QListWidgetItem*, QListWidgetItem*) { updateSelectionPreview(); });
     connect(friendList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedFriend](QListWidgetItem*) { openSelectedFriend(); });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
