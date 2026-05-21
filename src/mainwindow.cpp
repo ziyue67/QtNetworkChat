@@ -896,10 +896,12 @@ void MainWindow::setupTray() {
     m_trayMenu = new QMenu(this);
     QAction* showAction = new QAction("显示窗口", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
+    QAction* copySummaryAction = new QAction("复制账号摘要", this);
     QAction* logoutAction = new QAction("退出登录", this);
     QAction* quitAction = new QAction("退出", this);
     m_trayMenu->addAction(showAction);
     m_trayMenu->addAction(copyAccountAction);
+    m_trayMenu->addAction(copySummaryAction);
     m_trayMenu->addAction(logoutAction);
     m_trayMenu->addSeparator();
     m_trayMenu->addAction(quitAction);
@@ -914,6 +916,16 @@ void MainWindow::setupTray() {
         this->activateWindow();
     });
     connect(copyAccountAction, &QAction::triggered, this, &MainWindow::onCopyAccount);
+    connect(copySummaryAction, &QAction::triggered, this, [this]() {
+        QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n在线状态:在线\n好友:%3\n群聊:%4\n当前会话:%5")
+            .arg(m_currentUserId,
+                 m_currentUserName,
+                 QString::number(m_friendIds.size()),
+                 QString::number(m_localGroupIds.size()),
+                 m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+        QApplication::clipboard()->setText(summary);
+        ui->statusbar->showMessage("托盘账号摘要已复制", 2200);
+    });
     connect(logoutAction, &QAction::triggered, this, &MainWindow::onLogout);
     connect(quitAction, &QAction::triggered, this, [this]() {
         m_isQuitting = true;
