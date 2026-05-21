@@ -3482,6 +3482,8 @@ void MainWindow::onShowGroupNotifications() {
     inviteTextBtn->setObjectName("noticeGhostBtn");
     QPushButton* memberBtn = new QPushButton("复制成员", &dialog);
     memberBtn->setObjectName("noticeGhostBtn");
+    QPushButton* onlineMemberBtn = new QPushButton("复制在线成员", &dialog);
+    onlineMemberBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     actionLayout->addWidget(openBtn);
@@ -3490,6 +3492,7 @@ void MainWindow::onShowGroupNotifications() {
     actionLayout->addWidget(announceBtn);
     actionLayout->addWidget(inviteTextBtn);
     actionLayout->addWidget(memberBtn);
+    actionLayout->addWidget(onlineMemberBtn);
     actionLayout->addWidget(closeBtn);
     layout->addLayout(actionLayout);
 
@@ -3679,6 +3682,24 @@ void MainWindow::onShowGroupNotifications() {
         }
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
+    });
+    connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        if (!current) return;
+        QString groupId = current->data(Qt::UserRole).toString();
+        QStringList members = groupId.isEmpty() ? QStringList{m_currentUserId} : m_localGroupMembers.value(groupId);
+        if (members.isEmpty()) members << m_currentUserId;
+        QStringList cards;
+        for (const QString& id : members) {
+            if (id != m_currentUserId && !isContactOnline(id)) continue;
+            cards << QString("在线群成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
+        }
+        if (cards.isEmpty()) {
+            ui->statusbar->showMessage("当前群聊没有在线成员可复制", 2200);
+            return;
+        }
+        QApplication::clipboard()->setText(cards.join('\n'));
+        ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(cards.size()), 2200);
     });
     connect(noticeList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedGroup](QListWidgetItem*) { openSelectedGroup(); });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
