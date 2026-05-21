@@ -580,6 +580,7 @@ void MainWindow::setupUi() {
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
         QAction* globalSearchAction = menu.addAction("打开综合搜索");
         QAction* createGroupAction = menu.addAction("用关键词建群");
+        QAction* copySearchCardAction = menu.addAction("复制搜索名片");
         QAction* clearAction = menu.addAction("清空搜索");
         QAction* selected = menu.exec(ui->contactSearchEdit->mapToGlobal(pos));
         if (selected == pasteAction) {
@@ -602,6 +603,15 @@ void MainWindow::setupUi() {
             refreshFriendList();
             switchToLocalGroup(groupId, groupName);
             ui->statusbar->showMessage("已从 QQ 搜索框创建群聊: " + groupName, 2500);
+        } else if (selected == copySearchCardAction) {
+            QString keyword = ui->contactSearchEdit->text().trimmed();
+            if (keyword.isEmpty()) keyword = "全部";
+            QString card = QString("QQ搜索名片\n关键词:%1\n我的QQ:%2\n昵称:%3\n好友:%4\n群聊:%5")
+                .arg(keyword, m_currentUserId, m_currentUserName)
+                .arg(m_friendIds.size())
+                .arg(m_localGroupIds.size());
+            QApplication::clipboard()->setText(card);
+            ui->statusbar->showMessage("QQ 搜索名片已复制", 2200);
         } else if (selected == clearAction) {
             ui->contactSearchEdit->clear();
         }
