@@ -1587,6 +1587,8 @@ void MainWindow::onShowCreateMenu() {
     QAction* copyChatIdAction = menu.addAction("复制当前会话号");
     QAction* copyChatCardAction = menu.addAction("复制当前会话名片");
     QAction* copyCurrentMembersAction = menu.addAction("复制当前成员列表");
+    QAction* copyAllContactsAction = menu.addAction("复制全部联系人");
+    QAction* copySearchSummaryAction = menu.addAction("复制搜索摘要");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* friendNoticeAction = menu.addAction("好友通知");
@@ -1674,6 +1676,29 @@ void MainWindow::onShowCreateMenu() {
         if (cards.isEmpty()) return;
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个当前成员").arg(cards.size()), 2200);
+    } else if (selected == copyAllContactsAction) {
+        QStringList rows;
+        rows << QString("我的QQ:%1 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QString("好友:%1 群聊:%2 在线:%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
+        for (const QString& id : m_friendIds) {
+            rows << QString("好友 QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+        }
+        for (const QString& groupId : m_localGroupIds) {
+            rows << QString("群聊 QQ:%1 名称:%2 成员:%3").arg(groupId.mid(QString("local_group_").size()), m_localGroupNames.value(groupId, "群聊"), QString::number(m_localGroupMembers.value(groupId).size()));
+        }
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage(QString("已复制联系人摘要 %1 行").arg(rows.size()), 2200);
+    } else if (selected == copySearchSummaryAction) {
+        QString filter = ui->contactSearchEdit->text().trimmed();
+        if (filter.isEmpty()) filter = "全部";
+        QString summary = QString("QQ搜索:%1\n好友:%2\n本地群:%3\n在线成员:%4\n当前会话:%5")
+            .arg(filter)
+            .arg(m_friendIds.size())
+            .arg(m_localGroupIds.size())
+            .arg(m_knownUsers.size())
+            .arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+        QApplication::clipboard()->setText(summary);
+        ui->statusbar->showMessage("QQ 搜索摘要已复制", 2200);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
     } else if (selected == copyAnnouncementAction) {
