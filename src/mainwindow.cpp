@@ -2878,6 +2878,8 @@ void MainWindow::onShowFriendNotifications() {
     rejectAllBtn->setObjectName("noticeDangerBtn");
     QPushButton* copyBtn = new QPushButton("复制名片", &dialog);
     copyBtn->setObjectName("noticeGhostBtn");
+    QPushButton* copyInviteBtn = new QPushButton("复制申请话术", &dialog);
+    copyInviteBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     buttonLayout->addWidget(acceptBtn);
@@ -2885,6 +2887,7 @@ void MainWindow::onShowFriendNotifications() {
     buttonLayout->addWidget(rejectBtn);
     buttonLayout->addWidget(rejectAllBtn);
     buttonLayout->addWidget(copyBtn);
+    buttonLayout->addWidget(copyInviteBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
     layout->addLayout(buttonLayout);
@@ -3035,6 +3038,17 @@ void MainWindow::onShowFriendNotifications() {
         QString card = QString("QQ:%1\n昵称:%2\n来源:好友申请").arg(id, m_friendNames.value(id, id));
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("申请人名片已复制", 1800);
+    });
+    connect(copyInviteBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
+        QListWidgetItem* item = noticeList->currentItem();
+        QString id = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
+        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        if (id.isEmpty()) id = searchEdit->text().trimmed();
+        QString name = id.isEmpty() ? "朋友" : m_friendNames.value(id, contactDisplayName(id));
+        QString text = QString("%1，你好，我是 %2（QQ:%3）。我已看到你的好友申请，稍后可以通过后继续私聊，也可以邀请你加入群聊沟通。")
+            .arg(name, m_currentUserName, m_currentUserId);
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("申请回复话术已复制", 2200);
     });
     connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
         m_pendingFriendRequests.clear();
