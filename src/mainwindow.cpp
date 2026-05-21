@@ -2874,23 +2874,58 @@ void MainWindow::onShowGroupNotifications() {
     titleLayout->addWidget(countLabel);
     layout->addLayout(titleLayout);
 
+    QLineEdit* searchEdit = new QLineEdit(&dialog);
+    searchEdit->setObjectName("noticeSearch");
+    searchEdit->setPlaceholderText("搜索群名 / 群号 / 公告");
+    searchEdit->setClearButtonEnabled(true);
+    layout->addWidget(searchEdit);
+
     QListWidget* noticeList = new QListWidget(&dialog);
     noticeList->setObjectName("noticeList");
-    QListWidgetItem* publicItem = new QListWidgetItem(QString("默认公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人").arg(m_knownUsers.size()));
-    publicItem->setData(Qt::UserRole, QString());
-    publicItem->setSizeHint(QSize(0, 96));
-    noticeList->addItem(publicItem);
 
-    for (const QString& groupId : m_localGroupIds) {
-        QString groupName = m_localGroupNames.value(groupId, "群聊");
-        QStringList members = m_localGroupMembers.value(groupId);
-        if (members.isEmpty()) members << m_currentUserId;
-        QString announcement = m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName));
-        QListWidgetItem* item = new QListWidgetItem(QString("%1\n群号：%2 · 成员：%3 人\n%4").arg(groupName, groupId.mid(QString("local_group_").size())).arg(members.size()).arg(announcement));
-        item->setData(Qt::UserRole, groupId);
-        item->setSizeHint(QSize(0, 108));
-        noticeList->addItem(item);
-    }
+    auto fillGroups = [this, noticeList, countLabel, searchEdit]() {
+        noticeList->clear();
+        QString filter = searchEdit->text().trimmed();
+        int visibleCount = 0;
+        bool publicMatched = filter.isEmpty()
+            || QString("公共聊天室").contains(filter, Qt::CaseInsensitive)
+            || QString("默认公共聊天室").contains(filter, Qt::CaseInsensitive);
+        if (publicMatched) {
+            QListWidgetItem* publicItem = new QListWidgetItem(QString("默认公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人").arg(m_knownUsers.size()));
+            publicItem->setData(Qt::UserRole, QString());
+            publicItem->setSizeHint(QSize(0, 96));
+            noticeList->addItem(publicItem);
+            ++visibleCount;
+        }
+
+        for (const QString& groupId : m_localGroupIds) {
+            QString groupName = m_localGroupNames.value(groupId, "群聊");
+            QString groupNumber = groupId.mid(QString("local_group_").size());
+            QStringList members = m_localGroupMembers.value(groupId);
+            if (members.isEmpty()) members << m_currentUserId;
+            QString announcement = m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName));
+            if (!filter.isEmpty()
+                && !groupName.contains(filter, Qt::CaseInsensitive)
+                && !groupNumber.contains(filter, Qt::CaseInsensitive)
+                && !announcement.contains(filter, Qt::CaseInsensitive)) continue;
+            QListWidgetItem* item = new QListWidgetItem(QString("%1\n群号：%2 · 成员：%3 人\n%4").arg(groupName, groupNumber).arg(members.size()).arg(announcement));
+            item->setData(Qt::UserRole, groupId);
+            item->setSizeHint(QSize(0, 108));
+            noticeList->addItem(item);
+            ++visibleCount;
+        }
+        countLabel->setText(filter.isEmpty()
+            ? QString("已加入 %1 个群聊").arg(m_localGroupIds.size() + 1)
+            : QString("匹配 %1 / %2 个群聊").arg(visibleCount).arg(m_localGroupIds.size() + 1));
+        if (visibleCount == 0) {
+            QListWidgetItem* emptyItem = new QListWidgetItem(QString("未找到群聊，可用关键词“%1”创建新群").arg(filter));
+            emptyItem->setData(Qt::UserRole, "group_create:" + filter);
+            emptyItem->setForeground(QColor(18, 150, 247));
+            emptyItem->setSizeHint(QSize(0, 76));
+            noticeList->addItem(emptyItem);
+        }
+    };
+    fillGroups();
     layout->addWidget(noticeList, 1);
 
     QHBoxLayout* actionLayout = new QHBoxLayout;
@@ -2922,6 +2957,21 @@ void MainWindow::onShowGroupNotifications() {
         QListWidgetItem* current = noticeList->currentItem();
         if (!current) return;
         QString groupId = current->data(Qt::UserRole).toString();
+        if (groupId.startsWith("group_create:")) {
+            QString groupName = groupId.mid(QString("group_create:").size()).trimmed();
+            if (groupName.isEmpty()) groupName = "搜索群聊";
+            QString newGroupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+            m_localGroupIds << newGroupId;
+            m_localGroupNames[newGroupId] = groupName;
+            m_localGroupAnnouncements[newGroupId] = QString("%1 已从群通知搜索创建，可继续邀请好友并发送消息。").arg(groupName);
+            m_localGroupMembers[newGroupId] = QStringList{m_currentUserId};
+            saveLocalGroups();
+            refreshFriendList();
+            dialog.accept();
+            switchToLocalGroup(newGroupId, groupName);
+            appendSystemMessage("已从群通知搜索创建群聊: " + groupName);
+            return;
+        }
         dialog.accept();
         if (groupId.isEmpty()) {
             onBackToGroupChat();
@@ -2944,6 +2994,17 @@ void MainWindow::onShowGroupNotifications() {
             color: #6B7A88;
             font-size: 13px;
             font-weight: 700;
+        }
+        QLineEdit#noticeSearch {
+            min-height: 38px;
+            background: white;
+            border: 1px solid #DDE7F0;
+            border-radius: 18px;
+            padding: 4px 14px;
+            color: #263238;
+        }
+        QLineEdit#noticeSearch:focus {
+            border: 1px solid #12B7F5;
         }
         QListWidget#noticeList {
             background: #F4F4F4;
@@ -2981,6 +3042,8 @@ void MainWindow::onShowGroupNotifications() {
         }
     )");
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillGroups]() { fillGroups(); });
+    connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
         if (!current) return;
