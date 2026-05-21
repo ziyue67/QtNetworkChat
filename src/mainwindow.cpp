@@ -1735,6 +1735,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* copyCurrentOnlineAction = menu.addAction("复制当前在线成员");
     QAction* copyAllContactsAction = menu.addAction("复制全部联系人");
     QAction* copySearchSummaryAction = menu.addAction("复制搜索摘要");
+    QAction* copyQuickGuideAction = menu.addAction("复制QQ功能指南");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* friendNoticeAction = menu.addAction("好友通知");
@@ -1874,6 +1875,16 @@ void MainWindow::onShowCreateMenu() {
             .arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
         QApplication::clipboard()->setText(summary);
         ui->statusbar->showMessage("QQ 搜索摘要已复制", 2200);
+    } else if (selected == copyQuickGuideAction) {
+        QStringList rows;
+        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << "1. 点击综合搜索可按 QQ 号/昵称查找用户、好友和群聊";
+        rows << "2. 搜索结果可直接打开、添加好友、复制名片或复制邀请卡";
+        rows << "3. 快速加好友支持推荐在线用户、复制申请话术和自动发送申请";
+        rows << "4. 好友管理器可搜索、备注、邀入群、复制在线好友和统计";
+        rows << QString("当前好友:%1 · 群聊:%2 · 在线:%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("QQ 功能指南已复制", 2200);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
     } else if (selected == copyAnnouncementAction) {
