@@ -2417,7 +2417,7 @@ void MainWindow::onShowFriendManager() {
     QDialog dialog(this);
     dialog.setObjectName("friendManagerDialog");
     dialog.setWindowTitle("好友管理器");
-    dialog.setFixedSize(760, 640);
+    dialog.setFixedSize(820, 660);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -2521,6 +2521,8 @@ void MainWindow::onShowFriendManager() {
     copyStatsBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyOnlineBtn = new QPushButton("复制在线", body);
     copyOnlineBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", body);
+    copySearchCardBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
     remarkBtn->setObjectName("managerSecondaryBtn");
     QPushButton* inviteBtn = new QPushButton("邀入群", body);
@@ -2541,6 +2543,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(inviteTextBtn);
     buttonLayout->addWidget(copyStatsBtn);
     buttonLayout->addWidget(copyOnlineBtn);
+    buttonLayout->addWidget(copySearchCardBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
     buttonLayout->addWidget(inviteVisibleBtn);
@@ -2784,6 +2787,32 @@ void MainWindow::onShowFriendManager() {
         }
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个在线好友").arg(rows.size()), 2200);
+    });
+    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
+        QString keyword = searchEdit->text().trimmed();
+        QStringList rows;
+        rows << "好友管理搜索卡片";
+        rows << QString("关键词:%1").arg(keyword.isEmpty() ? "全部好友" : keyword);
+        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        int visibleCount = 0;
+        for (int i = 0; i < friendList->count(); ++i) {
+            QListWidgetItem* item = friendList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) continue;
+            if (id.startsWith("search_add:")) {
+                rows << QString("可搜索添加 QQ:%1").arg(id.mid(QString("search_add:").size()));
+                continue;
+            }
+            rows << QString("好友 QQ:%1 昵称:%2 状态:%3")
+                .arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+            ++visibleCount;
+        }
+        rows << QString("可见好友:%1 · 全部好友:%2 · 群聊:%3")
+            .arg(visibleCount)
+            .arg(m_friendIds.size())
+            .arg(m_localGroupIds.size());
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("好友管理搜索卡片已复制", 2200);
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
