@@ -435,6 +435,7 @@ void MainWindow::setupUi() {
         QAction* groupCardAction = menu.addAction("插入当前会话名片");
         QAction* fileTemplateAction = menu.addAction("插入发文件模板");
         QAction* groupInviteTemplateAction = menu.addAction("插入拉群模板");
+        QAction* currentSummaryAction = menu.addAction("插入当前会话摘要");
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->messageEdit->paste();
@@ -494,6 +495,23 @@ void MainWindow::setupUi() {
         } else if (selected == groupInviteTemplateAction) {
             QString target = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
             ui->messageEdit->insertPlainText(QString("我想邀请你加入 %1，一起在群里沟通。").arg(target));
+            ui->messageEdit->setFocus();
+        } else if (selected == currentSummaryAction) {
+            QString summary;
+            if (m_privateChatTarget.startsWith("local_group_")) {
+                summary = QString("当前群聊：%1（群号:%2）· 成员%3人 · 我的QQ:%4")
+                    .arg(m_localGroupNames.value(m_privateChatTarget, "群聊"),
+                         m_privateChatTarget.mid(QString("local_group_").size()),
+                         QString::number(m_localGroupMembers.value(m_privateChatTarget).size()),
+                         m_currentUserId);
+            } else if (!m_privateChatTarget.isEmpty()) {
+                summary = QString("当前私聊：%1 · QQ:%2 · %3 · 我的QQ:%4")
+                    .arg(contactDisplayName(m_privateChatTarget), m_privateChatTarget, isContactOnline(m_privateChatTarget) ? "在线" : "离线", m_currentUserId);
+            } else {
+                summary = QString("公共聊天室 · 我的QQ:%1 · 好友%2人 · 群聊%3个 · 在线成员%4人")
+                    .arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
+            }
+            ui->messageEdit->insertPlainText(summary);
             ui->messageEdit->setFocus();
         }
     });
