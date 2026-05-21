@@ -1353,7 +1353,7 @@ void MainWindow::onShowGlobalSearch() {
     QDialog dialog(this);
     dialog.setObjectName("globalSearchDialog");
     dialog.setWindowTitle("综合搜索");
-    dialog.setFixedSize(760, 660);
+    dialog.setFixedSize(820, 680);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -1425,6 +1425,8 @@ void MainWindow::onShowGlobalSearch() {
     copyAddTextBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyInviteCardBtn = new QPushButton("复制邀请卡", &dialog);
     copyInviteCardBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
+    copySearchCardBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyOnlineBtn = new QPushButton("复制在线", &dialog);
     copyOnlineBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
@@ -1440,6 +1442,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(copyListBtn);
     actionLayout->addWidget(copyAddTextBtn);
     actionLayout->addWidget(copyInviteCardBtn);
+    actionLayout->addWidget(copySearchCardBtn);
     actionLayout->addWidget(copyOnlineBtn);
     actionLayout->addWidget(profileBtn);
     actionLayout->addWidget(openBtn);
@@ -1785,6 +1788,39 @@ void MainWindow::onShowGlobalSearch() {
         }
         QApplication::clipboard()->setText(title + '\n' + detail);
         ui->statusbar->showMessage("搜索邀请卡已复制", 2200);
+    });
+    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
+        QString keyword = searchEdit->text().trimmed();
+        QStringList rows;
+        rows << "综合搜索卡片";
+        rows << QString("关键词:%1").arg(keyword.isEmpty() ? "全部" : keyword);
+        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        int userCount = 0;
+        int friendCount = 0;
+        int groupCount = 0;
+        for (int i = 0; i < resultList->count(); ++i) {
+            QListWidgetItem* item = resultList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) continue;
+            if (id.startsWith("search_add:")) {
+                rows << QString("继续搜索添加 QQ:%1").arg(id.mid(QString("search_add:").size()));
+            } else if (id.startsWith("local_group_")) {
+                ++groupCount;
+                rows << QString("群聊 QQ:%1 名称:%2 成员:%3")
+                    .arg(id.mid(QString("local_group_").size()), m_localGroupNames.value(id, "群聊"), QString::number(m_localGroupMembers.value(id).size()));
+            } else {
+                bool isFriend = m_friendIds.contains(id);
+                if (isFriend) ++friendCount; else ++userCount;
+                rows << QString("%1 QQ:%2 昵称:%3 状态:%4")
+                    .arg(isFriend ? "好友" : "用户", id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+            }
+        }
+        rows << QString("匹配好友:%1 · 可添加用户:%2 · 群聊:%3")
+            .arg(friendCount)
+            .arg(userCount)
+            .arg(groupCount);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("综合搜索卡片已复制", 2200);
     });
     connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QStringList rows;
