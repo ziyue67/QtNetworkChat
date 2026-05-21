@@ -2879,6 +2879,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* profileAction = menu.addAction("复制名片");
     QAction* copyAddTextAction = menu.addAction("复制加好友话术");
     QAction* copyOnlineCardAction = menu.addAction("复制在线名片");
+    QAction* copyChatStarterAction = menu.addAction("复制开聊话术");
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
     QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
@@ -2914,6 +2915,14 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                  m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("在线名片已复制", 2200);
+    } else if (selected == copyChatStarterAction) {
+        QString text = m_friendIds.contains(userId)
+            ? QString("%1，在吗？我是 %2（QQ:%3），想和你私聊确认一下刚才的消息。")
+                .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
+            : QString("你好 %1，我是 %2（QQ:%3）。通过 QQ 搜索看到你，方便先加好友再聊吗？")
+                .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId);
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("开聊话术已复制", 2200);
     } else if (selected == inviteCurrentGroupAction) {
         if (!m_friendIds.contains(userId)) {
             m_friendIds << userId;
