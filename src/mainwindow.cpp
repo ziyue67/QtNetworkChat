@@ -553,6 +553,8 @@ void MainWindow::setupUi() {
         QAction* forwardAction = menu.addAction("转发到输入框");
         QAction* resendAction = menu.addAction("再次发送");
         QAction* copyTimeAction = menu.addAction("复制时间");
+        QAction* copyMediaCardAction = menu.addAction("复制媒体卡片");
+        QAction* copyFileNoticeAction = menu.addAction("复制查收话术");
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (selected == copyAction) {
@@ -588,6 +590,24 @@ void MainWindow::setupUi() {
             if (timeText.isEmpty()) timeText = QDateTime::currentDateTime().toString("hh:mm:ss");
             QApplication::clipboard()->setText(timeText);
             ui->statusbar->showMessage("消息时间已复制: " + timeText, 1800);
+        } else if (selected == copyMediaCardAction) {
+            QString fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
+            if (fileName.isEmpty()) fileName = text;
+            QString mediaType = text.contains("视频") ? "视频" : (text.contains("图片") ? "图片" : "文件");
+            QString card = QString("%1卡片\n文件:%2\n会话:%3\n发送者:%4\n我的QQ:%5")
+                .arg(mediaType,
+                     fileName,
+                     m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget),
+                     text.section('<', 1, 1).section('>', 0, 0).trimmed().isEmpty() ? m_currentUserName : text.section('<', 1, 1).section('>', 0, 0).trimmed(),
+                     m_currentUserId);
+            QApplication::clipboard()->setText(card);
+            ui->statusbar->showMessage("媒体卡片已复制", 2200);
+        } else if (selected == copyFileNoticeAction) {
+            QString fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
+            if (fileName.isEmpty()) fileName = "刚发送的文件";
+            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+            QApplication::clipboard()->setText(QString("我已发送 %1 到 %2，请注意查收。").arg(fileName, target));
+            ui->statusbar->showMessage("查收话术已复制", 2200);
         } else if (selected == mentionReplyAction) {
             QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();
             if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
