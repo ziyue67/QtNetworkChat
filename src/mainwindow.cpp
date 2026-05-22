@@ -2894,6 +2894,8 @@ void MainWindow::onShowFriendManager() {
     copySearchCardBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyFriendMediaPackBtn = new QPushButton("复制好友媒体包", body);
     copyFriendMediaPackBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* copyBatchMediaPlanBtn = new QPushButton("复制批量媒体计划", body);
+    copyBatchMediaPlanBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", body);
     copyMediaGuideBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
@@ -2918,6 +2920,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(copyOnlineBtn);
     buttonLayout->addWidget(copySearchCardBtn);
     buttonLayout->addWidget(copyFriendMediaPackBtn);
+    buttonLayout->addWidget(copyBatchMediaPlanBtn);
     buttonLayout->addWidget(copyMediaGuideBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
@@ -3205,6 +3208,30 @@ void MainWindow::onShowFriendManager() {
         rows << QString("回执话术：已收到来自 %1 的媒体文件，保存后我会尽快查看。").arg(m_currentUserName);
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("好友管理媒体包已复制", 2200);
+    });
+    connect(copyBatchMediaPlanBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
+        QStringList targets;
+        int onlineCount = 0;
+        int offlineCount = 0;
+        for (int i = 0; i < friendList->count(); ++i) {
+            QListWidgetItem* item = friendList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty() || id.startsWith("search_add:")) continue;
+            if (isContactOnline(id)) ++onlineCount; else ++offlineCount;
+            targets << QString("%1(QQ:%2,%3)").arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线");
+        }
+        QString keyword = searchEdit->text().trimmed();
+        QStringList rows;
+        rows << QString("好友批量媒体计划 · 筛选:%1").arg(keyword.isEmpty() ? "全部好友" : keyword);
+        rows << QString("我的QQ:%1 · 昵称:%2 · 可见:%3 · 在线:%4 · 离线:%5")
+            .arg(m_currentUserId, m_currentUserName, QString::number(targets.size()), QString::number(onlineCount), QString::number(offlineCount));
+        rows << QString("目标列表:%1").arg(targets.isEmpty() ? "无可见好友" : targets.join("、"));
+        rows << "1. 先给在线好友发图片/视频，离线好友复制查收话术";
+        rows << "2. 大文件用闪传文件，图片/GIF/视频用图片视频入口";
+        rows << "3. 发送后在聊天记录右键复制媒体流程、查收话术和回执";
+        rows << "4. 可按筛选关键词分批发送，避免漏掉目标好友";
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("好友批量媒体计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
         QString keyword = searchEdit->text().trimmed();
