@@ -3892,7 +3892,7 @@ void MainWindow::onShowGroupNotifications() {
     QDialog dialog(this);
     dialog.setObjectName("noticeDialog");
     dialog.setWindowTitle("群通知");
-    dialog.setFixedSize(760, 560);
+    dialog.setFixedSize(840, 600);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 24, 28, 24);
@@ -3985,6 +3985,8 @@ void MainWindow::onShowGroupNotifications() {
     memberBtn->setObjectName("noticeGhostBtn");
     QPushButton* onlineMemberBtn = new QPushButton("复制在线成员", &dialog);
     onlineMemberBtn->setObjectName("noticeGhostBtn");
+    QPushButton* copyGroupMediaPackBtn = new QPushButton("复制群媒体包", &dialog);
+    copyGroupMediaPackBtn->setObjectName("noticeGhostBtn");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
     copyMediaGuideBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
@@ -3996,6 +3998,7 @@ void MainWindow::onShowGroupNotifications() {
     actionLayout->addWidget(inviteTextBtn);
     actionLayout->addWidget(memberBtn);
     actionLayout->addWidget(onlineMemberBtn);
+    actionLayout->addWidget(copyGroupMediaPackBtn);
     actionLayout->addWidget(copyMediaGuideBtn);
     actionLayout->addWidget(closeBtn);
     layout->addLayout(actionLayout);
@@ -4204,6 +4207,33 @@ void MainWindow::onShowGroupNotifications() {
         }
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(cards.size()), 2200);
+    });
+    connect(copyGroupMediaPackBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        QString groupId = current ? current->data(Qt::UserRole).toString() : QString();
+        QString groupName = searchEdit->text().trimmed();
+        QString groupNumber = "公共聊天室";
+        int memberCount = m_knownUsers.size();
+        if (groupId.startsWith("group_create:")) {
+            groupName = groupId.mid(QString("group_create:").size()).trimmed();
+            groupNumber = "待创建";
+            memberCount = 1;
+        } else if (groupId.startsWith("local_group_")) {
+            groupName = m_localGroupNames.value(groupId, "群聊");
+            groupNumber = groupId.mid(QString("local_group_").size());
+            memberCount = qMax(1, m_localGroupMembers.value(groupId).size());
+        } else if (groupName.isEmpty()) {
+            groupName = "公共聊天室";
+        }
+        QStringList rows;
+        rows << QString("群媒体包 · %1 · 群号:%2").arg(groupName, groupNumber);
+        rows << QString("我的QQ:%1 · 昵称:%2 · 群成员:%3").arg(m_currentUserId, m_currentUserName, QString::number(memberCount));
+        rows << "群内可直接发送图片/视频，也可用闪传文件发送文档和压缩包";
+        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
+        rows << QString("入群话术：我邀请你加入群聊“%1”（群号:%2），进群后可以一起聊天、发图片和传文件。").arg(groupName, groupNumber);
+        rows << QString("查收话术：我已发送媒体文件到群聊“%1”，请注意查收。").arg(groupName);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("群媒体包已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QListWidgetItem* current = noticeList->currentItem();
