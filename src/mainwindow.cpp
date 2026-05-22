@@ -3009,9 +3009,10 @@ void MainWindow::onShowFriendManager() {
 }
 
 void MainWindow::onUploadAvatar() {
-    QString filePath = QFileDialog::getOpenFileName(this, "选择头像", QString(), "图片 (*.png *.jpg *.jpeg *.bmp)");
+    QString filePath = QFileDialog::getOpenFileName(this, "选择头像", QString(), "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
     if (filePath.isEmpty()) return;
 
+    QFileInfo info(filePath);
     QPixmap pixmap(filePath);
     if (pixmap.isNull()) {
         QMessageBox::warning(this, "头像上传失败", "无法读取该图片");
@@ -3021,7 +3022,10 @@ void MainWindow::onUploadAvatar() {
     QPixmap scaled = pixmap.scaled(ui->avatarLabel->size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
     ui->avatarLabel->setPixmap(scaled);
     scaled.save(getAvatarFilePath(), "PNG");
-    appendSystemMessage("头像已更新");
+    QString detail = QString("头像已更新 · %1 · %2 KB · 已保存到本地").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
+    appendSystemMessage(detail);
+    ui->chatHintLabel->setText(detail);
+    ui->statusbar->showMessage(detail, 2600);
 }
 
 void MainWindow::onBackToGroupChat() {
