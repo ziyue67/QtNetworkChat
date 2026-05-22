@@ -1502,6 +1502,8 @@ void MainWindow::onShowGlobalSearch() {
     copyInviteCardBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
     copySearchCardBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
+    copyMediaGuideBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyOnlineBtn = new QPushButton("复制在线", &dialog);
     copyOnlineBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
@@ -1518,6 +1520,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(copyAddTextBtn);
     actionLayout->addWidget(copyInviteCardBtn);
     actionLayout->addWidget(copySearchCardBtn);
+    actionLayout->addWidget(copyMediaGuideBtn);
     actionLayout->addWidget(copyOnlineBtn);
     actionLayout->addWidget(profileBtn);
     actionLayout->addWidget(openBtn);
@@ -1896,6 +1899,16 @@ void MainWindow::onShowGlobalSearch() {
             .arg(groupCount);
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("综合搜索卡片已复制", 2200);
+    });
+    connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this]() {
+        QStringList rows;
+        rows << QString("上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << "图片/视频：支持 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm";
+        rows << "闪传文件：支持文档、压缩包和媒体文件";
+        rows << "聊天记录右键：可复制媒体卡片和查收话术";
+        rows << QString("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("综合搜索上传指南已复制", 2200);
     });
     connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QStringList rows;
