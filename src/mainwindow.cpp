@@ -1505,7 +1505,7 @@ void MainWindow::onShowGlobalSearch() {
     QDialog dialog(this);
     dialog.setObjectName("globalSearchDialog");
     dialog.setWindowTitle("综合搜索");
-    dialog.setFixedSize(820, 680);
+    dialog.setFixedSize(900, 720);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -1579,6 +1579,8 @@ void MainWindow::onShowGlobalSearch() {
     copyInviteCardBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
     copySearchCardBtn->setObjectName("globalSearchGhostBtn");
+    QPushButton* copySearchMediaPackBtn = new QPushButton("复制搜索媒体包", &dialog);
+    copySearchMediaPackBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
     copyMediaGuideBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyOnlineBtn = new QPushButton("复制在线", &dialog);
@@ -1597,6 +1599,7 @@ void MainWindow::onShowGlobalSearch() {
     actionLayout->addWidget(copyAddTextBtn);
     actionLayout->addWidget(copyInviteCardBtn);
     actionLayout->addWidget(copySearchCardBtn);
+    actionLayout->addWidget(copySearchMediaPackBtn);
     actionLayout->addWidget(copyMediaGuideBtn);
     actionLayout->addWidget(copyOnlineBtn);
     actionLayout->addWidget(profileBtn);
@@ -1976,6 +1979,32 @@ void MainWindow::onShowGlobalSearch() {
             .arg(groupCount);
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("综合搜索卡片已复制", 2200);
+    });
+    connect(copySearchMediaPackBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
+        QListWidgetItem* item = resultList->currentItem();
+        QString id = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
+        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        QString keyword = searchEdit->text().trimmed();
+        QString targetName = keyword.isEmpty() ? "全部搜索结果" : keyword;
+        QString targetId = id;
+        QString relation = "搜索结果";
+        if (id.startsWith("local_group_")) {
+            targetName = m_localGroupNames.value(id, "群聊");
+            targetId = id.mid(QString("local_group_").size());
+            relation = "群聊";
+        } else if (!id.isEmpty()) {
+            targetName = contactDisplayName(id);
+            relation = m_friendIds.contains(id) ? "好友" : "可添加用户";
+        }
+        QStringList rows;
+        rows << QString("综合搜索媒体包 · 目标:%1 · QQ:%2 · 类型:%3").arg(targetName, targetId.isEmpty() ? "批量搜索" : targetId, relation);
+        rows << QString("关键词:%1 · 我的QQ:%2 · 昵称:%3").arg(keyword.isEmpty() ? "全部" : keyword, m_currentUserId, m_currentUserName);
+        rows << "可先打开/添加搜索结果，再发送图片/视频或闪传文件";
+        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
+        rows << QString("邀请话术：你好，我是 %1（QQ:%2），通过综合搜索找到你，可以加好友或进群后收发媒体文件。").arg(m_currentUserName, m_currentUserId);
+        rows << QString("查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(targetName);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("综合搜索媒体包已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this]() {
         QStringList rows;
