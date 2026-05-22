@@ -3501,6 +3501,8 @@ void MainWindow::onShowFriendNotifications() {
     copyInviteBtn->setObjectName("noticeGhostBtn");
     QPushButton* copyAllBtn = new QPushButton("复制全部申请", &dialog);
     copyAllBtn->setObjectName("noticeGhostBtn");
+    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
+    copyMediaGuideBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     buttonLayout->addWidget(acceptBtn);
@@ -3510,6 +3512,7 @@ void MainWindow::onShowFriendNotifications() {
     buttonLayout->addWidget(copyBtn);
     buttonLayout->addWidget(copyInviteBtn);
     buttonLayout->addWidget(copyAllBtn);
+    buttonLayout->addWidget(copyMediaGuideBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
     layout->addLayout(buttonLayout);
@@ -3711,6 +3714,19 @@ void MainWindow::onShowFriendNotifications() {
         }
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 条好友申请").arg(rows.size()), 2200);
+    });
+    connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
+        QListWidgetItem* item = noticeList->currentItem();
+        QString id = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
+        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        QString name = id.isEmpty() ? "新好友" : m_friendNames.value(id, contactDisplayName(id));
+        QStringList rows;
+        rows << QString("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QString("申请人:%1 · QQ:%2").arg(name, id.isEmpty() ? "待选择" : id);
+        rows << "同意好友后可发送图片/视频，也可用闪传文件发送文档、压缩包和媒体文件";
+        rows << "聊天记录右键可复制媒体卡片和查收话术";
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("好友申请上传指南已复制", 2200);
     });
     connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
         m_pendingFriendRequests.clear();
