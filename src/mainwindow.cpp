@@ -1021,6 +1021,15 @@ void MainWindow::onSendMessage() {
             text = QString("公共聊天室 · 我的QQ:%1 · 好友%2人 · 群聊%3个 · 在线成员%4人")
                 .arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
         }
+    } else if (text == "/file" || text == "文件") {
+        text = QString("我准备发送文件，请注意查收。我的QQ:%1，当前会话:%2")
+            .arg(m_currentUserId, m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+    } else if (text == "/image" || text == "图片") {
+        text = QString("我准备发送图片，发送后可查看预览卡片。我的QQ:%1")
+            .arg(m_currentUserId);
+    } else if (text == "/video" || text == "视频") {
+        text = QString("我准备发送视频，视频会以文件卡片形式发送，请注意查收。我的QQ:%1")
+            .arg(m_currentUserId);
     }
 
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
@@ -2171,10 +2180,16 @@ void MainWindow::onInsertEmoji() {
         {"/invite", "发送加好友/入群邀请"},
         {"/qq", "发送我的QQ号"},
         {"/summary", "发送当前会话摘要"},
+        {"/file", "发送文件查收话术"},
+        {"/image", "发送图片预览话术"},
+        {"/video", "发送视频查收话术"},
         {"名片", "中文名片快捷语"},
         {"邀请", "中文邀请快捷语"},
         {"QQ", "中文QQ号快捷语"},
-        {"摘要", "中文会话摘要"}
+        {"摘要", "中文会话摘要"},
+        {"文件", "中文文件查收话术"},
+        {"图片", "中文图片预览话术"},
+        {"视频", "中文视频查收话术"}
     };
     for (auto it = commands.begin(); it != commands.end(); ++it) {
         QAction* action = commandMenu->addAction(QString("%1 · %2").arg(it.key(), it.value()));
