@@ -1930,6 +1930,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* copyAllContactsAction = menu.addAction("复制全部联系人");
     QAction* copySearchSummaryAction = menu.addAction("复制搜索摘要");
     QAction* copyQuickGuideAction = menu.addAction("复制QQ功能指南");
+    QAction* copyMediaGuideAction = menu.addAction("复制上传指南");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* friendNoticeAction = menu.addAction("好友通知");
@@ -2079,6 +2080,16 @@ void MainWindow::onShowCreateMenu() {
         rows << QString("当前好友:%1 · 群聊:%2 · 在线:%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("QQ 功能指南已复制", 2200);
+    } else if (selected == copyMediaGuideAction) {
+        QStringList rows;
+        rows << QString("上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << "1. 点击 图片/视频 可发送 png、jpg、gif、mp4、mov、avi、mkv、wmv";
+        rows << "2. 图片会显示预览卡片，视频会以文件卡片发送";
+        rows << "3. 点击 闪传文件 可发送文档、压缩包和媒体文件";
+        rows << "4. 聊天记录右键可复制媒体卡片或查收话术";
+        rows << QString("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("上传指南已复制", 2200);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
     } else if (selected == copyAnnouncementAction) {
