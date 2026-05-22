@@ -1124,6 +1124,12 @@ void MainWindow::onSendFile() {
         cardItem->setBackground(QColor(232, 248, 245));
         cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(cardItem);
+        QStandardItem* receiptItem = new QStandardItem(QString("查收话术 · 我已发送 %1 到 %2，请注意查收。 · 右键聊天记录可复制").arg(info.fileName(), targetName));
+        receiptItem->setEditable(false);
+        receiptItem->setForeground(QColor(86, 116, 130));
+        receiptItem->setBackground(QColor(246, 251, 253));
+        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(receiptItem);
         appendSystemMessage(QString("文件发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
         ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
         ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
@@ -1140,6 +1146,12 @@ void MainWindow::onSendFile() {
         cardItem->setBackground(QColor(232, 248, 245));
         cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(cardItem);
+        QStandardItem* receiptItem = new QStandardItem(QString("查收话术 · 我已发送 %1 到 %2，请注意查收。 · 右键聊天记录可复制").arg(info.fileName(), targetName));
+        receiptItem->setEditable(false);
+        receiptItem->setForeground(QColor(86, 116, 130));
+        receiptItem->setBackground(QColor(246, 251, 253));
+        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(receiptItem);
         ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
         ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
     } else {
@@ -1180,6 +1192,13 @@ void MainWindow::onSendImage() {
             previewItem->setBackground(QColor(245, 240, 255));
             m_chatModel->appendRow(previewItem);
         }
+        QStandardItem* receiptItem = new QStandardItem(QString("%1查收话术 · 我已发送%2 %3 到 %4，请注意查收。 · 右键聊天记录可复制")
+            .arg(mediaType, mediaType, info.fileName(), targetName));
+        receiptItem->setEditable(false);
+        receiptItem->setForeground(QColor(86, 116, 130));
+        receiptItem->setBackground(QColor(246, 251, 253));
+        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(receiptItem);
         appendSystemMessage(QString("%1发送详情：%2 · %3 KB · 到 %4").arg(mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
         ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 KB · %4").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
         ui->statusbar->showMessage(QString("已发送%1到 %2 · %3 KB").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
@@ -1190,6 +1209,13 @@ void MainWindow::onSendImage() {
     bool ok = isVideo ? m_client->sendFile(filePath, m_privateChatTarget) : m_client->sendImage(filePath, m_privateChatTarget);
     if (ok) {
         appendSystemMessage(QString("已发送%1: %2 · %3 KB · 到 %4").arg(mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        QStandardItem* receiptItem = new QStandardItem(QString("%1查收话术 · 我已发送%2 %3 到 %4，请注意查收。 · 右键聊天记录可复制")
+            .arg(mediaType, mediaType, info.fileName(), targetName));
+        receiptItem->setEditable(false);
+        receiptItem->setForeground(QColor(86, 116, 130));
+        receiptItem->setBackground(QColor(246, 251, 253));
+        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(receiptItem);
         ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 KB · %4").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
         ui->statusbar->showMessage(QString("已发送%1到 %2 · %3 KB").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
     } else {
