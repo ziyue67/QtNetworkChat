@@ -122,8 +122,8 @@ void MainWindow::setupUi() {
     ui->clearBtn->setObjectName("clearBtn");
     ui->fileBtn->setObjectName("toolBtn");
     ui->imageBtn->setObjectName("toolBtn");
-    ui->imageBtn->setText("图片");
-    ui->imageBtn->setToolTip("发送图片");
+    ui->imageBtn->setText("图片/视频");
+    ui->imageBtn->setToolTip("发送图片或视频文件");
     ui->emojiBtn->setObjectName("iconToolBtn");
     ui->mentionBtn->setObjectName("iconToolBtn");
     setStyleSheet(R"(
@@ -1033,7 +1033,7 @@ void MainWindow::onSendMessage() {
 
 void MainWindow::onSendFile() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择文件", QString(),
-        "所有文件 (*.*);;文本文件 (*.txt);;图片 (*.png *.jpg *.jpeg *.gif)");
+        "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv);;所有文件 (*.*)");
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
@@ -1065,15 +1065,18 @@ void MainWindow::onSendFile() {
 }
 
 void MainWindow::onSendImage() {
-    QString filePath = QFileDialog::getOpenFileName(this, "选择图片", QString(),
-        "图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;所有文件 (*.*)");
+    QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", QString(),
+        "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv);;所有文件 (*.*)");
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
+    const QString suffix = info.suffix().toLower();
+    const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv"}.contains(suffix);
+    const QString mediaType = isVideo ? "视频" : "图片";
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QPixmap pixmap(filePath);
-        QString line = QString("[%1] <%2> [图片] %3 · %4 KB").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
+        QString line = QString("[%1] <%2> [%3] %4 · %5 KB").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
@@ -1081,27 +1084,33 @@ void MainWindow::onSendImage() {
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
-        if (!pixmap.isNull()) {
+        if (!isVideo && !pixmap.isNull()) {
             QStandardItem* previewItem = new QStandardItem(QString("%1 · %2 KB").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)));
             previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
             previewItem->setEditable(false);
             previewItem->setBackground(QColor(246, 250, 253));
             m_chatModel->appendRow(previewItem);
+        } else if (isVideo) {
+            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 KB · 可在文件目录中打开").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)));
+            previewItem->setEditable(false);
+            previewItem->setForeground(QColor(126, 87, 194));
+            previewItem->setBackground(QColor(245, 240, 255));
+            m_chatModel->appendRow(previewItem);
         }
-        appendSystemMessage(QString("图片发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
-        ui->chatHintLabel->setText(QString("已发送图片到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送图片到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
+        appendSystemMessage(QString("%1发送详情：%2 · %3 KB · 到 %4").arg(mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 KB · %4").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3 KB").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
         ui->chatListView->scrollToBottom();
         return;
     }
 
-    bool ok = m_client->sendImage(filePath, m_privateChatTarget);
+    bool ok = isVideo ? m_client->sendFile(filePath, m_privateChatTarget) : m_client->sendImage(filePath, m_privateChatTarget);
     if (ok) {
-        appendSystemMessage(QString("已发送图片: %1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
-        ui->chatHintLabel->setText(QString("已发送图片到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送图片到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
+        appendSystemMessage(QString("已发送%1: %2 · %3 KB · 到 %4").arg(mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 KB · %4").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3 KB").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
     } else {
-        QMessageBox::warning(this, "发送失败", "图片发送失败");
+        QMessageBox::warning(this, "发送失败", mediaType + "发送失败");
     }
 }
 
@@ -1882,7 +1891,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* friendNoticeAction = menu.addAction("好友通知");
     QAction* groupNoticeAction = menu.addAction("群通知");
-    QAction* sendImageAction = menu.addAction("发送图片");
+    QAction* sendImageAction = menu.addAction("发送图片/视频");
     QAction* sendFileAction = menu.addAction("闪传文件");
     QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
     if (selected == createGroupAction) {
