@@ -2074,6 +2074,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* copyQuickGuideAction = menu.addAction("复制QQ功能指南");
     QAction* copyMediaGuideAction = menu.addAction("复制上传指南");
     QAction* copyCurrentMediaPackAction = menu.addAction("复制当前媒体包");
+    QAction* copyFullMediaPlanAction = menu.addAction("复制完整媒体计划");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* friendNoticeAction = menu.addAction("好友通知");
@@ -2247,6 +2248,22 @@ void MainWindow::onShowCreateMenu() {
         rows << QString("查收话术：我已准备发送图片/视频/文件到 %1，请注意查收。").arg(sessionName);
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("当前媒体发送包已复制", 2200);
+    } else if (selected == copyFullMediaPlanAction) {
+        QString sessionName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+        QString sessionId = m_privateChatTarget;
+        if (sessionId.startsWith("local_group_")) sessionId = sessionId.mid(QString("local_group_").size());
+        if (sessionId.isEmpty()) sessionId = "public";
+        QStringList rows;
+        rows << QString("完整媒体计划 · 当前会话:%1 · 会话号:%2").arg(sessionName, sessionId);
+        rows << QString("我的QQ:%1 · 昵称:%2 · 好友:%3 · 群聊:%4 · 在线:%5")
+            .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()), QString::number(m_knownUsers.size()));
+        rows << "1. 先用综合搜索/快速加好友确认目标 QQ 或群聊";
+        rows << "2. 通过好友管理/群通知复制媒体包、邀请语和成员列表";
+        rows << "3. 点击 图片/视频 发送图片、GIF 或视频；点击 闪传文件 发送文档和压缩包";
+        rows << "4. 发送后聊天记录会生成媒体卡片、查收话术；接收后生成回执话术和保存路径";
+        rows << QString("当前查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(sessionName);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("完整媒体计划已复制", 2200);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
     } else if (selected == copyAnnouncementAction) {
