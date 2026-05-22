@@ -373,12 +373,16 @@ void MainWindow::setupUi() {
     QAction* friendManagerAction = new QAction("好友管理器", this);
     QAction* backGroupAction = new QAction("返回群聊", this);
     QAction* avatarAction = new QAction("上传头像", this);
+    QAction* sendImageAction = new QAction("发送图片/视频", this);
+    QAction* sendFileAction = new QAction("闪传文件", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
     QAction* copySummaryAction = new QAction("复制账号摘要", this);
     QAction* logoutAction = new QAction("退出登录", this);
     ui->menubar->addAction(friendManagerAction);
     ui->menubar->addAction(backGroupAction);
     ui->menubar->addAction(avatarAction);
+    ui->menubar->addAction(sendImageAction);
+    ui->menubar->addAction(sendFileAction);
     ui->menubar->addAction(copyAccountAction);
     ui->menubar->addAction(copySummaryAction);
     ui->menubar->addAction(logoutAction);
@@ -386,6 +390,8 @@ void MainWindow::setupUi() {
     connect(friendManagerAction, &QAction::triggered, this, &MainWindow::onShowFriendManager);
     connect(backGroupAction, &QAction::triggered, this, &MainWindow::onBackToGroupChat);
     connect(avatarAction, &QAction::triggered, this, &MainWindow::onUploadAvatar);
+    connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
+    connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
     connect(copyAccountAction, &QAction::triggered, this, &MainWindow::onCopyAccount);
     connect(copySummaryAction, &QAction::triggered, this, [this]() {
         QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n好友:%3\n群聊:%4\n当前会话:%5")
