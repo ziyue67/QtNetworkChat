@@ -563,6 +563,7 @@ void MainWindow::setupUi() {
         QAction* copyFileNoticeAction = menu.addAction("复制查收话术");
         QAction* copyReceiptAction = menu.addAction("复制回执话术");
         QAction* copySavePathAction = menu.addAction("复制保存路径");
+        QAction* copyMediaFlowAction = menu.addAction("复制媒体流程");
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (selected == copyAction) {
@@ -628,6 +629,22 @@ void MainWindow::setupUi() {
             if (savePath.isEmpty()) savePath = text;
             QApplication::clipboard()->setText(savePath);
             ui->statusbar->showMessage("保存路径已复制", 2200);
+        } else if (selected == copyMediaFlowAction) {
+            QString fileName = text.section(" · ", 1, 1).trimmed();
+            if (fileName.isEmpty()) fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
+            if (fileName.isEmpty()) fileName = "当前媒体文件";
+            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+            QString mediaType = text.contains("视频") ? "视频" : (text.contains("图片") ? "图片" : "文件");
+            QStringList rows;
+            rows << QString("媒体流程 · 类型:%1 · 文件:%2").arg(mediaType, fileName);
+            rows << QString("会话:%1 · 我的QQ:%2 · 昵称:%3").arg(target, m_currentUserId, m_currentUserName);
+            rows << "1. 发送方点击图片/视频或闪传文件选择媒体";
+            rows << "2. 聊天记录生成媒体卡片和查收话术";
+            rows << "3. 接收方自动保存后可复制回执话术和保存路径";
+            rows << QString("查收话术：我已发送 %1 到 %2，请注意查收。").arg(fileName, target);
+            rows << QString("回执话术：已收到 %1，文件已保存，我会尽快查看。").arg(fileName);
+            QApplication::clipboard()->setText(rows.join('\n'));
+            ui->statusbar->showMessage("媒体流程已复制", 2200);
         } else if (selected == mentionReplyAction) {
             QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();
             if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
