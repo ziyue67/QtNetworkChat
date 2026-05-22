@@ -2264,7 +2264,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(620, 560);
+    dialog.setFixedSize(660, 580);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -2372,10 +2372,13 @@ void MainWindow::onShowQuickAddFriend() {
     copyRequestBtn->setObjectName("quickCancelBtn");
     QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
     copySearchCardBtn->setObjectName("quickCancelBtn");
+    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
+    copyMediaGuideBtn->setObjectName("quickCancelBtn");
     buttonLayout->addWidget(cancelBtn);
     buttonLayout->addWidget(copyPreviewBtn);
     buttonLayout->addWidget(copyRequestBtn);
     buttonLayout->addWidget(copySearchCardBtn);
+    buttonLayout->addWidget(copyMediaGuideBtn);
     buttonLayout->addWidget(recommendBtn);
     buttonLayout->addWidget(searchBtn);
     layout->addLayout(buttonLayout);
@@ -2515,6 +2518,16 @@ void MainWindow::onShowQuickAddFriend() {
         }
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("快速加好友搜索卡片已复制", 2200);
+    });
+    connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, accountEdit]() {
+        QString target = accountEdit->text().trimmed();
+        QStringList rows;
+        rows << QString("加好友上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QString("目标QQ:%1").arg(target.isEmpty() ? "待搜索好友" : target);
+        rows << "加为好友后可直接发送图片/视频，也可用闪传文件发送文档和压缩包";
+        rows << "支持 mp4、mov、avi、mkv、wmv、flv、webm，聊天记录可复制媒体卡片";
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("快速加好友上传指南已复制", 2200);
     });
     connect(suggestionList, &QListWidget::itemDoubleClicked, &dialog, [accountEdit, runQuickAdd](QListWidgetItem* item) {
         QString account = item->data(Qt::UserRole).toString();
