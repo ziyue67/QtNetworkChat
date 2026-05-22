@@ -561,6 +561,8 @@ void MainWindow::setupUi() {
         QAction* copyTimeAction = menu.addAction("复制时间");
         QAction* copyMediaCardAction = menu.addAction("复制媒体卡片");
         QAction* copyFileNoticeAction = menu.addAction("复制查收话术");
+        QAction* copyReceiptAction = menu.addAction("复制回执话术");
+        QAction* copySavePathAction = menu.addAction("复制保存路径");
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (selected == copyAction) {
@@ -614,6 +616,18 @@ void MainWindow::setupUi() {
             QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
             QApplication::clipboard()->setText(QString("我已发送 %1 到 %2，请注意查收。").arg(fileName, target));
             ui->statusbar->showMessage("查收话术已复制", 2200);
+        } else if (selected == copyReceiptAction) {
+            QString fileName = text.section(" · ", 1, 1).trimmed();
+            if (fileName.isEmpty()) fileName = text.section("已收到", 1, 1).section("，", 0, 0).trimmed();
+            if (fileName.isEmpty()) fileName = "刚收到的文件";
+            QApplication::clipboard()->setText(QString("已收到 %1，文件已保存，我会尽快查看。").arg(fileName));
+            ui->statusbar->showMessage("回执话术已复制", 2200);
+        } else if (selected == copySavePathAction) {
+            QString savePath = text.section("保存路径：", 1, 1).section(" · ", 0, 0).trimmed();
+            if (savePath.isEmpty()) savePath = text.section("自动保存:", 1).trimmed();
+            if (savePath.isEmpty()) savePath = text;
+            QApplication::clipboard()->setText(savePath);
+            ui->statusbar->showMessage("保存路径已复制", 2200);
         } else if (selected == mentionReplyAction) {
             QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();
             if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
