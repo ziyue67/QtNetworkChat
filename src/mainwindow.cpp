@@ -961,6 +961,7 @@ void MainWindow::setupTray() {
     QAction* copyAccountAction = new QAction("复制账号", this);
     QAction* copySummaryAction = new QAction("复制账号摘要", this);
     QAction* copyMediaPackAction = new QAction("复制媒体发送包", this);
+    QAction* copyFullMediaPlanAction = new QAction("复制完整媒体计划", this);
     QAction* sendImageAction = new QAction("发送图片/视频", this);
     QAction* sendFileAction = new QAction("闪传文件", this);
     QAction* logoutAction = new QAction("退出登录", this);
@@ -969,6 +970,7 @@ void MainWindow::setupTray() {
     m_trayMenu->addAction(copyAccountAction);
     m_trayMenu->addAction(copySummaryAction);
     m_trayMenu->addAction(copyMediaPackAction);
+    m_trayMenu->addAction(copyFullMediaPlanAction);
     m_trayMenu->addSeparator();
     m_trayMenu->addAction(sendImageAction);
     m_trayMenu->addAction(sendFileAction);
@@ -1011,6 +1013,23 @@ void MainWindow::setupTray() {
         rows << QString("查收话术：我已通过 QtNetworkChat 发送媒体到 %1，请注意查收。").arg(sessionName);
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("托盘媒体发送包已复制", 2200);
+    });
+    connect(copyFullMediaPlanAction, &QAction::triggered, this, [this]() {
+        QString sessionName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+        QString sessionId = m_privateChatTarget;
+        if (sessionId.startsWith("local_group_")) sessionId = sessionId.mid(QString("local_group_").size());
+        if (sessionId.isEmpty()) sessionId = "public";
+        QStringList rows;
+        rows << QString("托盘完整媒体计划 · 当前会话:%1 · 会话号:%2").arg(sessionName, sessionId);
+        rows << QString("我的QQ:%1 · 昵称:%2 · 好友:%3 · 群聊:%4 · 在线:%5")
+            .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()), QString::number(m_knownUsers.size()));
+        rows << "1. 用综合搜索或快速加好友确认目标 QQ、好友或群聊";
+        rows << "2. 从托盘直接复制媒体包，或打开窗口后发送图片/视频、闪传文件";
+        rows << "3. 发送后聊天记录可右键复制媒体卡片、查收话术、回执话术和保存路径";
+        rows << "4. 支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
+        rows << QString("当前查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(sessionName);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("托盘完整媒体计划已复制", 2200);
     });
     connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
     connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
