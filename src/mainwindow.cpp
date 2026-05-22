@@ -447,6 +447,8 @@ void MainWindow::setupUi() {
         QAction* friendCardAction = menu.addAction("插入我的QQ名片");
         QAction* groupCardAction = menu.addAction("插入当前会话名片");
         QAction* fileTemplateAction = menu.addAction("插入发文件模板");
+        QAction* imageTemplateAction = menu.addAction("插入发图片模板");
+        QAction* videoTemplateAction = menu.addAction("插入发视频模板");
         QAction* groupInviteTemplateAction = menu.addAction("插入拉群模板");
         QAction* currentSummaryAction = menu.addAction("插入当前会话摘要");
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
@@ -504,6 +506,14 @@ void MainWindow::setupUi() {
         } else if (selected == fileTemplateAction) {
             QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
             ui->messageEdit->insertPlainText(QString("我准备发一个文件到 %1，请注意查收。").arg(target));
+            ui->messageEdit->setFocus();
+        } else if (selected == imageTemplateAction) {
+            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+            ui->messageEdit->insertPlainText(QString("我准备发图片到 %1，发送后会显示预览卡片。").arg(target));
+            ui->messageEdit->setFocus();
+        } else if (selected == videoTemplateAction) {
+            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+            ui->messageEdit->insertPlainText(QString("我准备发视频到 %1，视频会以文件卡片形式发送。").arg(target));
             ui->messageEdit->setFocus();
         } else if (selected == groupInviteTemplateAction) {
             QString target = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
