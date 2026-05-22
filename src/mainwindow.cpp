@@ -1967,6 +1967,7 @@ void MainWindow::onShowCreateMenu() {
     QAction* copySearchSummaryAction = menu.addAction("复制搜索摘要");
     QAction* copyQuickGuideAction = menu.addAction("复制QQ功能指南");
     QAction* copyMediaGuideAction = menu.addAction("复制上传指南");
+    QAction* copyCurrentMediaPackAction = menu.addAction("复制当前媒体包");
     QAction* editAnnouncementAction = menu.addAction("编辑群公告");
     QAction* copyAnnouncementAction = menu.addAction("复制群公告");
     QAction* friendNoticeAction = menu.addAction("好友通知");
@@ -2126,6 +2127,20 @@ void MainWindow::onShowCreateMenu() {
         rows << QString("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("上传指南已复制", 2200);
+    } else if (selected == copyCurrentMediaPackAction) {
+        QString sessionName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+        QString sessionId = m_privateChatTarget;
+        if (sessionId.startsWith("local_group_")) sessionId = sessionId.mid(QString("local_group_").size());
+        if (sessionId.isEmpty()) sessionId = "public";
+        QStringList rows;
+        rows << QString("媒体发送包 · 会话:%1 · 会话号:%2").arg(sessionName, sessionId);
+        rows << QString("发送者:%1 · QQ:%2").arg(m_currentUserName, m_currentUserId);
+        rows << "图片/视频入口：点击工具栏 图片/视频，或菜单栏 发送图片/视频";
+        rows << "文件入口：点击工具栏 闪传文件，或菜单栏 闪传文件";
+        rows << "支持格式：png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm + 文档/压缩包";
+        rows << QString("查收话术：我已准备发送图片/视频/文件到 %1，请注意查收。").arg(sessionName);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("当前媒体发送包已复制", 2200);
     } else if (selected == editAnnouncementAction) {
         onEditGroupAnnouncement();
     } else if (selected == copyAnnouncementAction) {
