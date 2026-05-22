@@ -1087,7 +1087,7 @@ void MainWindow::onSendMessage() {
 
 void MainWindow::onSendFile() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择文件", QString(),
-        "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv);;所有文件 (*.*)");
+        "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
@@ -1132,12 +1132,12 @@ void MainWindow::onSendFile() {
 
 void MainWindow::onSendImage() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", QString(),
-        "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv);;所有文件 (*.*)");
+        "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
     const QString suffix = info.suffix().toLower();
-    const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv"}.contains(suffix);
+    const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
     const QString mediaType = isVideo ? "视频" : "图片";
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
@@ -2106,7 +2106,7 @@ void MainWindow::onShowCreateMenu() {
     } else if (selected == copyMediaGuideAction) {
         QStringList rows;
         rows << QString("上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << "1. 点击 图片/视频 可发送 png、jpg、gif、mp4、mov、avi、mkv、wmv";
+        rows << "1. 点击 图片/视频 可发送 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm";
         rows << "2. 图片会显示预览卡片，视频会以文件卡片发送";
         rows << "3. 点击 闪传文件 可发送文档、压缩包和媒体文件";
         rows << "4. 聊天记录右键可复制媒体卡片或查收话术";
