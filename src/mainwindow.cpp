@@ -121,9 +121,10 @@ void MainWindow::setupUi() {
 
     ui->clearBtn->setObjectName("clearBtn");
     ui->fileBtn->setObjectName("toolBtn");
+    ui->fileBtn->setToolTip("闪传文件，支持文档、压缩包和媒体文件");
     ui->imageBtn->setObjectName("toolBtn");
     ui->imageBtn->setText("图片/视频");
-    ui->imageBtn->setToolTip("发送图片或视频文件");
+    ui->imageBtn->setToolTip("发送图片或视频文件，图片会显示预览");
     ui->emojiBtn->setObjectName("iconToolBtn");
     ui->mentionBtn->setObjectName("iconToolBtn");
     setStyleSheet(R"(
@@ -1047,6 +1048,12 @@ void MainWindow::onSendFile() {
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
+        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 KB · 已发送到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        cardItem->setEditable(false);
+        cardItem->setForeground(QColor(0, 121, 107));
+        cardItem->setBackground(QColor(232, 248, 245));
+        cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(cardItem);
         appendSystemMessage(QString("文件发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
         ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
         ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
@@ -1057,6 +1064,12 @@ void MainWindow::onSendFile() {
     bool ok = m_client->sendFile(filePath, m_privateChatTarget);
     if (ok) {
         appendSystemMessage(QString("已发送文件: %1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 KB · 已发送到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        cardItem->setEditable(false);
+        cardItem->setForeground(QColor(0, 121, 107));
+        cardItem->setBackground(QColor(232, 248, 245));
+        cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(cardItem);
         ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
         ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
     } else {
