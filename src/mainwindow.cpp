@@ -2677,6 +2677,8 @@ void MainWindow::onShowFriendManager() {
     copyOnlineBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", body);
     copySearchCardBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", body);
+    copyMediaGuideBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
     remarkBtn->setObjectName("managerSecondaryBtn");
     QPushButton* inviteBtn = new QPushButton("邀入群", body);
@@ -2698,6 +2700,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(copyStatsBtn);
     buttonLayout->addWidget(copyOnlineBtn);
     buttonLayout->addWidget(copySearchCardBtn);
+    buttonLayout->addWidget(copyMediaGuideBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
     buttonLayout->addWidget(inviteVisibleBtn);
@@ -2967,6 +2970,24 @@ void MainWindow::onShowFriendManager() {
             .arg(m_localGroupIds.size());
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("好友管理搜索卡片已复制", 2200);
+    });
+    connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
+        QString keyword = searchEdit->text().trimmed();
+        QStringList rows;
+        rows << QString("好友管理上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QString("当前筛选:%1").arg(keyword.isEmpty() ? "全部好友" : keyword);
+        int visibleCount = 0;
+        for (int i = 0; i < friendList->count(); ++i) {
+            QListWidgetItem* item = friendList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty() || id.startsWith("search_add:")) continue;
+            ++visibleCount;
+        }
+        rows << QString("可见好友:%1 · 全部好友:%2").arg(visibleCount).arg(m_friendIds.size());
+        rows << "可向好友发送图片/视频，或用闪传文件发送文档、压缩包和媒体文件";
+        rows << "聊天记录右键可复制媒体卡片和查收话术";
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("好友管理上传指南已复制", 2200);
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
