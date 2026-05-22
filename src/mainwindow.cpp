@@ -2356,7 +2356,7 @@ void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
     dialog.setWindowTitle("加好友");
-    dialog.setFixedSize(660, 580);
+    dialog.setFixedSize(720, 620);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
@@ -2464,12 +2464,15 @@ void MainWindow::onShowQuickAddFriend() {
     copyRequestBtn->setObjectName("quickCancelBtn");
     QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
     copySearchCardBtn->setObjectName("quickCancelBtn");
+    QPushButton* copyFriendMediaPackBtn = new QPushButton("复制好友媒体包", &dialog);
+    copyFriendMediaPackBtn->setObjectName("quickCancelBtn");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
     copyMediaGuideBtn->setObjectName("quickCancelBtn");
     buttonLayout->addWidget(cancelBtn);
     buttonLayout->addWidget(copyPreviewBtn);
     buttonLayout->addWidget(copyRequestBtn);
     buttonLayout->addWidget(copySearchCardBtn);
+    buttonLayout->addWidget(copyFriendMediaPackBtn);
     buttonLayout->addWidget(copyMediaGuideBtn);
     buttonLayout->addWidget(recommendBtn);
     buttonLayout->addWidget(searchBtn);
@@ -2610,6 +2613,23 @@ void MainWindow::onShowQuickAddFriend() {
         }
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("快速加好友搜索卡片已复制", 2200);
+    });
+    connect(copyFriendMediaPackBtn, &QPushButton::clicked, &dialog, [this, accountEdit, suggestionList]() {
+        QString target = accountEdit->text().trimmed();
+        if (target.isEmpty()) {
+            QListWidgetItem* item = suggestionList->currentItem();
+            if (item) target = item->data(Qt::UserRole).toString();
+        }
+        QString targetName = target.isEmpty() ? "待搜索好友" : contactDisplayName(target);
+        QStringList rows;
+        rows << QString("好友媒体包 · 目标:%1 · QQ:%2").arg(targetName, target.isEmpty() ? "待搜索" : target);
+        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << "加为好友后可直接发送图片/视频，也可使用闪传文件";
+        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和文档压缩包";
+        rows << QString("申请话术：%1，你好，我是 %2（QQ:%3），加好友后我可以把图片/视频/文件发给你。").arg(targetName, m_currentUserName, m_currentUserId);
+        rows << QString("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(targetName);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("好友媒体包已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, accountEdit]() {
         QString target = accountEdit->text().trimmed();
