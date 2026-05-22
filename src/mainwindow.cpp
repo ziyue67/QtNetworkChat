@@ -3713,7 +3713,7 @@ void MainWindow::onShowFriendNotifications() {
     QDialog dialog(this);
     dialog.setObjectName("noticeDialog");
     dialog.setWindowTitle("好友通知");
-    dialog.setFixedSize(820, 640);
+    dialog.setFixedSize(860, 660);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 24, 28, 24);
@@ -3801,6 +3801,8 @@ void MainWindow::onShowFriendNotifications() {
     copyAllBtn->setObjectName("noticeGhostBtn");
     QPushButton* copyRequestMediaPackBtn = new QPushButton("复制申请媒体包", &dialog);
     copyRequestMediaPackBtn->setObjectName("noticeGhostBtn");
+    QPushButton* copyRequestBatchPlanBtn = new QPushButton("复制申请处理计划", &dialog);
+    copyRequestBatchPlanBtn->setObjectName("noticeGhostBtn");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
     copyMediaGuideBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
@@ -3813,6 +3815,7 @@ void MainWindow::onShowFriendNotifications() {
     buttonLayout->addWidget(copyInviteBtn);
     buttonLayout->addWidget(copyAllBtn);
     buttonLayout->addWidget(copyRequestMediaPackBtn);
+    buttonLayout->addWidget(copyRequestBatchPlanBtn);
     buttonLayout->addWidget(copyMediaGuideBtn);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeBtn);
@@ -4031,6 +4034,28 @@ void MainWindow::onShowFriendNotifications() {
         rows << QString("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(name);
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("好友申请媒体包已复制", 2200);
+    });
+    connect(copyRequestBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
+        QStringList applicants;
+        for (int i = 0; i < noticeList->count(); ++i) {
+            QListWidgetItem* item = noticeList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) continue;
+            if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+            applicants << QString("%1(QQ:%2)").arg(m_friendNames.value(id, contactDisplayName(id)), id);
+        }
+        QString keyword = searchEdit->text().trimmed();
+        QStringList rows;
+        rows << QString("好友申请处理计划 · 筛选:%1").arg(keyword.isEmpty() ? "全部申请" : keyword);
+        rows << QString("我的QQ:%1 · 昵称:%2 · 待处理:%3 · 可见:%4")
+            .arg(m_currentUserId, m_currentUserName, QString::number(m_pendingFriendRequests.size()), QString::number(applicants.size()));
+        rows << QString("申请人:%1").arg(applicants.isEmpty() ? "无可见申请" : applicants.join("、"));
+        rows << "1. 先复制申请媒体包确认目标和后续发送内容";
+        rows << "2. 同意后从好友管理或私聊入口发送图片/视频/闪传文件";
+        rows << "3. 对方离线时复制查收话术，在线时直接发送媒体";
+        rows << "4. 聊天记录右键复制媒体流程、回执话术和保存路径";
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("好友申请处理计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QListWidgetItem* item = noticeList->currentItem();
