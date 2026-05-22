@@ -2683,7 +2683,7 @@ void MainWindow::onShowFriendManager() {
     QDialog dialog(this);
     dialog.setObjectName("friendManagerDialog");
     dialog.setWindowTitle("好友管理器");
-    dialog.setFixedSize(820, 660);
+    dialog.setFixedSize(900, 700);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -2789,6 +2789,8 @@ void MainWindow::onShowFriendManager() {
     copyOnlineBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", body);
     copySearchCardBtn->setObjectName("managerSecondaryBtn");
+    QPushButton* copyFriendMediaPackBtn = new QPushButton("复制好友媒体包", body);
+    copyFriendMediaPackBtn->setObjectName("managerSecondaryBtn");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", body);
     copyMediaGuideBtn->setObjectName("managerSecondaryBtn");
     QPushButton* remarkBtn = new QPushButton("备注", body);
@@ -2812,6 +2814,7 @@ void MainWindow::onShowFriendManager() {
     buttonLayout->addWidget(copyStatsBtn);
     buttonLayout->addWidget(copyOnlineBtn);
     buttonLayout->addWidget(copySearchCardBtn);
+    buttonLayout->addWidget(copyFriendMediaPackBtn);
     buttonLayout->addWidget(copyMediaGuideBtn);
     buttonLayout->addWidget(remarkBtn);
     buttonLayout->addWidget(inviteBtn);
@@ -3082,6 +3085,23 @@ void MainWindow::onShowFriendManager() {
             .arg(m_localGroupIds.size());
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("好友管理搜索卡片已复制", 2200);
+    });
+    connect(copyFriendMediaPackBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
+        QListWidgetItem* selected = friendList->currentItem();
+        QString id = selected ? selected->data(Qt::UserRole).toString() : QString();
+        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        if (id.isEmpty()) id = searchEdit->text().trimmed();
+        QString targetName = id.isEmpty() ? "可见好友" : contactDisplayName(id);
+        QStringList rows;
+        rows << QString("好友媒体包 · 目标:%1 · QQ:%2").arg(targetName, id.isEmpty() ? "批量可见" : id);
+        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QString("当前筛选:%1 · 全部好友:%2").arg(searchEdit->text().trimmed().isEmpty() ? "全部好友" : searchEdit->text().trimmed()).arg(m_friendIds.size());
+        rows << "可先发起私聊，再点击 图片/视频 或 闪传文件 发送媒体";
+        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
+        rows << QString("邀请话术：%1，你好，我是 %2（QQ:%3），我可以发图片/视频/文件给你，请注意查收。").arg(targetName, m_currentUserName, m_currentUserId);
+        rows << QString("回执话术：已收到来自 %1 的媒体文件，保存后我会尽快查看。").arg(m_currentUserName);
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("好友管理媒体包已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
         QString keyword = searchEdit->text().trimmed();
