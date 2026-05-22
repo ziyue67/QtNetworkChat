@@ -940,11 +940,17 @@ void MainWindow::setupTray() {
     QAction* showAction = new QAction("显示窗口", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
     QAction* copySummaryAction = new QAction("复制账号摘要", this);
+    QAction* sendImageAction = new QAction("发送图片/视频", this);
+    QAction* sendFileAction = new QAction("闪传文件", this);
     QAction* logoutAction = new QAction("退出登录", this);
     QAction* quitAction = new QAction("退出", this);
     m_trayMenu->addAction(showAction);
     m_trayMenu->addAction(copyAccountAction);
     m_trayMenu->addAction(copySummaryAction);
+    m_trayMenu->addSeparator();
+    m_trayMenu->addAction(sendImageAction);
+    m_trayMenu->addAction(sendFileAction);
+    m_trayMenu->addSeparator();
     m_trayMenu->addAction(logoutAction);
     m_trayMenu->addSeparator();
     m_trayMenu->addAction(quitAction);
@@ -969,6 +975,8 @@ void MainWindow::setupTray() {
         QApplication::clipboard()->setText(summary);
         ui->statusbar->showMessage("托盘账号摘要已复制", 2200);
     });
+    connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
+    connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
     connect(logoutAction, &QAction::triggered, this, &MainWindow::onLogout);
     connect(quitAction, &QAction::triggered, this, [this]() {
         m_isQuitting = true;
