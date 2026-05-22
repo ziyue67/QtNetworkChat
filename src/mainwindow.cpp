@@ -1300,6 +1300,16 @@ void MainWindow::onNewMessage(const Message& msg) {
             QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1").arg(savePath));
             savedItem->setForeground(Qt::darkGreen);
             m_chatModel->appendRow(savedItem);
+            QStandardItem* cardItem = new QStandardItem(QString("图片接收卡片 · %1 · 来自 %2 · 已保存到下载目录").arg(msg.fileName, displayName));
+            cardItem->setEditable(false);
+            cardItem->setForeground(QColor(0, 121, 107));
+            cardItem->setBackground(QColor(232, 248, 245));
+            m_chatModel->appendRow(cardItem);
+            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到图片 %1，保存路径：%2 · 右键聊天记录可复制").arg(msg.fileName, savePath));
+            replyItem->setEditable(false);
+            replyItem->setForeground(QColor(86, 116, 130));
+            replyItem->setBackground(QColor(246, 251, 253));
+            m_chatModel->appendRow(replyItem);
         }
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
         QString fileDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Files";
@@ -1312,6 +1322,16 @@ void MainWindow::onNewMessage(const Message& msg) {
             QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1").arg(savePath));
             item2->setForeground(Qt::darkGreen);
             m_chatModel->appendRow(item2);
+            QStandardItem* cardItem = new QStandardItem(QString("文件接收卡片 · %1 · 来自 %2 · 已保存到下载目录").arg(msg.fileName, displayName));
+            cardItem->setEditable(false);
+            cardItem->setForeground(QColor(0, 121, 107));
+            cardItem->setBackground(QColor(232, 248, 245));
+            m_chatModel->appendRow(cardItem);
+            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到文件 %1，保存路径：%2 · 右键聊天记录可复制").arg(msg.fileName, savePath));
+            replyItem->setEditable(false);
+            replyItem->setForeground(QColor(86, 116, 130));
+            replyItem->setBackground(QColor(246, 251, 253));
+            m_chatModel->appendRow(replyItem);
         }
     }
 
