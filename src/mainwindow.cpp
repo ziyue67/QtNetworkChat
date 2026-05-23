@@ -1625,6 +1625,7 @@ void MainWindow::onSendFile() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择文件", QString(),
         "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) {
+        ui->chatHintLabel->setText("文件发送已取消");
         ui->statusbar->showMessage("已取消选择文件", 1600);
         return;
     }
@@ -1632,7 +1633,10 @@ void MainWindow::onSendFile() {
     QFileInfo info(filePath);
     QString failureMessage;
     if (!confirmTransferFile(this, info, "文件", &failureMessage)) {
-        if (!failureMessage.isEmpty()) ui->statusbar->showMessage(failureMessage, 2600);
+        if (!failureMessage.isEmpty()) {
+            ui->chatHintLabel->setText(failureMessage);
+            ui->statusbar->showMessage(failureMessage, 2600);
+        }
         return;
     }
 
@@ -1700,6 +1704,7 @@ void MainWindow::onSendImage() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", QString(),
         "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) {
+        ui->chatHintLabel->setText("图片/视频发送已取消");
         ui->statusbar->showMessage("已取消选择图片/视频", 1600);
         return;
     }
@@ -1707,7 +1712,10 @@ void MainWindow::onSendImage() {
     QFileInfo info(filePath);
     QString failureMessage;
     if (!confirmTransferFile(this, info, "媒体文件", &failureMessage)) {
-        if (!failureMessage.isEmpty()) ui->statusbar->showMessage(failureMessage, 2600);
+        if (!failureMessage.isEmpty()) {
+            ui->chatHintLabel->setText(failureMessage);
+            ui->statusbar->showMessage(failureMessage, 2600);
+        }
         return;
     }
 
