@@ -282,6 +282,7 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
     QString type = obj["type"].toString();
     if (type == "friend_search") {
         QString account = obj["account"].toString().trimmed();
+        ChatUser* requester = findUserBySocket(socket);
         QJsonObject response;
         response["type"] = "friend_search_result";
         response["account"] = account;
@@ -296,6 +297,15 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
         } else {
             response["found"] = false;
         }
+        const QString searchState = response["found"].toBool()
+            ? (response["online"].toBool() ? "found_online" : "found_offline")
+            : "not_found";
+        saveFriendEventToSqlite(type,
+                                requester ? requester->id : QString(),
+                                requester ? requester->name : QString(),
+                                response["userId"].toString(),
+                                account,
+                                searchState);
 
         if (socket && socket->state() == QAbstractSocket::ConnectedState) {
             socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
@@ -306,8 +316,11 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
     }
 
     QString receiverId = obj["receiverId"].toString();
+    const QString senderId = obj["senderId"].toString();
+    const QString senderName = obj["senderName"].toString();
     QTcpSocket* targetSocket = m_userSockets.value(receiverId);
     if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+        saveFriendEventToSqlite(type, senderId, senderName, receiverId, QString(), "target_offline", obj["accepted"].toBool(false));
         if (type == "friend_request" && socket && socket->state() == QAbstractSocket::ConnectedState) {
             QJsonObject response;
             response["type"] = "friend_request_sent";
@@ -319,6 +332,7 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
         }
         return;
     }
+    saveFriendEventToSqlite(type, senderId, senderName, receiverId, QString(), "delivered", obj["accepted"].toBool(false));
 
     QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     targetSocket->write(data);
@@ -506,6 +520,39 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
     return ok;
 }
 
+bool Server::saveFriendEventToSqlite(const QString& eventType,
+                                     const QString& senderId,
+                                     const QString& senderName,
+                                     const QString& receiverId,
+                                     const QString& queryAccount,
+                                     const QString& eventState,
+                                     bool accepted) const {
+    if (!ensureAccountDatabase()) return false;
+
+    QString connectionName = "friend_events_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT INTO friend_events(event_type, sender_id, sender_name, receiver_id, query_account, accepted, event_state, created_at) "
+                          "VALUES(?, ?, ?, ?, ?, ?, ?, datetime('now'))");
+            query.addBindValue(eventType);
+            query.addBindValue(senderId);
+            query.addBindValue(senderName);
+            query.addBindValue(receiverId);
+            query.addBindValue(queryAccount);
+            query.addBindValue(accepted ? 1 : 0);
+            query.addBindValue(eventState);
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
 bool Server::ensureAccountDatabase() const {
     QString connectionName = "accounts_init_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
@@ -551,9 +598,23 @@ bool Server::ensureAccountDatabase() const {
                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
             if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS friend_events ("
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                "event_type TEXT NOT NULL, "
+                                "sender_id TEXT, "
+                                "sender_name TEXT, "
+                                "receiver_id TEXT, "
+                                "query_account TEXT, "
+                                "accepted INTEGER DEFAULT 0, "
+                                "event_state TEXT NOT NULL, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_offline_receiver ON offline_messages(receiver_id, id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_sender ON friend_events(sender_id, id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_receiver ON friend_events(receiver_id, id)");
             }
             db.close();
         }

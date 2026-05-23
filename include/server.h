@@ -48,6 +48,13 @@ private:
     bool insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const;
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool saveMessageToSqlite(const Message& msg, const QString& deliveryState) const;
+    bool saveFriendEventToSqlite(const QString& eventType,
+                                 const QString& senderId,
+                                 const QString& senderName,
+                                 const QString& receiverId,
+                                 const QString& queryAccount,
+                                 const QString& eventState,
+                                 bool accepted = false) const;
     QString generateAccountId(const QJsonObject& accounts) const;
     QString accountDbPath() const;
     QJsonObject loadAccounts() const;
