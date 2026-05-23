@@ -1166,6 +1166,8 @@ void MainWindow::setupUi() {
             if (!cards.isEmpty()) {
                 QApplication::clipboard()->setText(cards.join('\n'));
                 ui->statusbar->showMessage(QString("已复制 %1 个可见成员").arg(cards.size()), 2200);
+            } else {
+                ui->statusbar->showMessage("当前筛选没有可复制成员", 2200);
             }
         } else if (selected == copyOnlineVisibleAction) {
             QStringList cards;
