@@ -72,6 +72,7 @@ private:
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
     void refreshGroupMemberPanel();
+    void refreshComposerState();
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();

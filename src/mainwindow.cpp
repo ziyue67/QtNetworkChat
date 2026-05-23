@@ -630,12 +630,7 @@ void MainWindow::setupUi() {
     refreshFriendList();
 
     connect(ui->sendBtn, &QPushButton::clicked, this, &MainWindow::onSendMessage);
-    const auto refreshComposerState = [this]() {
-        const bool hasText = !ui->messageEdit->toPlainText().trimmed().isEmpty();
-        ui->sendBtn->setEnabled(hasText);
-        ui->sendBtn->setToolTip(hasText ? "发送当前消息 (Enter)" : "请输入消息后发送");
-    };
-    connect(ui->messageEdit, &QTextEdit::textChanged, this, refreshComposerState);
+    connect(ui->messageEdit, &QTextEdit::textChanged, this, &MainWindow::refreshComposerState);
     refreshComposerState();
     connect(ui->fileBtn, &QPushButton::clicked, this, &MainWindow::onSendFile);
     connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendImage);
@@ -1200,6 +1195,7 @@ void MainWindow::setupUi() {
         loadHistory(targetId);
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(targetId)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, isContactOnline(targetId) ? "在线" : "离线"));
+        refreshComposerState();
     });
     connect(ui->groupMemberListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->groupMemberListView->indexAt(pos);
@@ -1235,6 +1231,7 @@ void MainWindow::setupUi() {
             loadHistory(memberId);
             ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(memberId)));
             ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(memberId, isContactOnline(memberId) ? "在线" : "离线"));
+            refreshComposerState();
         } else if (selected == copyAction) {
             QApplication::clipboard()->setText(memberId);
             ui->statusbar->showMessage("QQ 号已复制: " + memberId, 2500);
@@ -1297,6 +1294,17 @@ void MainWindow::setupUi() {
     ui->announcementTitleLabel->setTextFormat(Qt::RichText);
     ui->announcementTitleLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     refreshGroupMemberPanel();
+}
+
+void MainWindow::refreshComposerState() {
+    const QString draftText = ui->messageEdit->toPlainText().trimmed();
+    const bool hasText = !draftText.isEmpty();
+    const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+
+    ui->sendBtn->setEnabled(hasText);
+    ui->sendBtn->setToolTip(hasText
+        ? QString("发送到 %1 · %2 字 (Enter)").arg(targetName).arg(draftText.size())
+        : QString("请输入消息后发送到 %1").arg(targetName));
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -1907,6 +1915,7 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     setWindowTitle(QString("QtNetworkChat - 私聊: %1").arg(userName));
     ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(userName));
     ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, onlineText));
+    refreshComposerState();
 }
 
 void MainWindow::onClientDisconnected() {
@@ -2327,6 +2336,7 @@ void MainWindow::onShowGlobalSearch() {
         loadHistory(id);
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
+        refreshComposerState();
     };
 
     connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
@@ -2915,6 +2925,7 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     ui->chatHintLabel->setText(QString("本地群聊 · 群号 %1 · 当前成员会自动显示在右侧").arg(groupId.mid(QString("local_group_").size())));
     ui->announcementBodyLabel->setText(m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName)));
     refreshGroupMemberPanel();
+    refreshComposerState();
 }
 
 void MainWindow::onEditGroupAnnouncement() {
@@ -3663,6 +3674,7 @@ void MainWindow::onShowFriendManager() {
         loadHistory(id);
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
+        refreshComposerState();
     };
 
     auto updateSelectionPreview = [this, friendList, selectionPreviewLabel]() {
@@ -4034,6 +4046,7 @@ void MainWindow::onBackToGroupChat() {
     setWindowTitle("QtNetworkChat - " + m_currentUserName);
     ui->chatTitleLabel->setText("公共聊天室");
     ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
+    refreshComposerState();
 }
 
 void MainWindow::onFriendRequestReceived(const QString& senderId, const QString& senderName) {
