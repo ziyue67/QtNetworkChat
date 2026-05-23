@@ -966,7 +966,7 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(status);
             ui->statusbar->showMessage("在线状态已复制", 2200);
         } else if (selected == copyProfileSummaryAction) {
-            QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n在线状态:在线\n好友:%3\n群聊:%4\n当前会话:%5\n可通过综合搜索添加好友或创建群聊")
+            QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n在线状态:在线\n好友:%3\n群聊:%4\n当前会话:%5\n可通过综合搜索发送好友申请或创建群聊")
                 .arg(m_currentUserId,
                      m_currentUserName,
                      QString::number(m_friendIds.size()),
@@ -1003,7 +1003,7 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
-        QAction* addVisibleAction = menu.addAction("添加可见成员为好友");
+        QAction* addVisibleAction = menu.addAction("发送可见成员好友申请");
         QAction* copyVisibleAction = menu.addAction("复制可见成员");
         QAction* copyOnlineVisibleAction = menu.addAction("复制在线成员");
         QAction* clearAction = menu.addAction("清空搜索");
@@ -1923,19 +1923,19 @@ void MainWindow::onShowGlobalSearch() {
     statsLabel->setObjectName("globalStatsLabel");
     QLabel* previewLabel = new QLabel("选择结果后可复制QQ、名片、邀请卡或直接打开", &dialog);
     previewLabel->setObjectName("globalPreviewLabel");
-    QPushButton* openBtn = new QPushButton("打开/添加", &dialog);
+    QPushButton* openBtn = new QPushButton("打开/申请", &dialog);
     openBtn->setObjectName("globalSearchPrimaryBtn");
     QPushButton* createGroupBtn = new QPushButton("用搜索创建群", &dialog);
     createGroupBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* inviteVisibleBtn = new QPushButton("可见用户建群", &dialog);
     inviteVisibleBtn->setObjectName("globalSearchGhostBtn");
-    QPushButton* addVisibleBtn = new QPushButton("添加可见用户", &dialog);
+    QPushButton* addVisibleBtn = new QPushButton("申请可见用户", &dialog);
     addVisibleBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
     copyBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyListBtn = new QPushButton("复制结果列表", &dialog);
     copyListBtn->setObjectName("globalSearchGhostBtn");
-    QPushButton* copyAddTextBtn = new QPushButton("复制加好友话术", &dialog);
+    QPushButton* copyAddTextBtn = new QPushButton("复制申请话术", &dialog);
     copyAddTextBtn->setObjectName("globalSearchGhostBtn");
     QPushButton* copyInviteCardBtn = new QPushButton("复制邀请卡", &dialog);
     copyInviteCardBtn->setObjectName("globalSearchGhostBtn");
@@ -1980,15 +1980,15 @@ void MainWindow::onShowGlobalSearch() {
         QString id = item->data(Qt::UserRole).toString();
         if (id.startsWith("search_add:")) {
             QString account = id.mid(QString("search_add:").size());
-            previewLabel->setText(QString("准备搜索并添加 QQ:%1 · 可复制申请话术").arg(account));
+            previewLabel->setText(QString("准备搜索 QQ:%1 并发送好友申请").arg(account));
         } else if (id.startsWith("local_group_")) {
             previewLabel->setText(QString("群聊 · %1 · 群号:%2 · 成员%3人").arg(m_localGroupNames.value(id, "群聊"), id.mid(QString("local_group_").size())).arg(m_localGroupMembers.value(id).size()));
         } else if (!id.isEmpty()) {
-            QString relation = m_friendIds.contains(id) ? "好友" : (m_pendingOutgoingFriendRequests.contains(id) ? "申请中" : "可添加");
+            QString relation = m_friendIds.contains(id) ? "好友" : (m_pendingOutgoingFriendRequests.contains(id) ? "申请中" : "可申请");
             previewLabel->setText(QString("联系人 · %1 · QQ:%2 · %3 · %4")
                 .arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线", relation));
         } else {
-            previewLabel->setText("输入 QQ 号后可继续搜索添加");
+            previewLabel->setText("输入 QQ 号后可继续搜索并发送申请");
         }
     };
 
@@ -2038,14 +2038,14 @@ void MainWindow::onShowGlobalSearch() {
             ++groupCount;
         }
         if (!filter.isEmpty()) {
-            QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索 QQ 账号：%1\n双击或点击搜索可从服务器查找并自动添加").arg(filter));
+            QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索 QQ 账号：%1\n双击或点击搜索可从服务器查找并发送好友申请").arg(filter));
             searchItem->setData(Qt::UserRole, "search_add:" + filter);
             searchItem->setForeground(QColor(92, 110, 128));
             searchItem->setSizeHint(QSize(0, 58));
             resultList->addItem(searchItem);
         }
         if (resultList->count() == 0) {
-            QListWidgetItem* emptyItem = new QListWidgetItem("输入 QQ 号搜索用户并添加好友");
+            QListWidgetItem* emptyItem = new QListWidgetItem("输入 QQ 号搜索用户并发送好友申请");
             emptyItem->setFlags(Qt::NoItemFlags);
             emptyItem->setForeground(QColor(135, 150, 165));
             resultList->addItem(emptyItem);
@@ -2300,16 +2300,16 @@ void MainWindow::onShowGlobalSearch() {
             if (!addIds.contains(id)) addIds << id;
         }
         if (addIds.isEmpty()) {
-            ui->statusbar->showMessage(pendingSkipped > 0 ? "可见用户均已是好友或申请中" : "当前没有可批量添加的用户", 2200);
+            ui->statusbar->showMessage(pendingSkipped > 0 ? "可见用户均已是好友或申请中" : "当前没有可发送申请的用户", 2200);
             searchEdit->setFocus();
             return;
         }
         if (QMessageBox::question(&dialog,
-                                  "添加可见用户",
+                                  "发送可见用户申请",
                                   QString("确定向 %1 位可见用户发送好友申请吗？").arg(addIds.size()),
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消添加可见用户", 1600);
+            ui->statusbar->showMessage("已取消发送可见用户申请", 1600);
             searchEdit->setFocus();
             return;
         }
@@ -2358,7 +2358,7 @@ void MainWindow::onShowGlobalSearch() {
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty()) continue;
             if (id.startsWith("search_add:")) {
-                rows << QString("搜索添加 QQ:%1").arg(id.mid(QString("search_add:").size()));
+                rows << QString("搜索申请 QQ:%1").arg(id.mid(QString("search_add:").size()));
             } else if (id.startsWith("local_group_")) {
                 rows << QString("群聊 QQ:%1 名称:%2").arg(id.mid(QString("local_group_").size()), m_localGroupNames.value(id, "群聊"));
             } else {
@@ -2414,7 +2414,7 @@ void MainWindow::onShowGlobalSearch() {
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty()) continue;
             if (id.startsWith("search_add:")) {
-                rows << QString("继续搜索添加 QQ:%1").arg(id.mid(QString("search_add:").size()));
+                rows << QString("继续搜索申请 QQ:%1").arg(id.mid(QString("search_add:").size()));
             } else if (id.startsWith("local_group_")) {
                 ++groupCount;
                 rows << QString("群聊 QQ:%1 名称:%2 成员:%3")
@@ -2426,7 +2426,7 @@ void MainWindow::onShowGlobalSearch() {
                     .arg(isFriend ? "好友" : "用户", id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
             }
         }
-        rows << QString("匹配好友:%1 · 可添加用户:%2 · 群聊:%3")
+        rows << QString("匹配好友:%1 · 可申请用户:%2 · 群聊:%3")
             .arg(friendCount)
             .arg(userCount)
             .arg(groupCount);
@@ -2447,12 +2447,12 @@ void MainWindow::onShowGlobalSearch() {
             relation = "群聊";
         } else if (!id.isEmpty()) {
             targetName = contactDisplayName(id);
-            relation = m_friendIds.contains(id) ? "好友" : "可添加用户";
+            relation = m_friendIds.contains(id) ? "好友" : "可申请用户";
         }
         QStringList rows;
         rows << QString("综合搜索媒体包 · 目标:%1 · QQ:%2 · 类型:%3").arg(targetName, targetId.isEmpty() ? "批量搜索" : targetId, relation);
         rows << QString("关键词:%1 · 我的QQ:%2 · 昵称:%3").arg(keyword.isEmpty() ? "全部" : keyword, m_currentUserId, m_currentUserName);
-        rows << "可先打开/添加搜索结果，再发送图片/视频或闪传文件";
+        rows << "可先打开/申请搜索结果，再发送图片/视频或闪传文件";
         rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
         rows << QString("邀请话术：你好，我是 %1（QQ:%2），通过综合搜索找到你，可以加好友或进群后收发媒体文件。").arg(m_currentUserName, m_currentUserId);
         rows << QString("查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(targetName);
@@ -2475,13 +2475,13 @@ void MainWindow::onShowGlobalSearch() {
             } else {
                 bool isFriend = m_friendIds.contains(id);
                 if (isFriend) ++friendCount; else ++addableCount;
-                users << QString("%1(QQ:%2,%3,%4)").arg(contactDisplayName(id), id, isFriend ? "好友" : "可添加", isContactOnline(id) ? "在线" : "离线");
+                users << QString("%1(QQ:%2,%3,%4)").arg(contactDisplayName(id), id, isFriend ? "好友" : "可申请", isContactOnline(id) ? "在线" : "离线");
             }
         }
         QString keyword = searchEdit->text().trimmed();
         QStringList rows;
         rows << QString("综合搜索批量媒体计划 · 关键词:%1").arg(keyword.isEmpty() ? "全部" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 好友结果:%3 · 可添加:%4 · 群聊:%5")
+        rows << QString("我的QQ:%1 · 昵称:%2 · 好友结果:%3 · 可申请:%4 · 群聊:%5")
             .arg(m_currentUserId, m_currentUserName, QString::number(friendCount), QString::number(addableCount), QString::number(groups.size()));
         rows << QString("用户目标:%1").arg(users.isEmpty() ? "无" : users.join("、"));
         rows << QString("群聊目标:%1").arg(groups.isEmpty() ? "无" : groups.join("、"));
@@ -2509,7 +2509,7 @@ void MainWindow::onShowGlobalSearch() {
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty() || id.startsWith("search_add:") || id.startsWith("local_group_") || !isContactOnline(id)) continue;
             rows << QString("在线搜索结果 QQ:%1 昵称:%2 关系:%3")
-                .arg(id, contactDisplayName(id), m_friendIds.contains(id) ? "好友" : "可添加");
+                .arg(id, contactDisplayName(id), m_friendIds.contains(id) ? "好友" : "可申请");
         }
         if (rows.isEmpty()) {
             ui->statusbar->showMessage("当前搜索结果没有在线用户", 2200);
@@ -2526,7 +2526,7 @@ void MainWindow::onShowGlobalSearch() {
         QString text = item->text();
         if (id.startsWith("search_add:")) {
             id = id.mid(QString("search_add:").size());
-            text = QString("QQ:%1\n一键搜索并添加好友").arg(id);
+            text = QString("QQ:%1\n一键搜索并发送好友申请").arg(id);
         } else if (id.startsWith("local_group_")) {
             QString groupNumber = id.mid(QString("local_group_").size());
             text = QString("群聊 QQ:%1\n%2").arg(groupNumber, m_localGroupNames.value(id, "群聊"));
@@ -2704,7 +2704,7 @@ void MainWindow::onShowCreateMenu() {
         QStringList rows;
         rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
         rows << "1. 点击综合搜索可按 QQ 号/昵称查找用户、好友和群聊";
-        rows << "2. 搜索结果可直接打开、添加好友、复制名片或复制邀请卡";
+        rows << "2. 搜索结果可直接打开、发送好友申请、复制名片或复制邀请卡";
         rows << "3. 快速加好友支持推荐在线用户、复制申请话术和自动发送申请";
         rows << "4. 好友管理器可搜索、备注、邀入群、复制在线好友和统计";
         rows << QString("当前好友:%1 · 群聊:%2 · 在线:%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
@@ -2887,14 +2887,14 @@ void MainWindow::onInsertMention() {
 void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
     dialog.setObjectName("quickAddDialog");
-    dialog.setWindowTitle("加好友");
+    dialog.setWindowTitle("好友申请");
     dialog.setFixedSize(760, 660);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(26, 22, 26, 22);
     layout->setSpacing(14);
 
-    QLabel* titleLabel = new QLabel("搜索 QQ 账号添加好友", &dialog);
+    QLabel* titleLabel = new QLabel("搜索 QQ 账号发送好友申请", &dialog);
     titleLabel->setObjectName("quickAddTitle");
     titleLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(titleLabel);
@@ -2921,7 +2921,7 @@ void MainWindow::onShowQuickAddFriend() {
     cardLabel->setWordWrap(true);
     layout->addWidget(cardLabel);
 
-    QLabel* actionTipLabel = new QLabel("输入 QQ 后可一键搜索添加，也可以复制申请话术发给对方。", &dialog);
+    QLabel* actionTipLabel = new QLabel("输入 QQ 后可一键搜索并发送申请，也可以复制申请话术发给对方。", &dialog);
     actionTipLabel->setObjectName("quickAddActionTip");
     actionTipLabel->setAlignment(Qt::AlignCenter);
     actionTipLabel->setWordWrap(true);
@@ -2979,7 +2979,7 @@ void MainWindow::onShowQuickAddFriend() {
             suggestionList->addItem(moreItem);
         }
         if (suggestionList->count() == 0) {
-            QListWidgetItem* item = new QListWidgetItem(filter.isEmpty() ? "输入 QQ 号后回车搜索添加" : QString("回车搜索并添加 QQ:%1").arg(filter));
+            QListWidgetItem* item = new QListWidgetItem(filter.isEmpty() ? "输入 QQ 号后回车搜索申请" : QString("回车搜索并发送申请 QQ:%1").arg(filter));
             item->setData(Qt::UserRole, filter.isEmpty() ? QString() : filter);
             item->setForeground(QColor(135, 150, 165));
             item->setSizeHint(QSize(0, 34));
@@ -3221,8 +3221,8 @@ void MainWindow::onShowQuickAddFriend() {
             }
         }
         if (addIds.isEmpty()) {
-            hintLabel->setText("暂无可添加的推荐好友，可输入 QQ 号搜索");
-            ui->statusbar->showMessage("暂无可添加的推荐好友", 2200);
+            hintLabel->setText("暂无可申请的推荐好友，可输入 QQ 号搜索");
+            ui->statusbar->showMessage("暂无可申请的推荐好友", 2200);
             return;
         }
         if (QMessageBox::question(&dialog,
@@ -3338,7 +3338,7 @@ void MainWindow::onShowFriendManager() {
         subTitleLabel->setText(QString("当前 QQ：%1 · 好友 %2 人 · 可见 %3 人").arg(m_currentUserId).arg(m_friendIds.size()).arg(visibleCount));
         statsLabel->setText(QString("在线 %1 · 离线 %2 · 本地群 %3").arg(onlineCount).arg(offlineCount).arg(m_localGroupIds.size()));
         if (friendList->count() == 0) {
-            QListWidgetItem* emptyItem = new QListWidgetItem(filter.isEmpty() ? "暂无好友，点击下方加好友" : QString("未找到好友，双击搜索并添加 QQ:%1").arg(filter));
+            QListWidgetItem* emptyItem = new QListWidgetItem(filter.isEmpty() ? "暂无好友，点击下方发送好友申请" : QString("未找到好友，双击搜索并发送申请 QQ:%1").arg(filter));
             emptyItem->setData(Qt::UserRole, filter.isEmpty() ? QString() : "search_add:" + filter);
             emptyItem->setForeground(QColor(135, 150, 165));
             friendList->addItem(emptyItem);
@@ -3350,15 +3350,15 @@ void MainWindow::onShowFriendManager() {
     selectionPreviewLabel->setObjectName("managerSelectionPreview");
     bodyLayout->addWidget(selectionPreviewLabel);
 
-    QLabel* operationGuideLabel = new QLabel("可在列表内双击私聊；搜索无结果时可直接按“搜索添加”完成 QQ 加好友。", body);
+    QLabel* operationGuideLabel = new QLabel("可在列表内双击私聊；搜索无结果时可直接按“搜索申请”发送 QQ 好友申请。", body);
     operationGuideLabel->setObjectName("managerOperationGuide");
     operationGuideLabel->setWordWrap(true);
     bodyLayout->addWidget(operationGuideLabel);
 
     QHBoxLayout* buttonLayout = new QHBoxLayout;
-    QPushButton* addBtn = new QPushButton("加好友", body);
+    QPushButton* addBtn = new QPushButton("发申请", body);
     addBtn->setObjectName("managerPrimaryBtn");
-    QPushButton* searchAddBtn = new QPushButton("搜索添加", body);
+    QPushButton* searchAddBtn = new QPushButton("搜索申请", body);
     searchAddBtn->setObjectName("managerPrimaryBtn");
     QPushButton* clearSearchBtn = new QPushButton("清空搜索", body);
     clearSearchBtn->setObjectName("managerSecondaryBtn");
@@ -3557,7 +3557,7 @@ void MainWindow::onShowFriendManager() {
         QString account = searchEdit->text().trimmed();
         if (account.isEmpty()) {
             searchEdit->setFocus();
-            ui->statusbar->showMessage("请输入 QQ 账号后搜索添加", 2200);
+            ui->statusbar->showMessage("请输入 QQ 账号后搜索申请", 2200);
             return;
         }
         dialog.accept();
@@ -3664,7 +3664,7 @@ void MainWindow::onShowFriendManager() {
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty()) continue;
             if (id.startsWith("search_add:")) {
-                rows << QString("可搜索添加 QQ:%1").arg(id.mid(QString("search_add:").size()));
+                rows << QString("可搜索申请 QQ:%1").arg(id.mid(QString("search_add:").size()));
                 continue;
             }
             rows << QString("好友 QQ:%1 昵称:%2 状态:%3")
@@ -3830,7 +3830,7 @@ void MainWindow::onShowFriendManager() {
         QString displayName = contactDisplayName(id);
         if (QMessageBox::question(&dialog,
                                   "删除好友",
-                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索添加。").arg(displayName, id),
+                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, id),
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
             ui->statusbar->showMessage("已取消删除好友", 1600);
@@ -4293,7 +4293,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         const QString displayName = contactDisplayName(userId);
         if (QMessageBox::question(this,
                                   "删除好友",
-                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索添加。").arg(displayName, userId),
+                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, userId),
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
             ui->statusbar->showMessage("已取消删除好友", 1600);
@@ -5322,7 +5322,7 @@ void MainWindow::onContactSearchChanged(const QString& text) {
     m_contactFilter = text.trimmed();
     refreshFriendList();
     if (!m_contactFilter.isEmpty()) {
-        ui->statusbar->showMessage(QString("QQ搜索:%1 · 无结果可双击搜索添加或建群").arg(m_contactFilter), 1800);
+        ui->statusbar->showMessage(QString("QQ搜索:%1 · 无结果可双击搜索申请或建群").arg(m_contactFilter), 1800);
     } else {
         ui->statusbar->showMessage(QString("联系人已显示 · 好友%1 · 本地群%2 · 在线%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size()), 1200);
     }
