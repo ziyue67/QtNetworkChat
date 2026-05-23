@@ -98,6 +98,7 @@ private:
     QStringList m_friendIds;
     QStringList m_localGroupIds;
     QStringList m_pendingFriendRequests;
+    QStringList m_pendingOutgoingFriendRequests;
     QMap<QString, QString> m_friendNames;
     QMap<QString, QString> m_localGroupNames;
     QMap<QString, QString> m_localGroupAnnouncements;

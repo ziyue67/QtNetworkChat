@@ -3815,47 +3815,64 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
         ui->statusbar->showMessage(QString("QQ 账号 %1 已经是你的好友").arg(userId), 2500);
         return;
     }
-
-    m_friendNames[userId] = userName;
-    if (!m_friendIds.contains(userId)) {
-        m_friendIds << userId;
-        saveFriends();
-        refreshFriendList();
+    if (m_pendingOutgoingFriendRequests.contains(userId)) {
+        ui->statusbar->showMessage(QString("已向 QQ 账号 %1 发送过好友申请，等待对方处理").arg(userId), 3000);
+        return;
     }
+
+    const QString displayName = userName.isEmpty() ? userId : userName;
+    m_friendNames[userId] = displayName;
     if (online) {
-        m_client->sendFriendRequest(userId);
-        appendSystemMessage("已自动发送好友申请 QQ: " + userId);
+        if (!m_client->sendFriendRequest(userId)) {
+            appendSystemMessage(QString("好友申请发送失败 QQ:%1，请检查连接后重试").arg(userId));
+            ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(displayName), 3000);
+            return;
+        }
+        if (!m_pendingOutgoingFriendRequests.contains(userId)) {
+            m_pendingOutgoingFriendRequests << userId;
+        }
+        appendSystemMessage(QString("已发送好友申请 QQ:%1，等待对方同意").arg(userId));
+        ui->statusbar->showMessage(QString("好友申请已发送给 %1").arg(displayName), 2500);
     } else {
-        appendSystemMessage("已自动添加离线好友 QQ: " + userId);
+        ui->statusbar->showMessage(QString("QQ 账号 %1 当前离线，暂不能发送好友申请").arg(userId), 3000);
+        appendSystemMessage(QString("QQ:%1 当前离线，未加入好友列表，可稍后重试").arg(userId));
     }
 }
 
 void MainWindow::onFriendRequestSent(const QString& receiverId, bool delivered) {
     QString userName = contactDisplayName(receiverId);
-    if (!m_friendIds.contains(receiverId)) {
-        m_friendIds << receiverId;
-        saveFriends();
-        refreshFriendList();
+    if (delivered) {
+        if (!m_pendingOutgoingFriendRequests.contains(receiverId)) {
+            m_pendingOutgoingFriendRequests << receiverId;
+        }
+        appendSystemMessage(QString("好友申请已送达 QQ:%1，等待对方处理").arg(receiverId));
+        ui->statusbar->showMessage(QString("好友申请已送达 %1").arg(userName), 2400);
+    } else {
+        m_pendingOutgoingFriendRequests.removeAll(receiverId);
+        appendSystemMessage(QString("好友申请未送达 QQ:%1，对方当前离线").arg(receiverId));
+        ui->statusbar->showMessage(QString("%1 当前离线，好友申请未送达").arg(userName), 3000);
     }
-    appendSystemMessage(delivered ? "好友申请已送达 QQ: " + receiverId : "对方当前离线，已添加到好友列表 QQ: " + receiverId);
 }
 
 void MainWindow::onFriendResponseReceived(const QString& senderId, const QString& senderName, bool accepted) {
+    const QString displayName = senderName.isEmpty() ? contactDisplayName(senderId) : senderName;
+    m_pendingOutgoingFriendRequests.removeAll(senderId);
     if (accepted) {
         if (!m_friendIds.contains(senderId)) {
             m_friendIds << senderId;
-            m_friendNames[senderId] = senderName;
+            m_friendNames[senderId] = displayName;
             QFile file(getFriendFilePath());
             if (file.open(QIODevice::Append | QIODevice::Text)) {
                 QTextStream out(&file);
-                out << senderId << "|" << senderName << "\n";
+                out << senderId << "|" << displayName << "\n";
             }
         }
         refreshFriendList();
         m_pendingFriendRequests.removeAll(senderId);
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
-        appendSystemMessage(senderName + " 已同意你的好友申请");
+        appendSystemMessage(displayName + " 已同意你的好友申请");
+        ui->statusbar->showMessage(QString("%1 已同意好友申请").arg(displayName), 2800);
     } else {
         m_friendIds.removeAll(senderId);
         m_friendNames.remove(senderId);
@@ -3864,7 +3881,8 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
         m_pendingFriendRequests.removeAll(senderId);
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
-        appendSystemMessage(senderName + " 已拒绝你的好友申请");
+        appendSystemMessage(displayName + " 已拒绝你的好友申请");
+        ui->statusbar->showMessage(QString("%1 已拒绝好友申请").arg(displayName), 2800);
     }
 }
 
