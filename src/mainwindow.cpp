@@ -5739,6 +5739,20 @@ bool MainWindow::ensureClientDatabase() const {
             if (ok) {
                 ok = query.exec("CREATE INDEX IF NOT EXISTS idx_chat_history_peer_id ON chat_history(peer_id, id)");
             }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS friends ("
+                                "user_id TEXT PRIMARY KEY, "
+                                "display_name TEXT NOT NULL, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS local_groups ("
+                                "group_id TEXT PRIMARY KEY, "
+                                "group_name TEXT NOT NULL, "
+                                "members TEXT NOT NULL, "
+                                "announcement TEXT, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
             db.close();
         }
     }
@@ -5838,8 +5852,35 @@ void MainWindow::refreshFriendList() {
     m_userListModel->clear();
     m_userListModel->setHorizontalHeaderLabels({"好友 / 在线"});
 
+    bool loadedFriendsFromSqlite = false;
+    if (m_friendIds.isEmpty() && ensureClientDatabase()) {
+        const QString connectionName = "client_friends_read_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(clientDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                if (query.exec("SELECT user_id, display_name FROM friends ORDER BY user_id ASC")) {
+                    while (query.next()) {
+                        const QString id = query.value(0).toString();
+                        const QString name = query.value(1).toString();
+                        if (!id.isEmpty() && !m_friendIds.contains(id)) {
+                            m_friendIds << id;
+                            loadedFriendsFromSqlite = true;
+                        }
+                        if (!id.isEmpty() && !name.isEmpty()) {
+                            m_friendNames[id] = name;
+                        }
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
     QFile file(getFriendFilePath());
-    if (m_friendIds.isEmpty() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    if (!loadedFriendsFromSqlite && m_friendIds.isEmpty() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&file);
         while (!in.atEnd()) {
             QString line = in.readLine().trimmed();
@@ -5852,10 +5893,46 @@ void MainWindow::refreshFriendList() {
                 m_friendNames[id] = name;
             }
         }
+        saveFriends();
+    }
+
+    bool loadedGroupsFromSqlite = false;
+    if (m_localGroupIds.isEmpty() && ensureClientDatabase()) {
+        const QString connectionName = "client_groups_read_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(clientDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                if (query.exec("SELECT group_id, group_name, members, announcement FROM local_groups ORDER BY group_id ASC")) {
+                    while (query.next()) {
+                        const QString id = query.value(0).toString();
+                        const QString name = query.value(1).toString();
+                        const QStringList members = query.value(2).toString().split(',', Qt::SkipEmptyParts);
+                        const QString announcement = query.value(3).toString();
+                        if (!id.isEmpty() && !m_localGroupIds.contains(id)) {
+                            m_localGroupIds << id;
+                            loadedGroupsFromSqlite = true;
+                        }
+                        if (!id.isEmpty() && !name.isEmpty()) {
+                            m_localGroupNames[id] = name;
+                        }
+                        if (!id.isEmpty()) {
+                            m_localGroupMembers[id] = members.isEmpty() ? QStringList{m_currentUserId} : members;
+                            m_localGroupAnnouncements[id] = announcement.isEmpty()
+                                ? QString("%1 已创建，可继续邀请好友并发送消息。").arg(m_localGroupNames.value(id, "群聊"))
+                                : announcement;
+                        }
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
     }
 
     QFile groupFile(getGroupFilePath());
-    if (m_localGroupIds.isEmpty() && groupFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    if (!loadedGroupsFromSqlite && m_localGroupIds.isEmpty() && groupFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&groupFile);
         while (!in.atEnd()) {
             QString line = in.readLine().trimmed();
@@ -5873,6 +5950,7 @@ void MainWindow::refreshFriendList() {
             QString announcement = line.section('|', 3);
             if (!id.isEmpty()) m_localGroupAnnouncements[id] = announcement.isEmpty() ? QString("%1 已创建，可继续邀请好友并发送消息。").arg(m_localGroupNames.value(id, "群聊")) : announcement;
         }
+        saveLocalGroups();
     }
 
     auto appendSection = [this](const QString& title) {
@@ -6115,6 +6193,30 @@ QString MainWindow::getAvatarFilePath() const {
 }
 
 void MainWindow::saveFriends() const {
+    if (ensureClientDatabase()) {
+        const QString connectionName = "client_friends_write_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(clientDbPath());
+            if (db.open()) {
+                db.transaction();
+                QSqlQuery clearQuery(db);
+                bool ok = clearQuery.exec("DELETE FROM friends");
+                QSqlQuery insertQuery(db);
+                insertQuery.prepare("INSERT OR REPLACE INTO friends(user_id, display_name, updated_at) VALUES(?, ?, datetime('now'))");
+                for (const QString& id : m_friendIds) {
+                    if (id.isEmpty()) continue;
+                    insertQuery.addBindValue(id);
+                    insertQuery.addBindValue(m_friendNames.value(id, id));
+                    ok = insertQuery.exec() && ok;
+                }
+                ok ? db.commit() : db.rollback();
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
     QFile file(getFriendFilePath());
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
 
@@ -6125,6 +6227,35 @@ void MainWindow::saveFriends() const {
 }
 
 void MainWindow::saveLocalGroups() const {
+    if (ensureClientDatabase()) {
+        const QString connectionName = "client_groups_write_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(clientDbPath());
+            if (db.open()) {
+                db.transaction();
+                QSqlQuery clearQuery(db);
+                bool ok = clearQuery.exec("DELETE FROM local_groups");
+                QSqlQuery insertQuery(db);
+                insertQuery.prepare("INSERT OR REPLACE INTO local_groups(group_id, group_name, members, announcement, updated_at) "
+                                    "VALUES(?, ?, ?, ?, datetime('now'))");
+                for (const QString& id : m_localGroupIds) {
+                    if (id.isEmpty()) continue;
+                    QStringList members = m_localGroupMembers.value(id);
+                    if (members.isEmpty()) members << m_currentUserId;
+                    insertQuery.addBindValue(id);
+                    insertQuery.addBindValue(m_localGroupNames.value(id, "群聊"));
+                    insertQuery.addBindValue(members.join(','));
+                    insertQuery.addBindValue(m_localGroupAnnouncements.value(id));
+                    ok = insertQuery.exec() && ok;
+                }
+                ok ? db.commit() : db.rollback();
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
     QFile file(getGroupFilePath());
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
 
