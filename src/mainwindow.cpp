@@ -1300,11 +1300,16 @@ void MainWindow::refreshComposerState() {
     const QString draftText = ui->messageEdit->toPlainText().trimmed();
     const bool hasText = !draftText.isEmpty();
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const QString composerHint = QString("发往 %1... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)").arg(targetName);
 
     ui->sendBtn->setEnabled(hasText);
     ui->sendBtn->setToolTip(hasText
         ? QString("发送到 %1 · %2 字 (Enter)").arg(targetName).arg(draftText.size())
         : QString("请输入消息后发送到 %1").arg(targetName));
+    ui->messageEdit->setPlaceholderText(composerHint);
+    ui->messageEdit->setToolTip(hasText
+        ? QString("当前草稿将发送到 %1 · %2 字").arg(targetName).arg(draftText.size())
+        : composerHint);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
