@@ -3039,6 +3039,7 @@ void MainWindow::onInsertEmoji() {
         connect(action, &QAction::triggered, this, [this, emoji]() {
             ui->messageEdit->insertPlainText(emoji);
             ui->messageEdit->setFocus();
+            ui->statusbar->showMessage(QString("已插入表情 %1").arg(emoji), 1400);
         });
     }
     menu.addSeparator();
@@ -3065,6 +3066,7 @@ void MainWindow::onInsertEmoji() {
         connect(action, &QAction::triggered, this, [this, command]() {
             ui->messageEdit->setPlainText(command);
             ui->messageEdit->setFocus();
+            ui->statusbar->showMessage(QString("已插入快捷指令：%1").arg(command), 1600);
         });
     }
     const QStringList quickMessages = {
@@ -3082,6 +3084,7 @@ void MainWindow::onInsertEmoji() {
         connect(action, &QAction::triggered, this, [this, message]() {
             ui->messageEdit->setPlainText(message);
             ui->messageEdit->setFocus();
+            ui->statusbar->showMessage("已插入快捷语", 1400);
         });
     }
     menu.exec(ui->emojiBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
@@ -3093,6 +3096,7 @@ void MainWindow::onInsertMention() {
     connect(allAction, &QAction::triggered, this, [this]() {
         ui->messageEdit->insertPlainText("@全体成员 ");
         ui->messageEdit->setFocus();
+        ui->statusbar->showMessage("已插入 @全体成员", 1400);
     });
     QStringList mentionIds;
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
@@ -3110,6 +3114,7 @@ void MainWindow::onInsertMention() {
         connect(action, &QAction::triggered, this, [this, name]() {
             ui->messageEdit->insertPlainText(QString("@%1 ").arg(name));
             ui->messageEdit->setFocus();
+            ui->statusbar->showMessage(QString("已插入 @%1").arg(name), 1400);
         });
     }
     menu.exec(ui->mentionBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
