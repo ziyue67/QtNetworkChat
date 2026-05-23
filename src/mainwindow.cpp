@@ -2616,7 +2616,10 @@ void MainWindow::onShowGlobalSearch() {
                 rows << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
             }
         }
-        if (rows.isEmpty()) return;
+        if (rows.isEmpty()) {
+            ui->statusbar->showMessage("当前搜索结果没有可复制条目", 2200);
+            return;
+        }
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 条搜索结果").arg(rows.size()), 2200);
     });
