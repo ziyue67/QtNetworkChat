@@ -4724,6 +4724,12 @@ void MainWindow::onShowFriendNotifications() {
             emptyItem->setSizeHint(QSize(0, 68));
             noticeList->addItem(emptyItem);
         }
+        for (int i = 0; i < noticeList->count(); ++i) {
+            if (noticeList->item(i)->flags().testFlag(Qt::ItemIsEnabled)) {
+                noticeList->setCurrentRow(i);
+                break;
+            }
+        }
     };
     fillList();
 
