@@ -4083,7 +4083,7 @@ void MainWindow::onShowGroupNotifications() {
     QDialog dialog(this);
     dialog.setObjectName("noticeDialog");
     dialog.setWindowTitle("群通知");
-    dialog.setFixedSize(840, 600);
+    dialog.setFixedSize(880, 620);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 24, 28, 24);
@@ -4178,6 +4178,8 @@ void MainWindow::onShowGroupNotifications() {
     onlineMemberBtn->setObjectName("noticeGhostBtn");
     QPushButton* copyGroupMediaPackBtn = new QPushButton("复制群媒体包", &dialog);
     copyGroupMediaPackBtn->setObjectName("noticeGhostBtn");
+    QPushButton* copyGroupBatchPlanBtn = new QPushButton("复制群批量媒体计划", &dialog);
+    copyGroupBatchPlanBtn->setObjectName("noticeGhostBtn");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
     copyMediaGuideBtn->setObjectName("noticeGhostBtn");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
@@ -4190,6 +4192,7 @@ void MainWindow::onShowGroupNotifications() {
     actionLayout->addWidget(memberBtn);
     actionLayout->addWidget(onlineMemberBtn);
     actionLayout->addWidget(copyGroupMediaPackBtn);
+    actionLayout->addWidget(copyGroupBatchPlanBtn);
     actionLayout->addWidget(copyMediaGuideBtn);
     actionLayout->addWidget(closeBtn);
     layout->addLayout(actionLayout);
@@ -4425,6 +4428,42 @@ void MainWindow::onShowGroupNotifications() {
         rows << QString("查收话术：我已发送媒体文件到群聊“%1”，请注意查收。").arg(groupName);
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("群媒体包已复制", 2200);
+    });
+    connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
+        QStringList groups;
+        int totalMembers = 0;
+        int onlineMembers = 0;
+        for (int i = 0; i < noticeList->count(); ++i) {
+            QListWidgetItem* item = noticeList->item(i);
+            QString id = item->data(Qt::UserRole).toString();
+            if (id.startsWith("group_create:")) {
+                groups << QString("待创建群:%1").arg(id.mid(QString("group_create:").size()));
+                ++totalMembers;
+                ++onlineMembers;
+            } else if (id.startsWith("local_group_")) {
+                QStringList members = m_localGroupMembers.value(id);
+                int groupOnline = 0;
+                for (const QString& memberId : members) {
+                    if (memberId == m_currentUserId || isContactOnline(memberId)) ++groupOnline;
+                }
+                totalMembers += qMax(1, members.size());
+                onlineMembers += groupOnline;
+                groups << QString("%1(群号:%2,成员:%3,在线:%4)")
+                    .arg(m_localGroupNames.value(id, "群聊"), id.mid(QString("local_group_").size()), QString::number(qMax(1, members.size())), QString::number(groupOnline));
+            }
+        }
+        QString keyword = searchEdit->text().trimmed();
+        QStringList rows;
+        rows << QString("群批量媒体计划 · 筛选:%1").arg(keyword.isEmpty() ? "全部群通知" : keyword);
+        rows << QString("我的QQ:%1 · 昵称:%2 · 可见群:%3 · 成员:%4 · 在线:%5")
+            .arg(m_currentUserId, m_currentUserName, QString::number(groups.size()), QString::number(totalMembers), QString::number(onlineMembers));
+        rows << QString("群聊目标:%1").arg(groups.isEmpty() ? "无可见群聊" : groups.join("、"));
+        rows << "1. 先处理待创建群或打开已有群聊";
+        rows << "2. 图片/GIF/视频走图片视频入口，文档和压缩包走闪传文件";
+        rows << "3. 发送后复制群媒体包、上传指南和查收话术给群成员";
+        rows << "4. 可按筛选关键词分批发送，优先覆盖在线成员较多的群聊";
+        QApplication::clipboard()->setText(rows.join('\n'));
+        ui->statusbar->showMessage("群批量媒体计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QListWidgetItem* current = noticeList->currentItem();
