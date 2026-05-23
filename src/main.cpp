@@ -397,11 +397,18 @@ int main(int argc, char *argv[])
     autoLoginCheck->setChecked(true);
     modeCardLayout->addWidget(autoLoginCheck, 0, Qt::AlignCenter);
 
-    modeCardLayout->addSpacing(28);
+    QLabel* modeStatusLabel = new QLabel("正在准备本地服务...", modeCard);
+    modeStatusLabel->setObjectName("modeStatusLabel");
+    modeStatusLabel->setAlignment(Qt::AlignCenter);
+    modeStatusLabel->setWordWrap(true);
+    modeCardLayout->addWidget(modeStatusLabel);
+
+    modeCardLayout->addSpacing(18);
 
     QPushButton* clientBtn = new QPushButton("登录", modeCard);
     clientBtn->setObjectName("primaryBtn");
     clientBtn->setMinimumHeight(40);
+    clientBtn->setToolTip("使用已有 QQ 账号登录当前本地聊天服务");
     modeCardLayout->addWidget(clientBtn);
 
     modeCardLayout->addStretch();
@@ -412,6 +419,7 @@ int main(int argc, char *argv[])
     accountLoginBtn->setObjectName("linkBtn");
     QPushButton* serverBtn = new QPushButton("注册账号", modeCard);
     serverBtn->setObjectName("linkBtn");
+    serverBtn->setToolTip("创建一个新的本地 QQ 测试账号");
     bottomLinkLayout->addWidget(accountLoginBtn);
     QLabel* splitLabel = new QLabel("|", modeCard);
     splitLabel->setObjectName("splitLabel");
@@ -465,6 +473,12 @@ int main(int argc, char *argv[])
             font-size: 12px;
             spacing: 6px;
         }
+        QLabel#modeStatusLabel {
+            color: #5C7286;
+            font-size: 12px;
+            padding-top: 10px;
+            padding-bottom: 2px;
+        }
         QPushButton#primaryBtn {
             background: #18A8F2;
             color: white;
@@ -503,7 +517,11 @@ int main(int argc, char *argv[])
         delete server;
         server = nullptr;
         nameLabel->setText("QtNetworkChat · 客户端");
+        modeStatusLabel->setText("已检测到本地服务运行中，本窗口将直接连接。");
         autoLoginCheck->setToolTip("检测到本地服务已运行，本窗口将直接连接现有服务");
+    } else {
+        modeStatusLabel->setText("本窗口正在托管本地服务，可再打开一个客户端测试互发消息。");
+        autoLoginCheck->setToolTip("本窗口已启动本地服务，其他客户端会自动连接");
     }
     Client* client = nullptr;
 
