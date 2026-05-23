@@ -109,7 +109,9 @@ private:
 
         QHBoxLayout* optionLayout = new QHBoxLayout;
         m_autoLoginCheck = new QCheckBox("自动登录", formCard);
+        m_autoLoginCheck->setVisible(false);
         m_rememberCheck = new QCheckBox("记住密码", formCard);
+        m_rememberCheck->setToolTip("仅在勾选时保存密码；取消勾选后会清除已保存的密码");
         optionLayout->addWidget(m_autoLoginCheck);
         optionLayout->addWidget(m_rememberCheck);
         optionLayout->addStretch();
@@ -251,7 +253,7 @@ private:
         m_accountEdit->setPlaceholderText("请输入 QQ 账号");
         m_nameEdit->setVisible(registerMode);
         m_confirmPasswordEdit->setVisible(registerMode);
-        m_autoLoginCheck->setVisible(!registerMode);
+        m_autoLoginCheck->setVisible(false);
         m_rememberCheck->setVisible(!registerMode);
         m_loginLinkBtn->setVisible(registerMode);
         m_registerLinkBtn->setVisible(!registerMode && !m_isServer);
@@ -301,19 +303,24 @@ private:
     void loadSettings() {
         if (m_isServer) return;
         QSettings settings("QtNetworkChat", "QtNetworkChat");
+        const bool rememberPassword = settings.value("login/remember", false).toBool();
         m_accountEdit->setText(settings.value("login/account").toString());
-        m_passwordEdit->setText(settings.value("login/password").toString());
+        m_passwordEdit->setText(rememberPassword ? settings.value("login/password").toString() : QString());
         m_nameEdit->setText(settings.value("login/name").toString());
-        m_rememberCheck->setChecked(settings.value("login/remember", false).toBool());
+        m_rememberCheck->setChecked(rememberPassword);
     }
 
     void saveSettings() {
-        if (m_registerMode || !m_rememberCheck || !m_rememberCheck->isChecked()) return;
+        if (m_registerMode || !m_rememberCheck) return;
         QSettings settings("QtNetworkChat", "QtNetworkChat");
         settings.setValue("login/account", m_accountEdit->text().trimmed());
-        settings.setValue("login/password", m_passwordEdit->text());
         settings.setValue("login/name", m_nameEdit->text().trimmed());
-        settings.setValue("login/remember", true);
+        settings.setValue("login/remember", m_rememberCheck->isChecked());
+        if (m_rememberCheck->isChecked()) {
+            settings.setValue("login/password", m_passwordEdit->text());
+        } else {
+            settings.remove("login/password");
+        }
     }
 
     bool m_isServer;
