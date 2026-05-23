@@ -2163,16 +2163,36 @@ void MainWindow::onShowGlobalSearch() {
         if (groupName.isEmpty()) groupName = "搜索群聊";
         QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
         QStringList members = QStringList{m_currentUserId};
+        QStringList newFriendIds;
         for (int i = 0; i < resultList->count(); ++i) {
             QListWidgetItem* item = resultList->item(i);
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty() || id.startsWith("local_group_") || id.startsWith("search_add:") || id == m_currentUserId || members.contains(id)) continue;
             members << id;
             if (!m_friendIds.contains(id)) {
-                m_friendIds << id;
-                m_friendNames[id] = contactDisplayName(id);
-                m_client->sendFriendRequest(id);
+                newFriendIds << id;
             }
+        }
+        int invitedCount = qMax(0, members.size() - 1);
+        if (invitedCount == 0) {
+            ui->statusbar->showMessage("当前没有可邀请的可见用户", 2200);
+            return;
+        }
+        if (QMessageBox::question(&dialog,
+                                  "可见用户建群",
+                                  QString("确定创建群聊“%1”并邀请 %2 位可见用户吗？其中 %3 位会同时发送好友申请。")
+                                      .arg(groupName)
+                                      .arg(invitedCount)
+                                      .arg(newFriendIds.size()),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消可见用户建群", 1600);
+            return;
+        }
+        for (const QString& id : newFriendIds) {
+            m_friendIds << id;
+            m_friendNames[id] = contactDisplayName(id);
+            m_client->sendFriendRequest(id);
         }
         m_localGroupIds << groupId;
         m_localGroupNames[groupId] = groupName;
@@ -2183,26 +2203,38 @@ void MainWindow::onShowGlobalSearch() {
         refreshFriendList();
         dialog.accept();
         switchToLocalGroup(groupId, groupName);
-        appendSystemMessage(QString("已从综合搜索建群并邀请 %1 位可见用户").arg(qMax(0, members.size() - 1)));
+        appendSystemMessage(QString("已从综合搜索建群并邀请 %1 位可见用户").arg(invitedCount));
     });
-    connect(addVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
-        int addedCount = 0;
+    connect(addVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit, &dialog]() {
+        QStringList addIds;
         for (int i = 0; i < resultList->count(); ++i) {
             QListWidgetItem* item = resultList->item(i);
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty() || id.startsWith("local_group_") || id.startsWith("search_add:") || id == m_currentUserId || m_friendIds.contains(id)) continue;
+            if (!addIds.contains(id)) addIds << id;
+        }
+        if (addIds.isEmpty()) {
+            ui->statusbar->showMessage("当前没有可批量添加的用户", 2200);
+            searchEdit->setFocus();
+            return;
+        }
+        if (QMessageBox::question(&dialog,
+                                  "添加可见用户",
+                                  QString("确定向 %1 位可见用户发送好友申请吗？").arg(addIds.size()),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消添加可见用户", 1600);
+            searchEdit->setFocus();
+            return;
+        }
+        for (const QString& id : addIds) {
             m_friendIds << id;
             m_friendNames[id] = contactDisplayName(id);
             m_client->sendFriendRequest(id);
-            ++addedCount;
         }
-        if (addedCount > 0) {
-            saveFriends();
-            refreshFriendList();
-            ui->statusbar->showMessage(QString("已添加 %1 个可见用户").arg(addedCount), 2500);
-        } else {
-            ui->statusbar->showMessage("当前没有可批量添加的用户", 2200);
-        }
+        saveFriends();
+        refreshFriendList();
+        ui->statusbar->showMessage(QString("已添加 %1 个可见用户").arg(addIds.size()), 2500);
         searchEdit->setFocus();
     });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
@@ -3065,28 +3097,40 @@ void MainWindow::onShowQuickAddFriend() {
         runQuickAdd();
     });
     connect(recommendBtn, &QPushButton::clicked, &dialog, [this, suggestionList, hintLabel, &dialog]() {
-        int addedCount = 0;
+        QStringList addIds;
         QStringList addedNames;
         for (int i = 0; i < suggestionList->count(); ++i) {
             QListWidgetItem* item = suggestionList->item(i);
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty() || id == m_currentUserId || m_friendIds.contains(id)) continue;
-            m_friendIds << id;
             QString name = contactDisplayName(id);
-            m_friendNames[id] = name;
-            addedNames << QString("%1(%2)").arg(name, id);
-            m_client->sendFriendRequest(id);
-            ++addedCount;
+            if (!addIds.contains(id)) {
+                addIds << id;
+                addedNames << QString("%1(%2)").arg(name, id);
+            }
         }
-        if (addedCount == 0) {
+        if (addIds.isEmpty()) {
             hintLabel->setText("暂无可添加的推荐好友，可输入 QQ 号搜索");
             ui->statusbar->showMessage("暂无可添加的推荐好友", 2200);
             return;
         }
+        if (QMessageBox::question(&dialog,
+                                  "添加推荐好友",
+                                  QString("确定向 %1 位推荐用户发送好友申请吗？").arg(addIds.size()),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消添加推荐好友", 1600);
+            return;
+        }
+        for (const QString& id : addIds) {
+            m_friendIds << id;
+            m_friendNames[id] = contactDisplayName(id);
+            m_client->sendFriendRequest(id);
+        }
         saveFriends();
         refreshFriendList();
         appendSystemMessage(QString("已添加推荐好友：%1").arg(addedNames.join("、")));
-        ui->statusbar->showMessage(QString("已添加 %1 个推荐好友").arg(addedCount), 2500);
+        ui->statusbar->showMessage(QString("已添加 %1 个推荐好友").arg(addIds.size()), 2500);
         dialog.accept();
     });
     connect(searchBtn, &QPushButton::clicked, &dialog, runQuickAdd);
@@ -3606,29 +3650,49 @@ void MainWindow::onShowFriendManager() {
         saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), contactDisplayName(friendId)));
     });
     connect(inviteVisibleBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
-        if (m_localGroupIds.isEmpty()) {
-            QString groupName = "好友群聊";
-            QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-            m_localGroupIds << groupId;
-            m_localGroupNames[groupId] = groupName;
-            m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
-            m_localGroupMembers[groupId] = QStringList{m_currentUserId};
-        }
-        QString targetGroup = m_privateChatTarget.startsWith("local_group_") ? m_privateChatTarget : m_localGroupIds.last();
-        int invitedCount = 0;
+        const bool willCreateGroup = m_localGroupIds.isEmpty();
+        QString targetGroup = m_privateChatTarget.startsWith("local_group_")
+            ? m_privateChatTarget
+            : (willCreateGroup ? QString("local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz")) : m_localGroupIds.last());
+        QString groupName = willCreateGroup ? "好友群聊" : m_localGroupNames.value(targetGroup, "群聊");
+        QStringList currentMembers = willCreateGroup ? QStringList{m_currentUserId} : m_localGroupMembers.value(targetGroup);
+        QStringList inviteIds;
         for (int i = 0; i < friendList->count(); ++i) {
             QListWidgetItem* item = friendList->item(i);
             QString friendId = item->data(Qt::UserRole).toString();
-            if (friendId.isEmpty() || friendId.startsWith("search_add:") || m_localGroupMembers[targetGroup].contains(friendId)) continue;
-            m_localGroupMembers[targetGroup] << friendId;
-            ++invitedCount;
+            if (friendId.isEmpty() || friendId.startsWith("search_add:") || currentMembers.contains(friendId) || inviteIds.contains(friendId)) continue;
+            inviteIds << friendId;
+        }
+        if (inviteIds.isEmpty()) {
+            ui->statusbar->showMessage("当前没有可邀请的可见好友", 2200);
+            return;
+        }
+        if (QMessageBox::question(this,
+                                  "邀请可见好友",
+                                  QString("确定邀请 %1 位可见好友加入群聊“%2”吗？").arg(inviteIds.size()).arg(groupName),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消邀请可见好友", 1600);
+            return;
+        }
+        if (willCreateGroup) {
+            QString groupName = "好友群聊";
+            m_localGroupIds << targetGroup;
+            m_localGroupNames[targetGroup] = groupName;
+            m_localGroupAnnouncements[targetGroup] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
+            m_localGroupMembers[targetGroup] = QStringList{m_currentUserId};
+        }
+        for (const QString& friendId : inviteIds) {
+            if (!m_localGroupMembers[targetGroup].contains(friendId)) {
+                m_localGroupMembers[targetGroup] << friendId;
+            }
         }
         saveLocalGroups();
         refreshFriendList();
         switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
         refreshGroupMemberPanel();
-        appendSystemMessage(QString("已邀请 %1 位可见好友加入群聊").arg(invitedCount));
-        saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 位可见好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(invitedCount));
+        appendSystemMessage(QString("已邀请 %1 位可见好友加入群聊").arg(inviteIds.size()));
+        saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 位可见好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(inviteIds.size()));
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit, &dialog]() {
         QListWidgetItem* selected = friendList->currentItem();
@@ -3861,19 +3925,30 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                 saveHistory(userId, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
             }
         } else if (selected == inviteAllAction) {
-            int addedCount = 0;
+            QStringList inviteIds;
             for (const QString& friendId : m_friendIds) {
-                if (!m_localGroupMembers[userId].contains(friendId)) {
-                    m_localGroupMembers[userId] << friendId;
-                    ++addedCount;
-                }
+                if (!m_localGroupMembers[userId].contains(friendId)) inviteIds << friendId;
             }
-            if (addedCount > 0) {
-                saveLocalGroups();
+            if (inviteIds.isEmpty()) {
+                ui->statusbar->showMessage("全部好友已在该群聊中", 1800);
+                return;
             }
+            QString groupName = m_localGroupNames.value(userId, "群聊");
+            if (QMessageBox::question(this,
+                                      "邀请全部好友",
+                                      QString("确定邀请 %1 位好友加入群聊“%2”吗？").arg(inviteIds.size()).arg(groupName),
+                                      QMessageBox::Yes | QMessageBox::No,
+                                      QMessageBox::No) != QMessageBox::Yes) {
+                ui->statusbar->showMessage("已取消邀请全部好友", 1600);
+                return;
+            }
+            for (const QString& friendId : inviteIds) {
+                m_localGroupMembers[userId] << friendId;
+            }
+            saveLocalGroups();
             switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
-            appendSystemMessage(QString("已自动邀请 %1 位好友加入群聊").arg(addedCount));
-            saveHistory(userId, QString("[%1] [系统] 已自动邀请 %2 位好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(addedCount));
+            appendSystemMessage(QString("已自动邀请 %1 位好友加入群聊").arg(inviteIds.size()));
+            saveHistory(userId, QString("[%1] [系统] 已自动邀请 %2 位好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(inviteIds.size()));
         } else if (selected == copyOnlineMembersAction) {
             QStringList rows;
             for (const QString& id : m_localGroupMembers.value(userId)) {
