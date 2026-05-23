@@ -713,6 +713,8 @@ void MainWindow::setupUi() {
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->messageEdit->paste();
+            ui->messageEdit->setFocus();
+            ui->statusbar->showMessage(QString("已粘贴到输入框 · 当前 %1 字").arg(ui->messageEdit->toPlainText().trimmed().size()), 1600);
         } else if (selected == pasteSendAction) {
             ui->messageEdit->paste();
             onSendMessage();
@@ -720,6 +722,8 @@ void MainWindow::setupUi() {
             onSendMessage();
         } else if (selected == clearAction) {
             ui->messageEdit->clear();
+            ui->messageEdit->setFocus();
+            ui->statusbar->showMessage("输入草稿已清空", 1400);
         } else if (selected == quickAction) {
             ui->messageEdit->setPlainText("收到，我马上看。");
             ui->messageEdit->setFocus();
