@@ -4370,13 +4370,22 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(rows.size()), 2200);
         } else if (selected == renameGroupAction) {
             bool ok = false;
-            QString newName = QInputDialog::getText(this, "重命名群聊", "群聊名称:", QLineEdit::Normal, m_localGroupNames.value(userId, "群聊"), &ok).trimmed();
-            if (ok && !newName.isEmpty()) {
-                m_localGroupNames[userId] = newName;
-                saveLocalGroups();
-                refreshFriendList();
-                if (m_privateChatTarget == userId) switchToLocalGroup(userId, newName);
+            const QString oldName = m_localGroupNames.value(userId, "群聊");
+            QString newName = QInputDialog::getText(this, "重命名群聊", "群聊名称:", QLineEdit::Normal, oldName, &ok).trimmed();
+            if (!ok) return;
+            if (newName.isEmpty()) {
+                ui->statusbar->showMessage("群聊名称不能为空", 1800);
+                return;
             }
+            if (newName == oldName) {
+                ui->statusbar->showMessage("群聊名称未改变", 1600);
+                return;
+            }
+            m_localGroupNames[userId] = newName;
+            saveLocalGroups();
+            refreshFriendList();
+            if (m_privateChatTarget == userId) switchToLocalGroup(userId, newName);
+            ui->statusbar->showMessage(QString("群聊已重命名为：%1").arg(newName), 2200);
         } else if (selected == deleteGroupAction) {
             QString groupName = m_localGroupNames.value(userId, userName);
             int memberCount = qMax(1, m_localGroupMembers.value(userId).size());
