@@ -273,6 +273,10 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     setWindowIcon(createChatIcon(m_currentUserName));
     ui->profileNameLabel->setText("QQ: " + m_currentUserId);
     ui->profileIdLabel->setText("昵称: " + m_currentUserName);
+    ui->profileNameLabel->setToolTip(QString("当前 QQ 号：%1").arg(m_currentUserId));
+    ui->profileIdLabel->setToolTip(QString("当前昵称：%1").arg(m_currentUserName));
+    ui->profileCard->setToolTip("右键可复制名片、在线状态，或打开好友管理");
+    ui->copyAccountBtn->setToolTip(QString("复制 QQ 号 %1 到剪贴板").arg(m_currentUserId));
     saveProfileToSqlite();
     ui->addFriendBtn->hide();
     ui->uploadAvatarBtn->setText("换头像");
@@ -2240,10 +2244,8 @@ void MainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason) {
 }
 
 void MainWindow::onCopyAccount() {
-    QString card = QString("QQ:%1\n昵称:%2\n好友:%3\n群聊:%4")
-        .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()));
-    QApplication::clipboard()->setText(card);
-    ui->statusbar->showMessage(QString("QQ 名片已复制: %1 · 好友%2 · 群聊%3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()), 3000);
+    QApplication::clipboard()->setText(m_currentUserId);
+    ui->statusbar->showMessage(QString("QQ 号已复制: %1").arg(m_currentUserId), 2600);
 }
 
 void MainWindow::onLogout() {
