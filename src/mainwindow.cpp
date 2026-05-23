@@ -2153,11 +2153,28 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
 
 void MainWindow::onClientDisconnected() {
     appendSystemMessage("已断开服务器连接");
+    const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    ui->chatHintLabel->setText(isLocalGroup
+        ? QString("本地群聊 · 已断开服务器，仍可记录本地消息")
+        : QString("已断开服务器 · %1 暂停发送，消息草稿会保留").arg(targetName));
+    ui->statusbar->showMessage(isLocalGroup
+        ? QString("已断开服务器，本地群聊仍可继续记录")
+        : QString("已断开服务器，暂不能发送到 %1").arg(targetName), 3500);
     refreshComposerState();
 }
 
 void MainWindow::onClientError(const QString& error) {
     appendSystemMessage("连接错误: " + error);
+    const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    const QString briefError = error.left(80);
+    ui->chatHintLabel->setText(isLocalGroup
+        ? QString("连接错误 · 本地群聊仍可记录 · %1").arg(briefError)
+        : QString("连接错误 · %1 暂停发送 · %2").arg(targetName, briefError));
+    ui->statusbar->showMessage(isLocalGroup
+        ? QString("连接错误，本地群聊仍可继续记录")
+        : QString("连接错误，暂不能发送到 %1").arg(targetName), 3500);
     refreshComposerState();
 }
 
