@@ -657,10 +657,23 @@ void MainWindow::setupUi() {
     connect(globalSearchShortcut, &QShortcut::activated, this, &MainWindow::onShowGlobalSearch);
     connect(ui->messageEdit, &QTextEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu menu(this);
+        const QString draftText = ui->messageEdit->toPlainText().trimmed();
+        const QString clipboardText = QApplication::clipboard()->text().trimmed();
+        const bool hasDraft = !draftText.isEmpty();
+        const bool hasClipboardText = !clipboardText.isEmpty();
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSendAction = menu.addAction("粘贴并发送");
         QAction* sendAction = menu.addAction("立即发送");
         QAction* clearAction = menu.addAction("清空输入");
+        pasteAction->setEnabled(hasClipboardText);
+        pasteSendAction->setEnabled(hasClipboardText);
+        sendAction->setEnabled(hasDraft);
+        clearAction->setEnabled(hasDraft);
+        pasteAction->setToolTip(hasClipboardText ? "把剪贴板文字插入输入框" : "剪贴板里没有可粘贴的文字");
+        pasteSendAction->setToolTip(hasClipboardText ? "粘贴剪贴板文字后立即发送" : "剪贴板里没有可发送的文字");
+        sendAction->setToolTip(hasDraft ? QString("发送当前输入 · %1 字").arg(draftText.size()) : "请输入消息后再发送");
+        clearAction->setToolTip(hasDraft ? "清空当前输入框内容" : "输入框已经是空的");
+        menu.addSeparator();
         QAction* quickAction = menu.addAction("插入快捷语");
         QAction* commandCardAction = menu.addAction("插入/card指令");
         QAction* commandInviteAction = menu.addAction("插入/invite指令");
@@ -669,6 +682,7 @@ void MainWindow::setupUi() {
         QAction* addFriendAction = menu.addAction("插入申请话术");
         QAction* inviteGroupAction = menu.addAction("插入入群邀请话术");
         QAction* quoteTemplateAction = menu.addAction("插入引用模板");
+        menu.addSeparator();
         QMenu* phraseMenu = menu.addMenu("常用话术");
         QMenu* qqPhraseMenu = menu.addMenu("QQ快捷话术");
         const QStringList quickPhrases = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说", "方便的话加个好友", "拉我进群聊一下", "这个 QQ 号是我"};
