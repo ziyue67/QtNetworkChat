@@ -1749,11 +1749,35 @@ void MainWindow::onLogout() {
 }
 
 void MainWindow::onClearHistory() {
+    const QString peerId = m_privateChatTarget.isEmpty() ? "group" : m_privateChatTarget;
+    const QString historyPath = getHistoryFilePath(peerId);
+    const QString sessionName = m_privateChatTarget.isEmpty()
+        ? "公共聊天室"
+        : (m_privateChatTarget.startsWith("local_group_")
+            ? m_localGroupNames.value(m_privateChatTarget, "群聊")
+            : contactDisplayName(m_privateChatTarget));
+
+    if (m_chatModel->rowCount() == 0 && !QFile::exists(historyPath)) {
+        ui->statusbar->showMessage(QString("%1 暂无可清空的聊天记录").arg(sessionName), 1800);
+        return;
+    }
+
+    if (QMessageBox::question(this,
+                              "清空聊天记录",
+                              QString("确定清空“%1”的本地聊天记录吗？此操作不会删除对方设备上的记录。").arg(sessionName),
+                              QMessageBox::Yes | QMessageBox::No,
+                              QMessageBox::No) != QMessageBox::Yes) {
+        ui->statusbar->showMessage("已取消清空聊天记录", 1600);
+        return;
+    }
+
     m_chatModel->clear();
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
-    QString peerId = m_privateChatTarget.isEmpty() ? "group" : m_privateChatTarget;
-    QFile::remove(getHistoryFilePath(peerId));
-    appendSystemMessage("聊天记录已清空");
+    if (QFile::exists(historyPath)) {
+        QFile::remove(historyPath);
+    }
+    appendSystemMessage(QString("%1 的聊天记录已清空").arg(sessionName));
+    ui->statusbar->showMessage(QString("已清空 %1 的本地聊天记录").arg(sessionName), 2200);
 }
 
 void MainWindow::onAddFriend() {
