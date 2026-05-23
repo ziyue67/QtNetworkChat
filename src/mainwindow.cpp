@@ -947,15 +947,26 @@ void MainWindow::setupUi() {
     ui->contactSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->contactSearchEdit, &QLineEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu menu(this);
+        const QString clipboardText = QApplication::clipboard()->text().trimmed();
+        const bool hasClipboardText = !clipboardText.isEmpty();
+        const bool hasSearchText = !ui->contactSearchEdit->text().trimmed().isEmpty();
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
         QAction* globalSearchAction = menu.addAction("打开综合搜索");
         QAction* createGroupAction = menu.addAction("用关键词建群");
         QAction* copySearchCardAction = menu.addAction("复制搜索名片");
         QAction* clearAction = menu.addAction("清空搜索");
+        pasteAction->setEnabled(hasClipboardText);
+        pasteSearchAction->setEnabled(hasClipboardText);
+        clearAction->setEnabled(hasSearchText);
+        pasteAction->setToolTip(hasClipboardText ? "把剪贴板文字粘贴到 QQ 搜索框" : "剪贴板里没有可粘贴的文字");
+        pasteSearchAction->setToolTip(hasClipboardText ? "粘贴剪贴板文字并搜索 QQ 账号" : "剪贴板里没有可搜索的文字");
+        clearAction->setToolTip(hasSearchText ? "清空当前 QQ 搜索条件" : "搜索框已经是空的");
         QAction* selected = menu.exec(ui->contactSearchEdit->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->contactSearchEdit->paste();
+            ui->contactSearchEdit->setFocus();
+            ui->statusbar->showMessage("已粘贴到 QQ 搜索框", 1600);
         } else if (selected == pasteSearchAction) {
             ui->contactSearchEdit->clear();
             ui->contactSearchEdit->paste();
@@ -985,6 +996,8 @@ void MainWindow::setupUi() {
             ui->statusbar->showMessage("QQ 搜索名片已复制", 2200);
         } else if (selected == clearAction) {
             ui->contactSearchEdit->clear();
+            ui->contactSearchEdit->setFocus();
+            ui->statusbar->showMessage("QQ 搜索已清空", 1400);
         }
     });
     connect(ui->contactSearchEdit, &QLineEdit::returnPressed, this, [this]() {
@@ -1063,19 +1076,32 @@ void MainWindow::setupUi() {
     ui->memberSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->memberSearchEdit, &QLineEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu menu(this);
+        const QString clipboardText = QApplication::clipboard()->text().trimmed();
+        const bool hasClipboardText = !clipboardText.isEmpty();
+        const bool hasSearchText = !ui->memberSearchEdit->text().trimmed().isEmpty();
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
         QAction* addVisibleAction = menu.addAction("发送可见成员好友申请");
         QAction* copyVisibleAction = menu.addAction("复制可见成员");
         QAction* copyOnlineVisibleAction = menu.addAction("复制在线成员");
         QAction* clearAction = menu.addAction("清空搜索");
+        pasteAction->setEnabled(hasClipboardText);
+        pasteSearchAction->setEnabled(hasClipboardText);
+        clearAction->setEnabled(hasSearchText);
+        pasteAction->setToolTip(hasClipboardText ? "把剪贴板文字粘贴到成员搜索框" : "剪贴板里没有可粘贴的文字");
+        pasteSearchAction->setToolTip(hasClipboardText ? "粘贴剪贴板文字并刷新成员筛选" : "剪贴板里没有可搜索的文字");
+        clearAction->setToolTip(hasSearchText ? "清空当前成员搜索条件" : "成员搜索框已经是空的");
         QAction* selected = menu.exec(ui->memberSearchEdit->mapToGlobal(pos));
         if (selected == pasteAction) {
             ui->memberSearchEdit->paste();
+            ui->memberSearchEdit->setFocus();
+            ui->statusbar->showMessage("已粘贴到成员搜索框", 1600);
         } else if (selected == pasteSearchAction) {
             ui->memberSearchEdit->clear();
             ui->memberSearchEdit->paste();
             refreshGroupMemberPanel();
+            ui->memberSearchEdit->setFocus();
+            ui->statusbar->showMessage("成员筛选已更新", 1600);
         } else if (selected == addVisibleAction) {
             int requestCount = 0;
             int pendingSkipped = 0;
@@ -1144,6 +1170,8 @@ void MainWindow::setupUi() {
             ui->statusbar->showMessage(QString("已复制 %1 个在线成员").arg(cards.size()), 2200);
         } else if (selected == clearAction) {
             ui->memberSearchEdit->clear();
+            ui->memberSearchEdit->setFocus();
+            ui->statusbar->showMessage("成员搜索已清空", 1400);
         }
     });
     connect(ui->groupMemberListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
