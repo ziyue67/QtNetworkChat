@@ -6228,6 +6228,20 @@ void MainWindow::refreshFriendList() {
         saveLocalGroups();
     }
 
+    const int joinedGroupCount = m_localGroupIds.size() + 1;
+    ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty()
+        ? "好友通知"
+        : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
+    ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty()
+        ? "查看并处理好友申请"
+        : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
+    ui->groupNoticeBtn->setText(m_localGroupIds.isEmpty()
+        ? "群通知"
+        : QString("群通知 %1").arg(joinedGroupCount));
+    ui->groupNoticeBtn->setToolTip(m_localGroupIds.isEmpty()
+        ? "查看公共聊天室、群公告和入群邀请"
+        : QString("已加入 %1 个群聊（含公共聊天室），可查看公告和入群邀请").arg(joinedGroupCount));
+
     auto appendSection = [this](const QString& title) {
         QStandardItem* section = new QStandardItem(title);
         section->setEditable(false);
