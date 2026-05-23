@@ -4301,31 +4301,40 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         } else if (selected == inviteByAccountAction) {
             bool ok = false;
             QString account = QInputDialog::getText(this, "按QQ号邀请", "输入 QQ 账号:", QLineEdit::Normal, QString(), &ok).trimmed();
-            if (ok && !account.isEmpty() && account != m_currentUserId) {
-                QString requestNote;
-                if (!m_localGroupMembers[userId].contains(account)) {
-                    m_localGroupMembers[userId] << account;
-                }
-                if (!m_friendIds.contains(account) && !m_pendingOutgoingFriendRequests.contains(account)) {
-                    const QString displayName = contactDisplayName(account);
-                    if (m_client->sendFriendRequest(account)) {
-                        m_friendNames[account] = displayName;
-                        m_pendingOutgoingFriendRequests << account;
-                        requestNote = "，好友申请等待确认";
-                    } else {
-                        requestNote = "，好友申请发送失败";
-                        ui->statusbar->showMessage(QString("已邀请入群，但好友申请发送失败：%1").arg(displayName), 3000);
-                    }
-                } else if (m_pendingOutgoingFriendRequests.contains(account)) {
-                    requestNote = "，好友申请已在等待确认";
-                }
-                saveLocalGroups();
-                refreshFriendList();
-                switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
-                refreshGroupMemberPanel();
-                appendSystemMessage(QString("已按 QQ 号邀请 %1 加入群聊%2").arg(account, requestNote));
-                saveHistory(userId, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
+            if (!ok) return;
+            if (account.isEmpty()) {
+                ui->statusbar->showMessage("请输入 QQ 号后再邀请入群", 1800);
+                return;
             }
+            if (account == m_currentUserId) {
+                ui->statusbar->showMessage("你已在当前群聊中，无需重复邀请", 1800);
+                return;
+            }
+            if (m_localGroupMembers[userId].contains(account)) {
+                ui->statusbar->showMessage("该 QQ 已在当前群聊中", 1800);
+                return;
+            }
+            QString requestNote;
+            m_localGroupMembers[userId] << account;
+            if (!m_friendIds.contains(account) && !m_pendingOutgoingFriendRequests.contains(account)) {
+                const QString displayName = contactDisplayName(account);
+                if (m_client->sendFriendRequest(account)) {
+                    m_friendNames[account] = displayName;
+                    m_pendingOutgoingFriendRequests << account;
+                    requestNote = "，好友申请等待确认";
+                } else {
+                    requestNote = "，好友申请发送失败";
+                    ui->statusbar->showMessage(QString("已邀请入群，但好友申请发送失败：%1").arg(displayName), 3000);
+                }
+            } else if (m_pendingOutgoingFriendRequests.contains(account)) {
+                requestNote = "，好友申请已在等待确认";
+            }
+            saveLocalGroups();
+            refreshFriendList();
+            switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
+            refreshGroupMemberPanel();
+            appendSystemMessage(QString("已按 QQ 号邀请 %1 加入群聊%2").arg(account, requestNote));
+            saveHistory(userId, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
         } else if (selected == inviteAllAction) {
             QStringList inviteIds;
             for (const QString& friendId : m_friendIds) {
