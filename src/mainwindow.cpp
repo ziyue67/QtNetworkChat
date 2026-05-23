@@ -1488,6 +1488,14 @@ void MainWindow::refreshComposerState() {
     ui->messageEdit->setToolTip(hasText
         ? QString("当前草稿将发送到 %1 · %2 字").arg(targetName).arg(draftText.size())
         : ui->messageEdit->placeholderText());
+    ui->fileBtn->setEnabled(canReachTarget);
+    ui->fileBtn->setToolTip(canReachTarget
+        ? QString("发送文件到 %1，支持文档、压缩包和媒体文件").arg(targetName)
+        : QString("当前已断开，暂不能发送文件到 %1").arg(targetName));
+    ui->imageBtn->setEnabled(canReachTarget);
+    ui->imageBtn->setToolTip(canReachTarget
+        ? QString("发送图片或视频到 %1，图片会显示预览").arg(targetName)
+        : QString("当前已断开，暂不能发送图片/视频到 %1").arg(targetName));
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -1720,6 +1728,15 @@ void MainWindow::onSendMessage() {
 }
 
 void MainWindow::onSendFile() {
+    const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
+        ui->chatHintLabel->setText(QString("文件发送暂停 · %1 已断开").arg(targetName));
+        ui->statusbar->showMessage(QString("已断开连接，暂不能发送文件到 %1").arg(targetName), 3000);
+        refreshComposerState();
+        return;
+    }
+
     QString filePath = QFileDialog::getOpenFileName(this, "选择文件", lastTransferDirectory(),
         "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) {
@@ -1739,7 +1756,6 @@ void MainWindow::onSendFile() {
         return;
     }
 
-    QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const QString fileSize = humanFileSize(info.size());
     ui->statusbar->showMessage(QString("准备发送文件到 %1 · %2 · %3").arg(targetName, info.fileName(), fileSize), 1800);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
@@ -1800,6 +1816,15 @@ void MainWindow::onSendFile() {
 }
 
 void MainWindow::onSendImage() {
+    const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
+        ui->chatHintLabel->setText(QString("图片/视频发送暂停 · %1 已断开").arg(targetName));
+        ui->statusbar->showMessage(QString("已断开连接，暂不能发送图片/视频到 %1").arg(targetName), 3000);
+        refreshComposerState();
+        return;
+    }
+
     QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", lastTransferDirectory(),
         "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) {
@@ -1822,7 +1847,6 @@ void MainWindow::onSendImage() {
     const QString suffix = info.suffix().toLower();
     const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
     const QString mediaType = isVideo ? "视频" : "图片";
-    QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const QString fileSize = humanFileSize(info.size());
     ui->statusbar->showMessage(QString("准备发送%1到 %2 · %3 · %4").arg(mediaType, targetName, info.fileName(), fileSize), 1800);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
