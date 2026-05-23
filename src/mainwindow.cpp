@@ -117,6 +117,14 @@ bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& 
     }
     return true;
 }
+
+QPixmap squareAvatarPixmap(const QPixmap& source, int side) {
+    if (source.isNull() || side <= 0) return QPixmap();
+    QPixmap scaled = source.scaled(side, side, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    const int x = qMax(0, (scaled.width() - side) / 2);
+    const int y = qMax(0, (scaled.height() - side) / 2);
+    return scaled.copy(x, y, side, side);
+}
 }
 
 MainWindow::MainWindow(Client* client, const QString& userId, const QString& userName, QWidget* parent)
@@ -3724,16 +3732,37 @@ void MainWindow::onUploadAvatar() {
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
-    QPixmap pixmap(filePath);
-    if (pixmap.isNull()) {
-        QMessageBox::warning(this, "头像上传失败", "无法读取该图片");
+    if (!info.exists() || !info.isFile()) {
+        QMessageBox::warning(this, "头像上传失败", "请选择一个可读取的本地图片文件。");
+        return;
+    }
+    if (info.size() <= 0) {
+        QMessageBox::warning(this, "头像上传失败", "图片文件为空，请重新选择。");
+        return;
+    }
+    constexpr qint64 maxAvatarBytes = 10LL * 1024 * 1024;
+    if (info.size() > maxAvatarBytes) {
+        QMessageBox::warning(this,
+                             "头像过大",
+                             QString("头像图片大小为 %1，超过 10 MB 上限，请选择更小的图片。")
+                                 .arg(humanFileSize(info.size())));
         return;
     }
 
-    QPixmap scaled = pixmap.scaled(ui->avatarLabel->size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-    ui->avatarLabel->setPixmap(scaled);
-    scaled.save(getAvatarFilePath(), "PNG");
-    QString detail = QString("头像已更新 · %1 · %2 KB · 已保存到本地").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
+    QPixmap pixmap(filePath);
+    if (pixmap.isNull()) {
+        QMessageBox::warning(this, "头像上传失败", "无法读取该图片，请确认文件格式是否正确。");
+        return;
+    }
+
+    QPixmap savedAvatar = squareAvatarPixmap(pixmap, 256);
+    if (savedAvatar.isNull() || !savedAvatar.save(getAvatarFilePath(), "PNG")) {
+        QMessageBox::warning(this, "头像保存失败", "头像已读取，但保存到本地失败，请检查应用数据目录权限。");
+        return;
+    }
+
+    ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
+    QString detail = QString("头像已更新 · %1 · %2 · 已保存到本地").arg(info.fileName(), humanFileSize(info.size()));
     appendSystemMessage(detail);
     ui->chatHintLabel->setText(detail);
     ui->statusbar->showMessage(detail, 2600);
@@ -5202,7 +5231,7 @@ void MainWindow::refreshGroupMemberPanel() {
 void MainWindow::loadAvatar() {
     QPixmap pixmap(getAvatarFilePath());
     if (!pixmap.isNull()) {
-        ui->avatarLabel->setPixmap(pixmap.scaled(ui->avatarLabel->size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+        ui->avatarLabel->setPixmap(squareAvatarPixmap(pixmap, ui->avatarLabel->width()));
     }
 }
 
