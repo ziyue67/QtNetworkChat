@@ -1309,18 +1309,27 @@ void MainWindow::setupUi() {
             ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(cards.size()), 2200);
         } else if (selected == renameAction) {
             bool ok = false;
-            QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(memberId), &ok).trimmed();
-            if (ok && !remark.isEmpty()) {
-                m_friendNames[memberId] = remark;
-                if (m_friendIds.contains(memberId)) {
-                    saveFriends();
-                } else {
-                    ui->statusbar->showMessage(QString("已为群成员 %1 设置临时备注，未改变好友关系").arg(memberId), 2600);
-                }
-                refreshFriendList();
-                refreshGroupMemberPanel();
-                appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
+            const QString oldRemark = contactDisplayName(memberId);
+            QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, oldRemark, &ok).trimmed();
+            if (!ok) return;
+            if (remark.isEmpty()) {
+                ui->statusbar->showMessage("备注名称不能为空", 1800);
+                return;
             }
+            if (remark == oldRemark) {
+                ui->statusbar->showMessage("备注未改变", 1600);
+                return;
+            }
+            m_friendNames[memberId] = remark;
+            if (m_friendIds.contains(memberId)) {
+                saveFriends();
+                ui->statusbar->showMessage(QString("已设置备注：%1").arg(remark), 2200);
+            } else {
+                ui->statusbar->showMessage(QString("已为群成员 %1 设置临时备注，未改变好友关系").arg(memberId), 2600);
+            }
+            refreshFriendList();
+            refreshGroupMemberPanel();
+            appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
         } else if (selected == removeAction) {
             const QString memberName = contactDisplayName(memberId);
             const QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
@@ -3951,15 +3960,24 @@ void MainWindow::onShowFriendManager() {
         QString id = selected->data(Qt::UserRole).toString();
         if (id.isEmpty() || id.startsWith("search_add:")) return;
         bool ok = false;
-        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(id), &ok).trimmed();
-        if (ok && !remark.isEmpty()) {
-            m_friendNames[id] = remark;
-            saveFriends();
-            refreshFriendList();
-            refreshGroupMemberPanel();
-            fillList(searchEdit->text().trimmed());
-            appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(id, remark));
+        const QString oldRemark = contactDisplayName(id);
+        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, oldRemark, &ok).trimmed();
+        if (!ok) return;
+        if (remark.isEmpty()) {
+            ui->statusbar->showMessage("备注名称不能为空", 1800);
+            return;
         }
+        if (remark == oldRemark) {
+            ui->statusbar->showMessage("备注未改变", 1600);
+            return;
+        }
+        m_friendNames[id] = remark;
+        saveFriends();
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        fillList(searchEdit->text().trimmed());
+        ui->statusbar->showMessage(QString("已设置备注：%1").arg(remark), 2200);
+        appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(id, remark));
     });
     connect(inviteBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
@@ -4433,6 +4451,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     }
 
     QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
+    if (!selected) return;
     if (selected == chatAction) {
         onPrivateChat(index);
     } else if (selected == copyAction) {
@@ -4491,14 +4510,23 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         saveHistory(m_privateChatTarget, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), contactDisplayName(userId)));
     } else if (selected == renameAction) {
         bool ok = false;
-        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(userId), &ok).trimmed();
-        if (ok && !remark.isEmpty()) {
-            m_friendNames[userId] = remark;
-            saveFriends();
-            refreshFriendList();
-            refreshGroupMemberPanel();
-            appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(userId, remark));
+        const QString oldRemark = contactDisplayName(userId);
+        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, oldRemark, &ok).trimmed();
+        if (!ok) return;
+        if (remark.isEmpty()) {
+            ui->statusbar->showMessage("备注名称不能为空", 1800);
+            return;
         }
+        if (remark == oldRemark) {
+            ui->statusbar->showMessage("备注未改变", 1600);
+            return;
+        }
+        m_friendNames[userId] = remark;
+        saveFriends();
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        ui->statusbar->showMessage(QString("已设置备注：%1").arg(remark), 2200);
+        appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(userId, remark));
     } else if (selected == addAction) {
         if (m_pendingOutgoingFriendRequests.contains(userId)) {
             ui->statusbar->showMessage(QString("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(userId)), 2500);
