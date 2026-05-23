@@ -27,12 +27,14 @@
 #include <QLineEdit>
 #include <QClipboard>
 #include <QApplication>
+#include <QDesktopServices>
 #include <QDialog>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QTabWidget>
 #include <QShortcut>
+#include <QUrl>
 
 namespace {
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -86,6 +88,19 @@ QString humanFileSize(qint64 bytes) {
     if (bytes < 1024) return QString("%1 B").arg(bytes);
     if (bytes < 1024 * 1024) return QString("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
     return QString::number(bytes / 1024.0 / 1024.0, 'f', 1) + " MB";
+}
+
+QString safeReceivedFileName(const QString& rawName, const QString& fallbackName) {
+    QString fileName = QFileInfo(rawName).fileName().trimmed();
+    if (fileName.isEmpty()) fileName = fallbackName;
+    return fileName;
+}
+
+QString extractSavePathFromChatText(const QString& text) {
+    QString savePath = text.section("保存路径：", 1, 1).section(" · ", 0, 0).trimmed();
+    if (savePath.isEmpty()) savePath = text.section("自动保存:", 1).section(" · ", 0, 0).trimmed();
+    if (savePath.isEmpty()) savePath = text.section("自动保存：", 1).section(" · ", 0, 0).trimmed();
+    return savePath;
 }
 
 bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& kind) {
@@ -792,6 +807,7 @@ void MainWindow::setupUi() {
         QAction* copyFileNoticeAction = menu.addAction("复制查收话术");
         QAction* copyReceiptAction = menu.addAction("复制回执话术");
         QAction* copySavePathAction = menu.addAction("复制保存路径");
+        QAction* openSaveFolderAction = menu.addAction("打开保存目录");
         QAction* copyMediaFlowAction = menu.addAction("复制媒体流程");
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
@@ -853,11 +869,19 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(QString("已收到 %1，文件已保存，我会尽快查看。").arg(fileName));
             ui->statusbar->showMessage("回执话术已复制", 2200);
         } else if (selected == copySavePathAction) {
-            QString savePath = text.section("保存路径：", 1, 1).section(" · ", 0, 0).trimmed();
-            if (savePath.isEmpty()) savePath = text.section("自动保存:", 1).trimmed();
+            QString savePath = extractSavePathFromChatText(text);
             if (savePath.isEmpty()) savePath = text;
             QApplication::clipboard()->setText(savePath);
             ui->statusbar->showMessage("保存路径已复制", 2200);
+        } else if (selected == openSaveFolderAction) {
+            QString savePath = extractSavePathFromChatText(text);
+            QFileInfo saveInfo(savePath);
+            if (!savePath.isEmpty() && saveInfo.exists()) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(saveInfo.absolutePath()));
+                ui->statusbar->showMessage("已打开保存目录", 2200);
+            } else {
+                ui->statusbar->showMessage("当前消息没有可打开的保存路径", 2200);
+            }
         } else if (selected == copyMediaFlowAction) {
             QString fileName = text.section(" · ", 1, 1).trimmed();
             if (fileName.isEmpty()) fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
@@ -1674,11 +1698,13 @@ void MainWindow::onNewMessage(const Message& msg) {
     saveHistory(msg.isPrivate() ? (msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId) : "group", line);
 
     if (msg.type == MessageType::Image && !msg.fileData.isEmpty()) {
+        const QString receivedName = safeReceivedFileName(msg.fileName, "received_image");
+        const QString receivedSize = humanFileSize(msg.fileData.size());
         QPixmap pixmap;
         if (pixmap.loadFromData(msg.fileData)) {
             QStandardItem* previewItem = new QStandardItem;
             previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
-            previewItem->setText(msg.fileName);
+            previewItem->setText(QString("%1 · %2").arg(receivedName, receivedSize));
             previewItem->setEditable(false);
             previewItem->setBackground(QColor(246, 250, 253));
             m_chatModel->appendRow(previewItem);
@@ -1686,46 +1712,70 @@ void MainWindow::onNewMessage(const Message& msg) {
 
         QString imageDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Images";
         QDir().mkpath(imageDirPath);
-        QString savePath = imageDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + msg.fileName;
+        QString savePath = imageDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + receivedName;
         QFile f(savePath);
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
-            QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1").arg(savePath));
+            QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1 · %2").arg(savePath, receivedSize));
             savedItem->setForeground(Qt::darkGreen);
+            savedItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(savedItem);
-            QStandardItem* cardItem = new QStandardItem(QString("图片接收卡片 · %1 · 来自 %2 · 已保存到下载目录").arg(msg.fileName, displayName));
+            QStandardItem* cardItem = new QStandardItem(QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录").arg(receivedName, receivedSize, displayName));
             cardItem->setEditable(false);
             cardItem->setForeground(QColor(0, 121, 107));
             cardItem->setBackground(QColor(232, 248, 245));
             m_chatModel->appendRow(cardItem);
-            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到图片 %1，保存路径：%2 · 右键聊天记录可复制").arg(msg.fileName, savePath));
+            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到图片 %1（%2），保存路径：%3 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, savePath));
             replyItem->setEditable(false);
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
+            ui->chatHintLabel->setText(QString("已接收图片 · %1 · %2 · 来自 %3").arg(receivedName, receivedSize, displayName));
+            ui->statusbar->showMessage(QString("图片已保存到下载目录 · %1").arg(receivedSize), 2600);
+        } else {
+            QStandardItem* failedItem = new QStandardItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
+            failedItem->setEditable(false);
+            failedItem->setForeground(QColor(180, 70, 70));
+            failedItem->setBackground(QColor(255, 245, 245));
+            m_chatModel->appendRow(failedItem);
+            ui->chatHintLabel->setText(QString("图片保存失败 · %1 · 来自 %2").arg(receivedName, displayName));
+            ui->statusbar->showMessage("图片保存失败，请检查下载目录权限", 3200);
         }
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
+        const QString receivedName = safeReceivedFileName(msg.fileName, "received_file");
+        const QString receivedSize = humanFileSize(msg.fileData.size());
         QString fileDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Files";
         QDir().mkpath(fileDirPath);
-        QString savePath = fileDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + msg.fileName;
+        QString savePath = fileDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + receivedName;
         QFile f(savePath);
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
-            QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1").arg(savePath));
+            QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1 · %2").arg(savePath, receivedSize));
             item2->setForeground(Qt::darkGreen);
+            item2->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(item2);
-            QStandardItem* cardItem = new QStandardItem(QString("文件接收卡片 · %1 · 来自 %2 · 已保存到下载目录").arg(msg.fileName, displayName));
+            QStandardItem* cardItem = new QStandardItem(QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录").arg(receivedName, receivedSize, displayName));
             cardItem->setEditable(false);
             cardItem->setForeground(QColor(0, 121, 107));
             cardItem->setBackground(QColor(232, 248, 245));
             m_chatModel->appendRow(cardItem);
-            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到文件 %1，保存路径：%2 · 右键聊天记录可复制").arg(msg.fileName, savePath));
+            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到文件 %1（%2），保存路径：%3 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, savePath));
             replyItem->setEditable(false);
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
+            ui->chatHintLabel->setText(QString("已接收文件 · %1 · %2 · 来自 %3").arg(receivedName, receivedSize, displayName));
+            ui->statusbar->showMessage(QString("文件已保存到下载目录 · %1").arg(receivedSize), 2600);
+        } else {
+            QStandardItem* failedItem = new QStandardItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
+            failedItem->setEditable(false);
+            failedItem->setForeground(QColor(180, 70, 70));
+            failedItem->setBackground(QColor(255, 245, 245));
+            m_chatModel->appendRow(failedItem);
+            ui->chatHintLabel->setText(QString("文件保存失败 · %1 · 来自 %2").arg(receivedName, displayName));
+            ui->statusbar->showMessage("文件保存失败，请检查下载目录权限", 3200);
         }
     }
 
