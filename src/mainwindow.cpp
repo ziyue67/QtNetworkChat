@@ -1015,23 +1015,41 @@ void MainWindow::setupUi() {
             ui->memberSearchEdit->paste();
             refreshGroupMemberPanel();
         } else if (selected == addVisibleAction) {
-            int addedCount = 0;
+            int requestCount = 0;
+            int pendingSkipped = 0;
+            int failedCount = 0;
             for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
                 QStandardItem* item = m_groupMemberModel->item(i);
                 if (!item) continue;
                 QString id = item->data(Qt::UserRole + 1).toString();
                 if (id.isEmpty() || id == m_currentUserId || id.startsWith("group_search_add:") || id.startsWith("group_invite:") || m_friendIds.contains(id)) continue;
-                m_friendIds << id;
-                m_friendNames[id] = contactDisplayName(id);
-                m_client->sendFriendRequest(id);
-                ++addedCount;
+                if (m_pendingOutgoingFriendRequests.contains(id)) {
+                    ++pendingSkipped;
+                    continue;
+                }
+                const QString displayName = contactDisplayName(id);
+                if (!m_client->sendFriendRequest(id)) {
+                    ++failedCount;
+                    continue;
+                }
+                m_friendNames[id] = displayName;
+                m_pendingOutgoingFriendRequests << id;
+                ++requestCount;
             }
-            if (addedCount > 0) {
-                saveFriends();
+            if (requestCount > 0) {
                 refreshFriendList();
-                ui->statusbar->showMessage(QString("已添加 %1 个可见群成员为好友").arg(addedCount), 2500);
+                refreshGroupMemberPanel();
+                QString detail = QString("已向 %1 个可见群成员发送好友申请").arg(requestCount);
+                if (pendingSkipped > 0) detail += QString(" · 已跳过申请中 %1 个").arg(pendingSkipped);
+                if (failedCount > 0) detail += QString(" · 失败 %1 个").arg(failedCount);
+                appendSystemMessage(detail);
+                ui->statusbar->showMessage(detail, 2800);
             } else {
-                ui->statusbar->showMessage("暂无可添加的可见群成员", 2200);
+                QString message = pendingSkipped > 0
+                    ? QString("可见群成员均已是好友或申请中")
+                    : QString("暂无可发送申请的可见群成员");
+                if (failedCount > 0) message += QString(" · 失败 %1 个").arg(failedCount);
+                ui->statusbar->showMessage(message, 2400);
             }
         } else if (selected == copyVisibleAction) {
             QStringList cards;
@@ -1093,12 +1111,17 @@ void MainWindow::setupUi() {
         }
         if (targetId.isEmpty() || targetId == m_currentUserId) return;
         if (!m_friendIds.contains(targetId)) {
-            m_friendIds << targetId;
-            m_friendNames[targetId] = contactDisplayName(targetId);
-            saveFriends();
-            refreshFriendList();
-            m_client->sendFriendRequest(targetId);
-            appendSystemMessage("已自动添加群成员 QQ: " + targetId);
+            if (m_pendingOutgoingFriendRequests.contains(targetId)) {
+                ui->statusbar->showMessage(QString("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(targetId)), 2500);
+            } else if (m_client->sendFriendRequest(targetId)) {
+                m_friendNames[targetId] = contactDisplayName(targetId);
+                m_pendingOutgoingFriendRequests << targetId;
+                refreshFriendList();
+                refreshGroupMemberPanel();
+                appendSystemMessage(QString("已向群成员发送好友申请 QQ:%1，等待对方同意").arg(targetId));
+            } else {
+                ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(contactDisplayName(targetId)), 3000);
+            }
         }
         m_privateChatTarget = targetId;
         m_chatModel->clear();
@@ -5225,36 +5248,41 @@ void MainWindow::refreshGroupMemberPanel() {
         int visibleMembers = 0;
         int onlineMembers = 0;
         int friendMembers = 0;
+        int pendingMembers = 0;
         for (const QString& memberId : members) {
             QString name = memberId == m_currentUserId ? m_currentUserName : m_friendNames.value(memberId, memberId);
             bool online = isContactOnline(memberId) || memberId == m_currentUserId;
             bool isFriend = m_friendIds.contains(memberId);
+            bool isPending = !isFriend && m_pendingOutgoingFriendRequests.contains(memberId);
             if (online) ++onlineMembers;
             if (isFriend) ++friendMembers;
+            if (isPending) ++pendingMembers;
             if (!filter.isEmpty()
                 && !memberId.contains(filter, Qt::CaseInsensitive)
                 && !name.contains(filter, Qt::CaseInsensitive)) {
                 continue;
             }
-            QString role = memberId == m_currentUserId ? "我" : (isFriend ? "好友" : "群成员");
+            QString role = memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "群成员"));
             QString state = online ? "在线" : "离线";
-            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, isFriend || memberId == m_currentUserId ? "已在好友/本人" : "可双击加好友"));
+            QString actionText = memberId == m_currentUserId ? "本人" : (isFriend ? "已是好友" : (isPending ? "等待确认" : "可发送申请"));
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
-            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(20, 92, 160) : QColor(38, 50, 56)));
+            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(20, 92, 160) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56))));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
-        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3").arg(members.size()).arg(onlineMembers).arg(friendMembers));
+        QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
+        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(pendingPart));
         if (visibleMembers == 0 && !filter.isEmpty()) {
             QStandardItem* addItem = new QStandardItem(QString("邀请 QQ:%1\n双击自动加入当前群聊").arg(filter));
             addItem->setData("group_invite:" + filter, Qt::UserRole + 1);
             addItem->setEditable(false);
             addItem->setForeground(QColor(18, 150, 247));
             m_groupMemberModel->appendRow(addItem);
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3 · 可邀请QQ:%4").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(filter));
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 可邀请QQ:%5").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(filter));
         } else if (!filter.isEmpty()) {
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3 · 匹配%4").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(visibleMembers));
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
         }
         return;
     }
@@ -5272,6 +5300,7 @@ void MainWindow::refreshGroupMemberPanel() {
     int memberCount = 1;
     int visibleMembers = 0;
     int friendMembers = 0;
+    int pendingMembers = 0;
     int onlineMembers = 1;
     for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
         const ChatUser& user = it.value();
@@ -5283,12 +5312,14 @@ void MainWindow::refreshGroupMemberPanel() {
             continue;
         }
         bool isFriend = m_friendIds.contains(user.id);
+        bool isPending = !isFriend && m_pendingOutgoingFriendRequests.contains(user.id);
         if (isFriend) ++friendMembers;
+        if (isPending) ++pendingMembers;
         ++onlineMembers;
-        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · 在线 · %4").arg(isFriend ? "好友" : "成员", user.id, user.name, isFriend ? "已是好友" : "双击加好友"));
+        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · 在线 · %4").arg(isFriend ? "好友" : (isPending ? "申请中" : "成员"), user.id, user.name, isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请")));
         item->setData(user.id, Qt::UserRole + 1);
         item->setEditable(false);
-        item->setForeground(isFriend ? QColor(18, 150, 247) : QColor(38, 50, 56));
+        item->setForeground(isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)));
         m_groupMemberModel->appendRow(item);
         ++visibleMembers;
     }
@@ -5301,9 +5332,10 @@ void MainWindow::refreshGroupMemberPanel() {
         ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 可搜索QQ:%3").arg(memberCount).arg(onlineMembers).arg(filter));
         return;
     }
+    QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
     ui->memberTitleLabel->setText(filter.isEmpty()
-        ? QString("群聊成员 %1 · 在线%2 · 好友%3").arg(memberCount).arg(onlineMembers).arg(friendMembers)
-        : QString("群聊成员 %1 · 在线%2 · 好友%3 · 匹配%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(visibleMembers));
+        ? QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
+        : QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
 }
 
 void MainWindow::loadAvatar() {
