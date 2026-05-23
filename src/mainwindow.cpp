@@ -229,7 +229,7 @@ void MainWindow::setupUi() {
     ui->groupMemberListView->setModel(m_groupMemberModel);
     ui->groupMemberListView->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Shift/Ctrl+Enter 换行)");
+    ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)");
     ui->messageEdit->setFocus();
     ui->messageEdit->installEventFilter(this);
     ui->messageEdit->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1315,6 +1315,13 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 
     if (watched == ui->messageEdit && event->type() == QEvent::KeyPress) {
         QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Escape) {
+            if (!ui->messageEdit->toPlainText().trimmed().isEmpty()) {
+                ui->messageEdit->clear();
+                ui->statusbar->showMessage("输入草稿已清空", 1400);
+                return true;
+            }
+        }
         if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
             const bool wantsNewLine = keyEvent->modifiers().testFlag(Qt::ControlModifier)
                 || keyEvent->modifiers().testFlag(Qt::ShiftModifier);
