@@ -4305,6 +4305,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* renameGroupAction = menu.addAction("重命名群聊");
         QAction* deleteGroupAction = menu.addAction("删除群聊");
         QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
+        if (!selected) return;
         if (selected == openGroupAction) {
             switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
         } else if (selected == copyGroupAction) {
@@ -4330,6 +4331,10 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             QStringList cards;
             for (const QString& id : m_localGroupMembers.value(userId)) {
                 cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
+            }
+            if (cards.isEmpty()) {
+                ui->statusbar->showMessage("当前群聊没有成员可复制", 2200);
+                return;
             }
             QApplication::clipboard()->setText(cards.join('\n'));
             ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
@@ -4425,6 +4430,10 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             for (const QString& id : m_localGroupMembers.value(userId)) {
                 if (id != m_currentUserId && !isContactOnline(id)) continue;
                 rows << QString("在线成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
+            }
+            if (rows.isEmpty()) {
+                ui->statusbar->showMessage("当前群聊没有在线成员可复制", 2200);
+                return;
             }
             QApplication::clipboard()->setText(rows.join('\n'));
             ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(rows.size()), 2200);
