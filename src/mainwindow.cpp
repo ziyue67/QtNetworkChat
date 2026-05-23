@@ -81,6 +81,42 @@ QIcon createChatIcon(const QString& seedText = QString()) {
     }
     return icon;
 }
+
+QString humanFileSize(qint64 bytes) {
+    if (bytes < 1024) return QString("%1 B").arg(bytes);
+    if (bytes < 1024 * 1024) return QString("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
+    return QString::number(bytes / 1024.0 / 1024.0, 'f', 1) + " MB";
+}
+
+bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& kind) {
+    constexpr qint64 warningBytes = 20LL * 1024 * 1024;
+    constexpr qint64 maxBytes = 80LL * 1024 * 1024;
+
+    if (!info.exists() || !info.isFile()) {
+        QMessageBox::warning(parent, "无法发送", "请选择一个可读取的本地文件。");
+        return false;
+    }
+    if (info.size() <= 0) {
+        QMessageBox::warning(parent, "无法发送", "文件为空，已取消发送。");
+        return false;
+    }
+    if (info.size() > maxBytes) {
+        QMessageBox::warning(parent,
+                             "文件过大",
+                             QString("%1大小为 %2，超过当前 80 MB 的安全发送上限。")
+                                 .arg(kind, humanFileSize(info.size())));
+        return false;
+    }
+    if (info.size() > warningBytes) {
+        return QMessageBox::question(parent,
+                                     "确认发送大文件",
+                                     QString("%1大小为 %2，发送时可能需要等待一会儿，是否继续？")
+                                         .arg(kind, humanFileSize(info.size())),
+                                     QMessageBox::Yes | QMessageBox::No,
+                                     QMessageBox::No) == QMessageBox::Yes;
+    }
+    return true;
+}
 }
 
 MainWindow::MainWindow(Client* client, const QString& userId, const QString& userName, QWidget* parent)
@@ -1362,6 +1398,8 @@ void MainWindow::onSendFile() {
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
+    if (!confirmTransferFile(this, info, "文件")) return;
+
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QString line = QString("[%1] <%2> 发送了文件: %3 · %4 KB").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
@@ -1419,6 +1457,8 @@ void MainWindow::onSendImage() {
     if (filePath.isEmpty()) return;
 
     QFileInfo info(filePath);
+    if (!confirmTransferFile(this, info, "媒体文件")) return;
+
     const QString suffix = info.suffix().toLower();
     const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
     const QString mediaType = isVideo ? "视频" : "图片";

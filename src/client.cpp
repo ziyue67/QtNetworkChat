@@ -8,6 +8,10 @@
 #include <QEventLoop>
 #include <QTimer>
 
+namespace {
+constexpr qint64 kMaxOutgoingPayloadBytes = 80LL * 1024 * 1024;
+}
+
 Client::Client(QObject* parent)
     : QObject(parent)
     , m_socket(new QTcpSocket(this))
@@ -147,10 +151,14 @@ bool Client::sendFriendResponse(const QString& receiverId, bool accepted) {
 bool Client::sendFile(const QString& filePath, const QString& receiverId) {
     if (!isConnected()) return false;
 
+    QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() <= 0 || fileInfo.size() > kMaxOutgoingPayloadBytes) {
+        return false;
+    }
+
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) return false;
 
-    QFileInfo fileInfo(filePath);
     QByteArray fileData = file.readAll();
     file.close();
 
@@ -170,10 +178,14 @@ bool Client::sendFile(const QString& filePath, const QString& receiverId) {
 bool Client::sendImage(const QString& filePath, const QString& receiverId) {
     if (!isConnected()) return false;
 
+    QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() <= 0 || fileInfo.size() > kMaxOutgoingPayloadBytes) {
+        return false;
+    }
+
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) return false;
 
-    QFileInfo fileInfo(filePath);
     QByteArray fileData = file.readAll();
     file.close();
 
