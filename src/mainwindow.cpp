@@ -4204,10 +4204,12 @@ void MainWindow::onUploadAvatar() {
     QFileInfo info(filePath);
     if (!info.exists() || !info.isFile()) {
         QMessageBox::warning(this, "头像上传失败", "请选择一个可读取的本地图片文件。");
+        ui->statusbar->showMessage("头像上传失败：文件不可读取", 2200);
         return;
     }
     if (info.size() <= 0) {
         QMessageBox::warning(this, "头像上传失败", "图片文件为空，请重新选择。");
+        ui->statusbar->showMessage("头像上传失败：图片文件为空", 2200);
         return;
     }
     constexpr qint64 maxAvatarBytes = 10LL * 1024 * 1024;
@@ -4216,18 +4218,21 @@ void MainWindow::onUploadAvatar() {
                              "头像过大",
                              QString("头像图片大小为 %1，超过 10 MB 上限，请选择更小的图片。")
                                  .arg(humanFileSize(info.size())));
+        ui->statusbar->showMessage("头像上传失败：图片超过 10 MB", 2200);
         return;
     }
 
     QPixmap pixmap(filePath);
     if (pixmap.isNull()) {
         QMessageBox::warning(this, "头像上传失败", "无法读取该图片，请确认文件格式是否正确。");
+        ui->statusbar->showMessage("头像上传失败：无法读取图片", 2200);
         return;
     }
 
     QPixmap savedAvatar = squareAvatarPixmap(pixmap, 256);
     if (savedAvatar.isNull() || !savedAvatar.save(getAvatarFilePath(), "PNG")) {
         QMessageBox::warning(this, "头像保存失败", "头像已读取，但保存到本地失败，请检查应用数据目录权限。");
+        ui->statusbar->showMessage("头像保存失败，请检查应用数据目录权限", 2600);
         return;
     }
 
