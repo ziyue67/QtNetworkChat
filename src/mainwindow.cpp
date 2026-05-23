@@ -3068,6 +3068,33 @@ void MainWindow::onShowCreateMenu() {
     QAction* groupNoticeAction = menu.addAction("群通知");
     QAction* sendImageAction = menu.addAction("发送图片/视频");
     QAction* sendFileAction = menu.addAction("闪传文件");
+    auto describeAction = [](QAction* action, const QString& tip) {
+        action->setToolTip(tip);
+        action->setStatusTip(tip);
+    };
+    describeAction(createGroupAction, "创建一个新的本地群聊并立即进入");
+    describeAction(createGroupWithFriendsAction, "创建群聊并自动邀请当前全部好友");
+    describeAction(addFriendAction, "打开好友申请窗口，搜索 QQ 号并发送申请");
+    describeAction(focusSearchAction, "把焦点定位到左侧 QQ 搜索框");
+    describeAction(refreshContactsAction, "重新加载好友、群聊和在线联系人列表");
+    describeAction(clearSearchAction, "清空联系人搜索条件");
+    describeAction(copyChatIdAction, "复制当前私聊 QQ 号或群聊号");
+    describeAction(copyChatCardAction, "复制当前会话的名称、账号和成员摘要");
+    describeAction(copyCurrentInviteAction, "复制当前会话可用的邀请话术");
+    describeAction(copyCurrentMembersAction, "复制当前群聊的成员列表");
+    describeAction(copyCurrentOnlineAction, "复制当前群聊在线成员列表");
+    describeAction(copyAllContactsAction, "复制全部好友、群聊和在线成员摘要");
+    describeAction(copySearchSummaryAction, "复制当前搜索条件和联系人统计");
+    describeAction(copyQuickGuideAction, "复制 QQ 搜索、好友、群聊和媒体操作指南");
+    describeAction(copyMediaGuideAction, "复制图片、视频和文件上传指南");
+    describeAction(copyCurrentMediaPackAction, "复制当前会话的媒体发送准备包");
+    describeAction(copyFullMediaPlanAction, "复制好友、群聊和媒体发送的完整计划");
+    describeAction(editAnnouncementAction, "编辑当前本地群聊公告");
+    describeAction(copyAnnouncementAction, "复制当前本地群聊公告");
+    describeAction(friendNoticeAction, "打开好友通知并处理好友申请");
+    describeAction(groupNoticeAction, "打开群通知并查看群聊、公告和邀请");
+    describeAction(sendImageAction, "选择图片或视频发送到当前会话");
+    describeAction(sendFileAction, "选择文件闪传到当前会话");
     QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
     if (selected == createGroupAction) {
         bool ok = false;
