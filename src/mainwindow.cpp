@@ -38,6 +38,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QVariant>
+#include <QSettings>
 
 namespace {
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -104,6 +105,26 @@ QString extractSavePathFromChatText(const QString& text) {
     if (savePath.isEmpty()) savePath = text.section("自动保存:", 1).section(" · ", 0, 0).trimmed();
     if (savePath.isEmpty()) savePath = text.section("自动保存：", 1).section(" · ", 0, 0).trimmed();
     return savePath;
+}
+
+QString lastTransferDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QString directory = settings.value("transfer/lastDirectory").toString();
+    if (directory.isEmpty()) {
+        directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    }
+    if (directory.isEmpty() || !QDir(directory).exists()) {
+        directory = QDir::homePath();
+    }
+    return directory;
+}
+
+void rememberTransferDirectory(const QString& filePath) {
+    const QString directory = QFileInfo(filePath).absolutePath();
+    if (directory.isEmpty() || !QDir(directory).exists()) return;
+
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.setValue("transfer/lastDirectory", directory);
 }
 
 bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& kind, QString* failureMessage = nullptr) {
@@ -1626,13 +1647,14 @@ void MainWindow::onSendMessage() {
 }
 
 void MainWindow::onSendFile() {
-    QString filePath = QFileDialog::getOpenFileName(this, "选择文件", QString(),
+    QString filePath = QFileDialog::getOpenFileName(this, "选择文件", lastTransferDirectory(),
         "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) {
         ui->chatHintLabel->setText("文件发送已取消");
         ui->statusbar->showMessage("已取消选择文件", 1600);
         return;
     }
+    rememberTransferDirectory(filePath);
 
     QFileInfo info(filePath);
     QString failureMessage;
@@ -1705,13 +1727,14 @@ void MainWindow::onSendFile() {
 }
 
 void MainWindow::onSendImage() {
-    QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", QString(),
+    QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", lastTransferDirectory(),
         "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
     if (filePath.isEmpty()) {
         ui->chatHintLabel->setText("图片/视频发送已取消");
         ui->statusbar->showMessage("已取消选择图片/视频", 1600);
         return;
     }
+    rememberTransferDirectory(filePath);
 
     QFileInfo info(filePath);
     QString failureMessage;
