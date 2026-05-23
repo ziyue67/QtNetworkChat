@@ -4295,6 +4295,7 @@ void MainWindow::onFriendRequestReceived(const QString& senderId, const QString&
         return;
     }
     m_pendingFriendRequests << senderId;
+    saveFriends();
     ui->friendNoticeBtn->setText(QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
     ui->friendNoticeBtn->setToolTip(QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
     appendSystemMessage(QString("收到好友申请：%1（QQ:%2），请在好友通知中处理").arg(displayName, senderId));
@@ -4337,6 +4338,7 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
         if (!m_pendingOutgoingFriendRequests.contains(userId)) {
             m_pendingOutgoingFriendRequests << userId;
         }
+        saveFriends();
         appendSystemMessage(QString("已发送好友申请 QQ:%1，等待对方同意").arg(userId));
         ui->statusbar->showMessage(QString("好友申请已发送给 %1").arg(displayName), 2500);
         refreshFriendList();
@@ -4359,6 +4361,7 @@ void MainWindow::onFriendRequestSent(const QString& receiverId, bool delivered) 
         appendSystemMessage(QString("好友申请未送达 QQ:%1，对方当前离线").arg(receiverId));
         ui->statusbar->showMessage(QString("%1 当前离线，好友申请未送达").arg(userName), 3000);
     }
+    saveFriends();
     refreshFriendList();
     refreshGroupMemberPanel();
 }
@@ -4379,6 +4382,7 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
         refreshFriendList();
         refreshGroupMemberPanel();
         m_pendingFriendRequests.removeAll(senderId);
+        saveFriends();
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
         appendSystemMessage(displayName + " 已同意你的好友申请");
@@ -4386,10 +4390,10 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
     } else {
         m_friendIds.removeAll(senderId);
         m_friendNames.remove(senderId);
+        m_pendingFriendRequests.removeAll(senderId);
         saveFriends();
         refreshFriendList();
         refreshGroupMemberPanel();
-        m_pendingFriendRequests.removeAll(senderId);
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
         appendSystemMessage(displayName + " 已拒绝你的好友申请");
@@ -5030,6 +5034,7 @@ void MainWindow::onShowFriendNotifications() {
         }
         m_client->sendFriendResponse(id, false);
         m_pendingFriendRequests.removeAll(id);
+        saveFriends();
         updateBadge();
         fillList();
         ui->statusbar->showMessage(QString("已拒绝 QQ:%1 的好友申请").arg(id), 2200);
@@ -5055,6 +5060,7 @@ void MainWindow::onShowFriendNotifications() {
             }
         }
         m_pendingFriendRequests.clear();
+        saveFriends();
         updateBadge();
         fillList();
         ui->statusbar->showMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()), 2200);
@@ -5169,6 +5175,7 @@ void MainWindow::onShowFriendNotifications() {
             return;
         }
         m_pendingFriendRequests.clear();
+        saveFriends();
         updateBadge();
         fillList();
         ui->statusbar->showMessage("好友申请已清空", 1800);
@@ -5762,6 +5769,15 @@ bool MainWindow::ensureClientDatabase() const {
                                 "avatar_path TEXT, "
                                 "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS friend_requests ("
+                                "request_id TEXT NOT NULL, "
+                                "display_name TEXT NOT NULL, "
+                                "direction TEXT NOT NULL, "
+                                "status TEXT NOT NULL, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(request_id, direction))");
+            }
             db.close();
         }
     }
@@ -5926,6 +5942,35 @@ void MainWindow::refreshFriendList() {
             }
         }
         saveFriends();
+    }
+
+    if (m_pendingFriendRequests.isEmpty() && m_pendingOutgoingFriendRequests.isEmpty() && ensureClientDatabase()) {
+        const QString connectionName = "client_requests_read_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(clientDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                if (query.exec("SELECT request_id, display_name, direction FROM friend_requests WHERE status = 'pending' ORDER BY updated_at ASC")) {
+                    while (query.next()) {
+                        const QString id = query.value(0).toString();
+                        const QString name = query.value(1).toString();
+                        const QString direction = query.value(2).toString();
+                        if (id.isEmpty()) continue;
+                        if (!name.isEmpty()) m_friendNames[id] = name;
+                        if (direction == "incoming" && !m_pendingFriendRequests.contains(id) && !m_friendIds.contains(id)) {
+                            m_pendingFriendRequests << id;
+                        } else if (direction == "outgoing" && !m_pendingOutgoingFriendRequests.contains(id) && !m_friendIds.contains(id)) {
+                            m_pendingOutgoingFriendRequests << id;
+                        }
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
+        ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
     }
 
     bool loadedGroupsFromSqlite = false;
@@ -6241,6 +6286,27 @@ void MainWindow::saveFriends() const {
                     insertQuery.addBindValue(id);
                     insertQuery.addBindValue(m_friendNames.value(id, id));
                     ok = insertQuery.exec() && ok;
+                }
+                if (ok) {
+                    QSqlQuery clearRequestsQuery(db);
+                    ok = clearRequestsQuery.exec("DELETE FROM friend_requests");
+                }
+                QSqlQuery requestQuery(db);
+                requestQuery.prepare("INSERT OR REPLACE INTO friend_requests(request_id, display_name, direction, status, updated_at) "
+                                     "VALUES(?, ?, ?, 'pending', datetime('now'))");
+                for (const QString& id : m_pendingFriendRequests) {
+                    if (id.isEmpty() || m_friendIds.contains(id)) continue;
+                    requestQuery.bindValue(0, id);
+                    requestQuery.bindValue(1, m_friendNames.value(id, id));
+                    requestQuery.bindValue(2, "incoming");
+                    ok = requestQuery.exec() && ok;
+                }
+                for (const QString& id : m_pendingOutgoingFriendRequests) {
+                    if (id.isEmpty() || m_friendIds.contains(id)) continue;
+                    requestQuery.bindValue(0, id);
+                    requestQuery.bindValue(1, m_friendNames.value(id, id));
+                    requestQuery.bindValue(2, "outgoing");
+                    ok = requestQuery.exec() && ok;
                 }
                 ok ? db.commit() : db.rollback();
                 db.close();
