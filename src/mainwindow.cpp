@@ -100,6 +100,26 @@ QString safeReceivedFileName(const QString& rawName, const QString& fallbackName
     return fileName;
 }
 
+QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName) {
+    const QDir directory(directoryPath);
+    const QString stampedName = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + fileName;
+    QString candidate = directory.filePath(stampedName);
+    if (!QFileInfo::exists(candidate)) return candidate;
+
+    const QFileInfo stampedInfo(stampedName);
+    const QString suffix = stampedInfo.suffix();
+    const QString baseName = stampedInfo.completeBaseName();
+    for (int index = 2; index < 1000; ++index) {
+        const QString numberedName = suffix.isEmpty()
+            ? QString("%1_%2").arg(baseName).arg(index)
+            : QString("%1_%2.%3").arg(baseName).arg(index).arg(suffix);
+        candidate = directory.filePath(numberedName);
+        if (!QFileInfo::exists(candidate)) return candidate;
+    }
+
+    return directory.filePath(QString("%1_%2").arg(stampedName).arg(QDateTime::currentMSecsSinceEpoch()));
+}
+
 QString extractSavePathFromChatText(const QString& text) {
     QString savePath = text.section("保存路径：", 1, 1).section(" · ", 0, 0).trimmed();
     if (savePath.isEmpty()) savePath = text.section("自动保存:", 1).section(" · ", 0, 0).trimmed();
@@ -1931,7 +1951,7 @@ void MainWindow::onNewMessage(const Message& msg) {
 
         QString imageDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Images";
         QDir().mkpath(imageDirPath);
-        QString savePath = imageDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + receivedName;
+        QString savePath = uniqueReceivedSavePath(imageDirPath, receivedName);
         QFile f(savePath);
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
@@ -1966,7 +1986,7 @@ void MainWindow::onNewMessage(const Message& msg) {
         const QString receivedSize = humanFileSize(msg.fileData.size());
         QString fileDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Files";
         QDir().mkpath(fileDirPath);
-        QString savePath = fileDirPath + "/" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + receivedName;
+        QString savePath = uniqueReceivedSavePath(fileDirPath, receivedName);
         QFile f(savePath);
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
