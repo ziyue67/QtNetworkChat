@@ -234,6 +234,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
 
     connect(m_client, &Client::connected, this, [this]() {
         appendSystemMessage("已连接服务器");
+        refreshComposerState();
     });
     connect(m_client, &Client::disconnected, this, &MainWindow::onClientDisconnected);
     connect(m_client, &Client::newMessage, this, &MainWindow::onNewMessage);
@@ -1470,16 +1471,23 @@ void MainWindow::refreshComposerState() {
     const QString draftText = ui->messageEdit->toPlainText().trimmed();
     const bool hasText = !draftText.isEmpty();
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    const bool canReachTarget = isLocalGroup || (m_client && m_client->isConnected());
+    const bool canSend = hasText && canReachTarget;
     const QString composerHint = QString("发往 %1... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)").arg(targetName);
 
-    ui->sendBtn->setEnabled(hasText);
-    ui->sendBtn->setToolTip(hasText
+    ui->sendBtn->setEnabled(canSend);
+    ui->sendBtn->setToolTip(!canReachTarget
+        ? QString("当前已断开，无法发送到 %1").arg(targetName)
+        : (hasText
         ? QString("发送到 %1 · %2 字 (Enter)").arg(targetName).arg(draftText.size())
-        : QString("请输入消息后发送到 %1").arg(targetName));
-    ui->messageEdit->setPlaceholderText(composerHint);
+        : QString("请输入消息后发送到 %1").arg(targetName)));
+    ui->messageEdit->setPlaceholderText(canReachTarget
+        ? composerHint
+        : QString("已断开连接，重新登录后可发送到 %1").arg(targetName));
     ui->messageEdit->setToolTip(hasText
         ? QString("当前草稿将发送到 %1 · %2 字").arg(targetName).arg(draftText.size())
-        : composerHint);
+        : ui->messageEdit->placeholderText());
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -1666,6 +1674,14 @@ void MainWindow::onSendMessage() {
         ui->chatHintLabel->setText(QString("本地群聊 · %1 · 已发送 %2 字%3").arg(groupName).arg(text.size()).arg(originalText == text ? QString() : " · 快捷指令已展开"));
         ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(groupName).arg(text.size()), 1800);
         ui->chatListView->scrollToBottom();
+        return;
+    }
+
+    if (!m_client || !m_client->isConnected()) {
+        ui->messageEdit->setFocus();
+        ui->chatHintLabel->setText(QString("发送暂停 · %1 已断开，消息已保留在输入框").arg(targetName));
+        ui->statusbar->showMessage(QString("已断开连接，暂不能发送到 %1").arg(targetName), 3000);
+        refreshComposerState();
         return;
     }
 
@@ -2113,10 +2129,12 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
 
 void MainWindow::onClientDisconnected() {
     appendSystemMessage("已断开服务器连接");
+    refreshComposerState();
 }
 
 void MainWindow::onClientError(const QString& error) {
     appendSystemMessage("连接错误: " + error);
+    refreshComposerState();
 }
 
 void MainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason) {
