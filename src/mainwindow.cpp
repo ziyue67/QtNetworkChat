@@ -1967,8 +1967,9 @@ void MainWindow::onShowGlobalSearch() {
         } else if (id.startsWith("local_group_")) {
             previewLabel->setText(QString("群聊 · %1 · 群号:%2 · 成员%3人").arg(m_localGroupNames.value(id, "群聊"), id.mid(QString("local_group_").size())).arg(m_localGroupMembers.value(id).size()));
         } else if (!id.isEmpty()) {
+            QString relation = m_friendIds.contains(id) ? "好友" : (m_pendingOutgoingFriendRequests.contains(id) ? "申请中" : "可添加");
             previewLabel->setText(QString("联系人 · %1 · QQ:%2 · %3 · %4")
-                .arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线", m_friendIds.contains(id) ? "好友" : "可添加"));
+                .arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线", relation));
         } else {
             previewLabel->setText("输入 QQ 号后可继续搜索添加");
         }
@@ -1978,6 +1979,7 @@ void MainWindow::onShowGlobalSearch() {
         resultList->clear();
         int friendCount = 0;
         int userCount = 0;
+        int pendingCount = 0;
         int groupCount = 0;
         for (const QString& id : m_friendIds) {
             QString name = m_friendNames.value(id, id);
@@ -1996,9 +1998,14 @@ void MainWindow::onShowGlobalSearch() {
             if (!filter.isEmpty()
                 && !user.id.contains(filter, Qt::CaseInsensitive)
                 && !user.name.contains(filter, Qt::CaseInsensitive)) continue;
-            QListWidgetItem* item = new QListWidgetItem(QString("用户  QQ:%1\n%2 · 在线 · 双击添加").arg(user.id, user.name));
+            const bool isPending = m_pendingOutgoingFriendRequests.contains(user.id);
+            QListWidgetItem* item = new QListWidgetItem(QString("用户  QQ:%1\n%2 · 在线 · %3").arg(user.id, user.name, isPending ? "申请中" : "双击发送申请"));
             item->setData(Qt::UserRole, user.id);
             item->setSizeHint(QSize(0, 66));
+            if (isPending) {
+                item->setForeground(QColor(170, 110, 20));
+                ++pendingCount;
+            }
             resultList->addItem(item);
             ++userCount;
         }
@@ -2028,9 +2035,9 @@ void MainWindow::onShowGlobalSearch() {
         }
         int directResultCount = friendCount + userCount + groupCount;
         actionHint->setText(filter.isEmpty()
-            ? QString("双击结果可聊天、进群或自动添加好友 · 共%1项").arg(directResultCount)
+            ? QString("双击结果可聊天、进群或发送好友申请 · 共%1项").arg(directResultCount)
             : QString("匹配%1项 · 可继续搜索QQ:%2").arg(directResultCount).arg(filter));
-        statsLabel->setText(QString("好友%1 · 用户%2 · 群聊%3").arg(friendCount).arg(userCount).arg(groupCount));
+        statsLabel->setText(QString("好友%1 · 用户%2 · 申请中%3 · 群聊%4").arg(friendCount).arg(userCount).arg(pendingCount).arg(groupCount));
         if (resultList->count() > 0) resultList->setCurrentRow(0);
         updatePreview();
     };
@@ -2145,9 +2152,18 @@ void MainWindow::onShowGlobalSearch() {
             switchToLocalGroup(id, m_localGroupNames.value(id, "群聊"));
             return;
         }
-        if (!m_friendIds.contains(id)) {
-            m_friendNames[id] = contactDisplayName(id);
-            m_client->sendFriendRequest(id);
+        if (!m_friendIds.contains(id) && !m_pendingOutgoingFriendRequests.contains(id)) {
+            const QString displayName = contactDisplayName(id);
+            if (m_client->sendFriendRequest(id)) {
+                m_friendNames[id] = displayName;
+                m_pendingOutgoingFriendRequests << id;
+                refreshFriendList();
+                appendSystemMessage(QString("已从综合搜索向 %1（QQ:%2）发送好友申请").arg(displayName, id));
+            } else {
+                ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(displayName), 3000);
+            }
+        } else if (m_pendingOutgoingFriendRequests.contains(id)) {
+            ui->statusbar->showMessage(QString("%1 的好友申请正在等待确认").arg(contactDisplayName(id)), 2200);
         }
         dialog.accept();
         m_privateChatTarget = id;
@@ -2194,14 +2210,19 @@ void MainWindow::onShowGlobalSearch() {
         if (groupName.isEmpty()) groupName = "搜索群聊";
         QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
         QStringList members = QStringList{m_currentUserId};
-        QStringList newFriendIds;
+        QStringList requestIds;
+        int pendingSkipped = 0;
         for (int i = 0; i < resultList->count(); ++i) {
             QListWidgetItem* item = resultList->item(i);
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty() || id.startsWith("local_group_") || id.startsWith("search_add:") || id == m_currentUserId || members.contains(id)) continue;
             members << id;
             if (!m_friendIds.contains(id)) {
-                newFriendIds << id;
+                if (m_pendingOutgoingFriendRequests.contains(id)) {
+                    ++pendingSkipped;
+                } else {
+                    requestIds << id;
+                }
             }
         }
         int invitedCount = qMax(0, members.size() - 1);
@@ -2214,38 +2235,55 @@ void MainWindow::onShowGlobalSearch() {
                                   QString("确定创建群聊“%1”并邀请 %2 位可见用户吗？其中 %3 位会同时发送好友申请。")
                                       .arg(groupName)
                                       .arg(invitedCount)
-                                      .arg(newFriendIds.size()),
+                                      .arg(requestIds.size()),
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
             ui->statusbar->showMessage("已取消可见用户建群", 1600);
             return;
         }
-        for (const QString& id : newFriendIds) {
-            m_friendIds << id;
-            m_friendNames[id] = contactDisplayName(id);
-            m_client->sendFriendRequest(id);
+        QStringList sentNames;
+        QStringList failedNames;
+        for (const QString& id : requestIds) {
+            const QString displayName = contactDisplayName(id);
+            if (m_client->sendFriendRequest(id)) {
+                m_friendNames[id] = displayName;
+                if (!m_pendingOutgoingFriendRequests.contains(id)) {
+                    m_pendingOutgoingFriendRequests << id;
+                }
+                sentNames << QString("%1(%2)").arg(displayName, id);
+            } else {
+                failedNames << QString("%1(%2)").arg(displayName, id);
+            }
         }
         m_localGroupIds << groupId;
         m_localGroupNames[groupId] = groupName;
         m_localGroupAnnouncements[groupId] = QString("%1 已从综合搜索创建，已邀请可见用户。").arg(groupName);
         m_localGroupMembers[groupId] = members;
-        saveFriends();
         saveLocalGroups();
         refreshFriendList();
         dialog.accept();
         switchToLocalGroup(groupId, groupName);
-        appendSystemMessage(QString("已从综合搜索建群并邀请 %1 位可见用户").arg(invitedCount));
+        QString detail = QString("已从综合搜索建群并邀请 %1 位可见用户").arg(invitedCount);
+        if (!sentNames.isEmpty()) detail += QString("，已发送好友申请 %1 个").arg(sentNames.size());
+        if (pendingSkipped > 0) detail += QString("，跳过申请中 %1 个").arg(pendingSkipped);
+        if (!failedNames.isEmpty()) detail += QString("，申请失败 %1 个").arg(failedNames.size());
+        appendSystemMessage(detail);
     });
-    connect(addVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit, &dialog]() {
+    connect(addVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit, fillResults, &dialog]() {
         QStringList addIds;
+        int pendingSkipped = 0;
         for (int i = 0; i < resultList->count(); ++i) {
             QListWidgetItem* item = resultList->item(i);
             QString id = item->data(Qt::UserRole).toString();
             if (id.isEmpty() || id.startsWith("local_group_") || id.startsWith("search_add:") || id == m_currentUserId || m_friendIds.contains(id)) continue;
+            if (m_pendingOutgoingFriendRequests.contains(id)) {
+                ++pendingSkipped;
+                continue;
+            }
             if (!addIds.contains(id)) addIds << id;
         }
         if (addIds.isEmpty()) {
-            ui->statusbar->showMessage("当前没有可批量添加的用户", 2200);
+            ui->statusbar->showMessage(pendingSkipped > 0 ? "可见用户均已是好友或申请中" : "当前没有可批量添加的用户", 2200);
             searchEdit->setFocus();
             return;
         }
@@ -2258,14 +2296,32 @@ void MainWindow::onShowGlobalSearch() {
             searchEdit->setFocus();
             return;
         }
+        QStringList sentNames;
+        QStringList failedNames;
         for (const QString& id : addIds) {
-            m_friendIds << id;
-            m_friendNames[id] = contactDisplayName(id);
-            m_client->sendFriendRequest(id);
+            const QString displayName = contactDisplayName(id);
+            if (m_client->sendFriendRequest(id)) {
+                m_friendNames[id] = displayName;
+                if (!m_pendingOutgoingFriendRequests.contains(id)) {
+                    m_pendingOutgoingFriendRequests << id;
+                }
+                sentNames << QString("%1(%2)").arg(displayName, id);
+            } else {
+                failedNames << QString("%1(%2)").arg(displayName, id);
+            }
         }
-        saveFriends();
+        if (sentNames.isEmpty()) {
+            ui->statusbar->showMessage("可见用户好友申请发送失败", 2600);
+            searchEdit->setFocus();
+            return;
+        }
         refreshFriendList();
-        ui->statusbar->showMessage(QString("已添加 %1 个可见用户").arg(addIds.size()), 2500);
+        fillResults(searchEdit->text().trimmed());
+        QString detail = QString("已向 %1 个可见用户发送好友申请").arg(sentNames.size());
+        if (pendingSkipped > 0) detail += QString(" · 已跳过申请中 %1 个").arg(pendingSkipped);
+        if (!failedNames.isEmpty()) detail += QString(" · 失败 %1 个").arg(failedNames.size());
+        appendSystemMessage(detail);
+        ui->statusbar->showMessage(detail, 2800);
         searchEdit->setFocus();
     });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
