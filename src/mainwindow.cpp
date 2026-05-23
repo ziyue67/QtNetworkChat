@@ -1095,16 +1095,24 @@ void MainWindow::setupUi() {
             QString account = targetId.mid(QString("group_invite:").size()).trimmed();
             if (!account.isEmpty() && !m_localGroupMembers[m_privateChatTarget].contains(account)) {
                 m_localGroupMembers[m_privateChatTarget] << account;
-                if (!m_friendIds.contains(account)) {
-                    m_friendIds << account;
-                    m_friendNames[account] = contactDisplayName(account);
-                    saveFriends();
-                    m_client->sendFriendRequest(account);
+                QString requestNote;
+                if (!m_friendIds.contains(account) && !m_pendingOutgoingFriendRequests.contains(account)) {
+                    const QString displayName = contactDisplayName(account);
+                    if (m_client->sendFriendRequest(account)) {
+                        m_friendNames[account] = displayName;
+                        m_pendingOutgoingFriendRequests << account;
+                        requestNote = "，好友申请等待确认";
+                    } else {
+                        requestNote = "，好友申请发送失败";
+                        ui->statusbar->showMessage(QString("已邀请入群，但好友申请发送失败：%1").arg(displayName), 3000);
+                    }
+                } else if (m_pendingOutgoingFriendRequests.contains(account)) {
+                    requestNote = "，好友申请已在等待确认";
                 }
                 saveLocalGroups();
                 refreshFriendList();
                 refreshGroupMemberPanel();
-                appendSystemMessage("已按 QQ 号邀请入群: " + account);
+                appendSystemMessage(QString("已按 QQ 号邀请入群: %1%2").arg(account, requestNote));
                 saveHistory(m_privateChatTarget, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
             }
             return;
@@ -1146,11 +1154,17 @@ void MainWindow::setupUi() {
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
             if (!m_friendIds.contains(memberId)) {
-                m_friendIds << memberId;
-                m_friendNames[memberId] = contactDisplayName(memberId);
-                saveFriends();
-                refreshFriendList();
-                m_client->sendFriendRequest(memberId);
+                if (m_pendingOutgoingFriendRequests.contains(memberId)) {
+                    ui->statusbar->showMessage(QString("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(memberId)), 2500);
+                } else if (m_client->sendFriendRequest(memberId)) {
+                    m_friendNames[memberId] = contactDisplayName(memberId);
+                    m_pendingOutgoingFriendRequests << memberId;
+                    refreshFriendList();
+                    refreshGroupMemberPanel();
+                    appendSystemMessage(QString("已向群成员发送好友申请 QQ:%1，等待对方同意").arg(memberId));
+                } else {
+                    ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(contactDisplayName(memberId)), 3000);
+                }
             }
             m_privateChatTarget = memberId;
             m_chatModel->clear();
@@ -1189,8 +1203,11 @@ void MainWindow::setupUi() {
             QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, contactDisplayName(memberId), &ok).trimmed();
             if (ok && !remark.isEmpty()) {
                 m_friendNames[memberId] = remark;
-                if (!m_friendIds.contains(memberId)) m_friendIds << memberId;
-                saveFriends();
+                if (m_friendIds.contains(memberId)) {
+                    saveFriends();
+                } else {
+                    ui->statusbar->showMessage(QString("已为群成员 %1 设置临时备注，未改变好友关系").arg(memberId), 2600);
+                }
                 refreshFriendList();
                 refreshGroupMemberPanel();
                 appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
@@ -3957,6 +3974,7 @@ void MainWindow::onFriendRequestSent(const QString& receiverId, bool delivered) 
         ui->statusbar->showMessage(QString("%1 当前离线，好友申请未送达").arg(userName), 3000);
     }
     refreshFriendList();
+    refreshGroupMemberPanel();
 }
 
 void MainWindow::onFriendResponseReceived(const QString& senderId, const QString& senderName, bool accepted) {
@@ -3973,6 +3991,7 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
             }
         }
         refreshFriendList();
+        refreshGroupMemberPanel();
         m_pendingFriendRequests.removeAll(senderId);
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
@@ -3983,6 +4002,7 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
         m_friendNames.remove(senderId);
         saveFriends();
         refreshFriendList();
+        refreshGroupMemberPanel();
         m_pendingFriendRequests.removeAll(senderId);
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
