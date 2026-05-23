@@ -2997,15 +2997,29 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
 
 void MainWindow::onEditGroupAnnouncement() {
     bool ok = false;
+    const QString oldText = ui->announcementBodyLabel->text().trimmed();
     QString text = QInputDialog::getMultiLineText(
         this,
         "编辑群公告",
         "群公告内容:",
-        ui->announcementBodyLabel->text(),
+        oldText,
         &ok).trimmed();
-    if (!ok) return;
+    if (!ok) {
+        ui->statusbar->showMessage("已取消编辑群公告", 1600);
+        return;
+    }
+    bool usedDefaultAnnouncement = false;
     if (text.isEmpty()) {
-        text = "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。";
+        if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+            text = QString("%1 已创建，可继续邀请好友并发送消息。").arg(ui->chatTitleLabel->text().trimmed().isEmpty() ? "群聊" : ui->chatTitleLabel->text().trimmed());
+        } else {
+            text = "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。";
+        }
+        usedDefaultAnnouncement = true;
+    }
+    if (text == oldText) {
+        ui->statusbar->showMessage(usedDefaultAnnouncement ? "群公告已是默认内容" : "群公告未改变", 1600);
+        return;
     }
     ui->announcementBodyLabel->setText(text);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
@@ -3014,6 +3028,7 @@ void MainWindow::onEditGroupAnnouncement() {
         saveHistory(m_privateChatTarget, QString("[%1] [系统] 群公告已更新: %2").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), text));
     }
     appendSystemMessage("群公告已更新");
+    ui->statusbar->showMessage(usedDefaultAnnouncement ? "群公告为空，已使用默认公告" : "群公告已更新", 2200);
 }
 
 void MainWindow::onInsertEmoji() {
