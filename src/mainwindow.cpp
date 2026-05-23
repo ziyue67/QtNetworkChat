@@ -1820,6 +1820,7 @@ void MainWindow::onSendFile() {
                              "发送失败",
                              QString("文件“%1”（%2）未发送到 %3，请检查连接状态或稍后重试。")
                                  .arg(info.fileName(), fileSize, targetName));
+        refreshComposerState();
     }
 }
 
@@ -1934,6 +1935,7 @@ void MainWindow::onSendImage() {
                              "发送失败",
                              QString("%1“%2”（%3）未发送到 %4，请检查连接状态或稍后重试。")
                                  .arg(mediaType, info.fileName(), fileSize, targetName));
+        refreshComposerState();
     }
 }
 
