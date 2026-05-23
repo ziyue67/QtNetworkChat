@@ -2921,7 +2921,10 @@ void MainWindow::onShowCreateMenu() {
         for (const QString& id : ids) {
             cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
         }
-        if (cards.isEmpty()) return;
+        if (cards.isEmpty()) {
+            ui->statusbar->showMessage("当前会话没有成员可复制", 2200);
+            return;
+        }
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个当前成员").arg(cards.size()), 2200);
     } else if (selected == copyCurrentOnlineAction) {
@@ -2934,7 +2937,10 @@ void MainWindow::onShowCreateMenu() {
             if (id != m_currentUserId && !isContactOnline(id)) continue;
             cards << QString("在线 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
         }
-        if (cards.isEmpty()) return;
+        if (cards.isEmpty()) {
+            ui->statusbar->showMessage("当前会话没有在线成员可复制", 2200);
+            return;
+        }
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个在线成员").arg(cards.size()), 2200);
     } else if (selected == copyAllContactsAction) {
