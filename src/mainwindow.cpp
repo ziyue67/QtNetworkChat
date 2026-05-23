@@ -2809,7 +2809,7 @@ void MainWindow::onShowQuickAddFriend() {
     accountEdit->setClearButtonEnabled(true);
     layout->addWidget(accountEdit);
 
-    QLabel* hintLabel = new QLabel("可添加在线或离线账号，好友列表会保存在本地。", &dialog);
+    QLabel* hintLabel = new QLabel("可搜索在线账号并发送好友申请，通过后自动加入本地好友列表。", &dialog);
     hintLabel->setObjectName("quickAddHint");
     hintLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(hintLabel);
@@ -2840,16 +2840,22 @@ void MainWindow::onShowQuickAddFriend() {
         suggestionList->clear();
         QString filter = accountEdit->text().trimmed();
         int onlineCandidates = 0;
+        int pendingCandidates = 0;
         int visibleCount = 0;
         QString firstPreviewId;
         QString firstPreviewName;
         for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
             const ChatUser& user = it.value();
             if (user.id == m_currentUserId || m_friendIds.contains(user.id)) continue;
+            const bool matches = filter.isEmpty()
+                || user.id.contains(filter, Qt::CaseInsensitive)
+                || user.name.contains(filter, Qt::CaseInsensitive);
+            if (m_pendingOutgoingFriendRequests.contains(user.id)) {
+                if (matches) ++pendingCandidates;
+                continue;
+            }
             ++onlineCandidates;
-            if (!filter.isEmpty()
-                && !user.id.contains(filter, Qt::CaseInsensitive)
-                && !user.name.contains(filter, Qt::CaseInsensitive)) continue;
+            if (!matches) continue;
             if (visibleCount < 5) {
                 QListWidgetItem* item = new QListWidgetItem(QString("QQ:%1 · %2 · 在线 · 双击添加").arg(user.id, user.name));
                 item->setData(Qt::UserRole, user.id);
@@ -2862,9 +2868,13 @@ void MainWindow::onShowQuickAddFriend() {
             }
             ++visibleCount;
         }
-        statsLabel->setText(filter.isEmpty()
+        QString statsText = filter.isEmpty()
             ? QString("在线推荐 %1 人 · 已有好友 %2 人").arg(onlineCandidates).arg(m_friendIds.size())
-            : QString("匹配推荐 %1 人 · 输入回车可搜索 QQ:%2").arg(visibleCount).arg(filter));
+            : QString("匹配推荐 %1 人 · 输入回车可搜索 QQ:%2").arg(visibleCount).arg(filter);
+        if (pendingCandidates > 0) {
+            statsText += QString(" · 申请中 %1 人").arg(pendingCandidates);
+        }
+        statsLabel->setText(statsText);
         if (visibleCount > 5) {
             QListWidgetItem* moreItem = new QListWidgetItem(QString("还有 %1 位匹配用户，可缩小关键词继续筛选").arg(visibleCount - 5));
             moreItem->setFlags(Qt::NoItemFlags);
@@ -3104,17 +3114,14 @@ void MainWindow::onShowQuickAddFriend() {
         accountEdit->setText(account);
         runQuickAdd();
     });
-    connect(recommendBtn, &QPushButton::clicked, &dialog, [this, suggestionList, hintLabel, &dialog]() {
+    connect(recommendBtn, &QPushButton::clicked, &dialog, [this, suggestionList, hintLabel, fillSuggestions, &dialog]() {
         QStringList addIds;
-        QStringList addedNames;
         for (int i = 0; i < suggestionList->count(); ++i) {
             QListWidgetItem* item = suggestionList->item(i);
             QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty() || id == m_currentUserId || m_friendIds.contains(id)) continue;
-            QString name = contactDisplayName(id);
+            if (id.isEmpty() || id == m_currentUserId || m_friendIds.contains(id) || m_pendingOutgoingFriendRequests.contains(id)) continue;
             if (!addIds.contains(id)) {
                 addIds << id;
-                addedNames << QString("%1(%2)").arg(name, id);
             }
         }
         if (addIds.isEmpty()) {
@@ -3123,22 +3130,39 @@ void MainWindow::onShowQuickAddFriend() {
             return;
         }
         if (QMessageBox::question(&dialog,
-                                  "添加推荐好友",
+                                  "发送推荐好友申请",
                                   QString("确定向 %1 位推荐用户发送好友申请吗？").arg(addIds.size()),
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
             ui->statusbar->showMessage("已取消添加推荐好友", 1600);
             return;
         }
+        QStringList sentNames;
+        QStringList failedNames;
         for (const QString& id : addIds) {
-            m_friendIds << id;
-            m_friendNames[id] = contactDisplayName(id);
-            m_client->sendFriendRequest(id);
+            const QString displayName = contactDisplayName(id);
+            if (m_client->sendFriendRequest(id)) {
+                m_friendNames[id] = displayName;
+                if (!m_pendingOutgoingFriendRequests.contains(id)) {
+                    m_pendingOutgoingFriendRequests << id;
+                }
+                sentNames << QString("%1(%2)").arg(displayName, id);
+            } else {
+                failedNames << QString("%1(%2)").arg(displayName, id);
+            }
         }
-        saveFriends();
+        if (sentNames.isEmpty()) {
+            hintLabel->setText("好友申请发送失败，请检查连接后重试。");
+            ui->statusbar->showMessage("推荐好友申请发送失败", 2600);
+            return;
+        }
         refreshFriendList();
-        appendSystemMessage(QString("已添加推荐好友：%1").arg(addedNames.join("、")));
-        ui->statusbar->showMessage(QString("已添加 %1 个推荐好友").arg(addIds.size()), 2500);
+        fillSuggestions();
+        appendSystemMessage(QString("已向推荐用户发送好友申请：%1").arg(sentNames.join("、")));
+        if (!failedNames.isEmpty()) {
+            appendSystemMessage(QString("以下推荐好友申请发送失败：%1").arg(failedNames.join("、")));
+        }
+        ui->statusbar->showMessage(QString("已发送 %1 个推荐好友申请，等待确认").arg(sentNames.size()), 2500);
         dialog.accept();
     });
     connect(searchBtn, &QPushButton::clicked, &dialog, runQuickAdd);
