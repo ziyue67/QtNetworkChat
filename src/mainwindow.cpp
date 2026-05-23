@@ -210,6 +210,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     setWindowIcon(createChatIcon(m_currentUserName));
     ui->profileNameLabel->setText("QQ: " + m_currentUserId);
     ui->profileIdLabel->setText("昵称: " + m_currentUserName);
+    saveProfileToSqlite();
     ui->addFriendBtn->hide();
     ui->uploadAvatarBtn->setText("换头像");
 
@@ -4265,6 +4266,7 @@ void MainWindow::onUploadAvatar() {
     }
 
     ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
+    saveProfileToSqlite();
     QString detail = QString("头像已更新 · %1 · %2 · 已保存到本地").arg(info.fileName(), humanFileSize(info.size()));
     appendSystemMessage(detail);
     ui->chatHintLabel->setText(detail);
@@ -5753,6 +5755,13 @@ bool MainWindow::ensureClientDatabase() const {
                                 "announcement TEXT, "
                                 "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS profile ("
+                                "user_id TEXT PRIMARY KEY, "
+                                "user_name TEXT NOT NULL, "
+                                "avatar_path TEXT, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
             db.close();
         }
     }
@@ -5827,6 +5836,29 @@ QString MainWindow::clientDbPath() const {
     if (safeUserId.isEmpty()) safeUserId = "guest";
     safeUserId.replace(QRegularExpression("[^A-Za-z0-9_-]"), "_");
     return dir + "/client_" + safeUserId + ".sqlite3";
+}
+
+bool MainWindow::saveProfileToSqlite() const {
+    if (m_currentUserId.isEmpty() || !ensureClientDatabase()) return false;
+
+    const QString connectionName = "client_profile_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(clientDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT OR REPLACE INTO profile(user_id, user_name, avatar_path, updated_at) "
+                          "VALUES(?, ?, ?, datetime('now'))");
+            query.addBindValue(m_currentUserId);
+            query.addBindValue(m_currentUserName);
+            query.addBindValue(QFileInfo::exists(getAvatarFilePath()) ? getAvatarFilePath() : QString());
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
 }
 
 QString MainWindow::getHistoryFilePath(const QString& peerId) {

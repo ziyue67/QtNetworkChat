@@ -73,6 +73,7 @@ private:
     bool hasHistoryRecords(const QString& peerId) const;
     void clearHistoryRecords(const QString& peerId) const;
     QString clientDbPath() const;
+    bool saveProfileToSqlite() const;
     QString getHistoryFilePath(const QString& peerId);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
