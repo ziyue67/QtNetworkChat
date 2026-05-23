@@ -4196,7 +4196,10 @@ void MainWindow::onShowFriendManager() {
 
 void MainWindow::onUploadAvatar() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择头像", QString(), "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
-    if (filePath.isEmpty()) return;
+    if (filePath.isEmpty()) {
+        ui->statusbar->showMessage("已取消选择头像", 1600);
+        return;
+    }
 
     QFileInfo info(filePath);
     if (!info.exists() || !info.isFile()) {
