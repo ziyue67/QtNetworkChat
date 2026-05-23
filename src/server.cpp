@@ -484,6 +484,20 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
             query.addBindValue(user.address.toString());
             query.addBindValue(user.port);
             ok = query.exec();
+            if (ok && eventName == "login" && !user.id.isEmpty()) {
+                QSqlQuery accountQuery(db);
+                accountQuery.prepare("UPDATE accounts SET "
+                                     "user_name = ?, "
+                                     "last_login_at = datetime('now'), "
+                                     "last_login_address = ?, "
+                                     "login_count = COALESCE(login_count, 0) + 1, "
+                                     "updated_at = datetime('now') "
+                                     "WHERE account = ?");
+                accountQuery.addBindValue(user.name);
+                accountQuery.addBindValue(user.address.toString());
+                accountQuery.addBindValue(user.id);
+                ok = accountQuery.exec();
+            }
             db.close();
         }
     }
@@ -567,6 +581,11 @@ bool Server::ensureAccountDatabase() const {
                             "user_name TEXT NOT NULL, "
                             "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
                             "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            if (ok) {
+                query.exec("ALTER TABLE accounts ADD COLUMN last_login_at TEXT");
+                query.exec("ALTER TABLE accounts ADD COLUMN last_login_address TEXT");
+                query.exec("ALTER TABLE accounts ADD COLUMN login_count INTEGER DEFAULT 0");
+            }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS user_sessions ("
                                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
