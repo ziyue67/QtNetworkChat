@@ -4949,6 +4949,7 @@ void MainWindow::onShowFriendNotifications() {
     titleLayout->addStretch();
     QPushButton* clearBtn = new QPushButton("清空", &dialog);
     clearBtn->setObjectName("noticeGhostBtn");
+    clearBtn->setToolTip("清空全部待处理好友申请，不会自动回复对方");
     titleLayout->addWidget(clearBtn);
     layout->addLayout(titleLayout);
 
@@ -4960,6 +4961,7 @@ void MainWindow::onShowFriendNotifications() {
     searchEdit->setObjectName("noticeSearch");
     searchEdit->setPlaceholderText("搜索申请人 QQ 号 / 昵称");
     searchEdit->setClearButtonEnabled(true);
+    searchEdit->setToolTip("按 QQ 号或昵称筛选好友申请；回车可搜索账号");
     layout->addWidget(searchEdit);
 
     QListWidget* noticeList = new QListWidget(&dialog);
@@ -5016,26 +5018,37 @@ void MainWindow::onShowFriendNotifications() {
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* acceptBtn = new QPushButton("同意", &dialog);
     acceptBtn->setObjectName("noticePrimaryBtn");
+    acceptBtn->setToolTip("同意当前选中的好友申请并加入好友列表");
     QPushButton* acceptAllBtn = new QPushButton("一键同意全部", &dialog);
     acceptAllBtn->setObjectName("noticePrimaryBtn");
+    acceptAllBtn->setToolTip("确认后批量同意所有待处理好友申请");
     QPushButton* rejectBtn = new QPushButton("拒绝", &dialog);
     rejectBtn->setObjectName("noticeDangerBtn");
+    rejectBtn->setToolTip("拒绝当前选中的好友申请");
     QPushButton* rejectAllBtn = new QPushButton("一键拒绝全部", &dialog);
     rejectAllBtn->setObjectName("noticeDangerBtn");
+    rejectAllBtn->setToolTip("确认后批量拒绝所有待处理好友申请");
     QPushButton* copyBtn = new QPushButton("复制名片", &dialog);
     copyBtn->setObjectName("noticeGhostBtn");
+    copyBtn->setToolTip("复制当前申请人的 QQ、昵称和来源");
     QPushButton* copyInviteBtn = new QPushButton("复制申请话术", &dialog);
     copyInviteBtn->setObjectName("noticeGhostBtn");
+    copyInviteBtn->setToolTip("复制一段回复好友申请的礼貌话术");
     QPushButton* copyAllBtn = new QPushButton("复制全部申请", &dialog);
     copyAllBtn->setObjectName("noticeGhostBtn");
+    copyAllBtn->setToolTip("复制所有待处理申请的 QQ、昵称和回复话术");
     QPushButton* copyRequestMediaPackBtn = new QPushButton("复制申请媒体包", &dialog);
     copyRequestMediaPackBtn->setObjectName("noticeGhostBtn");
+    copyRequestMediaPackBtn->setToolTip("复制同意好友后发送图片、视频或文件的准备摘要");
     QPushButton* copyRequestBatchPlanBtn = new QPushButton("复制申请处理计划", &dialog);
     copyRequestBatchPlanBtn->setObjectName("noticeGhostBtn");
+    copyRequestBatchPlanBtn->setToolTip("复制当前筛选申请的批量处理和媒体发送清单");
     QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
     copyMediaGuideBtn->setObjectName("noticeGhostBtn");
+    copyMediaGuideBtn->setToolTip("复制同意好友后发送图片、视频和文件的简短指南");
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
+    closeBtn->setToolTip("关闭好友通知窗口");
     buttonLayout->addWidget(acceptBtn);
     buttonLayout->addWidget(acceptAllBtn);
     buttonLayout->addWidget(rejectBtn);
