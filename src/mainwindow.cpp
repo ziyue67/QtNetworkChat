@@ -2004,17 +2004,22 @@ void MainWindow::onNewMessage(const Message& msg) {
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
+            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
             QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1 · %2").arg(savePath, receivedSize));
+            savedItem->setEditable(false);
+            savedItem->setData(savedFileTip, Qt::ToolTipRole);
             savedItem->setForeground(Qt::darkGreen);
             savedItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(savedItem);
             QStandardItem* cardItem = new QStandardItem(QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录").arg(receivedName, receivedSize, displayName));
             cardItem->setEditable(false);
+            cardItem->setData(QString("图片已保存到：%1").arg(savePath), Qt::ToolTipRole);
             cardItem->setForeground(QColor(0, 121, 107));
             cardItem->setBackground(QColor(232, 248, 245));
             m_chatModel->appendRow(cardItem);
             QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到图片 %1（%2），保存路径：%3 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, savePath));
             replyItem->setEditable(false);
+            replyItem->setData(savedFileTip, Qt::ToolTipRole);
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
@@ -2039,17 +2044,22 @@ void MainWindow::onNewMessage(const Message& msg) {
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
+            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
             QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1 · %2").arg(savePath, receivedSize));
+            item2->setEditable(false);
+            item2->setData(savedFileTip, Qt::ToolTipRole);
             item2->setForeground(Qt::darkGreen);
             item2->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(item2);
             QStandardItem* cardItem = new QStandardItem(QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录").arg(receivedName, receivedSize, displayName));
             cardItem->setEditable(false);
+            cardItem->setData(QString("文件已保存到：%1").arg(savePath), Qt::ToolTipRole);
             cardItem->setForeground(QColor(0, 121, 107));
             cardItem->setBackground(QColor(232, 248, 245));
             m_chatModel->appendRow(cardItem);
             QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到文件 %1（%2），保存路径：%3 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, savePath));
             replyItem->setEditable(false);
+            replyItem->setData(savedFileTip, Qt::ToolTipRole);
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
