@@ -498,11 +498,12 @@ int main(int argc, char *argv[])
     QObject::connect(accountLoginBtn, &QPushButton::clicked, clientBtn, &QPushButton::click);
 
     LoginDialog* loginDlg = nullptr;
-    Server* server = new Server;
+    Server* server = new Server(&a);
     if (!server->start(port)) {
-        QMessageBox::critical(nullptr, "错误", "本地测试服务器启动失败，端口可能被占用");
         delete server;
-        return 1;
+        server = nullptr;
+        nameLabel->setText("QtNetworkChat · 客户端");
+        autoLoginCheck->setToolTip("检测到本地服务已运行，本窗口将直接连接现有服务");
     }
     Client* client = nullptr;
 
