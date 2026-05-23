@@ -1453,14 +1453,19 @@ void MainWindow::onSendMessage() {
 void MainWindow::onSendFile() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择文件", QString(),
         "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
-    if (filePath.isEmpty()) return;
+    if (filePath.isEmpty()) {
+        ui->statusbar->showMessage("已取消选择文件", 1600);
+        return;
+    }
 
     QFileInfo info(filePath);
     if (!confirmTransferFile(this, info, "文件")) return;
 
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const QString fileSize = humanFileSize(info.size());
+    ui->statusbar->showMessage(QString("准备发送文件到 %1 · %2 · %3").arg(targetName, info.fileName(), fileSize), 1800);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        QString line = QString("[%1] <%2> 发送了文件: %3 · %4 KB").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
+        QString line = QString("[%1] <%2> 发送了文件: %3 · %4").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName(), fileSize);
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
@@ -1468,7 +1473,7 @@ void MainWindow::onSendFile() {
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
-        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 KB · 已发送到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
         cardItem->setEditable(false);
         cardItem->setForeground(QColor(0, 121, 107));
         cardItem->setBackground(QColor(232, 248, 245));
@@ -1480,17 +1485,18 @@ void MainWindow::onSendFile() {
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        appendSystemMessage(QString("文件发送详情：%1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
-        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
+        appendSystemMessage(QString("文件发送详情：%1 · %2 · 到 %3").arg(info.fileName(), fileSize, targetName));
+        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 · %3").arg(targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2").arg(targetName, fileSize), 2200);
         ui->chatListView->scrollToBottom();
         return;
     }
 
+    QApplication::processEvents();
     bool ok = m_client->sendFile(filePath, m_privateChatTarget);
     if (ok) {
-        appendSystemMessage(QString("已发送文件: %1 · %2 KB · 到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
-        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 KB · 已发送到 %3").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        appendSystemMessage(QString("已发送文件: %1 · %2 · 到 %3").arg(info.fileName(), fileSize, targetName));
+        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
         cardItem->setEditable(false);
         cardItem->setForeground(QColor(0, 121, 107));
         cardItem->setBackground(QColor(232, 248, 245));
@@ -1502,17 +1508,26 @@ void MainWindow::onSendFile() {
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 KB · %3").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2 KB").arg(targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
+        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 · %3").arg(targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2").arg(targetName, fileSize), 2200);
+        ui->chatListView->scrollToBottom();
     } else {
-        QMessageBox::warning(this, "发送失败", "文件发送失败");
+        ui->chatHintLabel->setText(QString("文件发送失败 · %1 · %2").arg(info.fileName(), targetName));
+        ui->statusbar->showMessage(QString("文件发送失败：%1").arg(info.fileName()), 3000);
+        QMessageBox::warning(this,
+                             "发送失败",
+                             QString("文件“%1”（%2）未发送到 %3，请检查连接状态或稍后重试。")
+                                 .arg(info.fileName(), fileSize, targetName));
     }
 }
 
 void MainWindow::onSendImage() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", QString(),
         "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
-    if (filePath.isEmpty()) return;
+    if (filePath.isEmpty()) {
+        ui->statusbar->showMessage("已取消选择图片/视频", 1600);
+        return;
+    }
 
     QFileInfo info(filePath);
     if (!confirmTransferFile(this, info, "媒体文件")) return;
@@ -1521,9 +1536,11 @@ void MainWindow::onSendImage() {
     const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
     const QString mediaType = isVideo ? "视频" : "图片";
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    const QString fileSize = humanFileSize(info.size());
+    ui->statusbar->showMessage(QString("准备发送%1到 %2 · %3 · %4").arg(mediaType, targetName, info.fileName(), fileSize), 1800);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QPixmap pixmap(filePath);
-        QString line = QString("[%1] <%2> [%3] %4 · %5 KB").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024));
+        QString line = QString("[%1] <%2> [%3] %4 · %5").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, mediaType, info.fileName(), fileSize);
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
@@ -1532,13 +1549,13 @@ void MainWindow::onSendImage() {
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         if (!isVideo && !pixmap.isNull()) {
-            QStandardItem* previewItem = new QStandardItem(QString("%1 · %2 KB").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)));
+            QStandardItem* previewItem = new QStandardItem(QString("%1 · %2").arg(info.fileName(), fileSize));
             previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
             previewItem->setEditable(false);
             previewItem->setBackground(QColor(246, 250, 253));
             m_chatModel->appendRow(previewItem);
         } else if (isVideo) {
-            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 KB · 可在文件目录中打开").arg(info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)));
+            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 · 可在文件目录中打开").arg(info.fileName(), fileSize));
             previewItem->setEditable(false);
             previewItem->setForeground(QColor(126, 87, 194));
             previewItem->setBackground(QColor(245, 240, 255));
@@ -1551,16 +1568,35 @@ void MainWindow::onSendImage() {
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        appendSystemMessage(QString("%1发送详情：%2 · %3 KB · 到 %4").arg(mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
-        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 KB · %4").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3 KB").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
+        appendSystemMessage(QString("%1发送详情：%2 · %3 · 到 %4").arg(mediaType, info.fileName(), fileSize, targetName));
+        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 · %4").arg(mediaType, targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3").arg(mediaType, targetName, fileSize), 2200);
         ui->chatListView->scrollToBottom();
         return;
     }
 
+    QApplication::processEvents();
     bool ok = isVideo ? m_client->sendFile(filePath, m_privateChatTarget) : m_client->sendImage(filePath, m_privateChatTarget);
     if (ok) {
-        appendSystemMessage(QString("已发送%1: %2 · %3 KB · 到 %4").arg(mediaType, info.fileName()).arg(qMax<qint64>(1, info.size() / 1024)).arg(targetName));
+        appendSystemMessage(QString("已发送%1: %2 · %3 · 到 %4").arg(mediaType, info.fileName(), fileSize, targetName));
+        if (!isVideo) {
+            QPixmap pixmap(filePath);
+            if (!pixmap.isNull()) {
+                QStandardItem* previewItem = new QStandardItem(QString("%1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
+                previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
+                previewItem->setEditable(false);
+                previewItem->setBackground(QColor(246, 250, 253));
+                previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+                m_chatModel->appendRow(previewItem);
+            }
+        } else {
+            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
+            previewItem->setEditable(false);
+            previewItem->setForeground(QColor(126, 87, 194));
+            previewItem->setBackground(QColor(245, 240, 255));
+            previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            m_chatModel->appendRow(previewItem);
+        }
         QStandardItem* receiptItem = new QStandardItem(QString("%1查收话术 · 我已发送%2 %3 到 %4，请注意查收。 · 右键聊天记录可复制")
             .arg(mediaType, mediaType, info.fileName(), targetName));
         receiptItem->setEditable(false);
@@ -1568,10 +1604,16 @@ void MainWindow::onSendImage() {
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 KB · %4").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)).arg(QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3 KB").arg(mediaType, targetName).arg(qMax<qint64>(1, info.size() / 1024)), 2200);
+        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 · %4").arg(mediaType, targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
+        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3").arg(mediaType, targetName, fileSize), 2200);
+        ui->chatListView->scrollToBottom();
     } else {
-        QMessageBox::warning(this, "发送失败", mediaType + "发送失败");
+        ui->chatHintLabel->setText(QString("%1发送失败 · %2 · %3").arg(mediaType, info.fileName(), targetName));
+        ui->statusbar->showMessage(QString("%1发送失败：%2").arg(mediaType, info.fileName()), 3000);
+        QMessageBox::warning(this,
+                             "发送失败",
+                             QString("%1“%2”（%3）未发送到 %4，请检查连接状态或稍后重试。")
+                                 .arg(mediaType, info.fileName(), fileSize, targetName));
     }
 }
 
