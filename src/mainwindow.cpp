@@ -2380,7 +2380,7 @@ void MainWindow::onShowGlobalSearch() {
             ? QString("我想邀请你加入群聊 %1，一起在群里沟通。").arg(name)
             : QString("你好，我是 %1（QQ:%2），通过 QQ 搜索找到你，方便加个好友吗？").arg(m_currentUserName, m_currentUserId);
         QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("加好友/邀请话术已复制", 2200);
+        ui->statusbar->showMessage("申请/邀请话术已复制", 2200);
     });
     connect(copyInviteCardBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
         QListWidgetItem* item = resultList->currentItem();
@@ -2485,7 +2485,7 @@ void MainWindow::onShowGlobalSearch() {
             .arg(m_currentUserId, m_currentUserName, QString::number(friendCount), QString::number(addableCount), QString::number(groups.size()));
         rows << QString("用户目标:%1").arg(users.isEmpty() ? "无" : users.join("、"));
         rows << QString("群聊目标:%1").arg(groups.isEmpty() ? "无" : groups.join("、"));
-        rows << "1. 先打开好友或群聊结果，未成为好友先复制申请话术";
+        rows << "1. 先打开好友或群聊结果，未成为好友先发送申请或复制申请话术";
         rows << "2. 图片/GIF/视频走图片视频入口，文档和压缩包走闪传文件";
         rows << "3. 发送后右键聊天记录复制媒体流程、查收话术、回执和保存路径";
         rows << "4. 可见用户建群后可统一发送群媒体文件";
@@ -3169,7 +3169,7 @@ void MainWindow::onShowQuickAddFriend() {
         QStringList rows;
         rows << QString("好友媒体包 · 目标:%1 · QQ:%2").arg(targetName, target.isEmpty() ? "待搜索" : target);
         rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << "加为好友后可直接发送图片/视频，也可使用闪传文件";
+        rows << "通过好友申请后可直接发送图片/视频，也可使用闪传文件";
         rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和文档压缩包";
         rows << QString("申请话术：%1，你好，我是 %2（QQ:%3），通过好友申请后我可以把图片/视频/文件发给你。").arg(targetName, m_currentUserName, m_currentUserId);
         rows << QString("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(targetName);
@@ -3199,7 +3199,7 @@ void MainWindow::onShowQuickAddFriend() {
         QStringList rows;
         rows << QString("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
         rows << QString("目标QQ:%1").arg(target.isEmpty() ? "待搜索好友" : target);
-        rows << "加为好友后可直接发送图片/视频，也可用闪传文件发送文档和压缩包";
+        rows << "通过好友申请后可直接发送图片/视频，也可用闪传文件发送文档和压缩包";
         rows << "支持 mp4、mov、avi、mkv、wmv、flv、webm，聊天记录可复制媒体卡片";
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("好友申请上传指南已复制", 2200);
