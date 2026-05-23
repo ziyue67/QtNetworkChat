@@ -32,6 +32,7 @@
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QTabWidget>
+#include <QShortcut>
 
 namespace {
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -173,6 +174,10 @@ void MainWindow::setupUi() {
     ui->messageEdit->setFocus();
     ui->messageEdit->installEventFilter(this);
     ui->messageEdit->setContextMenuPolicy(Qt::CustomContextMenu);
+    ui->contactSearchEdit->installEventFilter(this);
+    ui->memberSearchEdit->installEventFilter(this);
+    ui->contactSearchEdit->setToolTip("搜索联系人、QQ 号或群聊；按 Enter 搜索账号，Esc 清空");
+    ui->memberSearchEdit->setToolTip("搜索当前群成员；群聊中可输入 QQ 号后按 Enter 邀请");
 
     ui->clearBtn->setObjectName("clearBtn");
     ui->clearBtn->setToolTip("清空当前会话的本地聊天记录");
@@ -187,6 +192,14 @@ void MainWindow::setupUi() {
     ui->mentionBtn->setToolTip("快速 @ 群成员或插入会话提醒");
     ui->sendBtn->setToolTip("请输入消息后发送");
     ui->sendBtn->setEnabled(false);
+    ui->globalSearchBtn->setToolTip("打开综合搜索；搜索框有内容时直接搜索该 QQ 号");
+    ui->createMenuBtn->setToolTip("打开创建和快捷操作菜单");
+    ui->friendNoticeBtn->setToolTip("查看并处理好友申请");
+    ui->groupNoticeBtn->setToolTip("查看群聊、群公告和入群邀请");
+    ui->copyAccountBtn->setToolTip("复制当前 QQ 账号");
+    ui->friendManagerBtn->setToolTip("打开好友管理器");
+    ui->groupChatBtn->setToolTip("返回公共聊天室");
+    ui->uploadAvatarBtn->setToolTip("更换当前头像");
     setStyleSheet(R"(
         QMainWindow, QWidget#centralwidget {
             background: #EEF4F7;
@@ -569,6 +582,20 @@ void MainWindow::setupUi() {
     connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendImage);
     connect(ui->emojiBtn, &QPushButton::clicked, this, &MainWindow::onInsertEmoji);
     connect(ui->mentionBtn, &QPushButton::clicked, this, &MainWindow::onInsertMention);
+    QShortcut* contactSearchShortcut = new QShortcut(QKeySequence("Ctrl+F"), this);
+    connect(contactSearchShortcut, &QShortcut::activated, this, [this]() {
+        ui->contactSearchEdit->setFocus();
+        ui->contactSearchEdit->selectAll();
+        ui->statusbar->showMessage("已定位到联系人搜索", 1600);
+    });
+    QShortcut* memberSearchShortcut = new QShortcut(QKeySequence("Ctrl+Shift+F"), this);
+    connect(memberSearchShortcut, &QShortcut::activated, this, [this]() {
+        ui->memberSearchEdit->setFocus();
+        ui->memberSearchEdit->selectAll();
+        ui->statusbar->showMessage("已定位到成员搜索", 1600);
+    });
+    QShortcut* globalSearchShortcut = new QShortcut(QKeySequence("Ctrl+K"), this);
+    connect(globalSearchShortcut, &QShortcut::activated, this, &MainWindow::onShowGlobalSearch);
     connect(ui->messageEdit, &QTextEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu menu(this);
         QAction* pasteAction = menu.addAction("粘贴");
@@ -1116,6 +1143,19 @@ void MainWindow::setupUi() {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (event->type() == QEvent::KeyPress
+        && (watched == ui->contactSearchEdit || watched == ui->memberSearchEdit)) {
+        QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Escape) {
+            QLineEdit* edit = qobject_cast<QLineEdit*>(watched);
+            if (edit && !edit->text().isEmpty()) {
+                edit->clear();
+                ui->statusbar->showMessage(watched == ui->contactSearchEdit ? "联系人搜索已清空" : "成员搜索已清空", 1400);
+                return true;
+            }
+        }
+    }
+
     if (watched == ui->messageEdit && event->type() == QEvent::KeyPress) {
         QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
         if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
