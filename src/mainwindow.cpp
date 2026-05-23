@@ -124,6 +124,7 @@ QString extractSavePathFromChatText(const QString& text) {
     QString savePath = text.section("保存路径：", 1, 1).section(" · ", 0, 0).trimmed();
     if (savePath.isEmpty()) savePath = text.section("自动保存:", 1).section(" · ", 0, 0).trimmed();
     if (savePath.isEmpty()) savePath = text.section("自动保存：", 1).section(" · ", 0, 0).trimmed();
+    if (savePath.isEmpty()) savePath = text.section("已保存到：", 1, 1).section('\n', 0, 0).section(" · ", 0, 0).trimmed();
     return savePath;
 }
 
@@ -879,7 +880,10 @@ void MainWindow::setupUi() {
     connect(ui->chatListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
 
-        const QString savePath = extractSavePathFromChatText(index.data().toString());
+        QString savePath = extractSavePathFromChatText(index.data().toString());
+        if (savePath.isEmpty()) {
+            savePath = extractSavePathFromChatText(index.data(Qt::ToolTipRole).toString());
+        }
         if (savePath.isEmpty()) return;
 
         const QFileInfo savePathInfo(savePath);
@@ -905,7 +909,10 @@ void MainWindow::setupUi() {
         QAction* resendAction = menu.addAction("再次发送");
         QAction* copyTimeAction = menu.addAction("复制时间");
         menu.addSeparator();
-        const QString savePathForMenu = extractSavePathFromChatText(text);
+        QString savePathForMenu = extractSavePathFromChatText(text);
+        if (savePathForMenu.isEmpty()) {
+            savePathForMenu = extractSavePathFromChatText(index.data(Qt::ToolTipRole).toString());
+        }
         const QFileInfo savePathInfoForMenu(savePathForMenu);
         const QFileInfo saveFolderInfoForMenu(savePathInfoForMenu.absolutePath());
         const bool hasSavePath = !savePathForMenu.isEmpty();
