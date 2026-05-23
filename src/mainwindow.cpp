@@ -867,6 +867,7 @@ void MainWindow::setupUi() {
         menu.addSeparator();
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
+        if (!selected) return;
         if (selected == copyAction) {
             QApplication::clipboard()->setText(text);
             ui->statusbar->showMessage("消息已复制", 1800);
@@ -883,11 +884,13 @@ void MainWindow::setupUi() {
         } else if (selected == quoteAction) {
             ui->messageEdit->setPlainText(QString("> %1\n").arg(text));
             ui->messageEdit->setFocus();
+            ui->statusbar->showMessage("已插入引用回复", 1400);
         } else if (selected == forwardAction) {
             QString content = text.section(']', 2).trimmed();
             if (content.isEmpty()) content = text;
             ui->messageEdit->setPlainText(QString("转发：%1").arg(content));
             ui->messageEdit->setFocus();
+            ui->statusbar->showMessage("已转发到输入框", 1400);
         } else if (selected == resendAction) {
             QString content = text.section(']', 2).trimmed();
             if (content.isEmpty()) content = text.section('>', 1).trimmed();
@@ -959,6 +962,7 @@ void MainWindow::setupUi() {
             if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
             ui->messageEdit->setPlainText(QString("@%1 ").arg(name));
             ui->messageEdit->setFocus();
+            ui->statusbar->showMessage(QString("已插入 @%1 回复").arg(name), 1400);
         }
     });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
