@@ -1165,10 +1165,20 @@ void MainWindow::setupUi() {
                 appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
             }
         } else if (selected == removeAction) {
+            const QString memberName = contactDisplayName(memberId);
+            const QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
+            if (QMessageBox::question(this,
+                                      "移出群成员",
+                                      QString("确定将“%1”移出群聊“%2”吗？").arg(memberName, groupName),
+                                      QMessageBox::Yes | QMessageBox::No,
+                                      QMessageBox::No) != QMessageBox::Yes) {
+                ui->statusbar->showMessage("已取消移出群成员", 1600);
+                return;
+            }
             m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
             saveLocalGroups();
             refreshGroupMemberPanel();
-            appendSystemMessage(QString("已将 %1 移出群聊").arg(contactDisplayName(memberId)));
+            appendSystemMessage(QString("已将 %1 移出群聊").arg(memberName));
         }
     });
     connect(ui->clearBtn, &QPushButton::clicked, this, &MainWindow::onClearHistory);
@@ -3620,17 +3630,26 @@ void MainWindow::onShowFriendManager() {
         appendSystemMessage(QString("已邀请 %1 位可见好友加入群聊").arg(invitedCount));
         saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 位可见好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(invitedCount));
     });
-    connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
+    connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit, &dialog]() {
         QListWidgetItem* selected = friendList->currentItem();
         if (!selected) return;
         QString id = selected->data(Qt::UserRole).toString();
         if (id.isEmpty() || id.startsWith("search_add:")) return;
+        QString displayName = contactDisplayName(id);
+        if (QMessageBox::question(&dialog,
+                                  "删除好友",
+                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索添加。").arg(displayName, id),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消删除好友", 1600);
+            return;
+        }
         m_friendIds.removeAll(id);
         m_friendNames.remove(id);
         saveFriends();
         refreshFriendList();
         fillList(searchEdit->text().trimmed());
-        appendSystemMessage("已删除好友 QQ: " + id);
+        appendSystemMessage(QString("已删除好友: %1（QQ:%2）").arg(displayName, id));
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
     dialog.exec();
@@ -3873,6 +3892,18 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                 if (m_privateChatTarget == userId) switchToLocalGroup(userId, newName);
             }
         } else if (selected == deleteGroupAction) {
+            QString groupName = m_localGroupNames.value(userId, userName);
+            int memberCount = qMax(1, m_localGroupMembers.value(userId).size());
+            if (QMessageBox::question(this,
+                                      "删除群聊",
+                                      QString("确定删除群聊“%1”吗？本地群成员 %2 人，聊天记录不会在此步骤删除。")
+                                          .arg(groupName)
+                                          .arg(memberCount),
+                                      QMessageBox::Yes | QMessageBox::No,
+                                      QMessageBox::No) != QMessageBox::Yes) {
+                ui->statusbar->showMessage("已取消删除群聊", 1600);
+                return;
+            }
             m_localGroupIds.removeAll(userId);
             m_localGroupNames.remove(userId);
             m_localGroupAnnouncements.remove(userId);
@@ -3880,7 +3911,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             saveLocalGroups();
             refreshFriendList();
             if (m_privateChatTarget == userId) onBackToGroupChat();
-            appendSystemMessage("已删除群聊: " + userName);
+            appendSystemMessage("已删除群聊: " + groupName);
         }
         return;
     }
@@ -3969,11 +4000,20 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             appendSystemMessage("已发送好友申请: " + userName);
         }
     } else if (selected == removeAction) {
+        const QString displayName = contactDisplayName(userId);
+        if (QMessageBox::question(this,
+                                  "删除好友",
+                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索添加。").arg(displayName, userId),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消删除好友", 1600);
+            return;
+        }
         m_friendIds.removeAll(userId);
         m_friendNames.remove(userId);
         saveFriends();
         refreshFriendList();
-        appendSystemMessage("已删除好友: " + userName);
+        appendSystemMessage(QString("已删除好友: %1（QQ:%2）").arg(displayName, userId));
     }
 }
 
