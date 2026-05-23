@@ -314,7 +314,9 @@ private:
         m_passwordEdit->setText(rememberPassword ? settings.value("login/password").toString() : QString());
         m_nameEdit->setText(settings.value("login/name").toString());
         m_rememberCheck->setChecked(rememberPassword);
-        saveLoginToSqlite();
+        if (saveLoginToSqlite()) {
+            settings.remove("login/password");
+        }
     }
 
     void saveSettings() {
