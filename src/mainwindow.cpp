@@ -2392,9 +2392,15 @@ void MainWindow::onShowGlobalSearch() {
     };
     auto openResult = [this, &dialog, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
-        if (!item) return;
+        if (!item) {
+            ui->statusbar->showMessage("请先选择要打开的搜索结果", 1800);
+            return;
+        }
         QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty()) return;
+        if (id.isEmpty()) {
+            ui->statusbar->showMessage("当前没有可打开的搜索结果", 1800);
+            return;
+        }
         if (id.startsWith("search_add:")) {
             searchAndAddAccount(id.mid(QString("search_add:").size()), &dialog);
             dialog.accept();
@@ -2403,6 +2409,7 @@ void MainWindow::onShowGlobalSearch() {
         if (m_localGroupIds.contains(id)) {
             dialog.accept();
             switchToLocalGroup(id, m_localGroupNames.value(id, "群聊"));
+            ui->statusbar->showMessage("已进入群聊: " + m_localGroupNames.value(id, "群聊"), 1800);
             return;
         }
         if (!m_friendIds.contains(id) && !m_pendingOutgoingFriendRequests.contains(id)) {
@@ -2426,6 +2433,7 @@ void MainWindow::onShowGlobalSearch() {
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
         refreshComposerState();
+        ui->statusbar->showMessage(QString("已打开与 %1 的私聊").arg(contactDisplayName(id)), 1800);
     };
 
     connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
@@ -2580,9 +2588,15 @@ void MainWindow::onShowGlobalSearch() {
     });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
-        if (!item) return;
+        if (!item) {
+            ui->statusbar->showMessage("请先选择要复制 QQ 的搜索结果", 1800);
+            return;
+        }
         QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty()) return;
+        if (id.isEmpty()) {
+            ui->statusbar->showMessage("当前没有可复制的 QQ 号", 1800);
+            return;
+        }
         if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
         if (id.startsWith("local_group_")) id = id.mid(QString("local_group_").size());
         QApplication::clipboard()->setText(id);
@@ -2757,9 +2771,15 @@ void MainWindow::onShowGlobalSearch() {
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();
-        if (!item) return;
+        if (!item) {
+            ui->statusbar->showMessage("请先选择要复制名片的搜索结果", 1800);
+            return;
+        }
         QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty()) return;
+        if (id.isEmpty()) {
+            ui->statusbar->showMessage("当前没有可复制的名片信息", 1800);
+            return;
+        }
         QString text = item->text();
         if (id.startsWith("search_add:")) {
             id = id.mid(QString("search_add:").size());
