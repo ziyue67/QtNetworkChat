@@ -43,6 +43,7 @@ public:
     QString password() const { return m_password; }
     bool registerMode() const { return m_registerMode; }
     bool serverMode() const { return m_isServer; }
+    bool rememberPassword() const { return m_rememberCheck && m_rememberCheck->isChecked(); }
     bool saveResolvedLoginToSqlite(const QString& account, const QString& userName, const QString& password, bool rememberPassword) const {
         return saveLoginToSqlite(account, userName, password, rememberPassword);
     }
@@ -301,7 +302,6 @@ private:
             }
             m_userName = m_account;
         }
-        saveSettings();
         m_host = "127.0.0.1";
         m_port = 8888;
         accept();
@@ -715,6 +715,10 @@ int main(int argc, char *argv[])
                 modeDialog->show();
                 return;
             }
+            loginDlg->saveResolvedLoginToSqlite(loginDlg->account(),
+                                                client->currentUserName(),
+                                                loginDlg->password(),
+                                                loginDlg->rememberPassword());
             MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
             w->setAttribute(Qt::WA_DeleteOnClose);
             QObject::connect(w, &MainWindow::logoutRequested, [&]() {
