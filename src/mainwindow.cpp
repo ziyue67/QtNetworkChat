@@ -906,9 +906,10 @@ void MainWindow::setupUi() {
         menu.addSeparator();
         const QString savePathForMenu = extractSavePathFromChatText(text);
         const QFileInfo savePathInfoForMenu(savePathForMenu);
+        const QFileInfo saveFolderInfoForMenu(savePathInfoForMenu.absolutePath());
         const bool hasSavePath = !savePathForMenu.isEmpty();
-        const bool canOpenSaveFolder = hasSavePath && savePathInfoForMenu.exists();
-        const bool canOpenSavedFile = canOpenSaveFolder && savePathInfoForMenu.isFile();
+        const bool canOpenSavedFile = hasSavePath && savePathInfoForMenu.exists() && savePathInfoForMenu.isFile();
+        const bool canOpenSaveFolder = hasSavePath && saveFolderInfoForMenu.exists() && saveFolderInfoForMenu.isDir();
         const bool isMediaMessage = hasSavePath
             || text.contains("文件")
             || text.contains("图片")
@@ -934,11 +935,15 @@ void MainWindow::setupUi() {
             copySavePathAction->setToolTip("这条记录还没有保存路径");
             openSavedFileAction->setToolTip("收到并保存文件后可直接打开");
             openSaveFolderAction->setToolTip("收到并保存文件后可打开目录");
-        } else if (!canOpenSaveFolder) {
-            openSavedFileAction->setToolTip("保存路径不存在或文件已移动");
-            openSaveFolderAction->setToolTip("保存路径不存在或文件已移动");
-        } else if (!canOpenSavedFile) {
-            openSavedFileAction->setToolTip("当前保存路径不是文件");
+        } else {
+            if (!canOpenSavedFile) {
+                openSavedFileAction->setToolTip(savePathInfoForMenu.exists()
+                    ? "当前保存路径不是文件"
+                    : "保存文件不存在或文件已移动");
+            }
+            if (!canOpenSaveFolder) {
+                openSaveFolderAction->setToolTip("保存目录不存在或无权访问");
+            }
         }
         menu.addSeparator();
         QAction* mentionReplyAction = menu.addAction("@对方回复");
@@ -1018,8 +1023,11 @@ void MainWindow::setupUi() {
             }
         } else if (selected == openSaveFolderAction) {
             if (canOpenSaveFolder) {
-                QDesktopServices::openUrl(QUrl::fromLocalFile(savePathInfoForMenu.absolutePath()));
-                ui->statusbar->showMessage("已打开保存目录", 2200);
+                if (QDesktopServices::openUrl(QUrl::fromLocalFile(saveFolderInfoForMenu.absoluteFilePath()))) {
+                    ui->statusbar->showMessage("已打开保存目录", 2200);
+                } else {
+                    ui->statusbar->showMessage("保存目录无法打开", 2200);
+                }
             } else {
                 ui->statusbar->showMessage("当前消息没有可打开的保存路径", 2200);
             }
