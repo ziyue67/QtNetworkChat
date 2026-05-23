@@ -575,6 +575,10 @@ void MainWindow::setupUi() {
             background: #EAF7FF;
             color: #168BE8;
         }
+        QPushButton#toolBtn:disabled, QPushButton#iconToolBtn:disabled {
+            background: transparent;
+            color: #AEBAC4;
+        }
         QPushButton#clearBtn {
             color: #D35454;
         }
