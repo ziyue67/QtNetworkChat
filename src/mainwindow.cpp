@@ -1764,6 +1764,7 @@ void MainWindow::onSendFile() {
     }
 
     const QString fileSize = humanFileSize(info.size());
+    ui->chatHintLabel->setText(QString("准备发送文件到 %1 · %2 · %3").arg(targetName, info.fileName(), fileSize));
     ui->statusbar->showMessage(QString("准备发送文件到 %1 · %2 · %3").arg(targetName, info.fileName(), fileSize), 1800);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QString line = QString("[%1] <%2> 发送了文件: %3 · %4").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName(), fileSize);
@@ -1855,6 +1856,7 @@ void MainWindow::onSendImage() {
     const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
     const QString mediaType = isVideo ? "视频" : "图片";
     const QString fileSize = humanFileSize(info.size());
+    ui->chatHintLabel->setText(QString("准备发送%1到 %2 · %3 · %4").arg(mediaType, targetName, info.fileName(), fileSize));
     ui->statusbar->showMessage(QString("准备发送%1到 %2 · %3 · %4").arg(mediaType, targetName, info.fileName(), fileSize), 1800);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QPixmap pixmap(filePath);
