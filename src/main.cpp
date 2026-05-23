@@ -43,6 +43,9 @@ public:
     QString password() const { return m_password; }
     bool registerMode() const { return m_registerMode; }
     bool serverMode() const { return m_isServer; }
+    bool saveResolvedLoginToSqlite(const QString& account, const QString& userName, const QString& password, bool rememberPassword) const {
+        return saveLoginToSqlite(account, userName, password, rememberPassword);
+    }
 
 private:
     void setupUi() {
@@ -398,8 +401,18 @@ private:
     bool saveLoginToSqlite() const {
         if (!ensureLoginDatabase()) return false;
 
-        const QString account = m_accountEdit->text().trimmed();
-        if (account.isEmpty()) return true;
+        return saveLoginToSqlite(m_accountEdit->text().trimmed(),
+                                 m_nameEdit->text().trimmed(),
+                                 m_passwordEdit->text(),
+                                 m_rememberCheck && m_rememberCheck->isChecked());
+    }
+
+    bool saveLoginToSqlite(const QString& account, const QString& userName, const QString& password, bool rememberPassword) const {
+        if (!ensureLoginDatabase()) return false;
+
+        const QString normalizedAccount = account.trimmed();
+        const QString normalizedUserName = userName.trimmed();
+        if (normalizedAccount.isEmpty()) return true;
 
         const QString connectionName = "login_accounts_write_" + QString::number(reinterpret_cast<quintptr>(this));
         bool ok = false;
@@ -410,10 +423,10 @@ private:
                 QSqlQuery query(db);
                 query.prepare("INSERT OR REPLACE INTO login_accounts(account, user_name, password, remember_password, updated_at) "
                               "VALUES(?, ?, ?, ?, datetime('now'))");
-                query.addBindValue(account);
-                query.addBindValue(m_nameEdit->text().trimmed());
-                query.addBindValue(m_rememberCheck && m_rememberCheck->isChecked() ? m_passwordEdit->text() : QString());
-                query.addBindValue(m_rememberCheck && m_rememberCheck->isChecked() ? 1 : 0);
+                query.addBindValue(normalizedAccount);
+                query.addBindValue(normalizedUserName);
+                query.addBindValue(rememberPassword ? password : QString());
+                query.addBindValue(rememberPassword ? 1 : 0);
                 ok = query.exec();
                 db.close();
             }
@@ -655,7 +668,14 @@ int main(int argc, char *argv[])
                 return;
             }
             if (client->currentLoginWasRegister()) {
-                QMessageBox::information(nullptr, "注册成功", QString("你的 QQ 账号是：%1\n请记住该账号，之后登录和加好友都使用它。").arg(client->currentUserId()));
+                loginDlg->saveResolvedLoginToSqlite(client->currentUserId(),
+                                                    client->currentUserName(),
+                                                    loginDlg->password(),
+                                                    true);
+                QMessageBox::information(nullptr,
+                                         "注册成功",
+                                         QString("你的 QQ 账号是：%1\n账号和密码已保存到本地 SQLite 登录库，之后登录和加好友都使用它。")
+                                             .arg(client->currentUserId()));
             }
             MainWindow* w = new MainWindow(client, client->currentUserId(), client->currentUserName());
             w->setAttribute(Qt::WA_DeleteOnClose);
