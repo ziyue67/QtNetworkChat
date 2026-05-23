@@ -4250,9 +4250,17 @@ void MainWindow::onShowFriendNotifications() {
         fillList();
         appendSystemMessage("已同意好友申请 QQ: " + id);
     });
-    connect(acceptAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
+    connect(acceptAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
         if (pending.isEmpty()) return;
+        if (QMessageBox::question(&dialog,
+                                  "一键同意好友申请",
+                                  QString("确定同意全部 %1 个好友申请吗？同意后会加入好友列表。").arg(pending.size()),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消一键同意", 1600);
+            return;
+        }
         for (const QString& id : pending) {
             if (id.isEmpty()) continue;
             QString name = m_friendNames.value(id, id);
@@ -4280,9 +4288,17 @@ void MainWindow::onShowFriendNotifications() {
         fillList();
         appendSystemMessage("已拒绝好友申请 QQ: " + id);
     });
-    connect(rejectAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
+    connect(rejectAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
         if (pending.isEmpty()) return;
+        if (QMessageBox::question(&dialog,
+                                  "一键拒绝好友申请",
+                                  QString("确定拒绝全部 %1 个好友申请吗？").arg(pending.size()),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消一键拒绝", 1600);
+            return;
+        }
         for (const QString& id : pending) {
             if (!id.isEmpty()) {
                 m_client->sendFriendResponse(id, false);
@@ -4378,10 +4394,23 @@ void MainWindow::onShowFriendNotifications() {
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("好友申请上传指南已复制", 2200);
     });
-    connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge]() {
+    connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
+        if (m_pendingFriendRequests.isEmpty()) {
+            ui->statusbar->showMessage("暂无好友申请可清空", 1600);
+            return;
+        }
+        if (QMessageBox::question(&dialog,
+                                  "清空好友申请",
+                                  QString("确定清空 %1 个待处理好友申请吗？清空不会自动回复对方。").arg(m_pendingFriendRequests.size()),
+                                  QMessageBox::Yes | QMessageBox::No,
+                                  QMessageBox::No) != QMessageBox::Yes) {
+            ui->statusbar->showMessage("已取消清空好友申请", 1600);
+            return;
+        }
         m_pendingFriendRequests.clear();
         updateBadge();
         fillList();
+        ui->statusbar->showMessage("好友申请已清空", 1800);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
     dialog.exec();
