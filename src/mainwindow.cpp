@@ -4866,17 +4866,28 @@ void MainWindow::onShowFriendNotifications() {
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList, updateRequestPreview]() { fillList(); updateRequestPreview(); });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, [this, searchEdit]() {
         QString account = searchEdit->text().trimmed();
-        if (!account.isEmpty()) searchAndAddAccount(account, this);
+        if (account.isEmpty()) {
+            searchEdit->setFocus();
+            ui->statusbar->showMessage("请输入申请人 QQ 号后搜索", 1800);
+            return;
+        }
+        searchAndAddAccount(account, this);
     });
     connect(acceptBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
         QListWidgetItem* item = noticeList->currentItem();
-        if (!item) return;
+        if (!item) {
+            ui->statusbar->showMessage("请先选择要同意的好友申请", 1800);
+            return;
+        }
         QString id = item->data(Qt::UserRole).toString();
         if (id.startsWith("search_add:")) {
             searchAndAddAccount(id.mid(QString("search_add:").size()), this);
             return;
         }
-        if (id.isEmpty()) return;
+        if (id.isEmpty()) {
+            ui->statusbar->showMessage("暂无可同意的好友申请", 1800);
+            return;
+        }
         QString name = m_friendNames.value(id, id);
         m_client->sendFriendResponse(id, true);
         if (!m_friendIds.contains(id)) {
@@ -4888,11 +4899,15 @@ void MainWindow::onShowFriendNotifications() {
         refreshFriendList();
         updateBadge();
         fillList();
+        ui->statusbar->showMessage(QString("已同意 %1 的好友申请").arg(name), 2200);
         appendSystemMessage("已同意好友申请 QQ: " + id);
     });
     connect(acceptAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
-        if (pending.isEmpty()) return;
+        if (pending.isEmpty()) {
+            ui->statusbar->showMessage("暂无好友申请可同意", 1800);
+            return;
+        }
         if (QMessageBox::question(&dialog,
                                   "一键同意好友申请",
                                   QString("确定同意全部 %1 个好友申请吗？同意后会加入好友列表。").arg(pending.size()),
@@ -4915,22 +4930,37 @@ void MainWindow::onShowFriendNotifications() {
         refreshFriendList();
         updateBadge();
         fillList();
+        ui->statusbar->showMessage(QString("已一键同意 %1 个好友申请").arg(pending.size()), 2200);
         appendSystemMessage(QString("已一键同意 %1 个好友申请").arg(pending.size()));
     });
     connect(rejectBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
         QListWidgetItem* item = noticeList->currentItem();
-        if (!item) return;
+        if (!item) {
+            ui->statusbar->showMessage("请先选择要拒绝的好友申请", 1800);
+            return;
+        }
         QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        if (id.isEmpty()) {
+            ui->statusbar->showMessage("暂无可拒绝的好友申请", 1800);
+            return;
+        }
+        if (id.startsWith("search_add:")) {
+            ui->statusbar->showMessage("这是搜索占位项，可先搜索并发送申请", 2200);
+            return;
+        }
         m_client->sendFriendResponse(id, false);
         m_pendingFriendRequests.removeAll(id);
         updateBadge();
         fillList();
+        ui->statusbar->showMessage(QString("已拒绝 QQ:%1 的好友申请").arg(id), 2200);
         appendSystemMessage("已拒绝好友申请 QQ: " + id);
     });
     connect(rejectAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
-        if (pending.isEmpty()) return;
+        if (pending.isEmpty()) {
+            ui->statusbar->showMessage("暂无好友申请可拒绝", 1800);
+            return;
+        }
         if (QMessageBox::question(&dialog,
                                   "一键拒绝好友申请",
                                   QString("确定拒绝全部 %1 个好友申请吗？").arg(pending.size()),
@@ -4947,13 +4977,24 @@ void MainWindow::onShowFriendNotifications() {
         m_pendingFriendRequests.clear();
         updateBadge();
         fillList();
+        ui->statusbar->showMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()), 2200);
         appendSystemMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()));
     });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* item = noticeList->currentItem();
-        if (!item) return;
+        if (!item) {
+            ui->statusbar->showMessage("请先选择要复制的好友申请", 1800);
+            return;
+        }
         QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty()) return;
+        if (id.isEmpty()) {
+            ui->statusbar->showMessage("暂无申请人名片可复制", 1800);
+            return;
+        }
+        if (id.startsWith("search_add:")) {
+            ui->statusbar->showMessage("这是搜索占位项，请先搜索申请人", 2200);
+            return;
+        }
         QString card = QString("QQ:%1\n昵称:%2\n来源:好友申请").arg(id, m_friendNames.value(id, id));
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("申请人名片已复制", 1800);
