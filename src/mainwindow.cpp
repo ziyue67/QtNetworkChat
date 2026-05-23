@@ -169,19 +169,24 @@ void MainWindow::setupUi() {
     ui->groupMemberListView->setModel(m_groupMemberModel);
     ui->groupMemberListView->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Ctrl+Enter 换行)");
+    ui->messageEdit->setPlaceholderText("输入消息... (Enter 发送，Shift/Ctrl+Enter 换行)");
     ui->messageEdit->setFocus();
     ui->messageEdit->installEventFilter(this);
     ui->messageEdit->setContextMenuPolicy(Qt::CustomContextMenu);
 
     ui->clearBtn->setObjectName("clearBtn");
+    ui->clearBtn->setToolTip("清空当前会话的本地聊天记录");
     ui->fileBtn->setObjectName("toolBtn");
     ui->fileBtn->setToolTip("闪传文件，支持文档、压缩包和媒体文件");
     ui->imageBtn->setObjectName("toolBtn");
     ui->imageBtn->setText("图片/视频");
     ui->imageBtn->setToolTip("发送图片或视频文件，图片会显示预览");
     ui->emojiBtn->setObjectName("iconToolBtn");
+    ui->emojiBtn->setToolTip("插入常用表情");
     ui->mentionBtn->setObjectName("iconToolBtn");
+    ui->mentionBtn->setToolTip("快速 @ 群成员或插入会话提醒");
+    ui->sendBtn->setToolTip("请输入消息后发送");
+    ui->sendBtn->setEnabled(false);
     setStyleSheet(R"(
         QMainWindow, QWidget#centralwidget {
             background: #EEF4F7;
@@ -419,6 +424,11 @@ void MainWindow::setupUi() {
         QPushButton#sendBtn:pressed {
             background: #0B7EC6;
         }
+        QPushButton#sendBtn:disabled {
+            background: #BFD0DE;
+            color: #F8FBFD;
+            border: none;
+        }
         QPushButton#toolBtn, QPushButton#iconToolBtn {
             background: transparent;
             color: #516274;
@@ -548,6 +558,13 @@ void MainWindow::setupUi() {
     refreshFriendList();
 
     connect(ui->sendBtn, &QPushButton::clicked, this, &MainWindow::onSendMessage);
+    const auto refreshComposerState = [this]() {
+        const bool hasText = !ui->messageEdit->toPlainText().trimmed().isEmpty();
+        ui->sendBtn->setEnabled(hasText);
+        ui->sendBtn->setToolTip(hasText ? "发送当前消息 (Enter)" : "请输入消息后发送");
+    };
+    connect(ui->messageEdit, &QTextEdit::textChanged, this, refreshComposerState);
+    refreshComposerState();
     connect(ui->fileBtn, &QPushButton::clicked, this, &MainWindow::onSendFile);
     connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendImage);
     connect(ui->emojiBtn, &QPushButton::clicked, this, &MainWindow::onInsertEmoji);
@@ -1102,7 +1119,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     if (watched == ui->messageEdit && event->type() == QEvent::KeyPress) {
         QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
         if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
-            if (keyEvent->modifiers() & Qt::ControlModifier) {
+            const bool wantsNewLine = keyEvent->modifiers().testFlag(Qt::ControlModifier)
+                || keyEvent->modifiers().testFlag(Qt::ShiftModifier);
+            if (wantsNewLine) {
                 ui->messageEdit->insertPlainText("\n");
             } else {
                 onSendMessage();
@@ -1201,7 +1220,11 @@ void MainWindow::setupTray() {
 
 void MainWindow::onSendMessage() {
     QString text = ui->messageEdit->toPlainText().trimmed();
-    if (text.isEmpty()) return;
+    if (text.isEmpty()) {
+        ui->messageEdit->setFocus();
+        ui->statusbar->showMessage("请输入消息内容后再发送", 1800);
+        return;
+    }
 
     const QString originalText = text;
     if (text == "/card" || text == "名片") {
