@@ -399,10 +399,10 @@ int main(int argc, char *argv[])
     nameLabel->setAlignment(Qt::AlignCenter);
     modeCardLayout->addWidget(nameLabel);
 
-    QCheckBox* autoLoginCheck = new QCheckBox("自动登录", modeCard);
-    autoLoginCheck->setObjectName("autoLoginCheck");
-    autoLoginCheck->setChecked(true);
-    modeCardLayout->addWidget(autoLoginCheck, 0, Qt::AlignCenter);
+    QLabel* serviceBadgeLabel = new QLabel("本地服务", modeCard);
+    serviceBadgeLabel->setObjectName("serviceBadgeLabel");
+    serviceBadgeLabel->setAlignment(Qt::AlignCenter);
+    modeCardLayout->addWidget(serviceBadgeLabel, 0, Qt::AlignCenter);
 
     QLabel* modeStatusLabel = new QLabel("正在准备本地服务...", modeCard);
     modeStatusLabel->setObjectName("modeStatusLabel");
@@ -475,10 +475,14 @@ int main(int argc, char *argv[])
             padding-top: 16px;
             padding-bottom: 8px;
         }
-        QCheckBox#autoLoginCheck {
-            color: #718395;
+        QLabel#serviceBadgeLabel {
+            background: rgba(255, 255, 255, 175);
+            color: #1679CA;
+            border: 1px solid rgba(22, 121, 202, 60);
+            border-radius: 10px;
             font-size: 12px;
-            spacing: 6px;
+            font-weight: 600;
+            padding: 3px 10px;
         }
         QLabel#modeStatusLabel {
             color: #5C7286;
@@ -524,11 +528,13 @@ int main(int argc, char *argv[])
         delete server;
         server = nullptr;
         nameLabel->setText("QtNetworkChat · 客户端");
+        serviceBadgeLabel->setText("连接已有服务");
+        serviceBadgeLabel->setToolTip("端口 8888 已有服务，本窗口会作为客户端连接");
         modeStatusLabel->setText("已检测到本地服务运行中，本窗口将直接连接。");
-        autoLoginCheck->setToolTip("检测到本地服务已运行，本窗口将直接连接现有服务");
     } else {
+        serviceBadgeLabel->setText("托管本地服务");
+        serviceBadgeLabel->setToolTip("本窗口已启动端口 8888，本机其他客户端会自动连接");
         modeStatusLabel->setText("本窗口正在托管本地服务，可再打开一个客户端测试互发消息。");
-        autoLoginCheck->setToolTip("本窗口已启动本地服务，其他客户端会自动连接");
     }
     Client* client = nullptr;
 
