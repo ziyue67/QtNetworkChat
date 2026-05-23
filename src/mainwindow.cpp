@@ -148,6 +148,26 @@ void rememberTransferDirectory(const QString& filePath) {
     settings.setValue("transfer/lastDirectory", directory);
 }
 
+QString lastAvatarDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QString directory = settings.value("avatar/lastDirectory").toString();
+    if (directory.isEmpty()) {
+        directory = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    }
+    if (directory.isEmpty() || !QDir(directory).exists()) {
+        directory = QDir::homePath();
+    }
+    return directory;
+}
+
+void rememberAvatarDirectory(const QString& filePath) {
+    const QString directory = QFileInfo(filePath).absolutePath();
+    if (directory.isEmpty() || !QDir(directory).exists()) return;
+
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.setValue("avatar/lastDirectory", directory);
+}
+
 bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& kind, QString* failureMessage = nullptr) {
     constexpr qint64 warningBytes = 20LL * 1024 * 1024;
     constexpr qint64 maxBytes = 80LL * 1024 * 1024;
@@ -4395,11 +4415,12 @@ void MainWindow::onShowFriendManager() {
 }
 
 void MainWindow::onUploadAvatar() {
-    QString filePath = QFileDialog::getOpenFileName(this, "选择头像", QString(), "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
+    QString filePath = QFileDialog::getOpenFileName(this, "选择头像", lastAvatarDirectory(), "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
     if (filePath.isEmpty()) {
         ui->statusbar->showMessage("已取消选择头像", 1600);
         return;
     }
+    rememberAvatarDirectory(filePath);
 
     QFileInfo info(filePath);
     if (!info.exists() || !info.isFile()) {
