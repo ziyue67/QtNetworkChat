@@ -257,6 +257,7 @@ void MainWindow::setupUi() {
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     ui->chatListView->setModel(m_chatModel);
     ui->chatListView->setContextMenuPolicy(Qt::CustomContextMenu);
+    ui->chatListView->setToolTip("右键消息可复制、引用和转发；双击带保存路径的文件记录可直接打开文件");
 
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
     ui->groupMemberListView->setModel(m_groupMemberModel);
@@ -854,6 +855,21 @@ void MainWindow::setupUi() {
     });
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);
     connect(ui->userListView, &QListView::customContextMenuRequested, this, &MainWindow::onUserContextMenu);
+    connect(ui->chatListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
+        if (!index.isValid()) return;
+
+        const QString savePath = extractSavePathFromChatText(index.data().toString());
+        if (savePath.isEmpty()) return;
+
+        const QFileInfo savePathInfo(savePath);
+        if (savePathInfo.exists()
+            && savePathInfo.isFile()
+            && QDesktopServices::openUrl(QUrl::fromLocalFile(savePathInfo.absoluteFilePath()))) {
+            ui->statusbar->showMessage("已打开保存文件", 2200);
+        } else {
+            ui->statusbar->showMessage("保存文件不存在或无法打开", 2600);
+        }
+    });
     connect(ui->chatListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->chatListView->indexAt(pos);
         if (!index.isValid()) return;
