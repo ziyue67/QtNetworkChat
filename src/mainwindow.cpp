@@ -3833,9 +3833,15 @@ void MainWindow::onShowFriendManager() {
     connect(friendList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedFriend](QListWidgetItem*) { openSelectedFriend(); });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) return;
+        if (!selected) {
+            ui->statusbar->showMessage("请先选择要复制 QQ 的好友", 1800);
+            return;
+        }
         QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        if (id.isEmpty() || id.startsWith("search_add:")) {
+            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+            return;
+        }
         QApplication::clipboard()->setText(id);
         ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
     });
@@ -3847,15 +3853,24 @@ void MainWindow::onShowFriendManager() {
             if (id.isEmpty() || id.startsWith("search_add:")) continue;
             cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
         }
-        if (cards.isEmpty()) return;
+        if (cards.isEmpty()) {
+            ui->statusbar->showMessage("当前筛选没有可复制好友", 2200);
+            return;
+        }
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个可见好友").arg(cards.size()), 2200);
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) return;
+        if (!selected) {
+            ui->statusbar->showMessage("请先选择要复制名片的好友", 1800);
+            return;
+        }
         QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        if (id.isEmpty() || id.startsWith("search_add:")) {
+            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+            return;
+        }
         QString card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("好友名片已复制", 1800);
