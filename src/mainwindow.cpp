@@ -5217,7 +5217,10 @@ void MainWindow::onShowGroupNotifications() {
 
     auto openSelectedGroup = [this, noticeList, &dialog]() {
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) return;
+        if (!current) {
+            ui->statusbar->showMessage("请先选择要进入的群聊", 1800);
+            return;
+        }
         QString groupId = current->data(Qt::UserRole).toString();
         if (groupId.startsWith("group_create:")) {
             QString groupName = groupId.mid(QString("group_create:").size()).trimmed();
@@ -5232,14 +5235,17 @@ void MainWindow::onShowGroupNotifications() {
             dialog.accept();
             switchToLocalGroup(newGroupId, groupName);
             appendSystemMessage("已从群通知搜索创建群聊: " + groupName);
+            ui->statusbar->showMessage("已创建并进入群聊: " + groupName, 2200);
             return;
         }
         dialog.accept();
         if (groupId.isEmpty()) {
             onBackToGroupChat();
+            ui->statusbar->showMessage("已进入公共聊天室", 1800);
             return;
         }
         switchToLocalGroup(groupId, m_localGroupNames.value(groupId, "群聊"));
+        ui->statusbar->showMessage("已进入群聊: " + m_localGroupNames.value(groupId, "群聊"), 1800);
     };
 
     dialog.setStyleSheet(R"(
@@ -5336,16 +5342,30 @@ void MainWindow::onShowGroupNotifications() {
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) return;
+        if (!current) {
+            ui->statusbar->showMessage("请先选择要复制群号的群聊", 1800);
+            return;
+        }
         QString groupId = current->data(Qt::UserRole).toString();
+        if (groupId.startsWith("group_create:")) {
+            ui->statusbar->showMessage("待创建群聊还没有群号，请先进入创建", 2200);
+            return;
+        }
         QString copyId = groupId.isEmpty() ? "公共聊天室" : groupId.mid(QString("local_group_").size());
         QApplication::clipboard()->setText(copyId);
         ui->statusbar->showMessage("群号已复制: " + copyId, 2500);
     });
     connect(cardBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) return;
+        if (!current) {
+            ui->statusbar->showMessage("请先选择要复制名片的群聊", 1800);
+            return;
+        }
         QString groupId = current->data(Qt::UserRole).toString();
+        if (groupId.startsWith("group_create:")) {
+            ui->statusbar->showMessage("待创建群聊还没有名片，请先进入创建", 2200);
+            return;
+        }
         QString card;
         if (groupId.isEmpty()) {
             card = QString("公共聊天室\n当前账号:%1\n在线成员:%2").arg(m_currentUserId).arg(m_knownUsers.size());
@@ -5362,8 +5382,15 @@ void MainWindow::onShowGroupNotifications() {
     });
     connect(announceBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) return;
+        if (!current) {
+            ui->statusbar->showMessage("请先选择要复制公告的群聊", 1800);
+            return;
+        }
         QString groupId = current->data(Qt::UserRole).toString();
+        if (groupId.startsWith("group_create:")) {
+            ui->statusbar->showMessage("待创建群聊还没有公告，请先进入创建", 2200);
+            return;
+        }
         QString announcement = groupId.isEmpty()
             ? "你已加入默认群聊，可直接发送消息、图片和文件。"
             : m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
@@ -5391,8 +5418,15 @@ void MainWindow::onShowGroupNotifications() {
     });
     connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) return;
+        if (!current) {
+            ui->statusbar->showMessage("请先选择要复制成员的群聊", 1800);
+            return;
+        }
         QString groupId = current->data(Qt::UserRole).toString();
+        if (groupId.startsWith("group_create:")) {
+            ui->statusbar->showMessage("待创建群聊还没有成员列表，请先进入创建", 2200);
+            return;
+        }
         QStringList members = groupId.isEmpty() ? QStringList{m_currentUserId} : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
         QStringList cards;
@@ -5404,8 +5438,15 @@ void MainWindow::onShowGroupNotifications() {
     });
     connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) return;
+        if (!current) {
+            ui->statusbar->showMessage("请先选择要复制在线成员的群聊", 1800);
+            return;
+        }
         QString groupId = current->data(Qt::UserRole).toString();
+        if (groupId.startsWith("group_create:")) {
+            ui->statusbar->showMessage("待创建群聊还没有在线成员，请先进入创建", 2200);
+            return;
+        }
         QStringList members = groupId.isEmpty() ? QStringList{m_currentUserId} : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
         QStringList cards;
