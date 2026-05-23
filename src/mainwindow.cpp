@@ -3243,6 +3243,13 @@ void MainWindow::onShowQuickAddFriend() {
             item->setSizeHint(QSize(0, 34));
             suggestionList->addItem(item);
         }
+        for (int i = 0; i < suggestionList->count(); ++i) {
+            QListWidgetItem* item = suggestionList->item(i);
+            if (item->flags().testFlag(Qt::ItemIsEnabled) && !item->data(Qt::UserRole).toString().isEmpty()) {
+                suggestionList->setCurrentRow(i);
+                break;
+            }
+        }
         QString previewId = firstPreviewId.isEmpty() ? filter : firstPreviewId;
         QString previewName = firstPreviewName.isEmpty() ? (previewId.isEmpty() ? "待搜索好友" : contactDisplayName(previewId)) : firstPreviewName;
         cardLabel->setText(QString("邀请预览：%1（QQ:%2）\n你好，我是 %3（QQ:%4），方便加个好友吗？")
