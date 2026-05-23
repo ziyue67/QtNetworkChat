@@ -1001,7 +1001,13 @@ void MainWindow::setupUi() {
         }
     });
     connect(ui->contactSearchEdit, &QLineEdit::returnPressed, this, [this]() {
-        searchAndAddAccount(ui->contactSearchEdit->text().trimmed(), this);
+        const QString text = ui->contactSearchEdit->text().trimmed();
+        if (text.isEmpty()) {
+            ui->contactSearchEdit->setFocus();
+            ui->statusbar->showMessage("请输入 QQ 号或关键词后再搜索", 1800);
+            return;
+        }
+        searchAndAddAccount(text, this);
     });
     connect(ui->globalSearchBtn, &QPushButton::clicked, this, [this]() {
         QString text = ui->contactSearchEdit->text().trimmed();
@@ -1061,13 +1067,19 @@ void MainWindow::setupUi() {
     connect(ui->memberSearchEdit, &QLineEdit::textChanged, this, [this]() { refreshGroupMemberPanel(); });
     connect(ui->memberSearchEdit, &QLineEdit::returnPressed, this, [this]() {
         QString text = ui->memberSearchEdit->text().trimmed();
-        if (text.isEmpty()) return;
+        if (text.isEmpty()) {
+            ui->memberSearchEdit->setFocus();
+            ui->statusbar->showMessage(m_privateChatTarget.startsWith("local_group_") ? "请输入 QQ 号后邀请入群" : "请输入 QQ 号或关键词后再搜索", 1800);
+            return;
+        }
         if (m_privateChatTarget.startsWith("local_group_")) {
             if (!m_localGroupMembers[m_privateChatTarget].contains(text)) {
                 m_localGroupMembers[m_privateChatTarget] << text;
                 saveLocalGroups();
                 refreshGroupMemberPanel();
                 appendSystemMessage("已按 QQ 号邀请入群: " + text);
+            } else {
+                ui->statusbar->showMessage("该 QQ 已在当前群聊中", 1800);
             }
         } else {
             searchAndAddAccount(text, this);
