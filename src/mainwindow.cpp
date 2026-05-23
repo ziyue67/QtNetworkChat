@@ -5167,6 +5167,7 @@ void MainWindow::onShowGroupNotifications() {
             emptyItem->setSizeHint(QSize(0, 76));
             noticeList->addItem(emptyItem);
         }
+        if (noticeList->count() > 0) noticeList->setCurrentRow(0);
     };
     fillGroups();
 
