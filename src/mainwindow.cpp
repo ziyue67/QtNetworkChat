@@ -3833,6 +3833,7 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
         }
         appendSystemMessage(QString("已发送好友申请 QQ:%1，等待对方同意").arg(userId));
         ui->statusbar->showMessage(QString("好友申请已发送给 %1").arg(displayName), 2500);
+        refreshFriendList();
     } else {
         ui->statusbar->showMessage(QString("QQ 账号 %1 当前离线，暂不能发送好友申请").arg(userId), 3000);
         appendSystemMessage(QString("QQ:%1 当前离线，未加入好友列表，可稍后重试").arg(userId));
@@ -3852,6 +3853,7 @@ void MainWindow::onFriendRequestSent(const QString& receiverId, bool delivered) 
         appendSystemMessage(QString("好友申请未送达 QQ:%1，对方当前离线").arg(receiverId));
         ui->statusbar->showMessage(QString("%1 当前离线，好友申请未送达").arg(userName), 3000);
     }
+    refreshFriendList();
 }
 
 void MainWindow::onFriendResponseReceived(const QString& senderId, const QString& senderName, bool accepted) {
@@ -4060,9 +4062,13 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
     QAction* removeAction = nullptr;
+    const bool hasPendingOutgoing = m_pendingOutgoingFriendRequests.contains(userId);
     if (m_friendIds.contains(userId)) {
         renameAction = menu.addAction("设置备注");
         removeAction = menu.addAction("删除好友");
+    } else if (hasPendingOutgoing) {
+        addAction = menu.addAction("好友申请待确认");
+        addAction->setEnabled(false);
     } else {
         addAction = menu.addAction("加为好友");
     }
@@ -4087,13 +4093,16 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             .arg(userId,
                  contactDisplayName(userId),
                  isContactOnline(userId) ? "在线" : "离线",
-                 m_friendIds.contains(userId) ? "好友" : "陌生人",
+                 m_friendIds.contains(userId) ? "好友" : (m_pendingOutgoingFriendRequests.contains(userId) ? "申请中" : "陌生人"),
                  m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
         QApplication::clipboard()->setText(card);
         ui->statusbar->showMessage("在线名片已复制", 2200);
     } else if (selected == copyChatStarterAction) {
         QString text = m_friendIds.contains(userId)
             ? QString("%1，在吗？我是 %2（QQ:%3），想和你私聊确认一下刚才的消息。")
+                .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
+            : m_pendingOutgoingFriendRequests.contains(userId)
+            ? QString("%1，你好，我是 %2（QQ:%3），我已经发送好友申请了，通过后我们可以继续私聊。")
                 .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
             : QString("你好 %1，我是 %2（QQ:%3）。通过 QQ 搜索看到你，方便先加好友再聊吗？")
                 .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId);
@@ -4125,13 +4134,21 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(userId, remark));
         }
     } else if (selected == addAction) {
+        if (m_pendingOutgoingFriendRequests.contains(userId)) {
+            ui->statusbar->showMessage(QString("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(userId)), 2500);
+            return;
+        }
         if (!m_friendIds.contains(userId)) {
-            m_friendIds << userId;
-            m_friendNames[userId] = userName;
-            saveFriends();
-            m_client->sendFriendRequest(userId);
+            const QString displayName = contactDisplayName(userId);
+            if (!m_client->sendFriendRequest(userId)) {
+                ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(displayName), 3000);
+                appendSystemMessage(QString("好友申请发送失败 QQ:%1，请检查连接后重试").arg(userId));
+                return;
+            }
+            m_friendNames[userId] = displayName;
+            m_pendingOutgoingFriendRequests << userId;
             refreshFriendList();
-            appendSystemMessage("已发送好友申请: " + userName);
+            appendSystemMessage(QString("已发送好友申请: %1（QQ:%2），等待对方同意").arg(displayName, userId));
         }
     } else if (selected == removeAction) {
         const QString displayName = contactDisplayName(userId);
@@ -5086,6 +5103,7 @@ void MainWindow::refreshFriendList() {
     int visibleGroups = 0;
     int visibleOnlineUsers = 0;
     int onlineFriendCount = 0;
+    int visiblePendingOutgoing = 0;
     int visibleStrangers = 0;
     auto matchesFilter = [this](const QString& id, const QString& name) {
         return m_contactFilter.isEmpty()
@@ -5128,18 +5146,23 @@ void MainWindow::refreshFriendList() {
             m_friendNames[user.id] = user.name;
             ++onlineFriendCount;
         }
-        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n   %3%4").arg(isFriend ? "★" : "○", user.id, user.name, isFriend ? " [在线]" : ""));
+        const bool isPending = m_pendingOutgoingFriendRequests.contains(user.id);
+        if (isPending && !isFriend) ++visiblePendingOutgoing;
+        const QString marker = isFriend ? "★" : "○";
+        const QString stateSuffix = isFriend ? " [在线]" : (isPending ? " [申请中]" : "");
+        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n   %3%4").arg(marker, user.id, user.name, stateSuffix));
         item->setData(user.id, Qt::UserRole + 1);
-        item->setForeground(isFriend ? Qt::white : QColor(220, 240, 255));
+        item->setForeground(isFriend ? Qt::white : (isPending ? QColor(255, 225, 160) : QColor(220, 240, 255)));
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleOnlineUsers;
-        if (!isFriend) ++visibleStrangers;
+        if (!isFriend && !isPending) ++visibleStrangers;
     }
 
+    const QString pendingPart = visiblePendingOutgoing > 0 ? QString(" · 申请中%1").arg(visiblePendingOutgoing) : QString();
     ui->onlineTitleLabel->setText(m_contactFilter.isEmpty()
-        ? QString("联系人 · 好友%1/%2在线 · 群聊%3 · 陌生人%4").arg(onlineFriendCount).arg(m_friendIds.size()).arg(visibleGroups).arg(visibleStrangers)
-        : QString("联系人 · 匹配%1 · 好友%2 · 群聊%3 · 在线%4 · 陌生人%5").arg(visibleCount).arg(visibleFriends + onlineFriendCount).arg(visibleGroups).arg(visibleOnlineUsers).arg(visibleStrangers));
+        ? QString("联系人 · 好友%1/%2在线 · 群聊%3%4 · 陌生人%5").arg(onlineFriendCount).arg(m_friendIds.size()).arg(visibleGroups).arg(pendingPart).arg(visibleStrangers)
+        : QString("联系人 · 匹配%1 · 好友%2 · 群聊%3 · 在线%4%5 · 陌生人%6").arg(visibleCount).arg(visibleFriends + onlineFriendCount).arg(visibleGroups).arg(visibleOnlineUsers).arg(pendingPart).arg(visibleStrangers));
 
     if (visibleCount == 0 && !m_contactFilter.isEmpty()) {
         QStandardItem* addItem = new QStandardItem(QString("搜索并添加 QQ:%1\n   回车或双击自动查找好友").arg(m_contactFilter));
