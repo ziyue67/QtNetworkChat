@@ -103,16 +103,21 @@ QString extractSavePathFromChatText(const QString& text) {
     return savePath;
 }
 
-bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& kind) {
+bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& kind, QString* failureMessage = nullptr) {
     constexpr qint64 warningBytes = 20LL * 1024 * 1024;
     constexpr qint64 maxBytes = 80LL * 1024 * 1024;
+    auto setFailure = [failureMessage](const QString& text) {
+        if (failureMessage) *failureMessage = text;
+    };
 
     if (!info.exists() || !info.isFile()) {
         QMessageBox::warning(parent, "无法发送", "请选择一个可读取的本地文件。");
+        setFailure(QString("%1发送失败：文件不可读取").arg(kind));
         return false;
     }
     if (info.size() <= 0) {
         QMessageBox::warning(parent, "无法发送", "文件为空，已取消发送。");
+        setFailure(QString("%1发送失败：文件为空").arg(kind));
         return false;
     }
     if (info.size() > maxBytes) {
@@ -120,15 +125,18 @@ bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& 
                              "文件过大",
                              QString("%1大小为 %2，超过当前 80 MB 的安全发送上限。")
                                  .arg(kind, humanFileSize(info.size())));
+        setFailure(QString("%1发送失败：超过 80 MB").arg(kind));
         return false;
     }
     if (info.size() > warningBytes) {
-        return QMessageBox::question(parent,
-                                     "确认发送大文件",
-                                     QString("%1大小为 %2，发送时可能需要等待一会儿，是否继续？")
-                                         .arg(kind, humanFileSize(info.size())),
-                                     QMessageBox::Yes | QMessageBox::No,
-                                     QMessageBox::No) == QMessageBox::Yes;
+        const bool confirmed = QMessageBox::question(parent,
+                                                     "确认发送大文件",
+                                                     QString("%1大小为 %2，发送时可能需要等待一会儿，是否继续？")
+                                                         .arg(kind, humanFileSize(info.size())),
+                                                     QMessageBox::Yes | QMessageBox::No,
+                                                     QMessageBox::No) == QMessageBox::Yes;
+        if (!confirmed) setFailure(QString("已取消发送%1").arg(kind));
+        return confirmed;
     }
     return true;
 }
@@ -1622,7 +1630,11 @@ void MainWindow::onSendFile() {
     }
 
     QFileInfo info(filePath);
-    if (!confirmTransferFile(this, info, "文件")) return;
+    QString failureMessage;
+    if (!confirmTransferFile(this, info, "文件", &failureMessage)) {
+        if (!failureMessage.isEmpty()) ui->statusbar->showMessage(failureMessage, 2600);
+        return;
+    }
 
     QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const QString fileSize = humanFileSize(info.size());
@@ -1693,7 +1705,11 @@ void MainWindow::onSendImage() {
     }
 
     QFileInfo info(filePath);
-    if (!confirmTransferFile(this, info, "媒体文件")) return;
+    QString failureMessage;
+    if (!confirmTransferFile(this, info, "媒体文件", &failureMessage)) {
+        if (!failureMessage.isEmpty()) ui->statusbar->showMessage(failureMessage, 2600);
+        return;
+    }
 
     const QString suffix = info.suffix().toLower();
     const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
