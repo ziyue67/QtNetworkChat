@@ -265,12 +265,15 @@ void Server::handleMessage(const QJsonObject& obj) {
     msg.receiverId = obj["receiverId"].toString();
     msg.timestamp = QDateTime::currentDateTime();
 
+    QString deliveryState = "broadcast";
     if (!msg.receiverId.isEmpty()) {
+        QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
+        deliveryState = targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState ? "direct" : "offline";
         sendToUser(msg);
     } else {
         broadcastMessage(msg);
     }
-    saveMessageToSqlite(msg, msg.receiverId.isEmpty() ? "broadcast" : "direct");
+    saveMessageToSqlite(msg, deliveryState);
 
     emit newMessage(msg);
 }
@@ -348,12 +351,15 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         msg.fileData = QByteArray::fromBase64(base64Data.toLatin1());
     }
 
+    QString deliveryState = "broadcast";
     if (!msg.receiverId.isEmpty()) {
+        QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
+        deliveryState = targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState ? "direct" : "offline";
         sendToUser(msg);
     } else {
         broadcastMessage(msg);
     }
-    saveMessageToSqlite(msg, msg.receiverId.isEmpty() ? "broadcast" : "direct");
+    saveMessageToSqlite(msg, deliveryState);
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {
@@ -607,7 +613,6 @@ void Server::saveOfflineMessage(const Message& msg) const {
     }
     const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact);
 
-    saveMessageToSqlite(msg, "offline");
     bool savedToSqlite = false;
     if (ensureAccountDatabase()) {
         QString connectionName = "offline_write_" + QString::number(reinterpret_cast<quintptr>(this));
