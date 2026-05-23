@@ -3768,9 +3768,15 @@ void MainWindow::onShowFriendManager() {
 
     auto openSelectedFriend = [this, &dialog, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) return;
+        if (!selected) {
+            ui->statusbar->showMessage("请先选择要发消息的好友", 1800);
+            return;
+        }
         QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty()) return;
+        if (id.isEmpty()) {
+            ui->statusbar->showMessage("暂无可打开的好友会话", 1800);
+            return;
+        }
         if (id.startsWith("search_add:")) {
             dialog.accept();
             searchAndAddAccount(id.mid(QString("search_add:").size()), this);
@@ -3784,6 +3790,7 @@ void MainWindow::onShowFriendManager() {
         ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
         ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
         refreshComposerState();
+        ui->statusbar->showMessage(QString("已打开与 %1 的私聊").arg(contactDisplayName(id)), 1800);
     };
 
     auto updateSelectionPreview = [this, friendList, selectionPreviewLabel]() {
@@ -4013,9 +4020,15 @@ void MainWindow::onShowFriendManager() {
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) return;
+        if (!selected) {
+            ui->statusbar->showMessage("请先选择要备注的好友", 1800);
+            return;
+        }
         QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        if (id.isEmpty() || id.startsWith("search_add:")) {
+            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+            return;
+        }
         bool ok = false;
         const QString oldRemark = contactDisplayName(id);
         QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, oldRemark, &ok).trimmed();
@@ -4038,9 +4051,15 @@ void MainWindow::onShowFriendManager() {
     });
     connect(inviteBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) return;
+        if (!selected) {
+            ui->statusbar->showMessage("请先选择要邀请入群的好友", 1800);
+            return;
+        }
         QString friendId = selected->data(Qt::UserRole).toString();
-        if (friendId.isEmpty() || friendId.startsWith("search_add:")) return;
+        if (friendId.isEmpty() || friendId.startsWith("search_add:")) {
+            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+            return;
+        }
         if (m_localGroupIds.isEmpty()) {
             QString groupName = "我的群聊";
             QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
@@ -4050,9 +4069,11 @@ void MainWindow::onShowFriendManager() {
             m_localGroupMembers[groupId] = QStringList{m_currentUserId};
         }
         QString targetGroup = m_privateChatTarget.startsWith("local_group_") ? m_privateChatTarget : m_localGroupIds.last();
-        if (!m_localGroupMembers[targetGroup].contains(friendId)) {
-            m_localGroupMembers[targetGroup] << friendId;
+        if (m_localGroupMembers[targetGroup].contains(friendId)) {
+            ui->statusbar->showMessage(QString("%1 已在目标群聊中").arg(contactDisplayName(friendId)), 1800);
+            return;
         }
+        m_localGroupMembers[targetGroup] << friendId;
         saveLocalGroups();
         refreshFriendList();
         switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
@@ -4107,9 +4128,15 @@ void MainWindow::onShowFriendManager() {
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit, &dialog]() {
         QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) return;
+        if (!selected) {
+            ui->statusbar->showMessage("请先选择要删除的好友", 1800);
+            return;
+        }
         QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) return;
+        if (id.isEmpty() || id.startsWith("search_add:")) {
+            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+            return;
+        }
         QString displayName = contactDisplayName(id);
         if (QMessageBox::question(&dialog,
                                   "删除好友",
@@ -4124,6 +4151,7 @@ void MainWindow::onShowFriendManager() {
         saveFriends();
         refreshFriendList();
         fillList(searchEdit->text().trimmed());
+        ui->statusbar->showMessage(QString("已删除好友：%1").arg(displayName), 2200);
         appendSystemMessage(QString("已删除好友: %1（QQ:%2）").arg(displayName, id));
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
