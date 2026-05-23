@@ -147,17 +147,17 @@ private:
 
         setStyleSheet(R"(
             QDialog#qqLoginDialog {
-                background: #ECF8FF;
+                background: #EFF6FA;
                 font-family: "Microsoft YaHei", "Segoe UI";
+                color: #253342;
             }
             QFrame#qqHeader {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFF5FF, stop:0.55 #DDF5FF, stop:1 #C6ECFF);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F6FEFF, stop:0.52 #DDF7F5, stop:1 #DCE8FF);
             }
             QLabel#brandLabel {
-                color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #65D6FF, stop:1 #B58CFF);
+                color: #168BE8;
                 font-size: 28px;
                 font-weight: 900;
-                letter-spacing: -3px;
             }
             QPushButton#windowCloseBtn {
                 background: transparent;
@@ -167,40 +167,40 @@ private:
                 font-weight: 300;
             }
             QPushButton#windowCloseBtn:hover {
-                background: rgba(255, 255, 255, 90);
+                background: rgba(255, 255, 255, 120);
                 border-radius: 14px;
             }
             QLabel#qqAvatar {
                 background: white;
-                color: #12B7F5;
+                color: #168BE8;
                 border: 3px solid rgba(255, 255, 255, 220);
                 border-radius: 46px;
                 font-size: 42px;
                 font-weight: 900;
             }
             QLabel#qqTitle {
-                color: #202B3D;
+                color: #203144;
                 font-size: 17px;
                 font-weight: 600;
                 padding-top: 14px;
             }
             QFrame#qqFormCard {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F7FCFF, stop:1 #E7F7FF);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFFFFF, stop:1 #F0F8FB);
             }
             QLineEdit#qqInput {
                 min-height: 38px;
                 border: none;
-                border-bottom: 1px solid rgba(102, 156, 190, 90);
+                border-bottom: 1px solid rgba(104, 143, 174, 100);
                 padding: 4px 6px;
                 background: transparent;
-                color: #1F2D3D;
+                color: #253342;
                 font-size: 14px;
             }
             QLineEdit#qqInput:focus {
-                border-bottom: 2px solid #1296F7;
+                border-bottom: 2px solid #17A8F3;
             }
             QCheckBox {
-                color: #8AA0B2;
+                color: #718395;
                 font-size: 12px;
                 spacing: 6px;
             }
@@ -208,7 +208,7 @@ private:
                 margin-top: 2px;
             }
             QPushButton#primaryBtn {
-                background: #1296F7;
+                background: #18A8F2;
                 color: white;
                 border: none;
                 border-radius: 7px;
@@ -216,11 +216,14 @@ private:
                 font-weight: 600;
             }
             QPushButton#primaryBtn:hover {
-                background: #0688EA;
+                background: #0E95DF;
+            }
+            QPushButton#primaryBtn:pressed {
+                background: #0B7EC6;
             }
             QPushButton#linkBtn {
                 background: transparent;
-                color: #159CE8;
+                color: #1679CA;
                 border: none;
                 padding: 6px 10px;
                 font-size: 13px;
@@ -420,11 +423,12 @@ int main(int argc, char *argv[])
 
     modeDialog->setStyleSheet(R"(
         QDialog#modeDialog {
-            background: #EEF7FF;
+            background: #EFF6FA;
             font-family: "Microsoft YaHei", "Segoe UI";
+            color: #253342;
         }
         QFrame#modeCard {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFF5FF, stop:0.55 #DDF5FF, stop:1 #C6ECFF);
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F6FEFF, stop:0.52 #DDF7F5, stop:1 #DCE8FF);
         }
         QPushButton#topIconBtn {
             background: transparent;
@@ -433,37 +437,36 @@ int main(int argc, char *argv[])
             font-size: 17px;
         }
         QPushButton#topIconBtn:hover {
-            background: rgba(255, 255, 255, 90);
+            background: rgba(255, 255, 255, 120);
             border-radius: 14px;
         }
         QLabel#logoLabel {
-            color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #65D6FF, stop:1 #B58CFF);
+            color: #168BE8;
             font-size: 30px;
             font-weight: 900;
-            letter-spacing: -3px;
         }
         QLabel#avatarLabel {
             background: white;
-            color: #12B7F5;
+            color: #168BE8;
             border: 3px solid rgba(255, 255, 255, 220);
             border-radius: 46px;
             font-size: 42px;
             font-weight: 900;
         }
         QLabel#accountNameLabel {
-            color: #202B3D;
+            color: #203144;
             font-size: 17px;
             font-weight: 600;
             padding-top: 16px;
             padding-bottom: 8px;
         }
         QCheckBox#autoLoginCheck {
-            color: #8AA0B2;
+            color: #718395;
             font-size: 12px;
             spacing: 6px;
         }
         QPushButton#primaryBtn {
-            background: #1296F7;
+            background: #18A8F2;
             color: white;
             border: none;
             border-radius: 7px;
@@ -471,11 +474,14 @@ int main(int argc, char *argv[])
             font-weight: 600;
         }
         QPushButton#primaryBtn:hover {
-            background: #0688EA;
+            background: #0E95DF;
+        }
+        QPushButton#primaryBtn:pressed {
+            background: #0B7EC6;
         }
         QPushButton#linkBtn {
             background: transparent;
-            color: #168DE8;
+            color: #1679CA;
             border: none;
             padding: 5px 6px;
             font-size: 13px;
@@ -485,7 +491,7 @@ int main(int argc, char *argv[])
             text-decoration: underline;
         }
         QLabel#splitLabel {
-            color: #7CA8C8;
+            color: #8BA6BC;
         }
     )");
     QObject::connect(closeBtn, &QPushButton::clicked, modeDialog, &QDialog::reject);

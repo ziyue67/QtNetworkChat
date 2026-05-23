@@ -19,6 +19,9 @@
 #include <QStatusBar>
 #include <QPixmap>
 #include <QImage>
+#include <QPainter>
+#include <QLinearGradient>
+#include <QPolygonF>
 #include <QRegularExpression>
 #include <QKeyEvent>
 #include <QLineEdit>
@@ -29,6 +32,55 @@
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QTabWidget>
+
+namespace {
+QIcon createChatIcon(const QString& seedText = QString()) {
+    QIcon icon;
+    const int sizes[] = {16, 24, 32, 48, 64, 128};
+    for (int size : sizes) {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+
+        QLinearGradient gradient(0, 0, size, size);
+        gradient.setColorAt(0.0, QColor("#2BD8C5"));
+        gradient.setColorAt(0.55, QColor("#17A8F3"));
+        gradient.setColorAt(1.0, QColor("#6C5CE7"));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(gradient);
+        painter.drawRoundedRect(QRectF(size * 0.08, size * 0.10, size * 0.84, size * 0.72), size * 0.24, size * 0.24);
+
+        QPolygonF tail;
+        tail << QPointF(size * 0.36, size * 0.78)
+             << QPointF(size * 0.29, size * 0.94)
+             << QPointF(size * 0.54, size * 0.80);
+        painter.drawPolygon(tail);
+
+        painter.setBrush(QColor(255, 255, 255, 235));
+        const qreal dot = qMax(2.0, size * 0.10);
+        painter.drawEllipse(QPointF(size * 0.36, size * 0.45), dot, dot);
+        painter.drawEllipse(QPointF(size * 0.50, size * 0.45), dot, dot);
+        painter.drawEllipse(QPointF(size * 0.64, size * 0.45), dot, dot);
+
+        if (size >= 48 && !seedText.trimmed().isEmpty()) {
+            QFont font = painter.font();
+            font.setFamily("Microsoft YaHei");
+            font.setBold(true);
+            font.setPixelSize(static_cast<int>(size * 0.28));
+            painter.setFont(font);
+            painter.setPen(QColor(255, 255, 255, 245));
+            painter.drawText(QRectF(size * 0.08, size * 0.12, size * 0.84, size * 0.54),
+                             Qt::AlignCenter,
+                             seedText.left(1).toUpper());
+        }
+
+        icon.addPixmap(pixmap);
+    }
+    return icon;
+}
+}
 
 MainWindow::MainWindow(Client* client, const QString& userId, const QString& userName, QWidget* parent)
     : QMainWindow(parent)
@@ -45,6 +97,8 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_isQuitting(false)
 {
     ui->setupUi(this);
+    setMinimumSize(980, 680);
+    setWindowIcon(createChatIcon(userName));
     setupUi();
     setupTray();
 
@@ -82,6 +136,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
 
     m_currentUserId = m_client->currentUserId();
     m_currentUserName = m_client->currentUserName();
+    setWindowIcon(createChatIcon(m_currentUserName));
     ui->profileNameLabel->setText("QQ: " + m_currentUserId);
     ui->profileIdLabel->setText("昵称: " + m_currentUserName);
     ui->addFriendBtn->hide();
@@ -129,24 +184,23 @@ void MainWindow::setupUi() {
     ui->mentionBtn->setObjectName("iconToolBtn");
     setStyleSheet(R"(
         QMainWindow, QWidget#centralwidget {
-            background: #EEF3F8;
+            background: #EEF4F7;
             font-family: "Microsoft YaHei", "Segoe UI";
             font-size: 13px;
-            color: #263238;
+            color: #253342;
         }
         QFrame#sidePanel {
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #18C1F7, stop:0.55 #0B9DE8, stop:1 #0877C9);
+            background: qlineargradient(x1:0, y1:0, x2:0.9, y2:1, stop:0 #20D6C5, stop:0.44 #149EE9, stop:1 #5B5CE2);
         }
         QLabel#appTitleLabel {
             color: white;
             font-size: 21px;
             font-weight: 800;
             padding-bottom: 2px;
-            letter-spacing: 1px;
         }
         QLabel#avatarLabel {
             background: white;
-            color: #0B8DDF;
+            color: #1289DF;
             border-radius: 36px;
             font-size: 30px;
             font-weight: 700;
@@ -154,8 +208,8 @@ void MainWindow::setupUi() {
             margin-right: 63px;
         }
         QFrame#profileCard {
-            background: rgba(255, 255, 255, 42);
-            border: 1px solid rgba(255, 255, 255, 70);
+            background: rgba(255, 255, 255, 48);
+            border: 1px solid rgba(255, 255, 255, 86);
             border-radius: 14px;
         }
         QLabel#profileNameLabel {
@@ -168,8 +222,8 @@ void MainWindow::setupUi() {
             font-size: 12px;
         }
         QPushButton#copyAccountBtn, QPushButton#addFriendBtn, QPushButton#friendManagerBtn, QPushButton#groupChatBtn, QPushButton#uploadAvatarBtn {
-            background: rgba(255, 255, 255, 225);
-            color: #0B8DDF;
+            background: rgba(255, 255, 255, 232);
+            color: #1278D4;
             border: none;
             border-radius: 11px;
             min-height: 28px;
@@ -186,8 +240,8 @@ void MainWindow::setupUi() {
             padding-top: 8px;
         }
         QPushButton#friendNoticeBtn, QPushButton#groupNoticeBtn {
-            background: rgba(255, 255, 255, 225);
-            color: #0B8DDF;
+            background: rgba(255, 255, 255, 232);
+            color: #1278D4;
             border: none;
             border-radius: 13px;
             min-height: 28px;
@@ -199,15 +253,15 @@ void MainWindow::setupUi() {
         }
         QLineEdit#contactSearchEdit {
             background: rgba(255, 255, 255, 235);
-            color: #263238;
+            color: #253342;
             border: 1px solid rgba(255, 255, 255, 105);
             border-radius: 15px;
             min-height: 30px;
             padding: 3px 12px;
         }
         QPushButton#globalSearchBtn, QPushButton#createMenuBtn {
-            background: rgba(255, 255, 255, 225);
-            color: #0B8DDF;
+            background: rgba(255, 255, 255, 232);
+            color: #1278D4;
             border: none;
             border-radius: 15px;
             min-height: 30px;
@@ -226,12 +280,13 @@ void MainWindow::setupUi() {
             border: 1px solid white;
         }
         QListView#userListView {
-            background: rgba(255, 255, 255, 38);
+            background: rgba(255, 255, 255, 42);
             color: white;
-            border: 1px solid rgba(255, 255, 255, 70);
+            border: 1px solid rgba(255, 255, 255, 78);
             border-radius: 16px;
             padding: 6px;
             outline: none;
+            alternate-background-color: rgba(255, 255, 255, 18);
         }
         QListView#userListView::item {
             height: 48px;
@@ -239,50 +294,53 @@ void MainWindow::setupUi() {
             padding-left: 8px;
         }
         QListView#userListView::item:selected, QListView#userListView::item:hover {
-            background: rgba(255, 255, 255, 75);
+            background: rgba(255, 255, 255, 86);
         }
         QFrame#chatHeader, QFrame#inputPanel, QListView#chatListView {
-            background: white;
-            border: 1px solid #DCE8F2;
+            background: #FFFFFF;
+            border: 1px solid #DDE8F0;
             border-radius: 18px;
         }
         QFrame#chatPanel {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #EEF5FB, stop:1 #F7FAFD);
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F3F8FB, stop:0.56 #F8FBFD, stop:1 #EEF8F5);
         }
         QFrame#groupInfoPanel {
-            background: #F7FAFD;
-            border-left: 1px solid #E4EBF2;
+            background: #F8FBFC;
+            border-left: 1px solid #E1EAF1;
         }
         QFrame#announcementCard {
             background: white;
-            border: 1px solid #E4EBF2;
+            border: 1px solid #E2EAF1;
             border-radius: 14px;
         }
         QLabel#announcementTitleLabel, QLabel#memberTitleLabel {
-            color: #1F2D3D;
+            color: #203144;
             font-size: 14px;
             font-weight: 800;
         }
         QLabel#announcementTitleLabel a {
-            color: #1296F7;
+            color: #168BE8;
             text-decoration: none;
         }
         QLabel#announcementBodyLabel {
-            color: #7B8A99;
+            color: #6E7F90;
             font-size: 12px;
             line-height: 18px;
         }
         QLineEdit#memberSearchEdit {
             background: white;
-            color: #263238;
-            border: 1px solid #DDE7F0;
+            color: #253342;
+            border: 1px solid #DAE6EF;
             border-radius: 15px;
             min-height: 30px;
             padding: 3px 12px;
         }
+        QLineEdit#memberSearchEdit:focus {
+            border: 1px solid #17A8F3;
+        }
         QListView#groupMemberListView {
             background: white;
-            border: 1px solid #E4EBF2;
+            border: 1px solid #E1EAF1;
             border-radius: 14px;
             padding: 6px;
             outline: none;
@@ -294,14 +352,15 @@ void MainWindow::setupUi() {
         }
         QListView#groupMemberListView::item:selected, QListView#groupMemberListView::item:hover {
             background: #EAF7FF;
+            color: #166BAF;
         }
         QLabel#chatTitleLabel {
-            color: #1F2D3D;
+            color: #203144;
             font-size: 18px;
             font-weight: 700;
         }
         QLabel#chatHintLabel {
-            color: #8A99A8;
+            color: #7F8D9B;
             font-size: 12px;
         }
         QListView#chatListView {
@@ -315,37 +374,54 @@ void MainWindow::setupUi() {
             border-radius: 14px;
         }
         QListView#chatListView::item:hover {
-            background: #F3F8FC;
+            background: #F2F8FC;
         }
         QTextEdit#messageEdit {
             background: #F9FBFD;
-            border: 1px solid #DDE7F0;
+            border: 1px solid #DAE6EF;
             border-radius: 14px;
             padding: 8px 10px;
             selection-background-color: #17B8F2;
+            selection-color: white;
+        }
+        QTextEdit#messageEdit:focus {
+            background: white;
+            border: 1px solid #17A8F3;
         }
         QPushButton {
-            background: #EFF5FA;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
+            background: #F1F6FA;
+            color: #34495B;
+            border: 1px solid #D2E0EA;
             border-radius: 12px;
             padding: 7px 14px;
         }
         QPushButton:hover {
-            background: #E5F0F8;
+            background: #E8F2F9;
+            border-color: #BBD3E5;
+        }
+        QPushButton:pressed {
+            background: #DCEBF5;
+        }
+        QPushButton:disabled {
+            background: #EEF2F5;
+            color: #A5B1BC;
+            border-color: #E0E7ED;
         }
         QPushButton#sendBtn {
-            background: #12B7F5;
+            background: #18A8F2;
             color: white;
             border: none;
             font-weight: 700;
         }
         QPushButton#sendBtn:hover {
-            background: #0AA4E5;
+            background: #0E95DF;
+        }
+        QPushButton#sendBtn:pressed {
+            background: #0B7EC6;
         }
         QPushButton#toolBtn, QPushButton#iconToolBtn {
             background: transparent;
-            color: #52616F;
+            color: #516274;
             border: none;
             border-radius: 14px;
             padding: 5px 10px;
@@ -359,14 +435,79 @@ void MainWindow::setupUi() {
         }
         QPushButton#toolBtn:hover, QPushButton#iconToolBtn:hover {
             background: #EAF7FF;
-            color: #1296F7;
+            color: #168BE8;
         }
         QPushButton#clearBtn {
             color: #D35454;
         }
+        QMenuBar {
+            background: #F8FBFD;
+            color: #435367;
+            border-bottom: 1px solid #DDE8F0;
+            spacing: 4px;
+        }
+        QMenuBar::item {
+            background: transparent;
+            padding: 5px 10px;
+            border-radius: 6px;
+        }
+        QMenuBar::item:selected {
+            background: #EAF4FB;
+            color: #1679CA;
+        }
+        QMenu {
+            background: #FFFFFF;
+            color: #253342;
+            border: 1px solid #D7E3EC;
+            border-radius: 8px;
+            padding: 6px;
+        }
+        QMenu::item {
+            padding: 7px 24px 7px 12px;
+            border-radius: 6px;
+        }
+        QMenu::item:selected {
+            background: #EAF7FF;
+            color: #1679CA;
+        }
+        QMenu::separator {
+            height: 1px;
+            background: #E7EEF4;
+            margin: 6px 4px;
+        }
+        QToolTip {
+            background: #203144;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 8px;
+        }
+        QScrollBar:vertical {
+            background: transparent;
+            width: 10px;
+            margin: 4px 2px 4px 2px;
+        }
+        QScrollBar::handle:vertical {
+            background: #C5D7E5;
+            border-radius: 5px;
+            min-height: 36px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background: #9FBCD2;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: transparent;
+            height: 0px;
+        }
         QStatusBar {
-            background: #EEF3F8;
-            color: #607080;
+            background: #EEF4F7;
+            color: #5F7183;
+            border-top: 1px solid #DCE7EF;
+            padding-left: 6px;
+        }
+        QStatusBar::item {
+            border: none;
         }
     )");
 
@@ -998,7 +1139,7 @@ void MainWindow::setupTray() {
 
     m_trayIcon->setContextMenu(m_trayMenu);
     m_trayIcon->setToolTip("QtNetworkChat");
-    m_trayIcon->setIcon(QIcon(":/icons/chat.png"));
+    m_trayIcon->setIcon(windowIcon().isNull() ? createChatIcon(m_currentUserName) : windowIcon());
 
     connect(showAction, &QAction::triggered, this, [this]() {
         this->show();
