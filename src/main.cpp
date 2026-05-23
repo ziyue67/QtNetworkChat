@@ -18,6 +18,10 @@
 #include <QSettings>
 #include <QButtonGroup>
 #include <QStyle>
+#include <QStandardPaths>
+#include <QDir>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 
 class LoginDialog : public QDialog {
 public:
@@ -302,25 +306,118 @@ private:
 
     void loadSettings() {
         if (m_isServer) return;
+        if (loadLoginFromSqlite()) return;
+
         QSettings settings("QtNetworkChat", "QtNetworkChat");
         const bool rememberPassword = settings.value("login/remember", false).toBool();
         m_accountEdit->setText(settings.value("login/account").toString());
         m_passwordEdit->setText(rememberPassword ? settings.value("login/password").toString() : QString());
         m_nameEdit->setText(settings.value("login/name").toString());
         m_rememberCheck->setChecked(rememberPassword);
+        saveLoginToSqlite();
     }
 
     void saveSettings() {
         if (m_registerMode || !m_rememberCheck) return;
+        if (!saveLoginToSqlite()) {
+            QSettings fallback("QtNetworkChat", "QtNetworkChat");
+            fallback.setValue("login/account", m_accountEdit->text().trimmed());
+            fallback.setValue("login/name", m_nameEdit->text().trimmed());
+            fallback.setValue("login/remember", m_rememberCheck->isChecked());
+            if (m_rememberCheck->isChecked()) {
+                fallback.setValue("login/password", m_passwordEdit->text());
+            } else {
+                fallback.remove("login/password");
+            }
+            return;
+        }
+
         QSettings settings("QtNetworkChat", "QtNetworkChat");
         settings.setValue("login/account", m_accountEdit->text().trimmed());
         settings.setValue("login/name", m_nameEdit->text().trimmed());
         settings.setValue("login/remember", m_rememberCheck->isChecked());
-        if (m_rememberCheck->isChecked()) {
-            settings.setValue("login/password", m_passwordEdit->text());
-        } else {
-            settings.remove("login/password");
+        settings.remove("login/password");
+    }
+
+    QString loginDbPath() const {
+        QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        if (dir.isEmpty()) dir = ".";
+        QDir().mkpath(dir);
+        return dir + "/login_accounts.sqlite3";
+    }
+
+    bool ensureLoginDatabase() const {
+        const QString connectionName = "login_accounts_init_" + QString::number(reinterpret_cast<quintptr>(this));
+        bool ok = false;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(loginDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                ok = query.exec("CREATE TABLE IF NOT EXISTS login_accounts ("
+                                "account TEXT PRIMARY KEY, "
+                                "user_name TEXT, "
+                                "password TEXT, "
+                                "remember_password INTEGER DEFAULT 0, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                db.close();
+            }
         }
+        QSqlDatabase::removeDatabase(connectionName);
+        return ok;
+    }
+
+    bool loadLoginFromSqlite() {
+        if (!ensureLoginDatabase()) return false;
+
+        const QString connectionName = "login_accounts_read_" + QString::number(reinterpret_cast<quintptr>(this));
+        bool loaded = false;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(loginDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                if (query.exec("SELECT account, user_name, password, remember_password FROM login_accounts ORDER BY updated_at DESC LIMIT 1")
+                    && query.next()) {
+                    const bool rememberPassword = query.value(3).toInt() != 0;
+                    m_accountEdit->setText(query.value(0).toString());
+                    m_nameEdit->setText(query.value(1).toString());
+                    m_passwordEdit->setText(rememberPassword ? query.value(2).toString() : QString());
+                    m_rememberCheck->setChecked(rememberPassword);
+                    loaded = true;
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+        return loaded;
+    }
+
+    bool saveLoginToSqlite() const {
+        if (!ensureLoginDatabase()) return false;
+
+        const QString account = m_accountEdit->text().trimmed();
+        if (account.isEmpty()) return true;
+
+        const QString connectionName = "login_accounts_write_" + QString::number(reinterpret_cast<quintptr>(this));
+        bool ok = false;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(loginDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                query.prepare("INSERT OR REPLACE INTO login_accounts(account, user_name, password, remember_password, updated_at) "
+                              "VALUES(?, ?, ?, ?, datetime('now'))");
+                query.addBindValue(account);
+                query.addBindValue(m_nameEdit->text().trimmed());
+                query.addBindValue(m_rememberCheck && m_rememberCheck->isChecked() ? m_passwordEdit->text() : QString());
+                query.addBindValue(m_rememberCheck && m_rememberCheck->isChecked() ? 1 : 0);
+                ok = query.exec();
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+        return ok;
     }
 
     bool m_isServer;
