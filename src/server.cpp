@@ -28,6 +28,7 @@ Server::~Server() {
 }
 
 bool Server::start(quint16 port) {
+    ensureAccountDatabase();
     if (m_tcpServer->listen(QHostAddress::Any, port)) {
         m_serverPort = port;
         qDebug() << "Server started on port" << port;
@@ -112,6 +113,7 @@ void Server::onClientDisconnected() {
 
     ChatUser* user = findUserBySocket(socket);
     if (user) {
+        recordUserSessionToSqlite(*user, "logout");
         QString userId = user->id;
         QString userName = user->name;
         m_userSockets.remove(userId);
@@ -222,6 +224,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     m_clients[socket] = user;
     m_userSockets[user.id] = socket;
     m_usedNames.insert(userName);
+    recordUserSessionToSqlite(user, "login");
 
     QJsonObject response;
     response["type"] = "login_success";
@@ -267,6 +270,7 @@ void Server::handleMessage(const QJsonObject& obj) {
     } else {
         broadcastMessage(msg);
     }
+    saveMessageToSqlite(msg, msg.receiverId.isEmpty() ? "broadcast" : "direct");
 
     emit newMessage(msg);
 }
@@ -349,6 +353,7 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     } else {
         broadcastMessage(msg);
     }
+    saveMessageToSqlite(msg, msg.receiverId.isEmpty() ? "broadcast" : "direct");
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {
@@ -441,6 +446,60 @@ bool Server::insertAccountToSqlite(const QString& account, const QString& passwo
     return ok;
 }
 
+bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const {
+    if (!ensureAccountDatabase()) return false;
+
+    QString connectionName = "sessions_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT INTO user_sessions(user_id, user_name, event_name, peer_address, peer_port, created_at) "
+                          "VALUES(?, ?, ?, ?, ?, datetime('now'))");
+            query.addBindValue(user.id);
+            query.addBindValue(user.name);
+            query.addBindValue(eventName);
+            query.addBindValue(user.address.toString());
+            query.addBindValue(user.port);
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryState) const {
+    if (!ensureAccountDatabase()) return false;
+
+    QString connectionName = "messages_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT INTO messages(message_type, sender_id, sender_name, receiver_id, content, file_name, file_size, delivery_state, created_at) "
+                          "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            query.addBindValue(static_cast<int>(msg.type));
+            query.addBindValue(msg.senderId);
+            query.addBindValue(msg.senderName);
+            query.addBindValue(msg.receiverId);
+            query.addBindValue(msg.content);
+            query.addBindValue(msg.fileName);
+            query.addBindValue(msg.fileData.size());
+            query.addBindValue(deliveryState);
+            query.addBindValue(msg.timestamp.toUTC().toString(Qt::ISODate));
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
 bool Server::ensureAccountDatabase() const {
     QString connectionName = "accounts_init_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
@@ -455,6 +514,41 @@ bool Server::ensureAccountDatabase() const {
                             "user_name TEXT NOT NULL, "
                             "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
                             "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS user_sessions ("
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                "user_id TEXT NOT NULL, "
+                                "user_name TEXT NOT NULL, "
+                                "event_name TEXT NOT NULL, "
+                                "peer_address TEXT, "
+                                "peer_port INTEGER, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS messages ("
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                "message_type INTEGER NOT NULL, "
+                                "sender_id TEXT, "
+                                "sender_name TEXT, "
+                                "receiver_id TEXT, "
+                                "content TEXT, "
+                                "file_name TEXT, "
+                                "file_size INTEGER DEFAULT 0, "
+                                "delivery_state TEXT NOT NULL, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS offline_messages ("
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                "receiver_id TEXT NOT NULL, "
+                                "payload TEXT NOT NULL, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
+                query.exec("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_offline_receiver ON offline_messages(receiver_id, id)");
+            }
             db.close();
         }
     }
@@ -500,9 +594,6 @@ QString Server::offlineFilePath(const QString& userId) const {
 }
 
 void Server::saveOfflineMessage(const Message& msg) const {
-    QFile file(offlineFilePath(msg.receiverId));
-    if (!file.open(QIODevice::Append | QIODevice::Text)) return;
-
     QJsonObject obj;
     obj["type"] = msg.type == MessageType::File || msg.type == MessageType::Image ? "file" : "private";
     obj["messageType"] = static_cast<int>(msg.type);
@@ -514,11 +605,67 @@ void Server::saveOfflineMessage(const Message& msg) const {
     if (!msg.fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
     }
-    file.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+
+    saveMessageToSqlite(msg, "offline");
+    bool savedToSqlite = false;
+    if (ensureAccountDatabase()) {
+        QString connectionName = "offline_write_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(accountDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                query.prepare("INSERT INTO offline_messages(receiver_id, payload, created_at) VALUES(?, ?, datetime('now'))");
+                query.addBindValue(msg.receiverId);
+                query.addBindValue(QString::fromUtf8(payload));
+                savedToSqlite = query.exec();
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+    if (savedToSqlite) return;
+
+    QFile file(offlineFilePath(msg.receiverId));
+    if (!file.open(QIODevice::Append | QIODevice::Text)) return;
+    file.write(payload);
     file.write("\n");
 }
 
 void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) const {
+    if (ensureAccountDatabase()) {
+        QString connectionName = "offline_read_" + QString::number(reinterpret_cast<quintptr>(this));
+        bool wroteFromSqlite = false;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(accountDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                query.prepare("SELECT payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
+                query.addBindValue(userId);
+                if (query.exec()) {
+                    while (query.next()) {
+                        QByteArray line = query.value(0).toString().toUtf8();
+                        if (line.isEmpty()) continue;
+                        socket->write(line);
+                        socket->write("\n");
+                        wroteFromSqlite = true;
+                    }
+                }
+                if (wroteFromSqlite) {
+                    QSqlQuery deleteQuery(db);
+                    deleteQuery.prepare("DELETE FROM offline_messages WHERE receiver_id = ?");
+                    deleteQuery.addBindValue(userId);
+                    deleteQuery.exec();
+                    socket->flush();
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
     QFile file(offlineFilePath(userId));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 

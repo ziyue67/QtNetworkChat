@@ -46,6 +46,8 @@ private:
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
     bool insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const;
+    bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
+    bool saveMessageToSqlite(const Message& msg, const QString& deliveryState) const;
     QString generateAccountId(const QJsonObject& accounts) const;
     QString accountDbPath() const;
     QJsonObject loadAccounts() const;

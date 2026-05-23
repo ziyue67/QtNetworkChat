@@ -35,6 +35,9 @@
 #include <QTabWidget>
 #include <QShortcut>
 #include <QUrl>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QVariant>
 
 namespace {
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -2071,7 +2074,7 @@ void MainWindow::onClearHistory() {
             ? m_localGroupNames.value(m_privateChatTarget, "群聊")
             : contactDisplayName(m_privateChatTarget));
 
-    if (m_chatModel->rowCount() == 0 && !QFile::exists(historyPath)) {
+    if (m_chatModel->rowCount() == 0 && !QFile::exists(historyPath) && !hasHistoryRecords(peerId)) {
         ui->statusbar->showMessage(QString("%1 暂无可清空的聊天记录").arg(sessionName), 1800);
         return;
     }
@@ -2090,6 +2093,7 @@ void MainWindow::onClearHistory() {
     if (QFile::exists(historyPath)) {
         QFile::remove(historyPath);
     }
+    clearHistoryRecords(peerId);
     appendSystemMessage(QString("%1 的聊天记录已清空").arg(sessionName));
     ui->statusbar->showMessage(QString("已清空 %1 的本地聊天记录").arg(sessionName), 2200);
 }
@@ -5647,24 +5651,69 @@ void MainWindow::appendSystemMessage(const QString& text) {
 }
 
 void MainWindow::loadHistory(const QString& peerId) {
-    QString filePath = getHistoryFilePath(peerId);
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    if (peerId.isEmpty()) return;
 
-    QTextStream in(&file);
-    while (!in.atEnd()) {
-        QString line = in.readLine();
+    auto appendHistoryLine = [this](const QString& line) {
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
         item->setBackground(QColor(250, 252, 254));
         item->setForeground(Qt::gray);
         m_chatModel->appendRow(item);
+    };
+
+    bool dbReady = ensureClientDatabase();
+    int loadedRows = 0;
+    if (dbReady) {
+        const QString connectionName = "client_history_read_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(clientDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                query.prepare("SELECT content FROM ("
+                              "SELECT id, content FROM chat_history WHERE peer_id = ? ORDER BY id DESC LIMIT ?"
+                              ") ORDER BY id ASC");
+                query.addBindValue(peerId);
+                query.addBindValue(MAX_HISTORY_LINES);
+                if (query.exec()) {
+                    while (query.next()) {
+                        appendHistoryLine(query.value(0).toString());
+                        ++loadedRows;
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+        if (loadedRows > 0) return;
+    }
+
+    QString filePath = getHistoryFilePath(peerId);
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    QStringList legacyLines;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        legacyLines << in.readLine();
+        while (legacyLines.size() > MAX_HISTORY_LINES) {
+            legacyLines.removeFirst();
+        }
     }
     file.close();
+
+    for (const QString& line : legacyLines) {
+        appendHistoryLine(line);
+        if (dbReady) {
+            saveHistoryToSqlite(peerId, line);
+        }
+    }
 }
 
 void MainWindow::saveHistory(const QString& peerId, const QString& content) {
     if (peerId.isEmpty()) return;
+    if (saveHistoryToSqlite(peerId, content)) return;
+
     QString filePath = getHistoryFilePath(peerId);
     QFile file(filePath);
     if (file.open(QIODevice::Append | QIODevice::Text)) {
@@ -5672,6 +5721,98 @@ void MainWindow::saveHistory(const QString& peerId, const QString& content) {
         out << content << "\n";
         file.close();
     }
+}
+
+bool MainWindow::ensureClientDatabase() const {
+    const QString connectionName = "client_history_init_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(clientDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            ok = query.exec("CREATE TABLE IF NOT EXISTS chat_history ("
+                            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                            "peer_id TEXT NOT NULL, "
+                            "content TEXT NOT NULL, "
+                            "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            if (ok) {
+                ok = query.exec("CREATE INDEX IF NOT EXISTS idx_chat_history_peer_id ON chat_history(peer_id, id)");
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool MainWindow::saveHistoryToSqlite(const QString& peerId, const QString& content) const {
+    if (peerId.isEmpty() || !ensureClientDatabase()) return false;
+
+    const QString connectionName = "client_history_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(clientDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT INTO chat_history(peer_id, content, created_at) VALUES(?, ?, datetime('now'))");
+            query.addBindValue(peerId);
+            query.addBindValue(content);
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool MainWindow::hasHistoryRecords(const QString& peerId) const {
+    if (peerId.isEmpty() || !ensureClientDatabase()) return false;
+
+    const QString connectionName = "client_history_count_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool hasRows = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(clientDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("SELECT 1 FROM chat_history WHERE peer_id = ? LIMIT 1");
+            query.addBindValue(peerId);
+            hasRows = query.exec() && query.next();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return hasRows;
+}
+
+void MainWindow::clearHistoryRecords(const QString& peerId) const {
+    if (peerId.isEmpty() || !ensureClientDatabase()) return;
+
+    const QString connectionName = "client_history_clear_" + QString::number(reinterpret_cast<quintptr>(this));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(clientDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("DELETE FROM chat_history WHERE peer_id = ?");
+            query.addBindValue(peerId);
+            query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+}
+
+QString MainWindow::clientDbPath() const {
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dir.isEmpty()) dir = ".";
+    QDir().mkpath(dir);
+    QString safeUserId = m_currentUserId;
+    if (safeUserId.isEmpty()) safeUserId = "guest";
+    safeUserId.replace(QRegularExpression("[^A-Za-z0-9_-]"), "_");
+    return dir + "/client_" + safeUserId + ".sqlite3";
 }
 
 QString MainWindow::getHistoryFilePath(const QString& peerId) {

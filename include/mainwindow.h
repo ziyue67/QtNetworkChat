@@ -68,6 +68,11 @@ private:
     void appendSystemMessage(const QString& text);
     void loadHistory(const QString& peerId = QString());
     void saveHistory(const QString& peerId, const QString& content);
+    bool ensureClientDatabase() const;
+    bool saveHistoryToSqlite(const QString& peerId, const QString& content) const;
+    bool hasHistoryRecords(const QString& peerId) const;
+    void clearHistoryRecords(const QString& peerId) const;
+    QString clientDbPath() const;
     QString getHistoryFilePath(const QString& peerId);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
