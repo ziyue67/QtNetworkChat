@@ -1078,7 +1078,10 @@ void MainWindow::setupUi() {
                 saveLocalGroups();
                 refreshGroupMemberPanel();
                 appendSystemMessage("已按 QQ 号邀请入群: " + text);
+                ui->memberSearchEdit->selectAll();
+                ui->statusbar->showMessage(QString("已邀请 QQ:%1 入群，可继续输入下一个 QQ").arg(text), 2200);
             } else {
+                ui->memberSearchEdit->selectAll();
                 ui->statusbar->showMessage("该 QQ 已在当前群聊中", 1800);
             }
         } else {
