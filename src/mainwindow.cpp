@@ -2042,25 +2042,29 @@ void MainWindow::onClearHistory() {
 void MainWindow::onAddFriend() {
     bool ok = false;
     QString account = QInputDialog::getText(this, "发送好友申请", "请输入对方 QQ 账号:", QLineEdit::Normal, QString(), &ok).trimmed();
-    if (!ok || account.isEmpty()) return;
+    if (!ok) return;
     searchAndAddAccount(account, this);
 }
 
 void MainWindow::searchAndAddAccount(const QString& account, QWidget* warningParent) {
     Q_UNUSED(warningParent)
-    if (account.isEmpty()) return;
-    if (account == m_currentUserId) {
+    const QString normalizedAccount = account.trimmed();
+    if (normalizedAccount.isEmpty()) {
+        ui->statusbar->showMessage("请输入 QQ 号后再搜索", 1800);
+        return;
+    }
+    if (normalizedAccount == m_currentUserId) {
         ui->statusbar->showMessage("不能添加自己为好友", 2500);
         return;
     }
-    if (m_friendIds.contains(account)) {
-        ui->statusbar->showMessage("该账号已经是你的好友: " + account, 2500);
+    if (m_friendIds.contains(normalizedAccount)) {
+        ui->statusbar->showMessage("该账号已经是你的好友: " + normalizedAccount, 2500);
         return;
     }
-    if (!m_client->searchFriendByAccount(account)) {
+    if (!m_client->searchFriendByAccount(normalizedAccount)) {
         ui->statusbar->showMessage("当前未连接，无法搜索账号", 2500);
     } else {
-        ui->statusbar->showMessage("正在搜索 QQ 账号: " + account, 2500);
+        ui->statusbar->showMessage("正在搜索 QQ 账号: " + normalizedAccount, 2500);
     }
 }
 
