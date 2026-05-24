@@ -759,6 +759,14 @@ void MainWindow::setupUi() {
             ? QString("当前已断开，暂不能发送到 %1").arg(targetName)
             : (hasDraft ? QString("发送当前输入 · %1 字").arg(draftText.size()) : "请输入消息后再发送"));
         clearAction->setToolTip(hasDraft ? "清空当前输入框内容" : "输入框已经是空的");
+        auto describeInputAction = [](QAction* action, const QString& tip) {
+            action->setToolTip(tip);
+            action->setStatusTip(tip);
+        };
+        pasteAction->setStatusTip(pasteAction->toolTip());
+        pasteSendAction->setStatusTip(pasteSendAction->toolTip());
+        sendAction->setStatusTip(sendAction->toolTip());
+        clearAction->setStatusTip(clearAction->toolTip());
         menu.addSeparator();
         QAction* quickAction = menu.addAction("插入快捷语");
         QAction* commandCardAction = menu.addAction("插入/card指令");
@@ -803,6 +811,22 @@ void MainWindow::setupUi() {
         QAction* videoTemplateAction = menu.addAction("插入发视频模板");
         QAction* groupInviteTemplateAction = menu.addAction("插入拉群模板");
         QAction* currentSummaryAction = menu.addAction("插入当前会话摘要");
+        describeInputAction(quickAction, "插入一句常用确认回复");
+        describeInputAction(commandCardAction, "插入 /card 指令，发送时展开为我的 QQ 名片");
+        describeInputAction(commandInviteAction, "插入 /invite 指令，发送时展开为入群邀请");
+        describeInputAction(commandQqAction, "插入 /qq 指令，发送时展开为当前 QQ 号");
+        describeInputAction(searchFriendAction, "插入一段引导对方通过 QQ 搜索加好友的话术");
+        describeInputAction(addFriendAction, "插入面向当前会话对象的好友申请话术");
+        describeInputAction(inviteGroupAction, "插入邀请对方加入当前群聊的话术");
+        describeInputAction(quoteTemplateAction, "插入引用回复模板，方便补充上下文");
+        describeInputAction(mentionAction, "打开 @ 成员菜单，插入群成员或在线成员提醒");
+        describeInputAction(friendCardAction, "插入我的 QQ 名片到输入框");
+        describeInputAction(groupCardAction, "插入当前私聊或群聊名片");
+        describeInputAction(fileTemplateAction, "插入发送文件前的提醒话术");
+        describeInputAction(imageTemplateAction, "插入发送图片前的提醒话术");
+        describeInputAction(videoTemplateAction, "插入发送视频前的提醒话术");
+        describeInputAction(groupInviteTemplateAction, "插入拉群邀请模板");
+        describeInputAction(currentSummaryAction, "插入当前会话、账号和在线状态摘要");
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (!selected) return;
         if (selected == pasteAction) {
