@@ -1433,6 +1433,17 @@ void MainWindow::setupUi() {
         QAction* copyOnlineAction = menu.addAction("复制在线群成员");
         QAction* renameAction = menu.addAction("设置备注");
         QAction* removeAction = menu.addAction("移出群聊");
+        auto describeMemberAction = [](QAction* action, const QString& tip) {
+            action->setToolTip(tip);
+            action->setStatusTip(tip);
+        };
+        describeMemberAction(chatAction, "打开当前群成员的私聊；非好友会先尝试发送好友申请");
+        describeMemberAction(copyAction, "复制当前群成员的 QQ 号");
+        describeMemberAction(profileAction, "复制当前群成员的 QQ、昵称和所属群聊");
+        describeMemberAction(copyAllAction, "复制当前群聊的全部成员列表");
+        describeMemberAction(copyOnlineAction, "复制当前群聊在线成员的 QQ 和昵称");
+        describeMemberAction(renameAction, "修改当前群成员在本地显示的备注名");
+        describeMemberAction(removeAction, "将当前成员从本地群聊成员列表中移除");
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
             if (!m_friendIds.contains(memberId)) {
