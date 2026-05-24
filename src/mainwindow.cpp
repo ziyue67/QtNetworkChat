@@ -2454,7 +2454,7 @@ void MainWindow::searchAndAddAccount(const QString& account, QWidget* warningPar
     if (!m_client->searchFriendByAccount(normalizedAccount)) {
         ui->statusbar->showMessage("当前未连接，无法搜索账号", 2500);
     } else {
-        ui->statusbar->showMessage("正在搜索 QQ 账号: " + normalizedAccount, 2500);
+        ui->statusbar->showMessage("正在搜索 QQ / 昵称: " + normalizedAccount, 2500);
     }
 }
 
@@ -4719,10 +4719,10 @@ void MainWindow::onFriendRequestReceived(const QString& senderId, const QString&
     }
 }
 
-void MainWindow::onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online) {
+void MainWindow::onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online, bool exactMatch, int matchCount, const QString& matchReason) {
     if (!found) {
-        ui->statusbar->showMessage(QString("没有找到 QQ 账号：%1").arg(account), 3000);
-        appendSystemMessage(QString("没有找到 QQ 账号: %1").arg(account));
+        ui->statusbar->showMessage(QString("没有找到 QQ 或昵称：%1").arg(account), 3000);
+        appendSystemMessage(QString("没有找到 QQ 或昵称: %1，可尝试输入更完整的 QQ 号或昵称关键词").arg(account));
         return;
     }
     if (userId == m_currentUserId) {
@@ -4739,7 +4739,40 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
     }
 
     const QString displayName = userName.isEmpty() ? userId : userName;
+    const QString relation = m_friendIds.contains(userId)
+        ? "好友"
+        : (m_pendingOutgoingFriendRequests.contains(userId) ? "申请中" : "陌生人");
+    const QString profileCard = QString("搜索资料卡\nQQ:%1\n昵称:%2\n状态:%3\n关系:%4\n匹配:%5 · 共%6个结果")
+        .arg(userId,
+             displayName,
+             online ? "在线" : "离线",
+             relation,
+             matchReason.isEmpty() ? (exactMatch ? "QQ号精确匹配" : "模糊匹配") : matchReason,
+             QString::number(matchCount));
+
     m_friendNames[userId] = displayName;
+    QString compactProfileCard = profileCard;
+    appendSystemMessage(compactProfileCard.replace('\n', " · "));
+
+    if (!exactMatch) {
+        if (!online) {
+            ui->statusbar->showMessage(QString("模糊匹配到 %1（QQ:%2），但当前离线").arg(displayName, userId), 3500);
+            appendSystemMessage(QString("模糊匹配到 %1（QQ:%2），对方离线，暂不能发送好友申请").arg(displayName, userId));
+            return;
+        }
+
+        const QMessageBox::StandardButton choice = QMessageBox::question(
+            this,
+            "确认模糊匹配",
+            QString("%1\n\n是否向该用户发送好友申请？").arg(profileCard),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (choice != QMessageBox::Yes) {
+            ui->statusbar->showMessage(QString("已查看资料卡，未发送好友申请：%1").arg(displayName), 2600);
+            return;
+        }
+    }
+
     if (online) {
         if (!m_client->sendFriendRequest(userId)) {
             appendSystemMessage(QString("好友申请发送失败 QQ:%1，请检查连接后重试").arg(userId));
@@ -4750,7 +4783,7 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
             m_pendingOutgoingFriendRequests << userId;
         }
         saveFriends();
-        appendSystemMessage(QString("已发送好友申请 QQ:%1，等待对方同意").arg(userId));
+        appendSystemMessage(QString("已发送好友申请 QQ:%1，等待对方同意 · %2").arg(userId, exactMatch ? "精确匹配" : "模糊匹配确认"));
         ui->statusbar->showMessage(QString("好友申请已发送给 %1").arg(displayName), 2500);
         refreshFriendList();
     } else {

@@ -286,6 +286,9 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
         QJsonObject response;
         response["type"] = "friend_search_result";
         response["account"] = account;
+        response["exactMatch"] = false;
+        response["matchCount"] = 0;
+        response["matchReason"] = "未找到匹配资料";
 
         QJsonObject accounts = loadAccountsFromSqlite();
         if (!account.isEmpty() && accounts.contains(account)) {
@@ -294,11 +297,43 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
             response["userId"] = account;
             response["userName"] = accountObj["userName"].toString(account);
             response["online"] = m_userSockets.contains(account);
+            response["exactMatch"] = true;
+            response["matchCount"] = 1;
+            response["matchReason"] = "QQ号精确匹配";
         } else {
-            response["found"] = false;
+            QString matchedId;
+            QString matchedName;
+            int matchCount = 0;
+            for (auto it = accounts.begin(); it != accounts.end(); ++it) {
+                const QString candidateId = it.key();
+                const QJsonObject accountObj = it.value().toObject();
+                const QString candidateName = accountObj["userName"].toString(candidateId);
+                const bool idMatched = candidateId.contains(account, Qt::CaseInsensitive);
+                const bool nameMatched = candidateName.contains(account, Qt::CaseInsensitive);
+                if (!account.isEmpty() && (idMatched || nameMatched)) {
+                    ++matchCount;
+                    if (matchedId.isEmpty()) {
+                        matchedId = candidateId;
+                        matchedName = candidateName;
+                        response["matchReason"] = idMatched ? "QQ号模糊匹配" : "昵称模糊匹配";
+                    }
+                }
+            }
+
+            response["matchCount"] = matchCount;
+            if (!matchedId.isEmpty()) {
+                response["found"] = true;
+                response["userId"] = matchedId;
+                response["userName"] = matchedName.isEmpty() ? matchedId : matchedName;
+                response["online"] = m_userSockets.contains(matchedId);
+            } else {
+                response["found"] = false;
+                response["online"] = false;
+            }
         }
         const QString searchState = response["found"].toBool()
-            ? (response["online"].toBool() ? "found_online" : "found_offline")
+            ? QString("%1_%2").arg(response["exactMatch"].toBool() ? "found_exact" : "found_fuzzy",
+                                   response["online"].toBool() ? "online" : "offline")
             : "not_found";
         saveFriendEventToSqlite(type,
                                 requester ? requester->id : QString(),

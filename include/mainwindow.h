@@ -41,7 +41,7 @@ private slots:
     void onUploadAvatar();
     void onBackToGroupChat();
     void onFriendRequestReceived(const QString& senderId, const QString& senderName);
-    void onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online);
+    void onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online, bool exactMatch, int matchCount, const QString& matchReason);
     void onFriendRequestSent(const QString& receiverId, bool delivered);
     void onFriendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
     void onUserContextMenu(const QPoint& pos);

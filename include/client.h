@@ -44,7 +44,7 @@ signals:
     void loginSucceeded();
     void loginFailed(const QString& reason);
     void friendRequestReceived(const QString& senderId, const QString& senderName);
-    void friendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online);
+    void friendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online, bool exactMatch, int matchCount, const QString& matchReason);
     void friendRequestSent(const QString& receiverId, bool delivered);
     void friendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
     void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);

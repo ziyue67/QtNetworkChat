@@ -341,7 +341,10 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             obj["userId"].toString(),
             obj["userName"].toString(),
             obj["found"].toBool(),
-            obj["online"].toBool());
+            obj["online"].toBool(),
+            obj["exactMatch"].toBool(true),
+            obj["matchCount"].toInt(obj["found"].toBool() ? 1 : 0),
+            obj["matchReason"].toString());
         return;
     }
 
