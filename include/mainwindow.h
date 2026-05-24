@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <QMap>
 #include <QEvent>
+#include <QDate>
 #include "client.h"
 #include "chatuser.h"
 #include "message.h"
@@ -37,6 +38,8 @@ private slots:
     void onClientError(const QString& error);
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
     void onClearHistory();
+    void onFilterHistoryByDate();
+    void onExportHistory();
     void onAddFriend();
     void onUploadAvatar();
     void onBackToGroupChat();
@@ -71,10 +74,12 @@ private:
     bool ensureClientDatabase() const;
     bool saveHistoryToSqlite(const QString& peerId, const QString& content) const;
     bool hasHistoryRecords(const QString& peerId) const;
+    QStringList historyRecordsForDate(const QString& peerId, const QDate& date) const;
+    QStringList historyRecordsForExport(const QString& peerId) const;
     void clearHistoryRecords(const QString& peerId) const;
     QString clientDbPath() const;
     bool saveProfileToSqlite() const;
-    QString getHistoryFilePath(const QString& peerId);
+    QString getHistoryFilePath(const QString& peerId) const;
     bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();

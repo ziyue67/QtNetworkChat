@@ -40,6 +40,8 @@
 #include <QVariant>
 #include <QSettings>
 #include <QProgressDialog>
+#include <QDateEdit>
+#include <QDialogButtonBox>
 
 namespace {
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -757,6 +759,8 @@ void MainWindow::setupUi() {
     QAction* avatarAction = new QAction("上传头像", this);
     QAction* sendImageAction = new QAction("发送图片/视频", this);
     QAction* sendFileAction = new QAction("闪传文件", this);
+    QAction* filterHistoryAction = new QAction("按日期查记录", this);
+    QAction* exportHistoryAction = new QAction("导出聊天记录", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
     QAction* copySummaryAction = new QAction("复制账号摘要", this);
     QAction* logoutAction = new QAction("退出登录", this);
@@ -765,6 +769,8 @@ void MainWindow::setupUi() {
     ui->menubar->addAction(avatarAction);
     ui->menubar->addAction(sendImageAction);
     ui->menubar->addAction(sendFileAction);
+    ui->menubar->addAction(filterHistoryAction);
+    ui->menubar->addAction(exportHistoryAction);
     ui->menubar->addAction(copyAccountAction);
     ui->menubar->addAction(copySummaryAction);
     ui->menubar->addAction(logoutAction);
@@ -774,6 +780,8 @@ void MainWindow::setupUi() {
     connect(avatarAction, &QAction::triggered, this, &MainWindow::onUploadAvatar);
     connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
     connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
+    connect(filterHistoryAction, &QAction::triggered, this, &MainWindow::onFilterHistoryByDate);
+    connect(exportHistoryAction, &QAction::triggered, this, &MainWindow::onExportHistory);
     connect(copyAccountAction, &QAction::triggered, this, &MainWindow::onCopyAccount);
     connect(copySummaryAction, &QAction::triggered, this, [this]() {
         QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n好友:%3\n群聊:%4\n当前会话:%5")
@@ -2427,6 +2435,103 @@ void MainWindow::onClearHistory() {
     clearHistoryRecords(peerId);
     appendSystemMessage(QString("%1 的聊天记录已清空").arg(sessionName));
     ui->statusbar->showMessage(QString("已清空 %1 的本地聊天记录").arg(sessionName), 2200);
+}
+
+void MainWindow::onFilterHistoryByDate() {
+    const QString peerId = m_privateChatTarget.isEmpty() ? "group" : m_privateChatTarget;
+    const QString sessionName = m_privateChatTarget.isEmpty()
+        ? "公共聊天室"
+        : (m_privateChatTarget.startsWith("local_group_")
+            ? m_localGroupNames.value(m_privateChatTarget, "群聊")
+            : contactDisplayName(m_privateChatTarget));
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("按日期查记录");
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    QLabel* label = new QLabel(QString("选择要查看的日期：%1").arg(sessionName), &dialog);
+    QDateEdit* dateEdit = new QDateEdit(QDate::currentDate(), &dialog);
+    dateEdit->setCalendarPopup(true);
+    dateEdit->setDisplayFormat("yyyy-MM-dd");
+    dateEdit->setMaximumDate(QDate::currentDate());
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(label);
+    layout->addWidget(dateEdit);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) {
+        ui->statusbar->showMessage("已取消按日期查记录", 1600);
+        return;
+    }
+
+    const QDate selectedDate = dateEdit->date();
+    const QStringList rows = historyRecordsForDate(peerId, selectedDate);
+    m_chatModel->clear();
+    m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
+
+    if (rows.isEmpty()) {
+        appendSystemMessage(QString("%1 在 %2 没有可显示的聊天记录").arg(sessionName, selectedDate.toString("yyyy-MM-dd")));
+        ui->statusbar->showMessage(QString("%1 无当天记录").arg(selectedDate.toString("yyyy-MM-dd")), 2200);
+        return;
+    }
+
+    for (const QString& row : rows) {
+        QStandardItem* item = new QStandardItem(row);
+        item->setEditable(false);
+        item->setBackground(QColor(250, 252, 254));
+        item->setForeground(Qt::gray);
+        m_chatModel->appendRow(item);
+    }
+    ui->chatHintLabel->setText(QString("%1 · %2 · 已筛选 %3 条记录")
+        .arg(sessionName, selectedDate.toString("yyyy-MM-dd"), QString::number(rows.size())));
+    ui->statusbar->showMessage(QString("已筛选 %1 条聊天记录").arg(rows.size()), 2400);
+    ui->chatListView->scrollToBottom();
+}
+
+void MainWindow::onExportHistory() {
+    const QString peerId = m_privateChatTarget.isEmpty() ? "group" : m_privateChatTarget;
+    const QString sessionName = m_privateChatTarget.isEmpty()
+        ? "公共聊天室"
+        : (m_privateChatTarget.startsWith("local_group_")
+            ? m_localGroupNames.value(m_privateChatTarget, "群聊")
+            : contactDisplayName(m_privateChatTarget));
+    const QStringList rows = historyRecordsForExport(peerId);
+    if (rows.isEmpty()) {
+        ui->statusbar->showMessage(QString("%1 暂无可导出的聊天记录").arg(sessionName), 2200);
+        return;
+    }
+
+    QString defaultDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (defaultDir.isEmpty()) defaultDir = QDir::homePath();
+    const QString safeSessionName = sessionName.simplified().replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    const QString defaultPath = QDir(defaultDir).filePath(QString("QtNetworkChat_%1_%2.txt")
+        .arg(safeSessionName, QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")));
+    const QString savePath = QFileDialog::getSaveFileName(this, "导出聊天记录", defaultPath, "文本文件 (*.txt);;所有文件 (*.*)");
+    if (savePath.isEmpty()) {
+        ui->statusbar->showMessage("已取消导出聊天记录", 1600);
+        return;
+    }
+
+    QFile file(savePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "导出失败", "无法写入导出文件，请检查保存位置权限。");
+        ui->statusbar->showMessage("聊天记录导出失败", 2600);
+        return;
+    }
+
+    QTextStream out(&file);
+    out << "QtNetworkChat 聊天记录导出\n";
+    out << "会话: " << sessionName << "\n";
+    out << "账号: " << m_currentUserId << " / " << m_currentUserName << "\n";
+    out << "导出时间: " << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << "\n";
+    out << "记录数: " << rows.size() << "\n\n";
+    for (const QString& row : rows) {
+        out << row << "\n";
+    }
+    file.close();
+
+    ui->statusbar->showMessage(QString("已导出 %1 条聊天记录").arg(rows.size()), 2600);
+    appendSystemMessage(QString("已导出 %1 的聊天记录：%2").arg(sessionName, savePath));
 }
 
 void MainWindow::onAddFriend() {
@@ -6487,6 +6592,72 @@ bool MainWindow::hasHistoryRecords(const QString& peerId) const {
     return hasRows;
 }
 
+QStringList MainWindow::historyRecordsForDate(const QString& peerId, const QDate& date) const {
+    QStringList rows;
+    if (peerId.isEmpty() || !date.isValid() || !ensureClientDatabase()) return rows;
+
+    const QString connectionName = "client_history_date_" + QString::number(reinterpret_cast<quintptr>(this));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(clientDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("SELECT content FROM chat_history "
+                          "WHERE peer_id = ? AND date(created_at, 'localtime') = ? "
+                          "ORDER BY id ASC");
+            query.addBindValue(peerId);
+            query.addBindValue(date.toString("yyyy-MM-dd"));
+            if (query.exec()) {
+                while (query.next()) {
+                    rows << query.value(0).toString();
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return rows;
+}
+
+QStringList MainWindow::historyRecordsForExport(const QString& peerId) const {
+    QStringList rows;
+    if (peerId.isEmpty()) return rows;
+
+    if (ensureClientDatabase()) {
+        const QString connectionName = "client_history_export_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(clientDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                query.prepare("SELECT created_at, content FROM chat_history WHERE peer_id = ? ORDER BY id ASC");
+                query.addBindValue(peerId);
+                if (query.exec()) {
+                    while (query.next()) {
+                        const QString createdAt = query.value(0).toString();
+                        const QString content = query.value(1).toString();
+                        rows << QString("%1 | %2").arg(createdAt, content);
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
+    if (!rows.isEmpty()) return rows;
+
+    QFile file(getHistoryFilePath(peerId));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return rows;
+
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        rows << in.readLine();
+    }
+    file.close();
+    return rows;
+}
+
 void MainWindow::clearHistoryRecords(const QString& peerId) const {
     if (peerId.isEmpty() || !ensureClientDatabase()) return;
 
@@ -6538,7 +6709,7 @@ bool MainWindow::saveProfileToSqlite() const {
     return ok;
 }
 
-QString MainWindow::getHistoryFilePath(const QString& peerId) {
+QString MainWindow::getHistoryFilePath(const QString& peerId) const {
     QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (dir.isEmpty()) dir = ".";
     QDir().mkpath(dir);
