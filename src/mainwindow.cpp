@@ -4717,6 +4717,11 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     userName.remove(QRegularExpression("\\s*\\[(在线|离线|本地)\\]$"));
 
     QMenu menu(this);
+    auto describeUserAction = [](QAction* action, const QString& tip) {
+        if (!action) return;
+        action->setToolTip(tip);
+        action->setStatusTip(tip);
+    };
     if (m_localGroupIds.contains(userId)) {
         QAction* openGroupAction = menu.addAction("进入群聊");
         QAction* copyGroupAction = menu.addAction("复制群号");
@@ -4729,6 +4734,17 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* copyOnlineMembersAction = menu.addAction("复制在线成员");
         QAction* renameGroupAction = menu.addAction("重命名群聊");
         QAction* deleteGroupAction = menu.addAction("删除群聊");
+        describeUserAction(openGroupAction, "进入当前本地群聊并加载聊天记录");
+        describeUserAction(copyGroupAction, "复制当前群聊的群号");
+        describeUserAction(copyGroupCardAction, "复制群名、群号、成员数和公告摘要");
+        describeUserAction(copyGroupInviteAction, "复制一段可发送给好友的入群邀请语");
+        describeUserAction(copyMembersAction, "复制当前群聊的全部成员列表");
+        describeUserAction(inviteFriendAction, "从好友列表中选择一个好友邀请入群");
+        describeUserAction(inviteByAccountAction, "输入 QQ 号邀请用户入群，并按需发送好友申请");
+        describeUserAction(inviteAllAction, "把当前全部好友批量邀请进该群聊");
+        describeUserAction(copyOnlineMembersAction, "复制当前群聊在线成员的 QQ 和昵称");
+        describeUserAction(renameGroupAction, "修改当前本地群聊名称");
+        describeUserAction(deleteGroupAction, "删除当前本地群聊配置，聊天记录不会在此步骤删除");
         QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
         if (selected == openGroupAction) {
@@ -4925,6 +4941,16 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     } else {
         addAction = menu.addAction("加为好友");
     }
+    describeUserAction(chatAction, "打开当前联系人私聊会话");
+    describeUserAction(copyAction, "复制当前联系人 QQ 号");
+    describeUserAction(profileAction, "复制当前联系人 QQ、昵称和关系状态");
+    describeUserAction(copyAddTextAction, "复制适合当前联系人的好友申请话术");
+    describeUserAction(copyOnlineCardAction, "复制当前联系人的在线名片和状态");
+    describeUserAction(copyChatStarterAction, "复制一段可直接发送的开聊话术");
+    describeUserAction(inviteCurrentGroupAction, "邀请当前联系人加入正在查看的本地群聊");
+    describeUserAction(renameAction, "修改当前好友在本地显示的备注名");
+    describeUserAction(removeAction, "从本地好友列表删除当前好友");
+    describeUserAction(addAction, hasPendingOutgoing ? "好友申请已发送，等待对方处理" : "向当前联系人发送好友申请");
 
     QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
     if (!selected) return;
