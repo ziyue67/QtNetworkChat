@@ -700,8 +700,8 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
         db.setDatabaseName(accountDbPath());
         if (db.open()) {
             QSqlQuery query(db);
-            query.prepare("INSERT INTO messages(message_type, sender_id, sender_name, receiver_id, content, file_name, file_size, delivery_state, created_at) "
-                          "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            query.prepare("INSERT INTO messages(message_type, sender_id, sender_name, receiver_id, content, file_name, file_size, file_hash, delivery_state, created_at) "
+                          "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             query.addBindValue(static_cast<int>(msg.type));
             query.addBindValue(msg.senderId);
             query.addBindValue(msg.senderName);
@@ -709,6 +709,7 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
             query.addBindValue(msg.content);
             query.addBindValue(msg.fileName);
             query.addBindValue(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+            query.addBindValue(msg.fileHash.trimmed());
             query.addBindValue(deliveryState);
             query.addBindValue(msg.timestamp.toUTC().toString(Qt::ISODate));
             ok = query.exec();
@@ -791,8 +792,12 @@ bool Server::ensureAccountDatabase() const {
                                 "content TEXT, "
                                 "file_name TEXT, "
                                 "file_size INTEGER DEFAULT 0, "
+                                "file_hash TEXT, "
                                 "delivery_state TEXT NOT NULL, "
                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
+                query.exec("ALTER TABLE messages ADD COLUMN file_hash TEXT");
             }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS offline_messages ("
