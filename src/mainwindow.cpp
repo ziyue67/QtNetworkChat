@@ -39,6 +39,7 @@
 #include <QSqlQuery>
 #include <QVariant>
 #include <QSettings>
+#include <QProgressDialog>
 
 namespace {
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -293,6 +294,80 @@ MainWindow::~MainWindow() {
     if (m_trayIcon) {
         m_trayIcon->hide();
     }
+}
+
+bool MainWindow::sendTransferWithProgress(const QString& filePath,
+                                          const QString& receiverId,
+                                          const QString& targetName,
+                                          const QString& kind,
+                                          bool asImage) {
+    if (!m_client) return false;
+
+    const QFileInfo info(filePath);
+    constexpr int maxAttempts = 3;
+
+    for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
+        QProgressDialog progress(this);
+        progress.setWindowTitle(QString("发送%1").arg(kind));
+        progress.setLabelText(QString("正在分片读取%1...\n%2 -> %3").arg(kind, info.fileName(), targetName));
+        progress.setRange(0, 100);
+        progress.setValue(0);
+        progress.setMinimumDuration(0);
+        progress.setAutoClose(false);
+        progress.setCancelButton(nullptr);
+        progress.show();
+        QApplication::processEvents();
+
+        QMetaObject::Connection progressConnection = connect(
+            m_client,
+            &Client::fileTransferProgress,
+            this,
+            [&progress, &info, &targetName, &kind](const QString& fileName, qint64 bytesPrepared, qint64 totalBytes) {
+                if (fileName != info.fileName()) return;
+                const int percent = totalBytes > 0
+                    ? qBound(0, static_cast<int>((bytesPrepared * 100) / totalBytes), 100)
+                    : 0;
+                progress.setValue(percent);
+                progress.setLabelText(QString("正在分片发送%1到 %2\n%3 · %4 / %5")
+                                          .arg(kind,
+                                               targetName,
+                                               fileName,
+                                               humanFileSize(bytesPrepared),
+                                               humanFileSize(totalBytes)));
+                QApplication::processEvents();
+            });
+
+        const bool ok = asImage
+            ? m_client->sendImage(filePath, receiverId)
+            : m_client->sendFile(filePath, receiverId);
+
+        QObject::disconnect(progressConnection);
+        progress.setValue(ok ? 100 : progress.value());
+        QApplication::processEvents();
+        progress.close();
+
+        if (ok) return true;
+
+        if (attempt < maxAttempts) {
+            const QMessageBox::StandardButton retry = QMessageBox::warning(
+                this,
+                QString("%1发送失败").arg(kind),
+                QString("%1“%2”发送失败，是否立即重试？\n当前为第 %3 次，共最多 %4 次。")
+                    .arg(kind, info.fileName())
+                    .arg(attempt)
+                    .arg(maxAttempts),
+                QMessageBox::Retry | QMessageBox::Cancel,
+                QMessageBox::Retry);
+            if (retry == QMessageBox::Retry) {
+                ui->statusbar->showMessage(QString("正在重试发送%1：%2").arg(kind, info.fileName()), 1800);
+                continue;
+            }
+        }
+
+        return false;
+    }
+
+    return false;
 }
 
 void MainWindow::setupUi() {
@@ -1893,8 +1968,7 @@ void MainWindow::onSendFile() {
         return;
     }
 
-    QApplication::processEvents();
-    bool ok = m_client->sendFile(filePath, m_privateChatTarget);
+    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false);
     if (ok) {
         appendSystemMessage(QString("已发送文件: %1 · %2 · 到 %3").arg(info.fileName(), fileSize, targetName));
         QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
@@ -1995,8 +2069,7 @@ void MainWindow::onSendImage() {
         return;
     }
 
-    QApplication::processEvents();
-    bool ok = isVideo ? m_client->sendFile(filePath, m_privateChatTarget) : m_client->sendImage(filePath, m_privateChatTarget);
+    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo);
     if (ok) {
         appendSystemMessage(QString("已发送%1: %2 · %3 · 到 %4").arg(mediaType, info.fileName(), fileSize, targetName));
         if (!isVideo) {

@@ -47,6 +47,7 @@ signals:
     void friendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online);
     void friendRequestSent(const QString& receiverId, bool delivered);
     void friendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
+    void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);
     void connectionError(const QString& error);
 
 private slots:
@@ -60,6 +61,7 @@ private:
     void sendLogin();
     void handleServerMessage(const QJsonObject& obj);
     bool sendJson(const QJsonObject& obj);
+    bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
 
     QTcpSocket* m_socket;
     QTimer* m_heartbeatTimer;

@@ -10,6 +10,7 @@
 
 namespace {
 constexpr qint64 kMaxOutgoingPayloadBytes = 80LL * 1024 * 1024;
+constexpr qint64 kTransferChunkBytes = 256LL * 1024;
 }
 
 Client::Client(QObject* parent)
@@ -149,33 +150,14 @@ bool Client::sendFriendResponse(const QString& receiverId, bool accepted) {
 }
 
 bool Client::sendFile(const QString& filePath, const QString& receiverId) {
-    if (!isConnected()) return false;
-
-    QFileInfo fileInfo(filePath);
-    if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() <= 0 || fileInfo.size() > kMaxOutgoingPayloadBytes) {
-        return false;
-    }
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) return false;
-
-    QByteArray fileData = file.readAll();
-    file.close();
-
-    QJsonObject obj;
-    obj["type"] = "file";
-    obj["senderId"] = m_userId;
-    obj["senderName"] = m_userName;
-    obj["receiverId"] = receiverId;
-    obj["messageType"] = static_cast<int>(MessageType::File);
-    obj["fileName"] = fileInfo.fileName();
-    obj["content"] = "发送了文件: " + fileInfo.fileName();
-    obj["fileData"] = QString::fromLatin1(fileData.toBase64());
-
-    return sendJson(obj);
+    return sendFilePayload(filePath, receiverId, MessageType::File, "发送了文件: ");
 }
 
 bool Client::sendImage(const QString& filePath, const QString& receiverId) {
+    return sendFilePayload(filePath, receiverId, MessageType::Image, "发送了图片: ");
+}
+
+bool Client::sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix) {
     if (!isConnected()) return false;
 
     QFileInfo fileInfo(filePath);
@@ -186,7 +168,19 @@ bool Client::sendImage(const QString& filePath, const QString& receiverId) {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) return false;
 
-    QByteArray fileData = file.readAll();
+    QByteArray fileData;
+    fileData.reserve(static_cast<int>(fileInfo.size()));
+    emit fileTransferProgress(fileInfo.fileName(), 0, fileInfo.size());
+
+    while (!file.atEnd()) {
+        const QByteArray chunk = file.read(kTransferChunkBytes);
+        if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
+            file.close();
+            return false;
+        }
+        fileData.append(chunk);
+        emit fileTransferProgress(fileInfo.fileName(), fileData.size(), fileInfo.size());
+    }
     file.close();
 
     QJsonObject obj;
@@ -194,12 +188,19 @@ bool Client::sendImage(const QString& filePath, const QString& receiverId) {
     obj["senderId"] = m_userId;
     obj["senderName"] = m_userName;
     obj["receiverId"] = receiverId;
-    obj["messageType"] = static_cast<int>(MessageType::Image);
+    obj["messageType"] = static_cast<int>(messageType);
     obj["fileName"] = fileInfo.fileName();
-    obj["content"] = "发送了图片: " + fileInfo.fileName();
+    obj["fileSize"] = QString::number(fileInfo.size());
+    obj["chunkSize"] = QString::number(kTransferChunkBytes);
+    obj["chunkCount"] = QString::number((fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes);
+    obj["content"] = contentPrefix + fileInfo.fileName();
     obj["fileData"] = QString::fromLatin1(fileData.toBase64());
 
-    return sendJson(obj);
+    const bool ok = sendJson(obj);
+    if (ok) {
+        emit fileTransferProgress(fileInfo.fileName(), fileInfo.size(), fileInfo.size());
+    }
+    return ok;
 }
 
 void Client::onReadyRead() {
