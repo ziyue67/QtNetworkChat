@@ -944,6 +944,17 @@ void MainWindow::setupUi() {
         QAction* resendAction = menu.addAction("再次发送");
         QAction* copyTimeAction = menu.addAction("复制时间");
         menu.addSeparator();
+        auto describeChatAction = [](QAction* action, const QString& tip) {
+            action->setToolTip(tip);
+            action->setStatusTip(tip);
+        };
+        describeChatAction(copyAction, "复制整条聊天记录，包括时间和发送者");
+        describeChatAction(copyPlainAction, "只复制消息正文内容");
+        describeChatAction(copySenderAction, "复制这条消息的发送者名称或账号");
+        describeChatAction(quoteAction, "把这条消息作为引用插入输入框");
+        describeChatAction(forwardAction, "把消息正文整理成转发内容放入输入框");
+        describeChatAction(resendAction, "把消息正文重新填入输入框并立即发送");
+        describeChatAction(copyTimeAction, "复制这条消息的发送时间");
         QString savePathForMenu = extractSavePathFromChatText(text);
         if (savePathForMenu.isEmpty()) {
             savePathForMenu = extractSavePathFromChatText(index.data(Qt::ToolTipRole).toString());
@@ -967,6 +978,13 @@ void MainWindow::setupUi() {
         QAction* openSavedFileAction = menu.addAction("打开文件");
         QAction* openSaveFolderAction = menu.addAction("打开保存目录");
         QAction* copyMediaFlowAction = menu.addAction("复制媒体流程");
+        describeChatAction(copyMediaCardAction, "复制当前媒体或文件消息的卡片摘要");
+        describeChatAction(copyFileNoticeAction, "复制提醒对方查收文件的简短话术");
+        describeChatAction(copyReceiptAction, "复制已收到文件后的回执话术");
+        describeChatAction(copySavePathAction, "复制收到文件在本机的保存路径");
+        describeChatAction(openSavedFileAction, "打开这条记录关联的本地文件");
+        describeChatAction(openSaveFolderAction, "打开这条记录关联文件所在目录");
+        describeChatAction(copyMediaFlowAction, "复制媒体发送、保存和回执的操作流程");
         copyMediaCardAction->setEnabled(isMediaMessage);
         copyFileNoticeAction->setEnabled(isMediaMessage);
         copyReceiptAction->setEnabled(isMediaMessage);
@@ -990,6 +1008,7 @@ void MainWindow::setupUi() {
         }
         menu.addSeparator();
         QAction* mentionReplyAction = menu.addAction("@对方回复");
+        describeChatAction(mentionReplyAction, "把发送者作为 @ 回复对象插入输入框");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
         if (selected == copyAction) {
