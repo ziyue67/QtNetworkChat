@@ -55,6 +55,7 @@ private:
     QJsonObject loadAccountsFromSqlite() const;
     bool insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const;
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
+    bool recordDefaultGroupMembership(const ChatUser& user) const;
     bool saveMessageToSqlite(const Message& msg, const QString& deliveryState) const;
     bool saveFriendEventToSqlite(const QString& eventType,
                                  const QString& senderId,

@@ -400,6 +400,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     m_userSockets[user.id] = socket;
     m_usedNames.insert(userName);
     recordUserSessionToSqlite(user, "login");
+    recordDefaultGroupMembership(user);
 
     QJsonObject response;
     response["type"] = "login_success";
@@ -873,6 +874,41 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
     return ok;
 }
 
+bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
+    if (user.id.isEmpty() || !ensureAccountDatabase()) return false;
+
+    QString connectionName = "default_group_member_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery groupQuery(db);
+            ok = groupQuery.exec("INSERT OR IGNORE INTO server_groups(group_id, group_name, announcement, created_at, updated_at) "
+                                 "VALUES('public', '公共聊天室', '欢迎来到公共聊天室。', datetime('now'), datetime('now'))");
+            if (ok) {
+                QSqlQuery insertMemberQuery(db);
+                insertMemberQuery.prepare("INSERT OR IGNORE INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
+                                          "VALUES('public', ?, ?, 'member', datetime('now'), datetime('now'))");
+                insertMemberQuery.addBindValue(user.id);
+                insertMemberQuery.addBindValue(user.name);
+                ok = insertMemberQuery.exec();
+            }
+            if (ok) {
+                QSqlQuery updateMemberQuery(db);
+                updateMemberQuery.prepare("UPDATE server_group_members SET user_name = ?, updated_at = datetime('now') "
+                                          "WHERE group_id = 'public' AND user_id = ?");
+                updateMemberQuery.addBindValue(user.name);
+                updateMemberQuery.addBindValue(user.id);
+                ok = updateMemberQuery.exec();
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
 bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryState) const {
     if (!ensureAccountDatabase()) return false;
 
@@ -1008,11 +1044,45 @@ bool Server::ensureAccountDatabase() const {
                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
             if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_groups ("
+                                "group_id TEXT PRIMARY KEY, "
+                                "group_name TEXT NOT NULL, "
+                                "owner_id TEXT, "
+                                "announcement TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_members ("
+                                "group_id TEXT NOT NULL, "
+                                "user_id TEXT NOT NULL, "
+                                "user_name TEXT, "
+                                "role TEXT NOT NULL DEFAULT 'member', "
+                                "joined_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(group_id, user_id))");
+            }
+            if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_announcements ("
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                "group_id TEXT NOT NULL, "
+                                "author_id TEXT, "
+                                "author_name TEXT, "
+                                "content TEXT NOT NULL, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
+                query.exec("INSERT OR IGNORE INTO server_groups(group_id, group_name, announcement, created_at, updated_at) "
+                           "VALUES('public', '公共聊天室', '欢迎来到公共聊天室。', datetime('now'), datetime('now'))");
+            }
+            if (ok) {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_offline_receiver ON offline_messages(receiver_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_sender ON friend_events(sender_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_receiver ON friend_events(receiver_id, id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_members_user ON server_group_members(user_id, group_id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_announcements_group ON server_group_announcements(group_id, id)");
             }
             db.close();
         }
