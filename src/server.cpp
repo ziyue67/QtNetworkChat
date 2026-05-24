@@ -19,6 +19,8 @@
 #include <QSslKey>
 
 namespace {
+constexpr qint64 kMaxIncomingPayloadBytes = 80LL * 1024 * 1024;
+
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
@@ -486,6 +488,8 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.fileName = obj["fileName"].toString();
     msg.fileSize = obj["fileSize"].toVariant().toLongLong();
     msg.fileHash = obj["fileHash"].toString();
+    const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
+    const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
     msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::File)));
     msg.timestamp = QDateTime::currentDateTime();
 
@@ -501,11 +505,35 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         : QString::fromLatin1(QCryptographicHash::hash(msg.fileData, QCryptographicHash::Sha256).toHex());
 
     QStringList integrityErrors;
+    if (actualSize <= 0) {
+        integrityErrors << "文件内容为空";
+    }
+    if (declaredSize < 0) {
+        integrityErrors << "声明大小非法";
+    }
+    if (declaredSize > kMaxIncomingPayloadBytes || actualSize > kMaxIncomingPayloadBytes) {
+        integrityErrors << QString("超过服务器限制 %1 MB").arg(kMaxIncomingPayloadBytes / 1024 / 1024);
+    }
     if (declaredSize > 0 && declaredSize != actualSize) {
         integrityErrors << QString("大小不一致：声明 %1 字节，实际 %2 字节").arg(declaredSize).arg(actualSize);
     }
     if (!declaredHash.isEmpty() && actualHash.compare(declaredHash, Qt::CaseInsensitive) != 0) {
         integrityErrors << "SHA-256 不一致";
+    }
+    if (declaredChunkSize < 0 || declaredChunkCount < 0) {
+        integrityErrors << "分片元数据非法";
+    } else if (declaredChunkSize > 0 || declaredChunkCount > 0) {
+        if (declaredChunkSize <= 0 || declaredChunkCount <= 0) {
+            integrityErrors << "分片元数据不完整";
+        } else {
+            const qint64 basisSize = declaredSize > 0 ? declaredSize : actualSize;
+            const qint64 expectedChunkCount = (basisSize + declaredChunkSize - 1) / declaredChunkSize;
+            if (expectedChunkCount != declaredChunkCount) {
+                integrityErrors << QString("分片数量不一致：声明 %1 片，预期 %2 片")
+                                       .arg(declaredChunkCount)
+                                       .arg(expectedChunkCount);
+            }
+        }
     }
     if (!integrityErrors.isEmpty()) {
         const QString visibleName = msg.fileName.isEmpty() ? "未命名文件" : msg.fileName;
