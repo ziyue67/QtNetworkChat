@@ -9,8 +9,8 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Network Sql)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network Sql)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql)
 
 add_executable(QtNetworkChat
     src/main.cpp
@@ -31,10 +31,25 @@ target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${Q
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(message_serialization_test
+        tests/message_serialization_test.cpp
+        src/message.cpp
+        include/message.h
+    )
+    target_include_directories(message_serialization_test PRIVATE include)
+    target_link_libraries(message_serialization_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
     add_test(
         NAME QtNetworkChatExecutableExists
         COMMAND ${CMAKE_COMMAND}
             -DQTNETWORKCHAT_EXE=$<TARGET_FILE:QtNetworkChat>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_executable.cmake
+    )
+    add_test(
+        NAME MessageSerializationRoundTrip
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:message_serialization_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
 endif()
