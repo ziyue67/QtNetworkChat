@@ -71,6 +71,9 @@ private:
     QString offlineFilePath(const QString& userId) const;
     QString offlineAttachmentRootDir() const;
     QString offlineAttachmentDir(const QString& userId) const;
+    qint64 offlineAttachmentQuotaBytes() const;
+    qint64 offlineAttachmentUsedBytes() const;
+    bool hasOfflineAttachmentCapacity(qint64 incomingBytes) const;
     QString saveOfflineAttachment(const Message& msg) const;
     QSet<QString> collectReferencedOfflineAttachments() const;
     void cleanupExpiredOfflineAttachments();

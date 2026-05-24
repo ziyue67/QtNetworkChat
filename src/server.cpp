@@ -33,6 +33,7 @@ constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 constexpr qint64 kOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
 constexpr int kOfflineAttachmentCleanupIntervalMs = 60 * 60 * 1000;
+constexpr qint64 kDefaultOfflineAttachmentQuotaBytes = 512LL * 1024 * 1024;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -1071,8 +1072,44 @@ QString Server::offlineAttachmentDir(const QString& userId) const {
     return dir;
 }
 
+qint64 Server::offlineAttachmentQuotaBytes() const {
+    const QByteArray value = qgetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_QUOTA_MB").trimmed();
+    if (value.isEmpty()) return kDefaultOfflineAttachmentQuotaBytes;
+
+    bool ok = false;
+    const qint64 quotaMb = value.toLongLong(&ok);
+    if (!ok || quotaMb <= 0) {
+        return kDefaultOfflineAttachmentQuotaBytes;
+    }
+    return quotaMb * 1024 * 1024;
+}
+
+qint64 Server::offlineAttachmentUsedBytes() const {
+    const QString rootDirPath = offlineAttachmentRootDir();
+    qint64 usedBytes = 0;
+    QDirIterator it(rootDirPath, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        usedBytes += QFileInfo(it.next()).size();
+    }
+    return usedBytes;
+}
+
+bool Server::hasOfflineAttachmentCapacity(qint64 incomingBytes) const {
+    if (incomingBytes <= 0) return false;
+
+    const qint64 quotaBytes = offlineAttachmentQuotaBytes();
+    return incomingBytes <= quotaBytes && offlineAttachmentUsedBytes() <= quotaBytes - incomingBytes;
+}
+
 QString Server::saveOfflineAttachment(const Message& msg) const {
     if (msg.receiverId.isEmpty() || msg.fileData.isEmpty()) return {};
+    if (!hasOfflineAttachmentCapacity(msg.fileData.size())) {
+        qWarning() << "Offline attachment quota exceeded for" << msg.receiverId
+                   << "file:" << msg.fileName
+                   << "size:" << msg.fileData.size()
+                   << "quota:" << offlineAttachmentQuotaBytes();
+        return {};
+    }
 
     const QString dir = offlineAttachmentDir(msg.receiverId);
     for (int attempt = 0; attempt < 5; ++attempt) {
@@ -1191,7 +1228,10 @@ void Server::saveOfflineMessage(const Message& msg) const {
     if (!msg.fileData.isEmpty()) {
         const bool shouldStoreAsAttachment = msg.type == MessageType::File || msg.type == MessageType::Image;
         const QString attachmentPath = shouldStoreAsAttachment ? saveOfflineAttachment(msg) : QString();
-        if (!attachmentPath.isEmpty()) {
+        if (shouldStoreAsAttachment && attachmentPath.isEmpty()) {
+            qWarning() << "Offline file was not queued because attachment storage failed" << msg.receiverId << msg.fileName;
+            return;
+        } else if (!attachmentPath.isEmpty()) {
             savedAttachmentPath = attachmentPath;
             obj["offlineFilePath"] = attachmentPath;
             obj["offlineFileStoredOnDisk"] = true;
