@@ -10,6 +10,7 @@
 #include <QMap>
 #include <QEvent>
 #include <QDate>
+#include <QJsonArray>
 #include "client.h"
 #include "chatuser.h"
 #include "message.h"
@@ -47,6 +48,7 @@ private slots:
     void onFriendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online, bool exactMatch, int matchCount, const QString& matchReason);
     void onFriendRequestSent(const QString& receiverId, bool delivered);
     void onFriendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
+    void onServerGroupSnapshotReceived(const QJsonArray& groups);
     void onUserContextMenu(const QPoint& pos);
     void onContactSearchChanged(const QString& text);
     void onCopyAccount();
@@ -118,6 +120,10 @@ private:
     QMap<QString, QString> m_localGroupNames;
     QMap<QString, QString> m_localGroupAnnouncements;
     QMap<QString, QStringList> m_localGroupMembers;
+    QMap<QString, QString> m_serverGroupNames;
+    QMap<QString, QString> m_serverGroupAnnouncements;
+    QMap<QString, QStringList> m_serverGroupMembers;
+    QMap<QString, QString> m_serverGroupMemberNames;
     QMap<QString, ChatUser> m_knownUsers;
     QString m_contactFilter;
     QString m_privateChatTarget;

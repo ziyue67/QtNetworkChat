@@ -5,6 +5,7 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QMap>
 #include <QSet>
 #include <QVector>
@@ -38,6 +39,7 @@ public:
     bool currentLoginWasRegister() const { return m_loginWasRegister; }
     QString lastLoginError() const { return m_loginError; }
     QString transportSecurityDescription() const;
+    QJsonArray serverGroups() const { return m_serverGroups; }
 
 signals:
     void connected();
@@ -56,6 +58,7 @@ signals:
     void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
     void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes);
     void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason);
+    void serverGroupSnapshotReceived(const QJsonArray& groups);
     void connectionError(const QString& error);
 
 private slots:
@@ -105,6 +108,7 @@ private:
     QByteArray m_buffer;
     quint16 m_reconnectAttempts;
     QMap<QString, PendingIncomingFileTransfer> m_incomingFileTransfers;
+    QJsonArray m_serverGroups;
 };
 
 #endif // CLIENT_H

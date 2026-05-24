@@ -479,6 +479,12 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         return;
     }
 
+    if (type == "server_group_snapshot") {
+        m_serverGroups = obj["groups"].toArray();
+        emit serverGroupSnapshotReceived(m_serverGroups);
+        return;
+    }
+
     if (type == "friend_search_result") {
         emit friendSearchResult(
             obj["account"].toString(),

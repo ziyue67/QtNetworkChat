@@ -38,6 +38,8 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QVariant>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QSettings>
 #include <QProgressDialog>
 #include <QDateEdit>
@@ -314,6 +316,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendSearchResult, this, &MainWindow::onFriendSearchResult);
     connect(m_client, &Client::friendRequestSent, this, &MainWindow::onFriendRequestSent);
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
+    connect(m_client, &Client::serverGroupSnapshotReceived, this, &MainWindow::onServerGroupSnapshotReceived);
     connect(m_client, &Client::fileReceiveProgress, this, [this](const QString& fileName, qint64 bytesReceived, qint64 totalBytes) {
         const int percent = totalBytes > 0
             ? qBound(0, static_cast<int>((bytesReceived * 100) / totalBytes), 100)
@@ -337,6 +340,9 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     saveProfileToSqlite();
     ui->addFriendBtn->hide();
     ui->uploadAvatarBtn->setText("换头像");
+    if (!m_client->serverGroups().isEmpty()) {
+        onServerGroupSnapshotReceived(m_client->serverGroups());
+    }
 
     if (m_currentUserId.isEmpty()) {
         ui->statusbar->showMessage("已连接");
@@ -2418,6 +2424,47 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
         .arg(m_friendIds.size())
         .arg(m_currentUserId));
     refreshGroupMemberPanel();
+}
+
+void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
+    m_serverGroupNames.clear();
+    m_serverGroupAnnouncements.clear();
+    m_serverGroupMembers.clear();
+    m_serverGroupMemberNames.clear();
+
+    for (const QJsonValue& value : groups) {
+        const QJsonObject groupObj = value.toObject();
+        const QString groupId = groupObj["groupId"].toString();
+        if (groupId.isEmpty()) continue;
+
+        m_serverGroupNames[groupId] = groupObj["groupName"].toString(groupId);
+        m_serverGroupAnnouncements[groupId] = groupObj["announcement"].toString();
+
+        QStringList memberIds;
+        const QJsonArray members = groupObj["members"].toArray();
+        for (const QJsonValue& memberValue : members) {
+            const QJsonObject memberObj = memberValue.toObject();
+            const QString memberId = memberObj["userId"].toString();
+            if (memberId.isEmpty() || memberIds.contains(memberId)) continue;
+
+            memberIds << memberId;
+            m_serverGroupMemberNames[groupId + "|" + memberId] = memberObj["userName"].toString(memberId);
+        }
+        m_serverGroupMembers[groupId] = memberIds;
+    }
+
+    if (m_privateChatTarget.isEmpty()) {
+        const QString publicAnnouncement = m_serverGroupAnnouncements.value("public");
+        const QString publicName = m_serverGroupNames.value("public", "公共聊天室");
+        if (!publicName.isEmpty()) {
+            ui->chatTitleLabel->setText(publicName);
+        }
+        if (!publicAnnouncement.isEmpty()) {
+            ui->announcementBodyLabel->setText(publicAnnouncement);
+        }
+        refreshGroupMemberPanel();
+        ui->statusbar->showMessage(QString("已同步服务端群组 · %1 个").arg(groups.size()), 1800);
+    }
 }
 
 void MainWindow::onPrivateChat(const QModelIndex& index) {
@@ -4918,7 +4965,9 @@ void MainWindow::onBackToGroupChat() {
     ui->chatTitleLabel->setText("公共聊天室");
     ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
     ui->announcementTitleLabel->setText("群公告 <a href=\"edit\">+</a>");
-    ui->announcementBodyLabel->setText("欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。");
+    ui->announcementBodyLabel->setText(m_serverGroupAnnouncements.value(
+        "public",
+        "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。"));
     refreshGroupMemberPanel();
     refreshComposerState();
 }
@@ -7171,6 +7220,60 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(visibleMembers));
         }
+        return;
+    }
+
+    const QStringList serverPublicMembers = m_serverGroupMembers.value("public");
+    if (!serverPublicMembers.isEmpty()) {
+        int memberCount = 0;
+        int visibleMembers = 0;
+        int friendMembers = 0;
+        int pendingMembers = 0;
+        int onlineMembers = 0;
+
+        for (const QString& memberId : serverPublicMembers) {
+            if (memberId.trimmed().isEmpty()) continue;
+            const QString name = memberId == m_currentUserId
+                ? m_currentUserName
+                : m_serverGroupMemberNames.value("public|" + memberId, contactDisplayName(memberId));
+            const bool online = memberId == m_currentUserId || isContactOnline(memberId);
+            const bool isFriend = m_friendIds.contains(memberId);
+            const bool isPending = !isFriend && memberId != m_currentUserId && m_pendingOutgoingFriendRequests.contains(memberId);
+            ++memberCount;
+            if (online) ++onlineMembers;
+            if (isFriend) ++friendMembers;
+            if (isPending) ++pendingMembers;
+            if (!filter.isEmpty()
+                && !memberId.contains(filter, Qt::CaseInsensitive)
+                && !name.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+
+            const QString role = memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "成员"));
+            const QString state = online ? "在线" : "离线";
+            const QString actionText = memberId == m_currentUserId ? "本人" : (isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请"));
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, actionText));
+            item->setData(memberId, Qt::UserRole + 1);
+            item->setEditable(false);
+            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56))));
+            m_groupMemberModel->appendRow(item);
+            ++visibleMembers;
+        }
+
+        if (visibleMembers == 0 && !filter.isEmpty()) {
+            QStandardItem* addItem = new QStandardItem(QString("搜索并发送申请 QQ:%1\n双击查找好友").arg(filter));
+            addItem->setData("group_search_add:" + filter, Qt::UserRole + 1);
+            addItem->setEditable(false);
+            addItem->setForeground(QColor(18, 150, 247));
+            m_groupMemberModel->appendRow(addItem);
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 可搜索QQ:%3").arg(memberCount).arg(onlineMembers).arg(filter));
+            return;
+        }
+
+        QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
+        ui->memberTitleLabel->setText(filter.isEmpty()
+            ? QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
+            : QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
         return;
     }
 

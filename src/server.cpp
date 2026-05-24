@@ -413,6 +413,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     socket->flush();
 
     sendUserList(socket);
+    sendServerGroupSnapshot(user.id, socket);
     for (QTcpSocket* clientSocket : m_clients.keys()) {
         if (clientSocket != socket && clientSocket->state() == QAbstractSocket::ConnectedState) {
             sendUserList(clientSocket);
@@ -1740,6 +1741,66 @@ void Server::sendUserList(QTcpSocket* socket) {
     obj["users"] = users;
 
     socket->write(QJsonDocument(obj).toJson());
+    socket->write("\n");
+    socket->flush();
+}
+
+void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) const {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState || userId.isEmpty() || !ensureAccountDatabase()) {
+        return;
+    }
+
+    QJsonArray groups;
+    QString connectionName = "server_group_snapshot_" + QString::number(reinterpret_cast<quintptr>(this));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery groupQuery(db);
+            groupQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, '') "
+                               "FROM server_groups g "
+                               "JOIN server_group_members m ON m.group_id = g.group_id "
+                               "WHERE m.user_id = ? "
+                               "ORDER BY g.group_id ASC");
+            groupQuery.addBindValue(userId);
+            if (groupQuery.exec()) {
+                while (groupQuery.next()) {
+                    const QString groupId = groupQuery.value(0).toString();
+                    QJsonObject groupObj;
+                    groupObj["groupId"] = groupId;
+                    groupObj["groupName"] = groupQuery.value(1).toString();
+                    groupObj["announcement"] = groupQuery.value(2).toString();
+                    groupObj["ownerId"] = groupQuery.value(3).toString();
+
+                    QJsonArray members;
+                    QSqlQuery memberQuery(db);
+                    memberQuery.prepare("SELECT user_id, COALESCE(user_name, ''), role "
+                                        "FROM server_group_members "
+                                        "WHERE group_id = ? "
+                                        "ORDER BY role = 'owner' DESC, joined_at ASC, user_id ASC");
+                    memberQuery.addBindValue(groupId);
+                    if (memberQuery.exec()) {
+                        while (memberQuery.next()) {
+                            QJsonObject memberObj;
+                            memberObj["userId"] = memberQuery.value(0).toString();
+                            memberObj["userName"] = memberQuery.value(1).toString();
+                            memberObj["role"] = memberQuery.value(2).toString();
+                            members.append(memberObj);
+                        }
+                    }
+                    groupObj["members"] = members;
+                    groups.append(groupObj);
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    QJsonObject obj;
+    obj["type"] = "server_group_snapshot";
+    obj["groups"] = groups;
+    socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();
 }
