@@ -1,84 +1,157 @@
 # QtNetworkChat
 
-基于 Qt5/Qt6 + C++ 的局域网即时通讯工具，支持群聊、私聊、文件传输。
+QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即时通讯软件，支持账号注册登录、好友搜索与添加、群聊、私聊、文件发送、聊天记录、离线消息和系统托盘提醒。项目适合用于 Qt 网络编程、TCP 通信、桌面客户端开发和即时通讯原型学习。
 
 ## 功能特性
 
-- TCP Socket 通信
-- 群聊广播消息
-- 私聊功能（双击用户列表）
-- 文件传输（Base64 编码）
-- 心跳保活机制
-- 用户在线列表
-- 聊天记录持久化
-- 系统托盘支持
-- 自动重连
+- QQ 风格登录和注册界面
+- 随机 QQ 号注册
+- 账号密码登录
+- 密码 SHA-256 哈希保存
+- SQLite 本地账号数据库
+- 创建服务器和加入服务器
+- TCP Socket 局域网通信
+- JSON 消息协议
+- 群聊广播
+- 好友私聊
+- QQ 号搜索用户
+- 好友申请、同意、拒绝
+- 在线好友和离线好友列表
+- 发送普通文件、图片、视频等媒体文件
+- 文件消息 Base64 编码传输
+- 离线私聊消息保存和登录后推送
+- 聊天记录本地持久化
+- 清空当前聊天记录
+- Enter 发送，Ctrl+Enter 换行
+- 未读消息提醒
+- 系统托盘提醒
+- 自动重连和心跳保活
+- 复制当前 QQ 账号
+- 退出登录并回到登录流程
 
 ## 项目结构
 
-```
+```text
 QtNetworkChat/
 ├── include/
-│   ├── mainwindow.h    # 主窗口
-│   ├── server.h        # TCP 服务器
-│   ├── client.h        # TCP 客户端
-│   ├── message.h      # 消息结构
-│   └── chatuser.h     # 用户结构
+│   ├── chatuser.h       # 用户数据结构
+│   ├── client.h         # TCP 客户端接口
+│   ├── mainwindow.h     # 主窗口接口
+│   ├── message.h        # 消息结构与序列化
+│   └── server.h         # TCP 服务端接口
 ├── src/
-│   ├── main.cpp        # 程序入口
-│   ├── mainwindow.cpp  # 主窗口实现
-│   ├── server.cpp      # 服务器实现
-│   ├── client.cpp      # 客户端实现
-│   └── message.cpp     # 消息序列化
+│   ├── client.cpp       # 客户端连接、收发消息、登录注册协议
+│   ├── main.cpp         # 程序入口、登录/注册窗口、启动流程
+│   ├── mainwindow.cpp   # 主界面、聊天、好友、文件、历史记录
+│   ├── message.cpp      # JSON 消息序列化与反序列化
+│   └── server.cpp       # 服务端连接管理、账号、好友、消息转发
 ├── ui/
-│   └── mainwindow.ui   # Qt Designer 界面
-├── QtNetworkChat.pro   # qmake 项目文件
-└── CMakeLists.txt     # CMake 构建文件
+│   └── mainwindow.ui    # Qt Designer 主界面文件
+├── CMakeLists.txt       # CMake 构建配置
+├── QtNetworkChat.pro    # qmake 构建配置
+└── README.md            # 项目说明
 ```
-
-## 构建方法
-
-### qmake（推荐）
-```bash
-cd QtNetworkChat
-qmake QtNetworkChat.pro
-make
-# Windows: nmake 或 jom
-# macOS: make
-# Linux: make
-```
-
-### CMake
-```bash
-mkdir build && cd build
-cmake ..
-make
-```
-
-## 运行
-
-```bash
-./bin/QtNetworkChat
-```
-
-## 使用方法
-
-1. **创建服务器**: 点击"创建服务器"按钮，输入用户名和端口（默认 8888）
-2. **加入服务器**: 点击"加入服务器"按钮，输入服务器 IP、端口和用户名
-3. **群聊**: 直接在输入框发送消息，所有在线用户都能收到
-4. **私聊**: 双击用户列表中的用户，再发送消息，仅对方可见
-5. **发送文件**: 点击"发送文件"按钮，选择文件后发送
 
 ## 技术栈
 
-- Qt5/Qt6
 - C++17
-- TCP Socket
-- QJson
-- QSettings
-
-## 系统要求
-
 - Qt 5.15+ 或 Qt 6.x
-- C++17 兼容编译器
-- 支持 TCP 的操作系统（Windows/macOS/Linux）
+- Qt Widgets
+- Qt Network
+- Qt SQL
+- TCP Socket
+- JSON
+- SQLite
+
+## 环境要求
+
+- Windows、macOS 或 Linux
+- Qt 5.15+ 或 Qt 6.x
+- 支持 C++17 的编译器
+- 推荐 Windows 使用 Qt Creator + MinGW Kit
+
+## 构建方法
+
+### 使用 Qt Creator
+
+1. 打开 `QtNetworkChat.pro`。
+2. 选择可用的 Qt Kit，推荐 MinGW。
+3. 执行 qmake。
+4. 构建并运行项目。
+
+### 使用 qmake
+
+```bash
+qmake QtNetworkChat.pro
+make
+```
+
+Windows 下可根据 Qt Kit 使用 `mingw32-make`、`nmake` 或 `jom`。
+
+### 使用 CMake
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+如果 CMake 找不到 Qt，需要设置 `CMAKE_PREFIX_PATH`，或配置 `Qt6_DIR` / `Qt5_DIR`。
+
+## 运行方式
+
+1. 启动程序。
+2. 在一台电脑上选择创建服务器，端口默认可使用 `8888`。
+3. 其他电脑选择加入服务器，填写服务器电脑的局域网 IP 和端口。
+4. 注册新 QQ 账号或登录已有账号。
+5. 通过 QQ 号搜索用户并发送好友申请。
+6. 好友通过后即可私聊、群聊、发送文件和查看历史记录。
+
+## 本地数据
+
+程序运行后可能产生以下本地数据文件：
+
+- `accounts.sqlite3`：账号数据库
+- `friends_<账号>.txt`：好友列表
+- 聊天历史文件：群聊和私聊记录
+- 离线消息文件：未在线用户的私聊和文件消息
+
+这些文件属于运行时数据，不建议提交到 GitHub。
+
+## 常见问题
+
+### 客户端连接不上服务器
+
+- 确认服务器端已经点击创建服务器。
+- 确认客户端填写的是服务器电脑的局域网 IP。
+- 确认端口一致，默认端口通常为 `8888`。
+- 检查 Windows 防火墙是否允许程序访问网络。
+- 跨公网或不同 NAT 网络时，需要额外配置端口映射、内网穿透或公网服务器。
+
+### Qt Creator 报找不到头文件
+
+请重新执行 qmake，或确认 `QtNetworkChat.pro` 中已包含 `include` 目录。
+
+### CMake 找不到 Qt
+
+需要把 Qt 安装路径加入 `CMAKE_PREFIX_PATH`，例如：
+
+```bash
+cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
+```
+
+### 旧账号显示异常
+
+旧版本如果使用昵称作为账号注册，建议重新注册新账号，以便使用随机 QQ 号登录流程。
+
+## 后续计划
+
+- 文件和视频传输增加分片、进度条和失败重试
+- 好友搜索增加模糊匹配和资料卡
+- 聊天记录增加按日期检索和导出
+- 群组管理、群成员权限和群公告
+- TLS 加密通信
+- 自动化测试和打包发布脚本
+
+## 说明
+
+本项目主要用于学习和演示 Qt 桌面开发、TCP 网络通信和即时通讯系统设计。当前文件和媒体传输适合局域网测试，如用于生产环境，还需要继续增强安全性、稳定性和传输性能。
