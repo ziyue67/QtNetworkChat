@@ -70,6 +70,10 @@ QString publicGroupMemberRole(const QJsonArray& groups, const QString& userId) {
     return {};
 }
 
+QString publicGroupAnnouncement(const QJsonArray& groups) {
+    return publicGroup(groups)["announcement"].toString();
+}
+
 bool registerClient(Client& client,
                     const QString& account,
                     const QString& userName,
@@ -132,6 +136,26 @@ int main(int argc, char** argv) {
             && publicGroupHasMember(member.serverGroups(), memberId)
             && publicGroupMemberRole(member.serverGroups(), memberId) == "member";
     }), "member should receive public group snapshot") && ok;
+
+    const QString ownerAnnouncement = "Owner announcement protocol test";
+    ok = expect(owner.sendServerGroupAnnouncementUpdate("public", ownerAnnouncement),
+                "owner should submit public group announcement update") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement;
+    }), "owner announcement should be synced to public group members") && ok;
+
+    memberSystemMessages.clear();
+    const QString rejectedAnnouncement = "Member announcement should be rejected";
+    ok = expect(member.sendServerGroupAnnouncementUpdate("public", rejectedAnnouncement),
+                "plain member announcement request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主或管理员"))) return true;
+        }
+        return false;
+    }), "plain member announcement update should be rejected by server-side role check") && ok;
+    ok = expect(publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement,
+                "rejected member announcement should not change public group announcement") && ok;
 
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "remove"),
                 "owner should submit member removal") && ok;
