@@ -69,8 +69,11 @@ private:
     void saveAccounts(const QJsonObject& accounts) const;
     QString accountsFilePath() const;
     QString offlineFilePath(const QString& userId) const;
+    QString offlineAttachmentDir(const QString& userId) const;
+    QString saveOfflineAttachment(const Message& msg) const;
     void saveOfflineMessage(const Message& msg) const;
-    void sendOfflineMessages(const QString& userId, QTcpSocket* socket) const;
+    bool deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket);
+    void sendOfflineMessages(const QString& userId, QTcpSocket* socket);
 
     struct PendingFileTransfer {
         QJsonObject envelope;

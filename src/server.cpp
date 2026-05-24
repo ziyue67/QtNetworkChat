@@ -34,6 +34,22 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
+QString safePathPart(const QString& value) {
+    QString safe;
+    safe.reserve(value.size());
+    for (const QChar& ch : value) {
+        if (ch.isLetterOrNumber()
+            || ch == QLatin1Char('_')
+            || ch == QLatin1Char('-')
+            || ch == QLatin1Char('.')) {
+            safe.append(ch);
+        } else {
+            safe.append(QLatin1Char('_'));
+        }
+    }
+    return safe.isEmpty() ? "unknown" : safe;
+}
+
 class TlsTcpServer : public QTcpServer {
 public:
     TlsTcpServer(const QSslCertificate& certificate, const QSslKey& privateKey, QObject* parent = nullptr)
@@ -1028,6 +1044,36 @@ QString Server::offlineFilePath(const QString& userId) const {
     return dir + "/" + userId + ".jsonl";
 }
 
+QString Server::offlineAttachmentDir(const QString& userId) const {
+    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (baseDir.isEmpty()) baseDir = ".";
+    const QString dir = baseDir + "/offline_files/" + safePathPart(userId);
+    QDir().mkpath(dir);
+    return dir;
+}
+
+QString Server::saveOfflineAttachment(const Message& msg) const {
+    if (msg.receiverId.isEmpty() || msg.fileData.isEmpty()) return {};
+
+    const QString dir = offlineAttachmentDir(msg.receiverId);
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        const QString filePath = QString("%1/%2_%3.bin")
+            .arg(dir,
+                 QString::number(QDateTime::currentMSecsSinceEpoch()),
+                 QString::number(QRandomGenerator::global()->generate()));
+        QFile file(filePath);
+        if (!file.open(QIODevice::WriteOnly)) continue;
+
+        const qint64 written = file.write(msg.fileData);
+        file.close();
+        if (written == msg.fileData.size()) {
+            return filePath;
+        }
+        file.remove();
+    }
+    return {};
+}
+
 void Server::saveOfflineMessage(const Message& msg) const {
     QJsonObject obj;
     obj["type"] = msg.type == MessageType::File || msg.type == MessageType::Image ? "file" : "private";
@@ -1042,7 +1088,14 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["chunkSize"] = QString::number(msg.chunkSize);
     obj["chunkCount"] = QString::number(msg.chunkCount);
     if (!msg.fileData.isEmpty()) {
-        obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
+        const bool shouldStoreAsAttachment = msg.type == MessageType::File || msg.type == MessageType::Image;
+        const QString attachmentPath = shouldStoreAsAttachment ? saveOfflineAttachment(msg) : QString();
+        if (!attachmentPath.isEmpty()) {
+            obj["offlineFilePath"] = attachmentPath;
+            obj["offlineFileStoredOnDisk"] = true;
+        } else {
+            obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
+        }
     }
     const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact);
 
@@ -1071,32 +1124,96 @@ void Server::saveOfflineMessage(const Message& msg) const {
     file.write("\n");
 }
 
-void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) const {
+bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket) {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState || payload.isEmpty()) {
+        return false;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(payload);
+    if (!doc.isObject()) {
+        const bool written = socket->write(payload) > 0 && socket->write("\n") > 0;
+        socket->flush();
+        return written;
+    }
+
+    const QJsonObject obj = doc.object();
+    const QString offlineFilePath = obj["offlineFilePath"].toString();
+    const int messageType = obj["messageType"].toInt(static_cast<int>(MessageType::File));
+    const bool isFileMessage = messageType == static_cast<int>(MessageType::File)
+        || messageType == static_cast<int>(MessageType::Image);
+    if (!isFileMessage || offlineFilePath.isEmpty()) {
+        const qint64 written = socket->write(payload);
+        socket->write("\n");
+        socket->flush();
+        return written > 0;
+    }
+
+    QFile attachment(offlineFilePath);
+    if (!attachment.open(QIODevice::ReadOnly)) {
+        sendSystemNotice(socket, QString("离线文件已丢失：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
+        QFile::remove(offlineFilePath);
+        return true;
+    }
+
+    Message msg;
+    msg.type = static_cast<MessageType>(messageType);
+    msg.senderId = obj["senderId"].toString();
+    msg.senderName = obj["senderName"].toString();
+    msg.receiverId = obj["receiverId"].toString();
+    msg.content = obj["content"].toString();
+    msg.fileName = obj["fileName"].toString();
+    msg.fileHash = obj["fileHash"].toString();
+    msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
+    msg.chunkCount = obj["chunkCount"].toVariant().toLongLong();
+    msg.fileData = attachment.readAll();
+    msg.fileSize = obj["fileSize"].toVariant().toLongLong();
+    if (msg.fileSize <= 0) {
+        msg.fileSize = msg.fileData.size();
+    }
+    attachment.close();
+
+    if (msg.fileData.isEmpty()) {
+        sendSystemNotice(socket, QString("离线文件为空：%1，请让对方重新发送。").arg(msg.fileName.isEmpty() ? "未命名文件" : msg.fileName));
+        QFile::remove(offlineFilePath);
+        return true;
+    }
+
+    const bool delivered = sendChunkedFileToSocket(msg, socket);
+    if (delivered) {
+        QFile::remove(offlineFilePath);
+    }
+    return delivered;
+}
+
+void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
     if (ensureAccountDatabase()) {
         QString connectionName = "offline_read_" + QString::number(reinterpret_cast<quintptr>(this));
-        bool wroteFromSqlite = false;
+        QVector<qint64> deliveredIds;
         {
             QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
             db.setDatabaseName(accountDbPath());
             if (db.open()) {
                 QSqlQuery query(db);
-                query.prepare("SELECT payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
+                query.prepare("SELECT id, payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
                 query.addBindValue(userId);
                 if (query.exec()) {
                     while (query.next()) {
-                        QByteArray line = query.value(0).toString().toUtf8();
+                        const qint64 messageId = query.value(0).toLongLong();
+                        QByteArray line = query.value(1).toString().toUtf8();
                         if (line.isEmpty()) continue;
-                        socket->write(line);
-                        socket->write("\n");
-                        wroteFromSqlite = true;
+                        if (!deliverOfflinePayload(line, socket)) {
+                            break;
+                        }
+                        deliveredIds.append(messageId);
                     }
                 }
-                if (wroteFromSqlite) {
-                    QSqlQuery deleteQuery(db);
-                    deleteQuery.prepare("DELETE FROM offline_messages WHERE receiver_id = ?");
-                    deleteQuery.addBindValue(userId);
-                    deleteQuery.exec();
-                    socket->flush();
+                if (!deliveredIds.isEmpty()) {
+                    for (qint64 messageId : deliveredIds) {
+                        QSqlQuery deleteQuery(db);
+                        deleteQuery.prepare("DELETE FROM offline_messages WHERE id = ?");
+                        deleteQuery.addBindValue(messageId);
+                        deleteQuery.exec();
+                    }
                 }
                 db.close();
             }
@@ -1107,15 +1224,27 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) cons
     QFile file(offlineFilePath(userId));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
+    QVector<QByteArray> remainingLines;
+    bool deliveryBlocked = false;
     while (!file.atEnd()) {
         QByteArray line = file.readLine().trimmed();
         if (line.isEmpty()) continue;
-        socket->write(line);
-        socket->write("\n");
+        if (deliveryBlocked || !deliverOfflinePayload(line, socket)) {
+            deliveryBlocked = true;
+            remainingLines.append(line);
+        }
     }
-    socket->flush();
     file.close();
-    file.remove();
+    if (remainingLines.isEmpty()) {
+        file.remove();
+        return;
+    }
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        for (const QByteArray& line : remainingLines) {
+            file.write(line);
+            file.write("\n");
+        }
+    }
 }
 
 bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
