@@ -1462,6 +1462,9 @@ void MainWindow::setupUi() {
                 ui->memberSearchEdit->selectAll();
                 ui->statusbar->showMessage("该 QQ 已在当前群聊中", 1800);
             }
+        } else if (canCurrentUserManageServerGroup("public")) {
+            requestServerGroupMemberUpdate(text, "add");
+            ui->memberSearchEdit->selectAll();
         } else {
             searchAndAddAccount(text, this);
         }
@@ -1573,7 +1576,12 @@ void MainWindow::setupUi() {
         if (!index.isValid()) return;
         QString targetId = index.data(Qt::UserRole + 1).toString();
         if (targetId.startsWith("group_search_add:")) {
-            searchAndAddAccount(targetId.mid(QString("group_search_add:").size()).trimmed(), this);
+            const QString account = targetId.mid(QString("group_search_add:").size()).trimmed();
+            if (m_privateChatTarget.isEmpty() && canCurrentUserManageServerGroup("public")) {
+                requestServerGroupMemberUpdate(account, "add");
+            } else {
+                searchAndAddAccount(account, this);
+            }
             return;
         }
         if (targetId.startsWith("group_invite:")) {
@@ -1630,12 +1638,17 @@ void MainWindow::setupUi() {
     });
     connect(ui->groupMemberListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->groupMemberListView->indexAt(pos);
-        if (!index.isValid() || !m_privateChatTarget.startsWith("local_group_")) return;
+        const bool isLocalGroup = m_privateChatTarget.startsWith("local_group_");
+        const bool isServerPublicGroup = m_privateChatTarget.isEmpty() && !m_serverGroupMembers.value("public").isEmpty();
+        if (!index.isValid() || (!isLocalGroup && !isServerPublicGroup)) return;
         QString memberId = index.data(Qt::UserRole + 1).toString();
+        if (memberId.startsWith("group_search_add:") || memberId.startsWith("group_invite:")) return;
         if (memberId.isEmpty() || memberId == m_currentUserId) return;
         QMenu menu(this);
-        const bool canManageGroup = isCurrentUserGroupOwner(m_privateChatTarget);
-        const QString ownerId = groupOwnerId(m_privateChatTarget);
+        const bool canManageGroup = isLocalGroup
+            ? isCurrentUserGroupOwner(m_privateChatTarget)
+            : canCurrentUserManageServerGroup("public");
+        const QString ownerId = isLocalGroup ? groupOwnerId(m_privateChatTarget) : m_serverGroupOwners.value("public");
         QAction* chatAction = menu.addAction("私聊");
         QAction* copyAction = menu.addAction("复制QQ号");
         QAction* profileAction = menu.addAction("复制名片");
@@ -1653,7 +1666,9 @@ void MainWindow::setupUi() {
         describeMemberAction(copyAllAction, "复制当前群聊的全部成员列表");
         describeMemberAction(copyOnlineAction, "复制当前群聊在线成员的 QQ 和昵称");
         describeMemberAction(renameAction, "修改当前群成员在本地显示的备注名");
-        describeMemberAction(removeAction, canManageGroup ? "将当前成员从本地群聊成员列表中移除" : "只有群主可以移出群成员");
+        describeMemberAction(removeAction, canManageGroup
+            ? (isLocalGroup ? "将当前成员从本地群聊成员列表中移除" : "通过服务端权限校验移出公共群成员")
+            : (isLocalGroup ? "只有群主可以移出群成员" : "只有公共群群主或管理员可以移出成员"));
         removeAction->setEnabled(canManageGroup && memberId != ownerId);
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
@@ -1681,19 +1696,22 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(memberId);
             ui->statusbar->showMessage("QQ 号已复制: " + memberId, 2500);
         } else if (selected == profileAction) {
-            QString card = QString("QQ:%1\n昵称:%2\n群聊:%3").arg(memberId, contactDisplayName(memberId), m_localGroupNames.value(m_privateChatTarget, "群聊"));
+            const QString groupName = isLocalGroup ? m_localGroupNames.value(m_privateChatTarget, "群聊") : m_serverGroupNames.value("public", "公共聊天室");
+            QString card = QString("QQ:%1\n昵称:%2\n群聊:%3").arg(memberId, contactDisplayName(memberId), groupName);
             QApplication::clipboard()->setText(card);
             ui->statusbar->showMessage("群成员名片已复制", 1800);
         } else if (selected == copyAllAction) {
             QStringList cards;
-            for (const QString& id : m_localGroupMembers.value(m_privateChatTarget)) {
+            const QStringList memberIds = isLocalGroup ? m_localGroupMembers.value(m_privateChatTarget) : m_serverGroupMembers.value("public");
+            for (const QString& id : memberIds) {
                 cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
             }
             QApplication::clipboard()->setText(cards.join('\n'));
             ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
         } else if (selected == copyOnlineAction) {
             QStringList cards;
-            for (const QString& id : m_localGroupMembers.value(m_privateChatTarget)) {
+            const QStringList memberIds = isLocalGroup ? m_localGroupMembers.value(m_privateChatTarget) : m_serverGroupMembers.value("public");
+            for (const QString& id : memberIds) {
                 if (id != m_currentUserId && !isContactOnline(id)) continue;
                 cards << QString("在线群成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
             }
@@ -1728,7 +1746,7 @@ void MainWindow::setupUi() {
             appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
         } else if (selected == removeAction) {
             if (!canManageGroup) {
-                ui->statusbar->showMessage("只有群主可以移出群成员", 2400);
+                ui->statusbar->showMessage(isLocalGroup ? "只有群主可以移出群成员" : "只有群主或管理员可以移出公共群成员", 2400);
                 return;
             }
             if (memberId == ownerId) {
@@ -1736,7 +1754,7 @@ void MainWindow::setupUi() {
                 return;
             }
             const QString memberName = contactDisplayName(memberId);
-            const QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
+            const QString groupName = isLocalGroup ? m_localGroupNames.value(m_privateChatTarget, "群聊") : m_serverGroupNames.value("public", "公共聊天室");
             if (QMessageBox::question(this,
                                       "移出群成员",
                                       QString("确定将“%1”移出群聊“%2”吗？").arg(memberName, groupName),
@@ -1745,10 +1763,14 @@ void MainWindow::setupUi() {
                 ui->statusbar->showMessage("已取消移出群成员", 1600);
                 return;
             }
-            m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
-            saveLocalGroups();
-            refreshGroupMemberPanel();
-            appendSystemMessage(QString("已将 %1 移出群聊").arg(memberName));
+            if (isLocalGroup) {
+                m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
+                saveLocalGroups();
+                refreshGroupMemberPanel();
+                appendSystemMessage(QString("已将 %1 移出群聊").arg(memberName));
+            } else {
+                requestServerGroupMemberUpdate(memberId, "remove");
+            }
         }
     });
     connect(ui->clearBtn, &QPushButton::clicked, this, &MainWindow::onClearHistory);
@@ -7249,6 +7271,7 @@ void MainWindow::refreshGroupMemberPanel() {
 
     const QStringList serverPublicMembers = m_serverGroupMembers.value("public");
     if (!serverPublicMembers.isEmpty()) {
+        const bool canManagePublicGroup = canCurrentUserManageServerGroup("public");
         const QString ownerId = m_serverGroupOwners.value("public");
         const QString ownerName = ownerId == m_currentUserId
             ? m_currentUserName
@@ -7296,15 +7319,19 @@ void MainWindow::refreshGroupMemberPanel() {
         }
 
         if (visibleMembers == 0 && !filter.isEmpty()) {
-            QStandardItem* addItem = new QStandardItem(QString("搜索并发送申请 QQ:%1\n双击查找好友").arg(filter));
+            QStandardItem* addItem = new QStandardItem(canManagePublicGroup
+                ? QString("邀请 QQ:%1 加入公共群\n双击提交服务端成员变更").arg(filter)
+                : QString("搜索并发送申请 QQ:%1\n双击查找好友").arg(filter));
             addItem->setData("group_search_add:" + filter, Qt::UserRole + 1);
             addItem->setEditable(false);
             addItem->setForeground(QColor(18, 150, 247));
+            addItem->setToolTip(canManagePublicGroup ? "双击后由服务端校验群主/管理员权限并添加成员" : "双击查找该 QQ 并发送好友申请");
             m_groupMemberModel->appendRow(addItem);
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 可搜索QQ:%4")
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · %4QQ:%5")
                 .arg(memberCount)
                 .arg(ownerName.isEmpty() ? "未指定" : ownerName)
                 .arg(onlineMembers)
+                .arg(canManagePublicGroup ? "可邀请" : "可搜索")
                 .arg(filter));
             return;
         }
@@ -7422,6 +7449,54 @@ bool MainWindow::canCurrentUserManageServerGroup(const QString& groupId) const {
     return m_serverGroupOwners.value(groupId) == m_currentUserId
         || role == "owner"
         || role == "admin";
+}
+
+bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const QString& action) {
+    const QString targetId = memberId.trimmed();
+    const QString normalizedAction = action.trimmed().toLower();
+    const QStringList members = m_serverGroupMembers.value("public");
+    if (targetId.isEmpty() || (normalizedAction != "add" && normalizedAction != "remove")) {
+        ui->statusbar->showMessage("公共群成员变更参数无效", 2200);
+        return false;
+    }
+    if (!m_client || !m_client->isConnected()) {
+        ui->statusbar->showMessage("公共群成员变更失败：当前未连接服务器", 2600);
+        return false;
+    }
+    if (!canCurrentUserManageServerGroup("public")) {
+        ui->statusbar->showMessage("只有群主或管理员可以管理公共群成员", 2600);
+        appendSystemMessage("公共群成员变更被权限保护拦截：当前账号不是群主或管理员");
+        return false;
+    }
+    if (normalizedAction == "add" && members.contains(targetId)) {
+        ui->statusbar->showMessage("该 QQ 已在公共群中", 1800);
+        return false;
+    }
+    if (normalizedAction == "remove") {
+        if (!members.contains(targetId)) {
+            ui->statusbar->showMessage("该 QQ 不在公共群中", 1800);
+            return false;
+        }
+        if (targetId == m_currentUserId) {
+            ui->statusbar->showMessage("不能通过管理操作移出自己", 2200);
+            return false;
+        }
+        if (targetId == m_serverGroupOwners.value("public")
+            || m_serverGroupMemberRoles.value("public|" + targetId).toLower() == "owner") {
+            ui->statusbar->showMessage("群主不能被移出公共群", 2200);
+            return false;
+        }
+    }
+    if (!m_client->sendServerGroupMemberUpdate("public", targetId, normalizedAction)) {
+        ui->statusbar->showMessage("公共群成员变更提交失败", 2600);
+        return false;
+    }
+
+    const QString displayName = m_serverGroupMemberNames.value("public|" + targetId, contactDisplayName(targetId));
+    const QString actionText = normalizedAction == "add" ? "邀请" : "移出";
+    appendSystemMessage(QString("已提交公共群%1成员请求：%2（QQ:%3），等待服务端同步").arg(actionText, displayName, targetId));
+    ui->statusbar->showMessage(QString("公共群%1请求已提交，等待服务端同步").arg(actionText), 2400);
+    return true;
 }
 
 QString MainWindow::getFriendFilePath() const {

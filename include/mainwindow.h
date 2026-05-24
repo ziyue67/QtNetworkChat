@@ -95,6 +95,7 @@ private:
     QString groupOwnerId(const QString& groupId) const;
     bool isCurrentUserGroupOwner(const QString& groupId) const;
     bool canCurrentUserManageServerGroup(const QString& groupId) const;
+    bool requestServerGroupMemberUpdate(const QString& memberId, const QString& action);
     QString getFriendFilePath() const;
     QString getGroupFilePath() const;
     QString getAvatarFilePath() const;
