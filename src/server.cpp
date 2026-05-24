@@ -26,6 +26,8 @@ constexpr qint64 kMaxIncomingChunks = 4096;
 constexpr qint64 kForwardChunkBytes = 256LL * 1024;
 constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
+constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
+constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -126,10 +128,13 @@ void sendFileChunkAck(QTcpSocket* socket,
 Server::Server(QObject* parent)
     : QObject(parent)
     , m_tcpServer(createServerSocket(this))
+    , m_transferCleanupTimer(new QTimer(this))
     , m_serverPort(0)
     , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
 {
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
+    connect(m_transferCleanupTimer, &QTimer::timeout, this, &Server::cleanupExpiredFileTransfers);
+    m_transferCleanupTimer->start(kTransferCleanupIntervalMs);
 }
 
 Server::~Server() {
@@ -139,6 +144,9 @@ Server::~Server() {
 bool Server::start(quint16 port) {
     ensureAccountDatabase();
     if (m_tcpServer->listen(QHostAddress::Any, port)) {
+        if (!m_transferCleanupTimer->isActive()) {
+            m_transferCleanupTimer->start(kTransferCleanupIntervalMs);
+        }
         m_serverPort = port;
         qDebug() << "Server started on port" << port << transportSecurityDescription();
 
@@ -165,6 +173,7 @@ QString Server::transportSecurityDescription() const {
 }
 
 void Server::stop() {
+    m_transferCleanupTimer->stop();
     for (QTcpSocket* socket : m_clients.keys()) {
         socket->disconnectFromHost();
     }
@@ -662,6 +671,8 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
         pending.envelope.remove("transferId");
         pending.envelope.remove("chunkIndex");
         pending.envelope.remove("fileData");
+        pending.socket = socket;
+        pending.fileName = fileName;
         pending.fileSize = fileSize;
         pending.chunkSize = chunkSize;
         pending.chunkCount = chunkCount;
@@ -670,6 +681,7 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
         rejectTransfer("同一传输编号的元数据不一致");
         return;
     }
+    pending.lastActivityMs = QDateTime::currentMSecsSinceEpoch();
 
     const int index = static_cast<int>(chunkIndex);
     if (!pending.receivedIndexes.contains(index)) {
@@ -1203,6 +1215,30 @@ bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, 
         *rejectReason = reason.isEmpty() ? "客户端拒绝分片" : reason;
     }
     return matched && accepted;
+}
+
+void Server::cleanupExpiredFileTransfers() {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (const QString& key : m_pendingFileTransfers.keys()) {
+        const auto it = m_pendingFileTransfers.constFind(key);
+        if (it == m_pendingFileTransfers.constEnd()) {
+            continue;
+        }
+        const PendingFileTransfer& pending = it.value();
+        if (pending.lastActivityMs <= 0 || now - pending.lastActivityMs <= kTransferStaleTimeoutMs) {
+            continue;
+        }
+
+        const QString visibleName = pending.fileName.isEmpty() ? "未命名文件" : pending.fileName;
+        QTcpSocket* socket = pending.socket;
+        const int receivedCount = pending.receivedIndexes.size();
+        const qint64 chunkCount = pending.chunkCount;
+        m_pendingFileTransfers.remove(key);
+        if (socket && socket->state() == QAbstractSocket::ConnectedState) {
+            sendSystemNotice(socket, QString("文件分片上传已超时清理：%1。请重新发送。").arg(visibleName));
+        }
+        qWarning() << "Cleaned expired incoming file transfer" << visibleName << receivedCount << "/" << chunkCount;
+    }
 }
 
 void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {

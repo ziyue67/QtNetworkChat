@@ -19,6 +19,8 @@ constexpr qint64 kTransferChunkBytes = 256LL * 1024;
 constexpr qint64 kMaxIncomingChunks = 4096;
 constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
+constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
+constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -41,6 +43,7 @@ Client::Client(QObject* parent)
     : QObject(parent)
     , m_socket(createClientSocket(this))
     , m_heartbeatTimer(new QTimer(this))
+    , m_transferCleanupTimer(new QTimer(this))
     , m_registerMode(false)
     , m_loginFinished(false)
     , m_loginOk(false)
@@ -68,10 +71,12 @@ Client::Client(QObject* parent)
 #endif
 
     connect(m_heartbeatTimer, &QTimer::timeout, this, &Client::onHeartbeat);
+    connect(m_transferCleanupTimer, &QTimer::timeout, this, &Client::cleanupExpiredIncomingFileTransfers);
 }
 
 Client::~Client() {
     m_heartbeatTimer->stop();
+    m_transferCleanupTimer->stop();
     if (m_socket->isOpen()) {
         m_socket->disconnectFromHost();
     }
@@ -326,11 +331,13 @@ void Client::onConnected() {
     m_reconnectAttempts = 0;
     sendLogin();
     m_heartbeatTimer->start(30000);
+    m_transferCleanupTimer->start(kTransferCleanupIntervalMs);
     emit connected();
 }
 
 void Client::onDisconnected() {
     m_heartbeatTimer->stop();
+    m_transferCleanupTimer->stop();
     m_incomingFileTransfers.clear();
     qDebug() << "Disconnected from server";
     emit disconnected();
@@ -559,6 +566,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         pending.envelope.remove("transferId");
         pending.envelope.remove("chunkIndex");
         pending.envelope.remove("fileData");
+        pending.fileName = obj["fileName"].toString();
         pending.fileSize = fileSize;
         pending.chunkSize = chunkSize;
         pending.chunkCount = chunkCount;
@@ -567,6 +575,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         failTransfer("同一传输编号的元数据不一致");
         return;
     }
+    pending.lastActivityMs = QDateTime::currentMSecsSinceEpoch();
 
     const int index = static_cast<int>(chunkIndex);
     if (!pending.receivedIndexes.contains(index)) {
@@ -636,4 +645,22 @@ bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, Q
         *rejectReason = reason.isEmpty() ? "服务端拒绝分片" : reason;
     }
     return matched && accepted;
+}
+
+void Client::cleanupExpiredIncomingFileTransfers() {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (const QString& transferId : m_incomingFileTransfers.keys()) {
+        const auto it = m_incomingFileTransfers.constFind(transferId);
+        if (it == m_incomingFileTransfers.constEnd()) {
+            continue;
+        }
+        const PendingIncomingFileTransfer& pending = it.value();
+        if (pending.lastActivityMs <= 0 || now - pending.lastActivityMs <= kTransferStaleTimeoutMs) {
+            continue;
+        }
+
+        const QString visibleName = pending.fileName.isEmpty() ? "未命名文件" : pending.fileName;
+        m_incomingFileTransfers.remove(transferId);
+        emit connectionError(QString("文件分片接收超时，已清理：%1。请对方重新发送。").arg(visibleName));
+    }
 }

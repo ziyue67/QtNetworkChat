@@ -73,11 +73,14 @@ private:
     bool sendFileChunkAck(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason = QString(), qint64 receivedBytes = 0);
     bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
     bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);
+    void cleanupExpiredIncomingFileTransfers();
 
     struct PendingIncomingFileTransfer {
         QJsonObject envelope;
+        QString fileName;
         QVector<QByteArray> chunks;
         QSet<int> receivedIndexes;
+        qint64 lastActivityMs = 0;
         qint64 receivedBytes = 0;
         qint64 fileSize = 0;
         qint64 chunkSize = 0;
@@ -86,6 +89,7 @@ private:
 
     QTcpSocket* m_socket;
     QTimer* m_heartbeatTimer;
+    QTimer* m_transferCleanupTimer;
     QString m_userId;
     QString m_userName;
     QString m_account;

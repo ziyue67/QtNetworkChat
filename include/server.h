@@ -11,6 +11,8 @@
 #include "chatuser.h"
 #include "message.h"
 
+class QTimer;
+
 class Server : public QObject {
     Q_OBJECT
 
@@ -47,6 +49,7 @@ private:
     void handleFile(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);
+    void cleanupExpiredFileTransfers();
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
@@ -71,8 +74,11 @@ private:
 
     struct PendingFileTransfer {
         QJsonObject envelope;
+        QTcpSocket* socket = nullptr;
+        QString fileName;
         QVector<QByteArray> chunks;
         QSet<int> receivedIndexes;
+        qint64 lastActivityMs = 0;
         qint64 receivedBytes = 0;
         qint64 fileSize = 0;
         qint64 chunkSize = 0;
@@ -80,6 +86,7 @@ private:
     };
 
     QTcpServer* m_tcpServer;
+    QTimer* m_transferCleanupTimer;
     quint16 m_serverPort;
     bool m_tlsEnabled;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
