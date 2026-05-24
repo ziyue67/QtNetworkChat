@@ -368,6 +368,23 @@ bool Client::sendJson(const QJsonObject& obj) {
     return written > 0;
 }
 
+bool Client::sendFileChunkAck(const QString& transferId,
+                              qint64 chunkIndex,
+                              bool accepted,
+                              const QString& reason,
+                              qint64 receivedBytes) {
+    if (transferId.isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "file_chunk_ack";
+    obj["transferId"] = transferId;
+    obj["chunkIndex"] = QString::number(chunkIndex);
+    obj["accepted"] = accepted;
+    obj["reason"] = reason;
+    obj["receivedBytes"] = QString::number(receivedBytes);
+    return sendJson(obj);
+}
+
 void Client::handleServerMessage(const QJsonObject& obj) {
     QString type = obj["type"].toString();
     qDebug() << "Server message type:" << type;
@@ -501,8 +518,9 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
     const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
 
-    auto failTransfer = [this, transferId](const QString& reason) {
+    auto failTransfer = [this, transferId, chunkIndex](const QString& reason) {
         if (!transferId.isEmpty()) {
+            sendFileChunkAck(transferId, chunkIndex, false, reason);
             m_incomingFileTransfers.remove(transferId);
         }
         emit connectionError("文件分片接收失败：" + reason);
@@ -562,6 +580,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     }
     emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, fileSize);
     if (pending.receivedIndexes.size() < pending.chunkCount) {
+        sendFileChunkAck(transferId, chunkIndex, true, QString(), pending.receivedBytes);
         return;
     }
 
@@ -577,6 +596,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
 
     QJsonObject fullFile = pending.envelope;
     m_incomingFileTransfers.remove(transferId);
+    sendFileChunkAck(transferId, chunkIndex, true, QString(), fileData.size());
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleServerMessage(fullFile);
 }

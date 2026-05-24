@@ -70,6 +70,7 @@ private:
     void handleServerMessage(const QJsonObject& obj);
     void handleIncomingFileChunk(const QJsonObject& obj);
     bool sendJson(const QJsonObject& obj);
+    bool sendFileChunkAck(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason = QString(), qint64 receivedBytes = 0);
     bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
     bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);
 
