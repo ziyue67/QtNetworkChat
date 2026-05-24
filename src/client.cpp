@@ -232,6 +232,10 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
     }
     file.close();
 
+    const qint64 chunkCount = (fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes;
+    const QString fileHash = QString::fromLatin1(QCryptographicHash::hash(fileData, QCryptographicHash::Sha256).toHex());
+    emit fileTransferPrepared(fileInfo.fileName(), fileInfo.size(), kTransferChunkBytes, chunkCount, fileHash);
+
     QJsonObject obj;
     obj["type"] = "file";
     obj["senderId"] = m_userId;
@@ -240,9 +244,9 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
     obj["messageType"] = static_cast<int>(messageType);
     obj["fileName"] = fileInfo.fileName();
     obj["fileSize"] = QString::number(fileInfo.size());
-    obj["fileHash"] = QString::fromLatin1(QCryptographicHash::hash(fileData, QCryptographicHash::Sha256).toHex());
+    obj["fileHash"] = fileHash;
     obj["chunkSize"] = QString::number(kTransferChunkBytes);
-    obj["chunkCount"] = QString::number((fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes);
+    obj["chunkCount"] = QString::number(chunkCount);
     obj["content"] = contentPrefix + fileInfo.fileName();
     obj["fileData"] = QString::fromLatin1(fileData.toBase64());
 

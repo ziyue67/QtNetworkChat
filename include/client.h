@@ -49,6 +49,7 @@ signals:
     void friendRequestSent(const QString& receiverId, bool delivered);
     void friendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
     void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);
+    void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
     void connectionError(const QString& error);
 
 private slots:

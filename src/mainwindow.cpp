@@ -156,6 +156,24 @@ QString transferIntegritySummary(const Message& msg) {
     return "完整性校验失败：" + issues.join("、");
 }
 
+QString transferManifestSummary(qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash) {
+    QStringList parts;
+    if (chunkCount > 0) {
+        parts << QString("%1片").arg(chunkCount);
+    }
+    if (chunkSize > 0) {
+        parts << QString("分片%1").arg(humanFileSize(chunkSize));
+    }
+    const QString trimmedHash = fileHash.trimmed();
+    if (!trimmedHash.isEmpty()) {
+        parts << QString("SHA-256 %1").arg(trimmedHash.left(12));
+    }
+    if (parts.isEmpty() && totalBytes > 0) {
+        parts << humanFileSize(totalBytes);
+    }
+    return parts.join(" · ");
+}
+
 QString lastTransferDirectory() {
     QSettings settings("QtNetworkChat", "QtNetworkChat");
     QString directory = settings.value("transfer/lastDirectory").toString();
@@ -328,13 +346,16 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                                           const QString& receiverId,
                                           const QString& targetName,
                                           const QString& kind,
-                                          bool asImage) {
+                                          bool asImage,
+                                          QString* transferSummary) {
     if (!m_client) return false;
 
     const QFileInfo info(filePath);
     constexpr int maxAttempts = 3;
+    if (transferSummary) transferSummary->clear();
 
     for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
+        QString preparedSummary;
         QProgressDialog progress(this);
         progress.setWindowTitle(QString("发送%1").arg(kind));
         progress.setLabelText(QString("正在分片读取%1...\n%2 -> %3").arg(kind, info.fileName(), targetName));
@@ -364,17 +385,36 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                                                humanFileSize(totalBytes)));
                 QApplication::processEvents();
             });
+        QMetaObject::Connection preparedConnection = connect(
+            m_client,
+            &Client::fileTransferPrepared,
+            this,
+            [&progress, &info, &targetName, &kind, &preparedSummary](const QString& fileName,
+                                                                      qint64 totalBytes,
+                                                                      qint64 chunkSize,
+                                                                      qint64 chunkCount,
+                                                                      const QString& fileHash) {
+                if (fileName != info.fileName()) return;
+                preparedSummary = transferManifestSummary(totalBytes, chunkSize, chunkCount, fileHash);
+                progress.setLabelText(QString("%1校验清单已生成\n%2 -> %3\n%4")
+                                          .arg(kind, fileName, targetName, preparedSummary));
+                QApplication::processEvents();
+            });
 
         const bool ok = asImage
             ? m_client->sendImage(filePath, receiverId)
             : m_client->sendFile(filePath, receiverId);
 
         QObject::disconnect(progressConnection);
+        QObject::disconnect(preparedConnection);
         progress.setValue(ok ? 100 : progress.value());
         QApplication::processEvents();
         progress.close();
 
-        if (ok) return true;
+        if (ok) {
+            if (transferSummary) *transferSummary = preparedSummary;
+            return true;
+        }
 
         if (attempt < maxAttempts) {
             const QMessageBox::StandardButton retry = QMessageBox::warning(
@@ -2022,10 +2062,12 @@ void MainWindow::onSendFile() {
         return;
     }
 
-    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false);
+    QString transferSummary;
+    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary);
+    const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
-        appendSystemMessage(QString("已发送文件: %1 · %2 · 到 %3").arg(info.fileName(), fileSize, targetName));
-        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
+        appendSystemMessage(QString("已发送文件: %1 · %2 · 到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
+        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 · 已发送到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
         cardItem->setEditable(false);
         cardItem->setForeground(QColor(0, 121, 107));
         cardItem->setBackground(QColor(232, 248, 245));
@@ -2037,8 +2079,8 @@ void MainWindow::onSendFile() {
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 · %3").arg(targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2").arg(targetName, fileSize), 2200);
+        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 · %3%4").arg(targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSuffix));
+        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2%3").arg(targetName, fileSize, transferSuffix), 2600);
         ui->chatListView->scrollToBottom();
     } else {
         ui->chatHintLabel->setText(QString("文件发送失败 · %1 · %2").arg(info.fileName(), targetName));
@@ -2123,13 +2165,15 @@ void MainWindow::onSendImage() {
         return;
     }
 
-    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo);
+    QString transferSummary;
+    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo, &transferSummary);
+    const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
-        appendSystemMessage(QString("已发送%1: %2 · %3 · 到 %4").arg(mediaType, info.fileName(), fileSize, targetName));
+        appendSystemMessage(QString("已发送%1: %2 · %3 · 到 %4%5").arg(mediaType, info.fileName(), fileSize, targetName, transferSuffix));
         if (!isVideo) {
             QPixmap pixmap(filePath);
             if (!pixmap.isNull()) {
-                QStandardItem* previewItem = new QStandardItem(QString("%1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
+                QStandardItem* previewItem = new QStandardItem(QString("%1 · %2 · 已发送到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
                 previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
                 previewItem->setEditable(false);
                 previewItem->setBackground(QColor(246, 250, 253));
@@ -2137,7 +2181,7 @@ void MainWindow::onSendImage() {
                 m_chatModel->appendRow(previewItem);
             }
         } else {
-            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
+            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 · 已发送到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
             previewItem->setEditable(false);
             previewItem->setForeground(QColor(126, 87, 194));
             previewItem->setBackground(QColor(245, 240, 255));
@@ -2151,8 +2195,8 @@ void MainWindow::onSendImage() {
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 · %4").arg(mediaType, targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3").arg(mediaType, targetName, fileSize), 2200);
+        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 · %4%5").arg(mediaType, targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSuffix));
+        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3%4").arg(mediaType, targetName, fileSize, transferSuffix), 2600);
         ui->chatListView->scrollToBottom();
     } else {
         ui->chatHintLabel->setText(QString("%1发送失败 · %2 · %3").arg(mediaType, info.fileName(), targetName));
