@@ -1364,6 +1364,11 @@ void MainWindow::setupUi() {
             return;
         }
         if (m_privateChatTarget.startsWith("local_group_")) {
+            if (!isCurrentUserGroupOwner(m_privateChatTarget)) {
+                ui->memberSearchEdit->selectAll();
+                ui->statusbar->showMessage("只有群主可以邀请新成员入群", 2400);
+                return;
+            }
             if (!m_localGroupMembers[m_privateChatTarget].contains(text)) {
                 m_localGroupMembers[m_privateChatTarget] << text;
                 saveLocalGroups();
@@ -1491,6 +1496,10 @@ void MainWindow::setupUi() {
         }
         if (targetId.startsWith("group_invite:")) {
             QString account = targetId.mid(QString("group_invite:").size()).trimmed();
+            if (!isCurrentUserGroupOwner(m_privateChatTarget)) {
+                ui->statusbar->showMessage("只有群主可以邀请新成员入群", 2400);
+                return;
+            }
             if (!account.isEmpty() && !m_localGroupMembers[m_privateChatTarget].contains(account)) {
                 m_localGroupMembers[m_privateChatTarget] << account;
                 QString requestNote;
@@ -1543,6 +1552,8 @@ void MainWindow::setupUi() {
         QString memberId = index.data(Qt::UserRole + 1).toString();
         if (memberId.isEmpty() || memberId == m_currentUserId) return;
         QMenu menu(this);
+        const bool canManageGroup = isCurrentUserGroupOwner(m_privateChatTarget);
+        const QString ownerId = groupOwnerId(m_privateChatTarget);
         QAction* chatAction = menu.addAction("私聊");
         QAction* copyAction = menu.addAction("复制QQ号");
         QAction* profileAction = menu.addAction("复制名片");
@@ -1560,7 +1571,8 @@ void MainWindow::setupUi() {
         describeMemberAction(copyAllAction, "复制当前群聊的全部成员列表");
         describeMemberAction(copyOnlineAction, "复制当前群聊在线成员的 QQ 和昵称");
         describeMemberAction(renameAction, "修改当前群成员在本地显示的备注名");
-        describeMemberAction(removeAction, "将当前成员从本地群聊成员列表中移除");
+        describeMemberAction(removeAction, canManageGroup ? "将当前成员从本地群聊成员列表中移除" : "只有群主可以移出群成员");
+        removeAction->setEnabled(canManageGroup && memberId != ownerId);
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
             if (!m_friendIds.contains(memberId)) {
@@ -1633,6 +1645,14 @@ void MainWindow::setupUi() {
             refreshGroupMemberPanel();
             appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
         } else if (selected == removeAction) {
+            if (!canManageGroup) {
+                ui->statusbar->showMessage("只有群主可以移出群成员", 2400);
+                return;
+            }
+            if (memberId == ownerId) {
+                ui->statusbar->showMessage("群主不能被移出群聊", 2200);
+                return;
+            }
             const QString memberName = contactDisplayName(memberId);
             const QString groupName = m_localGroupNames.value(m_privateChatTarget, "群聊");
             if (QMessageBox::question(this,
@@ -3550,13 +3570,25 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     loadHistory(groupId);
     setWindowTitle(QString("QtNetworkChat - 群聊: %1").arg(groupName));
     ui->chatTitleLabel->setText(groupName);
-    ui->chatHintLabel->setText(QString("本地群聊 · 群号 %1 · 当前成员会自动显示在右侧").arg(groupId.mid(QString("local_group_").size())));
+    const QString ownerId = groupOwnerId(groupId);
+    const bool isOwner = isCurrentUserGroupOwner(groupId);
+    ui->chatHintLabel->setText(QString("本地群聊 · 群号 %1 · 群主 %2 · 我的权限:%3")
+        .arg(groupId.mid(QString("local_group_").size()), ownerId, isOwner ? "群主" : "成员"));
+    ui->announcementTitleLabel->setText(isOwner ? "群公告 <a href=\"edit\">编辑</a>" : "群公告");
     ui->announcementBodyLabel->setText(m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName)));
     refreshGroupMemberPanel();
     refreshComposerState();
 }
 
 void MainWindow::onEditGroupAnnouncement() {
+    if (!m_privateChatTarget.isEmpty()
+        && m_privateChatTarget.startsWith("local_group_")
+        && !isCurrentUserGroupOwner(m_privateChatTarget)) {
+        ui->statusbar->showMessage("只有群主可以编辑群公告", 2400);
+        appendSystemMessage("群公告编辑被权限保护拦截：当前账号不是群主");
+        return;
+    }
+
     bool ok = false;
     const QString oldText = ui->announcementBodyLabel->text().trimmed();
     QString text = QInputDialog::getMultiLineText(
@@ -4797,6 +4829,9 @@ void MainWindow::onBackToGroupChat() {
     setWindowTitle("QtNetworkChat - " + m_currentUserName);
     ui->chatTitleLabel->setText("公共聊天室");
     ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
+    ui->announcementTitleLabel->setText("群公告 <a href=\"edit\">+</a>");
+    ui->announcementBodyLabel->setText("欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。");
+    refreshGroupMemberPanel();
     refreshComposerState();
 }
 
@@ -6985,6 +7020,8 @@ void MainWindow::refreshGroupMemberPanel() {
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QStringList members = m_localGroupMembers.value(m_privateChatTarget);
         if (members.isEmpty()) members << m_currentUserId;
+        const QString ownerId = members.first();
+        const QString ownerName = ownerId == m_currentUserId ? m_currentUserName : contactDisplayName(ownerId);
         int visibleMembers = 0;
         int onlineMembers = 0;
         int friendMembers = 0;
@@ -7002,7 +7039,9 @@ void MainWindow::refreshGroupMemberPanel() {
                 && !name.contains(filter, Qt::CaseInsensitive)) {
                 continue;
             }
-            QString role = memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "群成员"));
+            QString role = memberId == ownerId
+                ? (memberId == m_currentUserId ? "群主/我" : "群主")
+                : (memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "群成员")));
             QString state = online ? "在线" : "离线";
             QString actionText = memberId == m_currentUserId ? "本人" : (isFriend ? "已是好友" : (isPending ? "等待确认" : "可发送申请"));
             QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, actionText));
@@ -7013,16 +7052,36 @@ void MainWindow::refreshGroupMemberPanel() {
             ++visibleMembers;
         }
         QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
-        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(pendingPart));
+        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5")
+            .arg(members.size())
+            .arg(ownerName)
+            .arg(onlineMembers)
+            .arg(friendMembers)
+            .arg(pendingPart));
         if (visibleMembers == 0 && !filter.isEmpty()) {
             QStandardItem* addItem = new QStandardItem(QString("邀请 QQ:%1\n双击自动加入当前群聊").arg(filter));
             addItem->setData("group_invite:" + filter, Qt::UserRole + 1);
             addItem->setEditable(false);
             addItem->setForeground(QColor(18, 150, 247));
+            addItem->setEnabled(isCurrentUserGroupOwner(m_privateChatTarget));
+            addItem->setToolTip(isCurrentUserGroupOwner(m_privateChatTarget) ? "双击邀请该 QQ 入群" : "只有群主可以邀请新成员入群");
             m_groupMemberModel->appendRow(addItem);
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 可邀请QQ:%5").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(filter));
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · %6QQ:%7")
+                .arg(members.size())
+                .arg(ownerName)
+                .arg(onlineMembers)
+                .arg(friendMembers)
+                .arg(pendingPart)
+                .arg(isCurrentUserGroupOwner(m_privateChatTarget) ? "可邀请" : "无权限邀请")
+                .arg(filter));
         } else if (!filter.isEmpty()) {
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(members.size()).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · 匹配%6")
+                .arg(members.size())
+                .arg(ownerName)
+                .arg(onlineMembers)
+                .arg(friendMembers)
+                .arg(pendingPart)
+                .arg(visibleMembers));
         }
         return;
     }
@@ -7098,6 +7157,22 @@ QString MainWindow::contactDisplayName(const QString& userId) const {
 
 bool MainWindow::isContactOnline(const QString& userId) const {
     return m_knownUsers.contains(userId) && m_knownUsers.value(userId).isOnline;
+}
+
+QString MainWindow::groupOwnerId(const QString& groupId) const {
+    const QStringList members = m_localGroupMembers.value(groupId);
+    for (const QString& memberId : members) {
+        if (!memberId.trimmed().isEmpty()) {
+            return memberId.trimmed();
+        }
+    }
+    return m_currentUserId;
+}
+
+bool MainWindow::isCurrentUserGroupOwner(const QString& groupId) const {
+    return !groupId.isEmpty()
+        && groupId.startsWith("local_group_")
+        && groupOwnerId(groupId) == m_currentUserId;
 }
 
 QString MainWindow::getFriendFilePath() const {

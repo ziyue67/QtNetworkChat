@@ -90,6 +90,8 @@ private:
     void loadAvatar();
     QString contactDisplayName(const QString& userId) const;
     bool isContactOnline(const QString& userId) const;
+    QString groupOwnerId(const QString& groupId) const;
+    bool isCurrentUserGroupOwner(const QString& groupId) const;
     QString getFriendFilePath() const;
     QString getGroupFilePath() const;
     QString getAvatarFilePath() const;
