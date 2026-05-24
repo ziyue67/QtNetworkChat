@@ -903,6 +903,42 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
                 updateMemberQuery.addBindValue(user.id);
                 ok = updateMemberQuery.exec();
             }
+            QString ownerId;
+            if (ok) {
+                QSqlQuery ownerQuery(db);
+                ownerQuery.prepare("SELECT COALESCE(owner_id, '') FROM server_groups WHERE group_id = 'public'");
+                ok = ownerQuery.exec();
+                if (ok && ownerQuery.next()) {
+                    ownerId = ownerQuery.value(0).toString().trimmed();
+                }
+            }
+            if (ok && !ownerId.isEmpty()) {
+                QSqlQuery ownerMemberQuery(db);
+                ownerMemberQuery.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = 'public' AND user_id = ?");
+                ownerMemberQuery.addBindValue(ownerId);
+                ok = ownerMemberQuery.exec();
+                if (ok && ownerMemberQuery.next() && ownerMemberQuery.value(0).toInt() == 0) {
+                    ownerId.clear();
+                }
+            }
+            if (ok && ownerId.isEmpty()) {
+                ownerId = user.id;
+                QSqlQuery updateOwnerQuery(db);
+                updateOwnerQuery.prepare("UPDATE server_groups SET owner_id = ?, updated_at = datetime('now') "
+                                         "WHERE group_id = 'public'");
+                updateOwnerQuery.addBindValue(ownerId);
+                ok = updateOwnerQuery.exec();
+            }
+            if (ok) {
+                QSqlQuery updateRoleQuery(db);
+                updateRoleQuery.prepare("UPDATE server_group_members "
+                                        "SET role = CASE WHEN user_id = ? THEN 'owner' "
+                                        "WHEN role = 'owner' THEN 'member' ELSE role END, "
+                                        "updated_at = datetime('now') "
+                                        "WHERE group_id = 'public'");
+                updateRoleQuery.addBindValue(ownerId);
+                ok = updateRoleQuery.exec();
+            }
             db.close();
         }
     }

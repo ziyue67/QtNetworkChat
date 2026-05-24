@@ -122,8 +122,10 @@ private:
     QMap<QString, QStringList> m_localGroupMembers;
     QMap<QString, QString> m_serverGroupNames;
     QMap<QString, QString> m_serverGroupAnnouncements;
+    QMap<QString, QString> m_serverGroupOwners;
     QMap<QString, QStringList> m_serverGroupMembers;
     QMap<QString, QString> m_serverGroupMemberNames;
+    QMap<QString, QString> m_serverGroupMemberRoles;
     QMap<QString, ChatUser> m_knownUsers;
     QString m_contactFilter;
     QString m_privateChatTarget;

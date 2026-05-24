@@ -2429,8 +2429,10 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
 void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
     m_serverGroupNames.clear();
     m_serverGroupAnnouncements.clear();
+    m_serverGroupOwners.clear();
     m_serverGroupMembers.clear();
     m_serverGroupMemberNames.clear();
+    m_serverGroupMemberRoles.clear();
 
     for (const QJsonValue& value : groups) {
         const QJsonObject groupObj = value.toObject();
@@ -2439,6 +2441,7 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
 
         m_serverGroupNames[groupId] = groupObj["groupName"].toString(groupId);
         m_serverGroupAnnouncements[groupId] = groupObj["announcement"].toString();
+        m_serverGroupOwners[groupId] = groupObj["ownerId"].toString();
 
         QStringList memberIds;
         const QJsonArray members = groupObj["members"].toArray();
@@ -2449,6 +2452,7 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
 
             memberIds << memberId;
             m_serverGroupMemberNames[groupId + "|" + memberId] = memberObj["userName"].toString(memberId);
+            m_serverGroupMemberRoles[groupId + "|" + memberId] = memberObj["role"].toString("member");
         }
         m_serverGroupMembers[groupId] = memberIds;
     }
@@ -7225,6 +7229,10 @@ void MainWindow::refreshGroupMemberPanel() {
 
     const QStringList serverPublicMembers = m_serverGroupMembers.value("public");
     if (!serverPublicMembers.isEmpty()) {
+        const QString ownerId = m_serverGroupOwners.value("public");
+        const QString ownerName = ownerId == m_currentUserId
+            ? m_currentUserName
+            : m_serverGroupMemberNames.value("public|" + ownerId, contactDisplayName(ownerId));
         int memberCount = 0;
         int visibleMembers = 0;
         int friendMembers = 0;
@@ -7249,13 +7257,20 @@ void MainWindow::refreshGroupMemberPanel() {
                 continue;
             }
 
-            const QString role = memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "成员"));
+            const QString serverRole = m_serverGroupMemberRoles.value("public|" + memberId, "member").toLower();
+            const bool isOwner = serverRole == "owner" || (!ownerId.isEmpty() && memberId == ownerId);
+            const bool isAdmin = serverRole == "admin";
+            const QString role = isOwner
+                ? (memberId == m_currentUserId ? "群主/我" : "群主")
+                : (isAdmin
+                    ? (memberId == m_currentUserId ? "管理员/我" : "管理员")
+                    : (memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "成员"))));
             const QString state = online ? "在线" : "离线";
             const QString actionText = memberId == m_currentUserId ? "本人" : (isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请"));
             QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
-            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56))));
+            item->setForeground(isOwner ? QColor(156, 98, 0) : (memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)))));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
@@ -7266,14 +7281,29 @@ void MainWindow::refreshGroupMemberPanel() {
             addItem->setEditable(false);
             addItem->setForeground(QColor(18, 150, 247));
             m_groupMemberModel->appendRow(addItem);
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 可搜索QQ:%3").arg(memberCount).arg(onlineMembers).arg(filter));
+            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 可搜索QQ:%4")
+                .arg(memberCount)
+                .arg(ownerName.isEmpty() ? "未指定" : ownerName)
+                .arg(onlineMembers)
+                .arg(filter));
             return;
         }
 
         QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
         ui->memberTitleLabel->setText(filter.isEmpty()
-            ? QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
-            : QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
+            ? QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5")
+                .arg(memberCount)
+                .arg(ownerName.isEmpty() ? "未指定" : ownerName)
+                .arg(onlineMembers)
+                .arg(friendMembers)
+                .arg(pendingPart)
+            : QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · 匹配%6")
+                .arg(memberCount)
+                .arg(ownerName.isEmpty() ? "未指定" : ownerName)
+                .arg(onlineMembers)
+                .arg(friendMembers)
+                .arg(pendingPart)
+                .arg(visibleMembers));
         return;
     }
 
