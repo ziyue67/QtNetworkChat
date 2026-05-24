@@ -55,6 +55,7 @@ signals:
     void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);
     void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
     void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes);
+    void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason);
     void connectionError(const QString& error);
 
 private slots:
@@ -70,6 +71,7 @@ private:
     void handleIncomingFileChunk(const QJsonObject& obj);
     bool sendJson(const QJsonObject& obj);
     bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
+    bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);
 
     struct PendingIncomingFileTransfer {
         QJsonObject envelope;

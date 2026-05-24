@@ -17,6 +17,8 @@ namespace {
 constexpr qint64 kMaxOutgoingPayloadBytes = 80LL * 1024 * 1024;
 constexpr qint64 kTransferChunkBytes = 256LL * 1024;
 constexpr qint64 kMaxIncomingChunks = 4096;
+constexpr int kChunkAckTimeoutMs = 4000;
+constexpr int kChunkSendMaxAttempts = 3;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -272,7 +274,25 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
         obj["content"] = contentPrefix + fileInfo.fileName();
         obj["fileData"] = QString::fromLatin1(chunk.toBase64());
 
-        if (!sendJson(obj)) {
+        QString ackRejectReason;
+        bool acknowledged = false;
+        for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
+            if (!sendJson(obj)) {
+                file.close();
+                return false;
+            }
+            if (waitForFileChunkAck(transferId, chunkIndex, &ackRejectReason)) {
+                acknowledged = true;
+                break;
+            }
+            if (!ackRejectReason.isEmpty()) {
+                emit connectionError(QString("文件分片发送被拒绝：%1").arg(ackRejectReason));
+                file.close();
+                return false;
+            }
+        }
+        if (!acknowledged) {
+            emit connectionError(QString("文件分片发送超时：%1 第 %2/%3 片").arg(fileInfo.fileName()).arg(chunkIndex + 1).arg(chunkCount));
             file.close();
             return false;
         }
@@ -426,6 +446,15 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         return;
     }
 
+    if (type == "file_chunk_ack") {
+        emit fileChunkAckReceived(
+            obj["transferId"].toString(),
+            obj["chunkIndex"].toVariant().toLongLong(),
+            obj["accepted"].toBool(false),
+            obj["reason"].toString());
+        return;
+    }
+
     if (type == "friend_search_result") {
         emit friendSearchResult(
             obj["account"].toString(),
@@ -550,4 +579,41 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     m_incomingFileTransfers.remove(transferId);
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleServerMessage(fullFile);
+}
+
+bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+
+    bool matched = false;
+    bool accepted = false;
+    QString reason;
+
+    QMetaObject::Connection ackConnection = connect(
+        this,
+        &Client::fileChunkAckReceived,
+        &loop,
+        [&](const QString& ackTransferId, qint64 ackChunkIndex, bool ackAccepted, const QString& ackReason) {
+            if (ackTransferId != transferId || ackChunkIndex != chunkIndex) return;
+            matched = true;
+            accepted = ackAccepted;
+            reason = ackReason;
+            loop.quit();
+        });
+    QMetaObject::Connection disconnectedConnection = connect(this, &Client::disconnected, &loop, &QEventLoop::quit);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+
+    timer.start(kChunkAckTimeoutMs);
+    loop.exec();
+
+    QObject::disconnect(ackConnection);
+    QObject::disconnect(disconnectedConnection);
+
+    if (matched && !accepted && rejectReason) {
+        *rejectReason = reason.isEmpty() ? "服务端拒绝分片" : reason;
+    }
+    return matched && accepted;
 }

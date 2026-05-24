@@ -97,6 +97,26 @@ void sendSystemNotice(QTcpSocket* socket, const QString& content) {
     socket->write("\n");
     socket->flush();
 }
+
+void sendFileChunkAck(QTcpSocket* socket,
+                      const QString& transferId,
+                      qint64 chunkIndex,
+                      bool accepted,
+                      const QString& reason = QString(),
+                      qint64 receivedBytes = 0) {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState || transferId.isEmpty()) return;
+
+    QJsonObject response;
+    response["type"] = "file_chunk_ack";
+    response["transferId"] = transferId;
+    response["chunkIndex"] = QString::number(chunkIndex);
+    response["accepted"] = accepted;
+    response["reason"] = reason;
+    response["receivedBytes"] = QString::number(receivedBytes);
+    socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
 }
 
 Server::Server(QObject* parent)
@@ -586,9 +606,10 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
     const QString key = QString::number(reinterpret_cast<quintptr>(socket)) + ":" + transferId;
 
-    auto rejectTransfer = [this, socket, key, fileName](const QString& reason) {
+    auto rejectTransfer = [this, socket, key, fileName, transferId, chunkIndex](const QString& reason) {
         m_pendingFileTransfers.remove(key);
         const QString visibleName = fileName.isEmpty() ? "未命名文件" : fileName;
+        sendFileChunkAck(socket, transferId, chunkIndex, false, reason);
         sendSystemNotice(socket, QString("文件分片上传已被服务端拒绝：%1，%2。请重新发送。").arg(visibleName, reason));
         qWarning() << "Rejected file chunk transfer" << visibleName << reason;
     };
@@ -649,6 +670,7 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
         rejectTransfer("累计分片大小超过声明文件大小");
         return;
     }
+    sendFileChunkAck(socket, transferId, chunkIndex, true, QString(), pending.receivedBytes);
     if (pending.receivedIndexes.size() < pending.chunkCount) {
         return;
     }
