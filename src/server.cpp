@@ -1187,10 +1187,12 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["fileHash"] = msg.fileHash;
     obj["chunkSize"] = QString::number(msg.chunkSize);
     obj["chunkCount"] = QString::number(msg.chunkCount);
+    QString savedAttachmentPath;
     if (!msg.fileData.isEmpty()) {
         const bool shouldStoreAsAttachment = msg.type == MessageType::File || msg.type == MessageType::Image;
         const QString attachmentPath = shouldStoreAsAttachment ? saveOfflineAttachment(msg) : QString();
         if (!attachmentPath.isEmpty()) {
+            savedAttachmentPath = attachmentPath;
             obj["offlineFilePath"] = attachmentPath;
             obj["offlineFileStoredOnDisk"] = true;
         } else {
@@ -1198,6 +1200,11 @@ void Server::saveOfflineMessage(const Message& msg) const {
         }
     }
     const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    auto rollbackSavedAttachment = [&savedAttachmentPath]() {
+        if (!savedAttachmentPath.isEmpty() && QFile::remove(savedAttachmentPath)) {
+            qWarning() << "Rolled back offline attachment after queue persistence failure" << savedAttachmentPath;
+        }
+    };
 
     bool savedToSqlite = false;
     if (ensureAccountDatabase()) {
@@ -1219,9 +1226,17 @@ void Server::saveOfflineMessage(const Message& msg) const {
     if (savedToSqlite) return;
 
     QFile file(offlineFilePath(msg.receiverId));
-    if (!file.open(QIODevice::Append | QIODevice::Text)) return;
-    file.write(payload);
-    file.write("\n");
+    if (!file.open(QIODevice::Append | QIODevice::Text)) {
+        rollbackSavedAttachment();
+        return;
+    }
+
+    const bool savedToJsonl = file.write(payload) == payload.size()
+        && file.write("\n") == 1;
+    file.close();
+    if (!savedToJsonl) {
+        rollbackSavedAttachment();
+    }
 }
 
 bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket) {
