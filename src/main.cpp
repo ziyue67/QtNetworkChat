@@ -30,7 +30,7 @@ public:
     {
         m_registerMode = isServer;
         setWindowTitle(isServer ? "注册 QQ" : "QQ 登录");
-        setFixedSize(322, isServer ? 520 : 486);
+        setFixedSize(342, isServer ? 560 : 522);
         setupUi();
         loadSettings();
         setRegisterMode(m_registerMode);
@@ -95,24 +95,35 @@ private:
         m_accountEdit = new QLineEdit(formCard);
         m_accountEdit->setObjectName("qqInput");
         m_accountEdit->setPlaceholderText("QQ 号 / 账号");
+        m_accountEdit->setClearButtonEnabled(true);
+        m_accountEdit->setMaxLength(24);
+        m_accountEdit->setToolTip("输入已有 QQ 账号登录本地聊天服务");
         formLayout->addWidget(m_accountEdit);
 
         m_nameEdit = new QLineEdit(formCard);
         m_nameEdit->setObjectName("qqInput");
         m_nameEdit->setPlaceholderText("昵称");
+        m_nameEdit->setClearButtonEnabled(true);
         m_nameEdit->setMaxLength(20);
+        m_nameEdit->setToolTip("注册时显示在聊天列表和消息里的昵称");
         formLayout->addWidget(m_nameEdit);
 
         m_passwordEdit = new QLineEdit(formCard);
         m_passwordEdit->setObjectName("qqInput");
         m_passwordEdit->setPlaceholderText("密码");
         m_passwordEdit->setEchoMode(QLineEdit::Password);
+        m_passwordEdit->setClearButtonEnabled(true);
+        m_passwordEdit->setMaxLength(32);
+        m_passwordEdit->setToolTip("密码至少 6 位；勾选记住密码后才会保存到本地");
         formLayout->addWidget(m_passwordEdit);
 
         m_confirmPasswordEdit = new QLineEdit(formCard);
         m_confirmPasswordEdit->setObjectName("qqInput");
         m_confirmPasswordEdit->setPlaceholderText("确认密码");
         m_confirmPasswordEdit->setEchoMode(QLineEdit::Password);
+        m_confirmPasswordEdit->setClearButtonEnabled(true);
+        m_confirmPasswordEdit->setMaxLength(32);
+        m_confirmPasswordEdit->setToolTip("再次输入密码，需与上一行一致");
         formLayout->addWidget(m_confirmPasswordEdit);
 
         QHBoxLayout* optionLayout = new QHBoxLayout;
@@ -127,7 +138,13 @@ private:
 
         m_agreementCheck = new QCheckBox("已阅读并同意服务协议和隐私政策", formCard);
         m_agreementCheck->setObjectName("agreementCheck");
+        m_agreementCheck->setToolTip("勾选后才能继续登录或注册");
         formLayout->addWidget(m_agreementCheck);
+
+        m_feedbackLabel = new QLabel(formCard);
+        m_feedbackLabel->setObjectName("formFeedbackLabel");
+        m_feedbackLabel->setWordWrap(true);
+        formLayout->addWidget(m_feedbackLabel);
 
         m_okBtn = new QPushButton(formCard);
         m_okBtn->setObjectName("primaryBtn");
@@ -217,6 +234,15 @@ private:
             QCheckBox#agreementCheck {
                 margin-top: 2px;
             }
+            QLabel#formFeedbackLabel {
+                min-height: 30px;
+                border-radius: 10px;
+                background: rgba(255, 248, 232, 170);
+                color: #A36800;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 5px 9px;
+            }
             QPushButton#primaryBtn {
                 background: #18A8F2;
                 color: white;
@@ -231,6 +257,10 @@ private:
             QPushButton#primaryBtn:pressed {
                 background: #0B7EC6;
             }
+            QPushButton#primaryBtn:disabled {
+                background: #BFD0DE;
+                color: #F8FBFD;
+            }
             QPushButton#linkBtn {
                 background: transparent;
                 color: #1679CA;
@@ -244,17 +274,23 @@ private:
             }
         )");
 
+        closeBtn->setToolTip("关闭登录窗口");
         connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
         connect(m_okBtn, &QPushButton::clicked, this, &LoginDialog::onOk);
         connect(m_loginLinkBtn, &QPushButton::clicked, this, [this]() { setRegisterMode(false); });
         connect(m_registerLinkBtn, &QPushButton::clicked, this, [this]() { setRegisterMode(true); });
+        connect(m_accountEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
+        connect(m_nameEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
+        connect(m_passwordEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
+        connect(m_confirmPasswordEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
+        connect(m_agreementCheck, &QCheckBox::stateChanged, this, [this](int) { updateFormState(); });
+        connect(m_rememberCheck, &QCheckBox::stateChanged, this, [this](int) { updateFormState(); });
     }
 
     void setRegisterMode(bool registerMode) {
         m_registerMode = registerMode;
         setWindowTitle(registerMode ? "注册 QQ" : "QQ 登录");
-        setFixedSize(322, registerMode ? 520 : 486);
-        m_titleLabel->setText(registerMode ? "欢迎注册 QQ" : (m_accountEdit->text().trimmed().isEmpty() ? "QQ 账号登录" : m_accountEdit->text().trimmed()));
+        setFixedSize(342, registerMode ? 560 : 522);
         m_avatarLabel->setText(registerMode ? "注" : "Q");
         m_accountEdit->setVisible(!registerMode);
         m_accountEdit->setReadOnly(false);
@@ -269,6 +305,55 @@ private:
         if (registerMode) {
             m_accountEdit->clear();
         }
+        updateFormState();
+    }
+
+    void updateFormState() {
+        if (!m_okBtn || !m_feedbackLabel) return;
+
+        const QString account = m_accountEdit ? m_accountEdit->text().trimmed() : QString();
+        const QString userName = m_nameEdit ? m_nameEdit->text().trimmed() : QString();
+        const QString password = m_passwordEdit ? m_passwordEdit->text() : QString();
+        const QString confirmPassword = m_confirmPasswordEdit ? m_confirmPasswordEdit->text() : QString();
+        const bool agreed = m_agreementCheck && m_agreementCheck->isChecked();
+        QString feedback;
+        bool ready = true;
+
+        if (!agreed) {
+            feedback = "请先勾选服务协议和隐私政策";
+            ready = false;
+        } else if (!m_registerMode && account.isEmpty()) {
+            feedback = "请输入 QQ 账号";
+            ready = false;
+        } else if (m_registerMode && userName.isEmpty()) {
+            feedback = "注册时请输入昵称";
+            ready = false;
+        } else if (password.isEmpty()) {
+            feedback = "请输入密码";
+            ready = false;
+        } else if (password.length() < 6) {
+            feedback = QString("密码至少需要 6 位，当前 %1 位").arg(password.length());
+            ready = false;
+        } else if (m_registerMode && password != confirmPassword) {
+            feedback = "两次输入的密码不一致";
+            ready = false;
+        } else {
+            feedback = m_registerMode
+                ? QString("资料完整，点击立即注册创建本地 QQ 账号")
+                : QString("准备登录 QQ:%1%2")
+                    .arg(account,
+                         m_rememberCheck && m_rememberCheck->isChecked() ? "，密码会保存到本地" : "，本次不会保存密码");
+        }
+
+        m_okBtn->setEnabled(ready);
+        m_okBtn->setToolTip(ready ? (m_registerMode ? "创建本地 QQ 账号并进入聊天室" : "登录并进入聊天室") : feedback);
+        m_feedbackLabel->setText(feedback);
+        m_feedbackLabel->setStyleSheet(ready
+            ? "min-height: 30px; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 5px 9px; color: #12875A; background: rgba(232, 248, 239, 190);"
+            : "min-height: 30px; border-radius: 10px; font-size: 12px; font-weight: 700; padding: 5px 9px; color: #A36800; background: rgba(255, 248, 232, 170);");
+        m_titleLabel->setText(m_registerMode
+            ? (userName.isEmpty() ? "欢迎注册 QQ" : QString("注册昵称：%1").arg(userName))
+            : (account.isEmpty() ? "QQ 账号登录" : QString("QQ %1").arg(account)));
     }
 
     void onOk() {
@@ -444,6 +529,7 @@ private:
     bool m_registerMode = false;
     QLabel* m_avatarLabel = nullptr;
     QLabel* m_titleLabel = nullptr;
+    QLabel* m_feedbackLabel = nullptr;
     QLineEdit* m_accountEdit = nullptr;
     QLineEdit* m_passwordEdit = nullptr;
     QLineEdit* m_confirmPasswordEdit = nullptr;
