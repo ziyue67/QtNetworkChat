@@ -76,6 +76,7 @@ private:
     void cleanupExpiredOfflineAttachments();
     void saveOfflineMessage(const Message& msg) const;
     bool deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket);
+    bool sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString& filePath, QTcpSocket* socket);
     void sendOfflineMessages(const QString& userId, QTcpSocket* socket);
 
     struct PendingFileTransfer {

@@ -1249,40 +1249,102 @@ bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket
     }
 
     QFile attachment(offlineFilePath);
-    if (!attachment.open(QIODevice::ReadOnly)) {
+    QFileInfo attachmentInfo(offlineFilePath);
+    if (!attachmentInfo.exists() || !attachmentInfo.isFile()) {
         sendSystemNotice(socket, QString("离线文件已丢失：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
         QFile::remove(offlineFilePath);
         return true;
     }
-
-    Message msg;
-    msg.type = static_cast<MessageType>(messageType);
-    msg.senderId = obj["senderId"].toString();
-    msg.senderName = obj["senderName"].toString();
-    msg.receiverId = obj["receiverId"].toString();
-    msg.content = obj["content"].toString();
-    msg.fileName = obj["fileName"].toString();
-    msg.fileHash = obj["fileHash"].toString();
-    msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
-    msg.chunkCount = obj["chunkCount"].toVariant().toLongLong();
-    msg.fileData = attachment.readAll();
-    msg.fileSize = obj["fileSize"].toVariant().toLongLong();
-    if (msg.fileSize <= 0) {
-        msg.fileSize = msg.fileData.size();
-    }
-    attachment.close();
-
-    if (msg.fileData.isEmpty()) {
-        sendSystemNotice(socket, QString("离线文件为空：%1，请让对方重新发送。").arg(msg.fileName.isEmpty() ? "未命名文件" : msg.fileName));
+    if (attachmentInfo.size() <= 0) {
+        sendSystemNotice(socket, QString("离线文件为空：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
         QFile::remove(offlineFilePath);
         return true;
     }
 
-    const bool delivered = sendChunkedFileToSocket(msg, socket);
+    const qint64 declaredSize = obj["fileSize"].toVariant().toLongLong();
+    if (declaredSize > 0 && declaredSize != attachmentInfo.size()) {
+        sendSystemNotice(socket, QString("离线文件大小异常：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
+        QFile::remove(offlineFilePath);
+        return true;
+    }
+
+    const bool delivered = sendOfflineAttachmentToSocket(obj, offlineFilePath, socket);
     if (delivered) {
         QFile::remove(offlineFilePath);
     }
     return delivered;
+}
+
+bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString& filePath, QTcpSocket* socket) {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+        return false;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    const qint64 totalBytes = QFileInfo(file).size();
+    const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
+    const qint64 chunkSize = (declaredChunkSize > 0 && declaredChunkSize <= kForwardChunkBytes)
+        ? declaredChunkSize
+        : kForwardChunkBytes;
+    const qint64 chunkCount = (totalBytes + chunkSize - 1) / chunkSize;
+    const QString fileName = obj["fileName"].toString();
+    const QString transferId = QString("%1_%2_%3")
+        .arg(obj["senderId"].toString(),
+             QString::number(QDateTime::currentMSecsSinceEpoch()),
+             QString::number(QRandomGenerator::global()->generate()));
+
+    for (qint64 index = 0; index < chunkCount; ++index) {
+        const QByteArray chunk = file.read(chunkSize);
+        if (chunk.isEmpty() || (index < chunkCount - 1 && chunk.size() != chunkSize)) {
+            qWarning() << "Offline attachment chunk read failed:" << fileName << index + 1 << "/" << chunkCount;
+            return false;
+        }
+
+        QJsonObject chunkObj;
+        chunkObj["type"] = "file_chunk";
+        chunkObj["transferId"] = transferId;
+        chunkObj["messageType"] = obj["messageType"].toInt(static_cast<int>(MessageType::File));
+        chunkObj["senderId"] = obj["senderId"].toString();
+        chunkObj["senderName"] = obj["senderName"].toString();
+        chunkObj["receiverId"] = obj["receiverId"].toString();
+        chunkObj["content"] = obj["content"].toString();
+        chunkObj["fileName"] = fileName;
+        chunkObj["fileSize"] = QString::number(totalBytes);
+        chunkObj["fileHash"] = obj["fileHash"].toString();
+        chunkObj["chunkSize"] = QString::number(chunkSize);
+        chunkObj["chunkCount"] = QString::number(chunkCount);
+        chunkObj["chunkIndex"] = QString::number(index);
+        chunkObj["fileData"] = QString::fromLatin1(chunk.toBase64());
+
+        QString ackRejectReason;
+        bool acknowledged = false;
+        const QByteArray data = QJsonDocument(chunkObj).toJson(QJsonDocument::Compact);
+        for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
+            if (!socket || socket->state() != QAbstractSocket::ConnectedState || socket->write(data) <= 0) {
+                return false;
+            }
+            socket->write("\n");
+            socket->flush();
+            if (waitForFileChunkAck(socket, transferId, index, &ackRejectReason)) {
+                acknowledged = true;
+                break;
+            }
+            if (!ackRejectReason.isEmpty()) {
+                qWarning() << "Offline attachment chunk rejected by receiver:" << ackRejectReason;
+                return false;
+            }
+        }
+        if (!acknowledged) {
+            qWarning() << "Offline attachment chunk ack timeout:" << fileName << index + 1 << "/" << chunkCount;
+            return false;
+        }
+    }
+
+    return file.atEnd();
 }
 
 void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
