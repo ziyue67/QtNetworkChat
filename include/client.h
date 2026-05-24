@@ -33,6 +33,7 @@ public:
     QString currentUserName() const { return m_userName; }
     bool currentLoginWasRegister() const { return m_loginWasRegister; }
     QString lastLoginError() const { return m_loginError; }
+    QString transportSecurityDescription() const;
 
 signals:
     void connected();

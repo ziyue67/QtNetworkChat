@@ -7,15 +7,33 @@
 #include <QFileInfo>
 #include <QEventLoop>
 #include <QTimer>
+#include <QSslSocket>
+#include <QSslError>
 
 namespace {
 constexpr qint64 kMaxOutgoingPayloadBytes = 80LL * 1024 * 1024;
 constexpr qint64 kTransferChunkBytes = 256LL * 1024;
+
+bool envEnabled(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+QTcpSocket* createClientSocket(QObject* parent) {
+    if (envEnabled("QTNETWORKCHAT_TLS") && QSslSocket::supportsSsl()) {
+        QSslSocket* socket = new QSslSocket(parent);
+        socket->setPeerVerifyMode(envEnabled("QTNETWORKCHAT_TLS_VERIFY")
+            ? QSslSocket::VerifyPeer
+            : QSslSocket::VerifyNone);
+        return socket;
+    }
+    return new QTcpSocket(parent);
+}
 }
 
 Client::Client(QObject* parent)
     : QObject(parent)
-    , m_socket(new QTcpSocket(this))
+    , m_socket(createClientSocket(this))
     , m_heartbeatTimer(new QTimer(this))
     , m_registerMode(false)
     , m_loginFinished(false)
@@ -24,7 +42,17 @@ Client::Client(QObject* parent)
     , m_reconnectAttempts(0)
 {
     connect(m_socket, &QTcpSocket::readyRead, this, &Client::onReadyRead);
-    connect(m_socket, &QTcpSocket::connected, this, &Client::onConnected);
+    if (QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket)) {
+        connect(sslSocket, &QSslSocket::encrypted, this, &Client::onConnected);
+        connect(sslSocket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
+                this, [sslSocket](const QList<QSslError>&) {
+                    if (!envEnabled("QTNETWORKCHAT_TLS_VERIFY")) {
+                        sslSocket->ignoreSslErrors();
+                    }
+                });
+    } else {
+        connect(m_socket, &QTcpSocket::connected, this, &Client::onConnected);
+    }
     connect(m_socket, &QTcpSocket::disconnected, this, &Client::onDisconnected);
 #if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
     connect(m_socket, &QTcpSocket::errorOccurred, this, &Client::onError);
@@ -46,6 +74,14 @@ Client::~Client() {
 bool Client::connectToServer(const QString& host, quint16 port) {
     m_serverHost = host;
     m_serverPort = port;
+    if (QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket)) {
+        sslSocket->connectToHostEncrypted(host, port);
+        const bool encrypted = sslSocket->waitForEncrypted(5000);
+        if (!encrypted) {
+            m_loginError = "TLS 握手失败: " + sslSocket->errorString();
+        }
+        return encrypted;
+    }
     m_socket->connectToHost(host, port);
     return m_socket->waitForConnected(5000);
 }
@@ -88,6 +124,18 @@ bool Client::waitForLoginResult(int timeoutMs) {
         return false;
     }
     return m_loginOk;
+}
+
+QString Client::transportSecurityDescription() const {
+    if (const QSslSocket* sslSocket = qobject_cast<const QSslSocket*>(m_socket)) {
+        return sslSocket->isEncrypted()
+            ? "TLS 加密通道"
+            : "TLS 已启用，等待握手";
+    }
+    if (envEnabled("QTNETWORKCHAT_TLS") && !QSslSocket::supportsSsl()) {
+        return "TLS 已请求，但当前 Qt/OpenSSL 不可用，已回退 TCP";
+    }
+    return "普通 TCP 通道";
 }
 
 bool Client::sendMessage(const QString& content) {

@@ -14,11 +14,81 @@
 #include <QSqlError>
 #include <QVariant>
 #include <QRandomGenerator>
+#include <QSslSocket>
+#include <QSslCertificate>
+#include <QSslKey>
+
+namespace {
+bool envEnabled(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+class TlsTcpServer : public QTcpServer {
+public:
+    TlsTcpServer(const QSslCertificate& certificate, const QSslKey& privateKey, QObject* parent = nullptr)
+        : QTcpServer(parent)
+        , m_certificate(certificate)
+        , m_privateKey(privateKey) {
+    }
+
+protected:
+    void incomingConnection(qintptr socketDescriptor) override {
+        QSslSocket* socket = new QSslSocket(this);
+        socket->setLocalCertificate(m_certificate);
+        socket->setPrivateKey(m_privateKey);
+        socket->setPeerVerifyMode(QSslSocket::VerifyNone);
+        if (!socket->setSocketDescriptor(socketDescriptor)) {
+            socket->deleteLater();
+            return;
+        }
+        addPendingConnection(socket);
+        socket->startServerEncryption();
+    }
+
+private:
+    QSslCertificate m_certificate;
+    QSslKey m_privateKey;
+};
+
+QTcpServer* createServerSocket(QObject* parent) {
+    if (!envEnabled("QTNETWORKCHAT_TLS")) {
+        return new QTcpServer(parent);
+    }
+    if (!QSslSocket::supportsSsl()) {
+        qWarning() << "TLS requested but Qt/OpenSSL is unavailable; falling back to TCP";
+        return new QTcpServer(parent);
+    }
+
+    const QString certPath = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_TLS_CERT")).trimmed();
+    const QString keyPath = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_TLS_KEY")).trimmed();
+    QFile certFile(certPath);
+    QFile keyFile(keyPath);
+    if (certPath.isEmpty() || keyPath.isEmpty()
+        || !certFile.open(QIODevice::ReadOnly)
+        || !keyFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "TLS requested but QTNETWORKCHAT_TLS_CERT/QTNETWORKCHAT_TLS_KEY are not readable; falling back to TCP";
+        return new QTcpServer(parent);
+    }
+
+    const QSslCertificate certificate(&certFile, QSsl::Pem);
+    const QSslKey privateKey(&keyFile, QSsl::Rsa, QSsl::Pem);
+    if (certificate.isNull() || privateKey.isNull()) {
+        qWarning() << "TLS certificate or private key is invalid; falling back to TCP";
+        return new QTcpServer(parent);
+    }
+
+    QTcpServer* server = new TlsTcpServer(certificate, privateKey, parent);
+    server->setProperty("tlsEnabled", true);
+    return server;
+}
+}
 
 Server::Server(QObject* parent)
     : QObject(parent)
-    , m_tcpServer(new QTcpServer(this))
+    , m_tcpServer(createServerSocket(this))
     , m_serverPort(0)
+    , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
 {
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
 }
@@ -31,7 +101,7 @@ bool Server::start(quint16 port) {
     ensureAccountDatabase();
     if (m_tcpServer->listen(QHostAddress::Any, port)) {
         m_serverPort = port;
-        qDebug() << "Server started on port" << port;
+        qDebug() << "Server started on port" << port << transportSecurityDescription();
 
         QList<QHostAddress> interfaces = QNetworkInterface::allAddresses();
         for (const QHostAddress& addr : interfaces) {
@@ -42,6 +112,17 @@ bool Server::start(quint16 port) {
         return true;
     }
     return false;
+}
+
+QString Server::transportSecurityDescription() const {
+    if (m_tlsEnabled) return "TLS 加密服务";
+    if (envEnabled("QTNETWORKCHAT_TLS") && !QSslSocket::supportsSsl()) {
+        return "TLS 已请求，但 Qt/OpenSSL 不可用，已回退 TCP";
+    }
+    if (envEnabled("QTNETWORKCHAT_TLS")) {
+        return "TLS 已请求，但证书未配置，已回退 TCP";
+    }
+    return "普通 TCP 服务";
 }
 
 void Server::stop() {

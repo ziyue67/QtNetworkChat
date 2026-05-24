@@ -21,6 +21,7 @@ public:
     bool start(quint16 port = 8888);
     void stop();
     quint16 serverPort() const { return m_serverPort; }
+    QString transportSecurityDescription() const;
 
 signals:
     void newMessage(const Message& msg);
@@ -66,6 +67,7 @@ private:
 
     QTcpServer* m_tcpServer;
     quint16 m_serverPort;
+    bool m_tlsEnabled;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
     QSet<QString> m_usedNames;

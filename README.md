@@ -119,6 +119,18 @@ cmake --build build
 
 ## 常见问题
 
+### 如何启用 TLS 加密通道
+
+默认使用普通 TCP，便于局域网快速测试。需要测试 TLS 时，启动服务端和客户端前设置：
+
+```bash
+set QTNETWORKCHAT_TLS=1
+set QTNETWORKCHAT_TLS_CERT=C:\path\to\server.crt
+set QTNETWORKCHAT_TLS_KEY=C:\path\to\server.key
+```
+
+客户端默认允许自签名证书，适合本地测试；如果需要校验证书链，可额外设置 `QTNETWORKCHAT_TLS_VERIFY=1`。
+
 ### 客户端连接不上服务器
 
 - 确认服务器端已经点击创建服务器。

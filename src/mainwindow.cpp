@@ -257,7 +257,8 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
 
     connect(m_client, &Client::connected, this, [this]() {
-        appendSystemMessage("已连接服务器");
+        appendSystemMessage("已连接服务器 · " + m_client->transportSecurityDescription());
+        ui->statusbar->showMessage(m_client->transportSecurityDescription(), 2200);
         refreshComposerState();
     });
     connect(m_client, &Client::disconnected, this, &MainWindow::onClientDisconnected);
