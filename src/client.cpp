@@ -220,6 +220,22 @@ bool Client::sendServerGroupAnnouncementUpdate(const QString& groupId, const QSt
     return sendJson(obj);
 }
 
+bool Client::sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || memberId.trimmed().isEmpty()) return false;
+
+    const QString normalizedAction = action.trimmed().toLower();
+    if (normalizedAction != "add" && normalizedAction != "remove") return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_member_update";
+    obj["groupId"] = groupId.trimmed();
+    obj["memberId"] = memberId.trimmed();
+    obj["action"] = normalizedAction;
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    return sendJson(obj);
+}
+
 bool Client::sendFile(const QString& filePath, const QString& receiverId) {
     return sendFilePayload(filePath, receiverId, MessageType::File, "发送了文件: ");
 }

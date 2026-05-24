@@ -48,6 +48,7 @@ private:
     void handleMessage(const QJsonObject& obj);
     void handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket = nullptr);
     void handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleFile(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);

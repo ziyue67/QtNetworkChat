@@ -267,6 +267,8 @@ void Server::onClientReadyRead() {
             handleMessage(obj);
         } else if (type == "server_group_announcement_update") {
             handleServerGroupAnnouncementUpdate(obj, socket);
+        } else if (type == "server_group_member_update") {
+            handleServerGroupMemberUpdate(obj, socket);
         } else if (type == "friend_request" || type == "friend_response" || type == "friend_search") {
             handleFriendEvent(obj, socket);
         } else if (type == "heartbeat") {
@@ -564,6 +566,168 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
         if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
         sendSystemNotice(memberSocket, notice);
         sendServerGroupSnapshot(memberId, memberSocket);
+    }
+}
+
+void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "群成员变更失败：请先登录");
+        return;
+    }
+
+    const QString groupId = obj["groupId"].toString("public").trimmed().isEmpty()
+        ? QString("public")
+        : obj["groupId"].toString("public").trimmed();
+    const QString action = obj["action"].toString().trimmed().toLower();
+    const QString memberId = obj["memberId"].toString().trimmed();
+    if ((action != "add" && action != "remove") || groupId.isEmpty() || memberId.isEmpty()) {
+        sendSystemNotice(socket, "群成员变更失败：请求参数无效");
+        return;
+    }
+    if (!ensureAccountDatabase()) {
+        sendSystemNotice(socket, "群成员变更失败：服务端群组存储不可用");
+        return;
+    }
+
+    QStringList affectedUserIds;
+    bool changed = false;
+    QString memberName;
+    QString errorText;
+    const QString connectionName = "server_group_member_update_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (!db.open()) {
+            errorText = "群成员变更失败：无法打开群组数据库";
+        } else {
+            QString ownerId;
+            QString requesterRole;
+            QSqlQuery permissionQuery(db);
+            permissionQuery.prepare("SELECT COALESCE(g.owner_id, ''), COALESCE(m.role, '') "
+                                    "FROM server_groups g "
+                                    "JOIN server_group_members m ON m.group_id = g.group_id "
+                                    "WHERE g.group_id = ? AND m.user_id = ?");
+            permissionQuery.addBindValue(groupId);
+            permissionQuery.addBindValue(requester->id);
+            if (!permissionQuery.exec()) {
+                errorText = "群成员变更失败：权限校验失败";
+            } else if (!permissionQuery.next()) {
+                errorText = "群成员变更失败：你不在该群组";
+            } else {
+                ownerId = permissionQuery.value(0).toString();
+                requesterRole = permissionQuery.value(1).toString().toLower();
+                const bool allowed = ownerId == requester->id || requesterRole == "owner" || requesterRole == "admin";
+                if (!allowed) {
+                    errorText = "群成员变更失败：只有群主或管理员可以管理成员";
+                }
+            }
+
+            if (errorText.isEmpty() && action == "add") {
+                QSqlQuery accountQuery(db);
+                accountQuery.prepare("SELECT COALESCE(user_name, '') FROM accounts WHERE account = ?");
+                accountQuery.addBindValue(memberId);
+                if (!accountQuery.exec()) {
+                    errorText = "群成员变更失败：账号查询失败";
+                } else if (!accountQuery.next()) {
+                    errorText = "群成员变更失败：目标账号不存在";
+                } else {
+                    memberName = accountQuery.value(0).toString();
+                    if (memberName.isEmpty()) memberName = memberId;
+                }
+            }
+
+            bool alreadyMember = false;
+            QString targetRole;
+            if (errorText.isEmpty()) {
+                QSqlQuery targetQuery(db);
+                targetQuery.prepare("SELECT COALESCE(user_name, ''), COALESCE(role, '') "
+                                    "FROM server_group_members WHERE group_id = ? AND user_id = ?");
+                targetQuery.addBindValue(groupId);
+                targetQuery.addBindValue(memberId);
+                if (!targetQuery.exec()) {
+                    errorText = "群成员变更失败：成员查询失败";
+                } else if (targetQuery.next()) {
+                    alreadyMember = true;
+                    if (memberName.isEmpty()) memberName = targetQuery.value(0).toString();
+                    targetRole = targetQuery.value(1).toString().toLower();
+                }
+            }
+
+            if (errorText.isEmpty() && action == "add") {
+                if (alreadyMember) {
+                    errorText = "该用户已经是群成员";
+                } else {
+                    QSqlQuery insertQuery(db);
+                    insertQuery.prepare("INSERT INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
+                                        "VALUES(?, ?, ?, 'member', datetime('now'), datetime('now'))");
+                    insertQuery.addBindValue(groupId);
+                    insertQuery.addBindValue(memberId);
+                    insertQuery.addBindValue(memberName);
+                    if (!insertQuery.exec()) {
+                        errorText = "群成员变更失败：添加成员失败";
+                    } else {
+                        changed = true;
+                    }
+                }
+            } else if (errorText.isEmpty() && action == "remove") {
+                if (!alreadyMember) {
+                    errorText = "群成员变更失败：目标用户不在该群组";
+                } else if (memberId == ownerId || targetRole == "owner") {
+                    errorText = "群成员变更失败：不能移出群主";
+                } else if (memberId == requester->id) {
+                    errorText = "群成员变更失败：不能通过管理操作移出自己";
+                } else {
+                    QSqlQuery deleteQuery(db);
+                    deleteQuery.prepare("DELETE FROM server_group_members WHERE group_id = ? AND user_id = ?");
+                    deleteQuery.addBindValue(groupId);
+                    deleteQuery.addBindValue(memberId);
+                    if (!deleteQuery.exec()) {
+                        errorText = "群成员变更失败：移出成员失败";
+                    } else {
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed) {
+                QSqlQuery memberQuery(db);
+                memberQuery.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+                memberQuery.addBindValue(groupId);
+                if (memberQuery.exec()) {
+                    while (memberQuery.next()) {
+                        const QString userId = memberQuery.value(0).toString();
+                        if (!userId.isEmpty() && !affectedUserIds.contains(userId)) {
+                            affectedUserIds << userId;
+                        }
+                    }
+                }
+                if (!affectedUserIds.contains(requester->id)) {
+                    affectedUserIds << requester->id;
+                }
+                if (!affectedUserIds.contains(memberId)) {
+                    affectedUserIds << memberId;
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    if (!changed) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "群成员变更未生效" : errorText);
+        return;
+    }
+
+    const QString displayName = memberName.isEmpty() ? memberId : memberName;
+    const QString notice = action == "add"
+        ? QString("%1 已被加入群组").arg(displayName)
+        : QString("%1 已被移出群组").arg(displayName);
+    for (const QString& userId : affectedUserIds) {
+        QTcpSocket* memberSocket = m_userSockets.value(userId);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        sendSystemNotice(memberSocket, notice);
+        sendServerGroupSnapshot(userId, memberSocket);
     }
 }
 
