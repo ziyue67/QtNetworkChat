@@ -251,7 +251,7 @@ void Server::onClientReadyRead() {
         if (type == "login") {
             handleLogin(obj, socket);
         } else if (type == "message") {
-            handleMessage(obj);
+            handleMessage(obj, socket);
         } else if (type == "file") {
             handleFile(obj, socket);
         } else if (type == "file_chunk") {
@@ -264,7 +264,7 @@ void Server::onClientReadyRead() {
                 obj["accepted"].toBool(false),
                 obj["reason"].toString());
         } else if (type == "private") {
-            handleMessage(obj);
+            handleMessage(obj, socket);
         } else if (type == "server_group_announcement_update") {
             handleServerGroupAnnouncementUpdate(obj, socket);
         } else if (type == "server_group_member_update") {
@@ -437,7 +437,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     qDebug() << "User logged in:" << user.name << "id:" << user.id;
 }
 
-void Server::handleMessage(const QJsonObject& obj) {
+void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     Message msg;
     msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::Text)));
     msg.senderId = obj["senderId"].toString();
@@ -446,12 +446,21 @@ void Server::handleMessage(const QJsonObject& obj) {
     msg.receiverId = obj["receiverId"].toString();
     msg.timestamp = QDateTime::currentDateTime();
 
+    if (ChatUser* sender = findUserBySocket(socket)) {
+        msg.senderId = sender->id;
+        msg.senderName = sender->name;
+    }
+
     QString deliveryState = "broadcast";
     if (!msg.receiverId.isEmpty()) {
         QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
         deliveryState = targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState ? "direct" : "offline";
         sendToUser(msg);
     } else {
+        if (!isServerGroupMember("public", msg.senderId)) {
+            sendSystemNotice(socket, "公共群消息发送失败：你已不在该群组，请联系群主或管理员重新邀请。");
+            return;
+        }
         broadcastMessage(msg);
     }
     saveMessageToSqlite(msg, deliveryState);
@@ -854,6 +863,15 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::File)));
     msg.timestamp = QDateTime::currentDateTime();
 
+    if (ChatUser* sender = findUserBySocket(socket)) {
+        msg.senderId = sender->id;
+        msg.senderName = sender->name;
+    }
+    if (msg.receiverId.isEmpty() && !isServerGroupMember("public", msg.senderId)) {
+        sendSystemNotice(socket, "公共群文件发送失败：你已不在该群组，请联系群主或管理员重新邀请。");
+        return;
+    }
+
     QString base64Data = obj["fileData"].toString();
     if (!base64Data.isEmpty()) {
         msg.fileData = QByteArray::fromBase64(base64Data.toLatin1());
@@ -1220,6 +1238,31 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
     }
     QSqlDatabase::removeDatabase(connectionName);
     return ok;
+}
+
+bool Server::isServerGroupMember(const QString& groupId, const QString& userId) const {
+    if (groupId.isEmpty() || userId.isEmpty() || !ensureAccountDatabase()) return false;
+
+    const QString connectionName = "server_group_membership_check_"
+        + QString::number(reinterpret_cast<quintptr>(this)) + "_"
+        + QString::number(qHash(groupId + "|" + userId));
+    bool exists = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = ? AND user_id = ?");
+            query.addBindValue(groupId);
+            query.addBindValue(userId);
+            if (query.exec() && query.next()) {
+                exists = query.value(0).toInt() > 0;
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return exists;
 }
 
 bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryState) const {

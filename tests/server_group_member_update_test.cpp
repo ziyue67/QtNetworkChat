@@ -104,7 +104,13 @@ int main(int argc, char** argv) {
 
     Client owner;
     Client member;
+    QStringList ownerGroupMessages;
     QStringList memberSystemMessages;
+    QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::Text) {
+            ownerGroupMessages << msg.content;
+        }
+    });
     QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::System) {
             memberSystemMessages << msg.content;
@@ -133,12 +139,34 @@ int main(int argc, char** argv) {
         return member.serverGroups().isEmpty();
     }), "removed member should receive an empty server group snapshot") && ok;
 
+    const QString blockedBroadcast = "removed member broadcast should be blocked";
+    memberSystemMessages.clear();
+    ownerGroupMessages.clear();
+    ok = expect(member.sendMessage(blockedBroadcast),
+                "removed member public message request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("已不在该群组"))) return true;
+        }
+        return false;
+    }), "removed member should receive public message rejection") && ok;
+    ok = expect(!ownerGroupMessages.contains(blockedBroadcast),
+                "removed member message should not be broadcast to public group") && ok;
+
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "add"),
                 "owner should submit member add") && ok;
     ok = expect(waitFor([&] {
         return publicGroupHasMember(member.serverGroups(), ownerId)
             && publicGroupHasMember(member.serverGroups(), memberId);
     }), "added member should receive restored public group snapshot") && ok;
+
+    const QString restoredBroadcast = "restored member broadcast should pass";
+    ownerGroupMessages.clear();
+    ok = expect(member.sendMessage(restoredBroadcast),
+                "restored member should send public message") && ok;
+    ok = expect(waitFor([&] {
+        return ownerGroupMessages.contains(restoredBroadcast);
+    }), "restored member message should be broadcast to public group") && ok;
 
     memberSystemMessages.clear();
     ok = expect(member.sendServerGroupMemberUpdate("public", ownerId, "remove"),
