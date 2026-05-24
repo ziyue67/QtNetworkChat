@@ -24,6 +24,8 @@ int main() {
     original.fileSize = original.fileData.size();
     original.fileHash = QString::fromLatin1(
         QCryptographicHash::hash(original.fileData, QCryptographicHash::Sha256).toHex());
+    original.chunkSize = 8;
+    original.chunkCount = 3;
     original.type = MessageType::File;
     original.timestamp = QDateTime::fromString("2026-05-24T15:54:00", Qt::ISODate);
 
@@ -38,6 +40,8 @@ int main() {
     ok = expect(restored.fileData == original.fileData, "fileData should round-trip") && ok;
     ok = expect(restored.fileSize == original.fileSize, "fileSize should round-trip") && ok;
     ok = expect(restored.fileHash == original.fileHash, "fileHash should round-trip") && ok;
+    ok = expect(restored.chunkSize == original.chunkSize, "chunkSize should round-trip") && ok;
+    ok = expect(restored.chunkCount == original.chunkCount, "chunkCount should round-trip") && ok;
     ok = expect(restored.type == original.type, "message type should round-trip") && ok;
     ok = expect(restored.timestamp == original.timestamp, "timestamp should round-trip") && ok;
 

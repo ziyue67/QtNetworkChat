@@ -490,6 +490,8 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.fileHash = obj["fileHash"].toString();
     const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
     const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
+    msg.chunkSize = declaredChunkSize;
+    msg.chunkCount = declaredChunkCount;
     msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::File)));
     msg.timestamp = QDateTime::currentDateTime();
 
@@ -700,8 +702,8 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
         db.setDatabaseName(accountDbPath());
         if (db.open()) {
             QSqlQuery query(db);
-            query.prepare("INSERT INTO messages(message_type, sender_id, sender_name, receiver_id, content, file_name, file_size, file_hash, delivery_state, created_at) "
-                          "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            query.prepare("INSERT INTO messages(message_type, sender_id, sender_name, receiver_id, content, file_name, file_size, file_hash, file_chunk_size, file_chunk_count, delivery_state, created_at) "
+                          "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             query.addBindValue(static_cast<int>(msg.type));
             query.addBindValue(msg.senderId);
             query.addBindValue(msg.senderName);
@@ -710,6 +712,8 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
             query.addBindValue(msg.fileName);
             query.addBindValue(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
             query.addBindValue(msg.fileHash.trimmed());
+            query.addBindValue(msg.chunkSize);
+            query.addBindValue(msg.chunkCount);
             query.addBindValue(deliveryState);
             query.addBindValue(msg.timestamp.toUTC().toString(Qt::ISODate));
             ok = query.exec();
@@ -793,11 +797,15 @@ bool Server::ensureAccountDatabase() const {
                                 "file_name TEXT, "
                                 "file_size INTEGER DEFAULT 0, "
                                 "file_hash TEXT, "
+                                "file_chunk_size INTEGER DEFAULT 0, "
+                                "file_chunk_count INTEGER DEFAULT 0, "
                                 "delivery_state TEXT NOT NULL, "
                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
             if (ok) {
                 query.exec("ALTER TABLE messages ADD COLUMN file_hash TEXT");
+                query.exec("ALTER TABLE messages ADD COLUMN file_chunk_size INTEGER DEFAULT 0");
+                query.exec("ALTER TABLE messages ADD COLUMN file_chunk_count INTEGER DEFAULT 0");
             }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS offline_messages ("
@@ -880,6 +888,8 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["fileName"] = msg.fileName;
     obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
     obj["fileHash"] = msg.fileHash;
+    obj["chunkSize"] = QString::number(msg.chunkSize);
+    obj["chunkCount"] = QString::number(msg.chunkCount);
     if (!msg.fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
     }
@@ -968,6 +978,8 @@ void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
     obj["fileName"] = msg.fileName;
     obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
     obj["fileHash"] = msg.fileHash;
+    obj["chunkSize"] = QString::number(msg.chunkSize);
+    obj["chunkCount"] = QString::number(msg.chunkCount);
     if (!msg.fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
     }
@@ -998,6 +1010,8 @@ void Server::sendToUser(const Message& msg) {
         obj["fileName"] = msg.fileName;
         obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
         obj["fileHash"] = msg.fileHash;
+        obj["chunkSize"] = QString::number(msg.chunkSize);
+        obj["chunkCount"] = QString::number(msg.chunkCount);
         if (!msg.fileData.isEmpty()) {
             obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
         }

@@ -15,6 +15,8 @@ QByteArray Message::toJson() const {
     obj["fileName"] = fileName;
     obj["fileSize"] = QString::number(fileSize);
     obj["fileHash"] = fileHash;
+    obj["chunkSize"] = QString::number(chunkSize);
+    obj["chunkCount"] = QString::number(chunkCount);
 
     if (!fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(fileData.toBase64());
@@ -39,6 +41,8 @@ Message Message::fromJson(const QByteArray& json) {
     msg.fileName = obj["fileName"].toString();
     msg.fileSize = obj["fileSize"].toVariant().toLongLong();
     msg.fileHash = obj["fileHash"].toString();
+    msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
+    msg.chunkCount = obj["chunkCount"].toVariant().toLongLong();
 
     if (obj.contains("hasFile") && obj["hasFile"].toBool()) {
         msg.fileData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());

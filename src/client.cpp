@@ -382,6 +382,8 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.fileName = obj["fileName"].toString();
         msg.fileSize = obj["fileSize"].toVariant().toLongLong();
         msg.fileHash = obj["fileHash"].toString();
+        msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
+        msg.chunkCount = obj["chunkCount"].toVariant().toLongLong();
         msg.timestamp = QDateTime::currentDateTime();
         QString base64Data = obj["fileData"].toString();
         if (!base64Data.isEmpty()) {
