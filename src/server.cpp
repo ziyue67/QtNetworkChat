@@ -82,6 +82,17 @@ QTcpServer* createServerSocket(QObject* parent) {
     server->setProperty("tlsEnabled", true);
     return server;
 }
+
+void sendSystemNotice(QTcpSocket* socket, const QString& content) {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
+
+    QJsonObject response;
+    response["type"] = "system";
+    response["content"] = content;
+    socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
 }
 
 Server::Server(QObject* parent)
@@ -482,11 +493,33 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     if (!base64Data.isEmpty()) {
         msg.fileData = QByteArray::fromBase64(base64Data.toLatin1());
     }
+    const qint64 declaredSize = msg.fileSize;
+    const QString declaredHash = msg.fileHash.trimmed();
+    const qint64 actualSize = msg.fileData.size();
+    const QString actualHash = msg.fileData.isEmpty()
+        ? QString()
+        : QString::fromLatin1(QCryptographicHash::hash(msg.fileData, QCryptographicHash::Sha256).toHex());
+
+    QStringList integrityErrors;
+    if (declaredSize > 0 && declaredSize != actualSize) {
+        integrityErrors << QString("大小不一致：声明 %1 字节，实际 %2 字节").arg(declaredSize).arg(actualSize);
+    }
+    if (!declaredHash.isEmpty() && actualHash.compare(declaredHash, Qt::CaseInsensitive) != 0) {
+        integrityErrors << "SHA-256 不一致";
+    }
+    if (!integrityErrors.isEmpty()) {
+        const QString visibleName = msg.fileName.isEmpty() ? "未命名文件" : msg.fileName;
+        sendSystemNotice(socket, QString("文件传输已被服务端拒绝：%1，%2。请重新发送。")
+                                .arg(visibleName, integrityErrors.join("；")));
+        qWarning() << "Rejected file transfer from" << msg.senderId << msg.fileName << integrityErrors;
+        return;
+    }
+
     if (msg.fileSize <= 0) {
         msg.fileSize = msg.fileData.size();
     }
-    if (msg.fileHash.isEmpty() && !msg.fileData.isEmpty()) {
-        msg.fileHash = QString::fromLatin1(QCryptographicHash::hash(msg.fileData, QCryptographicHash::Sha256).toHex());
+    if (msg.fileHash.isEmpty() && !actualHash.isEmpty()) {
+        msg.fileHash = actualHash;
     }
 
     QString deliveryState = "broadcast";
