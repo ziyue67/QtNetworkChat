@@ -153,6 +153,19 @@ int main(int argc, char** argv) {
     ok = expect(!ownerGroupMessages.contains(blockedBroadcast),
                 "removed member message should not be broadcast to public group") && ok;
 
+    member.disconnectFromServer();
+    ok = expect(waitFor([&] {
+        return !member.isConnected();
+    }), "removed member should disconnect before re-login check") && ok;
+    member.setAccountInfo(memberId, "secret", false);
+    ok = expect(member.connectToServer("127.0.0.1", port),
+                "removed member should reconnect with existing account") && ok;
+    ok = expect(member.waitForLoginResult(5000),
+                "removed member should log in with existing account") && ok;
+    ok = expect(waitFor([&] {
+        return member.serverGroups().isEmpty();
+    }), "removed member should not be auto-added to public group on re-login") && ok;
+
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "add"),
                 "owner should submit member add") && ok;
     ok = expect(waitFor([&] {

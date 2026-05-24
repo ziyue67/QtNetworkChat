@@ -676,6 +676,13 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                     if (!insertQuery.exec()) {
                         errorText = "群成员变更失败：添加成员失败";
                     } else {
+                        QSqlQuery clearRemovedQuery(db);
+                        clearRemovedQuery.prepare("DELETE FROM server_group_removed_members WHERE group_id = ? AND user_id = ?");
+                        clearRemovedQuery.addBindValue(groupId);
+                        clearRemovedQuery.addBindValue(memberId);
+                        if (!clearRemovedQuery.exec()) {
+                            qWarning() << "Failed to clear removed group member marker:" << clearRemovedQuery.lastError().text();
+                        }
                         changed = true;
                     }
                 }
@@ -694,6 +701,16 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                     if (!deleteQuery.exec()) {
                         errorText = "群成员变更失败：移出成员失败";
                     } else {
+                        QSqlQuery removedQuery(db);
+                        removedQuery.prepare("INSERT OR REPLACE INTO server_group_removed_members(group_id, user_id, removed_by, removed_by_name, removed_at) "
+                                             "VALUES(?, ?, ?, ?, datetime('now'))");
+                        removedQuery.addBindValue(groupId);
+                        removedQuery.addBindValue(memberId);
+                        removedQuery.addBindValue(requester->id);
+                        removedQuery.addBindValue(requester->name);
+                        if (!removedQuery.exec()) {
+                            qWarning() << "Failed to record removed group member marker:" << removedQuery.lastError().text();
+                        }
                         changed = true;
                     }
                 }
@@ -1182,12 +1199,22 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
             ok = groupQuery.exec("INSERT OR IGNORE INTO server_groups(group_id, group_name, announcement, created_at, updated_at) "
                                  "VALUES('public', '公共聊天室', '欢迎来到公共聊天室。', datetime('now'), datetime('now'))");
             if (ok) {
-                QSqlQuery insertMemberQuery(db);
-                insertMemberQuery.prepare("INSERT OR IGNORE INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
-                                          "VALUES('public', ?, ?, 'member', datetime('now'), datetime('now'))");
-                insertMemberQuery.addBindValue(user.id);
-                insertMemberQuery.addBindValue(user.name);
-                ok = insertMemberQuery.exec();
+                QSqlQuery removedQuery(db);
+                removedQuery.prepare("SELECT COUNT(*) FROM server_group_removed_members WHERE group_id = 'public' AND user_id = ?");
+                removedQuery.addBindValue(user.id);
+                ok = removedQuery.exec();
+                bool wasRemoved = false;
+                if (ok && removedQuery.next()) {
+                    wasRemoved = removedQuery.value(0).toInt() > 0;
+                }
+                if (ok && !wasRemoved) {
+                    QSqlQuery insertMemberQuery(db);
+                    insertMemberQuery.prepare("INSERT OR IGNORE INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
+                                              "VALUES('public', ?, ?, 'member', datetime('now'), datetime('now'))");
+                    insertMemberQuery.addBindValue(user.id);
+                    insertMemberQuery.addBindValue(user.name);
+                    ok = insertMemberQuery.exec();
+                }
             }
             if (ok) {
                 QSqlQuery updateMemberQuery(db);
@@ -1419,6 +1446,15 @@ bool Server::ensureAccountDatabase() const {
                                 "PRIMARY KEY(group_id, user_id))");
             }
             if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_removed_members ("
+                                "group_id TEXT NOT NULL, "
+                                "user_id TEXT NOT NULL, "
+                                "removed_by TEXT, "
+                                "removed_by_name TEXT, "
+                                "removed_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(group_id, user_id))");
+            }
+            if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_announcements ("
                                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                                 "group_id TEXT NOT NULL, "
@@ -1438,6 +1474,7 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_sender ON friend_events(sender_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_receiver ON friend_events(receiver_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_members_user ON server_group_members(user_id, group_id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_removed_members_user ON server_group_removed_members(user_id, group_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_announcements_group ON server_group_announcements(group_id, id)");
             }
             db.close();
