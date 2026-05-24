@@ -13,6 +13,8 @@ QByteArray Message::toJson() const {
     obj["type"] = static_cast<int>(type);
     obj["timestamp"] = timestamp.toString(Qt::ISODate);
     obj["fileName"] = fileName;
+    obj["fileSize"] = QString::number(fileSize);
+    obj["fileHash"] = fileHash;
 
     if (!fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(fileData.toBase64());
@@ -35,6 +37,8 @@ Message Message::fromJson(const QByteArray& json) {
     msg.type = static_cast<MessageType>(obj["type"].toInt());
     msg.timestamp = QDateTime::fromString(obj["timestamp"].toString(), Qt::ISODate);
     msg.fileName = obj["fileName"].toString();
+    msg.fileSize = obj["fileSize"].toVariant().toLongLong();
+    msg.fileHash = obj["fileHash"].toString();
 
     if (obj.contains("hasFile") && obj["hasFile"].toBool()) {
         msg.fileData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());

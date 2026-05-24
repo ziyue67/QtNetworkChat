@@ -9,6 +9,7 @@
 #include <QTimer>
 #include <QSslSocket>
 #include <QSslError>
+#include <QCryptographicHash>
 
 namespace {
 constexpr qint64 kMaxOutgoingPayloadBytes = 80LL * 1024 * 1024;
@@ -239,6 +240,7 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
     obj["messageType"] = static_cast<int>(messageType);
     obj["fileName"] = fileInfo.fileName();
     obj["fileSize"] = QString::number(fileInfo.size());
+    obj["fileHash"] = QString::fromLatin1(QCryptographicHash::hash(fileData, QCryptographicHash::Sha256).toHex());
     obj["chunkSize"] = QString::number(kTransferChunkBytes);
     obj["chunkCount"] = QString::number((fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes);
     obj["content"] = contentPrefix + fileInfo.fileName();
@@ -374,6 +376,8 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.receiverId = obj["receiverId"].toString();
         msg.content = obj["content"].toString();
         msg.fileName = obj["fileName"].toString();
+        msg.fileSize = obj["fileSize"].toVariant().toLongLong();
+        msg.fileHash = obj["fileHash"].toString();
         msg.timestamp = QDateTime::currentDateTime();
         QString base64Data = obj["fileData"].toString();
         if (!base64Data.isEmpty()) {

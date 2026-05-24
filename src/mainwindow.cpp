@@ -42,6 +42,7 @@
 #include <QProgressDialog>
 #include <QDateEdit>
 #include <QDialogButtonBox>
+#include <QCryptographicHash>
 
 namespace {
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -129,6 +130,30 @@ QString extractSavePathFromChatText(const QString& text) {
     if (savePath.isEmpty()) savePath = text.section("自动保存：", 1).section(" · ", 0, 0).trimmed();
     if (savePath.isEmpty()) savePath = text.section("已保存到：", 1, 1).section('\n', 0, 0).section(" · ", 0, 0).trimmed();
     return savePath;
+}
+
+QString transferIntegritySummary(const Message& msg) {
+    const bool hasExpectedSize = msg.fileSize > 0;
+    const bool hasExpectedHash = !msg.fileHash.trimmed().isEmpty();
+    if (!hasExpectedSize && !hasExpectedHash) {
+        return "未提供完整性校验";
+    }
+
+    const bool sizeOk = !hasExpectedSize || msg.fileSize == msg.fileData.size();
+    bool hashOk = true;
+    if (hasExpectedHash) {
+        const QString actualHash = QString::fromLatin1(QCryptographicHash::hash(msg.fileData, QCryptographicHash::Sha256).toHex());
+        hashOk = actualHash.compare(msg.fileHash.trimmed(), Qt::CaseInsensitive) == 0;
+    }
+
+    if (sizeOk && hashOk) {
+        return "完整性已验证";
+    }
+
+    QStringList issues;
+    if (!sizeOk) issues << "大小不一致";
+    if (!hashOk) issues << "哈希不一致";
+    return "完整性校验失败：" + issues.join("、");
 }
 
 QString lastTransferDirectory() {
@@ -2199,6 +2224,8 @@ void MainWindow::onNewMessage(const Message& msg) {
     if (msg.type == MessageType::Image && !msg.fileData.isEmpty()) {
         const QString receivedName = safeReceivedFileName(msg.fileName, "received_image");
         const QString receivedSize = humanFileSize(msg.fileData.size());
+        const QString integrityText = transferIntegritySummary(msg);
+        const QString integritySuffix = integrityText.isEmpty() ? QString() : QString(" · %1").arg(integrityText);
         QPixmap pixmap;
         if (pixmap.loadFromData(msg.fileData)) {
             QStandardItem* previewItem = new QStandardItem;
@@ -2217,26 +2244,26 @@ void MainWindow::onNewMessage(const Message& msg) {
             f.write(msg.fileData);
             f.close();
             const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
-            QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1 · %2").arg(savePath, receivedSize));
+            QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1 · %2%3").arg(savePath, receivedSize, integritySuffix));
             savedItem->setEditable(false);
             savedItem->setData(savedFileTip, Qt::ToolTipRole);
-            savedItem->setForeground(Qt::darkGreen);
+            savedItem->setForeground(integrityText.startsWith("完整性校验失败") ? QColor(180, 70, 70) : Qt::darkGreen);
             savedItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(savedItem);
-            QStandardItem* cardItem = new QStandardItem(QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录").arg(receivedName, receivedSize, displayName));
+            QStandardItem* cardItem = new QStandardItem(QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4").arg(receivedName, receivedSize, displayName, integritySuffix));
             cardItem->setEditable(false);
             cardItem->setData(QString("图片已保存到：%1").arg(savePath), Qt::ToolTipRole);
             cardItem->setForeground(QColor(0, 121, 107));
             cardItem->setBackground(QColor(232, 248, 245));
             m_chatModel->appendRow(cardItem);
-            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到图片 %1（%2），保存路径：%3 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, savePath));
+            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到图片 %1（%2），%3，保存路径：%4 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, integrityText, savePath));
             replyItem->setEditable(false);
             replyItem->setData(savedFileTip, Qt::ToolTipRole);
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
-            ui->chatHintLabel->setText(QString("已接收图片 · %1 · %2 · 来自 %3").arg(receivedName, receivedSize, displayName));
-            ui->statusbar->showMessage(QString("图片已保存到下载目录 · %1").arg(receivedSize), 2600);
+            ui->chatHintLabel->setText(QString("已接收图片 · %1 · %2 · 来自 %3%4").arg(receivedName, receivedSize, displayName, integritySuffix));
+            ui->statusbar->showMessage(QString("图片已保存到下载目录 · %1%2").arg(receivedSize, integritySuffix), 2600);
         } else {
             QStandardItem* failedItem = new QStandardItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
             failedItem->setEditable(false);
@@ -2249,6 +2276,8 @@ void MainWindow::onNewMessage(const Message& msg) {
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
         const QString receivedName = safeReceivedFileName(msg.fileName, "received_file");
         const QString receivedSize = humanFileSize(msg.fileData.size());
+        const QString integrityText = transferIntegritySummary(msg);
+        const QString integritySuffix = integrityText.isEmpty() ? QString() : QString(" · %1").arg(integrityText);
         QString fileDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Files";
         QDir().mkpath(fileDirPath);
         QString savePath = uniqueReceivedSavePath(fileDirPath, receivedName);
@@ -2257,26 +2286,26 @@ void MainWindow::onNewMessage(const Message& msg) {
             f.write(msg.fileData);
             f.close();
             const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
-            QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1 · %2").arg(savePath, receivedSize));
+            QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1 · %2%3").arg(savePath, receivedSize, integritySuffix));
             item2->setEditable(false);
             item2->setData(savedFileTip, Qt::ToolTipRole);
-            item2->setForeground(Qt::darkGreen);
+            item2->setForeground(integrityText.startsWith("完整性校验失败") ? QColor(180, 70, 70) : Qt::darkGreen);
             item2->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(item2);
-            QStandardItem* cardItem = new QStandardItem(QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录").arg(receivedName, receivedSize, displayName));
+            QStandardItem* cardItem = new QStandardItem(QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4").arg(receivedName, receivedSize, displayName, integritySuffix));
             cardItem->setEditable(false);
             cardItem->setData(QString("文件已保存到：%1").arg(savePath), Qt::ToolTipRole);
             cardItem->setForeground(QColor(0, 121, 107));
             cardItem->setBackground(QColor(232, 248, 245));
             m_chatModel->appendRow(cardItem);
-            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到文件 %1（%2），保存路径：%3 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, savePath));
+            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到文件 %1（%2），%3，保存路径：%4 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, integrityText, savePath));
             replyItem->setEditable(false);
             replyItem->setData(savedFileTip, Qt::ToolTipRole);
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
-            ui->chatHintLabel->setText(QString("已接收文件 · %1 · %2 · 来自 %3").arg(receivedName, receivedSize, displayName));
-            ui->statusbar->showMessage(QString("文件已保存到下载目录 · %1").arg(receivedSize), 2600);
+            ui->chatHintLabel->setText(QString("已接收文件 · %1 · %2 · 来自 %3%4").arg(receivedName, receivedSize, displayName, integritySuffix));
+            ui->statusbar->showMessage(QString("文件已保存到下载目录 · %1%2").arg(receivedSize, integritySuffix), 2600);
         } else {
             QStandardItem* failedItem = new QStandardItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
             failedItem->setEditable(false);

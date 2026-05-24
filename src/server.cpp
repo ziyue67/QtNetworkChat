@@ -473,12 +473,20 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.receiverId = obj["receiverId"].toString();
     msg.content = obj["content"].toString();
     msg.fileName = obj["fileName"].toString();
+    msg.fileSize = obj["fileSize"].toVariant().toLongLong();
+    msg.fileHash = obj["fileHash"].toString();
     msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::File)));
     msg.timestamp = QDateTime::currentDateTime();
 
     QString base64Data = obj["fileData"].toString();
     if (!base64Data.isEmpty()) {
         msg.fileData = QByteArray::fromBase64(base64Data.toLatin1());
+    }
+    if (msg.fileSize <= 0) {
+        msg.fileSize = msg.fileData.size();
+    }
+    if (msg.fileHash.isEmpty() && !msg.fileData.isEmpty()) {
+        msg.fileHash = QString::fromLatin1(QCryptographicHash::hash(msg.fileData, QCryptographicHash::Sha256).toHex());
     }
 
     QString deliveryState = "broadcast";
@@ -639,7 +647,7 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
             query.addBindValue(msg.receiverId);
             query.addBindValue(msg.content);
             query.addBindValue(msg.fileName);
-            query.addBindValue(msg.fileData.size());
+            query.addBindValue(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
             query.addBindValue(deliveryState);
             query.addBindValue(msg.timestamp.toUTC().toString(Qt::ISODate));
             ok = query.exec();
@@ -804,6 +812,8 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["receiverId"] = msg.receiverId;
     obj["content"] = msg.content;
     obj["fileName"] = msg.fileName;
+    obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+    obj["fileHash"] = msg.fileHash;
     if (!msg.fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
     }
@@ -890,6 +900,8 @@ void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
     obj["receiverId"] = msg.receiverId;
     obj["content"] = msg.content;
     obj["fileName"] = msg.fileName;
+    obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+    obj["fileHash"] = msg.fileHash;
     if (!msg.fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
     }
@@ -918,6 +930,8 @@ void Server::sendToUser(const Message& msg) {
         obj["receiverId"] = msg.receiverId;
         obj["content"] = msg.content;
         obj["fileName"] = msg.fileName;
+        obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+        obj["fileHash"] = msg.fileHash;
         if (!msg.fileData.isEmpty()) {
             obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
         }
