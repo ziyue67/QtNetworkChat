@@ -28,6 +28,7 @@ public:
     bool sendFriendRequest(const QString& receiverId);
     bool searchFriendByAccount(const QString& account);
     bool sendFriendResponse(const QString& receiverId, bool accepted);
+    bool sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
     bool sendImage(const QString& filePath, const QString& receiverId = QString());
     void setUserInfo(const QString& userId, const QString& userName);

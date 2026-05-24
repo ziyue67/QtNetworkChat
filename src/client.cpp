@@ -208,6 +208,18 @@ bool Client::sendFriendResponse(const QString& receiverId, bool accepted) {
     return sendJson(obj);
 }
 
+bool Client::sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement) {
+    if (!isConnected() || groupId.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_announcement_update";
+    obj["groupId"] = groupId.trimmed();
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    obj["announcement"] = announcement.trimmed();
+    return sendJson(obj);
+}
+
 bool Client::sendFile(const QString& filePath, const QString& receiverId) {
     return sendFilePayload(filePath, receiverId, MessageType::File, "发送了文件: ");
 }

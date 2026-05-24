@@ -1752,7 +1752,7 @@ void MainWindow::setupUi() {
         }
     });
     connect(ui->clearBtn, &QPushButton::clicked, this, &MainWindow::onClearHistory);
-    ui->announcementTitleLabel->setText("群公告 <a href=\"edit\">+</a>");
+    ui->announcementTitleLabel->setText("群公告");
     ui->announcementTitleLabel->setTextFormat(Qt::RichText);
     ui->announcementTitleLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     refreshGroupMemberPanel();
@@ -2463,6 +2463,9 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
         if (!publicName.isEmpty()) {
             ui->chatTitleLabel->setText(publicName);
         }
+        ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
+            ? "群公告 <a href=\"edit\">编辑</a>"
+            : "群公告");
         if (!publicAnnouncement.isEmpty()) {
             ui->announcementBodyLabel->setText(publicAnnouncement);
         }
@@ -3720,11 +3723,16 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
 }
 
 void MainWindow::onEditGroupAnnouncement() {
-    if (!m_privateChatTarget.isEmpty()
-        && m_privateChatTarget.startsWith("local_group_")
-        && !isCurrentUserGroupOwner(m_privateChatTarget)) {
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    const bool isServerPublicGroup = m_privateChatTarget.isEmpty();
+    if (isLocalGroup && !isCurrentUserGroupOwner(m_privateChatTarget)) {
         ui->statusbar->showMessage("只有群主可以编辑群公告", 2400);
         appendSystemMessage("群公告编辑被权限保护拦截：当前账号不是群主");
+        return;
+    }
+    if (isServerPublicGroup && !canCurrentUserManageServerGroup("public")) {
+        ui->statusbar->showMessage("只有群主或管理员可以编辑公共群公告", 2400);
+        appendSystemMessage("公共群公告编辑被服务端角色保护拦截");
         return;
     }
 
@@ -3742,7 +3750,7 @@ void MainWindow::onEditGroupAnnouncement() {
     }
     bool usedDefaultAnnouncement = false;
     if (text.isEmpty()) {
-        if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        if (isLocalGroup) {
             text = QString("%1 已创建，可继续邀请好友并发送消息。").arg(ui->chatTitleLabel->text().trimmed().isEmpty() ? "群聊" : ui->chatTitleLabel->text().trimmed());
         } else {
             text = "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。";
@@ -3753,8 +3761,18 @@ void MainWindow::onEditGroupAnnouncement() {
         ui->statusbar->showMessage(usedDefaultAnnouncement ? "群公告已是默认内容" : "群公告未改变", 1600);
         return;
     }
+    if (isServerPublicGroup) {
+        if (!m_client || !m_client->sendServerGroupAnnouncementUpdate("public", text)) {
+            ui->statusbar->showMessage("群公告提交失败，请检查连接状态", 2400);
+            appendSystemMessage("群公告提交失败：客户端未连接或发送失败");
+            return;
+        }
+        appendSystemMessage("群公告更新已提交，等待服务端同步");
+        ui->statusbar->showMessage(usedDefaultAnnouncement ? "群公告为空，已提交默认公告" : "群公告更新已提交", 2200);
+        return;
+    }
     ui->announcementBodyLabel->setText(text);
-    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+    if (isLocalGroup) {
         m_localGroupAnnouncements[m_privateChatTarget] = text;
         saveLocalGroups();
         saveHistory(m_privateChatTarget, QString("[%1] [系统] 群公告已更新: %2").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), text));
@@ -4968,7 +4986,9 @@ void MainWindow::onBackToGroupChat() {
     setWindowTitle("QtNetworkChat - " + m_currentUserName);
     ui->chatTitleLabel->setText("公共聊天室");
     ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
-    ui->announcementTitleLabel->setText("群公告 <a href=\"edit\">+</a>");
+    ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
+        ? "群公告 <a href=\"edit\">编辑</a>"
+        : "群公告");
     ui->announcementBodyLabel->setText(m_serverGroupAnnouncements.value(
         "public",
         "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。"));
@@ -7394,6 +7414,14 @@ bool MainWindow::isCurrentUserGroupOwner(const QString& groupId) const {
     return !groupId.isEmpty()
         && groupId.startsWith("local_group_")
         && groupOwnerId(groupId) == m_currentUserId;
+}
+
+bool MainWindow::canCurrentUserManageServerGroup(const QString& groupId) const {
+    if (groupId.isEmpty() || m_currentUserId.isEmpty()) return false;
+    const QString role = m_serverGroupMemberRoles.value(groupId + "|" + m_currentUserId).toLower();
+    return m_serverGroupOwners.value(groupId) == m_currentUserId
+        || role == "owner"
+        || role == "admin";
 }
 
 QString MainWindow::getFriendFilePath() const {

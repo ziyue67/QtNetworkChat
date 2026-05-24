@@ -265,6 +265,8 @@ void Server::onClientReadyRead() {
                 obj["reason"].toString());
         } else if (type == "private") {
             handleMessage(obj);
+        } else if (type == "server_group_announcement_update") {
+            handleServerGroupAnnouncementUpdate(obj, socket);
         } else if (type == "friend_request" || type == "friend_response" || type == "friend_search") {
             handleFriendEvent(obj, socket);
         } else if (type == "heartbeat") {
@@ -453,6 +455,116 @@ void Server::handleMessage(const QJsonObject& obj) {
     saveMessageToSqlite(msg, deliveryState);
 
     emit newMessage(msg);
+}
+
+void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "群公告更新失败：请先登录");
+        return;
+    }
+
+    const QString groupId = obj["groupId"].toString("public").trimmed().isEmpty()
+        ? QString("public")
+        : obj["groupId"].toString("public").trimmed();
+    QString announcement = obj["announcement"].toString().trimmed();
+    if (announcement.isEmpty()) {
+        announcement = "欢迎来到公共聊天室。";
+    }
+    if (announcement.size() > 1000) {
+        announcement = announcement.left(1000);
+    }
+    if (!ensureAccountDatabase()) {
+        sendSystemNotice(socket, "群公告更新失败：服务端群组存储不可用");
+        return;
+    }
+
+    QStringList memberIds;
+    bool allowed = false;
+    bool saved = false;
+    QString errorText;
+    const QString connectionName = "server_group_announcement_update_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (!db.open()) {
+            errorText = "群公告更新失败：无法打开群组数据库";
+        } else {
+            QSqlQuery permissionQuery(db);
+            permissionQuery.prepare("SELECT COALESCE(g.owner_id, ''), COALESCE(m.role, '') "
+                                    "FROM server_groups g "
+                                    "JOIN server_group_members m ON m.group_id = g.group_id "
+                                    "WHERE g.group_id = ? AND m.user_id = ?");
+            permissionQuery.addBindValue(groupId);
+            permissionQuery.addBindValue(requester->id);
+            if (!permissionQuery.exec()) {
+                errorText = "群公告更新失败：权限校验失败";
+            } else if (!permissionQuery.next()) {
+                errorText = "群公告更新失败：你不在该群组";
+            } else {
+                const QString ownerId = permissionQuery.value(0).toString();
+                const QString role = permissionQuery.value(1).toString().toLower();
+                allowed = ownerId == requester->id || role == "owner" || role == "admin";
+                if (!allowed) {
+                    errorText = "群公告更新失败：只有群主或管理员可以编辑";
+                }
+            }
+
+            if (allowed) {
+                QSqlQuery updateQuery(db);
+                updateQuery.prepare("UPDATE server_groups SET announcement = ?, updated_at = datetime('now') "
+                                    "WHERE group_id = ?");
+                updateQuery.addBindValue(announcement);
+                updateQuery.addBindValue(groupId);
+                saved = updateQuery.exec();
+                if (!saved) {
+                    errorText = "群公告更新失败：保存公告失败";
+                }
+            }
+
+            if (saved) {
+                QSqlQuery insertQuery(db);
+                insertQuery.prepare("INSERT INTO server_group_announcements(group_id, author_id, author_name, content, created_at) "
+                                    "VALUES(?, ?, ?, ?, datetime('now'))");
+                insertQuery.addBindValue(groupId);
+                insertQuery.addBindValue(requester->id);
+                insertQuery.addBindValue(requester->name);
+                insertQuery.addBindValue(announcement);
+                if (!insertQuery.exec()) {
+                    qWarning() << "Failed to record server group announcement history:" << insertQuery.lastError().text();
+                }
+            }
+
+            if (saved) {
+                QSqlQuery memberQuery(db);
+                memberQuery.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+                memberQuery.addBindValue(groupId);
+                if (memberQuery.exec()) {
+                    while (memberQuery.next()) {
+                        const QString memberId = memberQuery.value(0).toString();
+                        if (!memberId.isEmpty() && !memberIds.contains(memberId)) {
+                            memberIds << memberId;
+                        }
+                    }
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    if (!saved) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "群公告更新失败" : errorText);
+        return;
+    }
+
+    const QString notice = QString("%1 更新了群公告").arg(requester->name.isEmpty() ? requester->id : requester->name);
+    for (const QString& memberId : memberIds) {
+        QTcpSocket* memberSocket = m_userSockets.value(memberId);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        sendSystemNotice(memberSocket, notice);
+        sendServerGroupSnapshot(memberId, memberSocket);
+    }
 }
 
 void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {

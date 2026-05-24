@@ -94,6 +94,7 @@ private:
     bool isContactOnline(const QString& userId) const;
     QString groupOwnerId(const QString& groupId) const;
     bool isCurrentUserGroupOwner(const QString& groupId) const;
+    bool canCurrentUserManageServerGroup(const QString& groupId) const;
     QString getFriendFilePath() const;
     QString getGroupFilePath() const;
     QString getAvatarFilePath() const;
