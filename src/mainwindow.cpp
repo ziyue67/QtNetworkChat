@@ -314,6 +314,16 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendSearchResult, this, &MainWindow::onFriendSearchResult);
     connect(m_client, &Client::friendRequestSent, this, &MainWindow::onFriendRequestSent);
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
+    connect(m_client, &Client::fileReceiveProgress, this, [this](const QString& fileName, qint64 bytesReceived, qint64 totalBytes) {
+        const int percent = totalBytes > 0
+            ? qBound(0, static_cast<int>((bytesReceived * 100) / totalBytes), 100)
+            : 0;
+        const QString detail = QString("正在接收分片文件 · %1 · %2 / %3 · %4%")
+            .arg(fileName, humanFileSize(bytesReceived), humanFileSize(totalBytes))
+            .arg(percent);
+        ui->chatHintLabel->setText(detail);
+        ui->statusbar->showMessage(detail, 1600);
+    });
 
     m_currentUserId = m_client->currentUserId();
     m_currentUserName = m_client->currentUserName();

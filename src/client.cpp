@@ -531,6 +531,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         failTransfer("累计分片大小超过声明文件大小");
         return;
     }
+    emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, fileSize);
     if (pending.receivedIndexes.size() < pending.chunkCount) {
         return;
     }
