@@ -21,6 +21,7 @@
 namespace {
 constexpr qint64 kMaxIncomingPayloadBytes = 80LL * 1024 * 1024;
 constexpr qint64 kMaxIncomingChunks = 4096;
+constexpr qint64 kForwardChunkBytes = 256LL * 1024;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -1072,6 +1073,51 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) cons
     file.remove();
 }
 
+bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) const {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState || msg.fileData.isEmpty()) {
+        return false;
+    }
+
+    const qint64 totalBytes = msg.fileData.size();
+    const qint64 chunkSize = (msg.chunkSize > 0 && msg.chunkSize <= kForwardChunkBytes)
+        ? msg.chunkSize
+        : kForwardChunkBytes;
+    const qint64 chunkCount = (totalBytes + chunkSize - 1) / chunkSize;
+    const QString transferId = QString("%1_%2_%3")
+        .arg(msg.senderId,
+             QString::number(QDateTime::currentMSecsSinceEpoch()),
+             QString::number(QRandomGenerator::global()->generate()));
+
+    for (qint64 index = 0; index < chunkCount; ++index) {
+        const qint64 offset = index * chunkSize;
+        const QByteArray chunk = msg.fileData.mid(static_cast<int>(offset), static_cast<int>(qMin(chunkSize, totalBytes - offset)));
+
+        QJsonObject obj;
+        obj["type"] = "file_chunk";
+        obj["transferId"] = transferId;
+        obj["messageType"] = static_cast<int>(msg.type);
+        obj["senderId"] = msg.senderId;
+        obj["senderName"] = msg.senderName;
+        obj["receiverId"] = msg.receiverId;
+        obj["content"] = msg.content;
+        obj["fileName"] = msg.fileName;
+        obj["fileSize"] = QString::number(totalBytes);
+        obj["fileHash"] = msg.fileHash;
+        obj["chunkSize"] = QString::number(chunkSize);
+        obj["chunkCount"] = QString::number(chunkCount);
+        obj["chunkIndex"] = QString::number(index);
+        obj["fileData"] = QString::fromLatin1(chunk.toBase64());
+
+        const QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+        if (socket->write(data) <= 0) {
+            return false;
+        }
+        socket->write("\n");
+    }
+    socket->flush();
+    return true;
+}
+
 void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
     QJsonObject obj;
     obj["type"] = msg.type == MessageType::System ? "system" : ((msg.type == MessageType::File || msg.type == MessageType::Image) ? "file" : (msg.isPrivate() ? "private" : "message"));
@@ -1085,16 +1131,20 @@ void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
     obj["fileHash"] = msg.fileHash;
     obj["chunkSize"] = QString::number(msg.chunkSize);
     obj["chunkCount"] = QString::number(msg.chunkCount);
-    if (!msg.fileData.isEmpty()) {
+    if (!msg.fileData.isEmpty() && msg.type != MessageType::File && msg.type != MessageType::Image) {
         obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
     }
     QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
         QTcpSocket* socket = it.key();
         if (socket != excludeSocket && socket->state() == QAbstractSocket::ConnectedState) {
-            socket->write(data);
-            socket->write("\n");
-            socket->flush();
+            if ((msg.type == MessageType::File || msg.type == MessageType::Image) && !msg.fileData.isEmpty()) {
+                sendChunkedFileToSocket(msg, socket);
+            } else {
+                socket->write(data);
+                socket->write("\n");
+                socket->flush();
+            }
         }
     }
 }
@@ -1105,6 +1155,11 @@ void Server::sendToUser(const Message& msg) {
 
     QTcpSocket* targetSocket = m_userSockets.value(receiverId);
     if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
+        if ((msg.type == MessageType::File || msg.type == MessageType::Image) && !msg.fileData.isEmpty()) {
+            sendChunkedFileToSocket(msg, targetSocket);
+            return;
+        }
+
         QJsonObject obj;
         obj["type"] = msg.type == MessageType::File || msg.type == MessageType::Image ? "file" : "private";
         obj["messageType"] = static_cast<int>(msg.type);

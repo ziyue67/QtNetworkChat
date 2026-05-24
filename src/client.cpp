@@ -16,6 +16,7 @@
 namespace {
 constexpr qint64 kMaxOutgoingPayloadBytes = 80LL * 1024 * 1024;
 constexpr qint64 kTransferChunkBytes = 256LL * 1024;
+constexpr qint64 kMaxIncomingChunks = 4096;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -310,6 +311,7 @@ void Client::onConnected() {
 
 void Client::onDisconnected() {
     m_heartbeatTimer->stop();
+    m_incomingFileTransfers.clear();
     qDebug() << "Disconnected from server";
     emit disconnected();
 }
@@ -419,6 +421,11 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         return;
     }
 
+    if (type == "file_chunk") {
+        handleIncomingFileChunk(obj);
+        return;
+    }
+
     if (type == "friend_search_result") {
         emit friendSearchResult(
             obj["account"].toString(),
@@ -455,4 +462,91 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         emit newMessage(msg);
         return;
     }
+}
+
+void Client::handleIncomingFileChunk(const QJsonObject& obj) {
+    const QString transferId = obj["transferId"].toString().trimmed();
+    const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+    const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+    const qint64 chunkCount = obj["chunkCount"].toVariant().toLongLong();
+    const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+    const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+
+    auto failTransfer = [this, transferId](const QString& reason) {
+        if (!transferId.isEmpty()) {
+            m_incomingFileTransfers.remove(transferId);
+        }
+        emit connectionError("文件分片接收失败：" + reason);
+    };
+
+    if (transferId.isEmpty()) {
+        failTransfer("缺少传输编号");
+        return;
+    }
+    if (fileSize <= 0 || fileSize > kMaxOutgoingPayloadBytes || chunkSize <= 0 || chunkCount <= 0 || chunkIndex < 0 || chunkIndex >= chunkCount) {
+        failTransfer("分片元数据非法");
+        return;
+    }
+    if (chunkCount > kMaxIncomingChunks) {
+        failTransfer("分片数量超过接收限制");
+        return;
+    }
+    const qint64 expectedChunkCount = (fileSize + chunkSize - 1) / chunkSize;
+    if (expectedChunkCount != chunkCount) {
+        failTransfer("分片数量与文件大小不一致");
+        return;
+    }
+    if (chunkData.isEmpty() || chunkData.size() > chunkSize) {
+        failTransfer("分片内容为空或超过声明大小");
+        return;
+    }
+    if (chunkIndex < chunkCount - 1 && chunkData.size() != chunkSize) {
+        failTransfer("非末尾分片大小不一致");
+        return;
+    }
+
+    PendingIncomingFileTransfer& pending = m_incomingFileTransfers[transferId];
+    if (pending.chunks.isEmpty()) {
+        pending.envelope = obj;
+        pending.envelope["type"] = "file";
+        pending.envelope.remove("transferId");
+        pending.envelope.remove("chunkIndex");
+        pending.envelope.remove("fileData");
+        pending.fileSize = fileSize;
+        pending.chunkSize = chunkSize;
+        pending.chunkCount = chunkCount;
+        pending.chunks.resize(static_cast<int>(chunkCount));
+    } else if (pending.fileSize != fileSize || pending.chunkSize != chunkSize || pending.chunkCount != chunkCount) {
+        failTransfer("同一传输编号的元数据不一致");
+        return;
+    }
+
+    const int index = static_cast<int>(chunkIndex);
+    if (!pending.receivedIndexes.contains(index)) {
+        pending.chunks[index] = chunkData;
+        pending.receivedIndexes.insert(index);
+        pending.receivedBytes += chunkData.size();
+    }
+    if (pending.receivedBytes > fileSize) {
+        failTransfer("累计分片大小超过声明文件大小");
+        return;
+    }
+    if (pending.receivedIndexes.size() < pending.chunkCount) {
+        return;
+    }
+
+    QByteArray fileData;
+    fileData.reserve(static_cast<int>(fileSize));
+    for (const QByteArray& chunk : pending.chunks) {
+        if (chunk.isEmpty()) {
+            failTransfer("存在缺失分片");
+            return;
+        }
+        fileData.append(chunk);
+    }
+
+    QJsonObject fullFile = pending.envelope;
+    m_incomingFileTransfers.remove(transferId);
+    fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
+    handleServerMessage(fullFile);
 }

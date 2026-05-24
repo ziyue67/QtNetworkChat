@@ -39,6 +39,7 @@ private:
     void broadcastMessage(const Message& msg, QTcpSocket* excludeSocket = nullptr);
     void sendUserList(QTcpSocket* socket);
     void sendToUser(const Message& msg);
+    bool sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) const;
     void handleLogin(const QJsonObject& obj, QTcpSocket* socket);
     void handleMessage(const QJsonObject& obj);
     void handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket = nullptr);

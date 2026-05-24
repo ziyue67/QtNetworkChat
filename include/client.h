@@ -4,6 +4,10 @@
 #include <QObject>
 #include <QTcpSocket>
 #include <QTimer>
+#include <QJsonObject>
+#include <QMap>
+#include <QSet>
+#include <QVector>
 #include "chatuser.h"
 #include "message.h"
 
@@ -62,8 +66,19 @@ private slots:
 private:
     void sendLogin();
     void handleServerMessage(const QJsonObject& obj);
+    void handleIncomingFileChunk(const QJsonObject& obj);
     bool sendJson(const QJsonObject& obj);
     bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
+
+    struct PendingIncomingFileTransfer {
+        QJsonObject envelope;
+        QVector<QByteArray> chunks;
+        QSet<int> receivedIndexes;
+        qint64 receivedBytes = 0;
+        qint64 fileSize = 0;
+        qint64 chunkSize = 0;
+        qint64 chunkCount = 0;
+    };
 
     QTcpSocket* m_socket;
     QTimer* m_heartbeatTimer;
@@ -81,6 +96,7 @@ private:
     QVector<ChatUser> m_onlineUsers;
     QByteArray m_buffer;
     quint16 m_reconnectAttempts;
+    QMap<QString, PendingIncomingFileTransfer> m_incomingFileTransfers;
 };
 
 #endif // CLIENT_H
