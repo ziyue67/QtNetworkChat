@@ -69,8 +69,11 @@ private:
     void saveAccounts(const QJsonObject& accounts) const;
     QString accountsFilePath() const;
     QString offlineFilePath(const QString& userId) const;
+    QString offlineAttachmentRootDir() const;
     QString offlineAttachmentDir(const QString& userId) const;
     QString saveOfflineAttachment(const Message& msg) const;
+    QSet<QString> collectReferencedOfflineAttachments() const;
+    void cleanupExpiredOfflineAttachments();
     void saveOfflineMessage(const Message& msg) const;
     bool deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket);
     void sendOfflineMessages(const QString& userId, QTcpSocket* socket);
@@ -90,6 +93,7 @@ private:
 
     QTcpServer* m_tcpServer;
     QTimer* m_transferCleanupTimer;
+    QTimer* m_offlineAttachmentCleanupTimer;
     quint16 m_serverPort;
     bool m_tlsEnabled;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user

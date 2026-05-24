@@ -7,7 +7,9 @@
 #include <QJsonArray>
 #include <QStandardPaths>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QCryptographicHash>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -19,6 +21,7 @@
 #include <QSslKey>
 #include <QEventLoop>
 #include <QTimer>
+#include <algorithm>
 
 namespace {
 constexpr qint64 kMaxIncomingPayloadBytes = 80LL * 1024 * 1024;
@@ -28,6 +31,8 @@ constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
 constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
+constexpr qint64 kOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
+constexpr int kOfflineAttachmentCleanupIntervalMs = 60 * 60 * 1000;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -145,12 +150,15 @@ Server::Server(QObject* parent)
     : QObject(parent)
     , m_tcpServer(createServerSocket(this))
     , m_transferCleanupTimer(new QTimer(this))
+    , m_offlineAttachmentCleanupTimer(new QTimer(this))
     , m_serverPort(0)
     , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
 {
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
     connect(m_transferCleanupTimer, &QTimer::timeout, this, &Server::cleanupExpiredFileTransfers);
+    connect(m_offlineAttachmentCleanupTimer, &QTimer::timeout, this, &Server::cleanupExpiredOfflineAttachments);
     m_transferCleanupTimer->start(kTransferCleanupIntervalMs);
+    m_offlineAttachmentCleanupTimer->start(kOfflineAttachmentCleanupIntervalMs);
 }
 
 Server::~Server() {
@@ -163,6 +171,10 @@ bool Server::start(quint16 port) {
         if (!m_transferCleanupTimer->isActive()) {
             m_transferCleanupTimer->start(kTransferCleanupIntervalMs);
         }
+        if (!m_offlineAttachmentCleanupTimer->isActive()) {
+            m_offlineAttachmentCleanupTimer->start(kOfflineAttachmentCleanupIntervalMs);
+        }
+        cleanupExpiredOfflineAttachments();
         m_serverPort = port;
         qDebug() << "Server started on port" << port << transportSecurityDescription();
 
@@ -190,6 +202,7 @@ QString Server::transportSecurityDescription() const {
 
 void Server::stop() {
     m_transferCleanupTimer->stop();
+    m_offlineAttachmentCleanupTimer->stop();
     for (QTcpSocket* socket : m_clients.keys()) {
         socket->disconnectFromHost();
     }
@@ -1044,10 +1057,16 @@ QString Server::offlineFilePath(const QString& userId) const {
     return dir + "/" + userId + ".jsonl";
 }
 
-QString Server::offlineAttachmentDir(const QString& userId) const {
+QString Server::offlineAttachmentRootDir() const {
     QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (baseDir.isEmpty()) baseDir = ".";
-    const QString dir = baseDir + "/offline_files/" + safePathPart(userId);
+    const QString dir = baseDir + "/offline_files";
+    QDir().mkpath(dir);
+    return dir;
+}
+
+QString Server::offlineAttachmentDir(const QString& userId) const {
+    const QString dir = offlineAttachmentRootDir() + "/" + safePathPart(userId);
     QDir().mkpath(dir);
     return dir;
 }
@@ -1072,6 +1091,87 @@ QString Server::saveOfflineAttachment(const Message& msg) const {
         file.remove();
     }
     return {};
+}
+
+QSet<QString> Server::collectReferencedOfflineAttachments() const {
+    QSet<QString> referencedPaths;
+    auto collectPayload = [&referencedPaths](const QByteArray& payload) {
+        QJsonDocument doc = QJsonDocument::fromJson(payload);
+        if (!doc.isObject()) return;
+
+        const QString filePath = doc.object()["offlineFilePath"].toString();
+        if (!filePath.isEmpty()) {
+            referencedPaths.insert(QDir::cleanPath(filePath));
+        }
+    };
+
+    if (ensureAccountDatabase()) {
+        QString connectionName = "offline_refs_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(accountDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                if (query.exec("SELECT payload FROM offline_messages ORDER BY id ASC")) {
+                    while (query.next()) {
+                        collectPayload(query.value(0).toString().toUtf8());
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
+    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (baseDir.isEmpty()) baseDir = ".";
+    QDir offlineDir(baseDir + "/offline");
+    const QFileInfoList offlineFiles = offlineDir.entryInfoList(QStringList() << "*.jsonl", QDir::Files);
+    for (const QFileInfo& info : offlineFiles) {
+        QFile file(info.absoluteFilePath());
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+        while (!file.atEnd()) {
+            collectPayload(file.readLine().trimmed());
+        }
+    }
+
+    return referencedPaths;
+}
+
+void Server::cleanupExpiredOfflineAttachments() {
+    const QString rootDirPath = offlineAttachmentRootDir();
+    QDir rootDir(rootDirPath);
+    if (!rootDir.exists()) return;
+
+    const QSet<QString> referencedPaths = collectReferencedOfflineAttachments();
+    const QDateTime now = QDateTime::currentDateTime();
+    QStringList visitedDirs;
+    QDirIterator it(rootDirPath, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        const QFileInfo info(path);
+        if (info.isDir()) {
+            visitedDirs.append(path);
+            continue;
+        }
+
+        const QString cleanPath = QDir::cleanPath(path);
+        const bool isExpired = info.lastModified().msecsTo(now) > kOfflineAttachmentTtlMs;
+        const bool isOrphaned = !referencedPaths.contains(cleanPath);
+        if ((isExpired || isOrphaned) && QFile::remove(path)) {
+            qDebug() << "Cleaned offline attachment" << cleanPath
+                     << (isExpired ? "expired" : "orphaned");
+        }
+    }
+
+    std::sort(visitedDirs.begin(), visitedDirs.end(), [](const QString& left, const QString& right) {
+        return left.count(QLatin1Char('/')) > right.count(QLatin1Char('/'));
+    });
+    for (const QString& dirPath : visitedDirs) {
+        const QFileInfo info(dirPath);
+        QDir parentDir(info.absolutePath());
+        parentDir.rmdir(info.fileName());
+    }
 }
 
 void Server::saveOfflineMessage(const Message& msg) const {
