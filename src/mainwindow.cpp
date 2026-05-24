@@ -5132,6 +5132,7 @@ void MainWindow::onShowFriendNotifications() {
 
     QListWidget* noticeList = new QListWidget(&dialog);
     noticeList->setObjectName("noticeList");
+    noticeList->setWordWrap(true);
     layout->addWidget(noticeList, 1);
 
     auto fillList = [this, noticeList, statsLabel, searchEdit]() {
@@ -5140,11 +5141,23 @@ void MainWindow::onShowFriendNotifications() {
         int visibleCount = 0;
         statsLabel->setText(QString("待处理 %1 个申请 · 已有好友 %2 人").arg(m_pendingFriendRequests.size()).arg(m_friendIds.size()));
         if (m_pendingFriendRequests.isEmpty()) {
-            QListWidgetItem* emptyItem = new QListWidgetItem("暂无新的好友申请");
-            emptyItem->setFlags(Qt::NoItemFlags);
-            emptyItem->setForeground(QColor(135, 150, 165));
-            emptyItem->setSizeHint(QSize(0, 68));
-            noticeList->addItem(emptyItem);
+            if (filter.isEmpty()) {
+                QListWidgetItem* emptyItem = new QListWidgetItem("暂无新的好友申请");
+                emptyItem->setFlags(Qt::NoItemFlags);
+                emptyItem->setForeground(QColor(135, 150, 165));
+                emptyItem->setSizeHint(QSize(0, 68));
+                emptyItem->setToolTip("当前没有待处理好友申请，可在搜索框输入 QQ 号后回车查找");
+                noticeList->addItem(emptyItem);
+            } else {
+                statsLabel->setText(QString("暂无待处理申请 · 可搜索 QQ:%1").arg(filter));
+                QListWidgetItem* searchItem = new QListWidgetItem(QString("暂无待处理申请，可直接搜索并添加 QQ:%1").arg(filter));
+                searchItem->setData(Qt::UserRole, "search_add:" + filter);
+                searchItem->setForeground(QColor(18, 150, 247));
+                searchItem->setSizeHint(QSize(0, 68));
+                searchItem->setToolTip(QString("选择后点击“搜索并添加”，或按回车搜索 QQ:%1").arg(filter));
+                noticeList->addItem(searchItem);
+                noticeList->setCurrentRow(0);
+            }
             return;
         }
         for (const QString& id : m_pendingFriendRequests) {
@@ -5155,6 +5168,7 @@ void MainWindow::onShowFriendNotifications() {
             QListWidgetItem* item = new QListWidgetItem(QString("%1  请求加为好友\n留言：请求添加对方为好友\n来源：QQ号-%2").arg(name, id));
             item->setData(Qt::UserRole, id);
             item->setSizeHint(QSize(0, 92));
+            item->setToolTip(QString("申请人 %1（QQ:%2），可同意、拒绝、复制名片或回复话术").arg(name, id));
             noticeList->addItem(item);
             ++visibleCount;
         }
@@ -5166,6 +5180,7 @@ void MainWindow::onShowFriendNotifications() {
             emptyItem->setData(Qt::UserRole, "search_add:" + filter);
             emptyItem->setForeground(QColor(18, 150, 247));
             emptyItem->setSizeHint(QSize(0, 68));
+            emptyItem->setToolTip(QString("没有匹配的好友申请，可直接搜索并添加 QQ:%1").arg(filter));
             noticeList->addItem(emptyItem);
         }
         for (int i = 0; i < noticeList->count(); ++i) {
@@ -5181,7 +5196,14 @@ void MainWindow::onShowFriendNotifications() {
     requestPreviewLabel->setObjectName("noticePreviewLabel");
     layout->addWidget(requestPreviewLabel);
 
-    QHBoxLayout* buttonLayout = new QHBoxLayout;
+    QVBoxLayout* buttonLayout = new QVBoxLayout;
+    buttonLayout->setSpacing(8);
+    QHBoxLayout* decisionButtonLayout = new QHBoxLayout;
+    decisionButtonLayout->setSpacing(8);
+    QHBoxLayout* copyButtonLayout = new QHBoxLayout;
+    copyButtonLayout->setSpacing(8);
+    QHBoxLayout* mediaButtonLayout = new QHBoxLayout;
+    mediaButtonLayout->setSpacing(8);
     QPushButton* acceptBtn = new QPushButton("同意", &dialog);
     acceptBtn->setObjectName("noticePrimaryBtn");
     acceptBtn->setToolTip("同意当前选中的好友申请并加入好友列表");
@@ -5215,18 +5237,23 @@ void MainWindow::onShowFriendNotifications() {
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     closeBtn->setToolTip("关闭好友通知窗口");
-    buttonLayout->addWidget(acceptBtn);
-    buttonLayout->addWidget(acceptAllBtn);
-    buttonLayout->addWidget(rejectBtn);
-    buttonLayout->addWidget(rejectAllBtn);
-    buttonLayout->addWidget(copyBtn);
-    buttonLayout->addWidget(copyInviteBtn);
-    buttonLayout->addWidget(copyAllBtn);
-    buttonLayout->addWidget(copyRequestMediaPackBtn);
-    buttonLayout->addWidget(copyRequestBatchPlanBtn);
-    buttonLayout->addWidget(copyMediaGuideBtn);
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(closeBtn);
+    decisionButtonLayout->addWidget(acceptBtn);
+    decisionButtonLayout->addWidget(acceptAllBtn);
+    decisionButtonLayout->addWidget(rejectBtn);
+    decisionButtonLayout->addWidget(rejectAllBtn);
+    decisionButtonLayout->addStretch();
+    decisionButtonLayout->addWidget(closeBtn);
+    copyButtonLayout->addWidget(copyBtn);
+    copyButtonLayout->addWidget(copyInviteBtn);
+    copyButtonLayout->addWidget(copyAllBtn);
+    copyButtonLayout->addStretch();
+    mediaButtonLayout->addWidget(copyRequestMediaPackBtn);
+    mediaButtonLayout->addWidget(copyRequestBatchPlanBtn);
+    mediaButtonLayout->addWidget(copyMediaGuideBtn);
+    mediaButtonLayout->addStretch();
+    buttonLayout->addLayout(decisionButtonLayout);
+    buttonLayout->addLayout(copyButtonLayout);
+    buttonLayout->addLayout(mediaButtonLayout);
     layout->addLayout(buttonLayout);
 
     dialog.setStyleSheet(R"(
@@ -5301,11 +5328,55 @@ void MainWindow::onShowFriendNotifications() {
             color: #3A4A5A;
             border: 1px solid #D4E1EC;
         }
+        QPushButton#noticePrimaryBtn:disabled,
+        QPushButton#noticeDangerBtn:disabled,
+        QPushButton#noticeGhostBtn:disabled {
+            background: #F3F6F9;
+            color: #9AA8B6;
+            border: 1px solid #E3EAF1;
+        }
     )");
 
     auto updateBadge = [this]() {
         ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
         ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
+    };
+    auto currentRequestId = [noticeList]() -> QString {
+        QListWidgetItem* item = noticeList->currentItem();
+        return item ? item->data(Qt::UserRole).toString() : QString();
+    };
+    auto updateRequestActionState = [=]() {
+        const QString currentId = currentRequestId();
+        const bool hasPending = !m_pendingFriendRequests.isEmpty();
+        const bool canAccept = currentId.startsWith("search_add:") || !currentId.isEmpty();
+        const bool isRealRequest = !currentId.isEmpty() && !currentId.startsWith("search_add:");
+        const bool hasSearchKeyword = !searchEdit->text().trimmed().isEmpty();
+        const bool isSearchAdd = currentId.startsWith("search_add:");
+        acceptBtn->setEnabled(canAccept);
+        acceptBtn->setText(isSearchAdd ? "搜索并添加" : "同意");
+        acceptBtn->setToolTip(isRealRequest
+            ? "同意当前选中的好友申请并加入好友列表"
+            : (isSearchAdd ? "对搜索结果里的 QQ 号发送好友申请" : "选择申请后可同意，或先搜索 QQ 号"));
+        rejectBtn->setEnabled(isRealRequest);
+        rejectBtn->setToolTip(isRealRequest ? "拒绝当前选中的好友申请" : "当前没有可拒绝的好友申请");
+        copyBtn->setEnabled(isRealRequest);
+        copyBtn->setToolTip(isRealRequest ? "复制当前申请人的 QQ、昵称和来源" : "当前没有可复制的申请人名片");
+        copyInviteBtn->setEnabled(hasPending || hasSearchKeyword);
+        copyInviteBtn->setToolTip(hasPending || hasSearchKeyword ? "复制一段回复好友申请的礼貌话术" : "有申请或输入 QQ 后可复制回复话术");
+        copyAllBtn->setEnabled(hasPending);
+        copyAllBtn->setToolTip(hasPending ? "复制所有待处理申请的 QQ、昵称和回复话术" : "当前没有待处理好友申请");
+        copyRequestMediaPackBtn->setEnabled(hasPending || hasSearchKeyword);
+        copyRequestMediaPackBtn->setToolTip(hasPending || hasSearchKeyword ? "复制同意好友后发送图片、视频或文件的准备摘要" : "有申请或输入 QQ 后可复制媒体准备摘要");
+        copyRequestBatchPlanBtn->setEnabled(hasPending || hasSearchKeyword);
+        copyRequestBatchPlanBtn->setToolTip(hasPending || hasSearchKeyword ? "复制当前筛选申请的批量处理和媒体发送清单" : "当前没有可整理的申请");
+        copyMediaGuideBtn->setEnabled(hasPending || hasSearchKeyword);
+        copyMediaGuideBtn->setToolTip(hasPending || hasSearchKeyword ? "复制同意好友后发送图片、视频和文件的简短指南" : "有申请或输入 QQ 后可复制上传指南");
+        acceptAllBtn->setEnabled(hasPending);
+        acceptAllBtn->setToolTip(hasPending ? "确认后批量同意所有待处理好友申请" : "当前没有待处理好友申请");
+        rejectAllBtn->setEnabled(hasPending);
+        rejectAllBtn->setToolTip(hasPending ? "确认后批量拒绝所有待处理好友申请" : "当前没有待处理好友申请");
+        clearBtn->setEnabled(hasPending);
+        clearBtn->setToolTip(hasPending ? "清空全部待处理好友申请，不会自动回复对方" : "当前没有待清空的好友申请");
     };
     auto updateRequestPreview = [this, noticeList, requestPreviewLabel]() {
         QListWidgetItem* item = noticeList->currentItem();
@@ -5323,8 +5394,16 @@ void MainWindow::onShowFriendNotifications() {
         }
     };
     updateRequestPreview();
-    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateRequestPreview](QListWidgetItem*, QListWidgetItem*) { updateRequestPreview(); });
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList, updateRequestPreview]() { fillList(); updateRequestPreview(); });
+    updateRequestActionState();
+    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateRequestPreview, updateRequestActionState](QListWidgetItem*, QListWidgetItem*) {
+        updateRequestPreview();
+        updateRequestActionState();
+    });
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList, updateRequestPreview, updateRequestActionState]() {
+        fillList();
+        updateRequestPreview();
+        updateRequestActionState();
+    });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, [this, searchEdit]() {
         QString account = searchEdit->text().trimmed();
         if (account.isEmpty()) {
@@ -5334,7 +5413,7 @@ void MainWindow::onShowFriendNotifications() {
         }
         searchAndAddAccount(account, this);
     });
-    connect(acceptBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
+    connect(acceptBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge, updateRequestActionState]() {
         QListWidgetItem* item = noticeList->currentItem();
         if (!item) {
             ui->statusbar->showMessage("请先选择要同意的好友申请", 1800);
@@ -5360,10 +5439,11 @@ void MainWindow::onShowFriendNotifications() {
         refreshFriendList();
         updateBadge();
         fillList();
+        updateRequestActionState();
         ui->statusbar->showMessage(QString("已同意 %1 的好友申请").arg(name), 2200);
         appendSystemMessage("已同意好友申请 QQ: " + id);
     });
-    connect(acceptAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
+    connect(acceptAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, updateRequestActionState, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
         if (pending.isEmpty()) {
             ui->statusbar->showMessage("暂无好友申请可同意", 1800);
@@ -5391,10 +5471,11 @@ void MainWindow::onShowFriendNotifications() {
         refreshFriendList();
         updateBadge();
         fillList();
+        updateRequestActionState();
         ui->statusbar->showMessage(QString("已一键同意 %1 个好友申请").arg(pending.size()), 2200);
         appendSystemMessage(QString("已一键同意 %1 个好友申请").arg(pending.size()));
     });
-    connect(rejectBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge]() {
+    connect(rejectBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge, updateRequestActionState]() {
         QListWidgetItem* item = noticeList->currentItem();
         if (!item) {
             ui->statusbar->showMessage("请先选择要拒绝的好友申请", 1800);
@@ -5414,10 +5495,11 @@ void MainWindow::onShowFriendNotifications() {
         saveFriends();
         updateBadge();
         fillList();
+        updateRequestActionState();
         ui->statusbar->showMessage(QString("已拒绝 QQ:%1 的好友申请").arg(id), 2200);
         appendSystemMessage("已拒绝好友申请 QQ: " + id);
     });
-    connect(rejectAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
+    connect(rejectAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, updateRequestActionState, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
         if (pending.isEmpty()) {
             ui->statusbar->showMessage("暂无好友申请可拒绝", 1800);
@@ -5440,6 +5522,7 @@ void MainWindow::onShowFriendNotifications() {
         saveFriends();
         updateBadge();
         fillList();
+        updateRequestActionState();
         ui->statusbar->showMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()), 2200);
         appendSystemMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()));
     });
@@ -5538,7 +5621,7 @@ void MainWindow::onShowFriendNotifications() {
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("好友申请上传指南已复制", 2200);
     });
-    connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, &dialog]() {
+    connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, updateRequestActionState, &dialog]() {
         if (m_pendingFriendRequests.isEmpty()) {
             ui->statusbar->showMessage("暂无好友申请可清空", 1600);
             return;
@@ -5555,6 +5638,7 @@ void MainWindow::onShowFriendNotifications() {
         saveFriends();
         updateBadge();
         fillList();
+        updateRequestActionState();
         ui->statusbar->showMessage("好友申请已清空", 1800);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
@@ -5585,10 +5669,12 @@ void MainWindow::onShowGroupNotifications() {
     searchEdit->setObjectName("noticeSearch");
     searchEdit->setPlaceholderText("搜索群名 / 群号 / 公告");
     searchEdit->setClearButtonEnabled(true);
+    searchEdit->setToolTip("按群名、群号或公告筛选；无结果时可按回车创建新群");
     layout->addWidget(searchEdit);
 
     QListWidget* noticeList = new QListWidget(&dialog);
     noticeList->setObjectName("noticeList");
+    noticeList->setWordWrap(true);
 
     auto fillGroups = [this, noticeList, countLabel, searchEdit]() {
         noticeList->clear();
@@ -5601,6 +5687,7 @@ void MainWindow::onShowGroupNotifications() {
             QListWidgetItem* publicItem = new QListWidgetItem(QString("默认公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人").arg(m_knownUsers.size()));
             publicItem->setData(Qt::UserRole, QString());
             publicItem->setSizeHint(QSize(0, 96));
+            publicItem->setToolTip(QString("进入公共聊天室，当前在线成员 %1 人").arg(m_knownUsers.size()));
             noticeList->addItem(publicItem);
             ++visibleCount;
         }
@@ -5618,6 +5705,7 @@ void MainWindow::onShowGroupNotifications() {
             QListWidgetItem* item = new QListWidgetItem(QString("%1\n群号：%2 · 成员：%3 人\n%4").arg(groupName, groupNumber).arg(members.size()).arg(announcement));
             item->setData(Qt::UserRole, groupId);
             item->setSizeHint(QSize(0, 108));
+            item->setToolTip(QString("群聊 %1（群号:%2），可进入、复制公告、成员或入群话术").arg(groupName, groupNumber));
             noticeList->addItem(item);
             ++visibleCount;
         }
@@ -5629,6 +5717,7 @@ void MainWindow::onShowGroupNotifications() {
             emptyItem->setData(Qt::UserRole, "group_create:" + filter);
             emptyItem->setForeground(QColor(18, 150, 247));
             emptyItem->setSizeHint(QSize(0, 76));
+            emptyItem->setToolTip(QString("选择后点击“创建并进入群聊”，使用关键词“%1”创建新群").arg(filter));
             noticeList->addItem(emptyItem);
         }
         if (noticeList->count() > 0) noticeList->setCurrentRow(0);
@@ -5640,11 +5729,19 @@ void MainWindow::onShowGroupNotifications() {
     layout->addWidget(groupPreviewLabel);
     layout->addWidget(noticeList, 1);
 
-    QHBoxLayout* actionLayout = new QHBoxLayout;
+    QVBoxLayout* actionLayout = new QVBoxLayout;
+    actionLayout->setSpacing(8);
+    QHBoxLayout* hintLayout = new QHBoxLayout;
+    QHBoxLayout* groupMainActionLayout = new QHBoxLayout;
+    groupMainActionLayout->setSpacing(8);
+    QHBoxLayout* groupMemberActionLayout = new QHBoxLayout;
+    groupMemberActionLayout->setSpacing(8);
+    QHBoxLayout* groupMediaActionLayout = new QHBoxLayout;
+    groupMediaActionLayout->setSpacing(8);
     QLabel* hintLabel = new QLabel("双击群通知可直接进入群聊", &dialog);
     hintLabel->setObjectName("noticeHint");
-    actionLayout->addWidget(hintLabel);
-    actionLayout->addStretch();
+    hintLayout->addWidget(hintLabel);
+    hintLayout->addStretch();
     QPushButton* openBtn = new QPushButton("进入选中群聊", &dialog);
     openBtn->setObjectName("noticePrimaryBtn");
     openBtn->setToolTip("进入当前选中的公共聊天室或本地群聊");
@@ -5678,17 +5775,24 @@ void MainWindow::onShowGroupNotifications() {
     QPushButton* closeBtn = new QPushButton("关闭", &dialog);
     closeBtn->setObjectName("noticeGhostBtn");
     closeBtn->setToolTip("关闭群通知窗口");
-    actionLayout->addWidget(openBtn);
-    actionLayout->addWidget(copyBtn);
-    actionLayout->addWidget(cardBtn);
-    actionLayout->addWidget(announceBtn);
-    actionLayout->addWidget(inviteTextBtn);
-    actionLayout->addWidget(memberBtn);
-    actionLayout->addWidget(onlineMemberBtn);
-    actionLayout->addWidget(copyGroupMediaPackBtn);
-    actionLayout->addWidget(copyGroupBatchPlanBtn);
-    actionLayout->addWidget(copyMediaGuideBtn);
-    actionLayout->addWidget(closeBtn);
+    groupMainActionLayout->addWidget(openBtn);
+    groupMainActionLayout->addWidget(copyBtn);
+    groupMainActionLayout->addWidget(cardBtn);
+    groupMainActionLayout->addWidget(announceBtn);
+    groupMainActionLayout->addStretch();
+    groupMainActionLayout->addWidget(closeBtn);
+    groupMemberActionLayout->addWidget(inviteTextBtn);
+    groupMemberActionLayout->addWidget(memberBtn);
+    groupMemberActionLayout->addWidget(onlineMemberBtn);
+    groupMemberActionLayout->addStretch();
+    groupMediaActionLayout->addWidget(copyGroupMediaPackBtn);
+    groupMediaActionLayout->addWidget(copyGroupBatchPlanBtn);
+    groupMediaActionLayout->addWidget(copyMediaGuideBtn);
+    groupMediaActionLayout->addStretch();
+    actionLayout->addLayout(hintLayout);
+    actionLayout->addLayout(groupMainActionLayout);
+    actionLayout->addLayout(groupMemberActionLayout);
+    actionLayout->addLayout(groupMediaActionLayout);
     layout->addLayout(actionLayout);
 
     auto openSelectedGroup = [this, noticeList, &dialog]() {
@@ -5722,6 +5826,14 @@ void MainWindow::onShowGroupNotifications() {
         }
         switchToLocalGroup(groupId, m_localGroupNames.value(groupId, "群聊"));
         ui->statusbar->showMessage("已进入群聊: " + m_localGroupNames.value(groupId, "群聊"), 1800);
+    };
+    auto publicGroupMemberIds = [this]() {
+        QStringList members;
+        members << m_currentUserId;
+        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
+            if (!members.contains(it.key())) members << it.key();
+        }
+        return members;
     };
 
     dialog.setStyleSheet(R"(
@@ -5784,6 +5896,13 @@ void MainWindow::onShowGroupNotifications() {
             color: white;
             border: none;
         }
+        QPushButton#noticePrimaryBtn:disabled,
+        QPushButton#noticeDangerBtn:disabled,
+        QPushButton#noticeGhostBtn:disabled {
+            background: #F3F6F9;
+            color: #9AA8B6;
+            border: 1px solid #E3EAF1;
+        }
         QPushButton#noticeGhostBtn {
             min-height: 34px;
             border-radius: 17px;
@@ -5812,9 +5931,51 @@ void MainWindow::onShowGroupNotifications() {
             groupPreviewLabel->setText(QString("公共聊天室 · 在线成员%1人 · 可直接进入").arg(m_knownUsers.size()));
         }
     };
+    auto updateGroupActionState = [=]() {
+        QListWidgetItem* current = noticeList->currentItem();
+        const QString groupId = current ? current->data(Qt::UserRole).toString() : QString();
+        const bool hasSelection = current != nullptr;
+        const bool isCreateEntry = groupId.startsWith("group_create:");
+        const bool canInspectGroup = hasSelection && !isCreateEntry;
+        const bool hasSearchKeyword = !searchEdit->text().trimmed().isEmpty();
+        openBtn->setEnabled(hasSelection);
+        openBtn->setText(isCreateEntry ? "创建并进入群聊" : (groupId.isEmpty() ? "进入公共聊天室" : "进入选中群聊"));
+        openBtn->setToolTip(!hasSelection
+            ? "选择群聊后可进入"
+            : (isCreateEntry ? "按当前关键词创建新群并立即进入" : "进入当前选中的公共聊天室或本地群聊"));
+        copyBtn->setEnabled(canInspectGroup);
+        copyBtn->setToolTip(canInspectGroup ? "复制当前选中群聊的群号" : "待创建群聊没有群号，请先进入创建");
+        cardBtn->setEnabled(canInspectGroup);
+        cardBtn->setToolTip(canInspectGroup ? "复制群名、群号、成员数和公告摘要" : "待创建群聊没有名片，请先进入创建");
+        announceBtn->setEnabled(canInspectGroup);
+        announceBtn->setToolTip(canInspectGroup ? "复制当前选中群聊的公告内容" : "待创建群聊没有公告，请先进入创建");
+        memberBtn->setEnabled(canInspectGroup);
+        memberBtn->setToolTip(canInspectGroup ? "复制当前选中群聊的全部成员列表" : "待创建群聊没有成员列表，请先进入创建");
+        onlineMemberBtn->setEnabled(canInspectGroup);
+        onlineMemberBtn->setToolTip(canInspectGroup ? "复制当前群里在线成员的 QQ 和昵称" : "待创建群聊没有在线成员，请先进入创建");
+        inviteTextBtn->setEnabled(hasSelection || hasSearchKeyword);
+        inviteTextBtn->setToolTip(hasSelection || hasSearchKeyword ? "复制一段可直接发给好友的入群邀请" : "当前没有可邀请的群聊");
+        copyGroupMediaPackBtn->setEnabled(hasSelection || hasSearchKeyword);
+        copyGroupMediaPackBtn->setToolTip(hasSelection || hasSearchKeyword ? "复制群聊媒体发送前的目标、成员和话术摘要" : "当前没有可复制的群聊媒体包");
+        copyGroupBatchPlanBtn->setEnabled(noticeList->count() > 0);
+        copyGroupBatchPlanBtn->setToolTip(noticeList->count() > 0 ? "复制群聊批量发送图片、视频或文件的操作清单" : "当前没有可整理的群聊");
+        copyMediaGuideBtn->setEnabled(hasSelection || hasSearchKeyword);
+        copyMediaGuideBtn->setToolTip(hasSelection || hasSearchKeyword ? "复制群聊中发送图片、视频和文件的简短指南" : "当前没有可复制的上传指南");
+        hintLabel->setText(!hasSelection
+            ? "先选择群聊后再进入或复制信息"
+            : (isCreateEntry ? "双击可按当前关键词创建新群并进入" : "双击群通知可直接进入群聊"));
+    };
     updateGroupPreview();
-    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateGroupPreview](QListWidgetItem*, QListWidgetItem*) { updateGroupPreview(); });
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillGroups, updateGroupPreview]() { fillGroups(); updateGroupPreview(); });
+    updateGroupActionState();
+    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateGroupPreview, updateGroupActionState](QListWidgetItem*, QListWidgetItem*) {
+        updateGroupPreview();
+        updateGroupActionState();
+    });
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillGroups, updateGroupPreview, updateGroupActionState]() {
+        fillGroups();
+        updateGroupPreview();
+        updateGroupActionState();
+    });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QListWidgetItem* current = noticeList->currentItem();
@@ -5892,7 +6053,7 @@ void MainWindow::onShowGroupNotifications() {
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("入群邀请话术已复制", 2200);
     });
-    connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+    connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds]() {
         QListWidgetItem* current = noticeList->currentItem();
         if (!current) {
             ui->statusbar->showMessage("请先选择要复制成员的群聊", 1800);
@@ -5903,7 +6064,7 @@ void MainWindow::onShowGroupNotifications() {
             ui->statusbar->showMessage("待创建群聊还没有成员列表，请先进入创建", 2200);
             return;
         }
-        QStringList members = groupId.isEmpty() ? QStringList{m_currentUserId} : m_localGroupMembers.value(groupId);
+        QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
         QStringList cards;
         for (const QString& id : members) {
@@ -5912,7 +6073,7 @@ void MainWindow::onShowGroupNotifications() {
         QApplication::clipboard()->setText(cards.join('\n'));
         ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
     });
-    connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+    connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds]() {
         QListWidgetItem* current = noticeList->currentItem();
         if (!current) {
             ui->statusbar->showMessage("请先选择要复制在线成员的群聊", 1800);
@@ -5923,7 +6084,7 @@ void MainWindow::onShowGroupNotifications() {
             ui->statusbar->showMessage("待创建群聊还没有在线成员，请先进入创建", 2200);
             return;
         }
-        QStringList members = groupId.isEmpty() ? QStringList{m_currentUserId} : m_localGroupMembers.value(groupId);
+        QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
         QStringList cards;
         for (const QString& id : members) {
@@ -5964,7 +6125,7 @@ void MainWindow::onShowGroupNotifications() {
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("群媒体包已复制", 2200);
     });
-    connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
+    connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit, publicGroupMemberIds]() {
         QStringList groups;
         int totalMembers = 0;
         int onlineMembers = 0;
@@ -5975,6 +6136,12 @@ void MainWindow::onShowGroupNotifications() {
                 groups << QString("待创建群:%1").arg(id.mid(QString("group_create:").size()));
                 ++totalMembers;
                 ++onlineMembers;
+            } else if (id.isEmpty()) {
+                const QStringList publicMembers = publicGroupMemberIds();
+                totalMembers += publicMembers.size();
+                onlineMembers += publicMembers.size();
+                groups << QString("公共聊天室(成员:%1,在线:%2)")
+                    .arg(QString::number(publicMembers.size()), QString::number(publicMembers.size()));
             } else if (id.startsWith("local_group_")) {
                 QStringList members = m_localGroupMembers.value(id);
                 int groupOnline = 0;
