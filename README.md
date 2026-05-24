@@ -97,6 +97,22 @@ cmake --build build
 
 如果 CMake 找不到 Qt，需要设置 `CMAKE_PREFIX_PATH`，或配置 `Qt6_DIR` / `Qt5_DIR`。
 
+### 自动化验证
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+当前 CTest 会执行一个构建产物冒烟测试，确认 `QtNetworkChat` 可执行文件已经生成且大小有效。
+
+### Windows 打包
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -BuildDir build-qt6-mingw
+```
+
+脚本会先构建项目，再把 `QtNetworkChat.exe` 和 `README.md` 收集到 `dist/QtNetworkChat-win-x64`。如果系统能找到 `windeployqt.exe`，会自动复制 Qt 运行库，并生成 `dist/QtNetworkChat-win-x64.zip`。
+
 ## 运行方式
 
 1. 启动程序。

@@ -3,6 +3,7 @@ build/
 build-*/
 bin/
 out/
+dist/
 *.exe
 *.dll
 *.so

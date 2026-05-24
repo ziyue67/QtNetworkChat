@@ -28,3 +28,13 @@ add_executable(QtNetworkChat
 
 target_include_directories(QtNetworkChat PRIVATE include)
 target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_test(
+        NAME QtNetworkChatExecutableExists
+        COMMAND ${CMAKE_COMMAND}
+            -DQTNETWORKCHAT_EXE=$<TARGET_FILE:QtNetworkChat>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_executable.cmake
+    )
+endif()
