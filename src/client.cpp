@@ -10,6 +10,8 @@
 #include <QSslSocket>
 #include <QSslError>
 #include <QCryptographicHash>
+#include <QDateTime>
+#include <QRandomGenerator>
 
 namespace {
 constexpr qint64 kMaxOutgoingPayloadBytes = 80LL * 1024 * 1024;
@@ -217,8 +219,8 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) return false;
 
-    QByteArray fileData;
-    fileData.reserve(static_cast<int>(fileInfo.size()));
+    QCryptographicHash hasher(QCryptographicHash::Sha256);
+    qint64 preparedBytes = 0;
     emit fileTransferProgress(fileInfo.fileName(), 0, fileInfo.size());
 
     while (!file.atEnd()) {
@@ -227,34 +229,58 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
             file.close();
             return false;
         }
-        fileData.append(chunk);
-        emit fileTransferProgress(fileInfo.fileName(), fileData.size(), fileInfo.size());
+        hasher.addData(chunk);
+        preparedBytes += chunk.size();
+        emit fileTransferProgress(fileInfo.fileName(), preparedBytes, fileInfo.size());
     }
     file.close();
 
     const qint64 chunkCount = (fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes;
-    const QString fileHash = QString::fromLatin1(QCryptographicHash::hash(fileData, QCryptographicHash::Sha256).toHex());
+    const QString fileHash = QString::fromLatin1(hasher.result().toHex());
     emit fileTransferPrepared(fileInfo.fileName(), fileInfo.size(), kTransferChunkBytes, chunkCount, fileHash);
 
-    QJsonObject obj;
-    obj["type"] = "file";
-    obj["senderId"] = m_userId;
-    obj["senderName"] = m_userName;
-    obj["receiverId"] = receiverId;
-    obj["messageType"] = static_cast<int>(messageType);
-    obj["fileName"] = fileInfo.fileName();
-    obj["fileSize"] = QString::number(fileInfo.size());
-    obj["fileHash"] = fileHash;
-    obj["chunkSize"] = QString::number(kTransferChunkBytes);
-    obj["chunkCount"] = QString::number(chunkCount);
-    obj["content"] = contentPrefix + fileInfo.fileName();
-    obj["fileData"] = QString::fromLatin1(fileData.toBase64());
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    const QString transferId = QString("%1_%2_%3")
+        .arg(m_userId,
+             QString::number(QDateTime::currentMSecsSinceEpoch()),
+             QString::number(QRandomGenerator::global()->generate()));
+    qint64 sentBytes = 0;
+    qint64 chunkIndex = 0;
+    emit fileTransferProgress(fileInfo.fileName(), 0, fileInfo.size());
 
-    const bool ok = sendJson(obj);
-    if (ok) {
-        emit fileTransferProgress(fileInfo.fileName(), fileInfo.size(), fileInfo.size());
+    while (!file.atEnd()) {
+        const QByteArray chunk = file.read(kTransferChunkBytes);
+        if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
+            file.close();
+            return false;
+        }
+
+        QJsonObject obj;
+        obj["type"] = "file_chunk";
+        obj["transferId"] = transferId;
+        obj["senderId"] = m_userId;
+        obj["senderName"] = m_userName;
+        obj["receiverId"] = receiverId;
+        obj["messageType"] = static_cast<int>(messageType);
+        obj["fileName"] = fileInfo.fileName();
+        obj["fileSize"] = QString::number(fileInfo.size());
+        obj["fileHash"] = fileHash;
+        obj["chunkSize"] = QString::number(kTransferChunkBytes);
+        obj["chunkCount"] = QString::number(chunkCount);
+        obj["chunkIndex"] = QString::number(chunkIndex);
+        obj["content"] = contentPrefix + fileInfo.fileName();
+        obj["fileData"] = QString::fromLatin1(chunk.toBase64());
+
+        if (!sendJson(obj)) {
+            file.close();
+            return false;
+        }
+        sentBytes += chunk.size();
+        ++chunkIndex;
+        emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
     }
-    return ok;
+    file.close();
+    return sentBytes == fileInfo.size() && chunkIndex == chunkCount;
 }
 
 void Client::onReadyRead() {

@@ -43,6 +43,7 @@ private:
     void handleMessage(const QJsonObject& obj);
     void handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket = nullptr);
     void handleFile(const QJsonObject& obj, QTcpSocket* socket);
+    void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
@@ -65,12 +66,23 @@ private:
     void saveOfflineMessage(const Message& msg) const;
     void sendOfflineMessages(const QString& userId, QTcpSocket* socket) const;
 
+    struct PendingFileTransfer {
+        QJsonObject envelope;
+        QVector<QByteArray> chunks;
+        QSet<int> receivedIndexes;
+        qint64 receivedBytes = 0;
+        qint64 fileSize = 0;
+        qint64 chunkSize = 0;
+        qint64 chunkCount = 0;
+    };
+
     QTcpServer* m_tcpServer;
     quint16 m_serverPort;
     bool m_tlsEnabled;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
     QSet<QString> m_usedNames;
+    QMap<QString, PendingFileTransfer> m_pendingFileTransfers;
 };
 
 #endif // SERVER_H

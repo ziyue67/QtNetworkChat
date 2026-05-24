@@ -20,6 +20,7 @@
 
 namespace {
 constexpr qint64 kMaxIncomingPayloadBytes = 80LL * 1024 * 1024;
+constexpr qint64 kMaxIncomingChunks = 4096;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -144,6 +145,7 @@ void Server::stop() {
     }
     m_clients.clear();
     m_userSockets.clear();
+    m_pendingFileTransfers.clear();
     m_tcpServer->close();
     qDebug() << "Server stopped";
 }
@@ -188,6 +190,8 @@ void Server::onClientReadyRead() {
             handleMessage(obj);
         } else if (type == "file") {
             handleFile(obj, socket);
+        } else if (type == "file_chunk") {
+            handleFileChunk(obj, socket);
         } else if (type == "private") {
             handleMessage(obj);
         } else if (type == "friend_request" || type == "friend_response" || type == "friend_search") {
@@ -210,6 +214,12 @@ void Server::onClientDisconnected() {
         recordUserSessionToSqlite(*user, "logout");
         QString userId = user->id;
         QString userName = user->name;
+        const QString pendingPrefix = QString::number(reinterpret_cast<quintptr>(socket)) + ":";
+        for (const QString& key : m_pendingFileTransfers.keys()) {
+            if (key.startsWith(pendingPrefix)) {
+                m_pendingFileTransfers.remove(key);
+            }
+        }
         m_userSockets.remove(userId);
         m_clients.remove(socket);
         m_usedNames.remove(userName);
@@ -561,6 +571,101 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         broadcastMessage(msg);
     }
     saveMessageToSqlite(msg, deliveryState);
+}
+
+void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
+    if (!socket) return;
+
+    const QString transferId = obj["transferId"].toString().trimmed();
+    const QString fileName = obj["fileName"].toString();
+    const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+    const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+    const qint64 chunkCount = obj["chunkCount"].toVariant().toLongLong();
+    const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+    const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+    const QString key = QString::number(reinterpret_cast<quintptr>(socket)) + ":" + transferId;
+
+    auto rejectTransfer = [this, socket, key, fileName](const QString& reason) {
+        m_pendingFileTransfers.remove(key);
+        const QString visibleName = fileName.isEmpty() ? "未命名文件" : fileName;
+        sendSystemNotice(socket, QString("文件分片上传已被服务端拒绝：%1，%2。请重新发送。").arg(visibleName, reason));
+        qWarning() << "Rejected file chunk transfer" << visibleName << reason;
+    };
+
+    if (transferId.isEmpty()) {
+        rejectTransfer("缺少传输编号");
+        return;
+    }
+    if (fileSize <= 0 || fileSize > kMaxIncomingPayloadBytes) {
+        rejectTransfer(QString("文件大小非法或超过 %1 MB").arg(kMaxIncomingPayloadBytes / 1024 / 1024));
+        return;
+    }
+    if (chunkSize <= 0 || chunkCount <= 0 || chunkIndex < 0 || chunkIndex >= chunkCount) {
+        rejectTransfer("分片序号或数量非法");
+        return;
+    }
+    if (chunkCount > kMaxIncomingChunks) {
+        rejectTransfer(QString("分片数量超过服务器限制 %1 片").arg(kMaxIncomingChunks));
+        return;
+    }
+    const qint64 expectedChunkCount = (fileSize + chunkSize - 1) / chunkSize;
+    if (expectedChunkCount != chunkCount) {
+        rejectTransfer(QString("分片数量不一致：声明 %1 片，预期 %2 片").arg(chunkCount).arg(expectedChunkCount));
+        return;
+    }
+    if (chunkData.isEmpty() || chunkData.size() > chunkSize) {
+        rejectTransfer("分片内容为空或超过声明大小");
+        return;
+    }
+    if (chunkIndex < chunkCount - 1 && chunkData.size() != chunkSize) {
+        rejectTransfer("非末尾分片大小不一致");
+        return;
+    }
+
+    PendingFileTransfer& pending = m_pendingFileTransfers[key];
+    if (pending.chunks.isEmpty()) {
+        pending.envelope = obj;
+        pending.envelope["type"] = "file";
+        pending.envelope.remove("transferId");
+        pending.envelope.remove("chunkIndex");
+        pending.envelope.remove("fileData");
+        pending.fileSize = fileSize;
+        pending.chunkSize = chunkSize;
+        pending.chunkCount = chunkCount;
+        pending.chunks.resize(static_cast<int>(chunkCount));
+    } else if (pending.fileSize != fileSize || pending.chunkSize != chunkSize || pending.chunkCount != chunkCount) {
+        rejectTransfer("同一传输编号的元数据不一致");
+        return;
+    }
+
+    const int index = static_cast<int>(chunkIndex);
+    if (!pending.receivedIndexes.contains(index)) {
+        pending.chunks[index] = chunkData;
+        pending.receivedIndexes.insert(index);
+        pending.receivedBytes += chunkData.size();
+    }
+    if (pending.receivedBytes > fileSize) {
+        rejectTransfer("累计分片大小超过声明文件大小");
+        return;
+    }
+    if (pending.receivedIndexes.size() < pending.chunkCount) {
+        return;
+    }
+
+    QByteArray fileData;
+    fileData.reserve(static_cast<int>(fileSize));
+    for (const QByteArray& chunk : pending.chunks) {
+        if (chunk.isEmpty()) {
+            rejectTransfer("存在缺失分片");
+            return;
+        }
+        fileData.append(chunk);
+    }
+
+    QJsonObject fullFile = pending.envelope;
+    m_pendingFileTransfers.remove(key);
+    fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
+    handleFile(fullFile, socket);
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {
