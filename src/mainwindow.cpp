@@ -1229,6 +1229,16 @@ void MainWindow::setupUi() {
         QAction* copyProfileSummaryAction = menu.addAction("复制账号摘要");
         QAction* globalSearchAction = menu.addAction("打开综合搜索");
         QAction* friendManagerAction = menu.addAction("打开好友管理");
+        auto describeProfileAction = [](QAction* action, const QString& tip) {
+            action->setToolTip(tip);
+            action->setStatusTip(tip);
+        };
+        describeProfileAction(copyAccountAction, "复制当前登录账号的 QQ 号");
+        describeProfileAction(copyCardAction, "复制我的 QQ、昵称、好友数和群聊数");
+        describeProfileAction(copyStatusAction, "复制当前在线状态和好友/群聊数量");
+        describeProfileAction(copyProfileSummaryAction, "复制账号、当前会话和可用操作摘要");
+        describeProfileAction(globalSearchAction, "打开综合搜索，查找 QQ、好友和群聊");
+        describeProfileAction(friendManagerAction, "打开好友管理器，搜索、备注和整理好友");
         QAction* selected = menu.exec(ui->profileCard->mapToGlobal(pos));
         if (selected == copyAccountAction) {
             onCopyAccount();
