@@ -233,6 +233,31 @@ int main(int argc, char** argv) {
     ok = expect(!emptyChunkResumeState["canResume"].toBool(true),
                 "empty chunk transfer should not remain resumable after rejection") && ok;
 
+    const QString invalidIndexTransferId = "invalid-index-transfer";
+    ok = expect(writeJson(socket, makeChunk(2, invalidIndexTransferId)),
+                "raw socket should send an out-of-range chunk index") && ok;
+
+    bool invalidIndexAckRejected = false;
+    bool invalidIndexSystemNotice = false;
+    ok = expect(waitFor([&] {
+        buffer.append(socket.readAll());
+        const QVector<QJsonObject> messages = takeJsonLines(buffer);
+        for (const QJsonObject& message : messages) {
+            if (message["type"].toString() == "file_chunk_ack"
+                && message["transferId"].toString() == invalidIndexTransferId
+                && message["chunkIndex"].toVariant().toLongLong() == 2
+                && !message["accepted"].toBool(true)
+                && message["reason"].toString().contains("分片序号")) {
+                invalidIndexAckRejected = true;
+            }
+            if (message["type"].toString() == "system"
+                && message["content"].toString().contains("分片序号")) {
+                invalidIndexSystemNotice = true;
+            }
+        }
+        return invalidIndexAckRejected && invalidIndexSystemNotice;
+    }), "server should reject an out-of-range chunk index with ack and system notice") && ok;
+
     const QString outOfOrderTransferId = "out-of-order-transfer";
     const QString outOfOrderFileName = "out-of-order.bin";
     const QString outOfOrderReceiverId = "949999";
