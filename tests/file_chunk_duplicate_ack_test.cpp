@@ -258,6 +258,33 @@ int main(int argc, char** argv) {
         return invalidIndexAckRejected && invalidIndexSystemNotice;
     }), "server should reject an out-of-range chunk index with ack and system notice") && ok;
 
+    const QString mismatchedChunkCountTransferId = "mismatched-chunk-count-transfer";
+    QJsonObject mismatchedChunkCount = makeChunk(0, mismatchedChunkCountTransferId);
+    mismatchedChunkCount["chunkCount"] = QString::number(3);
+    ok = expect(writeJson(socket, mismatchedChunkCount),
+                "raw socket should send a chunk with mismatched chunk count metadata") && ok;
+
+    bool mismatchedChunkCountAckRejected = false;
+    bool mismatchedChunkCountSystemNotice = false;
+    ok = expect(waitFor([&] {
+        buffer.append(socket.readAll());
+        const QVector<QJsonObject> messages = takeJsonLines(buffer);
+        for (const QJsonObject& message : messages) {
+            if (message["type"].toString() == "file_chunk_ack"
+                && message["transferId"].toString() == mismatchedChunkCountTransferId
+                && message["chunkIndex"].toVariant().toLongLong() == 0
+                && !message["accepted"].toBool(true)
+                && message["reason"].toString().contains("分片数量不一致")) {
+                mismatchedChunkCountAckRejected = true;
+            }
+            if (message["type"].toString() == "system"
+                && message["content"].toString().contains("分片数量不一致")) {
+                mismatchedChunkCountSystemNotice = true;
+            }
+        }
+        return mismatchedChunkCountAckRejected && mismatchedChunkCountSystemNotice;
+    }), "server should reject mismatched chunk count metadata with ack and system notice") && ok;
+
     const QString shortNonFinalTransferId = "short-non-final-transfer";
     QJsonObject shortNonFinalChunk = makeChunk(0, shortNonFinalTransferId);
     shortNonFinalChunk["fileData"] = QString::fromLatin1(QByteArray("abc").toBase64());
