@@ -19,6 +19,8 @@ QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
+class QAction;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -62,6 +64,7 @@ private slots:
     void onEditGroupAnnouncement();
     void onInsertEmoji();
     void onInsertMention();
+    void onResumeSavedOutgoingTransfer();
 
 signals:
     void logoutRequested();
@@ -87,6 +90,7 @@ private:
     void refreshFriendList();
     void refreshGroupMemberPanel();
     void refreshComposerState();
+    void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
@@ -136,6 +140,7 @@ private:
     QString m_privateChatTarget;
     QSystemTrayIcon* m_trayIcon;
     QMenu* m_trayMenu;
+    QAction* m_resumeSavedTransferAction;
     int m_unreadCount;
     bool m_isQuitting;
 

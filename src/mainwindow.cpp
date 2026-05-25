@@ -276,6 +276,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_wasInPublicServerGroup(false)
     , m_privateChatTarget(QString())
     , m_trayIcon(new QSystemTrayIcon(this))
+    , m_resumeSavedTransferAction(nullptr)
     , m_unreadCount(0)
     , m_isQuitting(false)
 {
@@ -307,6 +308,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
         appendSystemMessage("已连接服务器 · " + m_client->transportSecurityDescription());
         ui->statusbar->showMessage(m_client->transportSecurityDescription(), 2200);
         refreshComposerState();
+        updateSavedOutgoingTransferRecoveryUi(true);
     });
     connect(m_client, &Client::disconnected, this, &MainWindow::onClientDisconnected);
     connect(m_client, &Client::newMessage, this, &MainWindow::onNewMessage);
@@ -352,6 +354,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
         ui->statusbar->showMessage("已连接 - 用户ID: " + m_currentUserId);
     }
     loadHistory("group");
+    updateSavedOutgoingTransferRecoveryUi(true);
 }
 
 MainWindow::~MainWindow() {
@@ -477,6 +480,129 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
     }
 
     return false;
+}
+
+void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
+    if (!m_resumeSavedTransferAction) return;
+
+    QJsonObject state;
+    const bool hasSavedTransfer = m_client && m_client->loadOutgoingTransferState(&state);
+    m_resumeSavedTransferAction->setVisible(hasSavedTransfer);
+    m_resumeSavedTransferAction->setEnabled(hasSavedTransfer && m_client->isConnected());
+
+    if (!hasSavedTransfer) {
+        m_resumeSavedTransferAction->setToolTip("暂无可恢复的未完成发送");
+        return;
+    }
+
+    const QFileInfo info(state["filePath"].toString());
+    const QString fileName = info.fileName().isEmpty() ? "未命名文件" : info.fileName();
+    const QString receiverId = state["receiverId"].toString().trimmed();
+    const QString targetName = receiverId.isEmpty() ? "公共聊天室" : QString("QQ:%1").arg(receiverId);
+    const QString detail = QString("检测到未完成发送：%1 -> %2").arg(fileName, targetName);
+    m_resumeSavedTransferAction->setToolTip(detail);
+
+    if (announce) {
+        appendSystemMessage(detail + "，可通过菜单“恢复未完成发送”继续。");
+        ui->statusbar->showMessage("可恢复未完成发送：" + fileName, 3200);
+    }
+}
+
+void MainWindow::onResumeSavedOutgoingTransfer() {
+    if (!m_client) return;
+
+    QJsonObject state;
+    if (!m_client->loadOutgoingTransferState(&state)) {
+        updateSavedOutgoingTransferRecoveryUi(false);
+        ui->statusbar->showMessage("暂无可恢复的未完成发送", 2200);
+        return;
+    }
+
+    const QFileInfo info(state["filePath"].toString());
+    const QString fileName = info.fileName().isEmpty() ? "未命名文件" : info.fileName();
+    const QString receiverId = state["receiverId"].toString().trimmed();
+    const QString targetName = receiverId.isEmpty() ? "公共聊天室" : QString("QQ:%1").arg(receiverId);
+
+    QProgressDialog progress(this);
+    progress.setWindowTitle("恢复未完成发送");
+    progress.setLabelText(QString("正在恢复发送\n%1 -> %2").arg(fileName, targetName));
+    progress.setCancelButtonText("取消");
+    progress.setRange(0, 100);
+    progress.setValue(0);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+
+    bool cancelRequested = false;
+    QMetaObject::Connection cancelConnection = connect(
+        &progress,
+        &QProgressDialog::canceled,
+        this,
+        [this, &progress, &cancelRequested, &fileName]() {
+            cancelRequested = true;
+            progress.setLabelText("正在取消恢复发送...\n" + fileName);
+            if (m_client) m_client->cancelCurrentOutgoingTransfer();
+            ui->statusbar->showMessage("正在取消恢复发送：" + fileName, 1600);
+            QApplication::processEvents();
+        });
+    QMetaObject::Connection progressConnection = connect(
+        m_client,
+        &Client::fileTransferProgress,
+        this,
+        [&progress, &fileName, &targetName](const QString& currentFileName, qint64 bytesPrepared, qint64 totalBytes) {
+            if (currentFileName != fileName) return;
+            const int percent = totalBytes > 0
+                ? qBound(0, static_cast<int>((bytesPrepared * 100) / totalBytes), 100)
+                : 0;
+            progress.setValue(percent);
+            progress.setLabelText(QString("正在恢复发送\n%1 -> %2\n%3 / %4")
+                                      .arg(fileName,
+                                           targetName,
+                                           humanFileSize(bytesPrepared),
+                                           humanFileSize(totalBytes)));
+            QApplication::processEvents();
+        });
+    QMetaObject::Connection preparedConnection = connect(
+        m_client,
+        &Client::fileTransferPrepared,
+        this,
+        [&progress, &fileName, &targetName](const QString& currentFileName,
+                                             qint64 totalBytes,
+                                             qint64 chunkSize,
+                                             qint64 chunkCount,
+                                             const QString& fileHash) {
+            if (currentFileName != fileName) return;
+            progress.setLabelText(QString("恢复发送校验清单已生成\n%1 -> %2\n%3")
+                                      .arg(fileName,
+                                           targetName,
+                                           transferManifestSummary(totalBytes, chunkSize, chunkCount, fileHash)));
+            QApplication::processEvents();
+        });
+
+    ui->statusbar->showMessage("正在恢复未完成发送：" + fileName, 1800);
+    QString rejectReason;
+    const bool resumed = m_client->resumeSavedOutgoingTransfer(&rejectReason, 5000);
+
+    QObject::disconnect(progressConnection);
+    QObject::disconnect(preparedConnection);
+    QObject::disconnect(cancelConnection);
+    progress.setValue(resumed ? 100 : progress.value());
+    QApplication::processEvents();
+    progress.close();
+
+    if (resumed) {
+        appendSystemMessage(QString("已恢复并完成未完成发送：%1 -> %2").arg(fileName, targetName));
+        ui->statusbar->showMessage("未完成发送已恢复完成：" + fileName, 2600);
+    } else if (cancelRequested) {
+        appendSystemMessage("已取消恢复未完成发送：" + fileName);
+        ui->statusbar->showMessage("已取消恢复发送：" + fileName, 2200);
+    } else {
+        const QString reason = rejectReason.isEmpty() ? "恢复失败" : rejectReason;
+        appendSystemMessage(QString("恢复未完成发送失败：%1（%2）").arg(fileName, reason));
+        ui->statusbar->showMessage("恢复未完成发送失败：" + reason, 3200);
+        QMessageBox::warning(this, "恢复未完成发送失败", reason);
+    }
+
+    updateSavedOutgoingTransferRecoveryUi(false);
 }
 
 void MainWindow::setupUi() {
@@ -866,6 +992,9 @@ void MainWindow::setupUi() {
     QAction* avatarAction = new QAction("上传头像", this);
     QAction* sendImageAction = new QAction("发送图片/视频", this);
     QAction* sendFileAction = new QAction("闪传文件", this);
+    m_resumeSavedTransferAction = new QAction("恢复未完成发送", this);
+    m_resumeSavedTransferAction->setVisible(false);
+    m_resumeSavedTransferAction->setEnabled(false);
     QAction* filterHistoryAction = new QAction("按日期查记录", this);
     QAction* exportHistoryAction = new QAction("导出聊天记录", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
@@ -876,6 +1005,7 @@ void MainWindow::setupUi() {
     ui->menubar->addAction(avatarAction);
     ui->menubar->addAction(sendImageAction);
     ui->menubar->addAction(sendFileAction);
+    ui->menubar->addAction(m_resumeSavedTransferAction);
     ui->menubar->addAction(filterHistoryAction);
     ui->menubar->addAction(exportHistoryAction);
     ui->menubar->addAction(copyAccountAction);
@@ -887,6 +1017,7 @@ void MainWindow::setupUi() {
     connect(avatarAction, &QAction::triggered, this, &MainWindow::onUploadAvatar);
     connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
     connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
+    connect(m_resumeSavedTransferAction, &QAction::triggered, this, &MainWindow::onResumeSavedOutgoingTransfer);
     connect(filterHistoryAction, &QAction::triggered, this, &MainWindow::onFilterHistoryByDate);
     connect(exportHistoryAction, &QAction::triggered, this, &MainWindow::onExportHistory);
     connect(copyAccountAction, &QAction::triggered, this, &MainWindow::onCopyAccount);
@@ -2151,6 +2282,7 @@ void MainWindow::onSendFile() {
     QString transferSummary;
     bool transferCanceled = false;
     bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary, &transferCanceled);
+    updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
     const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
         appendSystemMessage(QString("已发送文件: %1 · %2 · 到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
@@ -2266,6 +2398,7 @@ void MainWindow::onSendImage() {
     QString transferSummary;
     bool transferCanceled = false;
     bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo, &transferSummary, &transferCanceled);
+    updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
     const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
         appendSystemMessage(QString("已发送%1: %2 · %3 · 到 %4%5").arg(mediaType, info.fileName(), fileSize, targetName, transferSuffix));
