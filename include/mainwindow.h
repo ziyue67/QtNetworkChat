@@ -87,6 +87,7 @@ private:
     void refreshFriendList();
     void refreshGroupMemberPanel();
     void refreshComposerState();
+    bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
     void loadAvatar();
@@ -128,6 +129,8 @@ private:
     QMap<QString, QStringList> m_serverGroupMembers;
     QMap<QString, QString> m_serverGroupMemberNames;
     QMap<QString, QString> m_serverGroupMemberRoles;
+    bool m_hasServerGroupSnapshot;
+    bool m_wasInPublicServerGroup;
     QMap<QString, ChatUser> m_knownUsers;
     QString m_contactFilter;
     QString m_privateChatTarget;

@@ -41,6 +41,7 @@ public:
     bool currentLoginWasRegister() const { return m_loginWasRegister; }
     QString lastLoginError() const { return m_loginError; }
     QString transportSecurityDescription() const;
+    bool hasServerGroupSnapshot() const { return m_hasServerGroupSnapshot; }
     QJsonArray serverGroups() const { return m_serverGroups; }
 
 signals:
@@ -110,6 +111,7 @@ private:
     QByteArray m_buffer;
     quint16 m_reconnectAttempts;
     QMap<QString, PendingIncomingFileTransfer> m_incomingFileTransfers;
+    bool m_hasServerGroupSnapshot;
     QJsonArray m_serverGroups;
 };
 

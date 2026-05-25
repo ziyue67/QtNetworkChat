@@ -49,6 +49,7 @@ Client::Client(QObject* parent)
     , m_loginOk(false)
     , m_loginWasRegister(false)
     , m_reconnectAttempts(0)
+    , m_hasServerGroupSnapshot(false)
 {
     connect(m_socket, &QTcpSocket::readyRead, this, &Client::onReadyRead);
     if (QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket)) {
@@ -116,6 +117,8 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
     m_loginFinished = false;
     m_loginOk = false;
     m_loginWasRegister = false;
+    m_hasServerGroupSnapshot = false;
+    m_serverGroups = QJsonArray();
     m_loginError.clear();
 }
 
@@ -509,6 +512,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
 
     if (type == "server_group_snapshot") {
         m_serverGroups = obj["groups"].toArray();
+        m_hasServerGroupSnapshot = true;
         emit serverGroupSnapshotReceived(m_serverGroups);
         return;
     }

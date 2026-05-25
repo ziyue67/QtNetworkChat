@@ -272,6 +272,8 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_groupMemberModel(new QStandardItemModel(this))
     , m_currentUserId(userId)
     , m_currentUserName(userName)
+    , m_hasServerGroupSnapshot(false)
+    , m_wasInPublicServerGroup(false)
     , m_privateChatTarget(QString())
     , m_trayIcon(new QSystemTrayIcon(this))
     , m_unreadCount(0)
@@ -340,7 +342,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     saveProfileToSqlite();
     ui->addFriendBtn->hide();
     ui->uploadAvatarBtn->setText("换头像");
-    if (!m_client->serverGroups().isEmpty()) {
+    if (m_client->hasServerGroupSnapshot()) {
         onServerGroupSnapshotReceived(m_client->serverGroups());
     }
 
@@ -1785,30 +1787,39 @@ void MainWindow::refreshComposerState() {
     const bool hasText = !draftText.isEmpty();
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    const bool canReachTarget = isLocalGroup || (m_client && m_client->isConnected());
+    const bool removedFromPublicGroup = m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup();
+    const bool canReachTarget = !removedFromPublicGroup && (isLocalGroup || (m_client && m_client->isConnected()));
     const bool canSend = hasText && canReachTarget;
     const QString composerHint = QString("发往 %1... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)").arg(targetName);
 
     ui->sendBtn->setEnabled(canSend);
-    ui->sendBtn->setToolTip(!canReachTarget
+    ui->sendBtn->setToolTip(removedFromPublicGroup
+        ? "当前账号已不在公共群，等待群主或管理员重新邀请"
+        : (!canReachTarget
         ? QString("当前已断开，无法发送到 %1").arg(targetName)
         : (hasText
         ? QString("发送到 %1 · %2 字 (Enter)").arg(targetName).arg(draftText.size())
-        : QString("请输入消息后发送到 %1").arg(targetName)));
-    ui->messageEdit->setPlaceholderText(canReachTarget
+        : QString("请输入消息后发送到 %1").arg(targetName))));
+    ui->messageEdit->setPlaceholderText(removedFromPublicGroup
+        ? "当前账号已不在公共群，等待群主或管理员重新邀请"
+        : (canReachTarget
         ? composerHint
-        : QString("已断开连接，重新登录后可发送到 %1").arg(targetName));
+        : QString("已断开连接，重新登录后可发送到 %1").arg(targetName)));
     ui->messageEdit->setToolTip(hasText
         ? QString("当前草稿将发送到 %1 · %2 字").arg(targetName).arg(draftText.size())
         : ui->messageEdit->placeholderText());
     ui->fileBtn->setEnabled(canReachTarget);
-    ui->fileBtn->setToolTip(canReachTarget
+    ui->fileBtn->setToolTip(removedFromPublicGroup
+        ? "当前账号已不在公共群，暂不能发送文件"
+        : (canReachTarget
         ? QString("发送文件到 %1，支持文档、压缩包和媒体文件").arg(targetName)
-        : QString("当前已断开，暂不能发送文件到 %1").arg(targetName));
+        : QString("当前已断开，暂不能发送文件到 %1").arg(targetName)));
     ui->imageBtn->setEnabled(canReachTarget);
-    ui->imageBtn->setToolTip(canReachTarget
+    ui->imageBtn->setToolTip(removedFromPublicGroup
+        ? "当前账号已不在公共群，暂不能发送图片或视频"
+        : (canReachTarget
         ? QString("发送图片或视频到 %1，图片会显示预览").arg(targetName)
-        : QString("当前已断开，暂不能发送图片/视频到 %1").arg(targetName));
+        : QString("当前已断开，暂不能发送图片/视频到 %1").arg(targetName)));
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -1998,6 +2009,14 @@ void MainWindow::onSendMessage() {
         return;
     }
 
+    if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
+        ui->messageEdit->setFocus();
+        ui->chatHintLabel->setText("发送暂停 · 当前账号已不在公共群，等待重新邀请");
+        ui->statusbar->showMessage("当前账号已不在公共群，暂不能发送公共群消息", 3000);
+        refreshComposerState();
+        return;
+    }
+
     if (!m_client || !m_client->isConnected()) {
         ui->messageEdit->setFocus();
         ui->chatHintLabel->setText(QString("发送暂停 · %1 已断开，消息已保留在输入框").arg(targetName));
@@ -2043,6 +2062,12 @@ void MainWindow::onSendMessage() {
 void MainWindow::onSendFile() {
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
+        ui->chatHintLabel->setText("文件发送暂停 · 当前账号已不在公共群，等待重新邀请");
+        ui->statusbar->showMessage("当前账号已不在公共群，暂不能发送文件", 3000);
+        refreshComposerState();
+        return;
+    }
     if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
         ui->chatHintLabel->setText(QString("文件发送暂停 · %1 已断开").arg(targetName));
         ui->statusbar->showMessage(QString("已断开连接，暂不能发送文件到 %1").arg(targetName), 3000);
@@ -2134,6 +2159,12 @@ void MainWindow::onSendFile() {
 void MainWindow::onSendImage() {
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
+        ui->chatHintLabel->setText("图片/视频发送暂停 · 当前账号已不在公共群，等待重新邀请");
+        ui->statusbar->showMessage("当前账号已不在公共群，暂不能发送图片/视频", 3000);
+        refreshComposerState();
+        return;
+    }
     if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
         ui->chatHintLabel->setText(QString("图片/视频发送暂停 · %1 已断开").arg(targetName));
         ui->statusbar->showMessage(QString("已断开连接，暂不能发送图片/视频到 %1").arg(targetName), 3000);
@@ -2449,6 +2480,10 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
 }
 
 void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
+    const bool hadServerGroupSnapshot = m_hasServerGroupSnapshot;
+    const bool wasInPublicGroup = m_wasInPublicServerGroup;
+    m_hasServerGroupSnapshot = true;
+
     m_serverGroupNames.clear();
     m_serverGroupAnnouncements.clear();
     m_serverGroupOwners.clear();
@@ -2479,20 +2514,38 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
         m_serverGroupMembers[groupId] = memberIds;
     }
 
+    const bool isInPublicGroup = m_serverGroupMembers.value("public").contains(m_currentUserId);
+    m_wasInPublicServerGroup = isInPublicGroup;
+
     if (m_privateChatTarget.isEmpty()) {
-        const QString publicAnnouncement = m_serverGroupAnnouncements.value("public");
-        const QString publicName = m_serverGroupNames.value("public", "公共聊天室");
-        if (!publicName.isEmpty()) {
-            ui->chatTitleLabel->setText(publicName);
-        }
-        ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
-            ? "群公告 <a href=\"edit\">编辑</a>"
-            : "群公告");
-        if (!publicAnnouncement.isEmpty()) {
-            ui->announcementBodyLabel->setText(publicAnnouncement);
+        if (isCurrentUserRemovedFromPublicGroup()) {
+            ui->chatTitleLabel->setText("公共聊天室");
+            ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · 等待群主或管理员重新邀请").arg(m_currentUserId));
+            ui->announcementTitleLabel->setText("群公告");
+            ui->announcementBodyLabel->setText("当前账号已不在公共群。等待群主或管理员重新邀请后，会自动恢复群公告和成员列表。");
+            if (!hadServerGroupSnapshot || wasInPublicGroup) {
+                appendSystemMessage("你已不在公共群，暂不能发送公共群消息、文件或图片；群主或管理员重新邀请后会自动恢复。");
+            }
+            ui->statusbar->showMessage("当前账号已不在公共群，等待重新邀请", 3200);
+        } else {
+            const QString publicAnnouncement = m_serverGroupAnnouncements.value("public");
+            const QString publicName = m_serverGroupNames.value("public", "公共聊天室");
+            if (!publicName.isEmpty()) {
+                ui->chatTitleLabel->setText(publicName);
+            }
+            ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
+                ? "群公告 <a href=\"edit\">编辑</a>"
+                : "群公告");
+            if (!publicAnnouncement.isEmpty()) {
+                ui->announcementBodyLabel->setText(publicAnnouncement);
+            }
+            if (hadServerGroupSnapshot && !wasInPublicGroup) {
+                appendSystemMessage("你已重新加入公共群，群公告、成员列表和发送入口已恢复。");
+            }
+            ui->statusbar->showMessage(QString("已同步服务端群组 · %1 个").arg(groups.size()), 1800);
         }
         refreshGroupMemberPanel();
-        ui->statusbar->showMessage(QString("已同步服务端群组 · %1 个").arg(groups.size()), 1800);
+        refreshComposerState();
     }
 }
 
@@ -5007,13 +5060,19 @@ void MainWindow::onBackToGroupChat() {
     loadHistory("group");
     setWindowTitle("QtNetworkChat - " + m_currentUserName);
     ui->chatTitleLabel->setText("公共聊天室");
-    ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
-    ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
-        ? "群公告 <a href=\"edit\">编辑</a>"
-        : "群公告");
-    ui->announcementBodyLabel->setText(m_serverGroupAnnouncements.value(
-        "public",
-        "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。"));
+    if (isCurrentUserRemovedFromPublicGroup()) {
+        ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · 等待群主或管理员重新邀请").arg(m_currentUserId));
+        ui->announcementTitleLabel->setText("群公告");
+        ui->announcementBodyLabel->setText("当前账号已不在公共群。等待群主或管理员重新邀请后，会自动恢复群公告和成员列表。");
+    } else {
+        ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
+        ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
+            ? "群公告 <a href=\"edit\">编辑</a>"
+            : "群公告");
+        ui->announcementBodyLabel->setText(m_serverGroupAnnouncements.value(
+            "public",
+            "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。"));
+    }
     refreshGroupMemberPanel();
     refreshComposerState();
 }
@@ -7270,6 +7329,24 @@ void MainWindow::refreshGroupMemberPanel() {
     }
 
     const QStringList serverPublicMembers = m_serverGroupMembers.value("public");
+    if (isCurrentUserRemovedFromPublicGroup()) {
+        QStandardItem* removedItem = new QStandardItem(QString("已不在公共群 QQ:%1\n等待群主或管理员重新邀请").arg(m_currentUserId));
+        removedItem->setData(m_currentUserId, Qt::UserRole + 1);
+        removedItem->setEditable(false);
+        removedItem->setEnabled(false);
+        removedItem->setForeground(QColor(170, 110, 20));
+        removedItem->setToolTip("服务端已移出当前账号，重新邀请后会自动恢复群成员列表");
+        if (filter.isEmpty()
+            || m_currentUserId.contains(filter, Qt::CaseInsensitive)
+            || QString("等待邀请").contains(filter, Qt::CaseInsensitive)) {
+            m_groupMemberModel->appendRow(removedItem);
+        } else {
+            delete removedItem;
+        }
+        ui->memberTitleLabel->setText("公共群成员 · 当前账号已被移出 · 等待重新邀请");
+        return;
+    }
+
     if (!serverPublicMembers.isEmpty()) {
         const bool canManagePublicGroup = canCurrentUserManageServerGroup("public");
         const QString ownerId = m_serverGroupOwners.value("public");
@@ -7425,6 +7502,12 @@ QString MainWindow::contactDisplayName(const QString& userId) const {
 
 bool MainWindow::isContactOnline(const QString& userId) const {
     return m_knownUsers.contains(userId) && m_knownUsers.value(userId).isOnline;
+}
+
+bool MainWindow::isCurrentUserRemovedFromPublicGroup() const {
+    return m_hasServerGroupSnapshot
+        && !m_currentUserId.isEmpty()
+        && !m_serverGroupMembers.value("public").contains(m_currentUserId);
 }
 
 QString MainWindow::groupOwnerId(const QString& groupId) const {
