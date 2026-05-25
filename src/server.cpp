@@ -1,4 +1,5 @@
 #include "server.h"
+#include "redisclient.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QHostAddress>
@@ -150,11 +151,21 @@ void sendFileChunkAck(QTcpSocket* socket,
 Server::Server(QObject* parent)
     : QObject(parent)
     , m_tcpServer(createServerSocket(this))
+    , m_redisClient(new RedisClient(this))
     , m_transferCleanupTimer(new QTimer(this))
     , m_offlineAttachmentCleanupTimer(new QTimer(this))
     , m_serverPort(0)
     , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
 {
+    m_redisClient->configureFromEnvironment();
+    if (m_redisClient->isEnabled()) {
+        if (m_redisClient->connectToServer()) {
+            qDebug() << "Redis presence service enabled";
+        } else {
+            qWarning() << "Redis presence requested but unavailable:" << m_redisClient->lastError();
+        }
+    }
+
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
     connect(m_transferCleanupTimer, &QTimer::timeout, this, &Server::cleanupExpiredFileTransfers);
     connect(m_offlineAttachmentCleanupTimer, &QTimer::timeout, this, &Server::cleanupExpiredOfflineAttachments);
@@ -204,6 +215,9 @@ QString Server::transportSecurityDescription() const {
 void Server::stop() {
     m_transferCleanupTimer->stop();
     m_offlineAttachmentCleanupTimer->stop();
+    for (const ChatUser& user : m_clients.values()) {
+        clearRedisPresence(user.id);
+    }
     for (QTcpSocket* socket : m_clients.keys()) {
         socket->disconnectFromHost();
     }
@@ -275,7 +289,10 @@ void Server::onClientReadyRead() {
             handleFriendEvent(obj, socket);
         } else if (type == "heartbeat") {
             ChatUser* user = findUserBySocket(socket);
-            if (user) user->lastActive = QDateTime::currentDateTime();
+            if (user) {
+                user->lastActive = QDateTime::currentDateTime();
+                refreshRedisPresence(*user);
+            }
         }
     }
 
@@ -291,6 +308,7 @@ void Server::onClientDisconnected() {
         recordUserSessionToSqlite(*user, "logout");
         QString userId = user->id;
         QString userName = user->name;
+        clearRedisPresence(userId);
         const QString pendingPrefix = QString::number(reinterpret_cast<quintptr>(socket)) + ":";
         for (const QString& key : m_pendingFileTransfers.keys()) {
             if (key.startsWith(pendingPrefix)) {
@@ -407,6 +425,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     m_usedNames.insert(userName);
     recordUserSessionToSqlite(user, "login");
     recordDefaultGroupMembership(user);
+    refreshRedisPresence(user);
 
     QJsonObject response;
     response["type"] = "login_success";
@@ -1076,6 +1095,16 @@ void Server::handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket
     } else {
         qDebug() << "File transfer cancel received after cleanup or completion" << visibleName << transferId;
     }
+}
+
+void Server::refreshRedisPresence(const ChatUser& user) {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return;
+    m_redisClient->setPresence(user.id, user.name);
+}
+
+void Server::clearRedisPresence(const QString& userId) {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return;
+    m_redisClient->clearPresence(userId);
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {

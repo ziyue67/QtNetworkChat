@@ -12,6 +12,7 @@
 #include "message.h"
 
 class QTimer;
+class RedisClient;
 
 class Server : public QObject {
     Q_OBJECT
@@ -54,6 +55,8 @@ private:
     void handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket);
     bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);
     void cleanupExpiredFileTransfers();
+    void refreshRedisPresence(const ChatUser& user);
+    void clearRedisPresence(const QString& userId);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
@@ -102,6 +105,7 @@ private:
     };
 
     QTcpServer* m_tcpServer;
+    RedisClient* m_redisClient;
     QTimer* m_transferCleanupTimer;
     QTimer* m_offlineAttachmentCleanupTimer;
     quint16 m_serverPort;

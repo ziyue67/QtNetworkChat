@@ -14,12 +14,14 @@ SOURCES += \
     src/mainwindow.cpp \
     src/server.cpp \
     src/client.cpp \
+    src/redisclient.cpp \
     src/message.cpp
 
 HEADERS += \
     include/mainwindow.h \
     include/server.h \
     include/client.h \
+    include/redisclient.h \
     include/chatuser.h \
     include/message.h
 

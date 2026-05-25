@@ -14,6 +14,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 创建服务器和加入服务器
 - TCP Socket 局域网通信
 - JSON 消息协议
+- 可选 Redis 在线状态服务，为高并发和多服务实例部署提供 presence 基础
 - 群聊广播
 - 服务端保存基础群组、群成员和群公告表
 - 登录后同步服务端公共群公告、群主和成员角色快照
@@ -41,6 +42,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 系统托盘提醒
 - 自动重连和心跳保活
 - CTest 覆盖消息序列化、文件取消清理、服务端群成员变更和公告权限协议
+- CTest 覆盖 Redis RESP 命令编码和响应解析
 - 复制当前 QQ 账号
 - 退出登录并回到登录流程
 
@@ -52,12 +54,14 @@ QtNetworkChat/
 │   ├── chatuser.h       # 用户数据结构
 │   ├── client.h         # TCP 客户端接口
 │   ├── mainwindow.h     # 主窗口接口
+│   ├── redisclient.h    # 可选 Redis 在线状态服务客户端
 │   ├── message.h        # 消息结构与序列化
 │   └── server.h         # TCP 服务端接口
 ├── src/
 │   ├── client.cpp       # 客户端连接、收发消息、登录注册协议
 │   ├── main.cpp         # 程序入口、登录/注册窗口、启动流程
 │   ├── mainwindow.cpp   # 主界面、聊天、好友、文件、历史记录
+│   ├── redisclient.cpp  # Redis RESP 命令、响应解析和 presence 写入
 │   ├── message.cpp      # JSON 消息序列化与反序列化
 │   └── server.cpp       # 服务端连接管理、账号、好友、消息转发
 ├── ui/
@@ -74,6 +78,7 @@ QtNetworkChat/
 - Qt Widgets
 - Qt Network
 - Qt SQL
+- Redis（可选，用于服务端在线状态/presence）
 - TCP Socket
 - JSON
 - SQLite
@@ -118,7 +123,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-当前 CTest 会执行一个构建产物冒烟测试，确认 `QtNetworkChat` 可执行文件已经生成且大小有效。
+当前 CTest 会执行构建产物冒烟测试，并覆盖消息序列化、服务端群成员变更、文件取消清理和 Redis RESP 协议基础能力。
 
 ### Windows 打包
 
@@ -167,6 +172,25 @@ set QTNETWORKCHAT_TLS_KEY=C:\path\to\server.key
 
 客户端默认允许自签名证书，适合本地测试；如果需要校验证书链，可额外设置 `QTNETWORKCHAT_TLS_VERIFY=1`。
 
+### 如何启用 Redis 在线状态服务
+
+默认不启用 Redis，服务端仍使用进程内在线用户表。需要为更高并发或多服务实例部署准备在线状态共享时，可以在启动服务端前设置：
+
+```bash
+set QTNETWORKCHAT_REDIS=1
+set QTNETWORKCHAT_REDIS_HOST=127.0.0.1
+set QTNETWORKCHAT_REDIS_PORT=6379
+```
+
+如 Redis 配置了密码，可额外设置：
+
+```bash
+set QTNETWORKCHAT_REDIS_PASSWORD=your_password
+set QTNETWORKCHAT_REDIS_PREFIX=qtchat
+```
+
+启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL；用户断开或服务端停止时会主动删除该在线状态。Redis 不可用时服务端会回退到原有内存在线表，不影响局域网单机服务端运行。
+
 ### 客户端连接不上服务器
 
 - 确认服务器端已经点击创建服务器。
@@ -193,6 +217,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 后续计划
 
+- Redis 继续扩展为跨服务实例消息路由、在线用户查询和限流基础
 - 文件传输继续增加断点续传和更细粒度的失败分片重传
 - 离线文件传输补充失败续传和可配置保留时间
 - 服务端群组模型继续补充更多群权限协议测试和成员状态边界表现
