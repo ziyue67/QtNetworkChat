@@ -54,6 +54,15 @@ public:
                                       qint64* chunkSize = nullptr,
                                       qint64* chunkCount = nullptr,
                                       QString* fileHash = nullptr);
+    bool saveOutgoingTransferState(const QString& transferId,
+                                   const QString& filePath,
+                                   const QString& receiverId,
+                                   MessageType messageType,
+                                   const QString& fileHash,
+                                   qint64 fileSize,
+                                   qint64 chunkCount);
+    bool loadOutgoingTransferState(QJsonObject* state) const;
+    bool clearOutgoingTransferState();
     void cancelCurrentOutgoingTransfer();
     void setUserInfo(const QString& userId, const QString& userName);
     bool waitForLoginResult(int timeoutMs = 5000);

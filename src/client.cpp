@@ -7,6 +7,9 @@
 #include <QFileInfo>
 #include <QEventLoop>
 #include <QTimer>
+#include <QDir>
+#include <QSaveFile>
+#include <QStandardPaths>
 #include <QSslSocket>
 #include <QSslError>
 #include <QCryptographicHash>
@@ -21,6 +24,7 @@ constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
 constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
+const char kOutgoingTransferStateFileName[] = "outgoing_transfer_state.json";
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -100,6 +104,15 @@ bool resolveResumeProgress(qint64 confirmedBytes,
     if (receivedSet) *receivedSet = received;
     if (firstMissingChunkIndex) *firstMissingChunkIndex = firstMissing;
     return true;
+}
+
+QString outgoingTransferStateFilePath() {
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dir.isEmpty()) {
+        dir = QDir::currentPath();
+    }
+    QDir().mkpath(dir);
+    return QDir(dir).filePath(QString::fromLatin1(kOutgoingTransferStateFileName));
 }
 }
 
@@ -449,6 +462,80 @@ bool Client::queryFileTransferResumeState(const QString& transferId,
                                           fileHash);
 }
 
+bool Client::saveOutgoingTransferState(const QString& transferId,
+                                       const QString& filePath,
+                                       const QString& receiverId,
+                                       MessageType messageType,
+                                       const QString& fileHash,
+                                       qint64 fileSize,
+                                       qint64 chunkCount) {
+    const QString trimmedTransferId = transferId.trimmed();
+    const QString trimmedFileHash = fileHash.trimmed();
+    if (trimmedTransferId.isEmpty()
+        || filePath.trimmed().isEmpty()
+        || trimmedFileHash.isEmpty()
+        || fileSize <= 0
+        || chunkCount <= 0
+        || (messageType != MessageType::File && messageType != MessageType::Image)) {
+        return false;
+    }
+
+    QJsonObject state;
+    state["transferId"] = trimmedTransferId;
+    state["filePath"] = QFileInfo(filePath).absoluteFilePath();
+    state["receiverId"] = receiverId;
+    state["messageType"] = static_cast<int>(messageType);
+    state["fileHash"] = trimmedFileHash;
+    state["fileSize"] = QString::number(fileSize);
+    state["chunkSize"] = QString::number(kTransferChunkBytes);
+    state["chunkCount"] = QString::number(chunkCount);
+    state["updatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    QSaveFile file(outgoingTransferStateFilePath());
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    file.write(QJsonDocument(state).toJson(QJsonDocument::Compact));
+    file.write("\n");
+    return file.commit();
+}
+
+bool Client::loadOutgoingTransferState(QJsonObject* state) const {
+    if (state) *state = QJsonObject();
+
+    QFile file(outgoingTransferStateFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) {
+        return false;
+    }
+
+    const QJsonObject obj = doc.object();
+    const MessageType messageType = static_cast<MessageType>(obj["messageType"].toInt(-1));
+    if (obj["transferId"].toString().trimmed().isEmpty()
+        || obj["filePath"].toString().trimmed().isEmpty()
+        || obj["fileHash"].toString().trimmed().isEmpty()
+        || obj["fileSize"].toVariant().toLongLong() <= 0
+        || obj["chunkSize"].toVariant().toLongLong() != kTransferChunkBytes
+        || obj["chunkCount"].toVariant().toLongLong() <= 0
+        || (messageType != MessageType::File && messageType != MessageType::Image)) {
+        return false;
+    }
+
+    if (state) *state = obj;
+    return true;
+}
+
+bool Client::clearOutgoingTransferState() {
+    const QString path = outgoingTransferStateFilePath();
+    if (!QFile::exists(path)) {
+        return true;
+    }
+    return QFile::remove(path);
+}
+
 void Client::cancelCurrentOutgoingTransfer() {
     if (m_cancelOutgoingTransfer) return;
     m_cancelOutgoingTransfer = true;
@@ -462,6 +549,7 @@ void Client::cancelCurrentOutgoingTransfer() {
         obj["fileName"] = m_currentOutgoingFileName;
         sendJson(obj);
     }
+    clearOutgoingTransferState();
     emit outgoingTransferCancelRequested();
 }
 
@@ -557,12 +645,26 @@ bool Client::sendFilePayload(const QString& filePath,
     m_currentOutgoingTransferId = transferId;
     m_currentOutgoingReceiverId = receiverId;
     m_currentOutgoingFileName = fileInfo.fileName();
+    if (!saveOutgoingTransferState(transferId,
+                                   fileInfo.absoluteFilePath(),
+                                   receiverId,
+                                   messageType,
+                                   fileHash,
+                                   fileInfo.size(),
+                                   chunkCount)) {
+        file.close();
+        return false;
+    }
     qint64 sentBytes = resumeMode ? resumeConfirmedBytes : 0;
     qint64 chunkIndex = resumeMode ? resolvedResumeNextChunkIndex : 0;
     emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
     if (chunkIndex == chunkCount) {
         file.close();
-        return sentBytes == fileInfo.size();
+        const bool completed = sentBytes == fileInfo.size();
+        if (completed) {
+            clearOutgoingTransferState();
+        }
+        return completed;
     }
     const qint64 startOffset = chunkIndex * kTransferChunkBytes;
     if (startOffset > fileInfo.size() || !file.seek(startOffset)) {
@@ -699,7 +801,11 @@ bool Client::sendFilePayload(const QString& filePath,
         emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
     }
     file.close();
-    return sentBytes == fileInfo.size() && chunkIndex == chunkCount;
+    const bool completed = sentBytes == fileInfo.size() && chunkIndex == chunkCount;
+    if (completed) {
+        clearOutgoingTransferState();
+    }
+    return completed;
 }
 
 void Client::onReadyRead() {

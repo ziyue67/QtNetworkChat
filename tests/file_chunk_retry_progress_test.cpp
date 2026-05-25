@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -439,6 +440,37 @@ int main(int argc, char** argv) {
     ok = expect(server.resumedAcknowledgedBytes() == resumeFileSize,
                 "resumed send should finish with the server-reported file size") && ok;
     const qint64 resumeChunkCount = (resumeFileSize + kClientChunkBytes - 1) / kClientChunkBytes;
+    ok = expect(sender.clearOutgoingTransferState(), "sender should clear old outgoing transfer state") && ok;
+    ok = expect(sender.saveOutgoingTransferState("persist-transfer",
+                                                 resumeFilePath,
+                                                 "960002",
+                                                 MessageType::Image,
+                                                 resumeFileHash,
+                                                 resumeFileSize,
+                                                 resumeChunkCount),
+                "sender should persist outgoing transfer resume metadata") && ok;
+    QJsonObject persistedState;
+    ok = expect(sender.loadOutgoingTransferState(&persistedState),
+                "sender should load outgoing transfer resume metadata") && ok;
+    ok = expect(persistedState["transferId"].toString() == "persist-transfer",
+                "persisted state should include the transfer id") && ok;
+    ok = expect(persistedState["filePath"].toString() == QFileInfo(resumeFilePath).absoluteFilePath(),
+                "persisted state should include the absolute file path") && ok;
+    ok = expect(persistedState["receiverId"].toString() == "960002",
+                "persisted state should include the receiver id") && ok;
+    ok = expect(persistedState["messageType"].toInt() == static_cast<int>(MessageType::Image),
+                "persisted state should include the message type") && ok;
+    ok = expect(persistedState["fileHash"].toString() == resumeFileHash,
+                "persisted state should include the file hash") && ok;
+    ok = expect(persistedState["fileSize"].toVariant().toLongLong() == resumeFileSize,
+                "persisted state should include the file size") && ok;
+    ok = expect(persistedState["chunkSize"].toVariant().toLongLong() == kClientChunkBytes,
+                "persisted state should include the chunk size") && ok;
+    ok = expect(persistedState["chunkCount"].toVariant().toLongLong() == resumeChunkCount,
+                "persisted state should include the chunk count") && ok;
+    ok = expect(sender.clearOutgoingTransferState(), "sender should remove outgoing transfer state") && ok;
+    ok = expect(!sender.loadOutgoingTransferState(nullptr),
+                "cleared outgoing transfer state should not be loadable") && ok;
     ok = expect(sender.resumeFileTransfer(resumeFilePath,
                                           "already-complete-transfer",
                                           resumeFileSize,
