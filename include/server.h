@@ -57,6 +57,7 @@ private:
     void cleanupExpiredFileTransfers();
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
+    void publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
@@ -110,6 +111,7 @@ private:
     QTimer* m_offlineAttachmentCleanupTimer;
     quint16 m_serverPort;
     bool m_tlsEnabled;
+    QString m_instanceId;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
     QSet<QString> m_usedNames;

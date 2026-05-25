@@ -4,9 +4,14 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QHostAddress>
 #include <QStandardPaths>
 #include <QTcpServer>
+#include <QThread>
+
+#include <functional>
 
 namespace {
 bool expect(bool condition, const char* message) {
@@ -15,6 +20,18 @@ bool expect(bool condition, const char* message) {
         return false;
     }
     return true;
+}
+
+bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        if (predicate()) return true;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(10);
+    }
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    return predicate();
 }
 
 quint16 freeLocalPort() {
@@ -69,6 +86,18 @@ int main(int argc, char** argv) {
                 "client should log in through the in-memory fallback when Redis is unreachable") && ok;
     ok = expect(client.isConnected(), "client should remain connected after fallback login") && ok;
     ok = expect(client.currentUserId() == "930001", "client should receive the expected user id") && ok;
+
+    QStringList receivedMessages;
+    QObject::connect(&client, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::Text) {
+            receivedMessages << msg.content;
+        }
+    });
+    const QString fallbackMessage = "Redis fallback broadcast should still work";
+    ok = expect(client.sendMessage(fallbackMessage),
+                "client should send a broadcast message while Redis is unreachable") && ok;
+    ok = expect(waitFor([&] { return receivedMessages.contains(fallbackMessage); }),
+                "client should receive the local broadcast even when Redis publish falls back") && ok;
 
     client.disconnectFromServer();
     server.stop();

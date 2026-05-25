@@ -22,6 +22,7 @@
 #include <QSslKey>
 #include <QEventLoop>
 #include <QTimer>
+#include <QUuid>
 #include <algorithm>
 
 namespace {
@@ -156,6 +157,7 @@ Server::Server(QObject* parent)
     , m_offlineAttachmentCleanupTimer(new QTimer(this))
     , m_serverPort(0)
     , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
+    , m_instanceId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
     m_redisClient->configureFromEnvironment();
     if (m_redisClient->isEnabled()) {
@@ -485,6 +487,7 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
         broadcastMessage(msg);
     }
     saveMessageToSqlite(msg, deliveryState);
+    publishRedisMessageEvent(msg, deliveryState);
 
     emit newMessage(msg);
 }
@@ -1105,6 +1108,24 @@ void Server::refreshRedisPresence(const ChatUser& user) {
 void Server::clearRedisPresence(const QString& userId) {
     if (!m_redisClient || !m_redisClient->isEnabled()) return;
     m_redisClient->clearPresence(userId);
+}
+
+void Server::publishRedisMessageEvent(const Message& msg, const QString& deliveryState) {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return;
+    if (msg.type != MessageType::Text && msg.type != MessageType::Private) return;
+
+    const QJsonDocument messageDoc = QJsonDocument::fromJson(msg.toJson());
+    if (!messageDoc.isObject()) return;
+
+    QJsonObject event;
+    event["eventType"] = "chat_message";
+    event["instanceId"] = m_instanceId;
+    event["deliveryState"] = deliveryState;
+    event["isPrivate"] = msg.isPrivate();
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    event["message"] = messageDoc.object();
+
+    m_redisClient->publish("messages", QJsonDocument(event).toJson(QJsonDocument::Compact));
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {

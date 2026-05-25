@@ -15,6 +15,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - TCP Socket 局域网通信
 - JSON 消息协议
 - 可选 Redis 在线状态服务，为高并发和多服务实例部署提供 presence 与在线列表共享基础
+- 服务端可向 Redis Pub/Sub 发布本实例聊天事件，为跨实例消息路由打基础
 - 群聊广播
 - 服务端保存基础群组、群成员和群公告表
 - 登录后同步服务端公共群公告、群主和成员角色快照
@@ -189,7 +190,7 @@ set QTNETWORKCHAT_REDIS_PASSWORD=your_password
 set QTNETWORKCHAT_REDIS_PREFIX=qtchat
 ```
 
-启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。Redis 不可用时服务端会回退到原有内存在线表，不影响局域网单机服务端运行。
+启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件，为后续跨服务实例转发和去重做准备。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。
 
 ### 客户端连接不上服务器
 
