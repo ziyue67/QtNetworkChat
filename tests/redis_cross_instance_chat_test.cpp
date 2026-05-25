@@ -122,6 +122,10 @@ public slots:
         m_subscribers.clear();
     }
 
+    void setPublishFailure(bool enabled) {
+        m_failPublishes = enabled;
+    }
+
 signals:
     void started(quint16 port);
     void failed(const QString& reason);
@@ -186,6 +190,9 @@ private:
             return response;
         }
         if (command == "PUBLISH" && args.size() >= 3) {
+            if (m_failPublishes) {
+                return "-ERR injected publish failure\r\n";
+            }
             const QByteArray channel = args.at(1);
             const QByteArray payload = args.at(2);
             int delivered = 0;
@@ -254,6 +261,7 @@ private:
     QMap<QByteArray, QByteArray> m_strings;
     QMap<QByteArray, QSet<QByteArray>> m_sets;
     QMap<QByteArray, QSet<QTcpSocket*>> m_subscribers;
+    bool m_failPublishes = false;
 };
 
 int main(int argc, char** argv) {
@@ -385,6 +393,27 @@ int main(int argc, char** argv) {
         return bobFileNames.contains(fileName) && bobFilePayloads.contains(filePayload);
     }), "bob should receive the small file through Redis cross-instance routing") && ok;
 
+    const QString fallbackFileName = "redis-publish-fallback.txt";
+    const QString fallbackFilePath = transferDir.filePath(fallbackFileName);
+    const QByteArray fallbackFilePayload = QByteArrayLiteral("small redis file should fall back offline");
+    QFile fallbackFile(fallbackFilePath);
+    ok = expect(fallbackFile.open(QIODevice::WriteOnly),
+                "fallback transfer file should open for writing") && ok;
+    if (fallbackFile.isOpen()) {
+        ok = expect(fallbackFile.write(fallbackFilePayload) == fallbackFilePayload.size(),
+                    "fallback transfer file should be written") && ok;
+        fallbackFile.close();
+    }
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, true));
+    ok = expect(alice.sendFile(fallbackFilePath, "960002"),
+                "alice should upload a small file even when Redis publish fails") && ok;
+    ok = expect(!waitFor([&] {
+        return bobFileNames.contains(fallbackFileName);
+    }, 500), "bob should not receive the file immediately when Redis publish fails") && ok;
+    QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, false));
+
     bob.disconnectFromServer();
     ok = expect(waitFor([&] { return !bob.isConnected(); }),
                 "bob should disconnect from the second server before replay check") && ok;
@@ -396,6 +425,9 @@ int main(int argc, char** argv) {
                 "bob should reconnect to the first server with the existing account") && ok;
     ok = expect(bob.waitForLoginResult(5000),
                 "bob should log in on the first server for offline replay check") && ok;
+    ok = expect(waitFor([&] {
+        return bobFileNames.contains(fallbackFileName) && bobFilePayloads.contains(fallbackFilePayload);
+    }), "publish failure should fall back to the origin server offline queue") && ok;
     ok = expect(!waitFor([&] {
         return bobPrivateMessages.contains(privateMessage) || bobFileNames.contains(fileName);
     }, 800), "cross-instance private messages and files should not be replayed from the origin server offline queue") && ok;
