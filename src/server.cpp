@@ -22,6 +22,7 @@
 #include <QSslKey>
 #include <QEventLoop>
 #include <QTimer>
+#include <QPointer>
 #include <QUuid>
 #include <algorithm>
 
@@ -466,8 +467,6 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
             sendUserList(clientSocket);
         }
     }
-    sendOfflineMessages(user.id, socket);
-
     emit userJoined(user.id, user.name);
     emit clientConnected(user.id);
 
@@ -476,6 +475,15 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     sysMsg.content = userName + " 加入了聊天室";
     sysMsg.timestamp = QDateTime::currentDateTime();
     broadcastMessage(sysMsg, socket);
+
+    QPointer<QTcpSocket> socketGuard(socket);
+    const QString loggedInUserId = user.id;
+    QTimer::singleShot(0, this, [this, socketGuard, loggedInUserId]() {
+        if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState) return;
+        const ChatUser* currentUser = findUserBySocket(socketGuard);
+        if (!currentUser || currentUser->id != loggedInUserId) return;
+        sendOfflineMessages(loggedInUserId, socketGuard);
+    });
 
     qDebug() << "User logged in:" << user.name << "id:" << user.id;
 }

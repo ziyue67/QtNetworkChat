@@ -70,6 +70,19 @@ bool writeLargeFile(const QString& filePath) {
     return file.write(payload) == payload.size();
 }
 
+bool writeSmallFile(const QString& filePath, QByteArray* payloadOut) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) return false;
+
+    QByteArray payload("offline replay cleanup payload\n", 31);
+    for (int i = 0; i < 128; ++i) {
+        payload.append(static_cast<char>('a' + (i % 26)));
+    }
+    if (file.write(payload) != payload.size()) return false;
+    if (payloadOut) *payloadOut = payload;
+    return true;
+}
+
 int offlineAttachmentFileCount(const QString& appDataDir) {
     const QString root = appDataDir + "/offline_files";
     if (!QDir(root).exists()) return 0;
@@ -173,6 +186,55 @@ int main(int argc, char** argv) {
                 "quota-rejected offline file should not be replayed after receiver login") && ok;
 
     replayReceiver.disconnectFromServer();
+
+    const QString cleanupReceiverId = "970003";
+    Client cleanupReceiverSeed;
+    bool cleanupReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == cleanupReceiverId) cleanupReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(cleanupReceiverSeed, cleanupReceiverId, "CleanupReceiver", port, true),
+                "cleanup receiver should register before going offline") && ok;
+    cleanupReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return cleanupReceiverDisconnected; }),
+                "server should observe cleanup receiver disconnect before offline replay send") && ok;
+
+    QByteArray expectedPayload;
+    const QString replayFilePath = tempDir.filePath("offline-replay-cleanup.bin");
+    ok = expect(writeSmallFile(replayFilePath, &expectedPayload),
+                "small offline replay test file should be created") && ok;
+    if (!ok) return 1;
+
+    ok = expect(sender.sendFile(replayFilePath, cleanupReceiverId),
+                "sender should finish uploading the replay cleanup file to the server") && ok;
+    ok = expect(waitFor([&] { return offlineAttachmentFileCount(appDataDir) == 1; }),
+                "accepted offline file should be saved as one attachment") && ok;
+    ok = expect(offlineQueueCount(appDataDir, cleanupReceiverId) == 1,
+                "accepted offline file should be queued for replay") && ok;
+
+    Client cleanupReceiver;
+    QVector<Message> cleanupReplayMessages;
+    QObject::connect(&cleanupReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        cleanupReplayMessages.append(msg);
+    });
+    ok = expect(loginClient(cleanupReceiver, cleanupReceiverId, "CleanupReceiver", port, false),
+                "cleanup receiver should log in again for offline attachment replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : cleanupReplayMessages) {
+            if (msg.type == MessageType::File
+                && msg.fileName == "offline-replay-cleanup.bin"
+                && msg.fileData == expectedPayload) {
+                return true;
+            }
+        }
+        return false;
+    }, 7000), "offline attachment should be replayed with its original payload") && ok;
+    ok = expect(waitFor([&] {
+        return offlineAttachmentFileCount(appDataDir) == 0
+            && offlineQueueCount(appDataDir, cleanupReceiverId) == 0;
+    }, 3000), "delivered offline attachment should be removed from disk and queue") && ok;
+
+    cleanupReceiver.disconnectFromServer();
     sender.disconnectFromServer();
     server.stop();
     if (!appDataDir.isEmpty()) {
