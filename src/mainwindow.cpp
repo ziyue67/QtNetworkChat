@@ -365,15 +365,18 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                                           const QString& targetName,
                                           const QString& kind,
                                           bool asImage,
-                                          QString* transferSummary) {
+                                          QString* transferSummary,
+                                          bool* canceled) {
     if (!m_client) return false;
 
     const QFileInfo info(filePath);
     constexpr int maxAttempts = 3;
     if (transferSummary) transferSummary->clear();
+    if (canceled) *canceled = false;
 
     for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
         QString preparedSummary;
+        bool cancelRequested = false;
         QProgressDialog progress(this);
         progress.setWindowTitle(QString("发送%1").arg(kind));
         progress.setLabelText(QString("正在分片读取%1...\n%2 -> %3").arg(kind, info.fileName(), targetName));
@@ -381,10 +384,23 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
         progress.setValue(0);
         progress.setMinimumDuration(0);
         progress.setAutoClose(false);
-        progress.setCancelButton(nullptr);
+        progress.setAutoReset(false);
+        progress.setCancelButtonText("取消发送");
         progress.show();
         QApplication::processEvents();
 
+        QMetaObject::Connection cancelConnection = connect(
+            &progress,
+            &QProgressDialog::canceled,
+            this,
+            [this, &progress, &info, &kind, &cancelRequested, canceled]() {
+                cancelRequested = true;
+                if (canceled) *canceled = true;
+                progress.setLabelText(QString("正在取消%1发送...\n%2").arg(kind, info.fileName()));
+                if (m_client) m_client->cancelCurrentOutgoingTransfer();
+                ui->statusbar->showMessage(QString("正在取消发送%1：%2").arg(kind, info.fileName()), 1600);
+                QApplication::processEvents();
+            });
         QMetaObject::Connection progressConnection = connect(
             m_client,
             &Client::fileTransferProgress,
@@ -425,9 +441,16 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
 
         QObject::disconnect(progressConnection);
         QObject::disconnect(preparedConnection);
+        QObject::disconnect(cancelConnection);
         progress.setValue(ok ? 100 : progress.value());
         QApplication::processEvents();
         progress.close();
+
+        if (cancelRequested && !ok) {
+            if (transferSummary) *transferSummary = "已取消";
+            if (canceled) *canceled = true;
+            return false;
+        }
 
         if (ok) {
             if (transferSummary) *transferSummary = preparedSummary;
@@ -2126,7 +2149,8 @@ void MainWindow::onSendFile() {
     }
 
     QString transferSummary;
-    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary);
+    bool transferCanceled = false;
+    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary, &transferCanceled);
     const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
         appendSystemMessage(QString("已发送文件: %1 · %2 · 到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
@@ -2145,6 +2169,11 @@ void MainWindow::onSendFile() {
         ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 · %3%4").arg(targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSuffix));
         ui->statusbar->showMessage(QString("已发送文件到 %1 · %2%3").arg(targetName, fileSize, transferSuffix), 2600);
         ui->chatListView->scrollToBottom();
+    } else if (transferCanceled) {
+        appendSystemMessage(QString("已取消发送文件: %1 · 到 %2").arg(info.fileName(), targetName));
+        ui->chatHintLabel->setText(QString("已取消发送文件 · %1 · %2").arg(info.fileName(), targetName));
+        ui->statusbar->showMessage(QString("已取消发送文件：%1").arg(info.fileName()), 2200);
+        refreshComposerState();
     } else {
         ui->chatHintLabel->setText(QString("文件发送失败 · %1 · %2").arg(info.fileName(), targetName));
         ui->statusbar->showMessage(QString("文件发送失败：%1").arg(info.fileName()), 3000);
@@ -2235,7 +2264,8 @@ void MainWindow::onSendImage() {
     }
 
     QString transferSummary;
-    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo, &transferSummary);
+    bool transferCanceled = false;
+    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo, &transferSummary, &transferCanceled);
     const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
         appendSystemMessage(QString("已发送%1: %2 · %3 · 到 %4%5").arg(mediaType, info.fileName(), fileSize, targetName, transferSuffix));
@@ -2267,6 +2297,11 @@ void MainWindow::onSendImage() {
         ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 · %4%5").arg(mediaType, targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSuffix));
         ui->statusbar->showMessage(QString("已发送%1到 %2 · %3%4").arg(mediaType, targetName, fileSize, transferSuffix), 2600);
         ui->chatListView->scrollToBottom();
+    } else if (transferCanceled) {
+        appendSystemMessage(QString("已取消发送%1: %2 · 到 %3").arg(mediaType, info.fileName(), targetName));
+        ui->chatHintLabel->setText(QString("已取消发送%1 · %2 · %3").arg(mediaType, info.fileName(), targetName));
+        ui->statusbar->showMessage(QString("已取消发送%1：%2").arg(mediaType, info.fileName()), 2200);
+        refreshComposerState();
     } else {
         ui->chatHintLabel->setText(QString("%1发送失败 · %2 · %3").arg(mediaType, info.fileName(), targetName));
         ui->statusbar->showMessage(QString("%1发送失败：%2").arg(mediaType, info.fileName()), 3000);

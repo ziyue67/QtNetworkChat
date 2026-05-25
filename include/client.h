@@ -32,6 +32,7 @@ public:
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
     bool sendImage(const QString& filePath, const QString& receiverId = QString());
+    void cancelCurrentOutgoingTransfer();
     void setUserInfo(const QString& userId, const QString& userName);
     bool waitForLoginResult(int timeoutMs = 5000);
 
@@ -63,6 +64,7 @@ signals:
     void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
     void connectionError(const QString& error);
+    void outgoingTransferCancelRequested();
 
 private slots:
     void onReadyRead();
@@ -112,6 +114,7 @@ private:
     quint16 m_reconnectAttempts;
     QMap<QString, PendingIncomingFileTransfer> m_incomingFileTransfers;
     bool m_hasServerGroupSnapshot;
+    bool m_cancelOutgoingTransfer;
     QJsonArray m_serverGroups;
 };
 

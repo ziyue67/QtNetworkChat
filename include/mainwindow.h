@@ -82,7 +82,7 @@ private:
     QString clientDbPath() const;
     bool saveProfileToSqlite() const;
     QString getHistoryFilePath(const QString& peerId) const;
-    bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage, QString* transferSummary = nullptr);
+    bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage, QString* transferSummary = nullptr, bool* canceled = nullptr);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
     void refreshGroupMemberPanel();

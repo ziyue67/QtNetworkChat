@@ -50,6 +50,7 @@ Client::Client(QObject* parent)
     , m_loginWasRegister(false)
     , m_reconnectAttempts(0)
     , m_hasServerGroupSnapshot(false)
+    , m_cancelOutgoingTransfer(false)
 {
     connect(m_socket, &QTcpSocket::readyRead, this, &Client::onReadyRead);
     if (QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket)) {
@@ -118,6 +119,7 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
     m_loginOk = false;
     m_loginWasRegister = false;
     m_hasServerGroupSnapshot = false;
+    m_cancelOutgoingTransfer = false;
     m_serverGroups = QJsonArray();
     m_loginError.clear();
 }
@@ -247,8 +249,15 @@ bool Client::sendImage(const QString& filePath, const QString& receiverId) {
     return sendFilePayload(filePath, receiverId, MessageType::Image, "发送了图片: ");
 }
 
+void Client::cancelCurrentOutgoingTransfer() {
+    if (m_cancelOutgoingTransfer) return;
+    m_cancelOutgoingTransfer = true;
+    emit outgoingTransferCancelRequested();
+}
+
 bool Client::sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix) {
     if (!isConnected()) return false;
+    m_cancelOutgoingTransfer = false;
 
     QFileInfo fileInfo(filePath);
     if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() <= 0 || fileInfo.size() > kMaxOutgoingPayloadBytes) {
@@ -263,6 +272,10 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
     emit fileTransferProgress(fileInfo.fileName(), 0, fileInfo.size());
 
     while (!file.atEnd()) {
+        if (m_cancelOutgoingTransfer) {
+            file.close();
+            return false;
+        }
         const QByteArray chunk = file.read(kTransferChunkBytes);
         if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
             file.close();
@@ -271,12 +284,17 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
         hasher.addData(chunk);
         preparedBytes += chunk.size();
         emit fileTransferProgress(fileInfo.fileName(), preparedBytes, fileInfo.size());
+        if (m_cancelOutgoingTransfer) {
+            file.close();
+            return false;
+        }
     }
     file.close();
 
     const qint64 chunkCount = (fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes;
     const QString fileHash = QString::fromLatin1(hasher.result().toHex());
     emit fileTransferPrepared(fileInfo.fileName(), fileInfo.size(), kTransferChunkBytes, chunkCount, fileHash);
+    if (m_cancelOutgoingTransfer) return false;
 
     if (!file.open(QIODevice::ReadOnly)) return false;
     const QString transferId = QString("%1_%2_%3")
@@ -288,6 +306,10 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
     emit fileTransferProgress(fileInfo.fileName(), 0, fileInfo.size());
 
     while (!file.atEnd()) {
+        if (m_cancelOutgoingTransfer) {
+            file.close();
+            return false;
+        }
         const QByteArray chunk = file.read(kTransferChunkBytes);
         if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
             file.close();
@@ -313,6 +335,10 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
         QString ackRejectReason;
         bool acknowledged = false;
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
+            if (m_cancelOutgoingTransfer) {
+                file.close();
+                return false;
+            }
             if (!sendJson(obj)) {
                 file.close();
                 return false;
@@ -320,6 +346,10 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
             if (waitForFileChunkAck(transferId, chunkIndex, &ackRejectReason)) {
                 acknowledged = true;
                 break;
+            }
+            if (m_cancelOutgoingTransfer) {
+                file.close();
+                return false;
             }
             if (!ackRejectReason.isEmpty()) {
                 emit connectionError(QString("文件分片发送被拒绝：%1").arg(ackRejectReason));
@@ -335,6 +365,10 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
         sentBytes += chunk.size();
         ++chunkIndex;
         emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
+        if (m_cancelOutgoingTransfer) {
+            file.close();
+            return false;
+        }
     }
     file.close();
     return sentBytes == fileInfo.size() && chunkIndex == chunkCount;
@@ -671,6 +705,7 @@ bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, Q
             loop.quit();
         });
     QMetaObject::Connection disconnectedConnection = connect(this, &Client::disconnected, &loop, &QEventLoop::quit);
+    QMetaObject::Connection cancelConnection = connect(this, &Client::outgoingTransferCancelRequested, &loop, &QEventLoop::quit);
     connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
 
     timer.start(kChunkAckTimeoutMs);
@@ -678,6 +713,7 @@ bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, Q
 
     QObject::disconnect(ackConnection);
     QObject::disconnect(disconnectedConnection);
+    QObject::disconnect(cancelConnection);
 
     if (matched && !accepted && rejectReason) {
         *rejectReason = reason.isEmpty() ? "服务端拒绝分片" : reason;
