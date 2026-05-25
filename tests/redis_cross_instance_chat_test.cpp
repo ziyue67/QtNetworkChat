@@ -333,6 +333,8 @@ int main(int argc, char** argv) {
     QStringList bobPrivateMessages;
     QStringList bobFileNames;
     QList<QByteArray> bobFilePayloads;
+    QStringList bobImageNames;
+    QList<QByteArray> bobImagePayloads;
     QObject::connect(&alice, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             aliceGroupMessages << msg.content;
@@ -346,6 +348,9 @@ int main(int argc, char** argv) {
         } else if (msg.type == MessageType::File) {
             bobFileNames << msg.fileName;
             bobFilePayloads << msg.fileData;
+        } else if (msg.type == MessageType::Image) {
+            bobImageNames << msg.fileName;
+            bobImagePayloads << msg.fileData;
         }
     });
 
@@ -392,6 +397,27 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return bobFileNames.contains(fileName) && bobFilePayloads.contains(filePayload);
     }), "bob should receive the small file through Redis cross-instance routing") && ok;
+
+    const QString imageName = "redis-cross-instance-image.png";
+    const QString imagePath = transferDir.filePath(imageName);
+    const QByteArray imagePayload = QByteArray::fromHex(
+        "89504E470D0A1A0A"
+        "0000000D49484452000000010000000108060000001F15C489"
+        "0000000D49444154789C6360606060000000050001A5F64540"
+        "0000000049454E44AE426082");
+    QFile imageFile(imagePath);
+    ok = expect(imageFile.open(QIODevice::WriteOnly),
+                "temporary image file should open for writing") && ok;
+    if (imageFile.isOpen()) {
+        ok = expect(imageFile.write(imagePayload) == imagePayload.size(),
+                    "temporary image file should be written") && ok;
+        imageFile.close();
+    }
+    ok = expect(alice.sendImage(imagePath, "960002"),
+                "alice should send a small image to a user on the second server") && ok;
+    ok = expect(waitFor([&] {
+        return bobImageNames.contains(imageName) && bobImagePayloads.contains(imagePayload);
+    }), "bob should receive the small image through Redis cross-instance routing") && ok;
 
     const QString fallbackFileName = "redis-publish-fallback.txt";
     const QString fallbackFilePath = transferDir.filePath(fallbackFileName);
