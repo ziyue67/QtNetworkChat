@@ -509,6 +509,7 @@ bool Client::sendFilePayload(const QString& filePath,
         return false;
     }
 
+    bool resumeAfterAckTimeoutUsed = false;
     while (!file.atEnd()) {
         if (m_cancelOutgoingTransfer) {
             file.close();
@@ -539,6 +540,7 @@ bool Client::sendFilePayload(const QString& filePath,
         QString ackRejectReason;
         qint64 ackReceivedBytes = 0;
         bool acknowledged = false;
+        bool advancedByResumeState = false;
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
             if (m_cancelOutgoingTransfer) {
                 file.close();
@@ -561,6 +563,53 @@ bool Client::sendFilePayload(const QString& filePath,
                 file.close();
                 return false;
             }
+            if (!resumeAfterAckTimeoutUsed) {
+                resumeAfterAckTimeoutUsed = true;
+                qint64 resumeConfirmedBytes = 0;
+                qint64 resumeNextChunkIndex = 0;
+                qint64 resumeFileSize = 0;
+                qint64 resumeChunkSize = 0;
+                qint64 resumeChunkCount = 0;
+                QString resumeFileHash;
+                QString resumeRejectReason;
+                if (queryFileTransferResumeState(transferId,
+                                                 &resumeConfirmedBytes,
+                                                 &resumeNextChunkIndex,
+                                                 nullptr,
+                                                 &resumeRejectReason,
+                                                 kChunkAckTimeoutMs,
+                                                 &resumeFileSize,
+                                                 &resumeChunkSize,
+                                                 &resumeChunkCount,
+                                                 &resumeFileHash)) {
+                    const qint64 minimumConfirmedBytes = qMin(fileInfo.size(), resumeNextChunkIndex * kTransferChunkBytes);
+                    if (resumeFileSize == fileInfo.size()
+                        && resumeChunkSize == kTransferChunkBytes
+                        && resumeChunkCount == chunkCount
+                        && resumeFileHash.compare(fileHash, Qt::CaseInsensitive) == 0
+                        && resumeNextChunkIndex > chunkIndex
+                        && resumeNextChunkIndex <= chunkCount
+                        && resumeConfirmedBytes >= minimumConfirmedBytes
+                        && resumeConfirmedBytes <= fileInfo.size()) {
+                        const qint64 resumeOffset = resumeNextChunkIndex * kTransferChunkBytes;
+                        if (resumeOffset <= fileInfo.size() && file.seek(resumeOffset)) {
+                            sentBytes = qBound<qint64>(sentBytes, resumeConfirmedBytes, fileInfo.size());
+                            chunkIndex = resumeNextChunkIndex;
+                            emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
+                            advancedByResumeState = true;
+                            acknowledged = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (advancedByResumeState) {
+            if (chunkIndex == chunkCount) {
+                file.close();
+                return sentBytes == fileInfo.size();
+            }
+            continue;
         }
         if (!acknowledged) {
             emit connectionError(QString("文件分片发送超时：%1 第 %2/%3 片").arg(fileInfo.fileName()).arg(chunkIndex + 1).arg(chunkCount));
