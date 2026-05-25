@@ -66,6 +66,35 @@ bool collectFileTransferMetadata(const QString& filePath,
     if (fileHash) *fileHash = QString::fromLatin1(hasher.result().toHex());
     return true;
 }
+
+bool isResumeProgressConsistent(qint64 confirmedBytes,
+                                qint64 nextChunkIndex,
+                                const QVector<qint64>& receivedChunks,
+                                qint64 fileSize,
+                                qint64 chunkCount) {
+    if (confirmedBytes < 0
+        || confirmedBytes > fileSize
+        || nextChunkIndex < 0
+        || nextChunkIndex > chunkCount) {
+        return false;
+    }
+
+    QSet<qint64> received;
+    for (qint64 index : receivedChunks) {
+        if (index < 0 || index >= chunkCount) {
+            return false;
+        }
+        received.insert(index);
+    }
+    for (qint64 index = 0; index < nextChunkIndex; ++index) {
+        if (!received.contains(index)) {
+            return false;
+        }
+    }
+
+    const qint64 minimumConfirmedBytes = qMin(fileSize, nextChunkIndex * kTransferChunkBytes);
+    return confirmedBytes >= minimumConfirmedBytes;
+}
 }
 
 Client::Client(QObject* parent)
@@ -346,7 +375,8 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
         || remoteChunkSize != kTransferChunkBytes
         || remoteChunkCount != localChunkCount
         || trimmedRemoteHash.isEmpty()
-        || trimmedRemoteHash.compare(localFileHash, Qt::CaseInsensitive) != 0) {
+        || trimmedRemoteHash.compare(localFileHash, Qt::CaseInsensitive) != 0
+        || !isResumeProgressConsistent(confirmedBytes, nextChunkIndex, receivedChunks, localFileSize, localChunkCount)) {
         if (rejectReason) *rejectReason = "续传元数据与本地文件不一致";
         return false;
     }
@@ -570,27 +600,29 @@ bool Client::sendFilePayload(const QString& filePath,
                 qint64 resumeFileSize = 0;
                 qint64 resumeChunkSize = 0;
                 qint64 resumeChunkCount = 0;
+                QVector<qint64> resumeReceivedChunks;
                 QString resumeFileHash;
                 QString resumeRejectReason;
                 if (queryFileTransferResumeState(transferId,
                                                  &resumeConfirmedBytes,
                                                  &resumeNextChunkIndex,
-                                                 nullptr,
+                                                 &resumeReceivedChunks,
                                                  &resumeRejectReason,
                                                  kChunkAckTimeoutMs,
                                                  &resumeFileSize,
                                                  &resumeChunkSize,
                                                  &resumeChunkCount,
                                                  &resumeFileHash)) {
-                    const qint64 minimumConfirmedBytes = qMin(fileInfo.size(), resumeNextChunkIndex * kTransferChunkBytes);
                     if (resumeFileSize == fileInfo.size()
                         && resumeChunkSize == kTransferChunkBytes
                         && resumeChunkCount == chunkCount
                         && resumeFileHash.compare(fileHash, Qt::CaseInsensitive) == 0
                         && resumeNextChunkIndex > chunkIndex
-                        && resumeNextChunkIndex <= chunkCount
-                        && resumeConfirmedBytes >= minimumConfirmedBytes
-                        && resumeConfirmedBytes <= fileInfo.size()) {
+                        && isResumeProgressConsistent(resumeConfirmedBytes,
+                                                      resumeNextChunkIndex,
+                                                      resumeReceivedChunks,
+                                                      fileInfo.size(),
+                                                      chunkCount)) {
                         const qint64 resumeOffset = resumeNextChunkIndex * kTransferChunkBytes;
                         if (resumeOffset <= fileInfo.size() && file.seek(resumeOffset)) {
                             sentBytes = qBound<qint64>(sentBytes, resumeConfirmedBytes, fileInfo.size());

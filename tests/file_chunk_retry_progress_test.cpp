@@ -24,7 +24,9 @@ constexpr qint64 kClientChunkBytes = 256LL * 1024;
 const char kResumeTransferId[] = "resume-send-transfer";
 const char kQueryAndResumeTransferId[] = "query-and-resume-transfer";
 const char kMismatchResumeTransferId[] = "mismatch-resume-transfer";
+const char kGapResumeTransferId[] = "gap-resume-transfer";
 const char kAckTimeoutAutoResumeFileName[] = "ack-timeout-auto-resume.bin";
+const char kAckTimeoutGapResumeFileName[] = "ack-timeout-gap-resume.bin";
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
@@ -118,6 +120,8 @@ public:
     qint64 resumedAcknowledgedBytes() const { return m_resumedAcknowledgedBytes; }
     QVector<qint64> autoResumeChunkIndexes() const { return m_autoResumeChunkIndexes; }
     int autoResumeQueries() const { return m_autoResumeQueries; }
+    QVector<qint64> gapAutoResumeChunkIndexes() const { return m_gapAutoResumeChunkIndexes; }
+    int gapAutoResumeQueries() const { return m_gapAutoResumeQueries; }
     void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
         m_resumeFileSize = fileSize;
         m_resumeFileHash = fileHash;
@@ -156,6 +160,25 @@ private:
             receivedChunks.append(QString::number(1));
 
             const QString transferId = message["transferId"].toString();
+            if (!m_gapAutoResumeTransferId.isEmpty() && transferId == m_gapAutoResumeTransferId) {
+                ++m_gapAutoResumeQueries;
+
+                QJsonObject response;
+                response["type"] = "file_transfer_resume_state";
+                response["transferId"] = transferId;
+                response["canResume"] = true;
+                response["confirmedBytes"] = QString::number(kClientChunkBytes);
+                response["nextChunkIndex"] = QString::number(1);
+                response["fileSize"] = QString::number(m_gapAutoResumeFileSize);
+                response["chunkSize"] = QString::number(m_gapAutoResumeChunkSize);
+                response["chunkCount"] = QString::number(m_gapAutoResumeChunkCount);
+                response["fileHash"] = m_gapAutoResumeFileHash;
+                response["receivedChunks"] = QJsonArray();
+                response["reason"] = "";
+                writeJson(socket, response);
+                return;
+            }
+
             if (!m_autoResumeTransferId.isEmpty() && transferId == m_autoResumeTransferId) {
                 ++m_autoResumeQueries;
                 QJsonArray receivedChunks;
@@ -178,7 +201,13 @@ private:
             }
 
             if (transferId == QString::fromLatin1(kQueryAndResumeTransferId)
-                || transferId == QString::fromLatin1(kMismatchResumeTransferId)) {
+                || transferId == QString::fromLatin1(kMismatchResumeTransferId)
+                || transferId == QString::fromLatin1(kGapResumeTransferId)) {
+                QJsonArray resumeChunks;
+                resumeChunks.append(QString::number(0));
+                if (transferId != QString::fromLatin1(kGapResumeTransferId)) {
+                    resumeChunks.append(QString::number(1));
+                }
                 QJsonObject response;
                 response["type"] = "file_transfer_resume_state";
                 response["transferId"] = transferId;
@@ -191,7 +220,7 @@ private:
                 response["fileHash"] = transferId == QString::fromLatin1(kMismatchResumeTransferId)
                     ? QString::fromLatin1("not-the-same-hash")
                     : m_resumeFileHash;
-                response["receivedChunks"] = receivedChunks;
+                response["receivedChunks"] = resumeChunks;
                 response["reason"] = "";
                 writeJson(socket, response);
                 return;
@@ -217,6 +246,30 @@ private:
         const qint64 fileSize = message["fileSize"].toVariant().toLongLong();
         const QByteArray chunkData = QByteArray::fromBase64(message["fileData"].toString().toLatin1());
         const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+
+        if (message["fileName"].toString() == QString::fromLatin1(kAckTimeoutGapResumeFileName)) {
+            if (m_gapAutoResumeTransferId.isEmpty() && chunkIndex == 0) {
+                m_gapAutoResumeTransferId = transferId;
+                m_gapAutoResumeFileSize = fileSize;
+                m_gapAutoResumeChunkSize = chunkSize;
+                m_gapAutoResumeChunkCount = message["chunkCount"].toVariant().toLongLong();
+                m_gapAutoResumeFileHash = message["fileHash"].toString();
+                return;
+            }
+
+            if (transferId == m_gapAutoResumeTransferId) {
+                m_gapAutoResumeChunkIndexes.append(chunkIndex);
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = transferId;
+                ack["chunkIndex"] = message["chunkIndex"].toString();
+                ack["accepted"] = true;
+                ack["reason"] = "";
+                ack["receivedBytes"] = QString::number(receivedBytes);
+                writeJson(socket, ack);
+                return;
+            }
+        }
 
         if (message["fileName"].toString() == QString::fromLatin1(kAckTimeoutAutoResumeFileName)) {
             if (m_autoResumeTransferId.isEmpty() && chunkIndex == 0) {
@@ -289,6 +342,13 @@ private:
     qint64 m_autoResumeChunkSize = 0;
     qint64 m_autoResumeChunkCount = 0;
     QString m_autoResumeFileHash;
+    QString m_gapAutoResumeTransferId;
+    QVector<qint64> m_gapAutoResumeChunkIndexes;
+    int m_gapAutoResumeQueries = 0;
+    qint64 m_gapAutoResumeFileSize = 0;
+    qint64 m_gapAutoResumeChunkSize = 0;
+    qint64 m_gapAutoResumeChunkCount = 0;
+    QString m_gapAutoResumeFileHash;
 };
 }
 
@@ -404,6 +464,17 @@ int main(int argc, char** argv) {
     ok = expect(!mismatchReason.isEmpty(), "metadata mismatch should expose a reject reason") && ok;
     ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
                 "metadata mismatch should not send any resumed chunks") && ok;
+    QString gapReason;
+    ok = expect(!sender.queryAndResumeFileTransfer(resumeFilePath,
+                                                   QString::fromLatin1(kGapResumeTransferId),
+                                                   QString(),
+                                                   MessageType::File,
+                                                   &gapReason,
+                                                   5000),
+                "sender should reject query-and-resume when received chunks have a gap") && ok;
+    ok = expect(!gapReason.isEmpty(), "received chunk gap should expose a reject reason") && ok;
+    ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
+                "received chunk gap should not send any resumed chunks") && ok;
 
     const QString autoResumePath = tempDir.filePath(QString::fromLatin1(kAckTimeoutAutoResumeFileName));
     qint64 autoResumeFileSize = 0;
@@ -416,6 +487,21 @@ int main(int argc, char** argv) {
                 "sender should query resume state once after the first ack timeout") && ok;
     ok = expect(autoResumeChunks.size() == 2 && autoResumeChunks[0] == 1 && autoResumeChunks[1] == 2,
                 "sender should continue with the remaining chunks after resume state advances") && ok;
+
+    const QString gapAutoResumePath = tempDir.filePath(QString::fromLatin1(kAckTimeoutGapResumeFileName));
+    qint64 gapAutoResumeFileSize = 0;
+    ok = expect(writeResumeFile(gapAutoResumePath, &gapAutoResumeFileSize),
+                "gap auto resume test file should be created") && ok;
+    ok = expect(sender.sendFile(gapAutoResumePath),
+                "sender should ignore inconsistent auto resume state and fall back to retrying chunks") && ok;
+    const QVector<qint64> gapAutoResumeChunks = server.gapAutoResumeChunkIndexes();
+    ok = expect(server.gapAutoResumeQueries() == 1,
+                "sender should query the inconsistent auto resume state once") && ok;
+    ok = expect(gapAutoResumeChunks.size() == 3
+                    && gapAutoResumeChunks[0] == 0
+                    && gapAutoResumeChunks[1] == 1
+                    && gapAutoResumeChunks[2] == 2,
+                "sender should retry from the timed-out chunk when auto resume state is inconsistent") && ok;
 
     sender.disconnectFromServer();
     if (!appDataDir.isEmpty()) {
