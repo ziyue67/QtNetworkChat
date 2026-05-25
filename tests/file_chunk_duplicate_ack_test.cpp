@@ -89,7 +89,9 @@ bool waitForMessage(QTcpSocket& socket,
 
 QJsonObject makeChunk(qint64 chunkIndex,
                       const QString& transferId = QStringLiteral("duplicate-transfer"),
-                      const QString& fileHash = QString()) {
+                      const QString& fileHash = QString(),
+                      const QString& fileName = QStringLiteral("duplicate.bin"),
+                      const QString& receiverId = QString()) {
     const QByteArray chunkData = chunkIndex == 0
         ? QByteArray("abcd")
         : QByteArray("ef");
@@ -99,10 +101,10 @@ QJsonObject makeChunk(qint64 chunkIndex,
     obj["transferId"] = transferId;
     obj["senderId"] = "940001";
     obj["senderName"] = "DuplicateSender";
-    obj["receiverId"] = "";
+    obj["receiverId"] = receiverId;
     obj["messageType"] = static_cast<int>(MessageType::File);
-    obj["content"] = "发送了文件: duplicate.bin";
-    obj["fileName"] = "duplicate.bin";
+    obj["content"] = "发送了文件: " + fileName;
+    obj["fileName"] = fileName;
     obj["fileSize"] = QString::number(6);
     obj["fileHash"] = fileHash;
     obj["chunkSize"] = QString::number(4);
@@ -200,6 +202,77 @@ int main(int argc, char** argv) {
     ok = expect(duplicateAck["accepted"].toBool(false), "duplicate chunk ack should be accepted") && ok;
     ok = expect(duplicateAck["receivedBytes"].toVariant().toLongLong() == firstReceivedBytes,
                 "duplicate chunk ack should not increase received bytes") && ok;
+
+    const QString outOfOrderTransferId = "out-of-order-transfer";
+    const QString outOfOrderFileName = "out-of-order.bin";
+    const QString outOfOrderReceiverId = "949999";
+    ok = expect(writeJson(socket, makeChunk(1,
+                                            outOfOrderTransferId,
+                                            QString(),
+                                            outOfOrderFileName,
+                                            outOfOrderReceiverId)),
+                "raw socket should send the final chunk before the missing first chunk") && ok;
+
+    QJsonObject outOfOrderFirstAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == outOfOrderTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 1;
+    }, &outOfOrderFirstAck), "server should ack the out-of-order final chunk") && ok;
+    ok = expect(outOfOrderFirstAck["accepted"].toBool(false),
+                "out-of-order final chunk ack should be accepted") && ok;
+    ok = expect(outOfOrderFirstAck["receivedBytes"].toVariant().toLongLong() == 2,
+                "out-of-order final chunk should only count received bytes for that chunk") && ok;
+
+    QJsonObject outOfOrderResumeQuery;
+    outOfOrderResumeQuery["type"] = "file_transfer_resume_query";
+    outOfOrderResumeQuery["transferId"] = outOfOrderTransferId;
+    ok = expect(writeJson(socket, outOfOrderResumeQuery),
+                "raw socket should query resume state for the out-of-order transfer") && ok;
+
+    QJsonObject outOfOrderResumeState;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == outOfOrderTransferId;
+    }, &outOfOrderResumeState), "server should report missing first chunk in resume state") && ok;
+    ok = expect(outOfOrderResumeState["canResume"].toBool(false),
+                "out-of-order transfer should remain resumable while the first chunk is missing") && ok;
+    ok = expect(outOfOrderResumeState["confirmedBytes"].toVariant().toLongLong() == 2,
+                "out-of-order resume state should report received bytes for the final chunk") && ok;
+    ok = expect(outOfOrderResumeState["nextChunkIndex"].toVariant().toLongLong() == 0,
+                "out-of-order resume state should point to the missing first chunk") && ok;
+    const QJsonArray outOfOrderReceivedChunks = outOfOrderResumeState["receivedChunks"].toArray();
+    ok = expect(outOfOrderReceivedChunks.size() == 1
+                    && outOfOrderReceivedChunks.first().toVariant().toLongLong() == 1,
+                "out-of-order resume state should list only the final chunk as received") && ok;
+
+    ok = expect(writeJson(socket, makeChunk(0,
+                                            outOfOrderTransferId,
+                                            QString(),
+                                            outOfOrderFileName,
+                                            outOfOrderReceiverId)),
+                "raw socket should send the missing first chunk") && ok;
+
+    QJsonObject outOfOrderFinalAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == outOfOrderTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 0;
+    }, &outOfOrderFinalAck), "server should ack the missing first chunk") && ok;
+    ok = expect(outOfOrderFinalAck["accepted"].toBool(false),
+                "missing first chunk ack should be accepted") && ok;
+    ok = expect(outOfOrderFinalAck["receivedBytes"].toVariant().toLongLong() == 6,
+                "missing first chunk ack should report completed file size") && ok;
+
+    ok = expect(writeJson(socket, outOfOrderResumeQuery),
+                "raw socket should query resume state after out-of-order transfer completes") && ok;
+    QJsonObject completedOutOfOrderState;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == outOfOrderTransferId;
+    }, &completedOutOfOrderState), "server should clear pending state after all out-of-order chunks arrive") && ok;
+    ok = expect(!completedOutOfOrderState["canResume"].toBool(true),
+                "completed out-of-order transfer should no longer be resumable") && ok;
 
     ok = expect(writeJson(socket, makeChunk(1)), "raw socket should send the final chunk") && ok;
 
