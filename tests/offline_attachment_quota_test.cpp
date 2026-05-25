@@ -121,10 +121,11 @@ int offlineQueueCount(const QString& appDataDir, const QString& receiverId) {
     return count;
 }
 
-bool insertMissingOfflineAttachmentQueue(const QString& appDataDir,
-                                         const QString& receiverId,
-                                         const QString& fileName,
-                                         const QString& missingPath) {
+bool insertOfflineAttachmentQueue(const QString& appDataDir,
+                                  const QString& receiverId,
+                                  const QString& fileName,
+                                  const QString& attachmentPath,
+                                  qint64 declaredFileSize) {
     const QString dbPath = appDataDir + "/accounts.sqlite3";
     if (!QFile::exists(dbPath)) return false;
 
@@ -136,11 +137,11 @@ bool insertMissingOfflineAttachmentQueue(const QString& appDataDir,
     payload["receiverId"] = receiverId;
     payload["content"] = QString("发送了文件: %1").arg(fileName);
     payload["fileName"] = fileName;
-    payload["fileSize"] = QString::number(128);
-    payload["fileHash"] = "missing";
+    payload["fileSize"] = QString::number(declaredFileSize);
+    payload["fileHash"] = "offline-attachment-test";
     payload["chunkSize"] = QString::number(256 * 1024);
     payload["chunkCount"] = QString::number(1);
-    payload["offlineFilePath"] = missingPath;
+    payload["offlineFilePath"] = attachmentPath;
     payload["offlineFileStoredOnDisk"] = true;
 
     bool inserted = false;
@@ -159,6 +160,13 @@ bool insertMissingOfflineAttachmentQueue(const QString& appDataDir,
     }
     QSqlDatabase::removeDatabase(connectionName);
     return inserted;
+}
+
+bool insertMissingOfflineAttachmentQueue(const QString& appDataDir,
+                                         const QString& receiverId,
+                                         const QString& fileName,
+                                         const QString& missingPath) {
+    return insertOfflineAttachmentQueue(appDataDir, receiverId, fileName, missingPath, 128);
 }
 }
 
@@ -331,6 +339,70 @@ int main(int argc, char** argv) {
     missingReceiver.disconnectFromServer();
     ok = expect(waitFor([&] { return missingReceiverDisconnected; }),
                 "server should observe missing attachment receiver disconnect after cleanup") && ok;
+
+    const QString mismatchReceiverId = "970005";
+    Client mismatchReceiverSeed;
+    bool mismatchReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == mismatchReceiverId) mismatchReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(mismatchReceiverSeed, mismatchReceiverId, "MismatchReceiver", port, true),
+                "mismatched attachment receiver should register before queue seeding") && ok;
+    mismatchReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return mismatchReceiverDisconnected; }),
+                "server should observe mismatched attachment receiver disconnect before queue seeding") && ok;
+
+    const QString mismatchFileName = "mismatched-offline-attachment.bin";
+    const QString mismatchDirPath = appDataDir + "/offline_files/mismatch";
+    ok = expect(QDir().mkpath(mismatchDirPath),
+                "mismatched attachment directory should be created") && ok;
+    const QString mismatchPath = mismatchDirPath + "/payload.bin";
+    QFile mismatchFile(mismatchPath);
+    ok = expect(mismatchFile.open(QIODevice::WriteOnly),
+                "mismatched attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(mismatchFile.write(QByteArray("short-payload")) == 13,
+                    "mismatched attachment file should contain the test payload") && ok;
+        mismatchFile.close();
+    }
+    ok = expect(QFile::exists(mismatchPath),
+                "mismatched attachment file should exist before replay") && ok;
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             mismatchReceiverId,
+                                             mismatchFileName,
+                                             mismatchPath,
+                                             128),
+                "mismatched attachment offline queue row should be inserted") && ok;
+    ok = expect(offlineQueueCount(appDataDir, mismatchReceiverId) == 1,
+                "mismatched attachment offline row should be queued before replay") && ok;
+
+    Client mismatchReceiver;
+    QVector<Message> mismatchReplayMessages;
+    QObject::connect(&mismatchReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        mismatchReplayMessages.append(msg);
+    });
+    ok = expect(loginClient(mismatchReceiver, mismatchReceiverId, "MismatchReceiver", port, false),
+                "mismatched attachment receiver should log in for cleanup replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : mismatchReplayMessages) {
+            if (msg.type == MessageType::System
+                && msg.content.contains(QString::fromUtf8("离线文件大小异常"))
+                && msg.content.contains(mismatchFileName)) {
+                return true;
+            }
+        }
+        return false;
+    }, 3000), "mismatched offline attachment should produce a clear system notice") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, mismatchReceiverId) == 0
+            && !QFile::exists(mismatchPath);
+    }, 3000), "mismatched offline attachment queue row and file should be cleared after notice") && ok;
+
+    mismatchReceiverDisconnected = false;
+    mismatchReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return mismatchReceiverDisconnected; }),
+                "server should observe mismatched attachment receiver disconnect after cleanup") && ok;
+
     senderDisconnected = false;
     sender.disconnectFromServer();
     ok = expect(waitFor([&] { return senderDisconnected; }),
