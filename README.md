@@ -42,7 +42,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 系统托盘提醒
 - 自动重连和心跳保活
 - CTest 覆盖消息序列化、文件取消清理、服务端群成员变更和公告权限协议
-- CTest 覆盖 Redis RESP 命令编码和响应解析
+- CTest 覆盖 Redis RESP 命令编码、响应解析和 Redis 不可用降级登录
 - 复制当前 QQ 账号
 - 退出登录并回到登录流程
 
@@ -123,7 +123,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-当前 CTest 会执行构建产物冒烟测试，并覆盖消息序列化、服务端群成员变更、文件取消清理和 Redis RESP 协议基础能力。
+当前 CTest 会执行构建产物冒烟测试，并覆盖消息序列化、服务端群成员变更、文件取消清理、Redis RESP 协议基础能力和 Redis 不可用时的登录降级。
 
 ### Windows 打包
 
