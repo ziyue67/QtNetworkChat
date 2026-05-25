@@ -23,6 +23,10 @@ jobs:
           target: desktop
           arch: win64_msvc2022_64
           cache: true
+          cache-key-prefix: install-qt-action-msvc2022-qt683-v2
+          aqtversion: "==3.3.*"
+          py7zrversion: "==1.1.*"
+          extra: "--external 7z"
 
       - name: Configure
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DQt6_DIR="${{ env.Qt6_DIR }}"
