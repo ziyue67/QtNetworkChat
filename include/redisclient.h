@@ -81,4 +81,45 @@ private:
     qint64 m_lastConnectAttemptMs = 0;
 };
 
+class RedisSubscriber : public QObject {
+    Q_OBJECT
+
+public:
+    explicit RedisSubscriber(QObject* parent = nullptr);
+
+    void configureFromEnvironment();
+    bool isEnabled() const { return m_enabled; }
+    bool isSubscribed() const { return m_subscribed; }
+    QString lastError() const { return m_lastError; }
+
+    bool subscribe(const QString& channel, int timeoutMs = 500);
+    void disconnectFromServer();
+
+signals:
+    void messageReceived(const RedisClient::PubSubMessage& message);
+    void disconnected();
+
+private slots:
+    void onReadyRead();
+    void onDisconnected();
+
+private:
+    bool connectToServer(int timeoutMs);
+    bool writeCommand(const QList<QByteArray>& arguments, int timeoutMs);
+    bool readReply(RedisClient::Reply* reply, int timeoutMs);
+    void processBuffer();
+    QByteArray pubSubChannel(const QString& channel) const;
+
+    QTcpSocket m_socket;
+    QByteArray m_buffer;
+    bool m_enabled = false;
+    bool m_subscribed = false;
+    bool m_readingSynchronously = false;
+    QString m_host = "127.0.0.1";
+    quint16 m_port = 6379;
+    QString m_password;
+    QString m_prefix = "qtchat";
+    QString m_lastError;
+};
+
 #endif // REDISCLIENT_H

@@ -456,3 +456,173 @@ QByteArray RedisClient::presenceValue(const QString& userId, const QString& user
     obj["lastSeen"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }
+
+RedisSubscriber::RedisSubscriber(QObject* parent)
+    : QObject(parent) {
+    connect(&m_socket, &QTcpSocket::readyRead, this, &RedisSubscriber::onReadyRead);
+    connect(&m_socket, &QTcpSocket::disconnected, this, &RedisSubscriber::onDisconnected);
+}
+
+void RedisSubscriber::configureFromEnvironment() {
+    m_enabled = RedisClient::isEnabledFromEnvironment();
+    m_host = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_REDIS_HOST")).trimmed();
+    if (m_host.isEmpty()) m_host = "127.0.0.1";
+
+    bool portOk = false;
+    const int configuredPort = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_REDIS_PORT")).trimmed().toInt(&portOk);
+    m_port = portOk && configuredPort > 0 && configuredPort <= 65535 ? static_cast<quint16>(configuredPort) : 6379;
+
+    m_password = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_REDIS_PASSWORD"));
+    m_prefix = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_REDIS_PREFIX")).trimmed();
+    if (m_prefix.isEmpty()) m_prefix = "qtchat";
+    while (m_prefix.endsWith(':')) {
+        m_prefix.chop(1);
+    }
+    if (m_prefix.isEmpty()) m_prefix = "qtchat";
+
+    m_lastError.clear();
+}
+
+bool RedisSubscriber::subscribe(const QString& channel, int timeoutMs) {
+    if (!m_enabled) return true;
+    if (channel.trimmed().isEmpty()) return false;
+    if (!connectToServer(timeoutMs)) return false;
+
+    if (!m_password.isEmpty()) {
+        RedisClient::Reply authReply;
+        if (!writeCommand({QByteArrayLiteral("AUTH"), m_password.toUtf8()}, timeoutMs)
+            || !readReply(&authReply, timeoutMs)
+            || !authReply.isSimpleString(QByteArrayLiteral("OK"))) {
+            if (m_lastError.isEmpty()) m_lastError = "Redis subscriber AUTH failed";
+            m_socket.abort();
+            return false;
+        }
+    }
+
+    const QByteArray redisChannel = pubSubChannel(channel);
+    if (!writeCommand({QByteArrayLiteral("SUBSCRIBE"), redisChannel}, timeoutMs)) return false;
+
+    RedisClient::Reply subscribeReply;
+    if (!readReply(&subscribeReply, timeoutMs)
+        || subscribeReply.type != RedisClient::ReplyType::Array
+        || subscribeReply.elements.size() < 3
+        || subscribeReply.elements.at(0).value.toLower() != QByteArrayLiteral("subscribe")
+        || subscribeReply.elements.at(1).value != redisChannel) {
+        if (m_lastError.isEmpty()) m_lastError = "Redis subscribe acknowledgement is invalid";
+        m_socket.abort();
+        return false;
+    }
+
+    m_subscribed = true;
+    processBuffer();
+    return true;
+}
+
+void RedisSubscriber::disconnectFromServer() {
+    m_subscribed = false;
+    m_buffer.clear();
+    m_socket.disconnectFromHost();
+}
+
+bool RedisSubscriber::connectToServer(int timeoutMs) {
+    if (m_socket.state() == QAbstractSocket::ConnectedState) return true;
+
+    m_socket.abort();
+    m_socket.connectToHost(m_host, m_port);
+    if (!m_socket.waitForConnected(timeoutMs)) {
+        m_lastError = m_socket.errorString();
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+bool RedisSubscriber::writeCommand(const QList<QByteArray>& arguments, int timeoutMs) {
+    const QByteArray command = RedisClient::encodeCommand(arguments);
+    if (m_socket.write(command) != command.size() || !m_socket.waitForBytesWritten(timeoutMs)) {
+        m_lastError = m_socket.errorString();
+        m_socket.abort();
+        return false;
+    }
+    return true;
+}
+
+bool RedisSubscriber::readReply(RedisClient::Reply* reply, int timeoutMs) {
+    struct ReadGuard {
+        bool& flag;
+        explicit ReadGuard(bool& value) : flag(value) { flag = true; }
+        ~ReadGuard() { flag = false; }
+    } guard(m_readingSynchronously);
+
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        m_buffer.append(m_socket.readAll());
+
+        RedisClient::Reply parsed;
+        int consumed = 0;
+        QString parseError;
+        if (RedisClient::parseReply(m_buffer, &parsed, &consumed, &parseError)) {
+            m_buffer = m_buffer.mid(consumed);
+            if (parsed.isError()) {
+                m_lastError = parsed.error;
+                return false;
+            }
+            if (reply) *reply = parsed;
+            m_lastError.clear();
+            return true;
+        }
+        if (!parseError.isEmpty() && parseError != "incomplete") {
+            m_lastError = parseError;
+            m_socket.abort();
+            return false;
+        }
+
+        const int remainingMs = qMax(1, timeoutMs - static_cast<int>(timer.elapsed()));
+        if (!m_socket.waitForReadyRead(remainingMs)) break;
+    }
+
+    m_lastError = m_socket.errorString().isEmpty() ? "Redis subscribe reply timed out" : m_socket.errorString();
+    m_socket.abort();
+    return false;
+}
+
+void RedisSubscriber::processBuffer() {
+    while (!m_buffer.isEmpty()) {
+        RedisClient::Reply reply;
+        int consumed = 0;
+        QString parseError;
+        if (!RedisClient::parseReply(m_buffer, &reply, &consumed, &parseError)) {
+            if (parseError != "incomplete") {
+                m_lastError = parseError;
+                m_socket.abort();
+            }
+            return;
+        }
+
+        m_buffer = m_buffer.mid(consumed);
+        RedisClient::PubSubMessage message;
+        if (RedisClient::parsePubSubMessage(reply, &message)) {
+            emit messageReceived(message);
+        }
+    }
+}
+
+QByteArray RedisSubscriber::pubSubChannel(const QString& channel) const {
+    QString normalized = channel.trimmed();
+    while (normalized.startsWith(':')) {
+        normalized.remove(0, 1);
+    }
+    return (m_prefix + ":pubsub:" + normalized).toUtf8();
+}
+
+void RedisSubscriber::onReadyRead() {
+    if (m_readingSynchronously) return;
+    m_buffer.append(m_socket.readAll());
+    processBuffer();
+}
+
+void RedisSubscriber::onDisconnected() {
+    m_subscribed = false;
+    emit disconnected();
+}

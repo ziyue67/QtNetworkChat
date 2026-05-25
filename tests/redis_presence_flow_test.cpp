@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QMap>
@@ -12,6 +13,8 @@
 #include <QThread>
 #include <QTimer>
 
+#include <functional>
+
 namespace {
 bool expect(bool condition, const char* message) {
     if (!condition) {
@@ -19,6 +22,18 @@ bool expect(bool condition, const char* message) {
         return false;
     }
     return true;
+}
+
+bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        if (predicate()) return true;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(10);
+    }
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    return predicate();
 }
 
 QByteArray bulkReply(const QByteArray& value) {
@@ -34,6 +49,14 @@ QByteArray arrayReply(const QList<QByteArray>& values) {
     for (const QByteArray& value : values) {
         response.append(bulkReply(value));
     }
+    return response;
+}
+
+QByteArray pubSubMessageReply(const QByteArray& channel, const QByteArray& payload) {
+    QByteArray response = "*3\r\n";
+    response.append(bulkReply(QByteArrayLiteral("message")));
+    response.append(bulkReply(channel));
+    response.append(bulkReply(payload));
     return response;
 }
 
@@ -103,20 +126,34 @@ private:
             }
 
             buffer = buffer.mid(consumed);
-            socket->write(handleCommand(request));
+            socket->write(handleCommand(request, socket));
             socket->flush();
         }
 
         socket->setProperty("buffer", buffer);
     }
 
-    QByteArray handleCommand(const RedisClient::Reply& request) {
+    QByteArray handleCommand(const RedisClient::Reply& request, QTcpSocket* socket) {
         const QList<QByteArray> args = commandArguments(request);
         if (args.isEmpty()) return "-ERR empty command\r\n";
 
         const QByteArray command = args.first().toUpper();
         if (command == "PING") {
             return "+PONG\r\n";
+        }
+        if (command == "SUBSCRIBE" && args.size() >= 2) {
+            const QByteArray channel = args.at(1);
+            QTimer::singleShot(20, this, [socket, channel]() {
+                if (socket && socket->state() == QAbstractSocket::ConnectedState) {
+                    socket->write(pubSubMessageReply(channel, QByteArrayLiteral("{\"kind\":\"subscribed\"}")));
+                    socket->flush();
+                }
+            });
+            QByteArray response = "*3\r\n";
+            response.append(bulkReply(QByteArrayLiteral("subscribe")));
+            response.append(bulkReply(channel));
+            response.append(integerReply(1));
+            return response;
         }
         if (command == "PUBLISH" && args.size() >= 3) {
             m_published[args.at(1)].append(args.at(2));
@@ -200,6 +237,24 @@ int main(int argc, char** argv) {
     ok = expect(client.connectToServer(2000), "Redis client should connect to the fake Redis service") && ok;
     ok = expect(client.publish("messages", QByteArrayLiteral("{\"kind\":\"ping\"}"), 2000),
                 "Redis client should publish a namespaced Pub/Sub payload") && ok;
+
+    RedisSubscriber subscriber;
+    subscriber.configureFromEnvironment();
+    QList<RedisClient::PubSubMessage> pubSubMessages;
+    QObject::connect(&subscriber, &RedisSubscriber::messageReceived, &app, [&](const RedisClient::PubSubMessage& message) {
+        pubSubMessages.append(message);
+    });
+    ok = expect(subscriber.subscribe("messages", 2000),
+                "Redis subscriber should subscribe to the fake Redis service") && ok;
+    ok = expect(waitFor([&] { return !pubSubMessages.isEmpty(); }),
+                "Redis subscriber should consume a fake Pub/Sub message") && ok;
+    if (!pubSubMessages.isEmpty()) {
+        ok = expect(pubSubMessages.first().channel == "qtchat-flow-test:pubsub:messages",
+                    "Redis subscriber should expose the subscribed channel") && ok;
+        ok = expect(pubSubMessages.first().payload == QByteArrayLiteral("{\"kind\":\"subscribed\"}"),
+                    "Redis subscriber should expose the message payload") && ok;
+    }
+
     ok = expect(client.setPresence("940001", "RedisFlow", 90, 2000),
                 "Redis client should write presence and index entries") && ok;
 
@@ -224,6 +279,7 @@ int main(int argc, char** argv) {
     qunsetenv("QTNETWORKCHAT_REDIS_PORT");
     qunsetenv("QTNETWORKCHAT_REDIS_PREFIX");
 
+    subscriber.disconnectFromServer();
     QMetaObject::invokeMethod(fakeRedis, "stop", Qt::BlockingQueuedConnection);
     redisThread.quit();
     redisThread.wait();
