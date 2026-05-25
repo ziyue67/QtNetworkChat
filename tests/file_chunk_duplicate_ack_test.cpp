@@ -258,6 +258,33 @@ int main(int argc, char** argv) {
         return invalidIndexAckRejected && invalidIndexSystemNotice;
     }), "server should reject an out-of-range chunk index with ack and system notice") && ok;
 
+    const QString shortNonFinalTransferId = "short-non-final-transfer";
+    QJsonObject shortNonFinalChunk = makeChunk(0, shortNonFinalTransferId);
+    shortNonFinalChunk["fileData"] = QString::fromLatin1(QByteArray("abc").toBase64());
+    ok = expect(writeJson(socket, shortNonFinalChunk),
+                "raw socket should send a short non-final chunk") && ok;
+
+    bool shortNonFinalAckRejected = false;
+    bool shortNonFinalSystemNotice = false;
+    ok = expect(waitFor([&] {
+        buffer.append(socket.readAll());
+        const QVector<QJsonObject> messages = takeJsonLines(buffer);
+        for (const QJsonObject& message : messages) {
+            if (message["type"].toString() == "file_chunk_ack"
+                && message["transferId"].toString() == shortNonFinalTransferId
+                && message["chunkIndex"].toVariant().toLongLong() == 0
+                && !message["accepted"].toBool(true)
+                && message["reason"].toString().contains("非末尾分片大小")) {
+                shortNonFinalAckRejected = true;
+            }
+            if (message["type"].toString() == "system"
+                && message["content"].toString().contains("非末尾分片大小")) {
+                shortNonFinalSystemNotice = true;
+            }
+        }
+        return shortNonFinalAckRejected && shortNonFinalSystemNotice;
+    }), "server should reject a short non-final chunk with ack and system notice") && ok;
+
     const QString outOfOrderTransferId = "out-of-order-transfer";
     const QString outOfOrderFileName = "out-of-order.bin";
     const QString outOfOrderReceiverId = "949999";
