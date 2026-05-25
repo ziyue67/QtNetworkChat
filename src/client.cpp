@@ -357,6 +357,7 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
         obj["fileData"] = QString::fromLatin1(chunk.toBase64());
 
         QString ackRejectReason;
+        qint64 ackReceivedBytes = 0;
         bool acknowledged = false;
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
             if (m_cancelOutgoingTransfer) {
@@ -367,7 +368,7 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
                 file.close();
                 return false;
             }
-            if (waitForFileChunkAck(transferId, chunkIndex, &ackRejectReason)) {
+            if (waitForFileChunkAck(transferId, chunkIndex, &ackRejectReason, &ackReceivedBytes)) {
                 acknowledged = true;
                 break;
             }
@@ -386,7 +387,10 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
             file.close();
             return false;
         }
-        sentBytes += chunk.size();
+        const qint64 nextSentBytes = sentBytes + chunk.size();
+        sentBytes = ackReceivedBytes > 0
+            ? qBound<qint64>(sentBytes, ackReceivedBytes, fileInfo.size())
+            : nextSentBytes;
         ++chunkIndex;
         emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
     }
@@ -560,7 +564,8 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             obj["transferId"].toString(),
             obj["chunkIndex"].toVariant().toLongLong(),
             obj["accepted"].toBool(false),
-            obj["reason"].toString());
+            obj["reason"].toString(),
+            obj["receivedBytes"].toVariant().toLongLong());
         return;
     }
 
@@ -702,8 +707,9 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     handleServerMessage(fullFile);
 }
 
-bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason) {
+bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason, qint64* receivedBytes) {
     if (rejectReason) rejectReason->clear();
+    if (receivedBytes) *receivedBytes = 0;
 
     QEventLoop loop;
     QTimer timer;
@@ -712,16 +718,18 @@ bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, Q
     bool matched = false;
     bool accepted = false;
     QString reason;
+    qint64 ackReceivedBytes = 0;
 
     QMetaObject::Connection ackConnection = connect(
         this,
         &Client::fileChunkAckReceived,
         &loop,
-        [&](const QString& ackTransferId, qint64 ackChunkIndex, bool ackAccepted, const QString& ackReason) {
+        [&](const QString& ackTransferId, qint64 ackChunkIndex, bool ackAccepted, const QString& ackReason, qint64 ackBytes) {
             if (ackTransferId != transferId || ackChunkIndex != chunkIndex) return;
             matched = true;
             accepted = ackAccepted;
             reason = ackReason;
+            ackReceivedBytes = ackBytes;
             loop.quit();
         });
     QMetaObject::Connection disconnectedConnection = connect(this, &Client::disconnected, &loop, &QEventLoop::quit);
@@ -737,6 +745,9 @@ bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, Q
 
     if (matched && !accepted && rejectReason) {
         *rejectReason = reason.isEmpty() ? "服务端拒绝分片" : reason;
+    }
+    if (matched && receivedBytes) {
+        *receivedBytes = ackReceivedBytes;
     }
     return matched && accepted;
 }

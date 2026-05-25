@@ -33,7 +33,7 @@ signals:
     void userLeft(const QString& userId, const QString& userName);
     void clientConnected(const QString& userId);
     void clientDisconnected(const QString& userId);
-    void fileChunkAckReceived(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason);
+    void fileChunkAckReceived(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason, qint64 receivedBytes);
 
 private slots:
     void onNewConnection();
@@ -54,7 +54,7 @@ private:
     void handleFile(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket);
-    bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);
+    bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     void cleanupExpiredFileTransfers();
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);

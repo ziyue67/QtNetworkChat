@@ -292,7 +292,8 @@ void Server::onClientReadyRead() {
                 obj["transferId"].toString(),
                 obj["chunkIndex"].toVariant().toLongLong(),
                 obj["accepted"].toBool(false),
-                obj["reason"].toString());
+                obj["reason"].toString(),
+                obj["receivedBytes"].toVariant().toLongLong());
         } else if (type == "private") {
             handleMessage(obj, socket);
         } else if (type == "server_group_announcement_update") {
@@ -2134,8 +2135,9 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
     return true;
 }
 
-bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason) {
+bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason, qint64* receivedBytes) {
     if (rejectReason) rejectReason->clear();
+    if (receivedBytes) *receivedBytes = 0;
     if (!socket || transferId.isEmpty()) return false;
 
     QEventLoop loop;
@@ -2145,16 +2147,18 @@ bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, 
     bool matched = false;
     bool accepted = false;
     QString reason;
+    qint64 ackReceivedBytes = 0;
 
     QMetaObject::Connection ackConnection = connect(
         this,
         &Server::fileChunkAckReceived,
         &loop,
-        [&](QTcpSocket* ackSocket, const QString& ackTransferId, qint64 ackChunkIndex, bool ackAccepted, const QString& ackReason) {
+        [&](QTcpSocket* ackSocket, const QString& ackTransferId, qint64 ackChunkIndex, bool ackAccepted, const QString& ackReason, qint64 ackBytes) {
             if (ackSocket != socket || ackTransferId != transferId || ackChunkIndex != chunkIndex) return;
             matched = true;
             accepted = ackAccepted;
             reason = ackReason;
+            ackReceivedBytes = ackBytes;
             loop.quit();
         });
     QMetaObject::Connection disconnectedConnection = connect(socket, &QTcpSocket::disconnected, &loop, &QEventLoop::quit);
@@ -2168,6 +2172,9 @@ bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, 
 
     if (matched && !accepted && rejectReason) {
         *rejectReason = reason.isEmpty() ? "客户端拒绝分片" : reason;
+    }
+    if (matched && receivedBytes) {
+        *receivedBytes = ackReceivedBytes;
     }
     return matched && accepted;
 }

@@ -61,7 +61,7 @@ signals:
     void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);
     void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
     void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes);
-    void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason);
+    void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason, qint64 receivedBytes);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
     void connectionError(const QString& error);
     void outgoingTransferCancelRequested();
@@ -80,7 +80,7 @@ private:
     bool sendJson(const QJsonObject& obj);
     bool sendFileChunkAck(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason = QString(), qint64 receivedBytes = 0);
     bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
-    bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr);
+    bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     void cleanupExpiredIncomingFileTransfers();
 
     struct PendingIncomingFileTransfer {

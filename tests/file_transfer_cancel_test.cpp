@@ -112,8 +112,23 @@ int main(int argc, char** argv) {
 
     bool prepared = false;
     bool cancelRequested = false;
+    bool sawAcceptedAck = false;
+    bool ackReceivedBytesPositive = false;
+    bool ackReceivedBytesMonotonic = true;
+    qint64 lastAckReceivedBytes = 0;
     QObject::connect(&sender, &Client::fileTransferPrepared, &app, [&](const QString&, qint64, qint64, qint64, const QString&) {
         prepared = true;
+    });
+    QObject::connect(&sender, &Client::fileChunkAckReceived, &app, [&](const QString&, qint64, bool accepted, const QString&, qint64 receivedBytes) {
+        if (!accepted) return;
+        sawAcceptedAck = true;
+        if (receivedBytes < lastAckReceivedBytes) {
+            ackReceivedBytesMonotonic = false;
+        }
+        lastAckReceivedBytes = receivedBytes;
+        if (receivedBytes > 0) {
+            ackReceivedBytesPositive = true;
+        }
     });
     QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString&, qint64 bytesPrepared, qint64 totalBytes) {
         if (prepared && !cancelRequested && bytesPrepared > 0 && bytesPrepared < totalBytes) {
@@ -123,6 +138,9 @@ int main(int argc, char** argv) {
     });
 
     const bool sent = sender.sendFile(filePath);
+    ok = expect(sawAcceptedAck, "sender should receive at least one accepted chunk ack") && ok;
+    ok = expect(ackReceivedBytesPositive, "chunk ack should expose positive received bytes") && ok;
+    ok = expect(ackReceivedBytesMonotonic, "chunk ack received bytes should be monotonic") && ok;
     ok = expect(cancelRequested, "sender should request cancellation after the first uploaded chunk") && ok;
     ok = expect(!sent, "canceled file transfer should not report success") && ok;
     ok = expect(waitFor([&] {
