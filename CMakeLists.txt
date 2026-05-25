@@ -97,6 +97,21 @@ if(BUILD_TESTING)
     target_include_directories(file_chunk_retry_progress_test PRIVATE include)
     target_link_libraries(file_chunk_retry_progress_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
 
+    add_executable(offline_attachment_quota_test
+        tests/offline_attachment_quota_test.cpp
+        src/server.cpp
+        src/client.cpp
+        src/redisclient.cpp
+        src/message.cpp
+        include/server.h
+        include/client.h
+        include/redisclient.h
+        include/message.h
+        include/chatuser.h
+    )
+    target_include_directories(offline_attachment_quota_test PRIVATE include)
+    target_link_libraries(offline_attachment_quota_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
     add_executable(redis_client_test
         tests/redis_client_test.cpp
         src/redisclient.cpp
@@ -181,6 +196,13 @@ if(BUILD_TESTING)
         NAME FileChunkRetryProgress
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:file_chunk_retry_progress_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME OfflineAttachmentQuota
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:offline_attachment_quota_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
