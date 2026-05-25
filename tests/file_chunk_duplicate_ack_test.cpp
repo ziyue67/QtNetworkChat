@@ -87,14 +87,16 @@ bool waitForMessage(QTcpSocket& socket,
     }, timeoutMs);
 }
 
-QJsonObject makeChunk(qint64 chunkIndex) {
+QJsonObject makeChunk(qint64 chunkIndex,
+                      const QString& transferId = QStringLiteral("duplicate-transfer"),
+                      const QString& fileHash = QString()) {
     const QByteArray chunkData = chunkIndex == 0
         ? QByteArray("abcd")
         : QByteArray("ef");
 
     QJsonObject obj;
     obj["type"] = "file_chunk";
-    obj["transferId"] = "duplicate-transfer";
+    obj["transferId"] = transferId;
     obj["senderId"] = "940001";
     obj["senderName"] = "DuplicateSender";
     obj["receiverId"] = "";
@@ -102,7 +104,7 @@ QJsonObject makeChunk(qint64 chunkIndex) {
     obj["content"] = "发送了文件: duplicate.bin";
     obj["fileName"] = "duplicate.bin";
     obj["fileSize"] = QString::number(6);
-    obj["fileHash"] = "";
+    obj["fileHash"] = fileHash;
     obj["chunkSize"] = QString::number(4);
     obj["chunkCount"] = QString::number(2);
     obj["chunkIndex"] = QString::number(chunkIndex);
@@ -210,6 +212,42 @@ int main(int argc, char** argv) {
     ok = expect(finalAck["accepted"].toBool(false), "final chunk ack should be accepted") && ok;
     ok = expect(finalAck["receivedBytes"].toVariant().toLongLong() == 6,
                 "final chunk ack should report the completed file size") && ok;
+
+    const QString badHashTransferId = "bad-hash-transfer";
+    const QString badHash(64, QLatin1Char('0'));
+    ok = expect(writeJson(socket, makeChunk(0, badHashTransferId, badHash)),
+                "raw socket should send the first bad-hash chunk") && ok;
+
+    QJsonObject badHashFirstAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == badHashTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 0;
+    }, &badHashFirstAck), "server should ack the first bad-hash chunk") && ok;
+    ok = expect(badHashFirstAck["accepted"].toBool(false), "first bad-hash chunk ack should be accepted") && ok;
+
+    ok = expect(writeJson(socket, makeChunk(1, badHashTransferId, badHash)),
+                "raw socket should send the final bad-hash chunk") && ok;
+
+    bool badHashFinalAckAccepted = false;
+    bool badHashRejected = false;
+    ok = expect(waitFor([&] {
+        buffer.append(socket.readAll());
+        const QVector<QJsonObject> messages = takeJsonLines(buffer);
+        for (const QJsonObject& message : messages) {
+            if (message["type"].toString() == "file_chunk_ack"
+                && message["transferId"].toString() == badHashTransferId
+                && message["chunkIndex"].toVariant().toLongLong() == 1
+                && message["accepted"].toBool(false)) {
+                badHashFinalAckAccepted = true;
+            }
+            if (message["type"].toString() == "system"
+                && message["content"].toString().contains("SHA-256")) {
+                badHashRejected = true;
+            }
+        }
+        return badHashFinalAckAccepted && badHashRejected;
+    }), "server should ack final chunk and reject assembled file when SHA-256 does not match") && ok;
 
     socket.disconnectFromHost();
     server.stop();
