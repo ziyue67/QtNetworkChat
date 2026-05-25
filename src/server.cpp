@@ -1162,6 +1162,7 @@ void Server::handleFileTransferResumeQuery(const QJsonObject& obj, QTcpSocket* s
             response["fileSize"] = QString::number(pending.fileSize);
             response["chunkSize"] = QString::number(pending.chunkSize);
             response["chunkCount"] = QString::number(pending.chunkCount);
+            response["fileHash"] = pending.envelope["fileHash"].toString();
             response["confirmedBytes"] = QString::number(pending.receivedBytes);
             response["nextChunkIndex"] = QString::number(nextChunkIndex);
             response["receivedChunks"] = receivedChunks;

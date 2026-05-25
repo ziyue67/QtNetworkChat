@@ -1,6 +1,7 @@
 #include "client.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -21,6 +22,8 @@
 namespace {
 constexpr qint64 kClientChunkBytes = 256LL * 1024;
 const char kResumeTransferId[] = "resume-send-transfer";
+const char kQueryAndResumeTransferId[] = "query-and-resume-transfer";
+const char kMismatchResumeTransferId[] = "mismatch-resume-transfer";
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
@@ -64,6 +67,16 @@ bool writeResumeFile(const QString& filePath, qint64* fileSize) {
     return true;
 }
 
+QString fileSha256(const QString& filePath) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) return QString();
+    QCryptographicHash hasher(QCryptographicHash::Sha256);
+    while (!file.atEnd()) {
+        hasher.addData(file.read(kClientChunkBytes));
+    }
+    return QString::fromLatin1(hasher.result().toHex());
+}
+
 void writeJson(QTcpSocket* socket, const QJsonObject& obj) {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
     socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
@@ -102,6 +115,10 @@ public:
     qint64 acknowledgedBytes() const { return m_acknowledgedBytes; }
     QVector<qint64> resumedChunkIndexes() const { return m_resumedChunkIndexes; }
     qint64 resumedAcknowledgedBytes() const { return m_resumedAcknowledgedBytes; }
+    void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
+        m_resumeFileSize = fileSize;
+        m_resumeFileHash = fileHash;
+    }
 
 private slots:
     void onNewConnection() {
@@ -135,9 +152,30 @@ private:
             receivedChunks.append(QString::number(0));
             receivedChunks.append(QString::number(1));
 
+            const QString transferId = message["transferId"].toString();
+            if (transferId == QString::fromLatin1(kQueryAndResumeTransferId)
+                || transferId == QString::fromLatin1(kMismatchResumeTransferId)) {
+                QJsonObject response;
+                response["type"] = "file_transfer_resume_state";
+                response["transferId"] = transferId;
+                response["canResume"] = true;
+                response["confirmedBytes"] = QString::number(2 * kClientChunkBytes);
+                response["nextChunkIndex"] = QString::number(2);
+                response["fileSize"] = QString::number(m_resumeFileSize);
+                response["chunkSize"] = QString::number(kClientChunkBytes);
+                response["chunkCount"] = QString::number((m_resumeFileSize + kClientChunkBytes - 1) / kClientChunkBytes);
+                response["fileHash"] = transferId == QString::fromLatin1(kMismatchResumeTransferId)
+                    ? QString::fromLatin1("not-the-same-hash")
+                    : m_resumeFileHash;
+                response["receivedChunks"] = receivedChunks;
+                response["reason"] = "";
+                writeJson(socket, response);
+                return;
+            }
+
             QJsonObject response;
             response["type"] = "file_transfer_resume_state";
-            response["transferId"] = message["transferId"].toString();
+            response["transferId"] = transferId;
             response["canResume"] = true;
             response["confirmedBytes"] = QString::number(8);
             response["nextChunkIndex"] = QString::number(2);
@@ -156,7 +194,8 @@ private:
         const QByteArray chunkData = QByteArray::fromBase64(message["fileData"].toString().toLatin1());
         const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
 
-        if (transferId == QString::fromLatin1(kResumeTransferId)) {
+        if (transferId == QString::fromLatin1(kResumeTransferId)
+            || transferId == QString::fromLatin1(kQueryAndResumeTransferId)) {
             m_resumedChunkIndexes.append(chunkIndex);
             m_resumedAcknowledgedBytes = receivedBytes;
             QJsonObject ack;
@@ -193,6 +232,8 @@ private:
     qint64 m_acknowledgedBytes = 0;
     QVector<qint64> m_resumedChunkIndexes;
     qint64 m_resumedAcknowledgedBytes = 0;
+    qint64 m_resumeFileSize = 0;
+    QString m_resumeFileHash;
 };
 }
 
@@ -260,6 +301,9 @@ int main(int argc, char** argv) {
     const QString resumeFilePath = tempDir.filePath("resume-send.bin");
     ok = expect(writeResumeFile(resumeFilePath, &resumeFileSize),
                 "multi-chunk resume test file should be created") && ok;
+    const QString resumeFileHash = fileSha256(resumeFilePath);
+    ok = expect(!resumeFileHash.isEmpty(), "resume test file hash should be available") && ok;
+    server.setResumeMetadata(resumeFileSize, resumeFileHash);
     ok = expect(!sender.resumeFileTransfer(resumeFilePath,
                                            "invalid-resume-transfer",
                                            8,
@@ -281,6 +325,30 @@ int main(int argc, char** argv) {
                                           resumeFileSize,
                                           resumeChunkCount),
                 "sender should accept an already complete resume state without sending chunks") && ok;
+    const int chunksBeforeQueryResume = server.resumedChunkIndexes().size();
+    QString queryResumeReason;
+    ok = expect(sender.queryAndResumeFileTransfer(resumeFilePath,
+                                                  QString::fromLatin1(kQueryAndResumeTransferId),
+                                                  QString(),
+                                                  MessageType::File,
+                                                  &queryResumeReason,
+                                                  5000),
+                "sender should query resume metadata and continue from the confirmed chunk") && ok;
+    const QVector<qint64> queryResumedChunks = server.resumedChunkIndexes();
+    ok = expect(queryResumedChunks.size() == chunksBeforeQueryResume + 1 && queryResumedChunks.last() == 2,
+                "query-and-resume should send only the next missing chunk") && ok;
+    ok = expect(queryResumeReason.isEmpty(), "accepted query-and-resume should not expose a reject reason") && ok;
+    QString mismatchReason;
+    ok = expect(!sender.queryAndResumeFileTransfer(resumeFilePath,
+                                                   QString::fromLatin1(kMismatchResumeTransferId),
+                                                   QString(),
+                                                   MessageType::File,
+                                                   &mismatchReason,
+                                                   5000),
+                "sender should reject query-and-resume when metadata does not match the local file") && ok;
+    ok = expect(!mismatchReason.isEmpty(), "metadata mismatch should expose a reject reason") && ok;
+    ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
+                "metadata mismatch should not send any resumed chunks") && ok;
 
     sender.disconnectFromServer();
     if (!appDataDir.isEmpty()) {
