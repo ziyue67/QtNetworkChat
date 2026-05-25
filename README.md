@@ -186,6 +186,14 @@ set QTNETWORKCHAT_REDIS_HOST=127.0.0.1
 set QTNETWORKCHAT_REDIS_PORT=6379
 ```
 
+如果本机 Redis 安装在 `D:\Program Files\Redis-8.6.2`，可以直接用脚本启动程序并强制要求 Redis 可用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-with-redis.ps1
+```
+
+脚本会检查或启动该目录下的 `redis-server.exe`，随后设置 `QTNETWORKCHAT_REDIS=1` 和 `QTNETWORKCHAT_REDIS_REQUIRED=1` 再运行 `QtNetworkChat.exe`。设置 `QTNETWORKCHAT_REDIS_REQUIRED=1` 后，服务端如果无法连接 Redis 或订阅 Pub/Sub 会拒绝启动，避免误回退到内存在线表。
+
 如 Redis 配置了密码，可额外设置：
 
 ```bash

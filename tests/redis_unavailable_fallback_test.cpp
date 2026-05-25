@@ -66,9 +66,11 @@ int main(int argc, char** argv) {
     }
 
     const quint16 chatPort = freeLocalPort();
+    const quint16 requiredChatPort = freeLocalPort();
     const quint16 redisPort = freeLocalPort();
     bool ok = true;
     ok = expect(chatPort != 0, "a local chat test port should be available") && ok;
+    ok = expect(requiredChatPort != 0, "a local required-redis chat test port should be available") && ok;
     ok = expect(redisPort != 0, "an unused Redis test port should be available") && ok;
     if (!ok) return 1;
 
@@ -76,6 +78,7 @@ int main(int argc, char** argv) {
     qputenv("QTNETWORKCHAT_REDIS_HOST", "127.0.0.1");
     qputenv("QTNETWORKCHAT_REDIS_PORT", QByteArray::number(redisPort));
     qputenv("QTNETWORKCHAT_REDIS_PREFIX", "qtchat-fallback-test");
+    qunsetenv("QTNETWORKCHAT_REDIS_REQUIRED");
 
     Server server;
     ok = expect(server.start(chatPort), "server should start even when Redis is unreachable") && ok;
@@ -102,10 +105,17 @@ int main(int argc, char** argv) {
     client.disconnectFromServer();
     server.stop();
 
+    qputenv("QTNETWORKCHAT_REDIS_REQUIRED", "1");
+    Server requiredServer;
+    ok = expect(!requiredServer.start(requiredChatPort),
+                "server should refuse to start when Redis is required but unreachable") && ok;
+    requiredServer.stop();
+
     qunsetenv("QTNETWORKCHAT_REDIS");
     qunsetenv("QTNETWORKCHAT_REDIS_HOST");
     qunsetenv("QTNETWORKCHAT_REDIS_PORT");
     qunsetenv("QTNETWORKCHAT_REDIS_PREFIX");
+    qunsetenv("QTNETWORKCHAT_REDIS_REQUIRED");
 
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();

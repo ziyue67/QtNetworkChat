@@ -43,6 +43,10 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
+bool redisRequired() {
+    return envEnabled("QTNETWORKCHAT_REDIS_REQUIRED");
+}
+
 QString safePathPart(const QString& value) {
     QString safe;
     safe.reserve(value.size());
@@ -166,18 +170,6 @@ Server::Server(QObject* parent)
     connect(m_redisSubscriber, &RedisSubscriber::messageReceived, this, [this](const RedisClient::PubSubMessage& message) {
         handleRedisMessageEvent(message.payload);
     });
-    if (m_redisClient->isEnabled()) {
-        if (m_redisClient->connectToServer()) {
-            qDebug() << "Redis presence service enabled";
-        } else {
-            qWarning() << "Redis presence requested but unavailable:" << m_redisClient->lastError();
-        }
-        if (m_redisSubscriber->subscribe("messages")) {
-            qDebug() << "Redis Pub/Sub subscriber enabled";
-        } else {
-            qWarning() << "Redis Pub/Sub subscriber unavailable:" << m_redisSubscriber->lastError();
-        }
-    }
 
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
     connect(m_transferCleanupTimer, &QTimer::timeout, this, &Server::cleanupExpiredFileTransfers);
@@ -191,6 +183,27 @@ Server::~Server() {
 }
 
 bool Server::start(quint16 port) {
+    if (m_redisClient->isEnabled()) {
+        const bool redisConnected = m_redisClient->connectToServer();
+        if (redisConnected) {
+            qDebug() << "Redis presence service enabled";
+        } else {
+            qWarning() << "Redis presence requested but unavailable:" << m_redisClient->lastError();
+        }
+
+        const bool redisSubscribed = m_redisSubscriber->subscribe("messages");
+        if (redisSubscribed) {
+            qDebug() << "Redis Pub/Sub subscriber enabled";
+        } else {
+            qWarning() << "Redis Pub/Sub subscriber unavailable:" << m_redisSubscriber->lastError();
+        }
+
+        if (redisRequired() && (!redisConnected || !redisSubscribed)) {
+            qWarning() << "Redis is required; refusing to start the chat server";
+            return false;
+        }
+    }
+
     ensureAccountDatabase();
     if (m_tcpServer->listen(QHostAddress::Any, port)) {
         if (!m_transferCleanupTimer->isActive()) {
