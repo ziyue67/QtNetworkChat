@@ -249,6 +249,33 @@ bool Client::sendImage(const QString& filePath, const QString& receiverId) {
     return sendFilePayload(filePath, receiverId, MessageType::Image, "发送了图片: ");
 }
 
+bool Client::queryFileTransferResumeState(const QString& transferId,
+                                          qint64* confirmedBytes,
+                                          qint64* nextChunkIndex,
+                                          QVector<qint64>* receivedChunks,
+                                          QString* rejectReason,
+                                          int timeoutMs) {
+    if (confirmedBytes) *confirmedBytes = 0;
+    if (nextChunkIndex) *nextChunkIndex = 0;
+    if (receivedChunks) receivedChunks->clear();
+    if (rejectReason) rejectReason->clear();
+
+    const QString trimmedTransferId = transferId.trimmed();
+    if (trimmedTransferId.isEmpty()) {
+        if (rejectReason) *rejectReason = "传输编号为空";
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["type"] = "file_transfer_resume_query";
+    obj["transferId"] = trimmedTransferId;
+    if (!sendJson(obj)) {
+        if (rejectReason) *rejectReason = "续传状态查询发送失败";
+        return false;
+    }
+    return waitForFileTransferResumeState(trimmedTransferId, confirmedBytes, nextChunkIndex, receivedChunks, rejectReason, timeoutMs);
+}
+
 void Client::cancelCurrentOutgoingTransfer() {
     if (m_cancelOutgoingTransfer) return;
     m_cancelOutgoingTransfer = true;
@@ -569,6 +596,23 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         return;
     }
 
+    if (type == "file_transfer_resume_state") {
+        QVector<qint64> receivedChunks;
+        const QJsonArray chunks = obj["receivedChunks"].toArray();
+        receivedChunks.reserve(chunks.size());
+        for (const QJsonValue& value : chunks) {
+            receivedChunks.append(value.toVariant().toLongLong());
+        }
+        emit fileTransferResumeStateReceived(
+            obj["transferId"].toString(),
+            obj["canResume"].toBool(false),
+            obj["confirmedBytes"].toVariant().toLongLong(),
+            obj["nextChunkIndex"].toVariant().toLongLong(),
+            receivedChunks,
+            obj["reason"].toString());
+        return;
+    }
+
     if (type == "server_group_snapshot") {
         m_serverGroups = obj["groups"].toArray();
         m_hasServerGroupSnapshot = true;
@@ -750,6 +794,70 @@ bool Client::waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, Q
         *receivedBytes = ackReceivedBytes;
     }
     return matched && accepted;
+}
+
+bool Client::waitForFileTransferResumeState(const QString& transferId,
+                                            qint64* confirmedBytes,
+                                            qint64* nextChunkIndex,
+                                            QVector<qint64>* receivedChunks,
+                                            QString* rejectReason,
+                                            int timeoutMs) {
+    if (confirmedBytes) *confirmedBytes = 0;
+    if (nextChunkIndex) *nextChunkIndex = 0;
+    if (receivedChunks) receivedChunks->clear();
+    if (rejectReason) rejectReason->clear();
+
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+
+    bool matched = false;
+    bool canResume = false;
+    qint64 matchedConfirmedBytes = 0;
+    qint64 matchedNextChunkIndex = 0;
+    QVector<qint64> matchedReceivedChunks;
+    QString reason;
+
+    QMetaObject::Connection resumeConnection = connect(
+        this,
+        &Client::fileTransferResumeStateReceived,
+        &loop,
+        [&](const QString& stateTransferId,
+            bool stateCanResume,
+            qint64 stateConfirmedBytes,
+            qint64 stateNextChunkIndex,
+            const QVector<qint64>& stateReceivedChunks,
+            const QString& stateReason) {
+            if (stateTransferId != transferId) return;
+            matched = true;
+            canResume = stateCanResume;
+            matchedConfirmedBytes = stateConfirmedBytes;
+            matchedNextChunkIndex = stateNextChunkIndex;
+            matchedReceivedChunks = stateReceivedChunks;
+            reason = stateReason;
+            loop.quit();
+        });
+    QMetaObject::Connection disconnectedConnection = connect(this, &Client::disconnected, &loop, &QEventLoop::quit);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+
+    timer.start(qMax(1, timeoutMs));
+    loop.exec();
+
+    QObject::disconnect(resumeConnection);
+    QObject::disconnect(disconnectedConnection);
+
+    if (matched) {
+        if (confirmedBytes) *confirmedBytes = matchedConfirmedBytes;
+        if (nextChunkIndex) *nextChunkIndex = matchedNextChunkIndex;
+        if (receivedChunks) *receivedChunks = matchedReceivedChunks;
+        if (!canResume && rejectReason) {
+            *rejectReason = reason.isEmpty() ? "服务端未找到可续传状态" : reason;
+        }
+        return canResume;
+    }
+
+    if (rejectReason) *rejectReason = "续传状态查询超时";
+    return false;
 }
 
 void Client::cleanupExpiredIncomingFileTransfers() {

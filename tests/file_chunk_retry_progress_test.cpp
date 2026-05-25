@@ -7,6 +7,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -79,6 +80,7 @@ public:
 
     quint16 port() const { return m_server.serverPort(); }
     int chunkAttempts() const { return m_chunkAttempts; }
+    int resumeQueries() const { return m_resumeQueries; }
     qint64 acknowledgedBytes() const { return m_acknowledgedBytes; }
 
 private slots:
@@ -107,6 +109,24 @@ private:
             return;
         }
 
+        if (type == "file_transfer_resume_query") {
+            ++m_resumeQueries;
+            QJsonArray receivedChunks;
+            receivedChunks.append(QString::number(0));
+            receivedChunks.append(QString::number(1));
+
+            QJsonObject response;
+            response["type"] = "file_transfer_resume_state";
+            response["transferId"] = message["transferId"].toString();
+            response["canResume"] = true;
+            response["confirmedBytes"] = QString::number(8);
+            response["nextChunkIndex"] = QString::number(2);
+            response["receivedChunks"] = receivedChunks;
+            response["reason"] = "";
+            writeJson(socket, response);
+            return;
+        }
+
         if (type != "file_chunk") return;
 
         ++m_chunkAttempts;
@@ -128,6 +148,7 @@ private:
     QTcpServer m_server;
     QByteArray m_buffer;
     int m_chunkAttempts = 0;
+    int m_resumeQueries = 0;
     qint64 m_acknowledgedBytes = 0;
 };
 }
@@ -156,6 +177,24 @@ int main(int argc, char** argv) {
                 "sender should connect to retry ack server") && ok;
     ok = expect(sender.waitForLoginResult(5000),
                 "sender should log in to retry ack server") && ok;
+
+    qint64 confirmedBytes = 0;
+    qint64 nextChunkIndex = 0;
+    QVector<qint64> receivedChunks;
+    QString resumeReason;
+    ok = expect(sender.queryFileTransferResumeState("resume-transfer",
+                                                    &confirmedBytes,
+                                                    &nextChunkIndex,
+                                                    &receivedChunks,
+                                                    &resumeReason,
+                                                    5000),
+                "sender should query and parse resume state") && ok;
+    ok = expect(server.resumeQueries() == 1, "fake server should receive exactly one resume query") && ok;
+    ok = expect(confirmedBytes == 8, "client should expose confirmed resume bytes") && ok;
+    ok = expect(nextChunkIndex == 2, "client should expose next resume chunk index") && ok;
+    ok = expect(receivedChunks.size() == 2 && receivedChunks[0] == 0 && receivedChunks[1] == 1,
+                "client should expose received resume chunk indexes") && ok;
+    ok = expect(resumeReason.isEmpty(), "accepted resume state should not expose a reject reason") && ok;
 
     QTemporaryDir tempDir;
     ok = expect(tempDir.isValid(), "temporary directory should be available") && ok;

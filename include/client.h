@@ -32,6 +32,12 @@ public:
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
     bool sendImage(const QString& filePath, const QString& receiverId = QString());
+    bool queryFileTransferResumeState(const QString& transferId,
+                                      qint64* confirmedBytes = nullptr,
+                                      qint64* nextChunkIndex = nullptr,
+                                      QVector<qint64>* receivedChunks = nullptr,
+                                      QString* rejectReason = nullptr,
+                                      int timeoutMs = 5000);
     void cancelCurrentOutgoingTransfer();
     void setUserInfo(const QString& userId, const QString& userName);
     bool waitForLoginResult(int timeoutMs = 5000);
@@ -62,6 +68,7 @@ signals:
     void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
     void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes);
     void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason, qint64 receivedBytes);
+    void fileTransferResumeStateReceived(const QString& transferId, bool canResume, qint64 confirmedBytes, qint64 nextChunkIndex, const QVector<qint64>& receivedChunks, const QString& reason);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
     void connectionError(const QString& error);
     void outgoingTransferCancelRequested();
@@ -81,6 +88,7 @@ private:
     bool sendFileChunkAck(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason = QString(), qint64 receivedBytes = 0);
     bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
     bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
+    bool waitForFileTransferResumeState(const QString& transferId, qint64* confirmedBytes, qint64* nextChunkIndex, QVector<qint64>* receivedChunks, QString* rejectReason, int timeoutMs);
     void cleanupExpiredIncomingFileTransfers();
 
     struct PendingIncomingFileTransfer {
