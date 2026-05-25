@@ -117,7 +117,8 @@ private:
                          const QString& contentPrefix,
                          const QString& resumeTransferId = QString(),
                          qint64 resumeConfirmedBytes = 0,
-                         qint64 resumeNextChunkIndex = 0);
+                         qint64 resumeNextChunkIndex = 0,
+                         const QVector<qint64>& resumeReceivedChunks = QVector<qint64>());
     bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     bool waitForFileTransferResumeState(const QString& transferId,
                                         qint64* confirmedBytes,

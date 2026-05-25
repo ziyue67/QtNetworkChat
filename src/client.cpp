@@ -67,11 +67,13 @@ bool collectFileTransferMetadata(const QString& filePath,
     return true;
 }
 
-bool isResumeProgressConsistent(qint64 confirmedBytes,
-                                qint64 nextChunkIndex,
-                                const QVector<qint64>& receivedChunks,
-                                qint64 fileSize,
-                                qint64 chunkCount) {
+bool resolveResumeProgress(qint64 confirmedBytes,
+                           qint64 nextChunkIndex,
+                           const QVector<qint64>& receivedChunks,
+                           qint64 fileSize,
+                           qint64 chunkCount,
+                           QSet<qint64>* receivedSet,
+                           qint64* firstMissingChunkIndex) {
     if (confirmedBytes < 0
         || confirmedBytes > fileSize
         || nextChunkIndex < 0
@@ -86,14 +88,18 @@ bool isResumeProgressConsistent(qint64 confirmedBytes,
         }
         received.insert(index);
     }
-    for (qint64 index = 0; index < nextChunkIndex; ++index) {
-        if (!received.contains(index)) {
-            return false;
-        }
+    qint64 firstMissing = 0;
+    while (firstMissing < chunkCount && received.contains(firstMissing)) {
+        ++firstMissing;
     }
 
-    const qint64 minimumConfirmedBytes = qMin(fileSize, nextChunkIndex * kTransferChunkBytes);
-    return confirmedBytes >= minimumConfirmedBytes;
+    const qint64 minimumConfirmedBytes = qMin(fileSize, firstMissing * kTransferChunkBytes);
+    if (confirmedBytes < minimumConfirmedBytes) {
+        return false;
+    }
+    if (receivedSet) *receivedSet = received;
+    if (firstMissingChunkIndex) *firstMissingChunkIndex = firstMissing;
+    return true;
 }
 }
 
@@ -371,17 +377,32 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
     }
 
     const QString trimmedRemoteHash = remoteFileHash.trimmed();
+    QSet<qint64> receivedChunkSet;
+    qint64 firstMissingChunkIndex = 0;
     if (remoteFileSize != localFileSize
         || remoteChunkSize != kTransferChunkBytes
         || remoteChunkCount != localChunkCount
         || trimmedRemoteHash.isEmpty()
         || trimmedRemoteHash.compare(localFileHash, Qt::CaseInsensitive) != 0
-        || !isResumeProgressConsistent(confirmedBytes, nextChunkIndex, receivedChunks, localFileSize, localChunkCount)) {
+        || !resolveResumeProgress(confirmedBytes,
+                                  nextChunkIndex,
+                                  receivedChunks,
+                                  localFileSize,
+                                  localChunkCount,
+                                  &receivedChunkSet,
+                                  &firstMissingChunkIndex)) {
         if (rejectReason) *rejectReason = "续传元数据与本地文件不一致";
         return false;
     }
 
-    return resumeFileTransfer(filePath, trimmedTransferId, confirmedBytes, nextChunkIndex, receiverId, messageType);
+    return sendFilePayload(filePath,
+                           receiverId,
+                           messageType,
+                           messageType == MessageType::Image ? "发送了图片: " : "发送了文件: ",
+                           trimmedTransferId,
+                           confirmedBytes,
+                           firstMissingChunkIndex,
+                           receivedChunks);
 }
 
 bool Client::queryFileTransferResumeState(const QString& transferId,
@@ -450,7 +471,8 @@ bool Client::sendFilePayload(const QString& filePath,
                              const QString& contentPrefix,
                              const QString& resumeTransferId,
                              qint64 resumeConfirmedBytes,
-                             qint64 resumeNextChunkIndex) {
+                             qint64 resumeNextChunkIndex,
+                             const QVector<qint64>& resumeReceivedChunks) {
     if (!isConnected()) return false;
     m_cancelOutgoingTransfer = false;
     m_currentOutgoingTransferId.clear();
@@ -500,16 +522,25 @@ bool Client::sendFilePayload(const QString& filePath,
     const qint64 chunkCount = (fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes;
     const QString fileHash = QString::fromLatin1(hasher.result().toHex());
     const bool resumeMode = !resumeTransferId.trimmed().isEmpty();
+    QSet<qint64> receivedChunkIndexes;
+    qint64 resolvedResumeNextChunkIndex = resumeNextChunkIndex;
     if (resumeMode) {
-        const qint64 resumeStartOffset = resumeNextChunkIndex * kTransferChunkBytes;
-        if (resumeConfirmedBytes < 0
-            || resumeConfirmedBytes > fileInfo.size()
-            || resumeNextChunkIndex < 0
-            || resumeNextChunkIndex > chunkCount
-            || (resumeNextChunkIndex < chunkCount && resumeConfirmedBytes < resumeStartOffset)) {
+        QVector<qint64> resumeProgressChunks = resumeReceivedChunks;
+        if (resumeProgressChunks.isEmpty()) {
+            for (qint64 index = 0; index < resumeNextChunkIndex; ++index) {
+                resumeProgressChunks.append(index);
+            }
+        }
+        if (!resolveResumeProgress(resumeConfirmedBytes,
+                                   resumeNextChunkIndex,
+                                   resumeProgressChunks,
+                                   fileInfo.size(),
+                                   chunkCount,
+                                   &receivedChunkIndexes,
+                                   &resolvedResumeNextChunkIndex)) {
             return false;
         }
-        if (resumeNextChunkIndex == chunkCount && resumeConfirmedBytes != fileInfo.size()) {
+        if (resolvedResumeNextChunkIndex == chunkCount && resumeConfirmedBytes != fileInfo.size()) {
             return false;
         }
     }
@@ -527,7 +558,7 @@ bool Client::sendFilePayload(const QString& filePath,
     m_currentOutgoingReceiverId = receiverId;
     m_currentOutgoingFileName = fileInfo.fileName();
     qint64 sentBytes = resumeMode ? resumeConfirmedBytes : 0;
-    qint64 chunkIndex = resumeMode ? resumeNextChunkIndex : 0;
+    qint64 chunkIndex = resumeMode ? resolvedResumeNextChunkIndex : 0;
     emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
     if (chunkIndex == chunkCount) {
         file.close();
@@ -549,6 +580,12 @@ bool Client::sendFilePayload(const QString& filePath,
         if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
             file.close();
             return false;
+        }
+        if (receivedChunkIndexes.contains(chunkIndex)) {
+            sentBytes = qMax(sentBytes, qMin(fileInfo.size(), (chunkIndex + 1) * kTransferChunkBytes));
+            ++chunkIndex;
+            emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
+            continue;
         }
 
         QJsonObject obj;
@@ -601,6 +638,8 @@ bool Client::sendFilePayload(const QString& filePath,
                 qint64 resumeChunkSize = 0;
                 qint64 resumeChunkCount = 0;
                 QVector<qint64> resumeReceivedChunks;
+                QSet<qint64> resumeReceivedChunkSet;
+                qint64 firstMissingChunkIndex = 0;
                 QString resumeFileHash;
                 QString resumeRejectReason;
                 if (queryFileTransferResumeState(transferId,
@@ -617,16 +656,19 @@ bool Client::sendFilePayload(const QString& filePath,
                         && resumeChunkSize == kTransferChunkBytes
                         && resumeChunkCount == chunkCount
                         && resumeFileHash.compare(fileHash, Qt::CaseInsensitive) == 0
-                        && resumeNextChunkIndex > chunkIndex
-                        && isResumeProgressConsistent(resumeConfirmedBytes,
-                                                      resumeNextChunkIndex,
-                                                      resumeReceivedChunks,
-                                                      fileInfo.size(),
-                                                      chunkCount)) {
-                        const qint64 resumeOffset = resumeNextChunkIndex * kTransferChunkBytes;
+                        && resolveResumeProgress(resumeConfirmedBytes,
+                                                 resumeNextChunkIndex,
+                                                 resumeReceivedChunks,
+                                                 fileInfo.size(),
+                                                 chunkCount,
+                                                 &resumeReceivedChunkSet,
+                                                 &firstMissingChunkIndex)
+                        && firstMissingChunkIndex > chunkIndex) {
+                        const qint64 resumeOffset = firstMissingChunkIndex * kTransferChunkBytes;
                         if (resumeOffset <= fileInfo.size() && file.seek(resumeOffset)) {
+                            receivedChunkIndexes = resumeReceivedChunkSet;
                             sentBytes = qBound<qint64>(sentBytes, resumeConfirmedBytes, fileInfo.size());
-                            chunkIndex = resumeNextChunkIndex;
+                            chunkIndex = firstMissingChunkIndex;
                             emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
                             advancedByResumeState = true;
                             acknowledged = true;
@@ -652,6 +694,7 @@ bool Client::sendFilePayload(const QString& filePath,
         sentBytes = ackReceivedBytes > 0
             ? qBound<qint64>(sentBytes, ackReceivedBytes, fileInfo.size())
             : nextSentBytes;
+        receivedChunkIndexes.insert(chunkIndex);
         ++chunkIndex;
         emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
     }

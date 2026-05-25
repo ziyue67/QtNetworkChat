@@ -162,18 +162,21 @@ private:
             const QString transferId = message["transferId"].toString();
             if (!m_gapAutoResumeTransferId.isEmpty() && transferId == m_gapAutoResumeTransferId) {
                 ++m_gapAutoResumeQueries;
+                QJsonArray receivedChunks;
+                receivedChunks.append(QString::number(0));
+                receivedChunks.append(QString::number(2));
 
                 QJsonObject response;
                 response["type"] = "file_transfer_resume_state";
                 response["transferId"] = transferId;
                 response["canResume"] = true;
-                response["confirmedBytes"] = QString::number(kClientChunkBytes);
-                response["nextChunkIndex"] = QString::number(1);
+                response["confirmedBytes"] = QString::number(2 * kClientChunkBytes);
+                response["nextChunkIndex"] = QString::number(2);
                 response["fileSize"] = QString::number(m_gapAutoResumeFileSize);
                 response["chunkSize"] = QString::number(m_gapAutoResumeChunkSize);
                 response["chunkCount"] = QString::number(m_gapAutoResumeChunkCount);
                 response["fileHash"] = m_gapAutoResumeFileHash;
-                response["receivedChunks"] = QJsonArray();
+                response["receivedChunks"] = receivedChunks;
                 response["reason"] = "";
                 writeJson(socket, response);
                 return;
@@ -205,9 +208,9 @@ private:
                 || transferId == QString::fromLatin1(kGapResumeTransferId)) {
                 QJsonArray resumeChunks;
                 resumeChunks.append(QString::number(0));
-                if (transferId != QString::fromLatin1(kGapResumeTransferId)) {
-                    resumeChunks.append(QString::number(1));
-                }
+                resumeChunks.append(transferId == QString::fromLatin1(kGapResumeTransferId)
+                    ? QString::number(2)
+                    : QString::number(1));
                 QJsonObject response;
                 response["type"] = "file_transfer_resume_state";
                 response["transferId"] = transferId;
@@ -296,7 +299,8 @@ private:
         }
 
         if (transferId == QString::fromLatin1(kResumeTransferId)
-            || transferId == QString::fromLatin1(kQueryAndResumeTransferId)) {
+            || transferId == QString::fromLatin1(kQueryAndResumeTransferId)
+            || transferId == QString::fromLatin1(kGapResumeTransferId)) {
             m_resumedChunkIndexes.append(chunkIndex);
             m_resumedAcknowledgedBytes = receivedBytes;
             QJsonObject ack;
@@ -464,17 +468,19 @@ int main(int argc, char** argv) {
     ok = expect(!mismatchReason.isEmpty(), "metadata mismatch should expose a reject reason") && ok;
     ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
                 "metadata mismatch should not send any resumed chunks") && ok;
+    const int chunksBeforeGapResume = server.resumedChunkIndexes().size();
     QString gapReason;
-    ok = expect(!sender.queryAndResumeFileTransfer(resumeFilePath,
-                                                   QString::fromLatin1(kGapResumeTransferId),
-                                                   QString(),
-                                                   MessageType::File,
-                                                   &gapReason,
-                                                   5000),
-                "sender should reject query-and-resume when received chunks have a gap") && ok;
-    ok = expect(!gapReason.isEmpty(), "received chunk gap should expose a reject reason") && ok;
-    ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
-                "received chunk gap should not send any resumed chunks") && ok;
+    ok = expect(sender.queryAndResumeFileTransfer(resumeFilePath,
+                                                  QString::fromLatin1(kGapResumeTransferId),
+                                                  QString(),
+                                                  MessageType::File,
+                                                  &gapReason,
+                                                  5000),
+                "sender should infer the earliest missing chunk from received chunks") && ok;
+    const QVector<qint64> gapResumedChunks = server.resumedChunkIndexes();
+    ok = expect(gapResumedChunks.size() == chunksBeforeGapResume + 1 && gapResumedChunks.last() == 1,
+                "query-and-resume should resend the earliest missing chunk and skip later confirmed chunks") && ok;
+    ok = expect(gapReason.isEmpty(), "accepted gap resume should not expose a reject reason") && ok;
 
     const QString autoResumePath = tempDir.filePath(QString::fromLatin1(kAckTimeoutAutoResumeFileName));
     qint64 autoResumeFileSize = 0;
@@ -493,15 +499,12 @@ int main(int argc, char** argv) {
     ok = expect(writeResumeFile(gapAutoResumePath, &gapAutoResumeFileSize),
                 "gap auto resume test file should be created") && ok;
     ok = expect(sender.sendFile(gapAutoResumePath),
-                "sender should ignore inconsistent auto resume state and fall back to retrying chunks") && ok;
+                "sender should infer missing chunk from auto resume state and skip later confirmed chunks") && ok;
     const QVector<qint64> gapAutoResumeChunks = server.gapAutoResumeChunkIndexes();
     ok = expect(server.gapAutoResumeQueries() == 1,
-                "sender should query the inconsistent auto resume state once") && ok;
-    ok = expect(gapAutoResumeChunks.size() == 3
-                    && gapAutoResumeChunks[0] == 0
-                    && gapAutoResumeChunks[1] == 1
-                    && gapAutoResumeChunks[2] == 2,
-                "sender should retry from the timed-out chunk when auto resume state is inconsistent") && ok;
+                "sender should query the gap auto resume state once") && ok;
+    ok = expect(gapAutoResumeChunks.size() == 1 && gapAutoResumeChunks[0] == 1,
+                "auto resume should resend the earliest missing chunk and skip later confirmed chunks") && ok;
 
     sender.disconnectFromServer();
     if (!appDataDir.isEmpty()) {
