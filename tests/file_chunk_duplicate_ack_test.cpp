@@ -203,6 +203,36 @@ int main(int argc, char** argv) {
     ok = expect(duplicateAck["receivedBytes"].toVariant().toLongLong() == firstReceivedBytes,
                 "duplicate chunk ack should not increase received bytes") && ok;
 
+    const QString emptyChunkTransferId = "empty-chunk-transfer";
+    QJsonObject emptyChunk = makeChunk(0, emptyChunkTransferId);
+    emptyChunk["fileData"] = "";
+    ok = expect(writeJson(socket, emptyChunk), "raw socket should send an empty chunk") && ok;
+
+    QJsonObject emptyChunkAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == emptyChunkTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 0;
+    }, &emptyChunkAck), "server should reject an empty chunk") && ok;
+    ok = expect(!emptyChunkAck["accepted"].toBool(true),
+                "empty chunk ack should be rejected") && ok;
+    ok = expect(emptyChunkAck["reason"].toString().contains("分片内容为空"),
+                "empty chunk rejection should explain the empty payload") && ok;
+
+    QJsonObject emptyChunkResumeQuery;
+    emptyChunkResumeQuery["type"] = "file_transfer_resume_query";
+    emptyChunkResumeQuery["transferId"] = emptyChunkTransferId;
+    ok = expect(writeJson(socket, emptyChunkResumeQuery),
+                "raw socket should query resume state after empty chunk rejection") && ok;
+
+    QJsonObject emptyChunkResumeState;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == emptyChunkTransferId;
+    }, &emptyChunkResumeState), "server should not keep rejected empty chunk state") && ok;
+    ok = expect(!emptyChunkResumeState["canResume"].toBool(true),
+                "empty chunk transfer should not remain resumable after rejection") && ok;
+
     const QString outOfOrderTransferId = "out-of-order-transfer";
     const QString outOfOrderFileName = "out-of-order.bin";
     const QString outOfOrderReceiverId = "949999";
