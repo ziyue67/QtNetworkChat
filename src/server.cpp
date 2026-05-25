@@ -43,10 +43,6 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
-bool redisRequired() {
-    return envEnabled("QTNETWORKCHAT_REDIS_REQUIRED");
-}
-
 QString safePathPart(const QString& value) {
     QString safe;
     safe.reserve(value.size());
@@ -198,10 +194,6 @@ bool Server::start(quint16 port) {
             qWarning() << "Redis Pub/Sub subscriber unavailable:" << m_redisSubscriber->lastError();
         }
 
-        if (redisRequired() && (!redisConnected || !redisSubscribed)) {
-            qWarning() << "Redis is required; refusing to start the chat server";
-            return false;
-        }
     }
 
     ensureAccountDatabase();

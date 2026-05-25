@@ -78,10 +78,9 @@ if (-not $exe) {
 }
 
 $env:QTNETWORKCHAT_REDIS = "1"
-$env:QTNETWORKCHAT_REDIS_REQUIRED = "1"
 $env:QTNETWORKCHAT_REDIS_HOST = $HostName
 $env:QTNETWORKCHAT_REDIS_PORT = [string]$Port
 $env:QTNETWORKCHAT_REDIS_PREFIX = $Prefix
 
-Write-Host "Launching $($exe.FullName) with required Redis at ${HostName}:$Port"
+Write-Host "Launching $($exe.FullName) with Redis enabled at ${HostName}:$Port"
 & $exe.FullName
