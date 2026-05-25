@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QByteArray>
+#include <QDateTime>
 #include <QList>
 #include <QString>
 #include <QTcpSocket>
@@ -23,12 +24,19 @@ public:
         QByteArray value;
         QList<Reply> elements;
         qint64 integer = 0;
+        bool isNull = false;
         QString error;
 
         bool isError() const { return type == ReplyType::Error; }
         bool isSimpleString(const QByteArray& expected) const {
             return type == ReplyType::SimpleString && value == expected;
         }
+    };
+
+    struct Presence {
+        QString userId;
+        QString userName;
+        QDateTime lastSeen;
     };
 
     explicit RedisClient(QObject* parent = nullptr);
@@ -43,6 +51,7 @@ public:
     bool ping(int timeoutMs = 500);
     bool setPresence(const QString& userId, const QString& userName, int ttlSeconds = 90, int timeoutMs = 200);
     bool clearPresence(const QString& userId, int timeoutMs = 200);
+    bool fetchOnlinePresence(QList<Presence>* users, int timeoutMs = 300);
 
     static QByteArray encodeCommand(const QList<QByteArray>& arguments);
     static bool parseReply(const QByteArray& data, Reply* reply, int* bytesConsumed = nullptr, QString* errorMessage = nullptr);
@@ -50,6 +59,7 @@ public:
 private:
     bool ensureConnected(int timeoutMs);
     bool sendCommand(const QList<QByteArray>& arguments, Reply* reply, int timeoutMs);
+    QByteArray presenceUsersKey() const;
     QByteArray presenceKey(const QString& userId) const;
     QByteArray presenceValue(const QString& userId, const QString& userName) const;
 

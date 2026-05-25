@@ -29,6 +29,16 @@ int main() {
     ok = expect(command.endsWith("$2\r\n90\r\n"),
                 "TTL argument should be encoded as a bulk string") && ok;
 
+    const QByteArray indexCommand = RedisClient::encodeCommand({
+        QByteArrayLiteral("SADD"),
+        QByteArrayLiteral("qtchat:presence:users"),
+        QByteArrayLiteral("10001")
+    });
+    ok = expect(indexCommand.startsWith("*3\r\n$4\r\nSADD\r\n"),
+                "presence index command should use RESP array framing") && ok;
+    ok = expect(indexCommand.contains("$21\r\nqtchat:presence:users\r\n"),
+                "presence index key should be encoded as a bulk string") && ok;
+
     RedisClient::Reply reply;
     int consumed = 0;
     QString error;
@@ -48,6 +58,11 @@ int main() {
     ok = expect(reply.type == RedisClient::ReplyType::BulkString && reply.value == "hello",
                 "bulk string reply should expose payload") && ok;
 
+    ok = expect(RedisClient::parseReply("$-1\r\n", &reply, nullptr, &error),
+                "null bulk string reply should parse") && ok;
+    ok = expect(reply.type == RedisClient::ReplyType::BulkString && reply.isNull,
+                "null bulk string reply should expose null state") && ok;
+
     ok = expect(RedisClient::parseReply("-NOAUTH Authentication required.\r\n", &reply, nullptr, &error),
                 "error reply should parse") && ok;
     ok = expect(reply.isError() && reply.error.contains("NOAUTH"),
@@ -60,6 +75,15 @@ int main() {
                     && reply.elements[0].isSimpleString("OK")
                     && reply.elements[1].integer == 7,
                 "array reply should expose nested replies") && ok;
+
+    ok = expect(RedisClient::parseReply("*3\r\n$5\r\n10001\r\n$-1\r\n$5\r\nAlice\r\n", &reply, nullptr, &error),
+                "array with null bulk string should parse") && ok;
+    ok = expect(reply.type == RedisClient::ReplyType::Array
+                    && reply.elements.size() == 3
+                    && reply.elements[0].value == "10001"
+                    && reply.elements[1].isNull
+                    && reply.elements[2].value == "Alice",
+                "array reply should preserve null bulk strings") && ok;
 
     ok = expect(!RedisClient::parseReply("$5\r\nhe", &reply, nullptr, &error),
                 "incomplete bulk string should be rejected") && ok;

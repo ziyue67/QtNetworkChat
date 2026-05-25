@@ -2171,13 +2171,29 @@ void Server::sendUserList(QTcpSocket* socket) {
     obj["type"] = "userlist";
 
     QJsonArray users;
+    QSet<QString> appendedUserIds;
+    auto appendOnlineUser = [&](const QString& userId, const QString& userName) {
+        if (userId.isEmpty() || appendedUserIds.contains(userId)) return;
+        QJsonObject u;
+        u["id"] = userId;
+        u["name"] = userName.isEmpty() ? userId : userName;
+        u["online"] = true;
+        users.append(u);
+        appendedUserIds.insert(userId);
+    };
+
     for (const ChatUser& user : m_clients.values()) {
         if (user.isOnline) {
-            QJsonObject u;
-            u["id"] = user.id;
-            u["name"] = user.name;
-            u["online"] = user.isOnline;
-            users.append(u);
+            appendOnlineUser(user.id, user.name);
+        }
+    }
+
+    if (m_redisClient && m_redisClient->isEnabled()) {
+        QList<RedisClient::Presence> redisUsers;
+        if (m_redisClient->fetchOnlinePresence(&redisUsers)) {
+            for (const RedisClient::Presence& user : redisUsers) {
+                appendOnlineUser(user.userId, user.userName);
+            }
         }
     }
     obj["users"] = users;

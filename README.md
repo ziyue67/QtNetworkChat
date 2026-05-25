@@ -14,7 +14,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 创建服务器和加入服务器
 - TCP Socket 局域网通信
 - JSON 消息协议
-- 可选 Redis 在线状态服务，为高并发和多服务实例部署提供 presence 基础
+- 可选 Redis 在线状态服务，为高并发和多服务实例部署提供 presence 与在线列表共享基础
 - 群聊广播
 - 服务端保存基础群组、群成员和群公告表
 - 登录后同步服务端公共群公告、群主和成员角色快照
@@ -189,7 +189,7 @@ set QTNETWORKCHAT_REDIS_PASSWORD=your_password
 set QTNETWORKCHAT_REDIS_PREFIX=qtchat
 ```
 
-启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL；用户断开或服务端停止时会主动删除该在线状态。Redis 不可用时服务端会回退到原有内存在线表，不影响局域网单机服务端运行。
+启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。Redis 不可用时服务端会回退到原有内存在线表，不影响局域网单机服务端运行。
 
 ### 客户端连接不上服务器
 
@@ -217,7 +217,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 后续计划
 
-- Redis 继续扩展为跨服务实例消息路由、在线用户查询和限流基础
+- Redis 继续扩展为跨服务实例消息路由、连接降级/重连测试和限流基础
 - 文件传输继续增加断点续传和更细粒度的失败分片重传
 - 离线文件传输补充失败续传和可配置保留时间
 - 服务端群组模型继续补充更多群权限协议测试和成员状态边界表现

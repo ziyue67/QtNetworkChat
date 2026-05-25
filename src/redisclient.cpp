@@ -82,6 +82,7 @@ bool parseReplyAt(const QByteArray& data, int* offset, RedisClient::Reply* reply
         if (!parseIntegerLine(data, *offset, &length, &nextOffset, errorMessage)) return false;
         if (length < 0) {
             reply->type = RedisClient::ReplyType::BulkString;
+            reply->isNull = true;
             reply->value.clear();
             *offset = nextOffset;
             return true;
@@ -196,7 +197,7 @@ bool RedisClient::setPresence(const QString& userId, const QString& userName, in
 
     Reply reply;
     const int boundedTtl = qMax(ttlSeconds, 10);
-    return sendCommand({
+    const bool saved = sendCommand({
             QByteArrayLiteral("SET"),
             presenceKey(userId),
             presenceValue(userId, userName),
@@ -206,14 +207,104 @@ bool RedisClient::setPresence(const QString& userId, const QString& userName, in
         &reply,
         timeoutMs)
         && reply.isSimpleString(QByteArrayLiteral("OK"));
+    if (!saved) return false;
+
+    Reply indexReply;
+    return sendCommand({
+            QByteArrayLiteral("SADD"),
+            presenceUsersKey(),
+            userId.toUtf8()
+        },
+        &indexReply,
+        timeoutMs)
+        && indexReply.type == ReplyType::Integer;
 }
 
 bool RedisClient::clearPresence(const QString& userId, int timeoutMs) {
     if (!m_enabled || userId.isEmpty()) return true;
 
     Reply reply;
-    return sendCommand({QByteArrayLiteral("DEL"), presenceKey(userId)}, &reply, timeoutMs)
+    const bool deleted = sendCommand({QByteArrayLiteral("DEL"), presenceKey(userId)}, &reply, timeoutMs)
         && reply.type == ReplyType::Integer;
+    if (!deleted) return false;
+
+    Reply indexReply;
+    return sendCommand({
+            QByteArrayLiteral("SREM"),
+            presenceUsersKey(),
+            userId.toUtf8()
+        },
+        &indexReply,
+        timeoutMs)
+        && indexReply.type == ReplyType::Integer;
+}
+
+bool RedisClient::fetchOnlinePresence(QList<Presence>* users, int timeoutMs) {
+    if (users) users->clear();
+    if (!m_enabled) return true;
+    if (!users) return false;
+
+    Reply membersReply;
+    if (!sendCommand({QByteArrayLiteral("SMEMBERS"), presenceUsersKey()}, &membersReply, timeoutMs)
+        || membersReply.type != ReplyType::Array) {
+        return false;
+    }
+
+    QList<QByteArray> userIds;
+    for (const Reply& member : membersReply.elements) {
+        if (member.type == ReplyType::BulkString && !member.isNull && !member.value.isEmpty()) {
+            userIds.append(member.value);
+        }
+    }
+    if (userIds.isEmpty()) return true;
+
+    QList<QByteArray> mgetArgs;
+    mgetArgs.append(QByteArrayLiteral("MGET"));
+    for (const QByteArray& userId : userIds) {
+        mgetArgs.append(presenceKey(QString::fromUtf8(userId)));
+    }
+
+    Reply valuesReply;
+    if (!sendCommand(mgetArgs, &valuesReply, timeoutMs) || valuesReply.type != ReplyType::Array) {
+        return false;
+    }
+
+    QList<QByteArray> staleUserIds;
+    const int count = qMin(userIds.size(), valuesReply.elements.size());
+    for (int i = 0; i < count; ++i) {
+        const Reply& value = valuesReply.elements.at(i);
+        if (value.type != ReplyType::BulkString || value.isNull || value.value.isEmpty()) {
+            staleUserIds.append(userIds.at(i));
+            continue;
+        }
+
+        const QJsonDocument doc = QJsonDocument::fromJson(value.value);
+        if (!doc.isObject()) {
+            staleUserIds.append(userIds.at(i));
+            continue;
+        }
+
+        const QJsonObject obj = doc.object();
+        Presence presence;
+        presence.userId = obj["userId"].toString(QString::fromUtf8(userIds.at(i))).trimmed();
+        presence.userName = obj["userName"].toString(presence.userId).trimmed();
+        presence.lastSeen = QDateTime::fromString(obj["lastSeen"].toString(), Qt::ISODate);
+        if (!presence.userId.isEmpty()) {
+            if (presence.userName.isEmpty()) presence.userName = presence.userId;
+            users->append(presence);
+        }
+    }
+
+    if (!staleUserIds.isEmpty()) {
+        QList<QByteArray> cleanupArgs;
+        cleanupArgs.append(QByteArrayLiteral("SREM"));
+        cleanupArgs.append(presenceUsersKey());
+        cleanupArgs.append(staleUserIds);
+        Reply cleanupReply;
+        sendCommand(cleanupArgs, &cleanupReply, timeoutMs);
+    }
+
+    return true;
 }
 
 QByteArray RedisClient::encodeCommand(const QList<QByteArray>& arguments) {
@@ -300,6 +391,10 @@ bool RedisClient::sendCommand(const QList<QByteArray>& arguments, Reply* reply, 
     m_lastError = m_socket.errorString().isEmpty() ? "Redis reply timed out" : m_socket.errorString();
     m_socket.abort();
     return false;
+}
+
+QByteArray RedisClient::presenceUsersKey() const {
+    return (m_prefix + ":presence:users").toUtf8();
 }
 
 QByteArray RedisClient::presenceKey(const QString& userId) const {
