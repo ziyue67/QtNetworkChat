@@ -13,6 +13,7 @@
 
 class QTimer;
 class RedisClient;
+class RedisSubscriber;
 
 class Server : public QObject {
     Q_OBJECT
@@ -58,6 +59,7 @@ private:
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
     void publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
+    void handleRedisMessageEvent(const QByteArray& payload);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
@@ -107,6 +109,7 @@ private:
 
     QTcpServer* m_tcpServer;
     RedisClient* m_redisClient;
+    RedisSubscriber* m_redisSubscriber;
     QTimer* m_transferCleanupTimer;
     QTimer* m_offlineAttachmentCleanupTimer;
     quint16 m_serverPort;

@@ -16,7 +16,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - JSON 消息协议
 - 可选 Redis 在线状态服务，为高并发和多服务实例部署提供 presence 与在线列表共享基础
 - 服务端可向 Redis Pub/Sub 发布本实例聊天事件，为跨实例消息路由打基础
-- Redis Pub/Sub 已具备独立订阅连接基础，可消费 message 事件
+- Redis Pub/Sub 已接入服务端远端聊天事件消费，按实例 ID 去重后转发给本实例在线用户
 - 群聊广播
 - 服务端保存基础群组、群成员和群公告表
 - 登录后同步服务端公共群公告、群主和成员角色快照
@@ -191,7 +191,7 @@ set QTNETWORKCHAT_REDIS_PASSWORD=your_password
 set QTNETWORKCHAT_REDIS_PREFIX=qtchat
 ```
 
-启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；Redis 客户端层已具备独立订阅连接和 message 解析基础，为后续跨服务实例转发和去重做准备。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。
+启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；服务端也会订阅该通道，跳过本实例事件，并把远端群聊/私聊转发给本实例在线用户。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。
 
 ### 客户端连接不上服务器
 

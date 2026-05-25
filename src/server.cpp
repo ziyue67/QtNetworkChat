@@ -153,6 +153,7 @@ Server::Server(QObject* parent)
     : QObject(parent)
     , m_tcpServer(createServerSocket(this))
     , m_redisClient(new RedisClient(this))
+    , m_redisSubscriber(new RedisSubscriber(this))
     , m_transferCleanupTimer(new QTimer(this))
     , m_offlineAttachmentCleanupTimer(new QTimer(this))
     , m_serverPort(0)
@@ -160,11 +161,20 @@ Server::Server(QObject* parent)
     , m_instanceId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
     m_redisClient->configureFromEnvironment();
+    m_redisSubscriber->configureFromEnvironment();
+    connect(m_redisSubscriber, &RedisSubscriber::messageReceived, this, [this](const RedisClient::PubSubMessage& message) {
+        handleRedisMessageEvent(message.payload);
+    });
     if (m_redisClient->isEnabled()) {
         if (m_redisClient->connectToServer()) {
             qDebug() << "Redis presence service enabled";
         } else {
             qWarning() << "Redis presence requested but unavailable:" << m_redisClient->lastError();
+        }
+        if (m_redisSubscriber->subscribe("messages")) {
+            qDebug() << "Redis Pub/Sub subscriber enabled";
+        } else {
+            qWarning() << "Redis Pub/Sub subscriber unavailable:" << m_redisSubscriber->lastError();
         }
     }
 
@@ -217,6 +227,7 @@ QString Server::transportSecurityDescription() const {
 void Server::stop() {
     m_transferCleanupTimer->stop();
     m_offlineAttachmentCleanupTimer->stop();
+    m_redisSubscriber->disconnectFromServer();
     for (const ChatUser& user : m_clients.values()) {
         clearRedisPresence(user.id);
     }
@@ -1126,6 +1137,35 @@ void Server::publishRedisMessageEvent(const Message& msg, const QString& deliver
     event["message"] = messageDoc.object();
 
     m_redisClient->publish("messages", QJsonDocument(event).toJson(QJsonDocument::Compact));
+}
+
+void Server::handleRedisMessageEvent(const QByteArray& payload) {
+    const QJsonDocument doc = QJsonDocument::fromJson(payload);
+    if (!doc.isObject()) return;
+
+    const QJsonObject event = doc.object();
+    if (event["eventType"].toString() != "chat_message") return;
+    if (event["instanceId"].toString() == m_instanceId) return;
+
+    const QJsonObject messageObj = event["message"].toObject();
+    if (messageObj.isEmpty()) return;
+
+    const Message msg = Message::fromJson(QJsonDocument(messageObj).toJson(QJsonDocument::Compact));
+    if (msg.senderId.isEmpty()) return;
+    if (msg.type != MessageType::Text && msg.type != MessageType::Private) return;
+
+    if (msg.receiverId.isEmpty()) {
+        broadcastMessage(msg);
+    } else {
+        QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
+        if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
+            sendToUser(msg);
+        } else {
+            return;
+        }
+    }
+
+    emit newMessage(msg);
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {
