@@ -307,6 +307,21 @@ bool RedisClient::fetchOnlinePresence(QList<Presence>* users, int timeoutMs) {
     return true;
 }
 
+bool RedisClient::publish(const QString& channel, const QByteArray& payload, int timeoutMs) {
+    if (!m_enabled) return true;
+    if (channel.trimmed().isEmpty()) return false;
+
+    Reply reply;
+    return sendCommand({
+            QByteArrayLiteral("PUBLISH"),
+            pubSubChannel(channel),
+            payload
+        },
+        &reply,
+        timeoutMs)
+        && reply.type == ReplyType::Integer;
+}
+
 QByteArray RedisClient::encodeCommand(const QList<QByteArray>& arguments) {
     QByteArray command;
     command.append('*');
@@ -335,6 +350,31 @@ bool RedisClient::parseReply(const QByteArray& data, Reply* reply, int* bytesCon
     if (bytesConsumed) *bytesConsumed = offset;
     if (errorMessage) errorMessage->clear();
     return true;
+}
+
+bool RedisClient::parsePubSubMessage(const Reply& reply, PubSubMessage* message) {
+    if (!message
+        || reply.type != ReplyType::Array
+        || reply.elements.size() != 3) {
+        return false;
+    }
+
+    const Reply& kind = reply.elements.at(0);
+    const Reply& channel = reply.elements.at(1);
+    const Reply& payload = reply.elements.at(2);
+    if (kind.type != ReplyType::BulkString
+        || channel.type != ReplyType::BulkString
+        || payload.type != ReplyType::BulkString
+        || kind.isNull
+        || channel.isNull
+        || payload.isNull
+        || kind.value.toLower() != QByteArrayLiteral("message")) {
+        return false;
+    }
+
+    message->channel = QString::fromUtf8(channel.value);
+    message->payload = payload.value;
+    return !message->channel.isEmpty();
 }
 
 bool RedisClient::ensureConnected(int timeoutMs) {
@@ -391,6 +431,14 @@ bool RedisClient::sendCommand(const QList<QByteArray>& arguments, Reply* reply, 
     m_lastError = m_socket.errorString().isEmpty() ? "Redis reply timed out" : m_socket.errorString();
     m_socket.abort();
     return false;
+}
+
+QByteArray RedisClient::pubSubChannel(const QString& channel) const {
+    QString normalized = channel.trimmed();
+    while (normalized.startsWith(':')) {
+        normalized.remove(0, 1);
+    }
+    return (m_prefix + ":pubsub:" + normalized).toUtf8();
 }
 
 QByteArray RedisClient::presenceUsersKey() const {

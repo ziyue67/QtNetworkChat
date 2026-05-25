@@ -118,6 +118,10 @@ private:
         if (command == "PING") {
             return "+PONG\r\n";
         }
+        if (command == "PUBLISH" && args.size() >= 3) {
+            m_published[args.at(1)].append(args.at(2));
+            return integerReply(1);
+        }
         if (command == "SET" && args.size() >= 5 && args.at(3).toUpper() == "EX") {
             m_strings[args.at(1)] = args.at(2);
             return "+OK\r\n";
@@ -149,6 +153,7 @@ private:
     QTcpServer* m_server = nullptr;
     QMap<QByteArray, QByteArray> m_strings;
     QMap<QByteArray, QSet<QByteArray>> m_sets;
+    QMap<QByteArray, QList<QByteArray>> m_published;
 };
 
 int main(int argc, char** argv) {
@@ -193,6 +198,8 @@ int main(int argc, char** argv) {
     RedisClient client;
     client.configureFromEnvironment();
     ok = expect(client.connectToServer(2000), "Redis client should connect to the fake Redis service") && ok;
+    ok = expect(client.publish("messages", QByteArrayLiteral("{\"kind\":\"ping\"}"), 2000),
+                "Redis client should publish a namespaced Pub/Sub payload") && ok;
     ok = expect(client.setPresence("940001", "RedisFlow", 90, 2000),
                 "Redis client should write presence and index entries") && ok;
 

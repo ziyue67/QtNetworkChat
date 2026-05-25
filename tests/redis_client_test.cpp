@@ -85,6 +85,14 @@ int main() {
                     && reply.elements[2].value == "Alice",
                 "array reply should preserve null bulk strings") && ok;
 
+    ok = expect(RedisClient::parseReply("*3\r\n$7\r\nmessage\r\n$22\r\nqtchat:pubsub:messages\r\n$5\r\nhello\r\n", &reply, nullptr, &error),
+                "pub/sub message reply should parse as a RESP array") && ok;
+    RedisClient::PubSubMessage pubSubMessage;
+    ok = expect(RedisClient::parsePubSubMessage(reply, &pubSubMessage),
+                "pub/sub message helper should accept Redis message arrays") && ok;
+    ok = expect(pubSubMessage.channel == "qtchat:pubsub:messages" && pubSubMessage.payload == "hello",
+                "pub/sub message helper should expose channel and payload") && ok;
+
     ok = expect(!RedisClient::parseReply("$5\r\nhe", &reply, nullptr, &error),
                 "incomplete bulk string should be rejected") && ok;
     ok = expect(error == "incomplete",

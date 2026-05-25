@@ -39,6 +39,11 @@ public:
         QDateTime lastSeen;
     };
 
+    struct PubSubMessage {
+        QString channel;
+        QByteArray payload;
+    };
+
     explicit RedisClient(QObject* parent = nullptr);
 
     void configureFromEnvironment();
@@ -52,13 +57,16 @@ public:
     bool setPresence(const QString& userId, const QString& userName, int ttlSeconds = 90, int timeoutMs = 200);
     bool clearPresence(const QString& userId, int timeoutMs = 200);
     bool fetchOnlinePresence(QList<Presence>* users, int timeoutMs = 300);
+    bool publish(const QString& channel, const QByteArray& payload, int timeoutMs = 200);
 
     static QByteArray encodeCommand(const QList<QByteArray>& arguments);
     static bool parseReply(const QByteArray& data, Reply* reply, int* bytesConsumed = nullptr, QString* errorMessage = nullptr);
+    static bool parsePubSubMessage(const Reply& reply, PubSubMessage* message);
 
 private:
     bool ensureConnected(int timeoutMs);
     bool sendCommand(const QList<QByteArray>& arguments, Reply* reply, int timeoutMs);
+    QByteArray pubSubChannel(const QString& channel) const;
     QByteArray presenceUsersKey() const;
     QByteArray presenceKey(const QString& userId) const;
     QByteArray presenceValue(const QString& userId, const QString& userName) const;
