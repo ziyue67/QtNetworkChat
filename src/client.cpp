@@ -249,6 +249,26 @@ bool Client::sendImage(const QString& filePath, const QString& receiverId) {
     return sendFilePayload(filePath, receiverId, MessageType::Image, "发送了图片: ");
 }
 
+bool Client::resumeFileTransfer(const QString& filePath,
+                                const QString& transferId,
+                                qint64 confirmedBytes,
+                                qint64 nextChunkIndex,
+                                const QString& receiverId,
+                                MessageType messageType) {
+    const QString trimmedTransferId = transferId.trimmed();
+    if (trimmedTransferId.isEmpty() || confirmedBytes < 0 || nextChunkIndex < 0) {
+        return false;
+    }
+    if (messageType != MessageType::File && messageType != MessageType::Image) {
+        return false;
+    }
+
+    const QString contentPrefix = messageType == MessageType::Image
+        ? "发送了图片: "
+        : "发送了文件: ";
+    return sendFilePayload(filePath, receiverId, messageType, contentPrefix, trimmedTransferId, confirmedBytes, nextChunkIndex);
+}
+
 bool Client::queryFileTransferResumeState(const QString& transferId,
                                           qint64* confirmedBytes,
                                           qint64* nextChunkIndex,
@@ -292,7 +312,13 @@ void Client::cancelCurrentOutgoingTransfer() {
     emit outgoingTransferCancelRequested();
 }
 
-bool Client::sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix) {
+bool Client::sendFilePayload(const QString& filePath,
+                             const QString& receiverId,
+                             MessageType messageType,
+                             const QString& contentPrefix,
+                             const QString& resumeTransferId,
+                             qint64 resumeConfirmedBytes,
+                             qint64 resumeNextChunkIndex) {
     if (!isConnected()) return false;
     m_cancelOutgoingTransfer = false;
     m_currentOutgoingTransferId.clear();
@@ -341,20 +367,45 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
 
     const qint64 chunkCount = (fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes;
     const QString fileHash = QString::fromLatin1(hasher.result().toHex());
+    const bool resumeMode = !resumeTransferId.trimmed().isEmpty();
+    if (resumeMode) {
+        const qint64 resumeStartOffset = resumeNextChunkIndex * kTransferChunkBytes;
+        if (resumeConfirmedBytes < 0
+            || resumeConfirmedBytes > fileInfo.size()
+            || resumeNextChunkIndex < 0
+            || resumeNextChunkIndex > chunkCount
+            || (resumeNextChunkIndex < chunkCount && resumeConfirmedBytes < resumeStartOffset)) {
+            return false;
+        }
+        if (resumeNextChunkIndex == chunkCount && resumeConfirmedBytes != fileInfo.size()) {
+            return false;
+        }
+    }
     emit fileTransferPrepared(fileInfo.fileName(), fileInfo.size(), kTransferChunkBytes, chunkCount, fileHash);
     if (m_cancelOutgoingTransfer) return false;
 
     if (!file.open(QIODevice::ReadOnly)) return false;
-    const QString transferId = QString("%1_%2_%3")
-        .arg(m_userId,
-             QString::number(QDateTime::currentMSecsSinceEpoch()),
-             QString::number(QRandomGenerator::global()->generate()));
+    const QString transferId = resumeMode
+        ? resumeTransferId.trimmed()
+        : QString("%1_%2_%3")
+            .arg(m_userId,
+                 QString::number(QDateTime::currentMSecsSinceEpoch()),
+                 QString::number(QRandomGenerator::global()->generate()));
     m_currentOutgoingTransferId = transferId;
     m_currentOutgoingReceiverId = receiverId;
     m_currentOutgoingFileName = fileInfo.fileName();
-    qint64 sentBytes = 0;
-    qint64 chunkIndex = 0;
-    emit fileTransferProgress(fileInfo.fileName(), 0, fileInfo.size());
+    qint64 sentBytes = resumeMode ? resumeConfirmedBytes : 0;
+    qint64 chunkIndex = resumeMode ? resumeNextChunkIndex : 0;
+    emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
+    if (chunkIndex == chunkCount) {
+        file.close();
+        return sentBytes == fileInfo.size();
+    }
+    const qint64 startOffset = chunkIndex * kTransferChunkBytes;
+    if (startOffset > fileInfo.size() || !file.seek(startOffset)) {
+        file.close();
+        return false;
+    }
 
     while (!file.atEnd()) {
         if (m_cancelOutgoingTransfer) {

@@ -19,6 +19,9 @@
 #include <functional>
 
 namespace {
+constexpr qint64 kClientChunkBytes = 256LL * 1024;
+const char kResumeTransferId[] = "resume-send-transfer";
+
 bool expect(bool condition, const char* message) {
     if (!condition) {
         qWarning() << message;
@@ -44,6 +47,21 @@ bool writeSmallFile(const QString& filePath) {
     if (!file.open(QIODevice::WriteOnly)) return false;
     const QByteArray data("retry-progress-payload");
     return file.write(data) == data.size();
+}
+
+bool writeResumeFile(const QString& filePath, qint64* fileSize) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) return false;
+
+    const QByteArray firstChunk(static_cast<int>(kClientChunkBytes), 'a');
+    const QByteArray secondChunk(static_cast<int>(kClientChunkBytes), 'b');
+    const QByteArray finalChunk("resume-tail-payload");
+    const qint64 expectedSize = firstChunk.size() + secondChunk.size() + finalChunk.size();
+    if (file.write(firstChunk) != firstChunk.size()) return false;
+    if (file.write(secondChunk) != secondChunk.size()) return false;
+    if (file.write(finalChunk) != finalChunk.size()) return false;
+    if (fileSize) *fileSize = expectedSize;
+    return true;
 }
 
 void writeJson(QTcpSocket* socket, const QJsonObject& obj) {
@@ -82,6 +100,8 @@ public:
     int chunkAttempts() const { return m_chunkAttempts; }
     int resumeQueries() const { return m_resumeQueries; }
     qint64 acknowledgedBytes() const { return m_acknowledgedBytes; }
+    QVector<qint64> resumedChunkIndexes() const { return m_resumedChunkIndexes; }
+    qint64 resumedAcknowledgedBytes() const { return m_resumedAcknowledgedBytes; }
 
 private slots:
     void onNewConnection() {
@@ -129,19 +149,40 @@ private:
 
         if (type != "file_chunk") return;
 
+        const QString transferId = message["transferId"].toString();
+        const qint64 chunkIndex = message["chunkIndex"].toVariant().toLongLong();
+        const qint64 chunkSize = message["chunkSize"].toVariant().toLongLong();
+        const qint64 fileSize = message["fileSize"].toVariant().toLongLong();
+        const QByteArray chunkData = QByteArray::fromBase64(message["fileData"].toString().toLatin1());
+        const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+
+        if (transferId == QString::fromLatin1(kResumeTransferId)) {
+            m_resumedChunkIndexes.append(chunkIndex);
+            m_resumedAcknowledgedBytes = receivedBytes;
+            QJsonObject ack;
+            ack["type"] = "file_chunk_ack";
+            ack["transferId"] = transferId;
+            ack["chunkIndex"] = message["chunkIndex"].toString();
+            ack["accepted"] = true;
+            ack["reason"] = "";
+            ack["receivedBytes"] = QString::number(receivedBytes);
+            writeJson(socket, ack);
+            return;
+        }
+
         ++m_chunkAttempts;
-        m_acknowledgedBytes = QByteArray::fromBase64(message["fileData"].toString().toLatin1()).size();
+        m_acknowledgedBytes = receivedBytes;
         if (m_chunkAttempts == 1) {
             return;
         }
 
         QJsonObject ack;
         ack["type"] = "file_chunk_ack";
-        ack["transferId"] = message["transferId"].toString();
+        ack["transferId"] = transferId;
         ack["chunkIndex"] = message["chunkIndex"].toString();
         ack["accepted"] = true;
         ack["reason"] = "";
-        ack["receivedBytes"] = QString::number(m_acknowledgedBytes);
+        ack["receivedBytes"] = QString::number(receivedBytes);
         writeJson(socket, ack);
     }
 
@@ -150,6 +191,8 @@ private:
     int m_chunkAttempts = 0;
     int m_resumeQueries = 0;
     qint64 m_acknowledgedBytes = 0;
+    QVector<qint64> m_resumedChunkIndexes;
+    qint64 m_resumedAcknowledgedBytes = 0;
 };
 }
 
@@ -212,6 +255,32 @@ int main(int argc, char** argv) {
     ok = expect(!progressValues.isEmpty(), "sender should emit transfer progress") && ok;
     ok = expect(progressValues.last() == server.acknowledgedBytes(),
                 "sender progress should use the acked received byte count after retry") && ok;
+
+    qint64 resumeFileSize = 0;
+    const QString resumeFilePath = tempDir.filePath("resume-send.bin");
+    ok = expect(writeResumeFile(resumeFilePath, &resumeFileSize),
+                "multi-chunk resume test file should be created") && ok;
+    ok = expect(!sender.resumeFileTransfer(resumeFilePath,
+                                           "invalid-resume-transfer",
+                                           8,
+                                           2),
+                "sender should reject a resume position ahead of confirmed bytes") && ok;
+    ok = expect(sender.resumeFileTransfer(resumeFilePath,
+                                          QString::fromLatin1(kResumeTransferId),
+                                          2 * kClientChunkBytes,
+                                          2),
+                "sender should resume from the next missing chunk") && ok;
+    const QVector<qint64> resumedChunks = server.resumedChunkIndexes();
+    ok = expect(resumedChunks.size() == 1 && resumedChunks.first() == 2,
+                "sender should not resend already confirmed chunks during resume") && ok;
+    ok = expect(server.resumedAcknowledgedBytes() == resumeFileSize,
+                "resumed send should finish with the server-reported file size") && ok;
+    const qint64 resumeChunkCount = (resumeFileSize + kClientChunkBytes - 1) / kClientChunkBytes;
+    ok = expect(sender.resumeFileTransfer(resumeFilePath,
+                                          "already-complete-transfer",
+                                          resumeFileSize,
+                                          resumeChunkCount),
+                "sender should accept an already complete resume state without sending chunks") && ok;
 
     sender.disconnectFromServer();
     if (!appDataDir.isEmpty()) {

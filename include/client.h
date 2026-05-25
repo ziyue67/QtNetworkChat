@@ -32,6 +32,12 @@ public:
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
     bool sendImage(const QString& filePath, const QString& receiverId = QString());
+    bool resumeFileTransfer(const QString& filePath,
+                            const QString& transferId,
+                            qint64 confirmedBytes,
+                            qint64 nextChunkIndex,
+                            const QString& receiverId = QString(),
+                            MessageType messageType = MessageType::File);
     bool queryFileTransferResumeState(const QString& transferId,
                                       qint64* confirmedBytes = nullptr,
                                       qint64* nextChunkIndex = nullptr,
@@ -86,7 +92,13 @@ private:
     void handleIncomingFileChunk(const QJsonObject& obj);
     bool sendJson(const QJsonObject& obj);
     bool sendFileChunkAck(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason = QString(), qint64 receivedBytes = 0);
-    bool sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix);
+    bool sendFilePayload(const QString& filePath,
+                         const QString& receiverId,
+                         MessageType messageType,
+                         const QString& contentPrefix,
+                         const QString& resumeTransferId = QString(),
+                         qint64 resumeConfirmedBytes = 0,
+                         qint64 resumeNextChunkIndex = 0);
     bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     bool waitForFileTransferResumeState(const QString& transferId, qint64* confirmedBytes, qint64* nextChunkIndex, QVector<qint64>* receivedChunks, QString* rejectReason, int timeoutMs);
     void cleanupExpiredIncomingFileTransfers();
