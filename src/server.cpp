@@ -36,6 +36,7 @@ constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 constexpr qint64 kOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
 constexpr int kOfflineAttachmentCleanupIntervalMs = 60 * 60 * 1000;
 constexpr qint64 kDefaultOfflineAttachmentQuotaBytes = 512LL * 1024 * 1024;
+constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -994,12 +995,23 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     QString deliveryState = "broadcast";
     if (!msg.receiverId.isEmpty()) {
         QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
-        deliveryState = targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState ? "direct" : "offline";
-        sendToUser(msg);
+        if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
+            deliveryState = "direct";
+            sendToUser(msg);
+        } else if (msg.fileData.size() <= kRedisPubSubFileMaxBytes && isRedisUserOnline(msg.receiverId)) {
+            deliveryState = "remote";
+        } else {
+            deliveryState = "offline";
+            sendToUser(msg);
+        }
     } else {
         broadcastMessage(msg);
     }
     saveMessageToSqlite(msg, deliveryState);
+    const bool redisPublished = publishRedisMessageEvent(msg, deliveryState);
+    if (deliveryState == "remote" && !redisPublished) {
+        saveOfflineMessage(msg);
+    }
 }
 
 void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
@@ -1138,7 +1150,11 @@ bool Server::isRedisUserOnline(const QString& userId) const {
 
 bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliveryState) {
     if (!m_redisClient || !m_redisClient->isEnabled()) return false;
-    if (msg.type != MessageType::Text && msg.type != MessageType::Private) return false;
+    const bool isRedisFilePayload =
+        (msg.type == MessageType::File || msg.type == MessageType::Image)
+        && !msg.fileData.isEmpty()
+        && msg.fileData.size() <= kRedisPubSubFileMaxBytes;
+    if (msg.type != MessageType::Text && msg.type != MessageType::Private && !isRedisFilePayload) return false;
 
     const QJsonDocument messageDoc = QJsonDocument::fromJson(msg.toJson());
     if (!messageDoc.isObject()) return false;
@@ -1167,7 +1183,11 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
 
     const Message msg = Message::fromJson(QJsonDocument(messageObj).toJson(QJsonDocument::Compact));
     if (msg.senderId.isEmpty()) return;
-    if (msg.type != MessageType::Text && msg.type != MessageType::Private) return;
+    const bool isRedisFilePayload =
+        (msg.type == MessageType::File || msg.type == MessageType::Image)
+        && !msg.fileData.isEmpty()
+        && msg.fileData.size() <= kRedisPubSubFileMaxBytes;
+    if (msg.type != MessageType::Text && msg.type != MessageType::Private && !isRedisFilePayload) return;
 
     if (msg.receiverId.isEmpty()) {
         broadcastMessage(msg);

@@ -7,7 +7,9 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QHostAddress>
+#include <QList>
 #include <QMap>
 #include <QObject>
 #include <QSet>
@@ -16,6 +18,7 @@
 #include <QTcpSocket>
 #include <QThread>
 #include <QTimer>
+#include <QTemporaryDir>
 
 #include <functional>
 
@@ -320,6 +323,8 @@ int main(int argc, char** argv) {
     QStringList aliceGroupMessages;
     QStringList bobGroupMessages;
     QStringList bobPrivateMessages;
+    QStringList bobFileNames;
+    QList<QByteArray> bobFilePayloads;
     QObject::connect(&alice, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             aliceGroupMessages << msg.content;
@@ -330,6 +335,9 @@ int main(int argc, char** argv) {
             bobGroupMessages << msg.content;
         } else if (msg.type == MessageType::Private) {
             bobPrivateMessages << msg.content;
+        } else if (msg.type == MessageType::File) {
+            bobFileNames << msg.fileName;
+            bobFilePayloads << msg.fileData;
         }
     });
 
@@ -358,18 +366,39 @@ int main(int argc, char** argv) {
         return bobPrivateMessages.count(privateMessage) == 1;
     }), "bob should receive the private message through Redis cross-instance routing") && ok;
 
+    QTemporaryDir transferDir;
+    ok = expect(transferDir.isValid(), "temporary transfer directory should be available") && ok;
+    const QString fileName = "redis-cross-instance.txt";
+    const QString filePath = transferDir.filePath(fileName);
+    const QByteArray filePayload = QByteArrayLiteral("small redis cross instance file payload");
+    QFile transferFile(filePath);
+    ok = expect(transferFile.open(QIODevice::WriteOnly),
+                "temporary transfer file should open for writing") && ok;
+    if (transferFile.isOpen()) {
+        ok = expect(transferFile.write(filePayload) == filePayload.size(),
+                    "temporary transfer file should be written") && ok;
+        transferFile.close();
+    }
+    ok = expect(alice.sendFile(filePath, "960002"),
+                "alice should send a small file to a user on the second server") && ok;
+    ok = expect(waitFor([&] {
+        return bobFileNames.contains(fileName) && bobFilePayloads.contains(filePayload);
+    }), "bob should receive the small file through Redis cross-instance routing") && ok;
+
     bob.disconnectFromServer();
     ok = expect(waitFor([&] { return !bob.isConnected(); }),
                 "bob should disconnect from the second server before replay check") && ok;
     bobPrivateMessages.clear();
+    bobFileNames.clear();
+    bobFilePayloads.clear();
     bob.setAccountInfo("960002", "secret", false);
     ok = expect(bob.connectToServer("127.0.0.1", serverAPort),
                 "bob should reconnect to the first server with the existing account") && ok;
     ok = expect(bob.waitForLoginResult(5000),
                 "bob should log in on the first server for offline replay check") && ok;
     ok = expect(!waitFor([&] {
-        return bobPrivateMessages.contains(privateMessage);
-    }, 800), "cross-instance private messages should not be replayed from the origin server offline queue") && ok;
+        return bobPrivateMessages.contains(privateMessage) || bobFileNames.contains(fileName);
+    }, 800), "cross-instance private messages and files should not be replayed from the origin server offline queue") && ok;
 
     alice.disconnectFromServer();
     bob.disconnectFromServer();
