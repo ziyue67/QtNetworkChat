@@ -189,9 +189,27 @@ int main(int argc, char** argv) {
     ok = expect(port != 0, "a local test port should be available") && ok;
     if (!ok) return 1;
 
+    const QString orphanDirPath = appDataDir + "/offline_files/orphan";
+    ok = expect(QDir().mkpath(orphanDirPath),
+                "orphan attachment directory should be created before server startup") && ok;
+    const QString orphanPath = orphanDirPath + "/payload.bin";
+    QFile orphanFile(orphanPath);
+    ok = expect(orphanFile.open(QIODevice::WriteOnly),
+                "orphan attachment file should be writable before server startup") && ok;
+    if (ok) {
+        ok = expect(orphanFile.write(QByteArray("orphan-payload")) == 14,
+                    "orphan attachment file should contain the test payload") && ok;
+        orphanFile.close();
+    }
+    ok = expect(QFile::exists(orphanPath),
+                "orphan attachment should exist before server startup cleanup") && ok;
+    if (!ok) return 1;
+
     Server server;
     ok = expect(server.start(port), "server should start on the test port") && ok;
     if (!ok) return 1;
+    ok = expect(!QFile::exists(orphanPath),
+                "server startup should remove unreferenced offline attachment files") && ok;
 
     const QString receiverId = "970002";
     Client receiver;
