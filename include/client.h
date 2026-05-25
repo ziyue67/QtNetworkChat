@@ -63,6 +63,7 @@ public:
                                    qint64 chunkCount);
     bool loadOutgoingTransferState(QJsonObject* state) const;
     bool clearOutgoingTransferState();
+    bool resumeSavedOutgoingTransfer(QString* rejectReason = nullptr, int timeoutMs = 5000);
     void cancelCurrentOutgoingTransfer();
     void setUserInfo(const QString& userId, const QString& userName);
     bool waitForLoginResult(int timeoutMs = 5000);

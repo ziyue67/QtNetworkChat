@@ -536,6 +536,45 @@ bool Client::clearOutgoingTransferState() {
     return QFile::remove(path);
 }
 
+bool Client::resumeSavedOutgoingTransfer(QString* rejectReason, int timeoutMs) {
+    if (rejectReason) rejectReason->clear();
+
+    QJsonObject state;
+    if (!loadOutgoingTransferState(&state)) {
+        if (rejectReason) *rejectReason = "未找到可恢复的发送任务";
+        return false;
+    }
+
+    const MessageType messageType = static_cast<MessageType>(state["messageType"].toInt(-1));
+    qint64 localFileSize = 0;
+    qint64 localChunkCount = 0;
+    QString localFileHash;
+    if (!collectFileTransferMetadata(state["filePath"].toString(), &localFileSize, &localChunkCount, &localFileHash)
+        || state["fileSize"].toVariant().toLongLong() != localFileSize
+        || state["chunkSize"].toVariant().toLongLong() != kTransferChunkBytes
+        || state["chunkCount"].toVariant().toLongLong() != localChunkCount
+        || state["fileHash"].toString().trimmed().compare(localFileHash, Qt::CaseInsensitive) != 0) {
+        if (rejectReason) *rejectReason = "保存的发送任务与本地文件不一致";
+        return false;
+    }
+
+    QString resumeReason;
+    const bool resumed = queryAndResumeFileTransfer(
+        state["filePath"].toString(),
+        state["transferId"].toString(),
+        state["receiverId"].toString(),
+        messageType,
+        &resumeReason,
+        timeoutMs);
+    if (!resumed) {
+        if (rejectReason) *rejectReason = resumeReason.isEmpty() ? "发送任务恢复失败" : resumeReason;
+        return false;
+    }
+
+    clearOutgoingTransferState();
+    return true;
+}
+
 void Client::cancelCurrentOutgoingTransfer() {
     if (m_cancelOutgoingTransfer) return;
     m_cancelOutgoingTransfer = true;

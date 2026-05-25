@@ -471,6 +471,62 @@ int main(int argc, char** argv) {
     ok = expect(sender.clearOutgoingTransferState(), "sender should remove outgoing transfer state") && ok;
     ok = expect(!sender.loadOutgoingTransferState(nullptr),
                 "cleared outgoing transfer state should not be loadable") && ok;
+    ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kQueryAndResumeTransferId),
+                                                 resumeFilePath,
+                                                 QString(),
+                                                 MessageType::File,
+                                                 resumeFileHash,
+                                                 resumeFileSize,
+                                                 resumeChunkCount),
+                "sender should persist state for saved transfer recovery") && ok;
+    const int chunksBeforeSavedResume = server.resumedChunkIndexes().size();
+    QString savedResumeReason;
+    ok = expect(sender.resumeSavedOutgoingTransfer(&savedResumeReason, 5000),
+                "sender should resume from persisted outgoing transfer state") && ok;
+    const QVector<qint64> savedResumedChunks = server.resumedChunkIndexes();
+    ok = expect(savedResumedChunks.size() == chunksBeforeSavedResume + 1 && savedResumedChunks.last() == 2,
+                "saved transfer recovery should send the next missing chunk") && ok;
+    ok = expect(savedResumeReason.isEmpty(),
+                "successful saved transfer recovery should not expose a reject reason") && ok;
+    ok = expect(!sender.loadOutgoingTransferState(nullptr),
+                "successful saved transfer recovery should clear persisted state") && ok;
+    ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kMismatchResumeTransferId),
+                                                 resumeFilePath,
+                                                 QString(),
+                                                 MessageType::File,
+                                                 resumeFileHash,
+                                                 resumeFileSize,
+                                                 resumeChunkCount),
+                "sender should persist state for failed recovery") && ok;
+    QString failedSavedResumeReason;
+    ok = expect(!sender.resumeSavedOutgoingTransfer(&failedSavedResumeReason, 5000),
+                "sender should keep saved transfer state when recovery fails") && ok;
+    ok = expect(!failedSavedResumeReason.isEmpty(),
+                "failed saved transfer recovery should expose a reject reason") && ok;
+    ok = expect(sender.loadOutgoingTransferState(nullptr),
+                "failed saved transfer recovery should keep persisted state") && ok;
+    ok = expect(sender.clearOutgoingTransferState(),
+                "sender should clear failed recovery state before continuing the test") && ok;
+    ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kQueryAndResumeTransferId),
+                                                 resumeFilePath,
+                                                 QString(),
+                                                 MessageType::File,
+                                                 "stale-local-hash",
+                                                 resumeFileSize,
+                                                 resumeChunkCount),
+                "sender should persist state with stale local metadata for validation") && ok;
+    const int chunksBeforeStaleStateResume = server.resumedChunkIndexes().size();
+    QString staleStateReason;
+    ok = expect(!sender.resumeSavedOutgoingTransfer(&staleStateReason, 5000),
+                "sender should reject saved transfer state when local metadata no longer matches") && ok;
+    ok = expect(!staleStateReason.isEmpty(),
+                "stale saved transfer state should expose a reject reason") && ok;
+    ok = expect(server.resumedChunkIndexes().size() == chunksBeforeStaleStateResume,
+                "stale saved transfer state should not send resumed chunks") && ok;
+    ok = expect(sender.loadOutgoingTransferState(nullptr),
+                "stale saved transfer state should remain for user-visible recovery handling") && ok;
+    ok = expect(sender.clearOutgoingTransferState(),
+                "sender should clear stale recovery state before continuing the test") && ok;
     ok = expect(sender.resumeFileTransfer(resumeFilePath,
                                           "already-complete-transfer",
                                           resumeFileSize,
