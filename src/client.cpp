@@ -24,6 +24,7 @@ constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
 constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
+constexpr qint64 kOutgoingTransferStateMaxAgeMs = 24LL * 60 * 60 * 1000;
 const char kOutgoingTransferStateFileName[] = "outgoing_transfer_state.json";
 
 bool envEnabled(const char* name) {
@@ -503,7 +504,8 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
 bool Client::loadOutgoingTransferState(QJsonObject* state) const {
     if (state) *state = QJsonObject();
 
-    QFile file(outgoingTransferStateFilePath());
+    const QString path = outgoingTransferStateFilePath();
+    QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         return false;
     }
@@ -522,6 +524,17 @@ bool Client::loadOutgoingTransferState(QJsonObject* state) const {
         || obj["chunkCount"].toVariant().toLongLong() <= 0
         || (messageType != MessageType::File && messageType != MessageType::Image)) {
         return false;
+    }
+
+    const QString updatedAtText = obj["updatedAt"].toString().trimmed();
+    if (!updatedAtText.isEmpty()) {
+        const QDateTime updatedAt = QDateTime::fromString(updatedAtText, Qt::ISODate);
+        if (!updatedAt.isValid()
+            || updatedAt.msecsTo(QDateTime::currentDateTimeUtc()) > kOutgoingTransferStateMaxAgeMs) {
+            file.close();
+            QFile::remove(path);
+            return false;
+        }
     }
 
     if (state) *state = obj;

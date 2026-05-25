@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -68,6 +69,19 @@ bool writeResumeFile(const QString& filePath, qint64* fileSize) {
     if (file.write(secondChunk) != secondChunk.size()) return false;
     if (file.write(finalChunk) != finalChunk.size()) return false;
     if (fileSize) *fileSize = expectedSize;
+    return true;
+}
+
+QString outgoingTransferStatePath() {
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+        .filePath("outgoing_transfer_state.json");
+}
+
+bool writeOutgoingTransferState(const QJsonObject& state) {
+    QFile file(outgoingTransferStatePath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    file.write(QJsonDocument(state).toJson(QJsonDocument::Compact));
+    file.write("\n");
     return true;
 }
 
@@ -468,6 +482,22 @@ int main(int argc, char** argv) {
                 "persisted state should include the chunk size") && ok;
     ok = expect(persistedState["chunkCount"].toVariant().toLongLong() == resumeChunkCount,
                 "persisted state should include the chunk count") && ok;
+    QJsonObject expiredState = persistedState;
+    expiredState["updatedAt"] = QDateTime::currentDateTimeUtc().addDays(-2).toString(Qt::ISODate);
+    ok = expect(writeOutgoingTransferState(expiredState),
+                "test should write an expired outgoing transfer state") && ok;
+    ok = expect(!sender.loadOutgoingTransferState(nullptr),
+                "expired outgoing transfer state should not be loadable") && ok;
+    ok = expect(!QFile::exists(outgoingTransferStatePath()),
+                "expired outgoing transfer state should be removed") && ok;
+    ok = expect(sender.saveOutgoingTransferState("persist-transfer",
+                                                 resumeFilePath,
+                                                 "960002",
+                                                 MessageType::Image,
+                                                 resumeFileHash,
+                                                 resumeFileSize,
+                                                 resumeChunkCount),
+                "sender should recreate outgoing transfer state after expired cleanup") && ok;
     ok = expect(sender.clearOutgoingTransferState(), "sender should remove outgoing transfer state") && ok;
     ok = expect(!sender.loadOutgoingTransferState(nullptr),
                 "cleared outgoing transfer state should not be loadable") && ok;
