@@ -4,10 +4,12 @@
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTimer>
 #include <QtGlobal>
 
 namespace {
 constexpr qint64 kReconnectBackoffMs = 5000;
+constexpr int kSubscriberReconnectDelayMs = 1000;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -485,8 +487,15 @@ void RedisSubscriber::configureFromEnvironment() {
 
 bool RedisSubscriber::subscribe(const QString& channel, int timeoutMs) {
     if (!m_enabled) return true;
-    if (channel.trimmed().isEmpty()) return false;
-    if (!connectToServer(timeoutMs)) return false;
+    const QString normalizedChannel = channel.trimmed();
+    if (normalizedChannel.isEmpty()) return false;
+
+    m_manualDisconnect = false;
+    m_subscribedChannel = normalizedChannel;
+    if (!connectToServer(timeoutMs)) {
+        scheduleReconnect();
+        return false;
+    }
 
     if (!m_password.isEmpty()) {
         RedisClient::Reply authReply;
@@ -495,12 +504,16 @@ bool RedisSubscriber::subscribe(const QString& channel, int timeoutMs) {
             || !authReply.isSimpleString(QByteArrayLiteral("OK"))) {
             if (m_lastError.isEmpty()) m_lastError = "Redis subscriber AUTH failed";
             m_socket.abort();
+            scheduleReconnect();
             return false;
         }
     }
 
-    const QByteArray redisChannel = pubSubChannel(channel);
-    if (!writeCommand({QByteArrayLiteral("SUBSCRIBE"), redisChannel}, timeoutMs)) return false;
+    const QByteArray redisChannel = pubSubChannel(normalizedChannel);
+    if (!writeCommand({QByteArrayLiteral("SUBSCRIBE"), redisChannel}, timeoutMs)) {
+        scheduleReconnect();
+        return false;
+    }
 
     RedisClient::Reply subscribeReply;
     if (!readReply(&subscribeReply, timeoutMs)
@@ -510,15 +523,20 @@ bool RedisSubscriber::subscribe(const QString& channel, int timeoutMs) {
         || subscribeReply.elements.at(1).value != redisChannel) {
         if (m_lastError.isEmpty()) m_lastError = "Redis subscribe acknowledgement is invalid";
         m_socket.abort();
+        scheduleReconnect();
         return false;
     }
 
     m_subscribed = true;
+    m_reconnectScheduled = false;
     processBuffer();
     return true;
 }
 
 void RedisSubscriber::disconnectFromServer() {
+    m_manualDisconnect = true;
+    m_reconnectScheduled = false;
+    m_subscribedChannel.clear();
     m_subscribed = false;
     m_buffer.clear();
     m_socket.disconnectFromHost();
@@ -608,6 +626,29 @@ void RedisSubscriber::processBuffer() {
     }
 }
 
+void RedisSubscriber::scheduleReconnect() {
+    if (!m_enabled
+        || m_manualDisconnect
+        || m_subscribed
+        || m_subscribedChannel.isEmpty()
+        || m_reconnectScheduled) {
+        return;
+    }
+
+    m_reconnectScheduled = true;
+    QTimer::singleShot(kSubscriberReconnectDelayMs, this, [this]() {
+        m_reconnectScheduled = false;
+        if (!m_enabled
+            || m_manualDisconnect
+            || m_subscribed
+            || m_subscribedChannel.isEmpty()) {
+            return;
+        }
+
+        subscribe(m_subscribedChannel);
+    });
+}
+
 QByteArray RedisSubscriber::pubSubChannel(const QString& channel) const {
     QString normalized = channel.trimmed();
     while (normalized.startsWith(':')) {
@@ -623,6 +664,10 @@ void RedisSubscriber::onReadyRead() {
 }
 
 void RedisSubscriber::onDisconnected() {
+    const bool shouldReconnect = m_enabled && !m_manualDisconnect && !m_subscribedChannel.isEmpty();
     m_subscribed = false;
     emit disconnected();
+    if (shouldReconnect) {
+        scheduleReconnect();
+    }
 }

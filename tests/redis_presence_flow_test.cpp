@@ -94,6 +94,15 @@ public slots:
         }
     }
 
+    void disconnectSubscribers() {
+        const QSet<QTcpSocket*> subscribers = allSubscribers();
+        for (QTcpSocket* socket : subscribers) {
+            if (socket && socket->state() == QAbstractSocket::ConnectedState) {
+                socket->disconnectFromHost();
+            }
+        }
+    }
+
 signals:
     void started(quint16 port);
     void failed(const QString& reason);
@@ -105,7 +114,10 @@ private:
             connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
                 onReadyRead(socket);
             });
-            connect(socket, &QTcpSocket::disconnected, socket, &QTcpSocket::deleteLater);
+            connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
+                removeSubscriber(socket);
+                socket->deleteLater();
+            });
         }
     }
 
@@ -143,6 +155,7 @@ private:
         }
         if (command == "SUBSCRIBE" && args.size() >= 2) {
             const QByteArray channel = args.at(1);
+            m_subscribers[channel].insert(socket);
             QTimer::singleShot(20, this, [socket, channel]() {
                 if (socket && socket->state() == QAbstractSocket::ConnectedState) {
                     socket->write(pubSubMessageReply(channel, QByteArrayLiteral("{\"kind\":\"subscribed\"}")));
@@ -156,8 +169,18 @@ private:
             return response;
         }
         if (command == "PUBLISH" && args.size() >= 3) {
-            m_published[args.at(1)].append(args.at(2));
-            return integerReply(1);
+            const QByteArray channel = args.at(1);
+            const QByteArray payload = args.at(2);
+            m_published[channel].append(payload);
+            int delivered = 0;
+            for (QTcpSocket* subscriber : m_subscribers.value(channel)) {
+                if (subscriber && subscriber->state() == QAbstractSocket::ConnectedState) {
+                    subscriber->write(pubSubMessageReply(channel, payload));
+                    subscriber->flush();
+                    ++delivered;
+                }
+            }
+            return integerReply(delivered);
         }
         if (command == "SET" && args.size() >= 5 && args.at(3).toUpper() == "EX") {
             m_strings[args.at(1)] = args.at(2);
@@ -187,10 +210,25 @@ private:
         return "-ERR unsupported command\r\n";
     }
 
+    QSet<QTcpSocket*> allSubscribers() const {
+        QSet<QTcpSocket*> sockets;
+        for (const QSet<QTcpSocket*>& channelSubscribers : m_subscribers) {
+            sockets.unite(channelSubscribers);
+        }
+        return sockets;
+    }
+
+    void removeSubscriber(QTcpSocket* socket) {
+        for (auto it = m_subscribers.begin(); it != m_subscribers.end(); ++it) {
+            it.value().remove(socket);
+        }
+    }
+
     QTcpServer* m_server = nullptr;
     QMap<QByteArray, QByteArray> m_strings;
     QMap<QByteArray, QSet<QByteArray>> m_sets;
     QMap<QByteArray, QList<QByteArray>> m_published;
+    QMap<QByteArray, QSet<QTcpSocket*>> m_subscribers;
 };
 
 int main(int argc, char** argv) {
@@ -254,6 +292,22 @@ int main(int argc, char** argv) {
         ok = expect(pubSubMessages.first().payload == QByteArrayLiteral("{\"kind\":\"subscribed\"}"),
                     "Redis subscriber should expose the message payload") && ok;
     }
+
+    const int messagesBeforeDisconnect = pubSubMessages.size();
+    QMetaObject::invokeMethod(fakeRedis, "disconnectSubscribers", Qt::BlockingQueuedConnection);
+    ok = expect(waitFor([&] {
+        return subscriber.isSubscribed() && pubSubMessages.size() > messagesBeforeDisconnect;
+    }), "Redis subscriber should reconnect and resubscribe after a dropped subscription connection") && ok;
+
+    const QByteArray postReconnectPayload = QByteArrayLiteral("{\"kind\":\"after-reconnect\"}");
+    ok = expect(client.publish("messages", postReconnectPayload, 2000),
+                "Redis client should publish after subscriber reconnect") && ok;
+    ok = expect(waitFor([&] {
+        for (const RedisClient::PubSubMessage& message : pubSubMessages) {
+            if (message.payload == postReconnectPayload) return true;
+        }
+        return false;
+    }), "Redis subscriber should receive published messages after resubscribing") && ok;
 
     ok = expect(client.setPresence("940001", "RedisFlow", 90, 2000),
                 "Redis client should write presence and index entries") && ok;

@@ -108,6 +108,7 @@ private:
     bool writeCommand(const QList<QByteArray>& arguments, int timeoutMs);
     bool readReply(RedisClient::Reply* reply, int timeoutMs);
     void processBuffer();
+    void scheduleReconnect();
     QByteArray pubSubChannel(const QString& channel) const;
 
     QTcpSocket m_socket;
@@ -115,10 +116,13 @@ private:
     bool m_enabled = false;
     bool m_subscribed = false;
     bool m_readingSynchronously = false;
+    bool m_manualDisconnect = false;
+    bool m_reconnectScheduled = false;
     QString m_host = "127.0.0.1";
     quint16 m_port = 6379;
     QString m_password;
     QString m_prefix = "qtchat";
+    QString m_subscribedChannel;
     QString m_lastError;
 };
 
