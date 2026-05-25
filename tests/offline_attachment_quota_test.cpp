@@ -168,6 +168,35 @@ bool insertMissingOfflineAttachmentQueue(const QString& appDataDir,
                                          const QString& missingPath) {
     return insertOfflineAttachmentQueue(appDataDir, receiverId, fileName, missingPath, 128);
 }
+
+bool insertLegacyJsonlOfflineAttachmentQueue(const QString& appDataDir,
+                                             const QString& receiverId,
+                                             const QString& fileName,
+                                             const QString& attachmentPath,
+                                             qint64 declaredFileSize) {
+    const QString offlineDirPath = appDataDir + "/offline";
+    if (!QDir().mkpath(offlineDirPath)) return false;
+
+    QJsonObject payload;
+    payload["type"] = "file";
+    payload["messageType"] = static_cast<int>(MessageType::File);
+    payload["senderId"] = "970001";
+    payload["senderName"] = "QuotaSender";
+    payload["receiverId"] = receiverId;
+    payload["content"] = QString("发送了文件: %1").arg(fileName);
+    payload["fileName"] = fileName;
+    payload["fileSize"] = QString::number(declaredFileSize);
+    payload["fileHash"] = "offline-attachment-startup-preserve-test";
+    payload["chunkSize"] = QString::number(256 * 1024);
+    payload["chunkCount"] = QString::number(1);
+    payload["offlineFilePath"] = attachmentPath;
+    payload["offlineFileStoredOnDisk"] = true;
+
+    QFile queueFile(offlineDirPath + "/" + receiverId + ".jsonl");
+    if (!queueFile.open(QIODevice::Append | QIODevice::Text)) return false;
+    const QByteArray line = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+    return queueFile.write(line) == line.size() && queueFile.write("\n") == 1;
+}
 }
 
 int main(int argc, char** argv) {
@@ -203,6 +232,27 @@ int main(int argc, char** argv) {
     }
     ok = expect(QFile::exists(orphanPath),
                 "orphan attachment should exist before server startup cleanup") && ok;
+
+    const QString referencedDirPath = appDataDir + "/offline_files/referenced";
+    ok = expect(QDir().mkpath(referencedDirPath),
+                "referenced attachment directory should be created before server startup") && ok;
+    const QString referencedPath = referencedDirPath + "/payload.bin";
+    QFile referencedFile(referencedPath);
+    ok = expect(referencedFile.open(QIODevice::WriteOnly),
+                "referenced attachment file should be writable before server startup") && ok;
+    if (ok) {
+        ok = expect(referencedFile.write(QByteArray("referenced-payload")) == 18,
+                    "referenced attachment file should contain the test payload") && ok;
+        referencedFile.close();
+    }
+    ok = expect(insertLegacyJsonlOfflineAttachmentQueue(appDataDir,
+                                                        "970099",
+                                                        "referenced-startup.bin",
+                                                        referencedPath,
+                                                        18),
+                "legacy offline queue row should reference the startup attachment") && ok;
+    ok = expect(QFile::exists(referencedPath),
+                "referenced attachment should exist before server startup cleanup") && ok;
     if (!ok) return 1;
 
     Server server;
@@ -210,6 +260,10 @@ int main(int argc, char** argv) {
     if (!ok) return 1;
     ok = expect(!QFile::exists(orphanPath),
                 "server startup should remove unreferenced offline attachment files") && ok;
+    ok = expect(QFile::exists(referencedPath),
+                "server startup should preserve offline attachments still referenced by a queue") && ok;
+    QFile::remove(appDataDir + "/offline/970099.jsonl");
+    QFile::remove(referencedPath);
 
     const QString receiverId = "970002";
     Client receiver;
