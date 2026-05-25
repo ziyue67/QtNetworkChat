@@ -86,6 +86,17 @@ if(BUILD_TESTING)
     target_include_directories(file_chunk_duplicate_ack_test PRIVATE include)
     target_link_libraries(file_chunk_duplicate_ack_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
+    add_executable(file_chunk_retry_progress_test
+        tests/file_chunk_retry_progress_test.cpp
+        src/client.cpp
+        src/message.cpp
+        include/client.h
+        include/message.h
+        include/chatuser.h
+    )
+    target_include_directories(file_chunk_retry_progress_test PRIVATE include)
+    target_link_libraries(file_chunk_retry_progress_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+
     add_executable(redis_client_test
         tests/redis_client_test.cpp
         src/redisclient.cpp
@@ -163,6 +174,13 @@ if(BUILD_TESTING)
         NAME FileChunkDuplicateAckProtocol
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:file_chunk_duplicate_ack_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME FileChunkRetryProgress
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:file_chunk_retry_progress_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
