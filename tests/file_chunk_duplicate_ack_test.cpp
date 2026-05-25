@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -166,6 +167,25 @@ int main(int argc, char** argv) {
     ok = expect(firstAck["accepted"].toBool(false), "first chunk ack should be accepted") && ok;
     const qint64 firstReceivedBytes = firstAck["receivedBytes"].toVariant().toLongLong();
     ok = expect(firstReceivedBytes == 4, "first chunk ack should report four received bytes") && ok;
+
+    QJsonObject resumeQuery;
+    resumeQuery["type"] = "file_transfer_resume_query";
+    resumeQuery["transferId"] = "duplicate-transfer";
+    ok = expect(writeJson(socket, resumeQuery), "raw socket should query resume state") && ok;
+
+    QJsonObject resumeState;
+    ok = expect(waitForMessage(socket, buffer, [](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == "duplicate-transfer";
+    }, &resumeState), "server should report resume state for the pending transfer") && ok;
+    ok = expect(resumeState["canResume"].toBool(false), "resume state should be resumable") && ok;
+    ok = expect(resumeState["confirmedBytes"].toVariant().toLongLong() == firstReceivedBytes,
+                "resume state should report confirmed bytes") && ok;
+    ok = expect(resumeState["nextChunkIndex"].toVariant().toLongLong() == 1,
+                "resume state should report the first missing chunk index") && ok;
+    const QJsonArray receivedChunks = resumeState["receivedChunks"].toArray();
+    ok = expect(receivedChunks.size() == 1 && receivedChunks.first().toVariant().toLongLong() == 0,
+                "resume state should list the received chunk indexes") && ok;
 
     ok = expect(writeJson(socket, firstChunk), "raw socket should resend the first chunk") && ok;
 

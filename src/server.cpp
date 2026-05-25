@@ -289,6 +289,8 @@ void Server::onClientReadyRead() {
             handleFile(obj, socket);
         } else if (type == "file_chunk") {
             handleFileChunk(obj, socket);
+        } else if (type == "file_transfer_resume_query") {
+            handleFileTransferResumeQuery(obj, socket);
         } else if (type == "file_transfer_cancel") {
             handleFileTransferCancel(obj, socket);
         } else if (type == "file_chunk_ack") {
@@ -1118,6 +1120,57 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     m_pendingFileTransfers.remove(key);
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleFile(fullFile, socket);
+}
+
+void Server::handleFileTransferResumeQuery(const QJsonObject& obj, QTcpSocket* socket) {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
+
+    const QString transferId = obj["transferId"].toString().trimmed();
+    QJsonObject response;
+    response["type"] = "file_transfer_resume_state";
+    response["transferId"] = transferId;
+    response["canResume"] = false;
+    response["confirmedBytes"] = QString::number(0);
+    response["nextChunkIndex"] = QString::number(0);
+    response["receivedChunks"] = QJsonArray();
+
+    if (transferId.isEmpty()) {
+        response["reason"] = "缺少传输编号";
+    } else {
+        const QString key = QString::number(reinterpret_cast<quintptr>(socket)) + ":" + transferId;
+        const auto it = m_pendingFileTransfers.constFind(key);
+        if (it == m_pendingFileTransfers.constEnd()) {
+            response["reason"] = "未找到未完成传输";
+        } else {
+            const PendingFileTransfer& pending = it.value();
+            QJsonArray receivedChunks;
+            QVector<int> sortedIndexes = pending.receivedIndexes.values().toVector();
+            std::sort(sortedIndexes.begin(), sortedIndexes.end());
+            for (int index : sortedIndexes) {
+                receivedChunks.append(QString::number(index));
+            }
+
+            qint64 nextChunkIndex = 0;
+            while (nextChunkIndex < pending.chunkCount
+                   && pending.receivedIndexes.contains(static_cast<int>(nextChunkIndex))) {
+                ++nextChunkIndex;
+            }
+
+            response["canResume"] = true;
+            response["reason"] = "";
+            response["fileName"] = pending.fileName;
+            response["fileSize"] = QString::number(pending.fileSize);
+            response["chunkSize"] = QString::number(pending.chunkSize);
+            response["chunkCount"] = QString::number(pending.chunkCount);
+            response["confirmedBytes"] = QString::number(pending.receivedBytes);
+            response["nextChunkIndex"] = QString::number(nextChunkIndex);
+            response["receivedChunks"] = receivedChunks;
+        }
+    }
+
+    socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
 }
 
 void Server::handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket) {
