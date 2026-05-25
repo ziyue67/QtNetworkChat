@@ -252,12 +252,33 @@ bool Client::sendImage(const QString& filePath, const QString& receiverId) {
 void Client::cancelCurrentOutgoingTransfer() {
     if (m_cancelOutgoingTransfer) return;
     m_cancelOutgoingTransfer = true;
+    if (isConnected() && !m_currentOutgoingTransferId.isEmpty()) {
+        QJsonObject obj;
+        obj["type"] = "file_transfer_cancel";
+        obj["transferId"] = m_currentOutgoingTransferId;
+        obj["senderId"] = m_userId;
+        obj["senderName"] = m_userName;
+        obj["receiverId"] = m_currentOutgoingReceiverId;
+        obj["fileName"] = m_currentOutgoingFileName;
+        sendJson(obj);
+    }
     emit outgoingTransferCancelRequested();
 }
 
 bool Client::sendFilePayload(const QString& filePath, const QString& receiverId, MessageType messageType, const QString& contentPrefix) {
     if (!isConnected()) return false;
     m_cancelOutgoingTransfer = false;
+    m_currentOutgoingTransferId.clear();
+    m_currentOutgoingReceiverId.clear();
+    m_currentOutgoingFileName.clear();
+    struct OutgoingTransferCleanup {
+        Client* client;
+        ~OutgoingTransferCleanup() {
+            client->m_currentOutgoingTransferId.clear();
+            client->m_currentOutgoingReceiverId.clear();
+            client->m_currentOutgoingFileName.clear();
+        }
+    } cleanup{this};
 
     QFileInfo fileInfo(filePath);
     if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() <= 0 || fileInfo.size() > kMaxOutgoingPayloadBytes) {
@@ -301,6 +322,9 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
         .arg(m_userId,
              QString::number(QDateTime::currentMSecsSinceEpoch()),
              QString::number(QRandomGenerator::global()->generate()));
+    m_currentOutgoingTransferId = transferId;
+    m_currentOutgoingReceiverId = receiverId;
+    m_currentOutgoingFileName = fileInfo.fileName();
     qint64 sentBytes = 0;
     qint64 chunkIndex = 0;
     emit fileTransferProgress(fileInfo.fileName(), 0, fileInfo.size());
@@ -365,10 +389,6 @@ bool Client::sendFilePayload(const QString& filePath, const QString& receiverId,
         sentBytes += chunk.size();
         ++chunkIndex;
         emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
-        if (m_cancelOutgoingTransfer) {
-            file.close();
-            return false;
-        }
     }
     file.close();
     return sentBytes == fileInfo.size() && chunkIndex == chunkCount;

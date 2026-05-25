@@ -115,6 +115,9 @@ private:
     QMap<QString, PendingIncomingFileTransfer> m_incomingFileTransfers;
     bool m_hasServerGroupSnapshot;
     bool m_cancelOutgoingTransfer;
+    QString m_currentOutgoingTransferId;
+    QString m_currentOutgoingReceiverId;
+    QString m_currentOutgoingFileName;
     QJsonArray m_serverGroups;
 };
 

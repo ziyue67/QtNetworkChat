@@ -256,6 +256,8 @@ void Server::onClientReadyRead() {
             handleFile(obj, socket);
         } else if (type == "file_chunk") {
             handleFileChunk(obj, socket);
+        } else if (type == "file_transfer_cancel") {
+            handleFileTransferCancel(obj, socket);
         } else if (type == "file_chunk_ack") {
             emit fileChunkAckReceived(
                 socket,
@@ -1055,6 +1057,25 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     m_pendingFileTransfers.remove(key);
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleFile(fullFile, socket);
+}
+
+void Server::handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket) {
+    if (!socket) return;
+
+    const QString transferId = obj["transferId"].toString().trimmed();
+    if (transferId.isEmpty()) return;
+
+    const QString key = QString::number(reinterpret_cast<quintptr>(socket)) + ":" + transferId;
+    const bool removed = m_pendingFileTransfers.remove(key) > 0;
+    const QString fileName = obj["fileName"].toString();
+    const QString visibleName = fileName.isEmpty() ? "未命名文件" : fileName;
+
+    if (removed) {
+        sendSystemNotice(socket, QString("文件发送已取消，服务端已清理未完成分片：%1。").arg(visibleName));
+        qDebug() << "Canceled pending file transfer" << visibleName << transferId;
+    } else {
+        qDebug() << "File transfer cancel received after cleanup or completion" << visibleName << transferId;
+    }
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {
