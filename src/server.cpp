@@ -488,8 +488,15 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     QString deliveryState = "broadcast";
     if (!msg.receiverId.isEmpty()) {
         QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
-        deliveryState = targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState ? "direct" : "offline";
-        sendToUser(msg);
+        if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
+            deliveryState = "direct";
+            sendToUser(msg);
+        } else if (isRedisUserOnline(msg.receiverId)) {
+            deliveryState = "remote";
+        } else {
+            deliveryState = "offline";
+            sendToUser(msg);
+        }
     } else {
         if (!isServerGroupMember("public", msg.senderId)) {
             sendSystemNotice(socket, "公共群消息发送失败：你已不在该群组，请联系群主或管理员重新邀请。");
@@ -498,7 +505,10 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
         broadcastMessage(msg);
     }
     saveMessageToSqlite(msg, deliveryState);
-    publishRedisMessageEvent(msg, deliveryState);
+    const bool redisPublished = publishRedisMessageEvent(msg, deliveryState);
+    if (deliveryState == "remote" && !redisPublished) {
+        saveOfflineMessage(msg);
+    }
 
     emit newMessage(msg);
 }
@@ -1121,12 +1131,17 @@ void Server::clearRedisPresence(const QString& userId) {
     m_redisClient->clearPresence(userId);
 }
 
-void Server::publishRedisMessageEvent(const Message& msg, const QString& deliveryState) {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return;
-    if (msg.type != MessageType::Text && msg.type != MessageType::Private) return;
+bool Server::isRedisUserOnline(const QString& userId) const {
+    if (!m_redisClient || !m_redisClient->isEnabled() || userId.isEmpty()) return false;
+    return m_redisClient->hasPresence(userId);
+}
+
+bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliveryState) {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (msg.type != MessageType::Text && msg.type != MessageType::Private) return false;
 
     const QJsonDocument messageDoc = QJsonDocument::fromJson(msg.toJson());
-    if (!messageDoc.isObject()) return;
+    if (!messageDoc.isObject()) return false;
 
     QJsonObject event;
     event["eventType"] = "chat_message";
@@ -1136,7 +1151,7 @@ void Server::publishRedisMessageEvent(const Message& msg, const QString& deliver
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     event["message"] = messageDoc.object();
 
-    m_redisClient->publish("messages", QJsonDocument(event).toJson(QJsonDocument::Compact));
+    return m_redisClient->publish("messages", QJsonDocument(event).toJson(QJsonDocument::Compact));
 }
 
 void Server::handleRedisMessageEvent(const QByteArray& payload) {

@@ -241,6 +241,16 @@ bool RedisClient::clearPresence(const QString& userId, int timeoutMs) {
         && indexReply.type == ReplyType::Integer;
 }
 
+bool RedisClient::hasPresence(const QString& userId, int timeoutMs) {
+    if (!m_enabled || userId.isEmpty()) return false;
+
+    Reply reply;
+    return sendCommand({QByteArrayLiteral("GET"), presenceKey(userId)}, &reply, timeoutMs)
+        && reply.type == ReplyType::BulkString
+        && !reply.isNull
+        && !reply.value.isEmpty();
+}
+
 bool RedisClient::fetchOnlinePresence(QList<Presence>* users, int timeoutMs) {
     if (users) users->clear();
     if (!m_enabled) return true;

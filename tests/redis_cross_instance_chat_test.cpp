@@ -212,6 +212,10 @@ private:
         if (command == "SMEMBERS" && args.size() >= 2) {
             return arrayReply(m_sets.value(args.at(1)).values());
         }
+        if (command == "GET" && args.size() >= 2) {
+            const QByteArray key = args.at(1);
+            return m_strings.contains(key) ? bulkReply(m_strings.value(key)) : QByteArray("$-1\r\n");
+        }
         if (command == "MGET" && args.size() >= 2) {
             QByteArray response = "*" + QByteArray::number(args.size() - 1) + "\r\n";
             for (int i = 1; i < args.size(); ++i) {
@@ -315,6 +319,7 @@ int main(int argc, char** argv) {
     Client bob;
     QStringList aliceGroupMessages;
     QStringList bobGroupMessages;
+    QStringList bobPrivateMessages;
     QObject::connect(&alice, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             aliceGroupMessages << msg.content;
@@ -323,6 +328,8 @@ int main(int argc, char** argv) {
     QObject::connect(&bob, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             bobGroupMessages << msg.content;
+        } else if (msg.type == MessageType::Private) {
+            bobPrivateMessages << msg.content;
         }
     });
 
@@ -343,6 +350,26 @@ int main(int argc, char** argv) {
     ok = expect(!waitFor([&] {
         return aliceGroupMessages.count(groupMessage) > 1;
     }, 500), "origin server should skip its own Redis event by instance id") && ok;
+
+    const QString privateMessage = "Redis cross instance private chat should not be queued offline";
+    ok = expect(alice.sendPrivateMessage("960002", privateMessage),
+                "alice should send a private message to a user on the second server") && ok;
+    ok = expect(waitFor([&] {
+        return bobPrivateMessages.count(privateMessage) == 1;
+    }), "bob should receive the private message through Redis cross-instance routing") && ok;
+
+    bob.disconnectFromServer();
+    ok = expect(waitFor([&] { return !bob.isConnected(); }),
+                "bob should disconnect from the second server before replay check") && ok;
+    bobPrivateMessages.clear();
+    bob.setAccountInfo("960002", "secret", false);
+    ok = expect(bob.connectToServer("127.0.0.1", serverAPort),
+                "bob should reconnect to the first server with the existing account") && ok;
+    ok = expect(bob.waitForLoginResult(5000),
+                "bob should log in on the first server for offline replay check") && ok;
+    ok = expect(!waitFor([&] {
+        return bobPrivateMessages.contains(privateMessage);
+    }, 800), "cross-instance private messages should not be replayed from the origin server offline queue") && ok;
 
     alice.disconnectFromServer();
     bob.disconnectFromServer();

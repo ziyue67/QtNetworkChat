@@ -58,7 +58,8 @@ private:
     void cleanupExpiredFileTransfers();
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
-    void publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
+    bool isRedisUserOnline(const QString& userId) const;
+    bool publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
     void handleRedisMessageEvent(const QByteArray& payload);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;

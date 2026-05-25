@@ -193,6 +193,10 @@ private:
         if (command == "SMEMBERS" && args.size() >= 2) {
             return arrayReply(m_sets.value(args.at(1)).values());
         }
+        if (command == "GET" && args.size() >= 2) {
+            const QByteArray key = args.at(1);
+            return m_strings.contains(key) ? bulkReply(m_strings.value(key)) : QByteArray("$-1\r\n");
+        }
         if (command == "MGET" && args.size() >= 2) {
             QByteArray response = "*" + QByteArray::number(args.size() - 1) + "\r\n";
             for (int i = 1; i < args.size(); ++i) {
@@ -311,6 +315,8 @@ int main(int argc, char** argv) {
 
     ok = expect(client.setPresence("940001", "RedisFlow", 90, 2000),
                 "Redis client should write presence and index entries") && ok;
+    ok = expect(client.hasPresence("940001", 2000),
+                "Redis client should find an active single-user presence entry") && ok;
 
     QList<RedisClient::Presence> users;
     ok = expect(client.fetchOnlinePresence(&users, 2000),
@@ -323,6 +329,8 @@ int main(int argc, char** argv) {
 
     ok = expect(client.clearPresence("940001", 2000),
                 "Redis client should clear presence and index entries") && ok;
+    ok = expect(!client.hasPresence("940001", 2000),
+                "Redis client should not find presence after clearing it") && ok;
     users.clear();
     ok = expect(client.fetchOnlinePresence(&users, 2000),
                 "Redis client should fetch after clearing presence") && ok;

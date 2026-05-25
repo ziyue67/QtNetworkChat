@@ -56,6 +56,7 @@ public:
     bool ping(int timeoutMs = 500);
     bool setPresence(const QString& userId, const QString& userName, int ttlSeconds = 90, int timeoutMs = 200);
     bool clearPresence(const QString& userId, int timeoutMs = 200);
+    bool hasPresence(const QString& userId, int timeoutMs = 200);
     bool fetchOnlinePresence(QList<Presence>* users, int timeoutMs = 300);
     bool publish(const QString& channel, const QByteArray& payload, int timeoutMs = 200);
 
