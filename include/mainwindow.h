@@ -65,6 +65,7 @@ private slots:
     void onInsertEmoji();
     void onInsertMention();
     void onResumeSavedOutgoingTransfer();
+    void onClearSavedOutgoingTransfer();
 
 signals:
     void logoutRequested();
@@ -141,6 +142,7 @@ private:
     QSystemTrayIcon* m_trayIcon;
     QMenu* m_trayMenu;
     QAction* m_resumeSavedTransferAction;
+    QAction* m_clearSavedTransferAction;
     int m_unreadCount;
     bool m_isQuitting;
 

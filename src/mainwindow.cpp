@@ -277,6 +277,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_privateChatTarget(QString())
     , m_trayIcon(new QSystemTrayIcon(this))
     , m_resumeSavedTransferAction(nullptr)
+    , m_clearSavedTransferAction(nullptr)
     , m_unreadCount(0)
     , m_isQuitting(false)
 {
@@ -483,15 +484,18 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
 }
 
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
-    if (!m_resumeSavedTransferAction) return;
+    if (!m_resumeSavedTransferAction || !m_clearSavedTransferAction) return;
 
     QJsonObject state;
     const bool hasSavedTransfer = m_client && m_client->loadOutgoingTransferState(&state);
     m_resumeSavedTransferAction->setVisible(hasSavedTransfer);
     m_resumeSavedTransferAction->setEnabled(hasSavedTransfer && m_client->isConnected());
+    m_clearSavedTransferAction->setVisible(hasSavedTransfer);
+    m_clearSavedTransferAction->setEnabled(hasSavedTransfer);
 
     if (!hasSavedTransfer) {
         m_resumeSavedTransferAction->setToolTip("暂无可恢复的未完成发送");
+        m_clearSavedTransferAction->setToolTip("暂无可清除的恢复记录");
         return;
     }
 
@@ -501,11 +505,45 @@ void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
     const QString targetName = receiverId.isEmpty() ? "公共聊天室" : QString("QQ:%1").arg(receiverId);
     const QString detail = QString("检测到未完成发送：%1 -> %2").arg(fileName, targetName);
     m_resumeSavedTransferAction->setToolTip(detail);
+    m_clearSavedTransferAction->setToolTip("清除恢复记录：" + detail);
 
     if (announce) {
-        appendSystemMessage(detail + "，可通过菜单“恢复未完成发送”继续。");
+        appendSystemMessage(detail + "，可通过菜单“恢复未完成发送”继续，或清除恢复记录。");
         ui->statusbar->showMessage("可恢复未完成发送：" + fileName, 3200);
     }
+}
+
+void MainWindow::onClearSavedOutgoingTransfer() {
+    if (!m_client) return;
+
+    QJsonObject state;
+    if (!m_client->loadOutgoingTransferState(&state)) {
+        updateSavedOutgoingTransferRecoveryUi(false);
+        ui->statusbar->showMessage("暂无可清除的恢复记录", 2200);
+        return;
+    }
+
+    const QFileInfo info(state["filePath"].toString());
+    const QString fileName = info.fileName().isEmpty() ? "未命名文件" : info.fileName();
+    const QMessageBox::StandardButton choice = QMessageBox::question(
+        this,
+        "清除恢复记录",
+        QString("清除“%1”的未完成发送恢复记录？\n清除后不会删除本地文件，但需要重新手动发送。").arg(fileName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (choice != QMessageBox::Yes) {
+        ui->statusbar->showMessage("已保留恢复记录：" + fileName, 1800);
+        return;
+    }
+
+    if (m_client->clearOutgoingTransferState()) {
+        appendSystemMessage("已清除未完成发送恢复记录：" + fileName);
+        ui->statusbar->showMessage("已清除恢复记录：" + fileName, 2200);
+    } else {
+        appendSystemMessage("清除未完成发送恢复记录失败：" + fileName);
+        ui->statusbar->showMessage("清除恢复记录失败：" + fileName, 2600);
+    }
+    updateSavedOutgoingTransferRecoveryUi(false);
 }
 
 void MainWindow::onResumeSavedOutgoingTransfer() {
@@ -599,7 +637,16 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         const QString reason = rejectReason.isEmpty() ? "恢复失败" : rejectReason;
         appendSystemMessage(QString("恢复未完成发送失败：%1（%2）").arg(fileName, reason));
         ui->statusbar->showMessage("恢复未完成发送失败：" + reason, 3200);
-        QMessageBox::warning(this, "恢复未完成发送失败", reason);
+        const QMessageBox::StandardButton choice = QMessageBox::warning(
+            this,
+            "恢复未完成发送失败",
+            reason + "\n\n可以稍后重试，或清除这条恢复记录。",
+            QMessageBox::Retry | QMessageBox::Discard,
+            QMessageBox::Retry);
+        if (choice == QMessageBox::Discard && m_client->clearOutgoingTransferState()) {
+            appendSystemMessage("已清除未完成发送恢复记录：" + fileName);
+            ui->statusbar->showMessage("已清除恢复记录：" + fileName, 2200);
+        }
     }
 
     updateSavedOutgoingTransferRecoveryUi(false);
@@ -995,6 +1042,9 @@ void MainWindow::setupUi() {
     m_resumeSavedTransferAction = new QAction("恢复未完成发送", this);
     m_resumeSavedTransferAction->setVisible(false);
     m_resumeSavedTransferAction->setEnabled(false);
+    m_clearSavedTransferAction = new QAction("清除恢复记录", this);
+    m_clearSavedTransferAction->setVisible(false);
+    m_clearSavedTransferAction->setEnabled(false);
     QAction* filterHistoryAction = new QAction("按日期查记录", this);
     QAction* exportHistoryAction = new QAction("导出聊天记录", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
@@ -1006,6 +1056,7 @@ void MainWindow::setupUi() {
     ui->menubar->addAction(sendImageAction);
     ui->menubar->addAction(sendFileAction);
     ui->menubar->addAction(m_resumeSavedTransferAction);
+    ui->menubar->addAction(m_clearSavedTransferAction);
     ui->menubar->addAction(filterHistoryAction);
     ui->menubar->addAction(exportHistoryAction);
     ui->menubar->addAction(copyAccountAction);
@@ -1018,6 +1069,7 @@ void MainWindow::setupUi() {
     connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
     connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
     connect(m_resumeSavedTransferAction, &QAction::triggered, this, &MainWindow::onResumeSavedOutgoingTransfer);
+    connect(m_clearSavedTransferAction, &QAction::triggered, this, &MainWindow::onClearSavedOutgoingTransfer);
     connect(filterHistoryAction, &QAction::triggered, this, &MainWindow::onFilterHistoryByDate);
     connect(exportHistoryAction, &QAction::triggered, this, &MainWindow::onExportHistory);
     connect(copyAccountAction, &QAction::triggered, this, &MainWindow::onCopyAccount);
