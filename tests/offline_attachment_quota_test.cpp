@@ -10,6 +10,8 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QStandardPaths>
@@ -118,6 +120,46 @@ int offlineQueueCount(const QString& appDataDir, const QString& receiverId) {
     QSqlDatabase::removeDatabase(connectionName);
     return count;
 }
+
+bool insertMissingOfflineAttachmentQueue(const QString& appDataDir,
+                                         const QString& receiverId,
+                                         const QString& fileName,
+                                         const QString& missingPath) {
+    const QString dbPath = appDataDir + "/accounts.sqlite3";
+    if (!QFile::exists(dbPath)) return false;
+
+    QJsonObject payload;
+    payload["type"] = "file";
+    payload["messageType"] = static_cast<int>(MessageType::File);
+    payload["senderId"] = "970001";
+    payload["senderName"] = "QuotaSender";
+    payload["receiverId"] = receiverId;
+    payload["content"] = QString("发送了文件: %1").arg(fileName);
+    payload["fileName"] = fileName;
+    payload["fileSize"] = QString::number(128);
+    payload["fileHash"] = "missing";
+    payload["chunkSize"] = QString::number(256 * 1024);
+    payload["chunkCount"] = QString::number(1);
+    payload["offlineFilePath"] = missingPath;
+    payload["offlineFileStoredOnDisk"] = true;
+
+    bool inserted = false;
+    const QString connectionName = "offline_missing_insert_" + QString::number(QCoreApplication::applicationPid());
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(dbPath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT INTO offline_messages(receiver_id, payload, created_at) VALUES(?, ?, datetime('now'))");
+            query.addBindValue(receiverId);
+            query.addBindValue(QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+            inserted = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return inserted;
+}
 }
 
 int main(int argc, char** argv) {
@@ -156,6 +198,10 @@ int main(int argc, char** argv) {
                 "server should observe receiver disconnect before offline send") && ok;
 
     Client sender;
+    bool senderDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == QStringLiteral("970001")) senderDisconnected = true;
+    });
     ok = expect(loginClient(sender, "970001", "QuotaSender", port, true),
                 "sender should register and log in") && ok;
 
@@ -185,7 +231,10 @@ int main(int argc, char** argv) {
     ok = expect(replayedMessages.isEmpty(),
                 "quota-rejected offline file should not be replayed after receiver login") && ok;
 
+    receiverDisconnected = false;
     replayReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return receiverDisconnected; }),
+                "server should observe quota replay receiver disconnect") && ok;
 
     const QString cleanupReceiverId = "970003";
     Client cleanupReceiverSeed;
@@ -234,8 +283,58 @@ int main(int argc, char** argv) {
             && offlineQueueCount(appDataDir, cleanupReceiverId) == 0;
     }, 3000), "delivered offline attachment should be removed from disk and queue") && ok;
 
+    cleanupReceiverDisconnected = false;
     cleanupReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return cleanupReceiverDisconnected; }),
+                "server should observe cleanup receiver disconnect after replay") && ok;
+
+    const QString missingReceiverId = "970004";
+    Client missingReceiverSeed;
+    bool missingReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == missingReceiverId) missingReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(missingReceiverSeed, missingReceiverId, "MissingReceiver", port, true),
+                "missing attachment receiver should register before queue seeding") && ok;
+    missingReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return missingReceiverDisconnected; }),
+                "server should observe missing attachment receiver disconnect before queue seeding") && ok;
+
+    const QString missingFileName = "missing-offline-attachment.bin";
+    const QString missingPath = appDataDir + "/offline_files/missing/not-created.bin";
+    ok = expect(insertMissingOfflineAttachmentQueue(appDataDir, missingReceiverId, missingFileName, missingPath),
+                "missing attachment offline queue row should be inserted") && ok;
+    ok = expect(offlineQueueCount(appDataDir, missingReceiverId) == 1,
+                "missing attachment offline row should be queued before replay") && ok;
+
+    Client missingReceiver;
+    QVector<Message> missingReplayMessages;
+    QObject::connect(&missingReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        missingReplayMessages.append(msg);
+    });
+    ok = expect(loginClient(missingReceiver, missingReceiverId, "MissingReceiver", port, false),
+                "missing attachment receiver should log in for cleanup replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : missingReplayMessages) {
+            if (msg.type == MessageType::System
+                && msg.content.contains(QString::fromUtf8("离线文件已丢失"))
+                && msg.content.contains(missingFileName)) {
+                return true;
+            }
+        }
+        return false;
+    }, 3000), "missing offline attachment should produce a clear system notice") && ok;
+    ok = expect(waitFor([&] { return offlineQueueCount(appDataDir, missingReceiverId) == 0; }, 3000),
+                "missing offline attachment queue row should be cleared after notice") && ok;
+
+    missingReceiverDisconnected = false;
+    missingReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return missingReceiverDisconnected; }),
+                "server should observe missing attachment receiver disconnect after cleanup") && ok;
+    senderDisconnected = false;
     sender.disconnectFromServer();
+    ok = expect(waitFor([&] { return senderDisconnected; }),
+                "server should observe sender disconnect before shutdown") && ok;
     server.stop();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
