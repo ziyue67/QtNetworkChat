@@ -52,6 +52,19 @@ if(BUILD_TESTING)
     target_include_directories(server_group_member_update_test PRIVATE include)
     target_link_libraries(server_group_member_update_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
+    add_executable(file_transfer_cancel_test
+        tests/file_transfer_cancel_test.cpp
+        src/server.cpp
+        src/client.cpp
+        src/message.cpp
+        include/server.h
+        include/client.h
+        include/message.h
+        include/chatuser.h
+    )
+    target_include_directories(file_transfer_cancel_test PRIVATE include)
+    target_link_libraries(file_transfer_cancel_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
     add_test(
         NAME QtNetworkChatExecutableExists
         COMMAND ${CMAKE_COMMAND}
@@ -69,6 +82,13 @@ if(BUILD_TESTING)
         NAME ServerGroupMemberUpdateProtocol
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:server_group_member_update_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME FileTransferCancelProtocol
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:file_transfer_cancel_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
