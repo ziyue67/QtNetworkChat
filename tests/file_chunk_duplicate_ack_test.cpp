@@ -312,6 +312,47 @@ int main(int argc, char** argv) {
         return shortNonFinalAckRejected && shortNonFinalSystemNotice;
     }), "server should reject a short non-final chunk with ack and system notice") && ok;
 
+    const QString changedMetadataTransferId = "changed-metadata-transfer";
+    ok = expect(writeJson(socket, makeChunk(0, changedMetadataTransferId)),
+                "raw socket should send the first chunk before changing metadata") && ok;
+
+    QJsonObject changedMetadataFirstAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == changedMetadataTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 0;
+    }, &changedMetadataFirstAck), "server should ack the first chunk before metadata changes") && ok;
+    ok = expect(changedMetadataFirstAck["accepted"].toBool(false),
+                "first changed-metadata chunk ack should be accepted") && ok;
+
+    QJsonObject changedMetadataChunk = makeChunk(1, changedMetadataTransferId);
+    changedMetadataChunk["chunkSize"] = QString::number(3);
+    changedMetadataChunk["chunkCount"] = QString::number(2);
+    changedMetadataChunk["fileSize"] = QString::number(6);
+    ok = expect(writeJson(socket, changedMetadataChunk),
+                "raw socket should send a later chunk with changed metadata") && ok;
+
+    bool changedMetadataAckRejected = false;
+    bool changedMetadataSystemNotice = false;
+    ok = expect(waitFor([&] {
+        buffer.append(socket.readAll());
+        const QVector<QJsonObject> messages = takeJsonLines(buffer);
+        for (const QJsonObject& message : messages) {
+            if (message["type"].toString() == "file_chunk_ack"
+                && message["transferId"].toString() == changedMetadataTransferId
+                && message["chunkIndex"].toVariant().toLongLong() == 1
+                && !message["accepted"].toBool(true)
+                && message["reason"].toString().contains("元数据不一致")) {
+                changedMetadataAckRejected = true;
+            }
+            if (message["type"].toString() == "system"
+                && message["content"].toString().contains("元数据不一致")) {
+                changedMetadataSystemNotice = true;
+            }
+        }
+        return changedMetadataAckRejected && changedMetadataSystemNotice;
+    }), "server should reject later chunks whose metadata changed") && ok;
+
     const QString outOfOrderTransferId = "out-of-order-transfer";
     const QString outOfOrderFileName = "out-of-order.bin";
     const QString outOfOrderReceiverId = "949999";
