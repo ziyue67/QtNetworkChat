@@ -3,6 +3,7 @@
 #include "server.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QDirIterator>
@@ -253,6 +254,37 @@ int main(int argc, char** argv) {
                 "legacy offline queue row should reference the startup attachment") && ok;
     ok = expect(QFile::exists(referencedPath),
                 "referenced attachment should exist before server startup cleanup") && ok;
+
+    const QString expiredReceiverId = "970098";
+    const QString expiredDirPath = appDataDir + "/offline_files/expired";
+    ok = expect(QDir().mkpath(expiredDirPath),
+                "expired referenced attachment directory should be created before server startup") && ok;
+    const QString expiredPath = expiredDirPath + "/payload.bin";
+    QFile expiredFile(expiredPath);
+    ok = expect(expiredFile.open(QIODevice::WriteOnly),
+                "expired referenced attachment file should be writable before server startup") && ok;
+    if (ok) {
+        ok = expect(expiredFile.write(QByteArray("expired-payload")) == 15,
+                    "expired referenced attachment file should contain the test payload") && ok;
+        expiredFile.close();
+    }
+    QFile expiredTimeFile(expiredPath);
+    ok = expect(expiredTimeFile.open(QIODevice::ReadWrite),
+                "expired referenced attachment file should reopen for timestamp update") && ok;
+    if (ok) {
+        ok = expect(expiredTimeFile.setFileTime(QDateTime::currentDateTime().addDays(-15),
+                                                QFileDevice::FileModificationTime),
+                    "expired referenced attachment modification time should be set before startup") && ok;
+        expiredTimeFile.close();
+    }
+    ok = expect(insertLegacyJsonlOfflineAttachmentQueue(appDataDir,
+                                                        expiredReceiverId,
+                                                        "expired-startup.bin",
+                                                        expiredPath,
+                                                        15),
+                "legacy offline queue row should reference the expired startup attachment") && ok;
+    ok = expect(QFile::exists(expiredPath),
+                "expired referenced attachment should exist before server startup cleanup") && ok;
     if (!ok) return 1;
 
     Server server;
@@ -262,6 +294,8 @@ int main(int argc, char** argv) {
                 "server startup should remove unreferenced offline attachment files") && ok;
     ok = expect(QFile::exists(referencedPath),
                 "server startup should preserve offline attachments still referenced by a queue") && ok;
+    ok = expect(!QFile::exists(expiredPath),
+                "server startup should remove expired offline attachments even if a queue references them") && ok;
     QFile::remove(appDataDir + "/offline/970099.jsonl");
     QFile::remove(referencedPath);
 
@@ -474,6 +508,34 @@ int main(int argc, char** argv) {
     mismatchReceiver.disconnectFromServer();
     ok = expect(waitFor([&] { return mismatchReceiverDisconnected; }),
                 "server should observe mismatched attachment receiver disconnect after cleanup") && ok;
+
+    Client expiredReceiver;
+    QVector<Message> expiredReplayMessages;
+    bool expiredReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == expiredReceiverId) expiredReceiverDisconnected = true;
+    });
+    QObject::connect(&expiredReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        expiredReplayMessages.append(msg);
+    });
+    ok = expect(loginClient(expiredReceiver, expiredReceiverId, "ExpiredReceiver", port, true),
+                "expired attachment receiver should log in for missing attachment replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : expiredReplayMessages) {
+            if (msg.type == MessageType::System
+                && msg.content.contains(QString::fromUtf8("离线文件已丢失"))
+                && msg.content.contains(QStringLiteral("expired-startup.bin"))) {
+                return true;
+            }
+        }
+        return false;
+    }, 3000), "expired referenced attachment should produce a missing-file system notice") && ok;
+    ok = expect(waitFor([&] { return !QFile::exists(appDataDir + "/offline/" + expiredReceiverId + ".jsonl"); }, 3000),
+                "expired referenced attachment queue row should be cleared after notice") && ok;
+
+    expiredReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return expiredReceiverDisconnected; }),
+                "server should observe expired attachment receiver disconnect after cleanup") && ok;
 
     senderDisconnected = false;
     sender.disconnectFromServer();
