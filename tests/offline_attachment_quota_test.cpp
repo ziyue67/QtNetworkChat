@@ -198,6 +198,32 @@ bool insertLegacyJsonlOfflineAttachmentQueue(const QString& appDataDir,
     const QByteArray line = QJsonDocument(payload).toJson(QJsonDocument::Compact);
     return queueFile.write(line) == line.size() && queueFile.write("\n") == 1;
 }
+
+bool setOfflineQueueRejectTrigger(const QString& appDataDir, bool enabled) {
+    const QString dbPath = appDataDir + "/accounts.sqlite3";
+    if (!QFile::exists(dbPath)) return false;
+
+    bool ok = false;
+    const QString connectionName = "offline_rollback_trigger_" + QString::number(QCoreApplication::applicationPid());
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(dbPath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            ok = query.exec("DROP TRIGGER IF EXISTS offline_queue_reject_for_test");
+            if (ok && enabled) {
+                ok = query.exec("CREATE TRIGGER offline_queue_reject_for_test "
+                                "BEFORE INSERT ON offline_messages "
+                                "BEGIN "
+                                "SELECT RAISE(ABORT, 'offline queue rollback test'); "
+                                "END");
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
 }
 
 int main(int argc, char** argv) {
@@ -536,6 +562,57 @@ int main(int argc, char** argv) {
     expiredReceiver.disconnectFromServer();
     ok = expect(waitFor([&] { return expiredReceiverDisconnected; }),
                 "server should observe expired attachment receiver disconnect after cleanup") && ok;
+
+    const QString rollbackReceiverId = "970006";
+    Client rollbackReceiverSeed;
+    bool rollbackReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == rollbackReceiverId) rollbackReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(rollbackReceiverSeed, rollbackReceiverId, "RollbackReceiver", port, true),
+                "rollback receiver should register before queue persistence failure") && ok;
+    rollbackReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return rollbackReceiverDisconnected; }),
+                "server should observe rollback receiver disconnect before queue persistence failure") && ok;
+
+    ok = expect(setOfflineQueueRejectTrigger(appDataDir, true),
+                "offline queue reject trigger should be installed before rollback test") && ok;
+    const QString offlinePath = appDataDir + "/offline";
+    QDir offlineDir(offlinePath);
+    if (offlineDir.exists()) {
+        ok = expect(offlineDir.removeRecursively(),
+                    "offline queue directory should be removable before fallback blocking") && ok;
+    } else {
+        QFile::remove(offlinePath);
+    }
+    QFile blockedOfflinePath(offlinePath);
+    ok = expect(blockedOfflinePath.open(QIODevice::WriteOnly),
+                "offline queue path should be blockable as a plain file") && ok;
+    if (ok) {
+        ok = expect(blockedOfflinePath.write(QByteArray("blocked")) == 7,
+                    "offline queue path blocker should contain test payload") && ok;
+        blockedOfflinePath.close();
+    }
+    ok = expect(offlineAttachmentFileCount(appDataDir) == 0,
+                "rollback test should start without existing offline attachments") && ok;
+    const QString rollbackFilePath = tempDir.filePath("offline-rollback.bin");
+    QByteArray rollbackPayload;
+    ok = expect(writeSmallFile(rollbackFilePath, &rollbackPayload),
+                "small rollback test file should be created") && ok;
+    if (!ok) return 1;
+
+    ok = expect(sender.sendFile(rollbackFilePath, rollbackReceiverId),
+                "sender should finish uploading the rollback test file to the server") && ok;
+    waitFor([] { return false; }, 500);
+    ok = expect(offlineAttachmentFileCount(appDataDir) == 0,
+                "queue persistence failure should roll back the just-saved offline attachment") && ok;
+    ok = expect(offlineQueueCount(appDataDir, rollbackReceiverId) == 0,
+                "queue persistence failure should not leave an offline queue row") && ok;
+    ok = expect(QFileInfo(offlinePath).isFile(),
+                "rollback test should keep JSONL fallback blocked until assertions complete") && ok;
+    ok = expect(setOfflineQueueRejectTrigger(appDataDir, false),
+                "offline queue reject trigger should be removed after rollback test") && ok;
+    QFile::remove(offlinePath);
 
     senderDisconnected = false;
     sender.disconnectFromServer();
