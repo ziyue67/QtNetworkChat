@@ -2066,6 +2066,16 @@ bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket
         QFile::remove(offlineFilePath);
         return true;
     }
+    const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
+    const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
+    if (declaredChunkSize <= 0
+        || declaredChunkSize > kForwardChunkBytes
+        || declaredChunkCount <= 0
+        || declaredChunkCount != (attachmentInfo.size() + declaredChunkSize - 1) / declaredChunkSize) {
+        sendSystemNotice(socket, QString("离线文件分片元数据异常：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
+        QFile::remove(offlineFilePath);
+        return true;
+    }
     const QString declaredHash = obj["fileHash"].toString().trimmed();
     if (looksLikeSha256Hex(declaredHash)) {
         QFile hashFile(offlineFilePath);

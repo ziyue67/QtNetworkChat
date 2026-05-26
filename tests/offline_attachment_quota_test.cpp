@@ -945,6 +945,87 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] { return hashMismatchReceiverDisconnected; }),
                 "server should observe hash-mismatched attachment receiver disconnect after cleanup") && ok;
 
+    auto runBadOfflineMetadataCleanupCase = [&](const QString& receiverId,
+                                                const QString& userName,
+                                                const QString& caseName,
+                                                const std::function<void(QJsonObject*)>& mutatePayload) {
+        Client seedReceiver;
+        bool disconnected = false;
+        const QMetaObject::Connection disconnectConnection = QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+            if (userId == receiverId) disconnected = true;
+        });
+        bool caseOk = expect(loginClient(seedReceiver, receiverId, userName, port, true),
+                             qPrintable(caseName + " receiver should register before queue seeding"));
+        seedReceiver.disconnectFromServer();
+        caseOk = expect(waitFor([&] { return disconnected; }),
+                        qPrintable(caseName + " receiver should disconnect before queue seeding")) && caseOk;
+
+        const QString fileName = caseName + "-offline-attachment.bin";
+        const QString dirPath = appDataDir + "/offline_files/" + caseName;
+        caseOk = expect(QDir().mkpath(dirPath),
+                        qPrintable(caseName + " attachment directory should be created")) && caseOk;
+        const QString attachmentPath = dirPath + "/payload.bin";
+        QByteArray payload(300 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < payload.size(); ++i) {
+            payload[i] = static_cast<char>('A' + (i % 26));
+        }
+        QFile attachment(attachmentPath);
+        caseOk = expect(attachment.open(QIODevice::WriteOnly),
+                        qPrintable(caseName + " attachment file should be writable")) && caseOk;
+        if (caseOk) {
+            caseOk = expect(attachment.write(payload) == payload.size(),
+                            qPrintable(caseName + " attachment file should contain the test payload")) && caseOk;
+            attachment.close();
+        }
+        caseOk = expect(insertOfflineAttachmentQueue(appDataDir, receiverId, fileName, attachmentPath, payload.size()),
+                        qPrintable(caseName + " offline queue row should be inserted")) && caseOk;
+        caseOk = expect(updateOfflineQueuePayload(appDataDir, receiverId, mutatePayload),
+                        qPrintable(caseName + " offline queue row should be mutated with bad chunk metadata")) && caseOk;
+        caseOk = expect(offlineQueueCount(appDataDir, receiverId) == 1,
+                        qPrintable(caseName + " offline row should be queued before replay")) && caseOk;
+
+        Client receiver;
+        QVector<Message> replayMessages;
+        QObject::connect(&receiver, &Client::newMessage, &app, [&](const Message& msg) {
+            replayMessages.append(msg);
+        });
+        caseOk = expect(loginClient(receiver, receiverId, userName, port, false),
+                        qPrintable(caseName + " receiver should log in for metadata cleanup replay")) && caseOk;
+        caseOk = expect(waitFor([&] {
+            for (const Message& msg : replayMessages) {
+                if (msg.type == MessageType::System
+                    && msg.content.contains(QString::fromUtf8("离线文件分片元数据异常"))
+                    && msg.content.contains(fileName)) {
+                    return true;
+                }
+            }
+            return false;
+        }, 3000), qPrintable(caseName + " should produce a chunk metadata system notice")) && caseOk;
+        caseOk = expect(waitFor([&] {
+            return offlineQueueCount(appDataDir, receiverId) == 0
+                && !QFile::exists(attachmentPath);
+        }, 3000), qPrintable(caseName + " should clear queue and attachment after notice")) && caseOk;
+        disconnected = false;
+        receiver.disconnectFromServer();
+        caseOk = expect(waitFor([&] { return disconnected; }),
+                        qPrintable(caseName + " receiver disconnect should be observed after cleanup")) && caseOk;
+        QObject::disconnect(disconnectConnection);
+        return caseOk;
+    };
+
+    ok = runBadOfflineMetadataCleanupCase("970017",
+                                          "BadChunkSizeReceiver",
+                                          "bad-chunk-size",
+                                          [](QJsonObject* payload) {
+                                              (*payload)["chunkSize"] = QString::number(128 * 1024);
+                                          }) && ok;
+    ok = runBadOfflineMetadataCleanupCase("970018",
+                                          "BadChunkCountReceiver",
+                                          "bad-chunk-count",
+                                          [](QJsonObject* payload) {
+                                              (*payload)["chunkCount"] = QString::number(99);
+                                          }) && ok;
+
     Client expiredReceiver;
     QVector<Message> expiredReplayMessages;
     bool expiredReceiverDisconnected = false;
@@ -1331,15 +1412,6 @@ int main(int argc, char** argv) {
                                       "too-large-resume",
                                       [](QJsonObject* payload) {
                                           (*payload)["confirmedBytes"] = QString::number(512 * 1024);
-                                          (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-                                      },
-                                      QVector<qint64>{0, 1}) && ok;
-    ok = runInvalidResumeFallbackCase("970012",
-                                      "ChunkCountMismatchReceiver",
-                                      "chunk-count-mismatch-resume",
-                                      [](QJsonObject* payload) {
-                                          (*payload)["confirmedBytes"] = QString::number(256 * 1024);
-                                          (*payload)["chunkCount"] = QString::number(99);
                                           (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
                                       },
                                       QVector<qint64>{0, 1}) && ok;
