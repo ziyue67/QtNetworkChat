@@ -108,6 +108,34 @@ QByteArray makePatternPayload(int size) {
     }
     return payload;
 }
+
+QByteArray redisMessageEventPayload(MessageType messageType,
+                                    const QString& receiverId,
+                                    const QString& fileName,
+                                    const QByteArray& filePayload) {
+    QJsonObject message;
+    message["senderId"] = "external-instance";
+    message["senderName"] = "ExternalInstance";
+    message["receiverId"] = receiverId;
+    message["content"] = QString(messageType == MessageType::Image ? "发送了图片: %1" : "发送了文件: %1").arg(fileName);
+    message["type"] = static_cast<int>(messageType);
+    message["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    message["fileName"] = fileName;
+    message["fileSize"] = QString::number(filePayload.size());
+    message["chunkSize"] = QString::number(256 * 1024);
+    message["chunkCount"] = QString::number((filePayload.size() + 256 * 1024 - 1) / (256 * 1024));
+    message["fileData"] = QString::fromLatin1(filePayload.toBase64());
+    message["hasFile"] = true;
+
+    QJsonObject event;
+    event["eventType"] = "chat_message";
+    event["instanceId"] = "external-injected-instance";
+    event["deliveryState"] = "remote";
+    event["isPrivate"] = true;
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    event["message"] = message;
+    return QJsonDocument(event).toJson(QJsonDocument::Compact);
+}
 }
 
 class FakeRedisHub : public QObject {
@@ -442,37 +470,34 @@ int main(int argc, char** argv) {
 
     const QString injectedLargeFileName = "redis-injected-large-pubsub.bin";
     const QByteArray injectedLargeFilePayload = makePatternPayload(1024 * 1024 + 4096);
-    QJsonObject injectedLargeMessage;
-    injectedLargeMessage["senderId"] = "external-instance";
-    injectedLargeMessage["senderName"] = "ExternalInstance";
-    injectedLargeMessage["receiverId"] = "960002";
-    injectedLargeMessage["content"] = QString("发送了文件: %1").arg(injectedLargeFileName);
-    injectedLargeMessage["type"] = static_cast<int>(MessageType::File);
-    injectedLargeMessage["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    injectedLargeMessage["fileName"] = injectedLargeFileName;
-    injectedLargeMessage["fileSize"] = QString::number(injectedLargeFilePayload.size());
-    injectedLargeMessage["chunkSize"] = QString::number(256 * 1024);
-    injectedLargeMessage["chunkCount"] = QString::number((injectedLargeFilePayload.size() + 256 * 1024 - 1) / (256 * 1024));
-    injectedLargeMessage["fileData"] = QString::fromLatin1(injectedLargeFilePayload.toBase64());
-    injectedLargeMessage["hasFile"] = true;
-
-    QJsonObject injectedLargeEvent;
-    injectedLargeEvent["eventType"] = "chat_message";
-    injectedLargeEvent["instanceId"] = "external-injected-instance";
-    injectedLargeEvent["deliveryState"] = "remote";
-    injectedLargeEvent["isPrivate"] = true;
-    injectedLargeEvent["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    injectedLargeEvent["message"] = injectedLargeMessage;
 
     bobFileNames.clear();
     bobFilePayloads.clear();
     QMetaObject::invokeMethod(fakeRedis,
                               "injectMessageEvent",
                               Qt::BlockingQueuedConnection,
-                              Q_ARG(QByteArray, QJsonDocument(injectedLargeEvent).toJson(QJsonDocument::Compact)));
+                              Q_ARG(QByteArray, redisMessageEventPayload(MessageType::File,
+                                                                         "960002",
+                                                                         injectedLargeFileName,
+                                                                         injectedLargeFilePayload)));
     ok = expect(!waitFor([&] {
         return bobFileNames.contains(injectedLargeFileName);
     }, 800), "subscriber should ignore oversized Redis file payload events") && ok;
+
+    const QString injectedLargeImageName = "redis-injected-large-pubsub.png";
+    const QByteArray injectedLargeImagePayload = makePatternPayload(1024 * 1024 + 4096);
+    bobImageNames.clear();
+    bobImagePayloads.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, redisMessageEventPayload(MessageType::Image,
+                                                                         "960002",
+                                                                         injectedLargeImageName,
+                                                                         injectedLargeImagePayload)));
+    ok = expect(!waitFor([&] {
+        return bobImageNames.contains(injectedLargeImageName);
+    }, 800), "subscriber should ignore oversized Redis image payload events") && ok;
 
     const QString largeFileName = "redis-large-offline-fallback.bin";
     const QString largeFilePath = transferDir.filePath(largeFileName);
