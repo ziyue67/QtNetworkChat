@@ -1471,6 +1471,15 @@ int main(int argc, char** argv) {
                                           (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
                                       },
                                       QVector<qint64>{0, 1}) && ok;
+    ok = runInvalidResumeFallbackCase("970021",
+                                      "ConfirmedBytesOnlyReceiver",
+                                      "confirmed-bytes-only-resume",
+                                      [](QJsonObject* payload) {
+                                          (*payload)["confirmedBytes"] = QString::number(256 * 1024);
+                                          (*payload)["confirmedChunks"] = QJsonArray();
+                                          (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+                                      },
+                                      QVector<qint64>{1}) && ok;
     ok = runInvalidResumeFallbackCase("970014",
                                       "InvalidChunksResumeReceiver",
                                       "invalid-chunks-resume",
