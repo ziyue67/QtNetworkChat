@@ -38,6 +38,7 @@ constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 constexpr qint64 kOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
 constexpr int kOfflineAttachmentCleanupIntervalMs = 60 * 60 * 1000;
+constexpr qint64 kOfflineAttachmentResumeProgressTtlMs = 24LL * 60 * 60 * 1000;
 constexpr qint64 kDefaultOfflineAttachmentQuotaBytes = 512LL * 1024 * 1024;
 constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
 
@@ -2110,11 +2111,21 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
     const QString fileName = obj["fileName"].toString();
     const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
     const qint64 recordedConfirmedBytes = obj["confirmedBytes"].toVariant().toLongLong();
+    const QJsonArray confirmedChunks = obj["confirmedChunks"].toArray();
+    const bool hasResumeProgress = recordedConfirmedBytes > 0 || !confirmedChunks.isEmpty();
+    bool resumeProgressFresh = !hasResumeProgress;
+    if (hasResumeProgress) {
+        const QDateTime resumeUpdatedAt = QDateTime::fromString(obj["resumeUpdatedAt"].toString(), Qt::ISODate);
+        if (resumeUpdatedAt.isValid()) {
+            const qint64 ageMs = resumeUpdatedAt.toUTC().msecsTo(QDateTime::currentDateTimeUtc());
+            resumeProgressFresh = ageMs >= 0 && ageMs <= kOfflineAttachmentResumeProgressTtlMs;
+        }
+    }
     QSet<qint64> confirmedChunkIndexes;
-    bool confirmedChunksValid = sqliteMessageId > 0
+    bool confirmedChunksValid = resumeProgressFresh
+        && sqliteMessageId > 0
         && declaredChunkSize == chunkSize
         && declaredChunkCount == chunkCount;
-    const QJsonArray confirmedChunks = obj["confirmedChunks"].toArray();
     for (const QJsonValue& value : confirmedChunks) {
         const qint64 chunkIndex = value.toVariant().toLongLong();
         if (chunkIndex < 0 || chunkIndex >= chunkCount) {
@@ -2124,7 +2135,8 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         }
         confirmedChunkIndexes.insert(chunkIndex);
     }
-    const bool canResumeFromConfirmedBytes = sqliteMessageId > 0
+    const bool canResumeFromConfirmedBytes = resumeProgressFresh
+        && sqliteMessageId > 0
         && declaredChunkSize == chunkSize
         && (declaredChunkCount <= 0 || declaredChunkCount == chunkCount)
         && recordedConfirmedBytes > 0

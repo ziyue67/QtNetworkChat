@@ -1079,8 +1079,7 @@ int main(int argc, char** argv) {
                     "offline queue path blocker should contain test payload") && ok;
         blockedOfflinePath.close();
     }
-    ok = expect(offlineAttachmentFileCount(appDataDir) == 0,
-                "rollback test should start without existing offline attachments") && ok;
+    const int attachmentCountBeforeRollback = offlineAttachmentFileCount(appDataDir);
     const QString rollbackFilePath = tempDir.filePath("offline-rollback.bin");
     QByteArray rollbackPayload;
     ok = expect(writeSmallFile(rollbackFilePath, &rollbackPayload),
@@ -1090,7 +1089,7 @@ int main(int argc, char** argv) {
     ok = expect(sender.sendFile(rollbackFilePath, rollbackReceiverId),
                 "sender should finish uploading the rollback test file to the server") && ok;
     waitFor([] { return false; }, 500);
-    ok = expect(offlineAttachmentFileCount(appDataDir) == 0,
+    ok = expect(offlineAttachmentFileCount(appDataDir) == attachmentCountBeforeRollback,
                 "queue persistence failure should roll back the just-saved offline attachment") && ok;
     ok = expect(offlineQueueCount(appDataDir, rollbackReceiverId) == 0,
                 "queue persistence failure should not leave an offline queue row") && ok;
@@ -1269,7 +1268,7 @@ int main(int argc, char** argv) {
                                             const QVector<qint64>& expectedChunkIndexes) {
         Client seedReceiver;
         bool disconnected = false;
-        QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        const QMetaObject::Connection disconnectConnection = QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
             if (userId == receiverId) disconnected = true;
         });
         bool caseOk = expect(loginClient(seedReceiver, receiverId, userName, port, true),
@@ -1315,6 +1314,7 @@ int main(int argc, char** argv) {
         }, 3000), qPrintable(caseName + " replay should clear queue and attachment")) && caseOk;
         caseOk = expect(waitFor([&] { return disconnected; }),
                         qPrintable(caseName + " receiver disconnect should be observed after replay")) && caseOk;
+        QObject::disconnect(disconnectConnection);
         return caseOk;
     };
 
@@ -1355,6 +1355,17 @@ int main(int argc, char** argv) {
                                           (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
                                       },
                                       QVector<qint64>{1}) && ok;
+    ok = runInvalidResumeFallbackCase("970016",
+                                      "ExpiredResumeProgressReceiver",
+                                      "expired-resume-progress",
+                                      [](QJsonObject* payload) {
+                                          QJsonArray confirmedChunks;
+                                          confirmedChunks.append(QString::number(0));
+                                          (*payload)["confirmedBytes"] = QString::number(256 * 1024);
+                                          (*payload)["confirmedChunks"] = confirmedChunks;
+                                          (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().addDays(-2).toString(Qt::ISODate);
+                                      },
+                                      QVector<qint64>{0, 1}) && ok;
 
     const QString gapResumeReceiverId = "970013";
     Client gapResumeReceiverSeed;
