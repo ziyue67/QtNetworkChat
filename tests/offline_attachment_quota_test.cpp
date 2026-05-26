@@ -17,6 +17,7 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QThread>
 
@@ -197,6 +198,61 @@ bool insertLegacyJsonlOfflineAttachmentQueue(const QString& appDataDir,
     if (!queueFile.open(QIODevice::Append | QIODevice::Text)) return false;
     const QByteArray line = QJsonDocument(payload).toJson(QJsonDocument::Compact);
     return queueFile.write(line) == line.size() && queueFile.write("\n") == 1;
+}
+
+bool loginRawAndDisconnectOnFileChunk(const QString& account,
+                                      const QString& userName,
+                                      quint16 port,
+                                      int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    bool sawFileChunk = false;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QString type = doc.object()["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk") {
+                sawFileChunk = true;
+                socket.disconnectFromHost();
+                return;
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool gotChunk = waitFor([&] {
+        drainSocket();
+        return sawFileChunk;
+    }, timeoutMs);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    return gotChunk && sawLoginSuccess;
 }
 
 bool setOfflineQueueRejectTrigger(const QString& appDataDir, bool enabled) {
@@ -562,6 +618,55 @@ int main(int argc, char** argv) {
     expiredReceiver.disconnectFromServer();
     ok = expect(waitFor([&] { return expiredReceiverDisconnected; }),
                 "server should observe expired attachment receiver disconnect after cleanup") && ok;
+
+    const QString interruptedReceiverId = "970007";
+    Client interruptedReceiverSeed;
+    bool interruptedReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == interruptedReceiverId) interruptedReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(interruptedReceiverSeed, interruptedReceiverId, "InterruptedReceiver", port, true),
+                "interrupted receiver should register before interrupted offline replay") && ok;
+    interruptedReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return interruptedReceiverDisconnected; }),
+                "server should observe interrupted receiver disconnect before queue seeding") && ok;
+
+    const QString interruptedFileName = "interrupted-offline-attachment.bin";
+    const QString interruptedDirPath = appDataDir + "/offline_files/interrupted";
+    ok = expect(QDir().mkpath(interruptedDirPath),
+                "interrupted attachment directory should be created") && ok;
+    const QString interruptedPath = interruptedDirPath + "/payload.bin";
+    QFile interruptedFile(interruptedPath);
+    ok = expect(interruptedFile.open(QIODevice::WriteOnly),
+                "interrupted attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(interruptedFile.write(QByteArray("interrupted-payload")) == 19,
+                    "interrupted attachment file should contain the test payload") && ok;
+        interruptedFile.close();
+    }
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             interruptedReceiverId,
+                                             interruptedFileName,
+                                             interruptedPath,
+                                             19),
+                "interrupted attachment offline queue row should be inserted") && ok;
+    ok = expect(offlineQueueCount(appDataDir, interruptedReceiverId) == 1,
+                "interrupted attachment offline row should be queued before replay") && ok;
+    ok = expect(QFile::exists(interruptedPath),
+                "interrupted attachment should exist before replay interruption") && ok;
+
+    interruptedReceiverDisconnected = false;
+    ok = expect(loginRawAndDisconnectOnFileChunk(interruptedReceiverId,
+                                                 "InterruptedReceiver",
+                                                 port),
+                "raw receiver should disconnect after receiving the first offline file chunk") && ok;
+    ok = expect(waitFor([&] { return interruptedReceiverDisconnected; }, 3000),
+                "server should observe raw receiver disconnect after interrupted replay") && ok;
+    ok = expect(offlineQueueCount(appDataDir, interruptedReceiverId) == 1,
+                "interrupted offline attachment queue row should be retained for retry") && ok;
+    ok = expect(QFile::exists(interruptedPath),
+                "interrupted offline attachment file should be retained for retry") && ok;
+    QFile::remove(interruptedPath);
 
     const QString rollbackReceiverId = "970006";
     Client rollbackReceiverSeed;
