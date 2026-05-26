@@ -213,6 +213,19 @@ int main(int argc, char** argv) {
             && publicGroupHasMember(member.serverGroups(), memberId);
     }), "added member should receive restored public group snapshot") && ok;
 
+    ownerSystemMessages.clear();
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "add"),
+                "duplicate member add request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : ownerSystemMessages) {
+            if (message.contains(QString::fromUtf8("已经是群成员"))) return true;
+        }
+        return false;
+    }), "duplicate member add should be rejected by server-side membership check") && ok;
+    ok = expect(publicGroupHasMember(member.serverGroups(), memberId)
+                    && publicGroupMemberRole(member.serverGroups(), memberId) == "member",
+                "duplicate member add should keep the existing member role") && ok;
+
     const QString restoredBroadcast = "restored member broadcast should pass";
     ownerGroupMessages.clear();
     ok = expect(member.sendMessage(restoredBroadcast),
