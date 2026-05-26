@@ -1503,6 +1503,19 @@ int main(int argc, char** argv) {
                                           (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().addDays(-2).toString(Qt::ISODate);
                                       },
                                       QVector<qint64>{0, 1}) && ok;
+    qputenv("QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS", "1");
+    ok = runInvalidResumeFallbackCase("970022",
+                                      "ConfiguredResumeTtlReceiver",
+                                      "configured-resume-ttl",
+                                      [](QJsonObject* payload) {
+                                          QJsonArray confirmedChunks;
+                                          confirmedChunks.append(QString::number(0));
+                                          (*payload)["confirmedBytes"] = QString::number(256 * 1024);
+                                          (*payload)["confirmedChunks"] = confirmedChunks;
+                                          (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().addSecs(-2 * 60 * 60).toString(Qt::ISODate);
+                                      },
+                                      QVector<qint64>{0, 1}) && ok;
+    qunsetenv("QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS");
 
     const QString gapResumeReceiverId = "970013";
     Client gapResumeReceiverSeed;
@@ -1704,5 +1717,6 @@ int main(int argc, char** argv) {
         QDir(appDataDir).removeRecursively();
     }
     qunsetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_QUOTA_MB");
+    qunsetenv("QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS");
     return ok ? 0 : 1;
 }

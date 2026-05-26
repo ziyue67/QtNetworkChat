@@ -38,13 +38,28 @@ constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 constexpr qint64 kOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
 constexpr int kOfflineAttachmentCleanupIntervalMs = 60 * 60 * 1000;
-constexpr qint64 kOfflineAttachmentResumeProgressTtlMs = 24LL * 60 * 60 * 1000;
+constexpr qint64 kDefaultOfflineAttachmentResumeProgressTtlMs = 24LL * 60 * 60 * 1000;
+constexpr qint64 kMaxOfflineAttachmentResumeProgressTtlHours = 24LL * 365;
 constexpr qint64 kDefaultOfflineAttachmentQuotaBytes = 512LL * 1024 * 1024;
 constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+qint64 offlineAttachmentResumeProgressTtlMs() {
+    const QByteArray value = qgetenv("QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS").trimmed();
+    if (value.isEmpty()) {
+        return kDefaultOfflineAttachmentResumeProgressTtlMs;
+    }
+
+    bool ok = false;
+    const qint64 hours = value.toLongLong(&ok);
+    if (!ok || hours <= 0 || hours > kMaxOfflineAttachmentResumeProgressTtlHours) {
+        return kDefaultOfflineAttachmentResumeProgressTtlMs;
+    }
+    return hours * 60LL * 60 * 1000;
 }
 
 QString safePathPart(const QString& value) {
@@ -2128,7 +2143,7 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         const QDateTime resumeUpdatedAt = QDateTime::fromString(obj["resumeUpdatedAt"].toString(), Qt::ISODate);
         if (resumeUpdatedAt.isValid()) {
             const qint64 ageMs = resumeUpdatedAt.toUTC().msecsTo(QDateTime::currentDateTimeUtc());
-            resumeProgressFresh = ageMs >= 0 && ageMs <= kOfflineAttachmentResumeProgressTtlMs;
+            resumeProgressFresh = ageMs >= 0 && ageMs <= offlineAttachmentResumeProgressTtlMs();
         }
     }
     QSet<qint64> confirmedChunkIndexes;
