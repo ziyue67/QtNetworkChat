@@ -880,6 +880,71 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] { return mismatchReceiverDisconnected; }),
                 "server should observe mismatched attachment receiver disconnect after cleanup") && ok;
 
+    const QString hashMismatchReceiverId = "970015";
+    Client hashMismatchReceiverSeed;
+    bool hashMismatchReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == hashMismatchReceiverId) hashMismatchReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(hashMismatchReceiverSeed, hashMismatchReceiverId, "HashMismatchReceiver", port, true),
+                "hash-mismatched attachment receiver should register before queue seeding") && ok;
+    hashMismatchReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return hashMismatchReceiverDisconnected; }),
+                "server should observe hash-mismatched attachment receiver disconnect before queue seeding") && ok;
+
+    const QString hashMismatchFileName = "hash-mismatch-offline-attachment.bin";
+    const QString hashMismatchDirPath = appDataDir + "/offline_files/hash_mismatch";
+    ok = expect(QDir().mkpath(hashMismatchDirPath),
+                "hash-mismatched attachment directory should be created") && ok;
+    const QString hashMismatchPath = hashMismatchDirPath + "/payload.bin";
+    const QByteArray hashMismatchPayload("hash-mismatch-payload");
+    QFile hashMismatchFile(hashMismatchPath);
+    ok = expect(hashMismatchFile.open(QIODevice::WriteOnly),
+                "hash-mismatched attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(hashMismatchFile.write(hashMismatchPayload) == hashMismatchPayload.size(),
+                    "hash-mismatched attachment file should contain the test payload") && ok;
+        hashMismatchFile.close();
+    }
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             hashMismatchReceiverId,
+                                             hashMismatchFileName,
+                                             hashMismatchPath,
+                                             hashMismatchPayload.size()),
+                "hash-mismatched attachment offline queue row should be inserted") && ok;
+    ok = expect(updateOfflineQueuePayload(appDataDir, hashMismatchReceiverId, [](QJsonObject* payload) {
+        (*payload)["fileHash"] = QString(64, QLatin1Char('0'));
+    }), "hash-mismatched attachment queue row should declare a SHA-256 mismatch") && ok;
+    ok = expect(offlineQueueCount(appDataDir, hashMismatchReceiverId) == 1,
+                "hash-mismatched attachment offline row should be queued before replay") && ok;
+
+    Client hashMismatchReceiver;
+    QVector<Message> hashMismatchReplayMessages;
+    QObject::connect(&hashMismatchReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        hashMismatchReplayMessages.append(msg);
+    });
+    ok = expect(loginClient(hashMismatchReceiver, hashMismatchReceiverId, "HashMismatchReceiver", port, false),
+                "hash-mismatched attachment receiver should log in for cleanup replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : hashMismatchReplayMessages) {
+            if (msg.type == MessageType::System
+                && msg.content.contains(QString::fromUtf8("离线文件校验失败"))
+                && msg.content.contains(hashMismatchFileName)) {
+                return true;
+            }
+        }
+        return false;
+    }, 3000), "hash-mismatched offline attachment should produce a clear system notice") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, hashMismatchReceiverId) == 0
+            && !QFile::exists(hashMismatchPath);
+    }, 3000), "hash-mismatched offline attachment queue row and file should be cleared after notice") && ok;
+
+    hashMismatchReceiverDisconnected = false;
+    hashMismatchReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return hashMismatchReceiverDisconnected; }),
+                "server should observe hash-mismatched attachment receiver disconnect after cleanup") && ok;
+
     Client expiredReceiver;
     QVector<Message> expiredReplayMessages;
     bool expiredReceiverDisconnected = false;

@@ -62,6 +62,19 @@ QString safePathPart(const QString& value) {
     return safe.isEmpty() ? "unknown" : safe;
 }
 
+bool looksLikeSha256Hex(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.size() != 64) return false;
+    for (const QChar& ch : trimmed) {
+        const ushort c = ch.toLatin1();
+        const bool isHex = (c >= '0' && c <= '9')
+            || (c >= 'a' && c <= 'f')
+            || (c >= 'A' && c <= 'F');
+        if (!isHex) return false;
+    }
+    return true;
+}
+
 class TlsTcpServer : public QTcpServer {
 public:
     TlsTcpServer(const QSslCertificate& certificate, const QSslKey& privateKey, QObject* parent = nullptr)
@@ -2051,6 +2064,24 @@ bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket
         sendSystemNotice(socket, QString("离线文件大小异常：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
         QFile::remove(offlineFilePath);
         return true;
+    }
+    const QString declaredHash = obj["fileHash"].toString().trimmed();
+    if (looksLikeSha256Hex(declaredHash)) {
+        QFile hashFile(offlineFilePath);
+        if (!hashFile.open(QIODevice::ReadOnly)) {
+            return false;
+        }
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        if (!hash.addData(&hashFile)) {
+            return false;
+        }
+        const QString actualHash = QString::fromLatin1(hash.result().toHex());
+        hashFile.close();
+        if (actualHash.compare(declaredHash, Qt::CaseInsensitive) != 0) {
+            sendSystemNotice(socket, QString("离线文件校验失败：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
+            QFile::remove(offlineFilePath);
+            return true;
+        }
     }
 
     const bool delivered = sendOfflineAttachmentToSocket(obj, offlineFilePath, socket, sqliteMessageId);
