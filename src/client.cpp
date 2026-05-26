@@ -107,6 +107,23 @@ bool resolveResumeProgress(qint64 confirmedBytes,
     return true;
 }
 
+qint64 receivedBytesFromChunks(const QSet<qint64>& receivedChunks,
+                               qint64 fileSize,
+                               qint64 chunkCount) {
+    qint64 receivedBytes = 0;
+    for (qint64 index : receivedChunks) {
+        if (index < 0 || index >= chunkCount) {
+            continue;
+        }
+        const qint64 chunkStart = index * kTransferChunkBytes;
+        const qint64 chunkEnd = qMin(fileSize, chunkStart + kTransferChunkBytes);
+        if (chunkEnd > chunkStart) {
+            receivedBytes += chunkEnd - chunkStart;
+        }
+    }
+    return qMin(receivedBytes, fileSize);
+}
+
 QString outgoingTransferStateFilePath() {
     QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (dir.isEmpty()) {
@@ -831,12 +848,17 @@ bool Client::sendFilePayload(const QString& filePath,
                                                  fileInfo.size(),
                                                  chunkCount,
                                                  &resumeReceivedChunkSet,
-                                                 &firstMissingChunkIndex)
-                        && firstMissingChunkIndex > chunkIndex) {
-                        const qint64 resumeOffset = firstMissingChunkIndex * kTransferChunkBytes;
-                        if (resumeOffset <= fileInfo.size() && file.seek(resumeOffset)) {
-                            receivedChunkIndexes = resumeReceivedChunkSet;
-                            sentBytes = qBound<qint64>(sentBytes, resumeConfirmedBytes, fileInfo.size());
+                                                 &firstMissingChunkIndex)) {
+                        receivedChunkIndexes = resumeReceivedChunkSet;
+                        if (firstMissingChunkIndex > chunkIndex) {
+                            const qint64 resumeOffset = firstMissingChunkIndex * kTransferChunkBytes;
+                            if (resumeOffset > fileInfo.size() || !file.seek(resumeOffset)) {
+                                continue;
+                            }
+                            sentBytes = qMax(sentBytes,
+                                             receivedBytesFromChunks(resumeReceivedChunkSet,
+                                                                     fileInfo.size(),
+                                                                     chunkCount));
                             chunkIndex = firstMissingChunkIndex;
                             emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
                             advancedByResumeState = true;

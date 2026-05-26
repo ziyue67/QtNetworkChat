@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -32,6 +33,7 @@ const char kInvalidProgressResumeTransferId[] = "invalid-progress-resume-transfe
 const char kGapResumeTransferId[] = "gap-resume-transfer";
 const char kAckTimeoutAutoResumeFileName[] = "ack-timeout-auto-resume.bin";
 const char kAckTimeoutGapResumeFileName[] = "ack-timeout-gap-resume.bin";
+const char kAckTimeoutMiddleGapResumeFileName[] = "ack-timeout-middle-gap-resume.bin";
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
@@ -140,6 +142,8 @@ public:
     int autoResumeQueries() const { return m_autoResumeQueries; }
     QVector<qint64> gapAutoResumeChunkIndexes() const { return m_gapAutoResumeChunkIndexes; }
     int gapAutoResumeQueries() const { return m_gapAutoResumeQueries; }
+    QVector<qint64> middleGapAutoResumeChunkIndexes() const { return m_middleGapAutoResumeChunkIndexes; }
+    int middleGapAutoResumeQueries() const { return m_middleGapAutoResumeQueries; }
     void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
         m_resumeFileSize = fileSize;
         m_resumeFileHash = fileHash;
@@ -194,6 +198,28 @@ private:
                 response["chunkSize"] = QString::number(m_gapAutoResumeChunkSize);
                 response["chunkCount"] = QString::number(m_gapAutoResumeChunkCount);
                 response["fileHash"] = m_gapAutoResumeFileHash;
+                response["receivedChunks"] = receivedChunks;
+                response["reason"] = "";
+                writeJson(socket, response);
+                return;
+            }
+
+            if (!m_middleGapAutoResumeTransferId.isEmpty() && transferId == m_middleGapAutoResumeTransferId) {
+                ++m_middleGapAutoResumeQueries;
+                QJsonArray receivedChunks;
+                receivedChunks.append(QString::number(0));
+                receivedChunks.append(QString::number(2));
+
+                QJsonObject response;
+                response["type"] = "file_transfer_resume_state";
+                response["transferId"] = transferId;
+                response["canResume"] = true;
+                response["confirmedBytes"] = QString::number(m_middleGapAutoResumeFileSize);
+                response["nextChunkIndex"] = QString::number(1);
+                response["fileSize"] = QString::number(m_middleGapAutoResumeFileSize);
+                response["chunkSize"] = QString::number(m_middleGapAutoResumeChunkSize);
+                response["chunkCount"] = QString::number(m_middleGapAutoResumeChunkCount);
+                response["fileHash"] = m_middleGapAutoResumeFileHash;
                 response["receivedChunks"] = receivedChunks;
                 response["reason"] = "";
                 writeJson(socket, response);
@@ -277,6 +303,31 @@ private:
         const qint64 fileSize = message["fileSize"].toVariant().toLongLong();
         const QByteArray chunkData = QByteArray::fromBase64(message["fileData"].toString().toLatin1());
         const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+
+        if (message["fileName"].toString() == QString::fromLatin1(kAckTimeoutMiddleGapResumeFileName)) {
+            if (m_middleGapAutoResumeTransferId.isEmpty() && chunkIndex == 1) {
+                m_middleGapAutoResumeTransferId = transferId;
+                m_middleGapAutoResumeFileSize = fileSize;
+                m_middleGapAutoResumeChunkSize = chunkSize;
+                m_middleGapAutoResumeChunkCount = message["chunkCount"].toVariant().toLongLong();
+                m_middleGapAutoResumeFileHash = message["fileHash"].toString();
+                return;
+            }
+
+            if (transferId == m_middleGapAutoResumeTransferId) {
+                m_middleGapAutoResumeChunkIndexes.append(chunkIndex);
+            }
+
+            QJsonObject ack;
+            ack["type"] = "file_chunk_ack";
+            ack["transferId"] = transferId;
+            ack["chunkIndex"] = message["chunkIndex"].toString();
+            ack["accepted"] = true;
+            ack["reason"] = "";
+            ack["receivedBytes"] = QString::number(receivedBytes);
+            writeJson(socket, ack);
+            return;
+        }
 
         if (message["fileName"].toString() == QString::fromLatin1(kAckTimeoutGapResumeFileName)) {
             if (m_gapAutoResumeTransferId.isEmpty() && chunkIndex == 0) {
@@ -381,6 +432,13 @@ private:
     qint64 m_gapAutoResumeChunkSize = 0;
     qint64 m_gapAutoResumeChunkCount = 0;
     QString m_gapAutoResumeFileHash;
+    QString m_middleGapAutoResumeTransferId;
+    QVector<qint64> m_middleGapAutoResumeChunkIndexes;
+    int m_middleGapAutoResumeQueries = 0;
+    qint64 m_middleGapAutoResumeFileSize = 0;
+    qint64 m_middleGapAutoResumeChunkSize = 0;
+    qint64 m_middleGapAutoResumeChunkCount = 0;
+    QString m_middleGapAutoResumeFileHash;
 };
 }
 
@@ -434,8 +492,12 @@ int main(int argc, char** argv) {
     if (!ok) return 1;
 
     QVector<qint64> progressValues;
+    QMap<QString, QVector<qint64>> progressByFileName;
     QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString&, qint64 bytesPrepared, qint64) {
         progressValues.append(bytesPrepared);
+    });
+    QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString& fileName, qint64 bytesPrepared, qint64) {
+        progressByFileName[fileName].append(bytesPrepared);
     });
 
     ok = expect(sender.sendFile(filePath), "sender should succeed after retrying the unacked chunk") && ok;
@@ -673,6 +735,22 @@ int main(int argc, char** argv) {
                 "sender should query the gap auto resume state once") && ok;
     ok = expect(gapAutoResumeChunks.size() == 1 && gapAutoResumeChunks[0] == 1,
                 "auto resume should resend the earliest missing chunk and skip later confirmed chunks") && ok;
+    const QVector<qint64> gapAutoResumeProgress =
+        progressByFileName.value(QString::fromLatin1(kAckTimeoutGapResumeFileName));
+    ok = expect(gapAutoResumeProgress.contains(gapAutoResumeFileSize - kClientChunkBytes),
+                "auto resume progress should use received chunk bytes instead of a non-contiguous high watermark") && ok;
+
+    const QString middleGapAutoResumePath = tempDir.filePath(QString::fromLatin1(kAckTimeoutMiddleGapResumeFileName));
+    qint64 middleGapAutoResumeFileSize = 0;
+    ok = expect(writeResumeFile(middleGapAutoResumePath, &middleGapAutoResumeFileSize),
+                "middle-gap auto resume test file should be created") && ok;
+    ok = expect(sender.sendFile(middleGapAutoResumePath),
+                "sender should reuse auto resume state when the current chunk is still missing") && ok;
+    const QVector<qint64> middleGapAutoResumeChunks = server.middleGapAutoResumeChunkIndexes();
+    ok = expect(server.middleGapAutoResumeQueries() == 1,
+                "sender should query the middle-gap auto resume state once") && ok;
+    ok = expect(middleGapAutoResumeChunks.size() == 1 && middleGapAutoResumeChunks[0] == 1,
+                "auto resume should resend only the missing middle chunk and skip later confirmed chunks") && ok;
 
     sender.disconnectFromServer();
     if (!appDataDir.isEmpty()) {
