@@ -149,6 +149,34 @@ QJsonObject offlineQueuePayload(const QString& appDataDir, const QString& receiv
     return payload;
 }
 
+bool updateOfflineQueuePayload(const QString& appDataDir,
+                               const QString& receiverId,
+                               const std::function<void(QJsonObject*)>& mutate) {
+    const QString dbPath = appDataDir + "/accounts.sqlite3";
+    if (!QFile::exists(dbPath)) return false;
+
+    QJsonObject payload = offlineQueuePayload(appDataDir, receiverId);
+    if (payload.isEmpty()) return false;
+    mutate(&payload);
+
+    bool updated = false;
+    const QString connectionName = "offline_quota_payload_update_" + QString::number(QCoreApplication::applicationPid());
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(dbPath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("UPDATE offline_messages SET payload = ? WHERE receiver_id = ?");
+            query.addBindValue(QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+            query.addBindValue(receiverId);
+            updated = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return updated;
+}
+
 bool insertOfflineAttachmentQueue(const QString& appDataDir,
                                   const QString& receiverId,
                                   const QString& fileName,
@@ -1160,6 +1188,88 @@ int main(int argc, char** argv) {
     }, 3000), "partial-ack offline attachment retry should clear queue and attachment") && ok;
     ok = expect(waitFor([&] { return partialAckReceiverDisconnected; }),
                 "server should observe partial-ack resumed receiver disconnect after cleanup") && ok;
+
+    auto runInvalidResumeFallbackCase = [&](const QString& receiverId,
+                                            const QString& userName,
+                                            const QString& caseName,
+                                            const std::function<void(QJsonObject*)>& mutatePayload,
+                                            const QVector<qint64>& expectedChunkIndexes) {
+        Client seedReceiver;
+        bool disconnected = false;
+        QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+            if (userId == receiverId) disconnected = true;
+        });
+        bool caseOk = expect(loginClient(seedReceiver, receiverId, userName, port, true),
+                             qPrintable(caseName + " receiver should register before queue seeding"));
+        seedReceiver.disconnectFromServer();
+        caseOk = expect(waitFor([&] { return disconnected; }),
+                        qPrintable(caseName + " receiver should disconnect before queue seeding")) && caseOk;
+
+        const QString fileName = caseName + "-offline-attachment.bin";
+        const QString dirPath = appDataDir + "/offline_files/" + caseName;
+        caseOk = expect(QDir().mkpath(dirPath),
+                        qPrintable(caseName + " attachment directory should be created")) && caseOk;
+        const QString attachmentPath = dirPath + "/payload.bin";
+        QByteArray payload(300 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < payload.size(); ++i) {
+            payload[i] = static_cast<char>('A' + (i % 26));
+        }
+        QFile attachment(attachmentPath);
+        caseOk = expect(attachment.open(QIODevice::WriteOnly),
+                        qPrintable(caseName + " attachment file should be writable")) && caseOk;
+        if (caseOk) {
+            caseOk = expect(attachment.write(payload) == payload.size(),
+                            qPrintable(caseName + " attachment file should contain the test payload")) && caseOk;
+            attachment.close();
+        }
+        caseOk = expect(insertOfflineAttachmentQueue(appDataDir, receiverId, fileName, attachmentPath, payload.size()),
+                        qPrintable(caseName + " offline queue row should be inserted")) && caseOk;
+        caseOk = expect(updateOfflineQueuePayload(appDataDir, receiverId, mutatePayload),
+                        qPrintable(caseName + " offline queue row should be mutated with invalid resume metadata")) && caseOk;
+
+        QVector<qint64> chunkIndexes;
+        qint64 replayReceivedBytes = 0;
+        disconnected = false;
+        caseOk = expect(loginRawAckFileReplay(receiverId, userName, port, &chunkIndexes, &replayReceivedBytes),
+                        qPrintable(caseName + " receiver should ack fallback offline replay")) && caseOk;
+        caseOk = expect(chunkIndexes == expectedChunkIndexes,
+                        qPrintable(caseName + " invalid resume metadata should fall back to chunk 0 replay")) && caseOk;
+        caseOk = expect(replayReceivedBytes == payload.size(),
+                        qPrintable(caseName + " fallback replay should confirm the full attachment size")) && caseOk;
+        caseOk = expect(waitFor([&] {
+            return offlineQueueCount(appDataDir, receiverId) == 0
+                && !QFile::exists(attachmentPath);
+        }, 3000), qPrintable(caseName + " fallback replay should clear queue and attachment")) && caseOk;
+        caseOk = expect(waitFor([&] { return disconnected; }),
+                        qPrintable(caseName + " receiver disconnect should be observed after fallback replay")) && caseOk;
+        return caseOk;
+    };
+
+    ok = runInvalidResumeFallbackCase("970010",
+                                      "BadBoundaryReceiver",
+                                      "bad-boundary-resume",
+                                      [](QJsonObject* payload) {
+                                          (*payload)["confirmedBytes"] = QString::number(128 * 1024);
+                                          (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+                                      },
+                                      QVector<qint64>{0, 1}) && ok;
+    ok = runInvalidResumeFallbackCase("970011",
+                                      "TooLargeProgressReceiver",
+                                      "too-large-resume",
+                                      [](QJsonObject* payload) {
+                                          (*payload)["confirmedBytes"] = QString::number(512 * 1024);
+                                          (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+                                      },
+                                      QVector<qint64>{0, 1}) && ok;
+    ok = runInvalidResumeFallbackCase("970012",
+                                      "ChunkCountMismatchReceiver",
+                                      "chunk-count-mismatch-resume",
+                                      [](QJsonObject* payload) {
+                                          (*payload)["confirmedBytes"] = QString::number(256 * 1024);
+                                          (*payload)["chunkCount"] = QString::number(99);
+                                          (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+                                      },
+                                      QVector<qint64>{0, 1}) && ok;
 
     senderDisconnected = false;
     sender.disconnectFromServer();
