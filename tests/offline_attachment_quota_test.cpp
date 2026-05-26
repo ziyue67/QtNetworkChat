@@ -1560,6 +1560,72 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] { return gapResumeReceiverDisconnected; }),
                 "server should observe gap-resume receiver disconnect after cleanup") && ok;
 
+    const QString duplicateChunksReceiverId = "970020";
+    Client duplicateChunksReceiverSeed;
+    bool duplicateChunksReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == duplicateChunksReceiverId) duplicateChunksReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(duplicateChunksReceiverSeed, duplicateChunksReceiverId, "DuplicateChunksReceiver", port, true),
+                "duplicate-chunks receiver should register before queue seeding") && ok;
+    duplicateChunksReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return duplicateChunksReceiverDisconnected; }),
+                "server should observe duplicate-chunks receiver disconnect before queue seeding") && ok;
+
+    const QString duplicateChunksFileName = "duplicate-chunks-offline-attachment.bin";
+    const QString duplicateChunksDirPath = appDataDir + "/offline_files/duplicate_chunks";
+    ok = expect(QDir().mkpath(duplicateChunksDirPath),
+                "duplicate-chunks attachment directory should be created") && ok;
+    const QString duplicateChunksPath = duplicateChunksDirPath + "/payload.bin";
+    QByteArray duplicateChunksPayload(700 * 1024, Qt::Uninitialized);
+    for (int i = 0; i < duplicateChunksPayload.size(); ++i) {
+        duplicateChunksPayload[i] = static_cast<char>('A' + (i % 26));
+    }
+    QFile duplicateChunksFile(duplicateChunksPath);
+    ok = expect(duplicateChunksFile.open(QIODevice::WriteOnly),
+                "duplicate-chunks attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(duplicateChunksFile.write(duplicateChunksPayload) == duplicateChunksPayload.size(),
+                    "duplicate-chunks attachment file should contain the test payload") && ok;
+        duplicateChunksFile.close();
+    }
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             duplicateChunksReceiverId,
+                                             duplicateChunksFileName,
+                                             duplicateChunksPath,
+                                             duplicateChunksPayload.size()),
+                "duplicate-chunks offline queue row should be inserted") && ok;
+    ok = expect(updateOfflineQueuePayload(appDataDir, duplicateChunksReceiverId, [](QJsonObject* payload) {
+        QJsonArray confirmedChunks;
+        confirmedChunks.append(QString::number(0));
+        confirmedChunks.append(QString::number(0));
+        confirmedChunks.append(QString::number(2));
+        (*payload)["confirmedBytes"] = QString::number(256 * 1024);
+        (*payload)["confirmedChunks"] = confirmedChunks;
+        (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    }), "duplicate-chunks offline queue row should contain duplicate confirmedChunks and a gap") && ok;
+
+    QVector<qint64> duplicateChunksIndexes;
+    qint64 duplicateChunksReceivedBytes = 0;
+    duplicateChunksReceiverDisconnected = false;
+    ok = expect(loginRawAckChunksThenDisconnect(duplicateChunksReceiverId,
+                                                "DuplicateChunksReceiver",
+                                                port,
+                                                1,
+                                                &duplicateChunksReceivedBytes,
+                                                &duplicateChunksIndexes),
+                "duplicate-chunks receiver should ack the deduped earliest missing chunk") && ok;
+    ok = expect(duplicateChunksIndexes.size() == 1 && duplicateChunksIndexes.first() == 1,
+                "duplicate confirmedChunks should still resume from the earliest missing gap") && ok;
+    ok = expect(duplicateChunksReceivedBytes == 512 * 1024,
+                "duplicate-chunks ack should report progress through the missing middle chunk") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, duplicateChunksReceiverId) == 0
+            && !QFile::exists(duplicateChunksPath);
+    }, 3000), "duplicate confirmedChunks replay should clear queue and attachment") && ok;
+    ok = expect(waitFor([&] { return duplicateChunksReceiverDisconnected; }),
+                "server should observe duplicate-chunks receiver disconnect after cleanup") && ok;
+
     const QString allConfirmedReceiverId = "970019";
     Client allConfirmedReceiverSeed;
     bool allConfirmedReceiverDisconnected = false;
