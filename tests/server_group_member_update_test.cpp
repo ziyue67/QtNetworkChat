@@ -109,10 +109,13 @@ int main(int argc, char** argv) {
     Client owner;
     Client member;
     QStringList ownerGroupMessages;
+    QStringList ownerSystemMessages;
     QStringList memberSystemMessages;
     QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             ownerGroupMessages << msg.content;
+        } else if (msg.type == MessageType::System) {
+            ownerSystemMessages << msg.content;
         }
     });
     QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
@@ -156,6 +159,19 @@ int main(int argc, char** argv) {
     }), "plain member announcement update should be rejected by server-side role check") && ok;
     ok = expect(publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement,
                 "rejected member announcement should not change public group announcement") && ok;
+
+    ownerSystemMessages.clear();
+    ok = expect(owner.sendServerGroupMemberUpdate("public", ownerId, "remove"),
+                "owner self-removal request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : ownerSystemMessages) {
+            if (message.contains(QString::fromUtf8("不能移出群主"))) return true;
+        }
+        return false;
+    }), "owner should be rejected when trying to remove themselves from the public group") && ok;
+    ok = expect(publicGroupHasMember(owner.serverGroups(), ownerId)
+                    && publicGroupMemberRole(owner.serverGroups(), ownerId) == "owner",
+                "owner should remain the public group owner after rejected self-removal") && ok;
 
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "remove"),
                 "owner should submit member removal") && ok;
