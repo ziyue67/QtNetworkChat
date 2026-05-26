@@ -2,6 +2,7 @@
 #include "redisclient.h"
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QCoreApplication>
 #include <QHostAddress>
 #include <QNetworkInterface>
 #include <QDataStream>
@@ -23,6 +24,7 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QPointer>
+#include <QPair>
 #include <QUuid>
 #include <algorithm>
 
@@ -1956,7 +1958,36 @@ void Server::saveOfflineMessage(const Message& msg) const {
     }
 }
 
-bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket) {
+bool Server::updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObject& obj, qint64 confirmedBytes) const {
+    if (sqliteMessageId <= 0 || confirmedBytes <= 0 || !ensureAccountDatabase()) {
+        return false;
+    }
+
+    QJsonObject updated = obj;
+    const qint64 existingConfirmedBytes = updated["confirmedBytes"].toVariant().toLongLong();
+    updated["confirmedBytes"] = QString::number(qMax(existingConfirmedBytes, confirmedBytes));
+    updated["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    bool saved = false;
+    const QString connectionName = "offline_progress_" + QString::number(QCoreApplication::applicationPid())
+        + "_" + QString::number(QRandomGenerator::global()->generate());
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("UPDATE offline_messages SET payload = ? WHERE id = ?");
+            query.addBindValue(QString::fromUtf8(QJsonDocument(updated).toJson(QJsonDocument::Compact)));
+            query.addBindValue(sqliteMessageId);
+            saved = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return saved;
+}
+
+bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket, qint64 sqliteMessageId) {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState || payload.isEmpty()) {
         return false;
     }
@@ -2000,14 +2031,14 @@ bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket
         return true;
     }
 
-    const bool delivered = sendOfflineAttachmentToSocket(obj, offlineFilePath, socket);
+    const bool delivered = sendOfflineAttachmentToSocket(obj, offlineFilePath, socket, sqliteMessageId);
     if (delivered) {
         QFile::remove(offlineFilePath);
     }
     return delivered;
 }
 
-bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString& filePath, QTcpSocket* socket) {
+bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString& filePath, QTcpSocket* socket, qint64 sqliteMessageId) {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
         return false;
     }
@@ -2053,6 +2084,7 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         chunkObj["fileData"] = QString::fromLatin1(chunk.toBase64());
 
         QString ackRejectReason;
+        qint64 ackReceivedBytes = 0;
         bool acknowledged = false;
         const QByteArray data = QJsonDocument(chunkObj).toJson(QJsonDocument::Compact);
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
@@ -2061,7 +2093,7 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
             }
             socket->write("\n");
             socket->flush();
-            if (waitForFileChunkAck(socket, transferId, index, &ackRejectReason)) {
+            if (waitForFileChunkAck(socket, transferId, index, &ackRejectReason, &ackReceivedBytes)) {
                 acknowledged = true;
                 break;
             }
@@ -2074,6 +2106,11 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
             qWarning() << "Offline attachment chunk ack timeout:" << fileName << index + 1 << "/" << chunkCount;
             return false;
         }
+        const qint64 fallbackConfirmedBytes = qMin(totalBytes, (index + 1) * chunkSize);
+        const qint64 confirmedBytes = qBound<qint64>(0, ackReceivedBytes > 0 ? ackReceivedBytes : fallbackConfirmedBytes, totalBytes);
+        if (confirmedBytes > 0) {
+            updateOfflineMessageProgress(sqliteMessageId, obj, confirmedBytes);
+        }
     }
 
     return file.atEnd();
@@ -2083,6 +2120,7 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
     if (ensureAccountDatabase()) {
         QString connectionName = "offline_read_" + QString::number(reinterpret_cast<quintptr>(this));
         QVector<qint64> deliveredIds;
+        QVector<QPair<qint64, QByteArray>> pendingRows;
         {
             QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
             db.setDatabaseName(accountDbPath());
@@ -2095,11 +2133,14 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
                         const qint64 messageId = query.value(0).toLongLong();
                         QByteArray line = query.value(1).toString().toUtf8();
                         if (line.isEmpty()) continue;
-                        if (!deliverOfflinePayload(line, socket)) {
-                            break;
-                        }
-                        deliveredIds.append(messageId);
+                        pendingRows.append(qMakePair(messageId, line));
                     }
+                }
+                for (const auto& row : pendingRows) {
+                    if (!deliverOfflinePayload(row.second, socket, row.first)) {
+                        break;
+                    }
+                    deliveredIds.append(row.first);
                 }
                 if (!deliveredIds.isEmpty()) {
                     for (qint64 messageId : deliveredIds) {

@@ -123,6 +123,32 @@ int offlineQueueCount(const QString& appDataDir, const QString& receiverId) {
     return count;
 }
 
+QJsonObject offlineQueuePayload(const QString& appDataDir, const QString& receiverId) {
+    const QString dbPath = appDataDir + "/accounts.sqlite3";
+    if (!QFile::exists(dbPath)) return {};
+
+    QJsonObject payload;
+    const QString connectionName = "offline_quota_payload_" + QString::number(QCoreApplication::applicationPid());
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(dbPath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("SELECT payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC LIMIT 1");
+            query.addBindValue(receiverId);
+            if (query.exec() && query.next()) {
+                const QJsonDocument doc = QJsonDocument::fromJson(query.value(0).toString().toUtf8());
+                if (doc.isObject()) {
+                    payload = doc.object();
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return payload;
+}
+
 bool insertOfflineAttachmentQueue(const QString& appDataDir,
                                   const QString& receiverId,
                                   const QString& fileName,
@@ -1022,6 +1048,14 @@ int main(int argc, char** argv) {
                 "partial-ack offline attachment queue row should be retained for retry") && ok;
     ok = expect(QFile::exists(partialAckPath),
                 "partial-ack offline attachment file should be retained for retry") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject payload = offlineQueuePayload(appDataDir, partialAckReceiverId);
+        return payload["confirmedBytes"].toVariant().toLongLong() == partialAckReceivedBytes
+            && !payload["resumeUpdatedAt"].toString().isEmpty();
+    }, 3000), "partial-ack offline attachment queue payload should record confirmed progress") && ok;
+    const QJsonObject partialAckQueuePayload = offlineQueuePayload(appDataDir, partialAckReceiverId);
+    ok = expect(!QDateTime::fromString(partialAckQueuePayload["resumeUpdatedAt"].toString(), Qt::ISODate).isNull(),
+                "partial-ack offline attachment progress timestamp should be ISO formatted") && ok;
 
     Client partialAckRetryReceiver;
     QVector<Message> partialAckRetryMessages;

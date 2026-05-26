@@ -92,8 +92,9 @@ private:
     QSet<QString> collectReferencedOfflineAttachments() const;
     void cleanupExpiredOfflineAttachments();
     void saveOfflineMessage(const Message& msg) const;
-    bool deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket);
-    bool sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString& filePath, QTcpSocket* socket);
+    bool deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket, qint64 sqliteMessageId = -1);
+    bool sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString& filePath, QTcpSocket* socket, qint64 sqliteMessageId = -1);
+    bool updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObject& obj, qint64 confirmedBytes) const;
     void sendOfflineMessages(const QString& userId, QTcpSocket* socket);
 
     struct PendingFileTransfer {
