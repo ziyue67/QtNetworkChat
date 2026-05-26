@@ -57,7 +57,10 @@ bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
 
 bool writeSmallFile(const QString& filePath) {
     QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly)) return false;
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "failed to open small file" << filePath << file.errorString();
+        return false;
+    }
     const QByteArray data("retry-progress-payload");
     return file.write(data) == data.size();
 }
