@@ -941,6 +941,33 @@ int main(int argc, char** argv) {
     ok = expect(QFile::exists(rejectedAckPath),
                 "rejected offline attachment file should be retained for retry") && ok;
 
+    Client rejectedAckRetryReceiver;
+    QVector<Message> rejectedAckRetryMessages;
+    QObject::connect(&rejectedAckRetryReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        rejectedAckRetryMessages.append(msg);
+    });
+    ok = expect(loginClient(rejectedAckRetryReceiver, rejectedAckReceiverId, "RejectedAckReceiver", port, false),
+                "rejected-ack receiver should log in again to retry offline attachment replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : rejectedAckRetryMessages) {
+            if (msg.type == MessageType::File
+                && msg.fileName == rejectedAckFileName
+                && msg.fileData == rejectedAckPayload) {
+                return true;
+            }
+        }
+        return false;
+    }, 7000), "rejected-ack offline attachment retry should deliver the original payload") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, rejectedAckReceiverId) == 0
+            && !QFile::exists(rejectedAckPath);
+    }, 3000), "rejected-ack offline attachment retry should clear queue and attachment") && ok;
+
+    rejectedAckReceiverDisconnected = false;
+    rejectedAckRetryReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return rejectedAckReceiverDisconnected; }),
+                "server should observe rejected-ack retry receiver disconnect after cleanup") && ok;
+
     const QString partialAckReceiverId = "970009";
     Client partialAckReceiverSeed;
     bool partialAckReceiverDisconnected = false;
