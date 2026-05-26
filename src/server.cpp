@@ -237,6 +237,68 @@ OfflineAttachmentValidationResult validateOfflineAttachmentForReplay(const QJson
     return OfflineAttachmentValidationResult::Ready;
 }
 
+struct OfflineAttachmentReplayPlan {
+    qint64 startChunkIndex = 0;
+    bool confirmedChunksValid = false;
+    QSet<qint64> confirmedChunkIndexes;
+};
+
+OfflineAttachmentReplayPlan buildOfflineAttachmentReplayPlan(const QJsonObject& obj,
+                                                             qint64 totalBytes,
+                                                             qint64 chunkSize,
+                                                             qint64 chunkCount,
+                                                             qint64 sqliteMessageId) {
+    OfflineAttachmentReplayPlan plan;
+    const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
+    const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
+    const qint64 recordedConfirmedBytes = obj["confirmedBytes"].toVariant().toLongLong();
+    const QJsonArray confirmedChunks = obj["confirmedChunks"].toArray();
+    const bool hasResumeProgress = recordedConfirmedBytes > 0 || !confirmedChunks.isEmpty();
+    bool resumeProgressFresh = !hasResumeProgress;
+    if (hasResumeProgress) {
+        const QDateTime resumeUpdatedAt = QDateTime::fromString(obj["resumeUpdatedAt"].toString(), Qt::ISODate);
+        if (resumeUpdatedAt.isValid()) {
+            const qint64 ageMs = resumeUpdatedAt.toUTC().msecsTo(QDateTime::currentDateTimeUtc());
+            resumeProgressFresh = ageMs >= 0 && ageMs <= offlineAttachmentResumeProgressTtlMs();
+        }
+    }
+
+    plan.confirmedChunksValid = resumeProgressFresh
+        && sqliteMessageId > 0
+        && declaredChunkSize == chunkSize
+        && declaredChunkCount == chunkCount;
+    for (const QJsonValue& value : confirmedChunks) {
+        const qint64 chunkIndex = value.toVariant().toLongLong();
+        if (chunkIndex < 0 || chunkIndex >= chunkCount) {
+            plan.confirmedChunksValid = false;
+            plan.confirmedChunkIndexes.clear();
+            break;
+        }
+        plan.confirmedChunkIndexes.insert(chunkIndex);
+    }
+
+    const bool canResumeFromConfirmedBytes = resumeProgressFresh
+        && sqliteMessageId > 0
+        && declaredChunkSize == chunkSize
+        && (declaredChunkCount <= 0 || declaredChunkCount == chunkCount)
+        && recordedConfirmedBytes > 0
+        && recordedConfirmedBytes <= totalBytes
+        && recordedConfirmedBytes % chunkSize == 0;
+    plan.startChunkIndex = canResumeFromConfirmedBytes
+        ? qMin(recordedConfirmedBytes / chunkSize, chunkCount)
+        : 0;
+    if (plan.confirmedChunksValid && !plan.confirmedChunkIndexes.isEmpty()) {
+        plan.startChunkIndex = chunkCount;
+        for (qint64 index = 0; index < chunkCount; ++index) {
+            if (!plan.confirmedChunkIndexes.contains(index)) {
+                plan.startChunkIndex = index;
+                break;
+            }
+        }
+    }
+    return plan;
+}
+
 void sendFileChunkAck(QTcpSocket* socket,
                       const QString& transferId,
                       qint64 chunkIndex,
@@ -2165,53 +2227,15 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         : kForwardChunkBytes;
     const qint64 chunkCount = (totalBytes + chunkSize - 1) / chunkSize;
     const QString fileName = obj["fileName"].toString();
-    const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
-    const qint64 recordedConfirmedBytes = obj["confirmedBytes"].toVariant().toLongLong();
-    const QJsonArray confirmedChunks = obj["confirmedChunks"].toArray();
-    const bool hasResumeProgress = recordedConfirmedBytes > 0 || !confirmedChunks.isEmpty();
-    bool resumeProgressFresh = !hasResumeProgress;
-    if (hasResumeProgress) {
-        const QDateTime resumeUpdatedAt = QDateTime::fromString(obj["resumeUpdatedAt"].toString(), Qt::ISODate);
-        if (resumeUpdatedAt.isValid()) {
-            const qint64 ageMs = resumeUpdatedAt.toUTC().msecsTo(QDateTime::currentDateTimeUtc());
-            resumeProgressFresh = ageMs >= 0 && ageMs <= offlineAttachmentResumeProgressTtlMs();
-        }
-    }
-    QSet<qint64> confirmedChunkIndexes;
-    bool confirmedChunksValid = resumeProgressFresh
-        && sqliteMessageId > 0
-        && declaredChunkSize == chunkSize
-        && declaredChunkCount == chunkCount;
-    for (const QJsonValue& value : confirmedChunks) {
-        const qint64 chunkIndex = value.toVariant().toLongLong();
-        if (chunkIndex < 0 || chunkIndex >= chunkCount) {
-            confirmedChunksValid = false;
-            confirmedChunkIndexes.clear();
-            break;
-        }
-        confirmedChunkIndexes.insert(chunkIndex);
-    }
-    const bool canResumeFromConfirmedBytes = resumeProgressFresh
-        && sqliteMessageId > 0
-        && declaredChunkSize == chunkSize
-        && (declaredChunkCount <= 0 || declaredChunkCount == chunkCount)
-        && recordedConfirmedBytes > 0
-        && recordedConfirmedBytes <= totalBytes
-        && recordedConfirmedBytes % chunkSize == 0;
-    qint64 startChunkIndex = canResumeFromConfirmedBytes
-        ? qMin(recordedConfirmedBytes / chunkSize, chunkCount)
-        : 0;
-    if (confirmedChunksValid && !confirmedChunkIndexes.isEmpty()) {
-        startChunkIndex = chunkCount;
-        for (qint64 index = 0; index < chunkCount; ++index) {
-            if (!confirmedChunkIndexes.contains(index)) {
-                startChunkIndex = index;
-                break;
-            }
-        }
-    }
-    if (startChunkIndex > 0 && startChunkIndex < chunkCount && !file.seek(startChunkIndex * chunkSize)) {
-        qWarning() << "Offline attachment resume seek failed:" << fileName << startChunkIndex << "/" << chunkCount;
+    const OfflineAttachmentReplayPlan replayPlan = buildOfflineAttachmentReplayPlan(obj,
+                                                                                   totalBytes,
+                                                                                   chunkSize,
+                                                                                   chunkCount,
+                                                                                   sqliteMessageId);
+    if (replayPlan.startChunkIndex > 0
+        && replayPlan.startChunkIndex < chunkCount
+        && !file.seek(replayPlan.startChunkIndex * chunkSize)) {
+        qWarning() << "Offline attachment resume seek failed:" << fileName << replayPlan.startChunkIndex << "/" << chunkCount;
         return false;
     }
     const QString transferId = QString("%1_%2_%3")
@@ -2219,8 +2243,8 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
              QString::number(QDateTime::currentMSecsSinceEpoch()),
              QString::number(QRandomGenerator::global()->generate()));
 
-    for (qint64 index = startChunkIndex; index < chunkCount; ++index) {
-        if (confirmedChunksValid && confirmedChunkIndexes.contains(index)) {
+    for (qint64 index = replayPlan.startChunkIndex; index < chunkCount; ++index) {
+        if (replayPlan.confirmedChunksValid && replayPlan.confirmedChunkIndexes.contains(index)) {
             continue;
         }
         if (!file.seek(index * chunkSize)) {
