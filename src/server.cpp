@@ -2055,12 +2055,27 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         : kForwardChunkBytes;
     const qint64 chunkCount = (totalBytes + chunkSize - 1) / chunkSize;
     const QString fileName = obj["fileName"].toString();
+    const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
+    const qint64 recordedConfirmedBytes = obj["confirmedBytes"].toVariant().toLongLong();
+    const bool canResumeFromConfirmedBytes = sqliteMessageId > 0
+        && declaredChunkSize == chunkSize
+        && (declaredChunkCount <= 0 || declaredChunkCount == chunkCount)
+        && recordedConfirmedBytes > 0
+        && recordedConfirmedBytes <= totalBytes
+        && recordedConfirmedBytes % chunkSize == 0;
+    const qint64 startChunkIndex = canResumeFromConfirmedBytes
+        ? qMin(recordedConfirmedBytes / chunkSize, chunkCount)
+        : 0;
+    if (startChunkIndex > 0 && !file.seek(startChunkIndex * chunkSize)) {
+        qWarning() << "Offline attachment resume seek failed:" << fileName << startChunkIndex << "/" << chunkCount;
+        return false;
+    }
     const QString transferId = QString("%1_%2_%3")
         .arg(obj["senderId"].toString(),
              QString::number(QDateTime::currentMSecsSinceEpoch()),
              QString::number(QRandomGenerator::global()->generate()));
 
-    for (qint64 index = 0; index < chunkCount; ++index) {
+    for (qint64 index = startChunkIndex; index < chunkCount; ++index) {
         const QByteArray chunk = file.read(chunkSize);
         if (chunk.isEmpty() || (index < chunkCount - 1 && chunk.size() != chunkSize)) {
             qWarning() << "Offline attachment chunk read failed:" << fileName << index + 1 << "/" << chunkCount;

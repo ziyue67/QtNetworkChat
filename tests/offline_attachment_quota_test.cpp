@@ -167,8 +167,9 @@ bool insertOfflineAttachmentQueue(const QString& appDataDir,
     payload["fileName"] = fileName;
     payload["fileSize"] = QString::number(declaredFileSize);
     payload["fileHash"] = "offline-attachment-test";
-    payload["chunkSize"] = QString::number(256 * 1024);
-    payload["chunkCount"] = QString::number(1);
+    const qint64 chunkSize = 256 * 1024;
+    payload["chunkSize"] = QString::number(chunkSize);
+    payload["chunkCount"] = QString::number((declaredFileSize + chunkSize - 1) / chunkSize);
     payload["offlineFilePath"] = attachmentPath;
     payload["offlineFileStoredOnDisk"] = true;
 
@@ -425,6 +426,89 @@ bool loginRawAckChunksThenDisconnect(const QString& account,
     socket.waitForDisconnected(1000);
     if (lastReceivedBytes) *lastReceivedBytes = receivedBytes;
     return sawLoginSuccess && ackedRequestedChunks;
+}
+
+bool loginRawAckFileReplay(const QString& account,
+                           const QString& userName,
+                           quint16 port,
+                           QVector<qint64>* receivedChunkIndexes = nullptr,
+                           qint64* lastReceivedBytes = nullptr,
+                           int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    bool completedReplay = false;
+    qint64 receivedBytes = 0;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk") {
+                const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+                const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+                const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+                const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+                receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+                if (receivedChunkIndexes) {
+                    receivedChunkIndexes->append(chunkIndex);
+                }
+
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = true;
+                ack["reason"] = "";
+                ack["receivedBytes"] = QString::number(receivedBytes);
+                socket.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                socket.write("\n");
+                socket.flush();
+                socket.waitForBytesWritten(1000);
+
+                if (receivedBytes >= fileSize) {
+                    completedReplay = true;
+                    socket.disconnectFromHost();
+                    return;
+                }
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool ackedReplay = waitFor([&] {
+        drainSocket();
+        return completedReplay;
+    }, timeoutMs);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    if (lastReceivedBytes) *lastReceivedBytes = receivedBytes;
+    return sawLoginSuccess && ackedReplay;
 }
 
 bool setOfflineQueueRejectTrigger(const QString& appDataDir, bool enabled) {
@@ -1057,32 +1141,25 @@ int main(int argc, char** argv) {
     ok = expect(!QDateTime::fromString(partialAckQueuePayload["resumeUpdatedAt"].toString(), Qt::ISODate).isNull(),
                 "partial-ack offline attachment progress timestamp should be ISO formatted") && ok;
 
-    Client partialAckRetryReceiver;
-    QVector<Message> partialAckRetryMessages;
-    QObject::connect(&partialAckRetryReceiver, &Client::newMessage, &app, [&](const Message& msg) {
-        partialAckRetryMessages.append(msg);
-    });
-    ok = expect(loginClient(partialAckRetryReceiver, partialAckReceiverId, "PartialAckReceiver", port, false),
-                "partial-ack receiver should log in again to retry offline attachment replay") && ok;
-    ok = expect(waitFor([&] {
-        for (const Message& msg : partialAckRetryMessages) {
-            if (msg.type == MessageType::File
-                && msg.fileName == partialAckFileName
-                && msg.fileData == partialAckPayload) {
-                return true;
-            }
-        }
-        return false;
-    }, 7000), "partial-ack offline attachment retry should deliver the original payload") && ok;
+    QVector<qint64> partialAckRetryChunkIndexes;
+    qint64 partialAckRetryReceivedBytes = 0;
+    partialAckReceiverDisconnected = false;
+    ok = expect(loginRawAckFileReplay(partialAckReceiverId,
+                                      "PartialAckReceiver",
+                                      port,
+                                      &partialAckRetryChunkIndexes,
+                                      &partialAckRetryReceivedBytes),
+                "partial-ack receiver should log in again to ack resumed offline attachment replay") && ok;
+    ok = expect(partialAckRetryChunkIndexes.size() == 1 && partialAckRetryChunkIndexes.first() == 1,
+                "partial-ack offline attachment retry should resume from the first unconfirmed chunk") && ok;
+    ok = expect(partialAckRetryReceivedBytes == partialAckPayload.size(),
+                "partial-ack offline attachment retry should confirm the full attachment size") && ok;
     ok = expect(waitFor([&] {
         return offlineQueueCount(appDataDir, partialAckReceiverId) == 0
             && !QFile::exists(partialAckPath);
     }, 3000), "partial-ack offline attachment retry should clear queue and attachment") && ok;
-
-    partialAckReceiverDisconnected = false;
-    partialAckRetryReceiver.disconnectFromServer();
     ok = expect(waitFor([&] { return partialAckReceiverDisconnected; }),
-                "server should observe partial-ack retry receiver disconnect after cleanup") && ok;
+                "server should observe partial-ack resumed receiver disconnect after cleanup") && ok;
 
     senderDisconnected = false;
     sender.disconnectFromServer();
