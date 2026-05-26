@@ -36,10 +36,10 @@ constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
 constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
-constexpr qint64 kDefaultOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
+constexpr qint64 kDefaultOfflineAttachmentTtlDays = 14;
 constexpr qint64 kMaxOfflineAttachmentTtlDays = 3650;
 constexpr int kOfflineAttachmentCleanupIntervalMs = 60 * 60 * 1000;
-constexpr qint64 kDefaultOfflineAttachmentResumeProgressTtlMs = 24LL * 60 * 60 * 1000;
+constexpr qint64 kDefaultOfflineAttachmentResumeProgressTtlHours = 24;
 constexpr qint64 kMaxOfflineAttachmentResumeProgressTtlHours = 24LL * 365;
 constexpr qint64 kDefaultOfflineAttachmentQuotaBytes = 512LL * 1024 * 1024;
 constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
@@ -49,31 +49,31 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
-qint64 offlineAttachmentResumeProgressTtlMs() {
-    const QByteArray value = qgetenv("QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS").trimmed();
+qint64 positiveIntegerEnvOrDefault(const char* name, qint64 defaultValue, qint64 maxValue = 0) {
+    const QByteArray value = qgetenv(name).trimmed();
     if (value.isEmpty()) {
-        return kDefaultOfflineAttachmentResumeProgressTtlMs;
+        return defaultValue;
     }
 
     bool ok = false;
-    const qint64 hours = value.toLongLong(&ok);
-    if (!ok || hours <= 0 || hours > kMaxOfflineAttachmentResumeProgressTtlHours) {
-        return kDefaultOfflineAttachmentResumeProgressTtlMs;
+    const qint64 parsed = value.toLongLong(&ok);
+    if (!ok || parsed <= 0 || (maxValue > 0 && parsed > maxValue)) {
+        return defaultValue;
     }
+    return parsed;
+}
+
+qint64 offlineAttachmentResumeProgressTtlMs() {
+    const qint64 hours = positiveIntegerEnvOrDefault("QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS",
+                                                     kDefaultOfflineAttachmentResumeProgressTtlHours,
+                                                     kMaxOfflineAttachmentResumeProgressTtlHours);
     return hours * 60LL * 60 * 1000;
 }
 
 qint64 offlineAttachmentTtlMs() {
-    const QByteArray value = qgetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS").trimmed();
-    if (value.isEmpty()) {
-        return kDefaultOfflineAttachmentTtlMs;
-    }
-
-    bool ok = false;
-    const qint64 days = value.toLongLong(&ok);
-    if (!ok || days <= 0 || days > kMaxOfflineAttachmentTtlDays) {
-        return kDefaultOfflineAttachmentTtlMs;
-    }
+    const qint64 days = positiveIntegerEnvOrDefault("QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS",
+                                                    kDefaultOfflineAttachmentTtlDays,
+                                                    kMaxOfflineAttachmentTtlDays);
     return days * 24LL * 60 * 60 * 1000;
 }
 
@@ -1796,14 +1796,8 @@ QString Server::offlineAttachmentDir(const QString& userId) const {
 }
 
 qint64 Server::offlineAttachmentQuotaBytes() const {
-    const QByteArray value = qgetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_QUOTA_MB").trimmed();
-    if (value.isEmpty()) return kDefaultOfflineAttachmentQuotaBytes;
-
-    bool ok = false;
-    const qint64 quotaMb = value.toLongLong(&ok);
-    if (!ok || quotaMb <= 0) {
-        return kDefaultOfflineAttachmentQuotaBytes;
-    }
+    const qint64 quotaMb = positiveIntegerEnvOrDefault("QTNETWORKCHAT_OFFLINE_ATTACHMENT_QUOTA_MB",
+                                                       kDefaultOfflineAttachmentQuotaBytes / (1024 * 1024));
     return quotaMb * 1024 * 1024;
 }
 
