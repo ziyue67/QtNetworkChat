@@ -136,6 +136,17 @@ QByteArray redisMessageEventPayload(MessageType messageType,
     event["message"] = message;
     return QJsonDocument(event).toJson(QJsonDocument::Compact);
 }
+
+QByteArray redisRawMessageEventPayload(const QJsonObject& message) {
+    QJsonObject event;
+    event["eventType"] = "chat_message";
+    event["instanceId"] = "external-injected-instance";
+    event["deliveryState"] = "remote";
+    event["isPrivate"] = !message["receiverId"].toString().isEmpty();
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    event["message"] = message;
+    return QJsonDocument(event).toJson(QJsonDocument::Compact);
+}
 }
 
 class FakeRedisHub : public QObject {
@@ -384,6 +395,10 @@ int main(int argc, char** argv) {
     QList<QByteArray> bobFilePayloads;
     QStringList bobImageNames;
     QList<QByteArray> bobImagePayloads;
+    QVector<Message> serverBMessages;
+    QObject::connect(&serverB, &Server::newMessage, &app, [&](const Message& msg) {
+        serverBMessages.append(msg);
+    });
     QObject::connect(&alice, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             aliceGroupMessages << msg.content;
@@ -498,6 +513,39 @@ int main(int argc, char** argv) {
     ok = expect(!waitFor([&] {
         return bobImageNames.contains(injectedLargeImageName);
     }, 800), "subscriber should ignore oversized Redis image payload events") && ok;
+
+    QJsonObject missingSenderMessage;
+    missingSenderMessage["senderName"] = "ExternalInstance";
+    missingSenderMessage["receiverId"] = "960002";
+    missingSenderMessage["content"] = "Redis missing sender id should be ignored";
+    missingSenderMessage["type"] = static_cast<int>(MessageType::Private);
+    missingSenderMessage["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    bobPrivateMessages.clear();
+    serverBMessages.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, redisRawMessageEventPayload(missingSenderMessage)));
+    ok = expect(!waitFor([&] {
+        return bobPrivateMessages.contains(missingSenderMessage["content"].toString())
+            || !serverBMessages.isEmpty();
+    }, 800), "subscriber should ignore Redis events without sender id") && ok;
+
+    QJsonObject unknownTypeMessage;
+    unknownTypeMessage["senderId"] = "external-instance";
+    unknownTypeMessage["senderName"] = "ExternalInstance";
+    unknownTypeMessage["receiverId"] = "960002";
+    unknownTypeMessage["content"] = "Redis unknown message type should be ignored";
+    unknownTypeMessage["type"] = 999;
+    unknownTypeMessage["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    serverBMessages.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, redisRawMessageEventPayload(unknownTypeMessage)));
+    ok = expect(!waitFor([&] {
+        return !serverBMessages.isEmpty();
+    }, 800), "subscriber should ignore Redis events with unknown message types") && ok;
 
     const QString largeFileName = "redis-large-offline-fallback.bin";
     const QString largeFilePath = transferDir.filePath(largeFileName);
