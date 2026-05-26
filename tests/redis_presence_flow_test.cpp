@@ -286,6 +286,13 @@ int main(int argc, char** argv) {
     QObject::connect(&subscriber, &RedisSubscriber::messageReceived, &app, [&](const RedisClient::PubSubMessage& message) {
         pubSubMessages.append(message);
     });
+    auto payloadCount = [&pubSubMessages](const QByteArray& payload) {
+        int count = 0;
+        for (const RedisClient::PubSubMessage& message : pubSubMessages) {
+            if (message.payload == payload) ++count;
+        }
+        return count;
+    };
     ok = expect(subscriber.subscribe("messages", 2000),
                 "Redis subscriber should subscribe to the fake Redis service") && ok;
     ok = expect(waitFor([&] { return !pubSubMessages.isEmpty(); }),
@@ -312,6 +319,20 @@ int main(int argc, char** argv) {
         }
         return false;
     }), "Redis subscriber should receive published messages after resubscribing") && ok;
+
+    const int subscribedMessagesAfterFirstReconnect = payloadCount(QByteArrayLiteral("{\"kind\":\"subscribed\"}"));
+    QMetaObject::invokeMethod(fakeRedis, "disconnectSubscribers", Qt::BlockingQueuedConnection);
+    ok = expect(waitFor([&] {
+        return subscriber.isSubscribed()
+            && payloadCount(QByteArrayLiteral("{\"kind\":\"subscribed\"}")) > subscribedMessagesAfterFirstReconnect;
+    }), "Redis subscriber should reconnect and resubscribe after a second dropped subscription connection") && ok;
+
+    const QByteArray afterSecondReconnectPayload = QByteArrayLiteral("{\"kind\":\"after-second-reconnect\"}");
+    ok = expect(client.publish("messages", afterSecondReconnectPayload, 2000),
+                "Redis client should publish after subscriber reconnects a second time") && ok;
+    ok = expect(waitFor([&] {
+        return payloadCount(afterSecondReconnectPayload) == 1;
+    }), "Redis subscriber should receive published messages after a second resubscribe") && ok;
 
     ok = expect(client.setPresence("940001", "RedisFlow", 90, 2000),
                 "Redis client should write presence and index entries") && ok;
