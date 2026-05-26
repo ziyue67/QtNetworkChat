@@ -255,6 +255,73 @@ bool loginRawAndDisconnectOnFileChunk(const QString& account,
     return gotChunk && sawLoginSuccess;
 }
 
+bool loginRawAndRejectFirstFileChunk(const QString& account,
+                                     const QString& userName,
+                                     quint16 port,
+                                     int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    bool sentReject = false;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk") {
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = false;
+                ack["reason"] = "offline replay reject ack test";
+                ack["receivedBytes"] = "0";
+                socket.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                socket.write("\n");
+                socket.flush();
+                socket.waitForBytesWritten(1000);
+                sentReject = true;
+                return;
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool rejectedChunk = waitFor([&] {
+        drainSocket();
+        return sentReject;
+    }, timeoutMs);
+    waitFor([] { return false; }, 200);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    return rejectedChunk && sawLoginSuccess;
+}
+
 bool setOfflineQueueRejectTrigger(const QString& appDataDir, bool enabled) {
     const QString dbPath = appDataDir + "/accounts.sqlite3";
     if (!QFile::exists(dbPath)) return false;
@@ -745,6 +812,55 @@ int main(int argc, char** argv) {
     ok = expect(setOfflineQueueRejectTrigger(appDataDir, false),
                 "offline queue reject trigger should be removed after rollback test") && ok;
     QFile::remove(offlinePath);
+
+    const QString rejectedAckReceiverId = "970008";
+    Client rejectedAckReceiverSeed;
+    bool rejectedAckReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == rejectedAckReceiverId) rejectedAckReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(rejectedAckReceiverSeed, rejectedAckReceiverId, "RejectedAckReceiver", port, true),
+                "rejected-ack receiver should register before offline replay") && ok;
+    rejectedAckReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return rejectedAckReceiverDisconnected; }),
+                "server should observe rejected-ack receiver disconnect before queue seeding") && ok;
+
+    const QString rejectedAckFileName = "rejected-ack-offline-attachment.bin";
+    const QString rejectedAckDirPath = appDataDir + "/offline_files/rejected_ack";
+    ok = expect(QDir().mkpath(rejectedAckDirPath),
+                "rejected-ack attachment directory should be created") && ok;
+    const QString rejectedAckPath = rejectedAckDirPath + "/payload.bin";
+    const QByteArray rejectedAckPayload("rejected-ack-payload");
+    QFile rejectedAckFile(rejectedAckPath);
+    ok = expect(rejectedAckFile.open(QIODevice::WriteOnly),
+                "rejected-ack attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(rejectedAckFile.write(rejectedAckPayload) == rejectedAckPayload.size(),
+                    "rejected-ack attachment file should contain the test payload") && ok;
+        rejectedAckFile.close();
+    }
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             rejectedAckReceiverId,
+                                             rejectedAckFileName,
+                                             rejectedAckPath,
+                                             rejectedAckPayload.size()),
+                "rejected-ack attachment offline queue row should be inserted") && ok;
+    ok = expect(offlineQueueCount(appDataDir, rejectedAckReceiverId) == 1,
+                "rejected-ack attachment offline row should be queued before replay") && ok;
+    ok = expect(QFile::exists(rejectedAckPath),
+                "rejected-ack attachment should exist before replay") && ok;
+
+    rejectedAckReceiverDisconnected = false;
+    ok = expect(loginRawAndRejectFirstFileChunk(rejectedAckReceiverId,
+                                                "RejectedAckReceiver",
+                                                port),
+                "raw receiver should reject the first offline file chunk") && ok;
+    ok = expect(waitFor([&] { return rejectedAckReceiverDisconnected; }, 3000),
+                "server should observe raw rejected-ack receiver disconnect") && ok;
+    ok = expect(offlineQueueCount(appDataDir, rejectedAckReceiverId) == 1,
+                "rejected offline attachment queue row should be retained for retry") && ok;
+    ok = expect(QFile::exists(rejectedAckPath),
+                "rejected offline attachment file should be retained for retry") && ok;
 
     senderDisconnected = false;
     sender.disconnectFromServer();
