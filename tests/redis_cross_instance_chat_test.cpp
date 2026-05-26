@@ -446,6 +446,15 @@ int main(int argc, char** argv) {
         return bobFileNames.contains(largeFileName);
     }, 800), "large files should not be routed through Redis Pub/Sub payloads") && ok;
 
+    const QString fallbackPrivateMessage = "Redis private publish failure should fall back offline";
+    bobPrivateMessages.clear();
+    QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, true));
+    ok = expect(alice.sendPrivateMessage("960002", fallbackPrivateMessage),
+                "alice should send a private message even when Redis publish fails") && ok;
+    ok = expect(!waitFor([&] {
+        return bobPrivateMessages.contains(fallbackPrivateMessage);
+    }, 500), "bob should not receive the private message immediately when Redis publish fails") && ok;
+
     const QString fallbackFileName = "redis-publish-fallback.txt";
     const QString fallbackFilePath = transferDir.filePath(fallbackFileName);
     const QByteArray fallbackFilePayload = QByteArrayLiteral("small redis file should fall back offline");
@@ -459,7 +468,6 @@ int main(int argc, char** argv) {
     }
     bobFileNames.clear();
     bobFilePayloads.clear();
-    QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, true));
     ok = expect(alice.sendFile(fallbackFilePath, "960002"),
                 "alice should upload a small file even when Redis publish fails") && ok;
     ok = expect(!waitFor([&] {
@@ -479,7 +487,8 @@ int main(int argc, char** argv) {
     ok = expect(bob.waitForLoginResult(5000),
                 "bob should log in on the first server for offline replay check") && ok;
     ok = expect(waitFor([&] {
-        return bobFileNames.contains(largeFileName)
+        return bobPrivateMessages.contains(fallbackPrivateMessage)
+            && bobFileNames.contains(largeFileName)
             && bobFilePayloads.contains(largeFilePayload)
             && bobFileNames.contains(fallbackFileName)
             && bobFilePayloads.contains(fallbackFilePayload);
