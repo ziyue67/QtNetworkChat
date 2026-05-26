@@ -1,4 +1,5 @@
 #include "client.h"
+#include "redisclient.h"
 #include "server.h"
 
 #include <QCoreApplication>
@@ -66,16 +67,45 @@ int main(int argc, char** argv) {
     }
 
     const quint16 chatPort = freeLocalPort();
-    const quint16 redisPort = freeLocalPort();
     bool ok = true;
     ok = expect(chatPort != 0, "a local chat test port should be available") && ok;
-    ok = expect(redisPort != 0, "an unused Redis test port should be available") && ok;
+    if (!ok) return 1;
+
+    QTcpServer droppingRedis;
+    int redisConnectionAttempts = 0;
+    QObject::connect(&droppingRedis, &QTcpServer::newConnection, &app, [&] {
+        while (QTcpSocket* socket = droppingRedis.nextPendingConnection()) {
+            ++redisConnectionAttempts;
+            socket->disconnectFromHost();
+            socket->deleteLater();
+        }
+    });
+    ok = expect(droppingRedis.listen(QHostAddress::LocalHost, 0),
+                "dropping Redis test server should listen on the fallback test port") && ok;
+    const quint16 redisPort = droppingRedis.serverPort();
+    ok = expect(redisPort != 0, "dropping Redis test port should be available") && ok;
     if (!ok) return 1;
 
     qputenv("QTNETWORKCHAT_REDIS", "1");
     qputenv("QTNETWORKCHAT_REDIS_HOST", "127.0.0.1");
     qputenv("QTNETWORKCHAT_REDIS_PORT", QByteArray::number(redisPort));
     qputenv("QTNETWORKCHAT_REDIS_PREFIX", "qtchat-fallback-test");
+
+    RedisClient redisClient;
+    redisClient.configureFromEnvironment();
+    ok = expect(!redisClient.publish("messages", QByteArrayLiteral("{\"kind\":\"first\"}"), 200),
+                "first Redis publish should fail against the dropping server") && ok;
+    ok = expect(waitFor([&] { return redisConnectionAttempts >= 1; }, 1000),
+                "dropping Redis should observe the first publish connection attempt") && ok;
+    const int attemptsAfterFirstPublish = redisConnectionAttempts;
+    ok = expect(attemptsAfterFirstPublish == 1,
+                "first Redis publish should make one connection attempt") && ok;
+    ok = expect(!redisClient.publish("messages", QByteArrayLiteral("{\"kind\":\"second\"}"), 200),
+                "second Redis publish should fail during reconnect backoff") && ok;
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+    ok = expect(redisConnectionAttempts == attemptsAfterFirstPublish,
+                "Redis reconnect backoff should avoid an immediate second connection attempt") && ok;
+    droppingRedis.close();
 
     Server server;
     ok = expect(server.start(chatPort), "server should start even when Redis is unreachable") && ok;
