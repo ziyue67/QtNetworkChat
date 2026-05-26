@@ -547,6 +547,46 @@ int main(int argc, char** argv) {
         return !serverBMessages.isEmpty();
     }, 800), "subscriber should ignore Redis events with unknown message types") && ok;
 
+    QJsonObject wrongEventTypeMessage;
+    wrongEventTypeMessage["senderId"] = "external-instance";
+    wrongEventTypeMessage["senderName"] = "ExternalInstance";
+    wrongEventTypeMessage["receiverId"] = "960002";
+    wrongEventTypeMessage["content"] = "Redis non-chat event should be ignored";
+    wrongEventTypeMessage["type"] = static_cast<int>(MessageType::Private);
+    wrongEventTypeMessage["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QJsonObject wrongEventTypeEvent;
+    wrongEventTypeEvent["eventType"] = "presence_update";
+    wrongEventTypeEvent["instanceId"] = "external-injected-instance";
+    wrongEventTypeEvent["deliveryState"] = "remote";
+    wrongEventTypeEvent["isPrivate"] = true;
+    wrongEventTypeEvent["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    wrongEventTypeEvent["message"] = wrongEventTypeMessage;
+    bobPrivateMessages.clear();
+    serverBMessages.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(wrongEventTypeEvent).toJson(QJsonDocument::Compact)));
+    ok = expect(!waitFor([&] {
+        return bobPrivateMessages.contains(wrongEventTypeMessage["content"].toString())
+            || !serverBMessages.isEmpty();
+    }, 800), "subscriber should ignore Redis events with non-chat event types") && ok;
+
+    QJsonObject emptyMessageEvent;
+    emptyMessageEvent["eventType"] = "chat_message";
+    emptyMessageEvent["instanceId"] = "external-injected-instance";
+    emptyMessageEvent["deliveryState"] = "remote";
+    emptyMessageEvent["isPrivate"] = true;
+    emptyMessageEvent["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    serverBMessages.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(emptyMessageEvent).toJson(QJsonDocument::Compact)));
+    ok = expect(!waitFor([&] {
+        return !serverBMessages.isEmpty();
+    }, 800), "subscriber should ignore Redis events with empty messages") && ok;
+
     const QString largeFileName = "redis-large-offline-fallback.bin";
     const QString largeFilePath = transferDir.filePath(largeFileName);
     const QByteArray largeFilePayload = makePatternPayload(1024 * 1024 + 4096);
