@@ -2133,7 +2133,8 @@ bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket
 }
 
 bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString& filePath, QTcpSocket* socket, qint64 sqliteMessageId) {
-    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+    QPointer<QTcpSocket> socketGuard(socket);
+    if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState) {
         return false;
     }
 
@@ -2238,14 +2239,17 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         bool acknowledged = false;
         const QByteArray data = QJsonDocument(chunkObj).toJson(QJsonDocument::Compact);
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
-            if (!socket || socket->state() != QAbstractSocket::ConnectedState || socket->write(data) <= 0) {
+            if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState || socketGuard->write(data) <= 0) {
                 return false;
             }
-            socket->write("\n");
-            socket->flush();
-            if (waitForFileChunkAck(socket, transferId, index, &ackRejectReason, &ackReceivedBytes)) {
+            socketGuard->write("\n");
+            socketGuard->flush();
+            if (waitForFileChunkAck(socketGuard, transferId, index, &ackRejectReason, &ackReceivedBytes)) {
                 acknowledged = true;
                 break;
+            }
+            if (!socketGuard) {
+                return false;
             }
             if (!ackRejectReason.isEmpty()) {
                 qWarning() << "Offline attachment chunk rejected by receiver:" << ackRejectReason;
@@ -2333,7 +2337,8 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
 }
 
 bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
-    if (!socket || socket->state() != QAbstractSocket::ConnectedState || msg.fileData.isEmpty()) {
+    QPointer<QTcpSocket> socketGuard(socket);
+    if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState || msg.fileData.isEmpty()) {
         return false;
     }
 
@@ -2371,14 +2376,17 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
         bool acknowledged = false;
         const QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
-            if (!socket || socket->state() != QAbstractSocket::ConnectedState || socket->write(data) <= 0) {
+            if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState || socketGuard->write(data) <= 0) {
                 return false;
             }
-            socket->write("\n");
-            socket->flush();
-            if (waitForFileChunkAck(socket, transferId, index, &ackRejectReason)) {
+            socketGuard->write("\n");
+            socketGuard->flush();
+            if (waitForFileChunkAck(socketGuard, transferId, index, &ackRejectReason)) {
                 acknowledged = true;
                 break;
+            }
+            if (!socketGuard) {
+                return false;
             }
             if (!ackRejectReason.isEmpty()) {
                 qWarning() << "File chunk rejected by receiver:" << ackRejectReason;
@@ -2396,7 +2404,8 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
 bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason, qint64* receivedBytes) {
     if (rejectReason) rejectReason->clear();
     if (receivedBytes) *receivedBytes = 0;
-    if (!socket || transferId.isEmpty()) return false;
+    QPointer<QTcpSocket> socketGuard(socket);
+    if (!socketGuard || transferId.isEmpty()) return false;
 
     QEventLoop loop;
     QTimer timer;
@@ -2412,14 +2421,15 @@ bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, 
         &Server::fileChunkAckReceived,
         &loop,
         [&](QTcpSocket* ackSocket, const QString& ackTransferId, qint64 ackChunkIndex, bool ackAccepted, const QString& ackReason, qint64 ackBytes) {
-            if (ackSocket != socket || ackTransferId != transferId || ackChunkIndex != chunkIndex) return;
+            if (!socketGuard || ackSocket != socketGuard.data() || ackTransferId != transferId || ackChunkIndex != chunkIndex) return;
             matched = true;
             accepted = ackAccepted;
             reason = ackReason;
             ackReceivedBytes = ackBytes;
             loop.quit();
         });
-    QMetaObject::Connection disconnectedConnection = connect(socket, &QTcpSocket::disconnected, &loop, &QEventLoop::quit);
+    QMetaObject::Connection disconnectedConnection = connect(socketGuard, &QTcpSocket::disconnected, &loop, &QEventLoop::quit);
+    QMetaObject::Connection destroyedConnection = connect(socketGuard, &QObject::destroyed, &loop, &QEventLoop::quit);
     connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
 
     timer.start(kChunkAckTimeoutMs);
@@ -2427,6 +2437,7 @@ bool Server::waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, 
 
     QObject::disconnect(ackConnection);
     QObject::disconnect(disconnectedConnection);
+    QObject::disconnect(destroyedConnection);
 
     if (matched && !accepted && rejectReason) {
         *rejectReason = reason.isEmpty() ? "客户端拒绝分片" : reason;
