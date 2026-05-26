@@ -636,11 +636,12 @@ int main(int argc, char** argv) {
     ok = expect(QDir().mkpath(interruptedDirPath),
                 "interrupted attachment directory should be created") && ok;
     const QString interruptedPath = interruptedDirPath + "/payload.bin";
+    const QByteArray interruptedPayload("interrupted-payload");
     QFile interruptedFile(interruptedPath);
     ok = expect(interruptedFile.open(QIODevice::WriteOnly),
                 "interrupted attachment file should be writable") && ok;
     if (ok) {
-        ok = expect(interruptedFile.write(QByteArray("interrupted-payload")) == 19,
+        ok = expect(interruptedFile.write(interruptedPayload) == interruptedPayload.size(),
                     "interrupted attachment file should contain the test payload") && ok;
         interruptedFile.close();
     }
@@ -648,7 +649,7 @@ int main(int argc, char** argv) {
                                              interruptedReceiverId,
                                              interruptedFileName,
                                              interruptedPath,
-                                             19),
+                                             interruptedPayload.size()),
                 "interrupted attachment offline queue row should be inserted") && ok;
     ok = expect(offlineQueueCount(appDataDir, interruptedReceiverId) == 1,
                 "interrupted attachment offline row should be queued before replay") && ok;
@@ -666,7 +667,33 @@ int main(int argc, char** argv) {
                 "interrupted offline attachment queue row should be retained for retry") && ok;
     ok = expect(QFile::exists(interruptedPath),
                 "interrupted offline attachment file should be retained for retry") && ok;
-    QFile::remove(interruptedPath);
+
+    Client interruptedRetryReceiver;
+    QVector<Message> interruptedRetryMessages;
+    QObject::connect(&interruptedRetryReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        interruptedRetryMessages.append(msg);
+    });
+    ok = expect(loginClient(interruptedRetryReceiver, interruptedReceiverId, "InterruptedReceiver", port, false),
+                "interrupted receiver should log in again to retry offline attachment replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : interruptedRetryMessages) {
+            if (msg.type == MessageType::File
+                && msg.fileName == interruptedFileName
+                && msg.fileData == interruptedPayload) {
+                return true;
+            }
+        }
+        return false;
+    }, 7000), "interrupted offline attachment retry should deliver the original payload") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, interruptedReceiverId) == 0
+            && !QFile::exists(interruptedPath);
+    }, 3000), "interrupted offline attachment retry should clear queue and attachment") && ok;
+
+    interruptedReceiverDisconnected = false;
+    interruptedRetryReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return interruptedReceiverDisconnected; }),
+                "server should observe interrupted retry receiver disconnect after cleanup") && ok;
 
     const QString rollbackReceiverId = "970006";
     Client rollbackReceiverSeed;
