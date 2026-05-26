@@ -1543,10 +1543,10 @@ int main(int argc, char** argv) {
         QJsonArray confirmedChunks;
         confirmedChunks.append(QString::number(0));
         confirmedChunks.append(QString::number(2));
-        (*payload)["confirmedBytes"] = QString::number(256 * 1024);
+        (*payload)["confirmedBytes"] = QString::number(512 * 1024);
         (*payload)["confirmedChunks"] = confirmedChunks;
         (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    }), "gap-resume offline queue row should contain a confirmedChunks gap") && ok;
+    }), "gap-resume offline queue row should prefer confirmedChunks gap over confirmedBytes") && ok;
 
     QVector<qint64> gapResumeChunkIndexes;
     qint64 gapResumeReceivedBytes = 0;
