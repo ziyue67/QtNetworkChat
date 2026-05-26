@@ -1958,15 +1958,10 @@ void Server::saveOfflineMessage(const Message& msg) const {
     }
 }
 
-bool Server::updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObject& obj, qint64 confirmedBytes) const {
+bool Server::updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObject& obj, qint64 confirmedBytes, qint64 confirmedChunkIndex) const {
     if (sqliteMessageId <= 0 || confirmedBytes <= 0 || !ensureAccountDatabase()) {
         return false;
     }
-
-    QJsonObject updated = obj;
-    const qint64 existingConfirmedBytes = updated["confirmedBytes"].toVariant().toLongLong();
-    updated["confirmedBytes"] = QString::number(qMax(existingConfirmedBytes, confirmedBytes));
-    updated["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
 
     bool saved = false;
     const QString connectionName = "offline_progress_" + QString::number(QCoreApplication::applicationPid())
@@ -1975,6 +1970,33 @@ bool Server::updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObj
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
         db.setDatabaseName(accountDbPath());
         if (db.open()) {
+            QJsonObject updated = obj;
+            QSqlQuery selectQuery(db);
+            selectQuery.prepare("SELECT payload FROM offline_messages WHERE id = ?");
+            selectQuery.addBindValue(sqliteMessageId);
+            if (selectQuery.exec() && selectQuery.next()) {
+                const QJsonDocument currentDoc = QJsonDocument::fromJson(selectQuery.value(0).toString().toUtf8());
+                if (currentDoc.isObject()) {
+                    updated = currentDoc.object();
+                }
+            }
+
+            const qint64 existingConfirmedBytes = updated["confirmedBytes"].toVariant().toLongLong();
+            updated["confirmedBytes"] = QString::number(qMax(existingConfirmedBytes, confirmedBytes));
+            QJsonArray confirmedChunks = updated["confirmedChunks"].toArray();
+            bool alreadyRecorded = false;
+            for (const QJsonValue& value : confirmedChunks) {
+                if (value.toVariant().toLongLong() == confirmedChunkIndex) {
+                    alreadyRecorded = true;
+                    break;
+                }
+            }
+            if (confirmedChunkIndex >= 0 && !alreadyRecorded) {
+                confirmedChunks.append(QString::number(confirmedChunkIndex));
+            }
+            updated["confirmedChunks"] = confirmedChunks;
+            updated["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
             QSqlQuery query(db);
             query.prepare("UPDATE offline_messages SET payload = ? WHERE id = ?");
             query.addBindValue(QString::fromUtf8(QJsonDocument(updated).toJson(QJsonDocument::Compact)));
@@ -2124,7 +2146,7 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         const qint64 fallbackConfirmedBytes = qMin(totalBytes, (index + 1) * chunkSize);
         const qint64 confirmedBytes = qBound<qint64>(0, ackReceivedBytes > 0 ? ackReceivedBytes : fallbackConfirmedBytes, totalBytes);
         if (confirmedBytes > 0) {
-            updateOfflineMessageProgress(sqliteMessageId, obj, confirmedBytes);
+            updateOfflineMessageProgress(sqliteMessageId, obj, confirmedBytes, index);
         }
     }
 

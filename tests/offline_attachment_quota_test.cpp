@@ -11,6 +11,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSqlDatabase>
@@ -1162,9 +1163,12 @@ int main(int argc, char** argv) {
                 "partial-ack offline attachment file should be retained for retry") && ok;
     ok = expect(waitFor([&] {
         const QJsonObject payload = offlineQueuePayload(appDataDir, partialAckReceiverId);
+        const QJsonArray confirmedChunks = payload["confirmedChunks"].toArray();
         return payload["confirmedBytes"].toVariant().toLongLong() == partialAckReceivedBytes
+            && confirmedChunks.size() == 1
+            && confirmedChunks.first().toVariant().toLongLong() == 0
             && !payload["resumeUpdatedAt"].toString().isEmpty();
-    }, 3000), "partial-ack offline attachment queue payload should record confirmed progress") && ok;
+    }, 3000), "partial-ack offline attachment queue payload should record confirmed progress and chunks") && ok;
     const QJsonObject partialAckQueuePayload = offlineQueuePayload(appDataDir, partialAckReceiverId);
     ok = expect(!QDateTime::fromString(partialAckQueuePayload["resumeUpdatedAt"].toString(), Qt::ISODate).isNull(),
                 "partial-ack offline attachment progress timestamp should be ISO formatted") && ok;
