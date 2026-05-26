@@ -176,6 +176,67 @@ void sendSystemNotice(QTcpSocket* socket, const QString& content) {
     socket->flush();
 }
 
+enum class OfflineAttachmentValidationResult {
+    Ready,
+    CleanedBadState,
+    Blocked
+};
+
+OfflineAttachmentValidationResult sendOfflineAttachmentBadStateNotice(QTcpSocket* socket,
+                                                                      const QString& filePath,
+                                                                      const QString& fileName,
+                                                                      const QString& reason) {
+    sendSystemNotice(socket, QString("%1：%2，请让对方重新发送。").arg(reason, fileName));
+    QFile::remove(filePath);
+    return OfflineAttachmentValidationResult::CleanedBadState;
+}
+
+OfflineAttachmentValidationResult validateOfflineAttachmentForReplay(const QJsonObject& obj,
+                                                                     const QString& filePath,
+                                                                     QTcpSocket* socket) {
+    const QString fileName = obj["fileName"].toString("未命名文件");
+    const QFileInfo attachmentInfo(filePath);
+    if (!attachmentInfo.exists() || !attachmentInfo.isFile()) {
+        return sendOfflineAttachmentBadStateNotice(socket, filePath, fileName, "离线文件已丢失");
+    }
+    if (attachmentInfo.size() <= 0) {
+        return sendOfflineAttachmentBadStateNotice(socket, filePath, fileName, "离线文件为空");
+    }
+
+    const qint64 declaredSize = obj["fileSize"].toVariant().toLongLong();
+    if (declaredSize > 0 && declaredSize != attachmentInfo.size()) {
+        return sendOfflineAttachmentBadStateNotice(socket, filePath, fileName, "离线文件大小异常");
+    }
+
+    const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
+    const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
+    if (declaredChunkSize <= 0
+        || declaredChunkSize > kForwardChunkBytes
+        || declaredChunkCount <= 0
+        || declaredChunkCount != (attachmentInfo.size() + declaredChunkSize - 1) / declaredChunkSize) {
+        return sendOfflineAttachmentBadStateNotice(socket, filePath, fileName, "离线文件分片元数据异常");
+    }
+
+    const QString declaredHash = obj["fileHash"].toString().trimmed();
+    if (looksLikeSha256Hex(declaredHash)) {
+        QFile hashFile(filePath);
+        if (!hashFile.open(QIODevice::ReadOnly)) {
+            return OfflineAttachmentValidationResult::Blocked;
+        }
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        if (!hash.addData(&hashFile)) {
+            return OfflineAttachmentValidationResult::Blocked;
+        }
+        const QString actualHash = QString::fromLatin1(hash.result().toHex());
+        hashFile.close();
+        if (actualHash.compare(declaredHash, Qt::CaseInsensitive) != 0) {
+            return sendOfflineAttachmentBadStateNotice(socket, filePath, fileName, "离线文件校验失败");
+        }
+    }
+
+    return OfflineAttachmentValidationResult::Ready;
+}
+
 void sendFileChunkAck(QTcpSocket* socket,
                       const QString& transferId,
                       qint64 chunkIndex,
@@ -2071,52 +2132,12 @@ bool Server::deliverOfflinePayload(const QByteArray& payload, QTcpSocket* socket
         return written > 0;
     }
 
-    QFile attachment(offlineFilePath);
-    QFileInfo attachmentInfo(offlineFilePath);
-    if (!attachmentInfo.exists() || !attachmentInfo.isFile()) {
-        sendSystemNotice(socket, QString("离线文件已丢失：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
-        QFile::remove(offlineFilePath);
+    const OfflineAttachmentValidationResult validation = validateOfflineAttachmentForReplay(obj, offlineFilePath, socket);
+    if (validation == OfflineAttachmentValidationResult::CleanedBadState) {
         return true;
     }
-    if (attachmentInfo.size() <= 0) {
-        sendSystemNotice(socket, QString("离线文件为空：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
-        QFile::remove(offlineFilePath);
-        return true;
-    }
-
-    const qint64 declaredSize = obj["fileSize"].toVariant().toLongLong();
-    if (declaredSize > 0 && declaredSize != attachmentInfo.size()) {
-        sendSystemNotice(socket, QString("离线文件大小异常：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
-        QFile::remove(offlineFilePath);
-        return true;
-    }
-    const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
-    const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
-    if (declaredChunkSize <= 0
-        || declaredChunkSize > kForwardChunkBytes
-        || declaredChunkCount <= 0
-        || declaredChunkCount != (attachmentInfo.size() + declaredChunkSize - 1) / declaredChunkSize) {
-        sendSystemNotice(socket, QString("离线文件分片元数据异常：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
-        QFile::remove(offlineFilePath);
-        return true;
-    }
-    const QString declaredHash = obj["fileHash"].toString().trimmed();
-    if (looksLikeSha256Hex(declaredHash)) {
-        QFile hashFile(offlineFilePath);
-        if (!hashFile.open(QIODevice::ReadOnly)) {
-            return false;
-        }
-        QCryptographicHash hash(QCryptographicHash::Sha256);
-        if (!hash.addData(&hashFile)) {
-            return false;
-        }
-        const QString actualHash = QString::fromLatin1(hash.result().toHex());
-        hashFile.close();
-        if (actualHash.compare(declaredHash, Qt::CaseInsensitive) != 0) {
-            sendSystemNotice(socket, QString("离线文件校验失败：%1，请让对方重新发送。").arg(obj["fileName"].toString("未命名文件")));
-            QFile::remove(offlineFilePath);
-            return true;
-        }
+    if (validation == OfflineAttachmentValidationResult::Blocked) {
+        return false;
     }
 
     const bool delivered = sendOfflineAttachmentToSocket(obj, offlineFilePath, socket, sqliteMessageId);
