@@ -26,6 +26,9 @@ constexpr qint64 kClientChunkBytes = 256LL * 1024;
 const char kResumeTransferId[] = "resume-send-transfer";
 const char kQueryAndResumeTransferId[] = "query-and-resume-transfer";
 const char kMismatchResumeTransferId[] = "mismatch-resume-transfer";
+const char kChunkSizeMismatchResumeTransferId[] = "chunk-size-mismatch-resume-transfer";
+const char kChunkCountMismatchResumeTransferId[] = "chunk-count-mismatch-resume-transfer";
+const char kInvalidProgressResumeTransferId[] = "invalid-progress-resume-transfer";
 const char kGapResumeTransferId[] = "gap-resume-transfer";
 const char kAckTimeoutAutoResumeFileName[] = "ack-timeout-auto-resume.bin";
 const char kAckTimeoutGapResumeFileName[] = "ack-timeout-gap-resume.bin";
@@ -220,6 +223,9 @@ private:
 
             if (transferId == QString::fromLatin1(kQueryAndResumeTransferId)
                 || transferId == QString::fromLatin1(kMismatchResumeTransferId)
+                || transferId == QString::fromLatin1(kChunkSizeMismatchResumeTransferId)
+                || transferId == QString::fromLatin1(kChunkCountMismatchResumeTransferId)
+                || transferId == QString::fromLatin1(kInvalidProgressResumeTransferId)
                 || transferId == QString::fromLatin1(kGapResumeTransferId)) {
                 QJsonArray resumeChunks;
                 resumeChunks.append(QString::number(0));
@@ -230,11 +236,18 @@ private:
                 response["type"] = "file_transfer_resume_state";
                 response["transferId"] = transferId;
                 response["canResume"] = true;
-                response["confirmedBytes"] = QString::number(2 * kClientChunkBytes);
+                response["confirmedBytes"] = transferId == QString::fromLatin1(kInvalidProgressResumeTransferId)
+                    ? QString::number(0)
+                    : QString::number(2 * kClientChunkBytes);
                 response["nextChunkIndex"] = QString::number(2);
                 response["fileSize"] = QString::number(m_resumeFileSize);
-                response["chunkSize"] = QString::number(kClientChunkBytes);
-                response["chunkCount"] = QString::number((m_resumeFileSize + kClientChunkBytes - 1) / kClientChunkBytes);
+                response["chunkSize"] = transferId == QString::fromLatin1(kChunkSizeMismatchResumeTransferId)
+                    ? QString::number(kClientChunkBytes / 2)
+                    : QString::number(kClientChunkBytes);
+                const qint64 resumeChunkCount = (m_resumeFileSize + kClientChunkBytes - 1) / kClientChunkBytes;
+                response["chunkCount"] = transferId == QString::fromLatin1(kChunkCountMismatchResumeTransferId)
+                    ? QString::number(resumeChunkCount + 1)
+                    : QString::number(resumeChunkCount);
                 response["fileHash"] = transferId == QString::fromLatin1(kMismatchResumeTransferId)
                     ? QString::fromLatin1("not-the-same-hash")
                     : m_resumeFileHash;
@@ -583,9 +596,46 @@ int main(int argc, char** argv) {
                                                    &mismatchReason,
                                                    5000),
                 "sender should reject query-and-resume when metadata does not match the local file") && ok;
-    ok = expect(!mismatchReason.isEmpty(), "metadata mismatch should expose a reject reason") && ok;
+    ok = expect(mismatchReason == QString::fromUtf8("续传文件哈希不一致"),
+                "metadata mismatch should expose the hash mismatch reason") && ok;
     ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
                 "metadata mismatch should not send any resumed chunks") && ok;
+    QString chunkSizeMismatchReason;
+    ok = expect(!sender.queryAndResumeFileTransfer(resumeFilePath,
+                                                   QString::fromLatin1(kChunkSizeMismatchResumeTransferId),
+                                                   QString(),
+                                                   MessageType::File,
+                                                   &chunkSizeMismatchReason,
+                                                   5000),
+                "sender should reject query-and-resume when chunk size does not match") && ok;
+    ok = expect(chunkSizeMismatchReason == QString::fromUtf8("续传分片大小不一致"),
+                "chunk size mismatch should expose a specific reject reason") && ok;
+    ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
+                "chunk size mismatch should not send any resumed chunks") && ok;
+    QString chunkCountMismatchReason;
+    ok = expect(!sender.queryAndResumeFileTransfer(resumeFilePath,
+                                                   QString::fromLatin1(kChunkCountMismatchResumeTransferId),
+                                                   QString(),
+                                                   MessageType::File,
+                                                   &chunkCountMismatchReason,
+                                                   5000),
+                "sender should reject query-and-resume when chunk count does not match") && ok;
+    ok = expect(chunkCountMismatchReason == QString::fromUtf8("续传分片数量不一致"),
+                "chunk count mismatch should expose a specific reject reason") && ok;
+    ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
+                "chunk count mismatch should not send any resumed chunks") && ok;
+    QString invalidProgressReason;
+    ok = expect(!sender.queryAndResumeFileTransfer(resumeFilePath,
+                                                   QString::fromLatin1(kInvalidProgressResumeTransferId),
+                                                   QString(),
+                                                   MessageType::File,
+                                                   &invalidProgressReason,
+                                                   5000),
+                "sender should reject query-and-resume when progress is invalid") && ok;
+    ok = expect(invalidProgressReason == QString::fromUtf8("续传进度非法"),
+                "invalid progress should expose a specific reject reason") && ok;
+    ok = expect(server.resumedChunkIndexes().size() == queryResumedChunks.size(),
+                "invalid progress should not send any resumed chunks") && ok;
     const int chunksBeforeGapResume = server.resumedChunkIndexes().size();
     QString gapReason;
     ok = expect(sender.queryAndResumeFileTransfer(resumeFilePath,

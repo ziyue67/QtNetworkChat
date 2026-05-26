@@ -393,19 +393,34 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
     const QString trimmedRemoteHash = remoteFileHash.trimmed();
     QSet<qint64> receivedChunkSet;
     qint64 firstMissingChunkIndex = 0;
-    if (remoteFileSize != localFileSize
-        || remoteChunkSize != kTransferChunkBytes
-        || remoteChunkCount != localChunkCount
-        || trimmedRemoteHash.isEmpty()
-        || trimmedRemoteHash.compare(localFileHash, Qt::CaseInsensitive) != 0
-        || !resolveResumeProgress(confirmedBytes,
-                                  nextChunkIndex,
-                                  receivedChunks,
-                                  localFileSize,
-                                  localChunkCount,
-                                  &receivedChunkSet,
-                                  &firstMissingChunkIndex)) {
-        if (rejectReason) *rejectReason = "续传元数据与本地文件不一致";
+    if (remoteFileSize != localFileSize) {
+        if (rejectReason) *rejectReason = "续传文件大小不一致";
+        return false;
+    }
+    if (remoteChunkSize != kTransferChunkBytes) {
+        if (rejectReason) *rejectReason = "续传分片大小不一致";
+        return false;
+    }
+    if (remoteChunkCount != localChunkCount) {
+        if (rejectReason) *rejectReason = "续传分片数量不一致";
+        return false;
+    }
+    if (trimmedRemoteHash.isEmpty()) {
+        if (rejectReason) *rejectReason = "续传文件校验信息缺失";
+        return false;
+    }
+    if (trimmedRemoteHash.compare(localFileHash, Qt::CaseInsensitive) != 0) {
+        if (rejectReason) *rejectReason = "续传文件哈希不一致";
+        return false;
+    }
+    if (!resolveResumeProgress(confirmedBytes,
+                               nextChunkIndex,
+                               receivedChunks,
+                               localFileSize,
+                               localChunkCount,
+                               &receivedChunkSet,
+                               &firstMissingChunkIndex)) {
+        if (rejectReason) *rejectReason = "续传进度非法";
         return false;
     }
 
