@@ -712,10 +712,43 @@ int main(int argc, char** argv) {
                 "legacy offline queue row should reference the expired startup attachment") && ok;
     ok = expect(QFile::exists(expiredPath),
                 "expired referenced attachment should exist before server startup cleanup") && ok;
+
+    const QString configuredTtlReceiverId = "970097";
+    const QString configuredTtlDirPath = appDataDir + "/offline_files/configured_ttl";
+    ok = expect(QDir().mkpath(configuredTtlDirPath),
+                "configured TTL attachment directory should be created before server startup") && ok;
+    const QString configuredTtlPath = configuredTtlDirPath + "/payload.bin";
+    QFile configuredTtlFile(configuredTtlPath);
+    ok = expect(configuredTtlFile.open(QIODevice::WriteOnly),
+                "configured TTL attachment file should be writable before server startup") && ok;
+    if (ok) {
+        ok = expect(configuredTtlFile.write(QByteArray("configured-ttl-payload")) == 22,
+                    "configured TTL attachment file should contain the test payload") && ok;
+        configuredTtlFile.close();
+    }
+    QFile configuredTtlTimeFile(configuredTtlPath);
+    ok = expect(configuredTtlTimeFile.open(QIODevice::ReadWrite),
+                "configured TTL attachment file should reopen for timestamp update") && ok;
+    if (ok) {
+        ok = expect(configuredTtlTimeFile.setFileTime(QDateTime::currentDateTime().addDays(-2),
+                                                      QFileDevice::FileModificationTime),
+                    "configured TTL attachment modification time should be set before startup") && ok;
+        configuredTtlTimeFile.close();
+    }
+    ok = expect(insertLegacyJsonlOfflineAttachmentQueue(appDataDir,
+                                                        configuredTtlReceiverId,
+                                                        "configured-ttl-startup.bin",
+                                                        configuredTtlPath,
+                                                        22),
+                "legacy offline queue row should reference the configured TTL attachment") && ok;
+    ok = expect(QFile::exists(configuredTtlPath),
+                "configured TTL referenced attachment should exist before server startup cleanup") && ok;
     if (!ok) return 1;
 
+    qputenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS", "1");
     Server server;
     ok = expect(server.start(port), "server should start on the test port") && ok;
+    qunsetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS");
     if (!ok) return 1;
     ok = expect(!QFile::exists(orphanPath),
                 "server startup should remove unreferenced offline attachment files") && ok;
@@ -723,7 +756,10 @@ int main(int argc, char** argv) {
                 "server startup should preserve offline attachments still referenced by a queue") && ok;
     ok = expect(!QFile::exists(expiredPath),
                 "server startup should remove expired offline attachments even if a queue references them") && ok;
+    ok = expect(!QFile::exists(configuredTtlPath),
+                "server startup should honor configured offline attachment TTL") && ok;
     QFile::remove(appDataDir + "/offline/970099.jsonl");
+    QFile::remove(appDataDir + "/offline/" + configuredTtlReceiverId + ".jsonl");
     QFile::remove(referencedPath);
 
     const QString receiverId = "970002";
@@ -1717,6 +1753,7 @@ int main(int argc, char** argv) {
         QDir(appDataDir).removeRecursively();
     }
     qunsetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_QUOTA_MB");
+    qunsetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS");
     qunsetenv("QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS");
     return ok ? 0 : 1;
 }

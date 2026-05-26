@@ -36,7 +36,8 @@ constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
 constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
-constexpr qint64 kOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
+constexpr qint64 kDefaultOfflineAttachmentTtlMs = 14LL * 24 * 60 * 60 * 1000;
+constexpr qint64 kMaxOfflineAttachmentTtlDays = 3650;
 constexpr int kOfflineAttachmentCleanupIntervalMs = 60 * 60 * 1000;
 constexpr qint64 kDefaultOfflineAttachmentResumeProgressTtlMs = 24LL * 60 * 60 * 1000;
 constexpr qint64 kMaxOfflineAttachmentResumeProgressTtlHours = 24LL * 365;
@@ -60,6 +61,20 @@ qint64 offlineAttachmentResumeProgressTtlMs() {
         return kDefaultOfflineAttachmentResumeProgressTtlMs;
     }
     return hours * 60LL * 60 * 1000;
+}
+
+qint64 offlineAttachmentTtlMs() {
+    const QByteArray value = qgetenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS").trimmed();
+    if (value.isEmpty()) {
+        return kDefaultOfflineAttachmentTtlMs;
+    }
+
+    bool ok = false;
+    const qint64 days = value.toLongLong(&ok);
+    if (!ok || days <= 0 || days > kMaxOfflineAttachmentTtlDays) {
+        return kDefaultOfflineAttachmentTtlMs;
+    }
+    return days * 24LL * 60 * 60 * 1000;
 }
 
 QString safePathPart(const QString& value) {
@@ -1901,7 +1916,7 @@ void Server::cleanupExpiredOfflineAttachments() {
         }
 
         const QString cleanPath = QDir::cleanPath(path);
-        const bool isExpired = info.lastModified().msecsTo(now) > kOfflineAttachmentTtlMs;
+        const bool isExpired = info.lastModified().msecsTo(now) > offlineAttachmentTtlMs();
         const bool isOrphaned = !referencedPaths.contains(cleanPath);
         if ((isExpired || isOrphaned) && QFile::remove(path)) {
             qDebug() << "Cleaned offline attachment" << cleanPath
