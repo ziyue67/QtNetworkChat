@@ -1023,6 +1023,33 @@ int main(int argc, char** argv) {
     ok = expect(QFile::exists(partialAckPath),
                 "partial-ack offline attachment file should be retained for retry") && ok;
 
+    Client partialAckRetryReceiver;
+    QVector<Message> partialAckRetryMessages;
+    QObject::connect(&partialAckRetryReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        partialAckRetryMessages.append(msg);
+    });
+    ok = expect(loginClient(partialAckRetryReceiver, partialAckReceiverId, "PartialAckReceiver", port, false),
+                "partial-ack receiver should log in again to retry offline attachment replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : partialAckRetryMessages) {
+            if (msg.type == MessageType::File
+                && msg.fileName == partialAckFileName
+                && msg.fileData == partialAckPayload) {
+                return true;
+            }
+        }
+        return false;
+    }, 7000), "partial-ack offline attachment retry should deliver the original payload") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, partialAckReceiverId) == 0
+            && !QFile::exists(partialAckPath);
+    }, 3000), "partial-ack offline attachment retry should clear queue and attachment") && ok;
+
+    partialAckReceiverDisconnected = false;
+    partialAckRetryReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return partialAckReceiverDisconnected; }),
+                "server should observe partial-ack retry receiver disconnect after cleanup") && ok;
+
     senderDisconnected = false;
     sender.disconnectFromServer();
     ok = expect(waitFor([&] { return senderDisconnected; }),
