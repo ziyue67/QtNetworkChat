@@ -383,6 +383,7 @@ bool loginRawAckChunksThenDisconnect(const QString& account,
                                      quint16 port,
                                      int chunksToAck,
                                      qint64* lastReceivedBytes = nullptr,
+                                     QVector<qint64>* receivedChunkIndexes = nullptr,
                                      int timeoutMs = 10000) {
     QTcpSocket socket;
     QByteArray buffer;
@@ -410,6 +411,9 @@ bool loginRawAckChunksThenDisconnect(const QString& account,
                 const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
                 const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
                 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+                if (receivedChunkIndexes) {
+                    receivedChunkIndexes->append(chunkIndex);
+                }
 
                 QJsonObject ack;
                 ack["type"] = "file_chunk_ack";
@@ -1274,6 +1278,71 @@ int main(int argc, char** argv) {
                                           (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
                                       },
                                       QVector<qint64>{0, 1}) && ok;
+
+    const QString gapResumeReceiverId = "970013";
+    Client gapResumeReceiverSeed;
+    bool gapResumeReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == gapResumeReceiverId) gapResumeReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(gapResumeReceiverSeed, gapResumeReceiverId, "GapResumeReceiver", port, true),
+                "gap-resume receiver should register before queue seeding") && ok;
+    gapResumeReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return gapResumeReceiverDisconnected; }),
+                "server should observe gap-resume receiver disconnect before queue seeding") && ok;
+
+    const QString gapResumeFileName = "gap-resume-offline-attachment.bin";
+    const QString gapResumeDirPath = appDataDir + "/offline_files/gap_resume";
+    ok = expect(QDir().mkpath(gapResumeDirPath),
+                "gap-resume attachment directory should be created") && ok;
+    const QString gapResumePath = gapResumeDirPath + "/payload.bin";
+    QByteArray gapResumePayload(700 * 1024, Qt::Uninitialized);
+    for (int i = 0; i < gapResumePayload.size(); ++i) {
+        gapResumePayload[i] = static_cast<char>('A' + (i % 26));
+    }
+    QFile gapResumeFile(gapResumePath);
+    ok = expect(gapResumeFile.open(QIODevice::WriteOnly),
+                "gap-resume attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(gapResumeFile.write(gapResumePayload) == gapResumePayload.size(),
+                    "gap-resume attachment file should contain the test payload") && ok;
+        gapResumeFile.close();
+    }
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             gapResumeReceiverId,
+                                             gapResumeFileName,
+                                             gapResumePath,
+                                             gapResumePayload.size()),
+                "gap-resume offline queue row should be inserted") && ok;
+    ok = expect(updateOfflineQueuePayload(appDataDir, gapResumeReceiverId, [](QJsonObject* payload) {
+        QJsonArray confirmedChunks;
+        confirmedChunks.append(QString::number(0));
+        confirmedChunks.append(QString::number(2));
+        (*payload)["confirmedBytes"] = QString::number(256 * 1024);
+        (*payload)["confirmedChunks"] = confirmedChunks;
+        (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    }), "gap-resume offline queue row should contain a confirmedChunks gap") && ok;
+
+    QVector<qint64> gapResumeChunkIndexes;
+    qint64 gapResumeReceivedBytes = 0;
+    gapResumeReceiverDisconnected = false;
+    ok = expect(loginRawAckChunksThenDisconnect(gapResumeReceiverId,
+                                                "GapResumeReceiver",
+                                                port,
+                                                1,
+                                                &gapResumeReceivedBytes,
+                                                &gapResumeChunkIndexes),
+                "gap-resume receiver should ack the earliest missing chunk") && ok;
+    ok = expect(gapResumeChunkIndexes.size() == 1 && gapResumeChunkIndexes.first() == 1,
+                "gap-resume replay should start from the earliest missing confirmedChunks gap") && ok;
+    ok = expect(gapResumeReceivedBytes == 512 * 1024,
+                "gap-resume ack should report progress through the missing middle chunk") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, gapResumeReceiverId) == 0
+            && !QFile::exists(gapResumePath);
+    }, 3000), "gap-resume replay should clear queue and attachment after filling the gap") && ok;
+    ok = expect(waitFor([&] { return gapResumeReceiverDisconnected; }),
+                "server should observe gap-resume receiver disconnect after cleanup") && ok;
 
     senderDisconnected = false;
     sender.disconnectFromServer();
