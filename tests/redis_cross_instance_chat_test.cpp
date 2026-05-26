@@ -97,6 +97,14 @@ bool registerClient(Client& client,
     if (!client.connectToServer("127.0.0.1", port)) return false;
     return client.waitForLoginResult(5000);
 }
+
+QByteArray makePatternPayload(int size) {
+    QByteArray payload(size, Qt::Uninitialized);
+    for (int i = 0; i < payload.size(); ++i) {
+        payload[i] = static_cast<char>('A' + (i % 26));
+    }
+    return payload;
+}
 }
 
 class FakeRedisHub : public QObject {
@@ -419,6 +427,25 @@ int main(int argc, char** argv) {
         return bobImageNames.contains(imageName) && bobImagePayloads.contains(imagePayload);
     }), "bob should receive the small image through Redis cross-instance routing") && ok;
 
+    const QString largeFileName = "redis-large-offline-fallback.bin";
+    const QString largeFilePath = transferDir.filePath(largeFileName);
+    const QByteArray largeFilePayload = makePatternPayload(1024 * 1024 + 4096);
+    QFile largeFile(largeFilePath);
+    ok = expect(largeFile.open(QIODevice::WriteOnly),
+                "large transfer file should open for writing") && ok;
+    if (largeFile.isOpen()) {
+        ok = expect(largeFile.write(largeFilePayload) == largeFilePayload.size(),
+                    "large transfer file should be written") && ok;
+        largeFile.close();
+    }
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    ok = expect(alice.sendFile(largeFilePath, "960002"),
+                "alice should upload a large file while bob is online on another server") && ok;
+    ok = expect(!waitFor([&] {
+        return bobFileNames.contains(largeFileName);
+    }, 800), "large files should not be routed through Redis Pub/Sub payloads") && ok;
+
     const QString fallbackFileName = "redis-publish-fallback.txt";
     const QString fallbackFilePath = transferDir.filePath(fallbackFileName);
     const QByteArray fallbackFilePayload = QByteArrayLiteral("small redis file should fall back offline");
@@ -452,8 +479,11 @@ int main(int argc, char** argv) {
     ok = expect(bob.waitForLoginResult(5000),
                 "bob should log in on the first server for offline replay check") && ok;
     ok = expect(waitFor([&] {
-        return bobFileNames.contains(fallbackFileName) && bobFilePayloads.contains(fallbackFilePayload);
-    }), "publish failure should fall back to the origin server offline queue") && ok;
+        return bobFileNames.contains(largeFileName)
+            && bobFilePayloads.contains(largeFilePayload)
+            && bobFileNames.contains(fallbackFileName)
+            && bobFilePayloads.contains(fallbackFilePayload);
+    }, 9000), "large files and publish failures should fall back to the origin server offline queue") && ok;
     ok = expect(!waitFor([&] {
         return bobPrivateMessages.contains(privateMessage) || bobFileNames.contains(fileName);
     }, 800), "cross-instance private messages and files should not be replayed from the origin server offline queue") && ok;
