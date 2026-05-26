@@ -162,6 +162,14 @@ powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -BuildDir b
 
 这些文件属于运行时数据，不建议提交到 GitHub。
 
+### 离线附件环境变量
+
+| 环境变量 | 默认值 | 有效值与非法值回退 | 影响范围 | 测试覆盖 |
+| --- | --- | --- | --- | --- |
+| `QTNETWORKCHAT_OFFLINE_ATTACHMENT_QUOTA_MB` | `512` MB | 正整数 MB；空值、非数字或小于等于 0 时回退默认值 | 限制离线附件落盘总量，超限时不写入附件和离线队列 | CTest 覆盖自定义配额下的拒绝、无附件残留和无队列残留 |
+| `QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS` | `14` 天 | `1` 到 `3650` 的整数天数；空值、非数字、越界或小于等于 0 时回退默认值 | 控制启动和定时清理离线附件时的过期判断；仍被队列引用但已过期的附件也会清理 | CTest 覆盖自定义 TTL 下启动清理过期附件、保留未过期队列引用附件，以及后续缺失提示 |
+| `QTNETWORKCHAT_OFFLINE_RESUME_TTL_HOURS` | `24` 小时 | `1` 到 `8760` 的整数小时数；空值、非数字、越界或小于等于 0 时回退默认值 | 控制 `resumeUpdatedAt` 的可信时间窗口；过期后不再信任 `confirmedBytes`/`confirmedChunks`，回退完整回放 | CTest 覆盖自定义 TTL 下旧续传进度回退完整回放 |
+
 ## 离线附件失败续传策略草案
 
 当前离线附件登录回放会从附件文件头开始按分片发送，并等待接收端 ACK。若接收端中途断开或 ACK 超时，服务端会保留离线队列行和附件文件，等待下一次登录重新完整回放；只有所有分片成功 ACK 后才清理队列和附件。后续失败续传建议保持这个安全基线，并分阶段扩展：
