@@ -544,6 +544,62 @@ bool loginRawAckFileReplay(const QString& account,
     return sawLoginSuccess && ackedReplay;
 }
 
+bool loginRawUntilCondition(const QString& account,
+                            const QString& userName,
+                            quint16 port,
+                            const std::function<bool()>& condition,
+                            bool* sawFileChunk,
+                            int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    bool sawChunk = false;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QString type = doc.object()["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk") {
+                sawChunk = true;
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool conditionMet = waitFor([&] {
+        drainSocket();
+        return sawLoginSuccess && condition();
+    }, timeoutMs);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    if (sawFileChunk) *sawFileChunk = sawChunk;
+    return conditionMet;
+}
+
 bool setOfflineQueueRejectTrigger(const QString& appDataDir, bool enabled) {
     const QString dbPath = appDataDir + "/accounts.sqlite3";
     if (!QFile::exists(dbPath)) return false;
@@ -1503,6 +1559,66 @@ int main(int argc, char** argv) {
     }, 3000), "gap-resume replay should clear queue and attachment after filling the gap") && ok;
     ok = expect(waitFor([&] { return gapResumeReceiverDisconnected; }),
                 "server should observe gap-resume receiver disconnect after cleanup") && ok;
+
+    const QString allConfirmedReceiverId = "970019";
+    Client allConfirmedReceiverSeed;
+    bool allConfirmedReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == allConfirmedReceiverId) allConfirmedReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(allConfirmedReceiverSeed, allConfirmedReceiverId, "AllConfirmedReceiver", port, true),
+                "all-confirmed receiver should register before queue seeding") && ok;
+    allConfirmedReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return allConfirmedReceiverDisconnected; }),
+                "server should observe all-confirmed receiver disconnect before queue seeding") && ok;
+
+    const QString allConfirmedFileName = "all-confirmed-offline-attachment.bin";
+    const QString allConfirmedDirPath = appDataDir + "/offline_files/all_confirmed";
+    ok = expect(QDir().mkpath(allConfirmedDirPath),
+                "all-confirmed attachment directory should be created") && ok;
+    const QString allConfirmedPath = allConfirmedDirPath + "/payload.bin";
+    QByteArray allConfirmedPayload(300 * 1024, Qt::Uninitialized);
+    for (int i = 0; i < allConfirmedPayload.size(); ++i) {
+        allConfirmedPayload[i] = static_cast<char>('A' + (i % 26));
+    }
+    QFile allConfirmedFile(allConfirmedPath);
+    ok = expect(allConfirmedFile.open(QIODevice::WriteOnly),
+                "all-confirmed attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(allConfirmedFile.write(allConfirmedPayload) == allConfirmedPayload.size(),
+                    "all-confirmed attachment file should contain the test payload") && ok;
+        allConfirmedFile.close();
+    }
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             allConfirmedReceiverId,
+                                             allConfirmedFileName,
+                                             allConfirmedPath,
+                                             allConfirmedPayload.size()),
+                "all-confirmed offline queue row should be inserted") && ok;
+    ok = expect(updateOfflineQueuePayload(appDataDir, allConfirmedReceiverId, [&allConfirmedPayload](QJsonObject* payload) {
+        QJsonArray confirmedChunks;
+        confirmedChunks.append(QString::number(0));
+        confirmedChunks.append(QString::number(1));
+        (*payload)["confirmedBytes"] = QString::number(allConfirmedPayload.size());
+        (*payload)["confirmedChunks"] = confirmedChunks;
+        (*payload)["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    }), "all-confirmed offline queue row should mark every chunk confirmed") && ok;
+
+    bool allConfirmedSawFileChunk = false;
+    allConfirmedReceiverDisconnected = false;
+    ok = expect(loginRawUntilCondition(allConfirmedReceiverId,
+                                       "AllConfirmedReceiver",
+                                       port,
+                                       [&] {
+                                           return offlineQueueCount(appDataDir, allConfirmedReceiverId) == 0
+                                               && !QFile::exists(allConfirmedPath);
+                                       },
+                                       &allConfirmedSawFileChunk),
+                "all-confirmed receiver login should clear completed offline attachment") && ok;
+    ok = expect(!allConfirmedSawFileChunk,
+                "all-confirmed offline attachment should not send any file chunks") && ok;
+    ok = expect(waitFor([&] { return allConfirmedReceiverDisconnected; }),
+                "server should observe all-confirmed receiver disconnect after cleanup") && ok;
 
     senderDisconnected = false;
     sender.disconnectFromServer();
