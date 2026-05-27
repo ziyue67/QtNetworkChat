@@ -1,4 +1,5 @@
 #include "client.h"
+#include "objectstore.h"
 #include "redisclient.h"
 #include "server.h"
 
@@ -189,6 +190,7 @@ public slots:
 signals:
     void started(quint16 port);
     void failed(const QString& reason);
+    void published(const QByteArray& channel, const QByteArray& payload);
 
 private:
     void onNewConnection() {
@@ -263,6 +265,7 @@ private:
                     ++delivered;
                 }
             }
+            emit published(channel, payload);
             return integerReply(delivered);
         }
         if (command == "SET" && args.size() >= 3) {
@@ -372,6 +375,31 @@ int main(int argc, char** argv) {
     qputenv("QTNETWORKCHAT_REDIS_PORT", QByteArray::number(redisPort));
     qputenv("QTNETWORKCHAT_REDIS_PREFIX", "qtchat-cross-instance-test");
     qunsetenv("QTNETWORKCHAT_REDIS_PASSWORD");
+    qputenv("QTNETWORKCHAT_LARGE_FILE_ROUTING", "1");
+    qputenv("QTNETWORKCHAT_OBJECT_STORE", "filesystem");
+    qputenv("QTNETWORKCHAT_OBJECT_TTL_HOURS", "24");
+    QTemporaryDir objectRoot;
+    ok = expect(objectRoot.isValid(), "temporary object store root should be available") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_ROOT", objectRoot.path().toUtf8());
+
+    QList<QByteArray> publishedMessagePayloads;
+    QObject::connect(fakeRedis, &FakeRedisHub::published, &app, [&](const QByteArray& channel, const QByteArray& payload) {
+        if (channel == QByteArrayLiteral("qtchat-cross-instance-test:pubsub:messages")) {
+            publishedMessagePayloads.append(payload);
+        }
+    });
+    auto findLargeFileOffer = [&publishedMessagePayloads](const QString& fileName) {
+        for (const QByteArray& payload : publishedMessagePayloads) {
+            const QJsonDocument doc = QJsonDocument::fromJson(payload);
+            if (!doc.isObject()) continue;
+            const QJsonObject event = doc.object();
+            if (event["eventType"].toString() == "large_file_offer"
+                && event["fileName"].toString() == fileName) {
+                return event;
+            }
+        }
+        return QJsonObject();
+    };
 
     const quint16 serverAPort = freeLocalPort();
     const quint16 serverBPort = freeLocalPort();
@@ -684,6 +712,28 @@ int main(int argc, char** argv) {
     ok = expect(!waitFor([&] {
         return bobFileNames.contains(largeFileName);
     }, 800), "large files should not be routed through Redis Pub/Sub payloads") && ok;
+    ok = expect(waitFor([&] {
+        return !findLargeFileOffer(largeFileName).isEmpty();
+    }), "large files should publish a small Redis object-store offer") && ok;
+    const QJsonObject largeFileOffer = findLargeFileOffer(largeFileName);
+    const QString largeFileObjectKey = largeFileOffer["objectKey"].toString();
+    ok = expect(FilesystemObjectStore::isValidObjectKey(largeFileObjectKey),
+                "large file offer should contain a safe object key") && ok;
+    ok = expect(largeFileOffer["receiverId"].toString() == "960002",
+                "large file offer should target the remote online receiver") && ok;
+    ok = expect(largeFileOffer["messageType"].toString() == "File",
+                "large file offer should identify file messages") && ok;
+    ok = expect(largeFileOffer["fileSize"].toVariant().toLongLong() == largeFilePayload.size(),
+                "large file offer should carry the original file size") && ok;
+    ok = expect(!largeFileOffer["transferId"].toString().trimmed().isEmpty(),
+                "large file offer should carry a transfer id") && ok;
+    const FilesystemObjectStore objectStore(objectRoot.path());
+    const FilesystemObjectStore::ValidationResult largeObjectValidation =
+        objectStore.validateObject(largeFileObjectKey,
+                                   largeFilePayload.size(),
+                                   largeFileOffer["fileHash"].toString());
+    ok = expect(largeObjectValidation.ok,
+                "large file offer should point to an object matching the advertised size and hash") && ok;
 
     const QString encodedOverflowFileName = "redis-encoded-payload-overflow.bin";
     const QString encodedOverflowFilePath = transferDir.filePath(encodedOverflowFileName);
@@ -703,6 +753,18 @@ int main(int argc, char** argv) {
     ok = expect(!waitFor([&] {
         return bobFileNames.contains(encodedOverflowFileName);
     }, 800), "encoded Redis events above the Pub/Sub limit should fall back offline") && ok;
+    ok = expect(waitFor([&] {
+        return !findLargeFileOffer(encodedOverflowFileName).isEmpty();
+    }), "encoded-overflow files should publish a small Redis object-store offer") && ok;
+    const QJsonObject encodedOverflowOffer = findLargeFileOffer(encodedOverflowFileName);
+    ok = expect(FilesystemObjectStore::isValidObjectKey(encodedOverflowOffer["objectKey"].toString()),
+                "encoded-overflow offer should contain a safe object key") && ok;
+    const FilesystemObjectStore::ValidationResult encodedOverflowValidation =
+        objectStore.validateObject(encodedOverflowOffer["objectKey"].toString(),
+                                   encodedOverflowPayload.size(),
+                                   encodedOverflowOffer["fileHash"].toString());
+    ok = expect(encodedOverflowValidation.ok,
+                "encoded-overflow offer should point to an object matching the advertised size and hash") && ok;
 
     const QString fallbackPrivateMessage = "Redis private publish failure should fall back offline";
     bobPrivateMessages.clear();
@@ -767,6 +829,10 @@ int main(int argc, char** argv) {
     qunsetenv("QTNETWORKCHAT_REDIS_PORT");
     qunsetenv("QTNETWORKCHAT_REDIS_PREFIX");
     qunsetenv("QTNETWORKCHAT_REDIS_PASSWORD");
+    qunsetenv("QTNETWORKCHAT_LARGE_FILE_ROUTING");
+    qunsetenv("QTNETWORKCHAT_OBJECT_STORE");
+    qunsetenv("QTNETWORKCHAT_OBJECT_ROOT");
+    qunsetenv("QTNETWORKCHAT_OBJECT_TTL_HOURS");
 
     QMetaObject::invokeMethod(fakeRedis, "stop", Qt::BlockingQueuedConnection);
     redisThread.quit();

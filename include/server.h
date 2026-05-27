@@ -61,6 +61,7 @@ private:
     void clearRedisPresence(const QString& userId);
     bool isRedisUserOnline(const QString& userId) const;
     bool publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
+    bool publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const;
     void handleRedisMessageEvent(const QByteArray& payload);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
@@ -88,6 +89,9 @@ private:
     qint64 offlineAttachmentQuotaBytes() const;
     qint64 offlineAttachmentUsedBytes() const;
     bool hasOfflineAttachmentCapacity(qint64 incomingBytes) const;
+    bool shouldPublishLargeFileOffer(const Message& msg) const;
+    QString objectStoreRootDir() const;
+    qint64 objectStoreTtlMs() const;
     QString saveOfflineAttachment(const Message& msg) const;
     QSet<QString> collectReferencedOfflineAttachments() const;
     void cleanupExpiredOfflineAttachments();

@@ -13,6 +13,7 @@ QByteArray Message::toJson() const {
     obj["type"] = static_cast<int>(type);
     obj["timestamp"] = timestamp.toString(Qt::ISODate);
     obj["fileName"] = fileName;
+    obj["transferId"] = transferId;
     obj["fileSize"] = QString::number(fileSize);
     obj["fileHash"] = fileHash;
     obj["chunkSize"] = QString::number(chunkSize);
@@ -39,6 +40,7 @@ Message Message::fromJson(const QByteArray& json) {
     msg.type = static_cast<MessageType>(obj["type"].toInt());
     msg.timestamp = QDateTime::fromString(obj["timestamp"].toString(), Qt::ISODate);
     msg.fileName = obj["fileName"].toString();
+    msg.transferId = obj["transferId"].toString();
     msg.fileSize = obj["fileSize"].toVariant().toLongLong();
     msg.fileHash = obj["fileHash"].toString();
     msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();

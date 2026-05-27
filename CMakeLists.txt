@@ -49,10 +49,12 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
+        src/objectstore.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
+        include/objectstore.h
         include/chatuser.h
     )
     target_include_directories(server_group_member_update_test PRIVATE include)
@@ -64,10 +66,12 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
+        src/objectstore.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
+        include/objectstore.h
         include/chatuser.h
     )
     target_include_directories(file_transfer_cancel_test PRIVATE include)
@@ -79,10 +83,12 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
+        src/objectstore.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
+        include/objectstore.h
         include/chatuser.h
     )
     target_include_directories(file_chunk_duplicate_ack_test PRIVATE include)
@@ -105,10 +111,12 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
+        src/objectstore.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
+        include/objectstore.h
         include/chatuser.h
     )
     target_include_directories(offline_attachment_quota_test PRIVATE include)
@@ -136,10 +144,12 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
+        src/objectstore.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
+        include/objectstore.h
         include/chatuser.h
     )
     target_include_directories(redis_unavailable_fallback_test PRIVATE include)
@@ -159,10 +169,12 @@ if(BUILD_TESTING)
         src/client.cpp
         src/redisclient.cpp
         src/message.cpp
+        src/objectstore.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
+        include/objectstore.h
         include/chatuser.h
     )
     target_include_directories(redis_cross_instance_chat_test PRIVATE include)

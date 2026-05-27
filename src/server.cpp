@@ -1,4 +1,5 @@
 #include "server.h"
+#include "objectstore.h"
 #include "redisclient.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -44,6 +45,8 @@ constexpr qint64 kMaxOfflineAttachmentResumeProgressTtlHours = 24LL * 365;
 constexpr qint64 kDefaultOfflineAttachmentQuotaBytes = 512LL * 1024 * 1024;
 constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
 constexpr qint64 kRedisPubSubEventMaxBytes = 1LL * 1024 * 1024;
+constexpr qint64 kDefaultObjectStoreTtlHours = 24;
+constexpr qint64 kMaxObjectStoreTtlHours = 24LL * 365;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -1110,6 +1113,7 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.receiverId = obj["receiverId"].toString();
     msg.content = obj["content"].toString();
     msg.fileName = obj["fileName"].toString();
+    msg.transferId = obj["transferId"].toString().trimmed();
     msg.fileSize = obj["fileSize"].toVariant().toLongLong();
     msg.fileHash = obj["fileHash"].toString();
     const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
@@ -1321,6 +1325,7 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
 
     QJsonObject fullFile = pending.envelope;
     m_pendingFileTransfers.remove(key);
+    fullFile["transferId"] = transferId;
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleFile(fullFile, socket);
 }
@@ -1437,6 +1442,54 @@ bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliver
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
         qWarning() << "Skip Redis Pub/Sub message event because encoded payload is too large:"
+                   << eventPayload.size()
+                   << "limit:" << kRedisPubSubEventMaxBytes;
+        return false;
+    }
+    return m_redisClient->publish("messages", eventPayload);
+}
+
+bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+
+    const QString objectKey = offlinePayload["objectStoreKey"].toString().trimmed();
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)) return false;
+
+    const qint64 fileSize = offlinePayload["fileSize"].toVariant().toLongLong();
+    const qint64 chunkSize = offlinePayload["chunkSize"].toVariant().toLongLong();
+    const qint64 chunkCount = offlinePayload["chunkCount"].toVariant().toLongLong();
+    const QString fileHash = offlinePayload["fileHash"].toString().trimmed();
+    if (fileSize <= 0 || chunkSize <= 0 || chunkCount <= 0 || !looksLikeSha256Hex(fileHash)) {
+        return false;
+    }
+
+    const int messageType = offlinePayload["messageType"].toInt(static_cast<int>(MessageType::File));
+    if (messageType != static_cast<int>(MessageType::File)
+        && messageType != static_cast<int>(MessageType::Image)) {
+        return false;
+    }
+
+    const QString storedTransferId = offlinePayload["transferId"].toString().trimmed();
+    QJsonObject event;
+    event["eventType"] = "large_file_offer";
+    event["instanceId"] = m_instanceId;
+    event["transferId"] = storedTransferId.isEmpty() ? objectKey : storedTransferId;
+    event["objectKey"] = objectKey;
+    event["senderId"] = offlinePayload["senderId"].toString();
+    event["senderName"] = offlinePayload["senderName"].toString();
+    event["receiverId"] = offlinePayload["receiverId"].toString();
+    event["messageType"] = messageType == static_cast<int>(MessageType::Image) ? "Image" : "File";
+    event["fileName"] = offlinePayload["fileName"].toString();
+    event["fileSize"] = QString::number(fileSize);
+    event["fileHash"] = fileHash;
+    event["chunkSize"] = QString::number(chunkSize);
+    event["chunkCount"] = QString::number(chunkCount);
+    event["expiresAt"] = offlinePayload["objectStoreExpiresAt"].toString();
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
+        qWarning() << "Skip large file offer because encoded payload is too large:"
                    << eventPayload.size()
                    << "limit:" << kRedisPubSubEventMaxBytes;
         return false;
@@ -1985,6 +2038,35 @@ bool Server::hasOfflineAttachmentCapacity(qint64 incomingBytes) const {
     return incomingBytes <= quotaBytes && offlineAttachmentUsedBytes() <= quotaBytes - incomingBytes;
 }
 
+bool Server::shouldPublishLargeFileOffer(const Message& msg) const {
+    if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return false;
+    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!isRedisUserOnline(msg.receiverId)) return false;
+    if (msg.receiverId.isEmpty() || msg.fileData.isEmpty()) return false;
+    if (msg.type != MessageType::File && msg.type != MessageType::Image) return false;
+    QTcpSocket* localSocket = m_userSockets.value(msg.receiverId, nullptr);
+    if (localSocket && localSocket->state() == QAbstractSocket::ConnectedState) return false;
+
+    const QString storeType = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE")).trimmed().toLower();
+    if (!storeType.isEmpty() && storeType != "filesystem") return false;
+    if (objectStoreRootDir().isEmpty()) return false;
+    if (msg.fileSize <= 0 || msg.chunkSize <= 0 || msg.chunkCount <= 0) return false;
+    if (msg.chunkCount != (msg.fileSize + msg.chunkSize - 1) / msg.chunkSize) return false;
+    return looksLikeSha256Hex(msg.fileHash);
+}
+
+QString Server::objectStoreRootDir() const {
+    const QString root = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_ROOT")).trimmed();
+    return root.isEmpty() ? QString() : QDir::cleanPath(root);
+}
+
+qint64 Server::objectStoreTtlMs() const {
+    const qint64 hours = positiveIntegerEnvOrDefault("QTNETWORKCHAT_OBJECT_TTL_HOURS",
+                                                     kDefaultObjectStoreTtlHours,
+                                                     kMaxObjectStoreTtlHours);
+    return hours * 60LL * 60 * 1000;
+}
+
 QString Server::saveOfflineAttachment(const Message& msg) const {
     if (msg.receiverId.isEmpty() || msg.fileData.isEmpty()) return {};
     if (!hasOfflineAttachmentCapacity(msg.fileData.size())) {
@@ -2093,6 +2175,15 @@ void Server::cleanupExpiredOfflineAttachments() {
         QDir parentDir(info.absolutePath());
         parentDir.rmdir(info.fileName());
     }
+
+    const QString objectRoot = objectStoreRootDir();
+    if (!objectRoot.isEmpty()) {
+        QStringList removedKeys;
+        const int removedObjects = FilesystemObjectStore(objectRoot).cleanupExpired(objectStoreTtlMs(), &removedKeys);
+        if (removedObjects > 0) {
+            qDebug() << "Cleaned expired object-store attachments" << removedObjects << removedKeys;
+        }
+    }
 }
 
 void Server::saveOfflineMessage(const Message& msg) const {
@@ -2104,11 +2195,14 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["receiverId"] = msg.receiverId;
     obj["content"] = msg.content;
     obj["fileName"] = msg.fileName;
+    obj["transferId"] = msg.transferId;
     obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
     obj["fileHash"] = msg.fileHash;
     obj["chunkSize"] = QString::number(msg.chunkSize);
     obj["chunkCount"] = QString::number(msg.chunkCount);
     QString savedAttachmentPath;
+    QString savedObjectPath;
+    bool shouldPublishObjectOffer = false;
     if (!msg.fileData.isEmpty()) {
         const bool shouldStoreAsAttachment = msg.type == MessageType::File || msg.type == MessageType::Image;
         const QString attachmentPath = shouldStoreAsAttachment ? saveOfflineAttachment(msg) : QString();
@@ -2119,14 +2213,40 @@ void Server::saveOfflineMessage(const Message& msg) const {
             savedAttachmentPath = attachmentPath;
             obj["offlineFilePath"] = attachmentPath;
             obj["offlineFileStoredOnDisk"] = true;
+
+            if (shouldPublishLargeFileOffer(msg)) {
+                FilesystemObjectStore objectStore(objectStoreRootDir());
+                QString objectKey;
+                QString objectHash;
+                QString objectError;
+                const QString extension = QFileInfo(msg.fileName).suffix();
+                if (objectStore.writeObject(msg.fileData, &objectKey, &objectHash, &objectError, extension)
+                    && objectHash.compare(msg.fileHash.trimmed(), Qt::CaseInsensitive) == 0) {
+                    savedObjectPath = objectStore.objectPath(objectKey);
+                    obj["objectStoreKey"] = objectKey;
+                    obj["objectStoreHash"] = objectHash;
+                    obj["objectStoreCreatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+                    obj["objectStoreExpiresAt"] = QDateTime::currentDateTimeUtc().addMSecs(objectStoreTtlMs()).toString(Qt::ISODate);
+                    shouldPublishObjectOffer = true;
+                } else {
+                    if (!objectKey.isEmpty()) {
+                        QFile::remove(objectStore.objectPath(objectKey));
+                    }
+                    qWarning() << "Large file object routing skipped because object write/validation failed"
+                               << msg.receiverId << msg.fileName << objectError;
+                }
+            }
         } else {
             obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
         }
     }
     const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    auto rollbackSavedAttachment = [&savedAttachmentPath]() {
+    auto rollbackSavedAttachment = [&savedAttachmentPath, &savedObjectPath]() {
         if (!savedAttachmentPath.isEmpty() && QFile::remove(savedAttachmentPath)) {
             qWarning() << "Rolled back offline attachment after queue persistence failure" << savedAttachmentPath;
+        }
+        if (!savedObjectPath.isEmpty() && QFile::remove(savedObjectPath)) {
+            qWarning() << "Rolled back object-store attachment after queue persistence failure" << savedObjectPath;
         }
     };
 
@@ -2147,7 +2267,13 @@ void Server::saveOfflineMessage(const Message& msg) const {
         }
         QSqlDatabase::removeDatabase(connectionName);
     }
-    if (savedToSqlite) return;
+    if (savedToSqlite) {
+        if (shouldPublishObjectOffer && !publishRedisLargeFileOffer(obj)) {
+            qWarning() << "Large file offer publish failed; origin offline queue remains as fallback"
+                       << msg.receiverId << msg.fileName;
+        }
+        return;
+    }
 
     QFile file(offlineFilePath(msg.receiverId));
     if (!file.open(QIODevice::Append | QIODevice::Text)) {
@@ -2160,6 +2286,9 @@ void Server::saveOfflineMessage(const Message& msg) const {
     file.close();
     if (!savedToJsonl) {
         rollbackSavedAttachment();
+    } else if (shouldPublishObjectOffer && !publishRedisLargeFileOffer(obj)) {
+        qWarning() << "Large file offer publish failed; origin offline queue remains as fallback"
+                   << msg.receiverId << msg.fileName;
     }
 }
 

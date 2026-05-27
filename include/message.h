@@ -23,6 +23,7 @@ struct Message {
     QString content;
     QByteArray fileData;
     QString fileName;
+    QString transferId;
     qint64 fileSize;
     QString fileHash;
     qint64 chunkSize;
