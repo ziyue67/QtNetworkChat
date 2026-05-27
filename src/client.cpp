@@ -804,6 +804,13 @@ bool Client::sendFilePayload(const QString& filePath,
                 return false;
             }
             if (waitForFileChunkAck(transferId, chunkIndex, &ackRejectReason, &ackReceivedBytes)) {
+                const qint64 expectedAckBytes = qMin(fileInfo.size(), chunkIndex * kTransferChunkBytes + chunk.size());
+                if (ackReceivedBytes > 0 && (ackReceivedBytes < expectedAckBytes || ackReceivedBytes > fileInfo.size())) {
+                    if (attempt == kChunkSendMaxAttempts) {
+                        ackRejectReason = QString::fromUtf8("文件分片确认进度非法");
+                    }
+                    continue;
+                }
                 acknowledged = true;
                 break;
             }

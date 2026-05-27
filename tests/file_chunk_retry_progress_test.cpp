@@ -35,6 +35,7 @@ const char kAckTimeoutAutoResumeFileName[] = "ack-timeout-auto-resume.bin";
 const char kAckTimeoutGapResumeFileName[] = "ack-timeout-gap-resume.bin";
 const char kAckTimeoutMiddleGapResumeFileName[] = "ack-timeout-middle-gap-resume.bin";
 const char kAckTimeoutCompleteResumeFileName[] = "ack-timeout-complete-resume.bin";
+const char kInvalidAckProgressFileName[] = "invalid-ack-progress.bin";
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
@@ -150,6 +151,7 @@ public:
     int middleGapAutoResumeQueries() const { return m_middleGapAutoResumeQueries; }
     QVector<qint64> completeAutoResumeChunkIndexes() const { return m_completeAutoResumeChunkIndexes; }
     int completeAutoResumeQueries() const { return m_completeAutoResumeQueries; }
+    int invalidAckProgressAttempts() const { return m_invalidAckProgressAttempts; }
     void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
         m_resumeFileSize = fileSize;
         m_resumeFileHash = fileHash;
@@ -333,6 +335,22 @@ private:
         const QByteArray chunkData = QByteArray::fromBase64(message["fileData"].toString().toLatin1());
         const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
 
+        if (message["fileName"].toString() == QString::fromLatin1(kInvalidAckProgressFileName)) {
+            ++m_invalidAckProgressAttempts;
+
+            QJsonObject ack;
+            ack["type"] = "file_chunk_ack";
+            ack["transferId"] = transferId;
+            ack["chunkIndex"] = message["chunkIndex"].toString();
+            ack["accepted"] = true;
+            ack["reason"] = "";
+            ack["receivedBytes"] = QString::number(m_invalidAckProgressAttempts == 1
+                ? 1
+                : receivedBytes);
+            writeJson(socket, ack);
+            return;
+        }
+
         if (message["fileName"].toString() == QString::fromLatin1(kAckTimeoutMiddleGapResumeFileName)) {
             if (m_middleGapAutoResumeTransferId.isEmpty() && chunkIndex == 1) {
                 m_middleGapAutoResumeTransferId = transferId;
@@ -490,6 +508,7 @@ private:
     qint64 m_completeAutoResumeChunkSize = 0;
     qint64 m_completeAutoResumeChunkCount = 0;
     QString m_completeAutoResumeFileHash;
+    int m_invalidAckProgressAttempts = 0;
 };
 }
 
@@ -556,6 +575,14 @@ int main(int argc, char** argv) {
     ok = expect(!progressValues.isEmpty(), "sender should emit transfer progress") && ok;
     ok = expect(progressValues.last() == server.acknowledgedBytes(),
                 "sender progress should use the acked received byte count after retry") && ok;
+
+    const QString invalidAckProgressPath = tempDir.filePath(QString::fromLatin1(kInvalidAckProgressFileName));
+    ok = expect(writeSmallFile(invalidAckProgressPath),
+                "invalid ack progress test file should be created") && ok;
+    ok = expect(sender.sendFile(invalidAckProgressPath),
+                "sender should retry the chunk when accepted ack progress is behind the current chunk") && ok;
+    ok = expect(server.invalidAckProgressAttempts() == 2,
+                "sender should resend after an accepted ack reports invalid progress") && ok;
 
     qint64 resumeFileSize = 0;
     const QString resumeFilePath = tempDir.filePath("resume-send.bin");
