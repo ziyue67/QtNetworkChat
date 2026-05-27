@@ -810,6 +810,63 @@ int main(int argc, char** argv) {
             || bobFileNames.contains(invalidOfferFileName);
     }, 800), "invalid large file offers should not be claimed or delivered") && ok;
 
+    const QString unsafeObjectKey = "../redis-unsafe-large-offer.bin";
+    QJsonObject unsafeKeyOffer = invalidOffer;
+    unsafeKeyOffer["transferId"] = "external-unsafe-key-transfer";
+    unsafeKeyOffer["objectKey"] = unsafeObjectKey;
+    unsafeKeyOffer["fileName"] = "redis-unsafe-key-large-offer.bin";
+    bobFileNames.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(unsafeKeyOffer).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_failed", QString(), unsafeObjectKey).isEmpty();
+    }), "remote server should publish failed for an unsafe large file object key") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), unsafeObjectKey).isEmpty()
+            || bobFileNames.contains(unsafeKeyOffer["fileName"].toString());
+    }, 800), "unsafe object keys should not be claimed or delivered") && ok;
+
+    const QString invalidChunkObjectKey = "invalid-chunk-metadata-offer.bin";
+    QJsonObject invalidChunkOffer = invalidOffer;
+    invalidChunkOffer["transferId"] = "external-invalid-chunk-transfer";
+    invalidChunkOffer["objectKey"] = invalidChunkObjectKey;
+    invalidChunkOffer["fileName"] = "redis-invalid-chunk-large-offer.bin";
+    invalidChunkOffer["chunkSize"] = QString::number(0);
+    invalidChunkOffer["chunkCount"] = QString::number(0);
+    bobFileNames.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(invalidChunkOffer).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_failed", QString(), invalidChunkObjectKey).isEmpty();
+    }), "remote server should publish failed for invalid large file chunk metadata") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), invalidChunkObjectKey).isEmpty()
+            || bobFileNames.contains(invalidChunkOffer["fileName"].toString());
+    }, 800), "invalid chunk metadata should not be claimed or delivered") && ok;
+
+    const QString unsupportedStoreObjectKey = "unsupported-store-offer.bin";
+    QJsonObject unsupportedStoreOffer = invalidOffer;
+    unsupportedStoreOffer["transferId"] = "external-unsupported-store-transfer";
+    unsupportedStoreOffer["objectKey"] = unsupportedStoreObjectKey;
+    unsupportedStoreOffer["fileName"] = "redis-unsupported-store-large-offer.bin";
+    bobFileNames.clear();
+    qputenv("QTNETWORKCHAT_OBJECT_STORE", "memory");
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(unsupportedStoreOffer).toJson(QJsonDocument::Compact)));
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), unsupportedStoreObjectKey).isEmpty()
+            || !findPublishedEvent("large_file_delivered", QString(), unsupportedStoreObjectKey).isEmpty()
+            || !findPublishedEvent("large_file_failed", QString(), unsupportedStoreObjectKey).isEmpty()
+            || bobFileNames.contains(unsupportedStoreOffer["fileName"].toString());
+    }, 800), "non-filesystem object stores should not consume large file offers") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_STORE", "filesystem");
+
     const QString failedFallbackReceiverId = "960010";
     RedisClient presenceSeeder;
     presenceSeeder.configureFromEnvironment();
@@ -839,8 +896,9 @@ int main(int argc, char** argv) {
     ok = expect(QFileInfo::exists(objectStore.objectPath(failedFallbackObjectKey)),
                 "failed-fallback object should exist before remote failure") && ok;
     ok = expect(!waitFor([&] {
-        return !findPublishedEvent("large_file_claim", QString(), failedFallbackObjectKey).isEmpty();
-    }, 800), "offers without a local receiver should not be claimed") && ok;
+        return !findPublishedEvent("large_file_claim", QString(), failedFallbackObjectKey).isEmpty()
+            || !findPublishedEvent("large_file_delivered", QString(), failedFallbackObjectKey).isEmpty();
+    }, 800), "offers without a local receiver should not be claimed or delivered") && ok;
 
     QJsonObject failedEvent;
     failedEvent["eventType"] = "large_file_failed";

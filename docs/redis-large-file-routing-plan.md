@@ -124,8 +124,9 @@
 3. 已完成：远端实例订阅 `large_file_offer`，仅当 `receiverId` 在线于本实例时认领，校验对象 size/hash/chunk 元数据，并从对象存储按分片 ACK 下发给客户端。
 4. 已完成：远端完整 ACK 后发布 `large_file_delivered`；源实例收到并确认 sourceInstanceId、transferId、receiverId、objectKey、fileHash 和 confirmedBytes 匹配后，清理离线队列、离线附件和对象文件。
 5. 已完成：远端对象缺失、校验失败、客户端断开或 ACK 超时时发布 `large_file_failed`；源实例收到后保留离线兜底队列和对象引用，后续登录仍可回源实例回放。
-6. 下一步：补安全边界和治理：无本地在线收件人不 claim、不 delivered，非法 objectKey/chunk 元数据不下发，非 filesystem store 不消费，以及 delivered 丢失和 TTL 清理。
-7. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
+6. 已完成：补安全边界测试：无本地在线收件人不 claim、不 delivered，非法 objectKey/chunk 元数据不下发，非 filesystem store 不消费。
+7. 下一步：补 TTL/治理：delivered 丢失后的保留窗口、未 delivered 对象清理和离线兜底队列保留策略。
+8. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
 
 ## 当前保护边界
 
@@ -135,4 +136,5 @@
 - 已有测试覆盖远端实例仅在本地在线收件人存在时认领 `large_file_offer`，并从 filesystem ObjectStore 校验后分片下发给客户端。
 - 已有测试覆盖远端完整 ACK 后发布 `large_file_delivered`，源实例清理对应对象并避免收件人回源实例后重复收到已跨实例投递的大文件。
 - 已有测试覆盖对象缺失时远端发布 `large_file_failed` 且不 claim、不下发，并覆盖源实例收到失败事件后继续保留对象和离线兜底、后续可回源实例回放。
-- 后续还需补安全边界和治理测试，例如非法 chunk 元数据、非 filesystem store、不在线收件人、delivered 丢失和 TTL 清理。
+- 已有测试覆盖非法 objectKey/分片元数据不下发、非 filesystem store 不消费，以及不在线收件人不 claim、不 delivered。
+- 后续还需补 delivered 丢失、TTL 清理和孤儿对象治理测试。
