@@ -119,8 +119,8 @@
 
 ## 最小实现顺序
 
-1. 新增对象 key 生成和共享目录写入 helper，只支持 `filesystem`，并用单元测试覆盖路径穿越拒绝、hash/size 校验和 TTL 清理。
-2. 源实例在大文件进入离线附件队列后，若对象路由配置可用，额外写入对象并发布 `large_file_offer` 元数据事件。
+1. 已完成：新增 filesystem `ObjectStore` helper，支持安全 objectKey 生成、共享目录写入、路径穿越拒绝、hash/size 校验和 TTL 清理，并用 CTest 覆盖核心边界。
+2. 下一步：源实例在大文件进入离线附件队列后，若对象路由配置可用，额外写入对象并发布 `large_file_offer` 元数据事件。
 3. 远端实例订阅 `large_file_offer`，仅当 `receiverId` 在线于本实例时认领，并从对象存储流式下发给客户端。
 4. 远端完整 ACK 后发布 `large_file_delivered`；源实例收到后清理离线队列和对象引用。
 5. 补失败路径：对象读取失败、hash 不一致、客户端断开、delivered 丢失和 TTL 清理。

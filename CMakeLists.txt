@@ -19,11 +19,13 @@ add_executable(QtNetworkChat
     src/client.cpp
     src/redisclient.cpp
     src/message.cpp
+    src/objectstore.cpp
     include/mainwindow.h
     include/server.h
     include/client.h
     include/redisclient.h
     include/message.h
+    include/objectstore.h
     include/chatuser.h
     ui/mainwindow.ui
 )
@@ -120,6 +122,14 @@ if(BUILD_TESTING)
     target_include_directories(redis_client_test PRIVATE include)
     target_link_libraries(redis_client_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
 
+    add_executable(objectstore_test
+        tests/objectstore_test.cpp
+        src/objectstore.cpp
+        include/objectstore.h
+    )
+    target_include_directories(objectstore_test PRIVATE include)
+    target_link_libraries(objectstore_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
     add_executable(redis_unavailable_fallback_test
         tests/redis_unavailable_fallback_test.cpp
         src/server.cpp
@@ -210,6 +220,13 @@ if(BUILD_TESTING)
         NAME RedisClientRespProtocol
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:redis_client_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME ObjectStoreFilesystem
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:objectstore_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

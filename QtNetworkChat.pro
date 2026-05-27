@@ -15,6 +15,7 @@ SOURCES += \
     src/server.cpp \
     src/client.cpp \
     src/redisclient.cpp \
+    src/objectstore.cpp \
     src/message.cpp
 
 HEADERS += \
@@ -22,6 +23,7 @@ HEADERS += \
     include/server.h \
     include/client.h \
     include/redisclient.h \
+    include/objectstore.h \
     include/chatuser.h \
     include/message.h
 
