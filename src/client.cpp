@@ -851,6 +851,14 @@ bool Client::sendFilePayload(const QString& filePath,
                                                  &firstMissingChunkIndex)) {
                         receivedChunkIndexes = resumeReceivedChunkSet;
                         if (firstMissingChunkIndex > chunkIndex) {
+                            if (firstMissingChunkIndex == chunkCount) {
+                                sentBytes = fileInfo.size();
+                                chunkIndex = chunkCount;
+                                emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
+                                advancedByResumeState = true;
+                                acknowledged = true;
+                                break;
+                            }
                             const qint64 resumeOffset = firstMissingChunkIndex * kTransferChunkBytes;
                             if (resumeOffset > fileInfo.size() || !file.seek(resumeOffset)) {
                                 continue;
@@ -872,7 +880,11 @@ bool Client::sendFilePayload(const QString& filePath,
         if (advancedByResumeState) {
             if (chunkIndex == chunkCount) {
                 file.close();
-                return sentBytes == fileInfo.size();
+                const bool completed = sentBytes == fileInfo.size();
+                if (completed) {
+                    clearOutgoingTransferState();
+                }
+                return completed;
             }
             continue;
         }

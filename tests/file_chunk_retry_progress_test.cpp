@@ -34,6 +34,7 @@ const char kGapResumeTransferId[] = "gap-resume-transfer";
 const char kAckTimeoutAutoResumeFileName[] = "ack-timeout-auto-resume.bin";
 const char kAckTimeoutGapResumeFileName[] = "ack-timeout-gap-resume.bin";
 const char kAckTimeoutMiddleGapResumeFileName[] = "ack-timeout-middle-gap-resume.bin";
+const char kAckTimeoutCompleteResumeFileName[] = "ack-timeout-complete-resume.bin";
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
@@ -147,6 +148,8 @@ public:
     int gapAutoResumeQueries() const { return m_gapAutoResumeQueries; }
     QVector<qint64> middleGapAutoResumeChunkIndexes() const { return m_middleGapAutoResumeChunkIndexes; }
     int middleGapAutoResumeQueries() const { return m_middleGapAutoResumeQueries; }
+    QVector<qint64> completeAutoResumeChunkIndexes() const { return m_completeAutoResumeChunkIndexes; }
+    int completeAutoResumeQueries() const { return m_completeAutoResumeQueries; }
     void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
         m_resumeFileSize = fileSize;
         m_resumeFileHash = fileHash;
@@ -244,6 +247,29 @@ private:
                 response["chunkSize"] = QString::number(m_autoResumeChunkSize);
                 response["chunkCount"] = QString::number(m_autoResumeChunkCount);
                 response["fileHash"] = m_autoResumeFileHash;
+                response["receivedChunks"] = receivedChunks;
+                response["reason"] = "";
+                writeJson(socket, response);
+                return;
+            }
+
+            if (!m_completeAutoResumeTransferId.isEmpty() && transferId == m_completeAutoResumeTransferId) {
+                ++m_completeAutoResumeQueries;
+                QJsonArray receivedChunks;
+                for (qint64 index = 0; index < m_completeAutoResumeChunkCount; ++index) {
+                    receivedChunks.append(QString::number(index));
+                }
+
+                QJsonObject response;
+                response["type"] = "file_transfer_resume_state";
+                response["transferId"] = transferId;
+                response["canResume"] = true;
+                response["confirmedBytes"] = QString::number(m_completeAutoResumeFileSize);
+                response["nextChunkIndex"] = QString::number(m_completeAutoResumeChunkCount);
+                response["fileSize"] = QString::number(m_completeAutoResumeFileSize);
+                response["chunkSize"] = QString::number(m_completeAutoResumeChunkSize);
+                response["chunkCount"] = QString::number(m_completeAutoResumeChunkCount);
+                response["fileHash"] = m_completeAutoResumeFileHash;
                 response["receivedChunks"] = receivedChunks;
                 response["reason"] = "";
                 writeJson(socket, response);
@@ -380,6 +406,21 @@ private:
             }
         }
 
+        if (message["fileName"].toString() == QString::fromLatin1(kAckTimeoutCompleteResumeFileName)) {
+            if (m_completeAutoResumeTransferId.isEmpty() && chunkIndex == 0) {
+                m_completeAutoResumeTransferId = transferId;
+                m_completeAutoResumeFileSize = fileSize;
+                m_completeAutoResumeChunkSize = chunkSize;
+                m_completeAutoResumeChunkCount = message["chunkCount"].toVariant().toLongLong();
+                m_completeAutoResumeFileHash = message["fileHash"].toString();
+                return;
+            }
+
+            if (transferId == m_completeAutoResumeTransferId) {
+                m_completeAutoResumeChunkIndexes.append(chunkIndex);
+            }
+        }
+
         if (transferId == QString::fromLatin1(kResumeTransferId)
             || transferId == QString::fromLatin1(kQueryAndResumeTransferId)
             || transferId == QString::fromLatin1(kGapResumeTransferId)) {
@@ -442,6 +483,13 @@ private:
     qint64 m_middleGapAutoResumeChunkSize = 0;
     qint64 m_middleGapAutoResumeChunkCount = 0;
     QString m_middleGapAutoResumeFileHash;
+    QString m_completeAutoResumeTransferId;
+    QVector<qint64> m_completeAutoResumeChunkIndexes;
+    int m_completeAutoResumeQueries = 0;
+    qint64 m_completeAutoResumeFileSize = 0;
+    qint64 m_completeAutoResumeChunkSize = 0;
+    qint64 m_completeAutoResumeChunkCount = 0;
+    QString m_completeAutoResumeFileHash;
 };
 }
 
@@ -754,6 +802,19 @@ int main(int argc, char** argv) {
                 "sender should query the middle-gap auto resume state once") && ok;
     ok = expect(middleGapAutoResumeChunks.size() == 1 && middleGapAutoResumeChunks[0] == 1,
                 "auto resume should resend only the missing middle chunk and skip later confirmed chunks") && ok;
+
+    const QString completeAutoResumePath = tempDir.filePath(QString::fromLatin1(kAckTimeoutCompleteResumeFileName));
+    qint64 completeAutoResumeFileSize = 0;
+    ok = expect(writeResumeFile(completeAutoResumePath, &completeAutoResumeFileSize),
+                "complete auto resume test file should be created") && ok;
+    ok = expect(sender.sendFile(completeAutoResumePath),
+                "sender should accept a complete resume state after an ack timeout") && ok;
+    ok = expect(server.completeAutoResumeQueries() == 1,
+                "sender should query the complete auto resume state once") && ok;
+    ok = expect(server.completeAutoResumeChunkIndexes().isEmpty(),
+                "complete auto resume should not resend already confirmed chunks") && ok;
+    ok = expect(!sender.loadOutgoingTransferState(nullptr),
+                "complete auto resume should clear persisted outgoing transfer state") && ok;
 
     sender.disconnectFromServer();
     if (!appDataDir.isEmpty()) {
