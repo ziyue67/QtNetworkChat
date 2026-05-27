@@ -1537,6 +1537,27 @@ bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 con
     return m_redisClient->publish("messages", eventPayload);
 }
 
+bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString& reason) const {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+
+    QJsonObject event;
+    event["eventType"] = "large_file_failed";
+    event["instanceId"] = m_instanceId;
+    event["sourceInstanceId"] = offer["instanceId"].toString();
+    event["transferId"] = offer["transferId"].toString();
+    event["objectKey"] = offer["objectKey"].toString();
+    event["receiverId"] = offer["receiverId"].toString();
+    event["fileHash"] = offer["fileHash"].toString();
+    event["reason"] = reason.left(160);
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
+        return false;
+    }
+    return m_redisClient->publish("messages", eventPayload);
+}
+
 void Server::handleRedisMessageEvent(const QByteArray& payload) {
     if (payload.size() > kRedisPubSubEventMaxBytes) {
         qWarning() << "Ignore Redis Pub/Sub message event because encoded payload is too large:"
@@ -1556,6 +1577,10 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     }
     if (eventType == "large_file_delivered") {
         handleRedisLargeFileDelivered(event);
+        return;
+    }
+    if (eventType == "large_file_failed") {
+        handleRedisLargeFileFailed(event);
         return;
     }
     if (eventType != "chat_message") return;
@@ -1623,9 +1648,36 @@ void Server::handleRedisLargeFileDelivered(const QJsonObject& event) {
     cleanupDeliveredRedisLargeFile(event);
 }
 
+void Server::handleRedisLargeFileFailed(const QJsonObject& event) {
+    if (event["instanceId"].toString() == m_instanceId) return;
+    if (event["sourceInstanceId"].toString() != m_instanceId) return;
+    if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return;
+
+    const QString objectKey = event["objectKey"].toString().trimmed();
+    const QString transferId = event["transferId"].toString().trimmed();
+    const QString receiverId = event["receiverId"].toString().trimmed();
+    const QString fileHash = event["fileHash"].toString().trimmed();
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)
+        || transferId.isEmpty()
+        || receiverId.isEmpty()
+        || !looksLikeSha256Hex(fileHash)) {
+        return;
+    }
+
+    qWarning() << "Large file object routing failed on remote instance; origin offline fallback remains"
+               << receiverId << transferId << objectKey << event["reason"].toString();
+}
+
 bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket) {
     QPointer<QTcpSocket> socketGuard(socket);
-    if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState) return false;
+    auto failOffer = [this, &event](const QString& reason) {
+        publishRedisLargeFileFailed(event, reason);
+        return false;
+    };
+
+    if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState) {
+        return failOffer(QStringLiteral("receiver-disconnected"));
+    }
 
     const QString storeType = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE")).trimmed().toLower();
     if (!storeType.isEmpty() && storeType != "filesystem") return false;
@@ -1648,7 +1700,7 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         || event["senderId"].toString().trimmed().isEmpty()
         || event["receiverId"].toString().trimmed().isEmpty()
         || (messageType != "File" && messageType != "Image")) {
-        return false;
+        return failOffer(QStringLiteral("invalid-offer-metadata"));
     }
 
     FilesystemObjectStore objectStore(objectRoot);
@@ -1657,12 +1709,12 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
     if (!validation.ok) {
         qWarning() << "Rejected large file offer because object validation failed"
                    << objectKey << validation.error;
-        return false;
+        return failOffer(QStringLiteral("object-validation-failed: ") + validation.error);
     }
 
     QFile file(objectStore.objectPath(objectKey));
     if (!file.open(QIODevice::ReadOnly)) {
-        return false;
+        return failOffer(QStringLiteral("object-open-failed"));
     }
 
     publishRedisLargeFileClaim(event);
@@ -1673,11 +1725,11 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
     const QString fileName = event["fileName"].toString();
     for (qint64 index = 0; index < chunkCount; ++index) {
         if (!file.seek(index * chunkSize)) {
-            return false;
+            return failOffer(QStringLiteral("object-seek-failed"));
         }
         const QByteArray chunk = file.read(chunkSize);
         if (chunk.isEmpty() || (index < chunkCount - 1 && chunk.size() != chunkSize)) {
-            return false;
+            return failOffer(QStringLiteral("object-read-failed"));
         }
 
         QJsonObject chunkObj;
@@ -1702,7 +1754,7 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         const QByteArray data = QJsonDocument(chunkObj).toJson(QJsonDocument::Compact);
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
             if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState || socketGuard->write(data) <= 0) {
-                return false;
+                return failOffer(QStringLiteral("receiver-disconnected"));
             }
             socketGuard->write("\n");
             socketGuard->flush();
@@ -1718,20 +1770,20 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
                 break;
             }
             if (!socketGuard) {
-                return false;
+                return failOffer(QStringLiteral("receiver-disconnected"));
             }
             if (!ackRejectReason.isEmpty()) {
                 qWarning() << "Large file offer chunk rejected by receiver:" << ackRejectReason;
-                return false;
+                return failOffer(QStringLiteral("chunk-rejected: ") + ackRejectReason);
             }
         }
         if (!acknowledged) {
             if (!ackRejectReason.isEmpty()) {
                 qWarning() << "Large file offer chunk rejected by receiver:" << ackRejectReason;
-                return false;
+                return failOffer(QStringLiteral("chunk-rejected: ") + ackRejectReason);
             }
             qWarning() << "Large file offer chunk ack timeout:" << fileName << index + 1 << "/" << chunkCount;
-            return false;
+            return failOffer(QStringLiteral("chunk-ack-timeout"));
         }
     }
 

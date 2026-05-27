@@ -779,6 +779,107 @@ int main(int argc, char** argv) {
         return !QFileInfo::exists(objectStore.objectPath(encodedOverflowObjectKey));
     }), "source server should remove the delivered encoded-overflow object") && ok;
 
+    const QString invalidOfferFileName = "redis-invalid-large-offer.bin";
+    const QString invalidOfferObjectKey = "missing-redis-invalid-large-offer.bin";
+    QJsonObject invalidOffer;
+    invalidOffer["eventType"] = "large_file_offer";
+    invalidOffer["instanceId"] = "external-invalid-source";
+    invalidOffer["transferId"] = "external-invalid-transfer";
+    invalidOffer["objectKey"] = invalidOfferObjectKey;
+    invalidOffer["senderId"] = "external-sender";
+    invalidOffer["senderName"] = "ExternalSender";
+    invalidOffer["receiverId"] = "960002";
+    invalidOffer["messageType"] = "File";
+    invalidOffer["fileName"] = invalidOfferFileName;
+    invalidOffer["fileSize"] = QString::number(1024);
+    invalidOffer["fileHash"] = QString(64, QLatin1Char('a'));
+    invalidOffer["chunkSize"] = QString::number(256 * 1024);
+    invalidOffer["chunkCount"] = QString::number(1);
+    invalidOffer["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(invalidOffer).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_failed", QString(), invalidOfferObjectKey).isEmpty();
+    }), "remote server should publish failed when a large file offer object is missing") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), invalidOfferObjectKey).isEmpty()
+            || bobFileNames.contains(invalidOfferFileName);
+    }, 800), "invalid large file offers should not be claimed or delivered") && ok;
+
+    const QString failedFallbackReceiverId = "960010";
+    RedisClient presenceSeeder;
+    presenceSeeder.configureFromEnvironment();
+    ok = expect(presenceSeeder.connectToServer(1000),
+                "presence seeder should connect to fake Redis") && ok;
+    ok = expect(presenceSeeder.setPresence(failedFallbackReceiverId, "RemoteFailedFallback", 90, 1000),
+                "presence seeder should mark a remote-only receiver online") && ok;
+
+    const QString failedFallbackFileName = "redis-large-failed-keeps-fallback.bin";
+    const QString failedFallbackFilePath = transferDir.filePath(failedFallbackFileName);
+    const QByteArray failedFallbackPayload = makePatternPayload(1024 * 1024 + 8192);
+    QFile failedFallbackFile(failedFallbackFilePath);
+    ok = expect(failedFallbackFile.open(QIODevice::WriteOnly),
+                "failed-fallback transfer file should open for writing") && ok;
+    if (failedFallbackFile.isOpen()) {
+        ok = expect(failedFallbackFile.write(failedFallbackPayload) == failedFallbackPayload.size(),
+                    "failed-fallback transfer file should be written") && ok;
+        failedFallbackFile.close();
+    }
+    ok = expect(alice.sendFile(failedFallbackFilePath, failedFallbackReceiverId),
+                "alice should upload a large file for a remote-only receiver") && ok;
+    ok = expect(waitFor([&] {
+        return !findLargeFileOffer(failedFallbackFileName).isEmpty();
+    }), "remote-only large files should publish an object-store offer") && ok;
+    const QJsonObject failedFallbackOffer = findLargeFileOffer(failedFallbackFileName);
+    const QString failedFallbackObjectKey = failedFallbackOffer["objectKey"].toString();
+    ok = expect(QFileInfo::exists(objectStore.objectPath(failedFallbackObjectKey)),
+                "failed-fallback object should exist before remote failure") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), failedFallbackObjectKey).isEmpty();
+    }, 800), "offers without a local receiver should not be claimed") && ok;
+
+    QJsonObject failedEvent;
+    failedEvent["eventType"] = "large_file_failed";
+    failedEvent["instanceId"] = "external-failing-instance";
+    failedEvent["sourceInstanceId"] = failedFallbackOffer["instanceId"].toString();
+    failedEvent["transferId"] = failedFallbackOffer["transferId"].toString();
+    failedEvent["objectKey"] = failedFallbackObjectKey;
+    failedEvent["receiverId"] = failedFallbackReceiverId;
+    failedEvent["fileHash"] = failedFallbackOffer["fileHash"].toString();
+    failedEvent["reason"] = "injected-remote-failure";
+    failedEvent["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(failedEvent).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return QFileInfo::exists(objectStore.objectPath(failedFallbackObjectKey));
+    }, 800), "source server should keep the object after a remote failed event") && ok;
+
+    Client failedFallbackReceiver;
+    QStringList failedFallbackFileNames;
+    QList<QByteArray> failedFallbackPayloads;
+    QObject::connect(&failedFallbackReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::File) {
+            failedFallbackFileNames << msg.fileName;
+            failedFallbackPayloads << msg.fileData;
+        }
+    });
+    ok = expect(registerClient(failedFallbackReceiver,
+                               failedFallbackReceiverId,
+                               "FailedFallbackReceiver",
+                               serverAPort),
+                "failed-fallback receiver should log in to the source server") && ok;
+    ok = expect(waitFor([&] {
+        return failedFallbackFileNames.contains(failedFallbackFileName)
+            && failedFallbackPayloads.contains(failedFallbackPayload);
+    }, 9000), "source offline fallback should replay a failed cross-instance large file") && ok;
+    failedFallbackReceiver.disconnectFromServer();
+
     const QString fallbackPrivateMessage = "Redis private publish failure should fall back offline";
     bobPrivateMessages.clear();
     QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, true));

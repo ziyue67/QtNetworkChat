@@ -26,7 +26,7 @@
 | 对象存储或共享附件目录 | 原始文件字节 | 可先用共享文件系统目录，后续替换为 S3/MinIO 等对象存储 |
 | 现有 TCP 客户端连接 | 服务端到最终收件人的分片下发 | 复用 `sendChunkedFileToSocket()` 与 ACK 校验 |
 
-源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。远端实例收到 offer 后，已可在收件人在线于本实例时认领对象，校验对象 size/hash/chunk 元数据并按现有分片 ACK 流程下发；完整 ACK 后会发布 `large_file_delivered`，源实例确认匹配后清理本地兜底队列、离线附件和对象文件。
+源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。远端实例收到 offer 后，已可在收件人在线于本实例时认领对象，校验对象 size/hash/chunk 元数据并按现有分片 ACK 流程下发；完整 ACK 后会发布 `large_file_delivered`，源实例确认匹配后清理本地兜底队列、离线附件和对象文件。远端对象校验、读取、客户端连接或 ACK 失败时会发布 `large_file_failed`，源实例确认来源后保留离线兜底。
 
 ## 控制事件
 
@@ -84,7 +84,7 @@
 
 ### `large_file_failed`
 
-远端实例遇到收件人断开、ACK 超时、对象读取失败或元数据校验失败时发布。源实例收到后继续保留离线队列和对象引用，等待下一次投递或 TTL 清理。
+远端实例遇到收件人断开、ACK 超时、对象读取失败或元数据校验失败时发布。源实例收到后校验 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey` 和 `fileHash` 的基本形态，并继续保留离线队列和对象引用，等待下一次投递或 TTL 清理。
 
 ## 元数据校验
 
@@ -123,8 +123,9 @@
 2. 已完成：源实例在大文件或编码超限文件进入离线附件队列后，若对象路由配置可用，会额外写入对象并发布 `large_file_offer` 元数据事件；发布失败时仍保留源实例离线队列兜底。
 3. 已完成：远端实例订阅 `large_file_offer`，仅当 `receiverId` 在线于本实例时认领，校验对象 size/hash/chunk 元数据，并从对象存储按分片 ACK 下发给客户端。
 4. 已完成：远端完整 ACK 后发布 `large_file_delivered`；源实例收到并确认 sourceInstanceId、transferId、receiverId、objectKey、fileHash 和 confirmedBytes 匹配后，清理离线队列、离线附件和对象文件。
-5. 下一步：补失败路径：对象读取失败、hash 不一致、客户端断开、delivered 丢失和 TTL 清理。
-6. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
+5. 已完成：远端对象缺失、校验失败、客户端断开或 ACK 超时时发布 `large_file_failed`；源实例收到后保留离线兜底队列和对象引用，后续登录仍可回源实例回放。
+6. 下一步：补安全边界和治理：无本地在线收件人不 claim、不 delivered，非法 objectKey/chunk 元数据不下发，非 filesystem store 不消费，以及 delivered 丢失和 TTL 清理。
+7. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
 
 ## 当前保护边界
 
@@ -133,4 +134,5 @@
 - 已有测试覆盖源实例为大文件和编码超限文件发布小体积 `large_file_offer`，且 offer 指向对象的 size/hash 与原始附件一致。
 - 已有测试覆盖远端实例仅在本地在线收件人存在时认领 `large_file_offer`，并从 filesystem ObjectStore 校验后分片下发给客户端。
 - 已有测试覆盖远端完整 ACK 后发布 `large_file_delivered`，源实例清理对应对象并避免收件人回源实例后重复收到已跨实例投递的大文件。
-- 失败路径尚未发布 `large_file_failed`，对象读取失败、hash 不一致、客户端断开或 ACK 超时仍主要依赖源实例离线兜底和 TTL 清理；这是下一步边界。
+- 已有测试覆盖对象缺失时远端发布 `large_file_failed` 且不 claim、不下发，并覆盖源实例收到失败事件后继续保留对象和离线兜底、后续可回源实例回放。
+- 后续还需补安全边界和治理测试，例如非法 chunk 元数据、非 filesystem store、不在线收件人、delivered 丢失和 TTL 清理。

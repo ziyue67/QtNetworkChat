@@ -64,9 +64,11 @@ private:
     bool publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const;
     bool publishRedisLargeFileClaim(const QJsonObject& offer) const;
     bool publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 confirmedBytes) const;
+    bool publishRedisLargeFileFailed(const QJsonObject& offer, const QString& reason) const;
     void handleRedisMessageEvent(const QByteArray& payload);
     void handleRedisLargeFileOffer(const QJsonObject& event);
     void handleRedisLargeFileDelivered(const QJsonObject& event);
+    void handleRedisLargeFileFailed(const QJsonObject& event);
     bool deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
