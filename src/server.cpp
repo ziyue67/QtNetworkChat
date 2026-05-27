@@ -2284,6 +2284,13 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
             socketGuard->write("\n");
             socketGuard->flush();
             if (waitForFileChunkAck(socketGuard, transferId, index, &ackRejectReason, &ackReceivedBytes)) {
+                const qint64 expectedAckBytes = qMin(totalBytes, index * chunkSize + chunk.size());
+                if (ackReceivedBytes > 0 && (ackReceivedBytes < expectedAckBytes || ackReceivedBytes > totalBytes)) {
+                    if (attempt == kChunkSendMaxAttempts) {
+                        ackRejectReason = QString::fromUtf8("离线附件确认进度非法");
+                    }
+                    continue;
+                }
                 acknowledged = true;
                 break;
             }
@@ -2296,6 +2303,10 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
             }
         }
         if (!acknowledged) {
+            if (!ackRejectReason.isEmpty()) {
+                qWarning() << "Offline attachment chunk rejected by receiver:" << ackRejectReason;
+                return false;
+            }
             qWarning() << "Offline attachment chunk ack timeout:" << fileName << index + 1 << "/" << chunkCount;
             return false;
         }

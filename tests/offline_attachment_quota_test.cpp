@@ -544,6 +544,86 @@ bool loginRawAckFileReplay(const QString& account,
     return sawLoginSuccess && ackedReplay;
 }
 
+bool loginRawAckInvalidProgressThenRecover(const QString& account,
+                                           const QString& userName,
+                                           quint16 port,
+                                           int* fileChunkAttempts = nullptr,
+                                           int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    bool completedReplay = false;
+    int attempts = 0;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk") {
+                ++attempts;
+                const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+                const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+                const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+                const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+                const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = true;
+                ack["reason"] = "";
+                ack["receivedBytes"] = QString::number(attempts == 1 ? 1 : receivedBytes);
+                socket.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                socket.write("\n");
+                socket.flush();
+                socket.waitForBytesWritten(1000);
+
+                if (attempts > 1 && receivedBytes >= fileSize) {
+                    completedReplay = true;
+                    socket.disconnectFromHost();
+                    return;
+                }
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool ackedReplay = waitFor([&] {
+        drainSocket();
+        return completedReplay;
+    }, timeoutMs);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    if (fileChunkAttempts) *fileChunkAttempts = attempts;
+    return sawLoginSuccess && ackedReplay;
+}
+
 bool loginRawUntilCondition(const QString& account,
                             const QString& userName,
                             quint16 port,
@@ -1433,6 +1513,54 @@ int main(int argc, char** argv) {
     }, 3000), "partial-ack offline attachment retry should clear queue and attachment") && ok;
     ok = expect(waitFor([&] { return partialAckReceiverDisconnected; }),
                 "server should observe partial-ack resumed receiver disconnect after cleanup") && ok;
+
+    const QString invalidAckProgressReceiverId = "970023";
+    Client invalidAckProgressReceiverSeed;
+    bool invalidAckProgressReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == invalidAckProgressReceiverId) invalidAckProgressReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(invalidAckProgressReceiverSeed, invalidAckProgressReceiverId, "InvalidAckProgressReceiver", port, true),
+                "invalid-ack-progress receiver should register before offline replay") && ok;
+    invalidAckProgressReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return invalidAckProgressReceiverDisconnected; }),
+                "server should observe invalid-ack-progress receiver disconnect before queue seeding") && ok;
+
+    const QString invalidAckProgressFileName = "invalid-ack-progress-offline-attachment.bin";
+    const QString invalidAckProgressDirPath = appDataDir + "/offline_files/invalid_ack_progress";
+    ok = expect(QDir().mkpath(invalidAckProgressDirPath),
+                "invalid-ack-progress attachment directory should be created") && ok;
+    const QString invalidAckProgressPath = invalidAckProgressDirPath + "/payload.bin";
+    const QByteArray invalidAckProgressPayload("invalid-ack-progress-payload");
+    QFile invalidAckProgressFile(invalidAckProgressPath);
+    ok = expect(invalidAckProgressFile.open(QIODevice::WriteOnly),
+                "invalid-ack-progress attachment file should be writable") && ok;
+    if (ok) {
+        ok = expect(invalidAckProgressFile.write(invalidAckProgressPayload) == invalidAckProgressPayload.size(),
+                    "invalid-ack-progress attachment file should contain the test payload") && ok;
+        invalidAckProgressFile.close();
+    }
+    ok = expect(insertOfflineAttachmentQueue(appDataDir,
+                                             invalidAckProgressReceiverId,
+                                             invalidAckProgressFileName,
+                                             invalidAckProgressPath,
+                                             invalidAckProgressPayload.size()),
+                "invalid-ack-progress attachment offline queue row should be inserted") && ok;
+    int invalidAckProgressAttempts = 0;
+    invalidAckProgressReceiverDisconnected = false;
+    ok = expect(loginRawAckInvalidProgressThenRecover(invalidAckProgressReceiverId,
+                                                      "InvalidAckProgressReceiver",
+                                                      port,
+                                                      &invalidAckProgressAttempts),
+                "invalid-ack-progress receiver should recover after a bad accepted ack") && ok;
+    ok = expect(invalidAckProgressAttempts == 2,
+                "offline replay should resend the chunk after invalid accepted ack progress") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, invalidAckProgressReceiverId) == 0
+            && !QFile::exists(invalidAckProgressPath);
+    }, 3000), "invalid-ack-progress replay should clear queue and attachment after retry") && ok;
+    ok = expect(waitFor([&] { return invalidAckProgressReceiverDisconnected; }),
+                "server should observe invalid-ack-progress receiver disconnect after cleanup") && ok;
 
     auto runInvalidResumeFallbackCase = [&](const QString& receiverId,
                                             const QString& userName,
