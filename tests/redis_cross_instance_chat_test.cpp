@@ -918,6 +918,26 @@ int main(int argc, char** argv) {
         return QFileInfo::exists(objectStore.objectPath(failedFallbackObjectKey));
     }, 800), "source server should keep the object after a remote failed event") && ok;
 
+    QFile failedFallbackObjectFile(objectStore.objectPath(failedFallbackObjectKey));
+    ok = expect(failedFallbackObjectFile.open(QIODevice::ReadWrite),
+                "failed-fallback object should reopen before TTL cleanup") && ok;
+    if (failedFallbackObjectFile.isOpen()) {
+        ok = expect(failedFallbackObjectFile.setFileTime(QDateTime::currentDateTimeUtc().addSecs(-2 * 60 * 60),
+                                                         QFileDevice::FileModificationTime),
+                    "failed-fallback object modification time should be aged before TTL cleanup") && ok;
+        failedFallbackObjectFile.close();
+    }
+    qputenv("QTNETWORKCHAT_OBJECT_TTL_HOURS", "1");
+    Server cleanupServer;
+    const quint16 cleanupPort = freeLocalPort();
+    ok = expect(cleanupPort != 0, "object cleanup server test port should be available") && ok;
+    ok = expect(cleanupServer.start(cleanupPort),
+                "object cleanup server should start and run startup cleanup") && ok;
+    cleanupServer.stop();
+    qputenv("QTNETWORKCHAT_OBJECT_TTL_HOURS", "24");
+    ok = expect(!QFileInfo::exists(objectStore.objectPath(failedFallbackObjectKey)),
+                "expired undelivered object should be removed by object-store TTL cleanup") && ok;
+
     Client failedFallbackReceiver;
     QStringList failedFallbackFileNames;
     QList<QByteArray> failedFallbackPayloads;
