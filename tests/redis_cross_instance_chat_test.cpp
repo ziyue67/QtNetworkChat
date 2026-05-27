@@ -685,6 +685,25 @@ int main(int argc, char** argv) {
         return bobFileNames.contains(largeFileName);
     }, 800), "large files should not be routed through Redis Pub/Sub payloads") && ok;
 
+    const QString encodedOverflowFileName = "redis-encoded-payload-overflow.bin";
+    const QString encodedOverflowFilePath = transferDir.filePath(encodedOverflowFileName);
+    const QByteArray encodedOverflowPayload = makePatternPayload(800 * 1024);
+    QFile encodedOverflowFile(encodedOverflowFilePath);
+    ok = expect(encodedOverflowFile.open(QIODevice::WriteOnly),
+                "encoded-overflow transfer file should open for writing") && ok;
+    if (encodedOverflowFile.isOpen()) {
+        ok = expect(encodedOverflowFile.write(encodedOverflowPayload) == encodedOverflowPayload.size(),
+                    "encoded-overflow transfer file should be written") && ok;
+        encodedOverflowFile.close();
+    }
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    ok = expect(alice.sendFile(encodedOverflowFilePath, "960002"),
+                "alice should upload a file whose encoded Redis event would exceed the Pub/Sub limit") && ok;
+    ok = expect(!waitFor([&] {
+        return bobFileNames.contains(encodedOverflowFileName);
+    }, 800), "encoded Redis events above the Pub/Sub limit should fall back offline") && ok;
+
     const QString fallbackPrivateMessage = "Redis private publish failure should fall back offline";
     bobPrivateMessages.clear();
     QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, true));
@@ -729,6 +748,8 @@ int main(int argc, char** argv) {
         return bobPrivateMessages.contains(fallbackPrivateMessage)
             && bobFileNames.contains(largeFileName)
             && bobFilePayloads.contains(largeFilePayload)
+            && bobFileNames.contains(encodedOverflowFileName)
+            && bobFilePayloads.contains(encodedOverflowPayload)
             && bobFileNames.contains(fallbackFileName)
             && bobFilePayloads.contains(fallbackFilePayload);
     }, 9000), "large files and publish failures should fall back to the origin server offline queue") && ok;

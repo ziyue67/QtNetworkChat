@@ -43,6 +43,7 @@ constexpr qint64 kDefaultOfflineAttachmentResumeProgressTtlHours = 24;
 constexpr qint64 kMaxOfflineAttachmentResumeProgressTtlHours = 24LL * 365;
 constexpr qint64 kDefaultOfflineAttachmentQuotaBytes = 512LL * 1024 * 1024;
 constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
+constexpr qint64 kRedisPubSubEventMaxBytes = 1LL * 1024 * 1024;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -1433,10 +1434,24 @@ bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliver
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     event["message"] = messageDoc.object();
 
-    return m_redisClient->publish("messages", QJsonDocument(event).toJson(QJsonDocument::Compact));
+    const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
+        qWarning() << "Skip Redis Pub/Sub message event because encoded payload is too large:"
+                   << eventPayload.size()
+                   << "limit:" << kRedisPubSubEventMaxBytes;
+        return false;
+    }
+    return m_redisClient->publish("messages", eventPayload);
 }
 
 void Server::handleRedisMessageEvent(const QByteArray& payload) {
+    if (payload.size() > kRedisPubSubEventMaxBytes) {
+        qWarning() << "Ignore Redis Pub/Sub message event because encoded payload is too large:"
+                   << payload.size()
+                   << "limit:" << kRedisPubSubEventMaxBytes;
+        return;
+    }
+
     const QJsonDocument doc = QJsonDocument::fromJson(payload);
     if (!doc.isObject()) return;
 
