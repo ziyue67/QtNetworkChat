@@ -41,7 +41,7 @@
 ## 拒绝和清理
 
 - `transferId` 不存在：返回 `canResume=false`，原因“服务端未找到可续传状态”。
-- `senderId` 不一致：返回 `canResume=false`，原因“续传发送者不一致”，并不泄露原状态细节。
+- `senderId` 不一致：上传分片时拒绝客户端声明的伪造发送者；查询续传状态时只按当前登录账号查找，其他账号返回 `canResume=false` 且不泄露原状态细节。
 - `fileHash`、`fileSize`、`chunkSize`、`chunkCount` 不一致：拒绝后续分片并清理 pending 状态，后续查询返回 `canResume=false`。
 - `receivedIndexes` 越界或与 `receivedBytes` 冲突：清理 pending 状态并拒绝。
 - 用户取消传输：立即删除 pending 状态，并清理客户端本地 outgoing transfer 状态。
@@ -52,6 +52,6 @@
 1. 已完成：先补服务端单元测试：同一发送者断开后重连，查询原 transferId 能拿到已接收分片集合。
 2. 已完成：调整服务端 pending key，不再把 socket 指针作为唯一身份；断开时只清 socket 引用，不删除未完成状态。
 3. 已完成：补 `fileHash` 元数据不一致拒绝测试，确认冲突后清理 pending 状态。
-4. 下一步：补 senderId 不一致的拒绝测试。
-5. 补客户端 `resumeSavedOutgoingTransfer()` 的跨连接集成测试，验证重连后只发送缺口分片。
+4. 已完成：补 senderId 不一致拒绝测试，确认伪造发送者分片会被拒绝且其他账号无法查询 pending 元数据。
+5. 下一步：补客户端 `resumeSavedOutgoingTransfer()` 的跨连接集成测试，验证重连后只发送缺口分片。
 6. 最后再考虑 UI 文案和用户可见的“继续发送未完成文件”提示细化。

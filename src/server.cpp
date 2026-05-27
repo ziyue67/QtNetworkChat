@@ -1217,7 +1217,8 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
     const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
     const ChatUser* sender = findUserBySocket(socket);
-    const QString senderId = sender ? sender->id : obj["senderId"].toString().trimmed();
+    const QString declaredSenderId = obj["senderId"].toString().trimmed();
+    const QString senderId = sender ? sender->id : QString();
     const QString key = pendingFileTransferKey(senderId, transferId);
 
     auto rejectTransfer = [this, socket, key, fileName, transferId, chunkIndex](const QString& reason) {
@@ -1236,6 +1237,10 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     }
     if (key.isEmpty()) {
         rejectTransfer("发送者身份非法");
+        return;
+    }
+    if (!declaredSenderId.isEmpty() && declaredSenderId != senderId) {
+        rejectTransfer("发送者身份不一致");
         return;
     }
     if (fileSize <= 0 || fileSize > kMaxIncomingPayloadBytes) {
@@ -1268,6 +1273,7 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     if (pending.chunks.isEmpty()) {
         pending.envelope = obj;
         pending.envelope["type"] = "file";
+        pending.envelope["senderId"] = senderId;
         pending.envelope.remove("transferId");
         pending.envelope.remove("chunkIndex");
         pending.envelope.remove("fileData");

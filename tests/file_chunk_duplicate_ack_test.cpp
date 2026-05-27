@@ -247,6 +247,45 @@ int main(int argc, char** argv) {
     ok = expect(crossConnectionReceivedChunks.size() == 1
                     && crossConnectionReceivedChunks.first().toVariant().toLongLong() == 0,
                 "cross-connection resume state should keep received chunk indexes") && ok;
+
+    QTcpSocket otherUserSocket;
+    QByteArray otherUserBuffer;
+    QObject::connect(&otherUserSocket, &QTcpSocket::readyRead, &app, [&] {
+        otherUserBuffer.append(otherUserSocket.readAll());
+    });
+    otherUserSocket.connectToHost(QHostAddress::LocalHost, port);
+    ok = expect(otherUserSocket.waitForConnected(5000),
+                "other user socket should connect before querying someone else's transfer") && ok;
+    QJsonObject otherLogin;
+    otherLogin["type"] = "login";
+    otherLogin["mode"] = "register";
+    otherLogin["account"] = "940002";
+    otherLogin["password"] = "secret";
+    otherLogin["userName"] = "OtherSender";
+    ok = expect(writeJson(otherUserSocket, otherLogin),
+                "other user socket should register before querying someone else's transfer") && ok;
+    ok = expect(waitForMessage(otherUserSocket, otherUserBuffer, [](const QJsonObject& message) {
+        return message["type"].toString() == "login_success";
+    }, nullptr), "other user socket should receive login success") && ok;
+
+    QJsonObject otherUserResumeQuery;
+    otherUserResumeQuery["type"] = "file_transfer_resume_query";
+    otherUserResumeQuery["transferId"] = crossConnectionTransferId;
+    ok = expect(writeJson(otherUserSocket, otherUserResumeQuery),
+                "other user socket should query someone else's transfer id") && ok;
+
+    QJsonObject otherUserResumeState;
+    ok = expect(waitForMessage(otherUserSocket, otherUserBuffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == crossConnectionTransferId;
+    }, &otherUserResumeState), "server should respond to other user resume query without exposing state") && ok;
+    ok = expect(!otherUserResumeState["canResume"].toBool(true),
+                "other user should not resume someone else's pending transfer") && ok;
+    ok = expect(otherUserResumeState["fileHash"].toString().isEmpty()
+                    && otherUserResumeState["fileName"].toString().isEmpty(),
+                "other user resume rejection should not expose pending metadata") && ok;
+    otherUserSocket.disconnectFromHost();
+
     resumedSocket.disconnectFromHost();
 
     socket.connectToHost(QHostAddress::LocalHost, port);
@@ -257,6 +296,37 @@ int main(int argc, char** argv) {
     ok = expect(waitForMessage(socket, buffer, [](const QJsonObject& message) {
         return message["type"].toString() == "login_success";
     }, nullptr), "raw socket should receive login success before continuing") && ok;
+
+    const QString spoofedSenderTransferId = "spoofed-sender-transfer";
+    QJsonObject spoofedSenderChunk = makeChunk(0, spoofedSenderTransferId);
+    spoofedSenderChunk["senderId"] = "949998";
+    ok = expect(writeJson(socket, spoofedSenderChunk),
+                "raw socket should send a chunk with a spoofed sender id") && ok;
+
+    QJsonObject spoofedSenderAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == spoofedSenderTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 0;
+    }, &spoofedSenderAck), "server should ack-reject a spoofed sender chunk") && ok;
+    ok = expect(!spoofedSenderAck["accepted"].toBool(true),
+                "spoofed sender chunk should be rejected") && ok;
+    ok = expect(spoofedSenderAck["reason"].toString().contains("发送者身份"),
+                "spoofed sender rejection should explain the sender mismatch") && ok;
+
+    QJsonObject spoofedSenderResumeQuery;
+    spoofedSenderResumeQuery["type"] = "file_transfer_resume_query";
+    spoofedSenderResumeQuery["transferId"] = spoofedSenderTransferId;
+    ok = expect(writeJson(socket, spoofedSenderResumeQuery),
+                "raw socket should query resume state after spoofed sender rejection") && ok;
+
+    QJsonObject spoofedSenderResumeState;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == spoofedSenderTransferId;
+    }, &spoofedSenderResumeState), "server should not keep spoofed sender pending state") && ok;
+    ok = expect(!spoofedSenderResumeState["canResume"].toBool(true),
+                "spoofed sender transfer should not remain resumable after rejection") && ok;
 
     ok = expect(writeJson(socket, firstChunk), "raw socket should resend the first chunk") && ok;
 
