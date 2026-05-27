@@ -731,18 +731,18 @@ int main(int argc, char** argv) {
     ok = expect(!largeFileOffer["transferId"].toString().trimmed().isEmpty(),
                 "large file offer should carry a transfer id") && ok;
     const FilesystemObjectStore objectStore(objectRoot.path());
-    const FilesystemObjectStore::ValidationResult largeObjectValidation =
-        objectStore.validateObject(largeFileObjectKey,
-                                   largeFilePayload.size(),
-                                   largeFileOffer["fileHash"].toString());
-    ok = expect(largeObjectValidation.ok,
-                "large file offer should point to an object matching the advertised size and hash") && ok;
     ok = expect(waitFor([&] {
         return !findPublishedEvent("large_file_claim", QString(), largeFileObjectKey).isEmpty();
     }), "remote server should claim a large file offer for its local online receiver") && ok;
     ok = expect(waitFor([&] {
         return bobFileNames.contains(largeFileName) && bobFilePayloads.contains(largeFilePayload);
     }, 9000), "bob should receive the large file through object-store offer routing") && ok;
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_delivered", QString(), largeFileObjectKey).isEmpty();
+    }), "remote server should publish delivered after the large file is fully acknowledged") && ok;
+    ok = expect(waitFor([&] {
+        return !QFileInfo::exists(objectStore.objectPath(largeFileObjectKey));
+    }), "source server should remove the delivered large file object") && ok;
 
     const QString encodedOverflowFileName = "redis-encoded-payload-overflow.bin";
     const QString encodedOverflowFilePath = transferDir.filePath(encodedOverflowFileName);
@@ -765,18 +765,19 @@ int main(int argc, char** argv) {
     const QJsonObject encodedOverflowOffer = findLargeFileOffer(encodedOverflowFileName);
     ok = expect(FilesystemObjectStore::isValidObjectKey(encodedOverflowOffer["objectKey"].toString()),
                 "encoded-overflow offer should contain a safe object key") && ok;
-    const FilesystemObjectStore::ValidationResult encodedOverflowValidation =
-        objectStore.validateObject(encodedOverflowOffer["objectKey"].toString(),
-                                   encodedOverflowPayload.size(),
-                                   encodedOverflowOffer["fileHash"].toString());
-    ok = expect(encodedOverflowValidation.ok,
-                "encoded-overflow offer should point to an object matching the advertised size and hash") && ok;
+    const QString encodedOverflowObjectKey = encodedOverflowOffer["objectKey"].toString();
     ok = expect(waitFor([&] {
-        return !findPublishedEvent("large_file_claim", QString(), encodedOverflowOffer["objectKey"].toString()).isEmpty();
+        return !findPublishedEvent("large_file_claim", QString(), encodedOverflowObjectKey).isEmpty();
     }), "remote server should claim an encoded-overflow offer for its local online receiver") && ok;
     ok = expect(waitFor([&] {
         return bobFileNames.contains(encodedOverflowFileName) && bobFilePayloads.contains(encodedOverflowPayload);
     }, 9000), "bob should receive the encoded-overflow file through object-store offer routing") && ok;
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_delivered", QString(), encodedOverflowObjectKey).isEmpty();
+    }), "remote server should publish delivered after the encoded-overflow file is fully acknowledged") && ok;
+    ok = expect(waitFor([&] {
+        return !QFileInfo::exists(objectStore.objectPath(encodedOverflowObjectKey));
+    }), "source server should remove the delivered encoded-overflow object") && ok;
 
     const QString fallbackPrivateMessage = "Redis private publish failure should fall back offline";
     bobPrivateMessages.clear();
@@ -820,16 +821,15 @@ int main(int argc, char** argv) {
                 "bob should log in on the first server for offline replay check") && ok;
     ok = expect(waitFor([&] {
         return bobPrivateMessages.contains(fallbackPrivateMessage)
-            && bobFileNames.contains(largeFileName)
-            && bobFilePayloads.contains(largeFilePayload)
-            && bobFileNames.contains(encodedOverflowFileName)
-            && bobFilePayloads.contains(encodedOverflowPayload)
             && bobFileNames.contains(fallbackFileName)
             && bobFilePayloads.contains(fallbackFilePayload);
-    }, 9000), "large files and publish failures should fall back to the origin server offline queue") && ok;
+    }, 9000), "publish failures should fall back to the origin server offline queue") && ok;
     ok = expect(!waitFor([&] {
-        return bobPrivateMessages.contains(privateMessage) || bobFileNames.contains(fileName);
-    }, 800), "cross-instance private messages and files should not be replayed from the origin server offline queue") && ok;
+        return bobPrivateMessages.contains(privateMessage)
+            || bobFileNames.contains(fileName)
+            || bobFileNames.contains(largeFileName)
+            || bobFileNames.contains(encodedOverflowFileName);
+    }, 800), "cross-instance delivered files should not be replayed from the origin server offline queue") && ok;
 
     alice.disconnectFromServer();
     bob.disconnectFromServer();

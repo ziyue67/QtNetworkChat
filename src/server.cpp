@@ -1516,6 +1516,27 @@ bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
     return m_redisClient->publish("messages", eventPayload);
 }
 
+bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 confirmedBytes) const {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+
+    QJsonObject event;
+    event["eventType"] = "large_file_delivered";
+    event["instanceId"] = m_instanceId;
+    event["sourceInstanceId"] = offer["instanceId"].toString();
+    event["transferId"] = offer["transferId"].toString();
+    event["objectKey"] = offer["objectKey"].toString();
+    event["receiverId"] = offer["receiverId"].toString();
+    event["confirmedBytes"] = QString::number(confirmedBytes);
+    event["fileHash"] = offer["fileHash"].toString();
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
+        return false;
+    }
+    return m_redisClient->publish("messages", eventPayload);
+}
+
 void Server::handleRedisMessageEvent(const QByteArray& payload) {
     if (payload.size() > kRedisPubSubEventMaxBytes) {
         qWarning() << "Ignore Redis Pub/Sub message event because encoded payload is too large:"
@@ -1531,6 +1552,10 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     const QString eventType = event["eventType"].toString();
     if (eventType == "large_file_offer") {
         handleRedisLargeFileOffer(event);
+        return;
+    }
+    if (eventType == "large_file_delivered") {
+        handleRedisLargeFileDelivered(event);
         return;
     }
     if (eventType != "chat_message") return;
@@ -1589,6 +1614,13 @@ void Server::handleRedisLargeFileOffer(const QJsonObject& event) {
         msg.timestamp = QDateTime::currentDateTime();
         emit newMessage(msg);
     }
+}
+
+void Server::handleRedisLargeFileDelivered(const QJsonObject& event) {
+    if (event["instanceId"].toString() == m_instanceId) return;
+    if (event["sourceInstanceId"].toString() != m_instanceId) return;
+    if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return;
+    cleanupDeliveredRedisLargeFile(event);
 }
 
 bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket) {
@@ -1703,6 +1735,7 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         }
     }
 
+    publishRedisLargeFileDelivered(event, fileSize);
     return true;
 }
 
@@ -2234,6 +2267,120 @@ qint64 Server::objectStoreTtlMs() const {
                                                      kDefaultObjectStoreTtlHours,
                                                      kMaxObjectStoreTtlHours);
     return hours * 60LL * 60 * 1000;
+}
+
+bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
+    const QString objectKey = event["objectKey"].toString().trimmed();
+    const QString transferId = event["transferId"].toString().trimmed();
+    const QString receiverId = event["receiverId"].toString().trimmed();
+    const QString fileHash = event["fileHash"].toString().trimmed();
+    const qint64 confirmedBytes = event["confirmedBytes"].toVariant().toLongLong();
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)
+        || transferId.isEmpty()
+        || receiverId.isEmpty()
+        || !looksLikeSha256Hex(fileHash)
+        || confirmedBytes <= 0) {
+        return false;
+    }
+
+    auto matchesPayload = [&](const QJsonObject& obj) {
+        const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+        return obj["objectStoreKey"].toString().trimmed() == objectKey
+            && obj["transferId"].toString().trimmed() == transferId
+            && obj["receiverId"].toString().trimmed() == receiverId
+            && obj["fileHash"].toString().trimmed().compare(fileHash, Qt::CaseInsensitive) == 0
+            && fileSize > 0
+            && confirmedBytes >= fileSize;
+    };
+
+    QStringList offlineAttachmentPaths;
+    bool removedQueue = false;
+    if (ensureAccountDatabase()) {
+        const QString connectionName = "offline_delivered_" + QString::number(reinterpret_cast<quintptr>(this));
+        QVector<qint64> deliveredIds;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(accountDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                query.prepare("SELECT id, payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
+                query.addBindValue(receiverId);
+                if (query.exec()) {
+                    while (query.next()) {
+                        const QJsonDocument doc = QJsonDocument::fromJson(query.value(1).toString().toUtf8());
+                        if (!doc.isObject()) continue;
+                        const QJsonObject obj = doc.object();
+                        if (!matchesPayload(obj)) continue;
+                        deliveredIds.append(query.value(0).toLongLong());
+                        const QString offlinePath = obj["offlineFilePath"].toString();
+                        if (!offlinePath.isEmpty()) {
+                            offlineAttachmentPaths.append(QDir::cleanPath(offlinePath));
+                        }
+                    }
+                }
+                for (qint64 messageId : deliveredIds) {
+                    QSqlQuery deleteQuery(db);
+                    deleteQuery.prepare("DELETE FROM offline_messages WHERE id = ?");
+                    deleteQuery.addBindValue(messageId);
+                    if (deleteQuery.exec()) {
+                        removedQueue = true;
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
+    QFile jsonlFile(offlineFilePath(receiverId));
+    if (jsonlFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QVector<QByteArray> remainingLines;
+        while (!jsonlFile.atEnd()) {
+            const QByteArray line = jsonlFile.readLine().trimmed();
+            if (line.isEmpty()) continue;
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (doc.isObject() && matchesPayload(doc.object())) {
+                const QString offlinePath = doc.object()["offlineFilePath"].toString();
+                if (!offlinePath.isEmpty()) {
+                    offlineAttachmentPaths.append(QDir::cleanPath(offlinePath));
+                }
+                removedQueue = true;
+                continue;
+            }
+            remainingLines.append(line);
+        }
+        jsonlFile.close();
+
+        if (removedQueue) {
+            if (remainingLines.isEmpty()) {
+                jsonlFile.remove();
+            } else if (jsonlFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+                for (const QByteArray& line : remainingLines) {
+                    jsonlFile.write(line);
+                    jsonlFile.write("\n");
+                }
+                jsonlFile.close();
+            }
+        }
+    }
+
+    if (!removedQueue) {
+        return false;
+    }
+
+    offlineAttachmentPaths.removeDuplicates();
+    for (const QString& path : offlineAttachmentPaths) {
+        if (!path.isEmpty()) {
+            QFile::remove(path);
+        }
+    }
+
+    const QString objectPath = FilesystemObjectStore(objectStoreRootDir()).objectPath(objectKey);
+    if (!objectPath.isEmpty()) {
+        QFile::remove(objectPath);
+    }
+
+    return true;
 }
 
 QString Server::saveOfflineAttachment(const Message& msg) const {
