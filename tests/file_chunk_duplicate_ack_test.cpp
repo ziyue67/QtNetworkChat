@@ -420,6 +420,59 @@ int main(int argc, char** argv) {
         return changedMetadataAckRejected && changedMetadataSystemNotice;
     }), "server should reject later chunks whose metadata changed") && ok;
 
+    const QString changedHashTransferId = "changed-hash-transfer";
+    const QString firstHash(64, QLatin1Char('a'));
+    const QString secondHash(64, QLatin1Char('b'));
+    ok = expect(writeJson(socket, makeChunk(0, changedHashTransferId, firstHash)),
+                "raw socket should send the first chunk before changing file hash") && ok;
+
+    QJsonObject changedHashFirstAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == changedHashTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 0;
+    }, &changedHashFirstAck), "server should ack the first chunk before file hash changes") && ok;
+    ok = expect(changedHashFirstAck["accepted"].toBool(false),
+                "first changed-hash chunk ack should be accepted") && ok;
+
+    ok = expect(writeJson(socket, makeChunk(1, changedHashTransferId, secondHash)),
+                "raw socket should send a later chunk with changed file hash") && ok;
+
+    bool changedHashAckRejected = false;
+    bool changedHashSystemNotice = false;
+    ok = expect(waitFor([&] {
+        buffer.append(socket.readAll());
+        const QVector<QJsonObject> messages = takeJsonLines(buffer);
+        for (const QJsonObject& message : messages) {
+            if (message["type"].toString() == "file_chunk_ack"
+                && message["transferId"].toString() == changedHashTransferId
+                && message["chunkIndex"].toVariant().toLongLong() == 1
+                && !message["accepted"].toBool(true)
+                && message["reason"].toString().contains("元数据不一致")) {
+                changedHashAckRejected = true;
+            }
+            if (message["type"].toString() == "system"
+                && message["content"].toString().contains("元数据不一致")) {
+                changedHashSystemNotice = true;
+            }
+        }
+        return changedHashAckRejected && changedHashSystemNotice;
+    }), "server should reject later chunks whose file hash changed") && ok;
+
+    QJsonObject changedHashResumeQuery;
+    changedHashResumeQuery["type"] = "file_transfer_resume_query";
+    changedHashResumeQuery["transferId"] = changedHashTransferId;
+    ok = expect(writeJson(socket, changedHashResumeQuery),
+                "raw socket should query resume state after file hash metadata rejection") && ok;
+
+    QJsonObject changedHashResumeState;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == changedHashTransferId;
+    }, &changedHashResumeState), "server should clear changed-hash pending state after rejection") && ok;
+    ok = expect(!changedHashResumeState["canResume"].toBool(true),
+                "changed-hash transfer should not remain resumable after rejection") && ok;
+
     const QString outOfOrderTransferId = "out-of-order-transfer";
     const QString outOfOrderFileName = "out-of-order.bin";
     const QString outOfOrderReceiverId = "949999";

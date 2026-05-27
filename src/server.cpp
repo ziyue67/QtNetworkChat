@@ -1277,7 +1277,10 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
         pending.chunkSize = chunkSize;
         pending.chunkCount = chunkCount;
         pending.chunks.resize(static_cast<int>(chunkCount));
-    } else if (pending.fileSize != fileSize || pending.chunkSize != chunkSize || pending.chunkCount != chunkCount) {
+    } else if (pending.fileSize != fileSize
+               || pending.chunkSize != chunkSize
+               || pending.chunkCount != chunkCount
+               || pending.envelope["fileHash"].toString().trimmed() != obj["fileHash"].toString().trimmed()) {
         rejectTransfer("同一传输编号的元数据不一致");
         return;
     }
