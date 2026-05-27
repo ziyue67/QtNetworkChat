@@ -629,22 +629,28 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
 
     if (resumed) {
         appendSystemMessage(QString("已恢复并完成未完成发送：%1 -> %2").arg(fileName, targetName));
+        ui->chatHintLabel->setText(QString("未完成发送已恢复 · %1 · %2").arg(fileName, targetName));
         ui->statusbar->showMessage("未完成发送已恢复完成：" + fileName, 2600);
     } else if (cancelRequested) {
         appendSystemMessage("已取消恢复未完成发送：" + fileName);
+        ui->chatHintLabel->setText("已取消恢复未完成发送 · " + fileName);
         ui->statusbar->showMessage("已取消恢复发送：" + fileName, 2200);
     } else {
         const QString reason = rejectReason.isEmpty() ? "恢复失败" : rejectReason;
-        appendSystemMessage(QString("恢复未完成发送失败：%1（%2）").arg(fileName, reason));
+        appendSystemMessage(QString("恢复未完成发送失败：%1 -> %2（%3）。恢复记录已保留，可稍后重试。")
+                                .arg(fileName, targetName, reason));
+        ui->chatHintLabel->setText(QString("恢复未完成发送失败 · %1 · %2").arg(fileName, reason));
         ui->statusbar->showMessage("恢复未完成发送失败：" + reason, 3200);
         const QMessageBox::StandardButton choice = QMessageBox::warning(
             this,
             "恢复未完成发送失败",
-            reason + "\n\n可以稍后重试，或清除这条恢复记录。",
-            QMessageBox::Retry | QMessageBox::Discard,
-            QMessageBox::Retry);
+            QString("文件：%1\n目标：%2\n原因：%3\n\n恢复记录已保留，可稍后通过菜单“恢复未完成发送”重试；也可以现在清除这条恢复记录。")
+                .arg(fileName, targetName, reason),
+            QMessageBox::Ok | QMessageBox::Discard,
+            QMessageBox::Ok);
         if (choice == QMessageBox::Discard && m_client->clearOutgoingTransferState()) {
             appendSystemMessage("已清除未完成发送恢复记录：" + fileName);
+            ui->chatHintLabel->setText("已清除未完成发送恢复记录 · " + fileName);
             ui->statusbar->showMessage("已清除恢复记录：" + fileName, 2200);
         }
     }
