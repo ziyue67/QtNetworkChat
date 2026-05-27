@@ -1497,6 +1497,25 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
     return m_redisClient->publish("messages", eventPayload);
 }
 
+bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+
+    QJsonObject event;
+    event["eventType"] = "large_file_claim";
+    event["instanceId"] = m_instanceId;
+    event["sourceInstanceId"] = offer["instanceId"].toString();
+    event["transferId"] = offer["transferId"].toString();
+    event["objectKey"] = offer["objectKey"].toString();
+    event["receiverId"] = offer["receiverId"].toString();
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
+        return false;
+    }
+    return m_redisClient->publish("messages", eventPayload);
+}
+
 void Server::handleRedisMessageEvent(const QByteArray& payload) {
     if (payload.size() > kRedisPubSubEventMaxBytes) {
         qWarning() << "Ignore Redis Pub/Sub message event because encoded payload is too large:"
@@ -1509,7 +1528,12 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     if (!doc.isObject()) return;
 
     const QJsonObject event = doc.object();
-    if (event["eventType"].toString() != "chat_message") return;
+    const QString eventType = event["eventType"].toString();
+    if (eventType == "large_file_offer") {
+        handleRedisLargeFileOffer(event);
+        return;
+    }
+    if (eventType != "chat_message") return;
     if (event["instanceId"].toString() == m_instanceId) return;
 
     const QJsonObject messageObj = event["message"].toObject();
@@ -1535,6 +1559,151 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     }
 
     emit newMessage(msg);
+}
+
+void Server::handleRedisLargeFileOffer(const QJsonObject& event) {
+    if (event["instanceId"].toString() == m_instanceId) return;
+    if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return;
+
+    const QString receiverId = event["receiverId"].toString().trimmed();
+    if (receiverId.isEmpty()) return;
+
+    QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+    if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+        return;
+    }
+
+    if (deliverRedisLargeFileOffer(event, targetSocket)) {
+        Message msg;
+        msg.senderId = event["senderId"].toString();
+        msg.senderName = event["senderName"].toString();
+        msg.receiverId = receiverId;
+        msg.fileName = event["fileName"].toString();
+        msg.transferId = event["transferId"].toString();
+        msg.fileSize = event["fileSize"].toVariant().toLongLong();
+        msg.fileHash = event["fileHash"].toString();
+        msg.chunkSize = event["chunkSize"].toVariant().toLongLong();
+        msg.chunkCount = event["chunkCount"].toVariant().toLongLong();
+        msg.type = event["messageType"].toString() == "Image" ? MessageType::Image : MessageType::File;
+        msg.content = QString(msg.type == MessageType::Image ? "发送了图片: %1" : "发送了文件: %1").arg(msg.fileName);
+        msg.timestamp = QDateTime::currentDateTime();
+        emit newMessage(msg);
+    }
+}
+
+bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket) {
+    QPointer<QTcpSocket> socketGuard(socket);
+    if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState) return false;
+
+    const QString storeType = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE")).trimmed().toLower();
+    if (!storeType.isEmpty() && storeType != "filesystem") return false;
+
+    const QString objectRoot = objectStoreRootDir();
+    const QString objectKey = event["objectKey"].toString().trimmed();
+    const qint64 fileSize = event["fileSize"].toVariant().toLongLong();
+    const qint64 chunkSize = event["chunkSize"].toVariant().toLongLong();
+    const qint64 chunkCount = event["chunkCount"].toVariant().toLongLong();
+    const QString fileHash = event["fileHash"].toString().trimmed();
+    const QString messageType = event["messageType"].toString();
+    if (objectRoot.isEmpty()
+        || !FilesystemObjectStore::isValidObjectKey(objectKey)
+        || fileSize <= 0
+        || chunkSize <= 0
+        || chunkSize > kForwardChunkBytes
+        || chunkCount <= 0
+        || chunkCount != (fileSize + chunkSize - 1) / chunkSize
+        || !looksLikeSha256Hex(fileHash)
+        || event["senderId"].toString().trimmed().isEmpty()
+        || event["receiverId"].toString().trimmed().isEmpty()
+        || (messageType != "File" && messageType != "Image")) {
+        return false;
+    }
+
+    FilesystemObjectStore objectStore(objectRoot);
+    const FilesystemObjectStore::ValidationResult validation =
+        objectStore.validateObject(objectKey, fileSize, fileHash);
+    if (!validation.ok) {
+        qWarning() << "Rejected large file offer because object validation failed"
+                   << objectKey << validation.error;
+        return false;
+    }
+
+    QFile file(objectStore.objectPath(objectKey));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    publishRedisLargeFileClaim(event);
+
+    const QString transferId = event["transferId"].toString().trimmed().isEmpty()
+        ? objectKey
+        : event["transferId"].toString().trimmed();
+    const QString fileName = event["fileName"].toString();
+    for (qint64 index = 0; index < chunkCount; ++index) {
+        if (!file.seek(index * chunkSize)) {
+            return false;
+        }
+        const QByteArray chunk = file.read(chunkSize);
+        if (chunk.isEmpty() || (index < chunkCount - 1 && chunk.size() != chunkSize)) {
+            return false;
+        }
+
+        QJsonObject chunkObj;
+        chunkObj["type"] = "file_chunk";
+        chunkObj["transferId"] = transferId;
+        chunkObj["messageType"] = messageType == "Image" ? static_cast<int>(MessageType::Image) : static_cast<int>(MessageType::File);
+        chunkObj["senderId"] = event["senderId"].toString();
+        chunkObj["senderName"] = event["senderName"].toString();
+        chunkObj["receiverId"] = event["receiverId"].toString();
+        chunkObj["content"] = QString(messageType == "Image" ? "发送了图片: %1" : "发送了文件: %1").arg(fileName);
+        chunkObj["fileName"] = fileName;
+        chunkObj["fileSize"] = QString::number(fileSize);
+        chunkObj["fileHash"] = fileHash;
+        chunkObj["chunkSize"] = QString::number(chunkSize);
+        chunkObj["chunkCount"] = QString::number(chunkCount);
+        chunkObj["chunkIndex"] = QString::number(index);
+        chunkObj["fileData"] = QString::fromLatin1(chunk.toBase64());
+
+        QString ackRejectReason;
+        qint64 ackReceivedBytes = 0;
+        bool acknowledged = false;
+        const QByteArray data = QJsonDocument(chunkObj).toJson(QJsonDocument::Compact);
+        for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
+            if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState || socketGuard->write(data) <= 0) {
+                return false;
+            }
+            socketGuard->write("\n");
+            socketGuard->flush();
+            if (waitForFileChunkAck(socketGuard, transferId, index, &ackRejectReason, &ackReceivedBytes)) {
+                const qint64 expectedAckBytes = qMin(fileSize, index * chunkSize + chunk.size());
+                if (ackReceivedBytes > 0 && (ackReceivedBytes < expectedAckBytes || ackReceivedBytes > fileSize)) {
+                    if (attempt == kChunkSendMaxAttempts) {
+                        ackRejectReason = QString::fromUtf8("跨实例大文件确认进度非法");
+                    }
+                    continue;
+                }
+                acknowledged = true;
+                break;
+            }
+            if (!socketGuard) {
+                return false;
+            }
+            if (!ackRejectReason.isEmpty()) {
+                qWarning() << "Large file offer chunk rejected by receiver:" << ackRejectReason;
+                return false;
+            }
+        }
+        if (!acknowledged) {
+            if (!ackRejectReason.isEmpty()) {
+                qWarning() << "Large file offer chunk rejected by receiver:" << ackRejectReason;
+                return false;
+            }
+            qWarning() << "Large file offer chunk ack timeout:" << fileName << index + 1 << "/" << chunkCount;
+            return false;
+        }
+    }
+
+    return true;
 }
 
 ChatUser* Server::findUserBySocket(QTcpSocket* socket) {

@@ -62,7 +62,10 @@ private:
     bool isRedisUserOnline(const QString& userId) const;
     bool publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
     bool publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const;
+    bool publishRedisLargeFileClaim(const QJsonObject& offer) const;
     void handleRedisMessageEvent(const QByteArray& payload);
+    void handleRedisLargeFileOffer(const QJsonObject& event);
+    bool deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;

@@ -26,7 +26,7 @@
 | 对象存储或共享附件目录 | 原始文件字节 | 可先用共享文件系统目录，后续替换为 S3/MinIO 等对象存储 |
 | 现有 TCP 客户端连接 | 服务端到最终收件人的分片下发 | 复用 `sendChunkedFileToSocket()` 与 ACK 校验 |
 
-源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。远端实例收到 offer 后，只在收件人在线于本实例时认领对象并流式下发；成功后发布 delivered，源实例再清理本地兜底队列和对象引用。
+源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。远端实例收到 offer 后，已可在收件人在线于本实例时认领对象，校验对象 size/hash/chunk 元数据并按现有分片 ACK 流程下发；成功后还需要补 `large_file_delivered`，让源实例清理本地兜底队列和对象引用。
 
 ## 控制事件
 
@@ -121,8 +121,8 @@
 
 1. 已完成：新增 filesystem `ObjectStore` helper，支持安全 objectKey 生成、共享目录写入、路径穿越拒绝、hash/size 校验和 TTL 清理，并用 CTest 覆盖核心边界。
 2. 已完成：源实例在大文件或编码超限文件进入离线附件队列后，若对象路由配置可用，会额外写入对象并发布 `large_file_offer` 元数据事件；发布失败时仍保留源实例离线队列兜底。
-3. 下一步：远端实例订阅 `large_file_offer`，仅当 `receiverId` 在线于本实例时认领，并从对象存储流式下发给客户端。
-4. 远端完整 ACK 后发布 `large_file_delivered`；源实例收到后清理离线队列和对象引用。
+3. 已完成：远端实例订阅 `large_file_offer`，仅当 `receiverId` 在线于本实例时认领，校验对象 size/hash/chunk 元数据，并从对象存储按分片 ACK 下发给客户端。
+4. 下一步：远端完整 ACK 后发布 `large_file_delivered`；源实例收到后清理离线队列和对象引用。
 5. 补失败路径：对象读取失败、hash 不一致、客户端断开、delivered 丢失和 TTL 清理。
 6. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
 
@@ -131,4 +131,5 @@
 - 已有代码会拒绝发布编码后超过 1 MB 的 Redis message event。
 - 已有测试覆盖大文件和编码后超限文件不经 Pub/Sub，并回落源实例离线队列。
 - 已有测试覆盖源实例为大文件和编码超限文件发布小体积 `large_file_offer`，且 offer 指向对象的 size/hash 与原始附件一致。
-- 远端实例尚未消费 `large_file_offer`，因此跨实例在线收件人暂时仍不会即时收到大文件；这是下一步实现边界。
+- 已有测试覆盖远端实例仅在本地在线收件人存在时认领 `large_file_offer`，并从 filesystem ObjectStore 校验后分片下发给客户端。
+- 源实例尚未处理 `large_file_delivered`，因此远端投递成功后仍会保留源实例离线兜底队列和对象引用；这是下一步清理边界。

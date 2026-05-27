@@ -388,17 +388,23 @@ int main(int argc, char** argv) {
             publishedMessagePayloads.append(payload);
         }
     });
-    auto findLargeFileOffer = [&publishedMessagePayloads](const QString& fileName) {
+    auto findPublishedEvent = [&publishedMessagePayloads](const QString& eventType,
+                                                          const QString& fileName = QString(),
+                                                          const QString& objectKey = QString()) {
         for (const QByteArray& payload : publishedMessagePayloads) {
             const QJsonDocument doc = QJsonDocument::fromJson(payload);
             if (!doc.isObject()) continue;
             const QJsonObject event = doc.object();
-            if (event["eventType"].toString() == "large_file_offer"
-                && event["fileName"].toString() == fileName) {
+            if (event["eventType"].toString() == eventType
+                && (fileName.isEmpty() || event["fileName"].toString() == fileName)
+                && (objectKey.isEmpty() || event["objectKey"].toString() == objectKey)) {
                 return event;
             }
         }
         return QJsonObject();
+    };
+    auto findLargeFileOffer = [&findPublishedEvent](const QString& fileName) {
+        return findPublishedEvent("large_file_offer", fileName);
     };
 
     const quint16 serverAPort = freeLocalPort();
@@ -709,9 +715,6 @@ int main(int argc, char** argv) {
     bobFilePayloads.clear();
     ok = expect(alice.sendFile(largeFilePath, "960002"),
                 "alice should upload a large file while bob is online on another server") && ok;
-    ok = expect(!waitFor([&] {
-        return bobFileNames.contains(largeFileName);
-    }, 800), "large files should not be routed through Redis Pub/Sub payloads") && ok;
     ok = expect(waitFor([&] {
         return !findLargeFileOffer(largeFileName).isEmpty();
     }), "large files should publish a small Redis object-store offer") && ok;
@@ -734,6 +737,12 @@ int main(int argc, char** argv) {
                                    largeFileOffer["fileHash"].toString());
     ok = expect(largeObjectValidation.ok,
                 "large file offer should point to an object matching the advertised size and hash") && ok;
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), largeFileObjectKey).isEmpty();
+    }), "remote server should claim a large file offer for its local online receiver") && ok;
+    ok = expect(waitFor([&] {
+        return bobFileNames.contains(largeFileName) && bobFilePayloads.contains(largeFilePayload);
+    }, 9000), "bob should receive the large file through object-store offer routing") && ok;
 
     const QString encodedOverflowFileName = "redis-encoded-payload-overflow.bin";
     const QString encodedOverflowFilePath = transferDir.filePath(encodedOverflowFileName);
@@ -750,9 +759,6 @@ int main(int argc, char** argv) {
     bobFilePayloads.clear();
     ok = expect(alice.sendFile(encodedOverflowFilePath, "960002"),
                 "alice should upload a file whose encoded Redis event would exceed the Pub/Sub limit") && ok;
-    ok = expect(!waitFor([&] {
-        return bobFileNames.contains(encodedOverflowFileName);
-    }, 800), "encoded Redis events above the Pub/Sub limit should fall back offline") && ok;
     ok = expect(waitFor([&] {
         return !findLargeFileOffer(encodedOverflowFileName).isEmpty();
     }), "encoded-overflow files should publish a small Redis object-store offer") && ok;
@@ -765,6 +771,12 @@ int main(int argc, char** argv) {
                                    encodedOverflowOffer["fileHash"].toString());
     ok = expect(encodedOverflowValidation.ok,
                 "encoded-overflow offer should point to an object matching the advertised size and hash") && ok;
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), encodedOverflowOffer["objectKey"].toString()).isEmpty();
+    }), "remote server should claim an encoded-overflow offer for its local online receiver") && ok;
+    ok = expect(waitFor([&] {
+        return bobFileNames.contains(encodedOverflowFileName) && bobFilePayloads.contains(encodedOverflowPayload);
+    }, 9000), "bob should receive the encoded-overflow file through object-store offer routing") && ok;
 
     const QString fallbackPrivateMessage = "Redis private publish failure should fall back offline";
     bobPrivateMessages.clear();
