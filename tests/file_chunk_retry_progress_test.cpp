@@ -26,6 +26,7 @@ namespace {
 constexpr qint64 kClientChunkBytes = 256LL * 1024;
 const char kResumeTransferId[] = "resume-send-transfer";
 const char kQueryAndResumeTransferId[] = "query-and-resume-transfer";
+const char kCrossConnectionSavedResumeTransferId[] = "cross-connection-saved-resume-transfer";
 const char kMismatchResumeTransferId[] = "mismatch-resume-transfer";
 const char kChunkSizeMismatchResumeTransferId[] = "chunk-size-mismatch-resume-transfer";
 const char kChunkCountMismatchResumeTransferId[] = "chunk-count-mismatch-resume-transfer";
@@ -279,6 +280,7 @@ private:
             }
 
             if (transferId == QString::fromLatin1(kQueryAndResumeTransferId)
+                || transferId == QString::fromLatin1(kCrossConnectionSavedResumeTransferId)
                 || transferId == QString::fromLatin1(kMismatchResumeTransferId)
                 || transferId == QString::fromLatin1(kChunkSizeMismatchResumeTransferId)
                 || transferId == QString::fromLatin1(kChunkCountMismatchResumeTransferId)
@@ -441,6 +443,7 @@ private:
 
         if (transferId == QString::fromLatin1(kResumeTransferId)
             || transferId == QString::fromLatin1(kQueryAndResumeTransferId)
+            || transferId == QString::fromLatin1(kCrossConnectionSavedResumeTransferId)
             || transferId == QString::fromLatin1(kGapResumeTransferId)) {
             m_resumedChunkIndexes.append(chunkIndex);
             m_resumedAcknowledgedBytes = receivedBytes;
@@ -673,6 +676,39 @@ int main(int argc, char** argv) {
                 "successful saved transfer recovery should not expose a reject reason") && ok;
     ok = expect(!sender.loadOutgoingTransferState(nullptr),
                 "successful saved transfer recovery should clear persisted state") && ok;
+
+    ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kCrossConnectionSavedResumeTransferId),
+                                                 resumeFilePath,
+                                                 QString(),
+                                                 MessageType::File,
+                                                 resumeFileHash,
+                                                 resumeFileSize,
+                                                 resumeChunkCount),
+                "sender should persist state for cross-connection saved transfer recovery") && ok;
+    Client recoveredSender;
+    recoveredSender.setUserInfo("950001", "RetrySender");
+    recoveredSender.setAccountInfo("950001", "secret", false);
+    ok = expect(recoveredSender.connectToServer("127.0.0.1", server.port()),
+                "recovered sender should connect on a new connection") && ok;
+    ok = expect(recoveredSender.waitForLoginResult(5000),
+                "recovered sender should log in before resuming saved transfer") && ok;
+    const int chunksBeforeCrossConnectionSavedResume = server.resumedChunkIndexes().size();
+    const int queriesBeforeCrossConnectionSavedResume = server.resumeQueries();
+    QString crossConnectionSavedResumeReason;
+    ok = expect(recoveredSender.resumeSavedOutgoingTransfer(&crossConnectionSavedResumeReason, 5000),
+                "new client connection should resume persisted outgoing transfer state") && ok;
+    const QVector<qint64> crossConnectionSavedChunks = server.resumedChunkIndexes();
+    ok = expect(crossConnectionSavedChunks.size() == chunksBeforeCrossConnectionSavedResume + 1
+                    && crossConnectionSavedChunks.last() == 2,
+                "cross-connection saved recovery should send only the next missing chunk") && ok;
+    ok = expect(server.resumeQueries() == queriesBeforeCrossConnectionSavedResume + 1,
+                "cross-connection saved recovery should query server resume state once") && ok;
+    ok = expect(crossConnectionSavedResumeReason.isEmpty(),
+                "successful cross-connection saved recovery should not expose a reject reason") && ok;
+    ok = expect(!recoveredSender.loadOutgoingTransferState(nullptr),
+                "successful cross-connection saved recovery should clear persisted state") && ok;
+    recoveredSender.disconnectFromServer();
+
     ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kMismatchResumeTransferId),
                                                  resumeFilePath,
                                                  QString(),
