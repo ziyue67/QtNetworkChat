@@ -9,8 +9,13 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QStandardPaths>
 #include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
@@ -54,6 +59,29 @@ bool registerClient(Client& client,
     client.setAccountInfo(account, "secret", true);
     if (!client.connectToServer("127.0.0.1", port)) return false;
     return client.waitForLoginResult(5000);
+}
+
+int offlineQueueCount(const QString& appDataDir, const QString& receiverId) {
+    const QString dbPath = appDataDir + "/accounts.sqlite3";
+    if (!QFile::exists(dbPath)) return 0;
+
+    int count = -1;
+    const QString connectionName = "file_cancel_offline_count_" + QString::number(QCoreApplication::applicationPid());
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(dbPath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?");
+            query.addBindValue(receiverId);
+            if (query.exec() && query.next()) {
+                count = query.value(0).toInt();
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return count;
 }
 
 bool writeTestFile(const QString& filePath) {
@@ -149,6 +177,70 @@ int main(int argc, char** argv) {
         }
         return false;
     }), "sender should receive server cleanup confirmation") && ok;
+
+    const QString rejectingReceiverId = "920002";
+    QTcpSocket rejectingReceiver;
+    QByteArray rejectingReceiverBuffer;
+    bool rejectingReceiverLoggedIn = false;
+    bool rejectingReceiverRejectedChunk = false;
+    auto drainRejectingReceiver = [&]() {
+        rejectingReceiverBuffer.append(rejectingReceiver.readAll());
+        while (rejectingReceiverBuffer.contains('\n')) {
+            const int newlineIndex = rejectingReceiverBuffer.indexOf('\n');
+            const QByteArray line = rejectingReceiverBuffer.left(newlineIndex);
+            rejectingReceiverBuffer = rejectingReceiverBuffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                rejectingReceiverLoggedIn = true;
+            } else if (type == "file_chunk" && !rejectingReceiverRejectedChunk) {
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = false;
+                ack["reason"] = "direct receiver rejected chunk for fallback test";
+                ack["receivedBytes"] = "0";
+                rejectingReceiver.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                rejectingReceiver.write("\n");
+                rejectingReceiver.flush();
+                rejectingReceiverRejectedChunk = true;
+            }
+        }
+    };
+    QObject::connect(&rejectingReceiver, &QTcpSocket::readyRead, &app, drainRejectingReceiver);
+    rejectingReceiver.connectToHost("127.0.0.1", port);
+    ok = expect(rejectingReceiver.waitForConnected(5000),
+                "rejecting receiver should connect to the server") && ok;
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "register";
+    login["account"] = rejectingReceiverId;
+    login["password"] = "secret";
+    login["userName"] = "RejectingReceiver";
+    rejectingReceiver.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    rejectingReceiver.write("\n");
+    rejectingReceiver.flush();
+    ok = expect(waitFor([&] {
+        drainRejectingReceiver();
+        return rejectingReceiverLoggedIn;
+    }), "rejecting receiver should log in before direct file delivery") && ok;
+
+    const QString fallbackFilePath = tempDir.filePath("direct-reject-fallback.bin");
+    ok = expect(writeTestFile(fallbackFilePath), "direct reject fallback test file should be created") && ok;
+    ok = expect(sender.sendFile(fallbackFilePath, rejectingReceiverId),
+                "sender upload should still finish when direct receiver rejects forwarding") && ok;
+    ok = expect(waitFor([&] {
+        drainRejectingReceiver();
+        return rejectingReceiverRejectedChunk;
+    }), "online receiver should reject the forwarded file chunk") && ok;
+    ok = expect(waitFor([&] { return offlineQueueCount(appDataDir, rejectingReceiverId) == 1; }),
+                "rejected direct file delivery should be queued for offline retry") && ok;
+    rejectingReceiver.disconnectFromHost();
 
     sender.disconnectFromServer();
     server.stop();

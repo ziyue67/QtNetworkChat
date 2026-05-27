@@ -2572,7 +2572,9 @@ void Server::sendToUser(const Message& msg) {
     QTcpSocket* targetSocket = m_userSockets.value(receiverId);
     if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
         if ((msg.type == MessageType::File || msg.type == MessageType::Image) && !msg.fileData.isEmpty()) {
-            sendChunkedFileToSocket(msg, targetSocket);
+            if (!sendChunkedFileToSocket(msg, targetSocket)) {
+                saveOfflineMessage(msg);
+            }
             return;
         }
 
