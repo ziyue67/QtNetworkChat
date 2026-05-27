@@ -14,11 +14,14 @@
 #include <QTcpSocket>
 #include <QThread>
 
+#include <cstdio>
 #include <functional>
 
 namespace {
 bool expect(bool condition, const char* message) {
     if (!condition) {
+        std::fprintf(stderr, "FileChunkDuplicateAck assertion failed: %s\n", message);
+        std::fflush(stderr);
         qWarning() << message;
         return false;
     }
@@ -190,6 +193,70 @@ int main(int argc, char** argv) {
     const QJsonArray receivedChunks = resumeState["receivedChunks"].toArray();
     ok = expect(receivedChunks.size() == 1 && receivedChunks.first().toVariant().toLongLong() == 0,
                 "resume state should list the received chunk indexes") && ok;
+
+    const QString crossConnectionTransferId = "cross-connection-resume-transfer";
+    ok = expect(writeJson(socket, makeChunk(0, crossConnectionTransferId)),
+                "raw socket should send a chunk before reconnecting") && ok;
+
+    QJsonObject crossConnectionAck;
+    ok = expect(waitForMessage(socket, buffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_chunk_ack"
+            && message["transferId"].toString() == crossConnectionTransferId
+            && message["chunkIndex"].toVariant().toLongLong() == 0;
+    }, &crossConnectionAck), "server should ack the cross-connection first chunk") && ok;
+    ok = expect(crossConnectionAck["accepted"].toBool(false),
+                "cross-connection first chunk ack should be accepted") && ok;
+
+    socket.disconnectFromHost();
+    ok = expect(waitFor([&] { return socket.state() == QAbstractSocket::UnconnectedState; }, 5000),
+                "raw socket should disconnect before cross-connection resume query") && ok;
+
+    QTcpSocket resumedSocket;
+    QByteArray resumedBuffer;
+    QObject::connect(&resumedSocket, &QTcpSocket::readyRead, &app, [&] {
+        resumedBuffer.append(resumedSocket.readAll());
+    });
+    resumedSocket.connectToHost(QHostAddress::LocalHost, port);
+    ok = expect(resumedSocket.waitForConnected(5000),
+                "raw socket should reconnect for cross-connection resume query") && ok;
+    QJsonObject relogin = login;
+    relogin["mode"] = "login";
+    ok = expect(writeJson(resumedSocket, relogin),
+                "raw socket should log in again before cross-connection resume query") && ok;
+    ok = expect(waitForMessage(resumedSocket, resumedBuffer, [](const QJsonObject& message) {
+        return message["type"].toString() == "login_success";
+    }, nullptr), "raw socket should receive login success after reconnect") && ok;
+
+    QJsonObject crossConnectionResumeQuery;
+    crossConnectionResumeQuery["type"] = "file_transfer_resume_query";
+    crossConnectionResumeQuery["transferId"] = crossConnectionTransferId;
+    ok = expect(writeJson(resumedSocket, crossConnectionResumeQuery),
+                "raw socket should query resume state after reconnect") && ok;
+
+    QJsonObject crossConnectionResumeState;
+    ok = expect(waitForMessage(resumedSocket, resumedBuffer, [&](const QJsonObject& message) {
+        return message["type"].toString() == "file_transfer_resume_state"
+            && message["transferId"].toString() == crossConnectionTransferId;
+    }, &crossConnectionResumeState), "server should report resume state across connections") && ok;
+    ok = expect(crossConnectionResumeState["canResume"].toBool(false),
+                "cross-connection resume state should remain resumable") && ok;
+    ok = expect(crossConnectionResumeState["confirmedBytes"].toVariant().toLongLong()
+                    == crossConnectionAck["receivedBytes"].toVariant().toLongLong(),
+                "cross-connection resume state should keep confirmed bytes") && ok;
+    const QJsonArray crossConnectionReceivedChunks = crossConnectionResumeState["receivedChunks"].toArray();
+    ok = expect(crossConnectionReceivedChunks.size() == 1
+                    && crossConnectionReceivedChunks.first().toVariant().toLongLong() == 0,
+                "cross-connection resume state should keep received chunk indexes") && ok;
+    resumedSocket.disconnectFromHost();
+
+    socket.connectToHost(QHostAddress::LocalHost, port);
+    ok = expect(socket.waitForConnected(5000),
+                "raw socket should reconnect to continue duplicate chunk checks") && ok;
+    ok = expect(writeJson(socket, relogin),
+                "raw socket should log in again to continue duplicate chunk checks") && ok;
+    ok = expect(waitForMessage(socket, buffer, [](const QJsonObject& message) {
+        return message["type"].toString() == "login_success";
+    }, nullptr), "raw socket should receive login success before continuing") && ok;
 
     ok = expect(writeJson(socket, firstChunk), "raw socket should resend the first chunk") && ok;
 

@@ -318,6 +318,13 @@ void sendFileChunkAck(QTcpSocket* socket,
     socket->write("\n");
     socket->flush();
 }
+
+QString pendingFileTransferKey(const QString& senderId, const QString& transferId) {
+    if (senderId.trimmed().isEmpty() || transferId.trimmed().isEmpty()) {
+        return QString();
+    }
+    return senderId.trimmed() + ":" + transferId.trimmed();
+}
 }
 
 Server::Server(QObject* parent)
@@ -501,10 +508,10 @@ void Server::onClientDisconnected() {
         QString userId = user->id;
         QString userName = user->name;
         clearRedisPresence(userId);
-        const QString pendingPrefix = QString::number(reinterpret_cast<quintptr>(socket)) + ":";
         for (const QString& key : m_pendingFileTransfers.keys()) {
-            if (key.startsWith(pendingPrefix)) {
-                m_pendingFileTransfers.remove(key);
+            auto it = m_pendingFileTransfers.find(key);
+            if (it != m_pendingFileTransfers.end() && it->socket == socket) {
+                it->socket = nullptr;
             }
         }
         m_userSockets.remove(userId);
@@ -1209,10 +1216,14 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     const qint64 chunkCount = obj["chunkCount"].toVariant().toLongLong();
     const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
     const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
-    const QString key = QString::number(reinterpret_cast<quintptr>(socket)) + ":" + transferId;
+    const ChatUser* sender = findUserBySocket(socket);
+    const QString senderId = sender ? sender->id : obj["senderId"].toString().trimmed();
+    const QString key = pendingFileTransferKey(senderId, transferId);
 
     auto rejectTransfer = [this, socket, key, fileName, transferId, chunkIndex](const QString& reason) {
-        m_pendingFileTransfers.remove(key);
+        if (!key.isEmpty()) {
+            m_pendingFileTransfers.remove(key);
+        }
         const QString visibleName = fileName.isEmpty() ? "未命名文件" : fileName;
         sendFileChunkAck(socket, transferId, chunkIndex, false, reason);
         sendSystemNotice(socket, QString("文件分片上传已被服务端拒绝：%1，%2。请重新发送。").arg(visibleName, reason));
@@ -1221,6 +1232,10 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
 
     if (transferId.isEmpty()) {
         rejectTransfer("缺少传输编号");
+        return;
+    }
+    if (key.isEmpty()) {
+        rejectTransfer("发送者身份非法");
         return;
     }
     if (fileSize <= 0 || fileSize > kMaxIncomingPayloadBytes) {
@@ -1266,6 +1281,7 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
         rejectTransfer("同一传输编号的元数据不一致");
         return;
     }
+    pending.socket = socket;
     pending.lastActivityMs = QDateTime::currentMSecsSinceEpoch();
 
     const int index = static_cast<int>(chunkIndex);
@@ -1314,9 +1330,12 @@ void Server::handleFileTransferResumeQuery(const QJsonObject& obj, QTcpSocket* s
     if (transferId.isEmpty()) {
         response["reason"] = "缺少传输编号";
     } else {
-        const QString key = QString::number(reinterpret_cast<quintptr>(socket)) + ":" + transferId;
+        const ChatUser* sender = findUserBySocket(socket);
+        const QString key = pendingFileTransferKey(sender ? sender->id : QString(), transferId);
         const auto it = m_pendingFileTransfers.constFind(key);
-        if (it == m_pendingFileTransfers.constEnd()) {
+        if (key.isEmpty()) {
+            response["reason"] = "发送者身份非法";
+        } else if (it == m_pendingFileTransfers.constEnd()) {
             response["reason"] = "未找到未完成传输";
         } else {
             const PendingFileTransfer& pending = it.value();
@@ -1357,7 +1376,8 @@ void Server::handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket
     const QString transferId = obj["transferId"].toString().trimmed();
     if (transferId.isEmpty()) return;
 
-    const QString key = QString::number(reinterpret_cast<quintptr>(socket)) + ":" + transferId;
+    const ChatUser* sender = findUserBySocket(socket);
+    const QString key = pendingFileTransferKey(sender ? sender->id : QString(), transferId);
     const bool removed = m_pendingFileTransfers.remove(key) > 0;
     const QString fileName = obj["fileName"].toString();
     const QString visibleName = fileName.isEmpty() ? "未命名文件" : fileName;
