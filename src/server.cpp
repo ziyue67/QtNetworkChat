@@ -2423,6 +2423,7 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
         obj["fileData"] = QString::fromLatin1(chunk.toBase64());
 
         QString ackRejectReason;
+        qint64 ackReceivedBytes = 0;
         bool acknowledged = false;
         const QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
@@ -2431,7 +2432,14 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
             }
             socketGuard->write("\n");
             socketGuard->flush();
-            if (waitForFileChunkAck(socketGuard, transferId, index, &ackRejectReason)) {
+            if (waitForFileChunkAck(socketGuard, transferId, index, &ackRejectReason, &ackReceivedBytes)) {
+                const qint64 expectedAckBytes = qMin(totalBytes, index * chunkSize + chunk.size());
+                if (ackReceivedBytes > 0 && (ackReceivedBytes < expectedAckBytes || ackReceivedBytes > totalBytes)) {
+                    if (attempt == kChunkSendMaxAttempts) {
+                        ackRejectReason = QString::fromUtf8("文件分片确认进度非法");
+                    }
+                    continue;
+                }
                 acknowledged = true;
                 break;
             }
@@ -2444,6 +2452,10 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
             }
         }
         if (!acknowledged) {
+            if (!ackRejectReason.isEmpty()) {
+                qWarning() << "File chunk rejected by receiver:" << ackRejectReason;
+                return false;
+            }
             qWarning() << "File chunk ack timeout:" << msg.fileName << index + 1 << "/" << chunkCount;
             return false;
         }

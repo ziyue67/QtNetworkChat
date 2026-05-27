@@ -483,6 +483,85 @@ int main(int argc, char** argv) {
         return bobImageNames.contains(imageName) && bobImagePayloads.contains(imagePayload);
     }), "bob should receive the small image through Redis cross-instance routing") && ok;
 
+    QTcpSocket rawReceiver;
+    QByteArray rawBuffer;
+    bool rawReceiverLoggedIn = false;
+    bool rawReceiverCompletedFile = false;
+    int rawReceiverFileChunkAttempts = 0;
+    auto drainRawReceiver = [&]() {
+        rawBuffer.append(rawReceiver.readAll());
+        while (rawBuffer.contains('\n')) {
+            const int newlineIndex = rawBuffer.indexOf('\n');
+            const QByteArray line = rawBuffer.left(newlineIndex);
+            rawBuffer = rawBuffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                rawReceiverLoggedIn = true;
+            } else if (type == "file_chunk") {
+                ++rawReceiverFileChunkAttempts;
+                const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+                const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+                const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+                const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+                const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = true;
+                ack["reason"] = "";
+                ack["receivedBytes"] = QString::number(rawReceiverFileChunkAttempts == 1 ? 1 : receivedBytes);
+                rawReceiver.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                rawReceiver.write("\n");
+                rawReceiver.flush();
+
+                if (rawReceiverFileChunkAttempts > 1 && receivedBytes >= fileSize) {
+                    rawReceiverCompletedFile = true;
+                }
+            }
+        }
+    };
+    QObject::connect(&rawReceiver, &QTcpSocket::readyRead, &app, drainRawReceiver);
+    rawReceiver.connectToHost("127.0.0.1", serverBPort);
+    ok = expect(rawReceiver.waitForConnected(5000),
+                "raw Redis receiver should connect to the second server") && ok;
+    QJsonObject rawLogin;
+    rawLogin["type"] = "login";
+    rawLogin["mode"] = "register";
+    rawLogin["account"] = "960009";
+    rawLogin["password"] = "secret";
+    rawLogin["userName"] = "RawRedisReceiver";
+    rawReceiver.write(QJsonDocument(rawLogin).toJson(QJsonDocument::Compact));
+    rawReceiver.write("\n");
+    rawReceiver.flush();
+    ok = expect(waitFor([&] {
+        drainRawReceiver();
+        return rawReceiverLoggedIn;
+    }), "raw Redis receiver should log in") && ok;
+
+    const QString invalidAckForwardFileName = "redis-invalid-ack-progress.txt";
+    const QByteArray invalidAckForwardPayload = QByteArrayLiteral("redis forwarded file retry payload");
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, redisMessageEventPayload(MessageType::File,
+                                                                         "960009",
+                                                                         invalidAckForwardFileName,
+                                                                         invalidAckForwardPayload)));
+    ok = expect(waitFor([&] {
+        drainRawReceiver();
+        return rawReceiverCompletedFile;
+    }), "raw Redis receiver should complete after corrected forwarded file ack") && ok;
+    ok = expect(rawReceiverFileChunkAttempts == 2,
+                "server should resend a forwarded file chunk after invalid accepted ack progress") && ok;
+    rawReceiver.disconnectFromHost();
+
     const QString injectedLargeFileName = "redis-injected-large-pubsub.bin";
     const QByteArray injectedLargeFilePayload = makePatternPayload(1024 * 1024 + 4096);
 
