@@ -22,11 +22,14 @@
 #include <QTemporaryDir>
 #include <QThread>
 
+#include <cstdio>
 #include <functional>
 
 namespace {
 bool expect(bool condition, const char* message) {
     if (!condition) {
+        std::fprintf(stderr, "OfflineAttachmentQuota assertion failed: %s\n", message);
+        std::fflush(stderr);
         qWarning() << message;
         return false;
     }
