@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QSslSocket>
 #include <QSslError>
 #include <QCryptographicHash>
@@ -30,6 +31,52 @@ const char kOutgoingTransferStateFileName[] = "outgoing_transfer_state.json";
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+bool isRetriableFileChunkRejectReason(const QString& reason) {
+    const QString trimmed = reason.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+
+    const QStringList fatalTokens = {
+        QString::fromUtf8("元数据"),
+        QString::fromUtf8("哈希"),
+        QString::fromUtf8("校验"),
+        QString::fromUtf8("发送者"),
+        QString::fromUtf8("分片序号"),
+        QString::fromUtf8("分片数量"),
+        QString::fromUtf8("分片大小"),
+        QString::fromUtf8("非末尾"),
+        QString::fromUtf8("文件大小"),
+        QString::fromUtf8("超过"),
+        QString::fromUtf8("非法"),
+        QString::fromUtf8("不一致"),
+        QString::fromUtf8("不存在"),
+        QString::fromUtf8("取消")
+    };
+    for (const QString& token : fatalTokens) {
+        if (trimmed.contains(token, Qt::CaseInsensitive)) {
+            return false;
+        }
+    }
+
+    const QStringList retriableTokens = {
+        QString::fromUtf8("临时"),
+        QString::fromUtf8("繁忙"),
+        QString::fromUtf8("重试"),
+        QString::fromUtf8("稍后"),
+        QString::fromLatin1("busy"),
+        QString::fromLatin1("temporary"),
+        QString::fromLatin1("timeout"),
+        QString::fromLatin1("retry")
+    };
+    for (const QString& token : retriableTokens) {
+        if (trimmed.contains(token, Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QTcpSocket* createClientSocket(QObject* parent) {
@@ -819,6 +866,11 @@ bool Client::sendFilePayload(const QString& filePath,
                 return false;
             }
             if (!ackRejectReason.isEmpty()) {
+                if (isRetriableFileChunkRejectReason(ackRejectReason) && attempt < kChunkSendMaxAttempts) {
+                    emit connectionError(QString("文件分片暂时被拒绝，正在重试：%1").arg(ackRejectReason));
+                    ackRejectReason.clear();
+                    continue;
+                }
                 emit connectionError(QString("文件分片发送被拒绝：%1").arg(ackRejectReason));
                 file.close();
                 return false;

@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QMap>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -37,6 +38,8 @@ const char kAckTimeoutGapResumeFileName[] = "ack-timeout-gap-resume.bin";
 const char kAckTimeoutMiddleGapResumeFileName[] = "ack-timeout-middle-gap-resume.bin";
 const char kAckTimeoutCompleteResumeFileName[] = "ack-timeout-complete-resume.bin";
 const char kInvalidAckProgressFileName[] = "invalid-ack-progress.bin";
+const char kTransientRejectRetryFileName[] = "transient-reject-retry.bin";
+const char kHardRejectNoRetryFileName[] = "hard-reject-no-retry.bin";
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
@@ -153,6 +156,8 @@ public:
     QVector<qint64> completeAutoResumeChunkIndexes() const { return m_completeAutoResumeChunkIndexes; }
     int completeAutoResumeQueries() const { return m_completeAutoResumeQueries; }
     int invalidAckProgressAttempts() const { return m_invalidAckProgressAttempts; }
+    int transientRejectAttempts() const { return m_transientRejectAttempts; }
+    int hardRejectAttempts() const { return m_hardRejectAttempts; }
     void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
         m_resumeFileSize = fileSize;
         m_resumeFileHash = fileHash;
@@ -337,6 +342,36 @@ private:
         const QByteArray chunkData = QByteArray::fromBase64(message["fileData"].toString().toLatin1());
         const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
 
+        if (message["fileName"].toString() == QString::fromLatin1(kTransientRejectRetryFileName)) {
+            ++m_transientRejectAttempts;
+
+            QJsonObject ack;
+            ack["type"] = "file_chunk_ack";
+            ack["transferId"] = transferId;
+            ack["chunkIndex"] = message["chunkIndex"].toString();
+            ack["accepted"] = m_transientRejectAttempts > 1;
+            ack["reason"] = m_transientRejectAttempts == 1
+                ? QString::fromUtf8("临时繁忙，请重试")
+                : QString();
+            ack["receivedBytes"] = QString::number(m_transientRejectAttempts > 1 ? receivedBytes : 0);
+            writeJson(socket, ack);
+            return;
+        }
+
+        if (message["fileName"].toString() == QString::fromLatin1(kHardRejectNoRetryFileName)) {
+            ++m_hardRejectAttempts;
+
+            QJsonObject ack;
+            ack["type"] = "file_chunk_ack";
+            ack["transferId"] = transferId;
+            ack["chunkIndex"] = message["chunkIndex"].toString();
+            ack["accepted"] = false;
+            ack["reason"] = QString::fromUtf8("同一传输编号的元数据不一致");
+            ack["receivedBytes"] = QString::number(0);
+            writeJson(socket, ack);
+            return;
+        }
+
         if (message["fileName"].toString() == QString::fromLatin1(kInvalidAckProgressFileName)) {
             ++m_invalidAckProgressAttempts;
 
@@ -512,6 +547,8 @@ private:
     qint64 m_completeAutoResumeChunkCount = 0;
     QString m_completeAutoResumeFileHash;
     int m_invalidAckProgressAttempts = 0;
+    int m_transientRejectAttempts = 0;
+    int m_hardRejectAttempts = 0;
 };
 }
 
@@ -566,11 +603,15 @@ int main(int argc, char** argv) {
 
     QVector<qint64> progressValues;
     QMap<QString, QVector<qint64>> progressByFileName;
+    QStringList connectionErrors;
     QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString&, qint64 bytesPrepared, qint64) {
         progressValues.append(bytesPrepared);
     });
     QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString& fileName, qint64 bytesPrepared, qint64) {
         progressByFileName[fileName].append(bytesPrepared);
+    });
+    QObject::connect(&sender, &Client::connectionError, &app, [&](const QString& error) {
+        connectionErrors.append(error);
     });
 
     ok = expect(sender.sendFile(filePath), "sender should succeed after retrying the unacked chunk") && ok;
@@ -586,6 +627,32 @@ int main(int argc, char** argv) {
                 "sender should retry the chunk when accepted ack progress is behind the current chunk") && ok;
     ok = expect(server.invalidAckProgressAttempts() == 2,
                 "sender should resend after an accepted ack reports invalid progress") && ok;
+
+    const QString transientRejectPath = tempDir.filePath(QString::fromLatin1(kTransientRejectRetryFileName));
+    const int errorsBeforeTransientReject = connectionErrors.size();
+    ok = expect(writeSmallFile(transientRejectPath),
+                "transient reject retry test file should be created") && ok;
+    ok = expect(sender.sendFile(transientRejectPath),
+                "sender should retry a safely transient file chunk rejection") && ok;
+    ok = expect(server.transientRejectAttempts() == 2,
+                "sender should resend the same chunk after a transient reject") && ok;
+    ok = expect(connectionErrors.size() > errorsBeforeTransientReject
+                    && connectionErrors.last().contains(QString::fromUtf8("正在重试")),
+                "transient reject should emit a retrying status instead of failing") && ok;
+
+    const QString hardRejectPath = tempDir.filePath(QString::fromLatin1(kHardRejectNoRetryFileName));
+    const int errorsBeforeHardReject = connectionErrors.size();
+    ok = expect(writeSmallFile(hardRejectPath),
+                "hard reject no-retry test file should be created") && ok;
+    ok = expect(!sender.sendFile(hardRejectPath),
+                "sender should not retry hard metadata rejection") && ok;
+    ok = expect(server.hardRejectAttempts() == 1,
+                "sender should fail fast on hard metadata rejection") && ok;
+    ok = expect(connectionErrors.size() > errorsBeforeHardReject
+                    && connectionErrors.last().contains(QString::fromUtf8("元数据不一致")),
+                "hard reject should expose the metadata rejection reason") && ok;
+    ok = expect(sender.clearOutgoingTransferState(),
+                "sender should clear hard reject state before continuing the test") && ok;
 
     qint64 resumeFileSize = 0;
     const QString resumeFilePath = tempDir.filePath("resume-send.bin");
