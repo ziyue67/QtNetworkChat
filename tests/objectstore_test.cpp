@@ -324,6 +324,42 @@ int main() {
                     && authHeader.contains("Signature=")
                     && !authHeader.contains("super-secret-value"),
                 "s3 signed request should include Authorization without leaking the secret key") && ok;
+    ok = expect(isSupportedS3ObjectMethod(QStringLiteral("PUT"))
+                    && isSupportedS3ObjectMethod(QStringLiteral("get"))
+                    && isSupportedS3ObjectMethod(QStringLiteral(" HEAD "))
+                    && isSupportedS3ObjectMethod(QStringLiteral("delete"))
+                    && !isSupportedS3ObjectMethod(QStringLiteral("POST")),
+                "s3 object request helper should only allow first-stage object methods") && ok;
+    const QStringList s3SupportedMethods = {
+        QStringLiteral("PUT"),
+        QStringLiteral("GET"),
+        QStringLiteral("HEAD"),
+        QStringLiteral("DELETE")
+    };
+    for (const QString& method : s3SupportedMethods) {
+        const S3SignedObjectRequest signedRequest =
+            s3SignedObjectRequest(s3Config,
+                                  QStringLiteral("abcdef1234567890.bin"),
+                                  method,
+                                  method == QStringLiteral("PUT") ? s3PutPayload : QByteArray(),
+                                  QStringLiteral("20130524T010203Z"));
+        ok = expect(signedRequest.method == method.toLatin1()
+                        && signedRequest.request.url() == s3Url
+                        && signedRequest.request.rawHeader("Authorization").contains("Signature=")
+                        && signedRequest.request.rawHeader("Authorization")
+                            == signedRequest.authorizationHeader.toLatin1(),
+                    "s3 signed request should support all first-stage object methods") && ok;
+    }
+    const S3SignedObjectRequest unsupportedPostRequest =
+        s3SignedObjectRequest(s3Config,
+                              QStringLiteral("abcdef1234567890.bin"),
+                              QStringLiteral("POST"),
+                              QByteArray(),
+                              QStringLiteral("20130524T010203Z"));
+    ok = expect(unsupportedPostRequest.method.isEmpty()
+                    && unsupportedPostRequest.request.url().isEmpty()
+                    && unsupportedPostRequest.authorizationHeader.isEmpty(),
+                "s3 signed request should reject methods outside the first-stage object scope") && ok;
     S3ObjectStoreConfig noRegionS3Config = s3Config;
     noRegionS3Config.region.clear();
     const S3SignedObjectRequest defaultRegionRequest =

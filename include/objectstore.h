@@ -106,6 +106,7 @@ QString normalizeS3ObjectPrefix(const QString& prefix);
 bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* error = nullptr);
 S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment();
 QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey);
+bool isSupportedS3ObjectMethod(const QString& method);
 QString s3PayloadSha256Hex(const QByteArray& payload);
 QString s3CredentialScope(const QString& date, const QString& region);
 QString s3CanonicalRequest(const QString& method,

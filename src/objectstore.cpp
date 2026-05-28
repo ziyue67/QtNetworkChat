@@ -443,6 +443,14 @@ QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey) {
     return url;
 }
 
+bool isSupportedS3ObjectMethod(const QString& method) {
+    const QString normalized = method.trimmed().toUpper();
+    return normalized == QStringLiteral("PUT")
+        || normalized == QStringLiteral("GET")
+        || normalized == QStringLiteral("HEAD")
+        || normalized == QStringLiteral("DELETE");
+}
+
 QString s3PayloadSha256Hex(const QByteArray& payload) {
     return sha256Hex(payload);
 }
@@ -529,7 +537,8 @@ S3SignedObjectRequest s3SignedObjectRequest(const S3ObjectStoreConfig& config,
     result.method = method.trimmed().toUpper().toLatin1();
 
     const QUrl url = s3ObjectUrl(config, objectKey);
-    if (!url.isValid() || result.method.isEmpty()) {
+    if (!url.isValid() || result.method.isEmpty() || !isSupportedS3ObjectMethod(QString::fromLatin1(result.method))) {
+        result.method.clear();
         return result;
     }
 
