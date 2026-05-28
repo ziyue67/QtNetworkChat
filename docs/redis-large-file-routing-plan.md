@@ -26,7 +26,7 @@
 | 对象存储或共享附件目录 | 原始文件字节 | 可先用共享文件系统目录，后续替换为 S3/MinIO 等对象存储 |
 | 现有 TCP 客户端连接 | 服务端到最终收件人的分片下发 | 复用 `sendChunkedFileToSocket()` 与 ACK 校验 |
 
-源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。远端实例收到 offer 后，已可在收件人在线于本实例时认领对象，校验对象 size/hash/chunk 元数据并按现有分片 ACK 流程下发；完整 ACK 后会发布 `large_file_delivered`，源实例确认匹配后清理本地兜底队列、离线附件和对象文件。远端对象校验、读取、客户端连接或 ACK 失败时会发布 `large_file_failed`，源实例确认来源后保留离线兜底。
+源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。远端实例收到 offer 后，已可在收件人在线于本实例时认领对象，校验对象 size/hash/chunk 元数据并按现有分片 ACK 流程下发；完整 ACK 后会发布 `large_file_delivered`，源实例确认匹配后清理本地兜底队列、离线附件和对象文件。远端对象校验、读取、客户端连接或 ACK 失败时会发布 `large_file_failed`，源实例确认来源后保留离线兜底。代码层已有最小 `ObjectStore` 抽象，filesystem 实现通过同一接口提供写入、校验、读取、删除和 TTL 清理，后续 S3/MinIO 后端应优先复用该边界。
 
 ## 控制事件
 
@@ -150,7 +150,8 @@
 8. 已完成：补 `redis_large_file_route` 结构化日志，覆盖 offer/claim/delivered/failed/cleanup 的结果、原因和关键维度。
 9. 已完成：补不完整 delivered 回执保留兜底测试，确保 confirmedBytes 不足时不会清理离线队列或对象。
 10. 已完成：补 delivered 丢失后的对账任务设计，明确 receipt 匹配条件、对象 TTL 后队列保留策略和误删保护。
-11. 下一步：再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
+11. 已完成：把 filesystem helper 抽象到最小 `ObjectStore` 接口，覆盖写入、校验、读取、删除和 TTL 清理，并让远端下发改用通用 `QIODevice` 读取对象。
+12. 下一步：评估 S3/MinIO 后端实现，优先补接口适配边界和配置文档，不一次引入完整云存储依赖。
 
 ## 当前保护边界
 
@@ -165,4 +166,5 @@
 - 已有结构化日志覆盖跨实例大文件 offer/claim/delivered/failed/cleanup，可按 `event/result/reason` 聚合治理指标。
 - 已有测试覆盖不完整 delivered 回执不会清理源实例兜底。
 - 已有 delivered 丢失对账任务设计，强调只有完整 receipt 匹配才能清队列，对象 TTL 清理不等同于投递成功。
-- 后续进入对象存储抽象和 S3/MinIO 后端评估。
+- 已有最小 `ObjectStore` 接口边界，filesystem 后端仍保留安全 objectKey 和本地路径解析能力，服务端远端下发已通过通用读取接口消费对象。
+- 后续进入 S3/MinIO 后端评估和配置文档。

@@ -28,6 +28,7 @@
 #include <QPair>
 #include <QUuid>
 #include <algorithm>
+#include <memory>
 
 namespace {
 constexpr qint64 kMaxIncomingPayloadBytes = 80LL * 1024 * 1024;
@@ -1811,8 +1812,8 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         return failOffer(QStringLiteral("object-validation-failed: ") + validation.error);
     }
 
-    QFile file(objectStore.objectPath(objectKey));
-    if (!file.open(QIODevice::ReadOnly)) {
+    std::unique_ptr<QIODevice> file = objectStore.openObject(objectKey);
+    if (!file || !file->isOpen()) {
         return failOffer(QStringLiteral("object-open-failed"));
     }
 
@@ -1823,10 +1824,10 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         : event["transferId"].toString().trimmed();
     const QString fileName = event["fileName"].toString();
     for (qint64 index = 0; index < chunkCount; ++index) {
-        if (!file.seek(index * chunkSize)) {
+        if (!file->seek(index * chunkSize)) {
             return failOffer(QStringLiteral("object-seek-failed"));
         }
-        const QByteArray chunk = file.read(chunkSize);
+        const QByteArray chunk = file->read(chunkSize);
         if (chunk.isEmpty() || (index < chunkCount - 1 && chunk.size() != chunkSize)) {
             return failOffer(QStringLiteral("object-read-failed"));
         }

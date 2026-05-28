@@ -30,11 +30,12 @@ int main() {
     if (!ok) return 1;
 
     FilesystemObjectStore store(tempDir.filePath("objects"));
+    const ObjectStore& genericStore = store;
     const QByteArray payload("filesystem object store payload");
     QString objectKey;
     QString fileHash;
     QString error;
-    ok = expect(store.writeObject(payload, &objectKey, &fileHash, &error, "bin"),
+    ok = expect(genericStore.writeObject(payload, &objectKey, &fileHash, &error, "bin"),
                 "object store should write a payload") && ok;
     ok = expect(error.isEmpty(), "successful object write should not expose an error") && ok;
     ok = expect(FilesystemObjectStore::isValidObjectKey(objectKey),
@@ -48,19 +49,19 @@ int main() {
     ok = expect(QFileInfo(objectPath).absoluteFilePath().startsWith(QFileInfo(store.rootDir()).absoluteFilePath()),
                 "object file should stay inside the configured root") && ok;
 
-    const FilesystemObjectStore::ValidationResult valid =
-        store.validateObject(objectKey, payload.size(), fileHash);
+    const ObjectStore::ValidationResult valid =
+        genericStore.validateObject(objectKey, payload.size(), fileHash);
     ok = expect(valid.ok, "object validation should accept matching size and hash") && ok;
     ok = expect(valid.size == payload.size(), "validation should report object size") && ok;
     ok = expect(valid.fileHash == fileHash, "validation should report object hash") && ok;
 
-    const FilesystemObjectStore::ValidationResult sizeMismatch =
-        store.validateObject(objectKey, payload.size() + 1, fileHash);
+    const ObjectStore::ValidationResult sizeMismatch =
+        genericStore.validateObject(objectKey, payload.size() + 1, fileHash);
     ok = expect(!sizeMismatch.ok && sizeMismatch.error.contains(QString::fromUtf8("大小")),
                 "object validation should reject size mismatch") && ok;
 
-    const FilesystemObjectStore::ValidationResult hashMismatch =
-        store.validateObject(objectKey, payload.size(), QString::fromLatin1("not-the-right-hash"));
+    const ObjectStore::ValidationResult hashMismatch =
+        genericStore.validateObject(objectKey, payload.size(), QString::fromLatin1("not-the-right-hash"));
     ok = expect(!hashMismatch.ok && hashMismatch.error.contains(QString::fromUtf8("哈希")),
                 "object validation should reject hash mismatch") && ok;
 
@@ -73,8 +74,16 @@ int main() {
     ok = expect(store.objectPath("../escape.bin").isEmpty(),
                 "path traversal key should not resolve to an object path") && ok;
 
+    const std::unique_ptr<QIODevice> openedObject = genericStore.openObject(objectKey);
+    ok = expect(openedObject && openedObject->isOpen(),
+                "object store interface should open a valid object for reading") && ok;
+    if (openedObject) {
+        ok = expect(openedObject->readAll() == payload,
+                    "object store interface should read the written payload") && ok;
+    }
+
     QString expiredKey;
-    ok = expect(store.writeObject(QByteArrayLiteral("expired object"), &expiredKey, nullptr, &error, "dat"),
+    ok = expect(genericStore.writeObject(QByteArrayLiteral("expired object"), &expiredKey, nullptr, &error, "dat"),
                 "object store should write an expired-test payload") && ok;
     const QString expiredPath = store.objectPath(expiredKey);
     QFile expiredFile(expiredPath);
@@ -88,10 +97,10 @@ int main() {
     }
 
     QString freshKey;
-    ok = expect(store.writeObject(QByteArrayLiteral("fresh object"), &freshKey, nullptr, &error, "dat"),
+    ok = expect(genericStore.writeObject(QByteArrayLiteral("fresh object"), &freshKey, nullptr, &error, "dat"),
                 "object store should write a fresh-test payload") && ok;
     QStringList removedKeys;
-    ok = expect(store.cleanupExpired(60 * 60 * 1000, &removedKeys) == 1,
+    ok = expect(genericStore.cleanupExpired(60 * 60 * 1000, &removedKeys) == 1,
                 "object cleanup should remove exactly one expired object") && ok;
     ok = expect(removedKeys.size() == 1 && removedKeys.first() == expiredKey,
                 "object cleanup should report the removed object key") && ok;
@@ -99,6 +108,10 @@ int main() {
                 "expired object should be removed from disk") && ok;
     ok = expect(QFileInfo::exists(store.objectPath(freshKey)),
                 "fresh object should be kept during cleanup") && ok;
+    ok = expect(genericStore.removeObject(freshKey),
+                "object store interface should remove an object by key") && ok;
+    ok = expect(!QFileInfo::exists(store.objectPath(freshKey)),
+                "removed object should no longer exist on disk") && ok;
 
     return ok ? 0 : 1;
 }

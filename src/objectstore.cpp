@@ -10,6 +10,8 @@
 #include <QSaveFile>
 #include <QUuid>
 
+#include <memory>
+
 namespace {
 QString normalizeExtension(const QString& extension) {
     QString normalized = extension.trimmed();
@@ -173,6 +175,24 @@ FilesystemObjectStore::ValidationResult FilesystemObjectStore::validateObject(co
 
     result.ok = true;
     return result;
+}
+
+std::unique_ptr<QIODevice> FilesystemObjectStore::openObject(const QString& objectKey) const {
+    const QString path = objectPath(objectKey);
+    if (path.isEmpty()) {
+        return {};
+    }
+
+    auto file = std::make_unique<QFile>(path);
+    if (!file->open(QIODevice::ReadOnly)) {
+        return {};
+    }
+    return file;
+}
+
+bool FilesystemObjectStore::removeObject(const QString& objectKey) const {
+    const QString path = objectPath(objectKey);
+    return !path.isEmpty() && QFile::remove(path);
 }
 
 int FilesystemObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys) const {

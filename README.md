@@ -255,7 +255,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 后续优化优先级
 
-1. **Redis 跨实例大文件治理**：当前 Pub/Sub 只承载文本和编码后不超过 1 MB 的小文件/小图片；源实例已可在大文件/编码超限文件进入离线兜底队列后额外写入 filesystem ObjectStore，并发布小体积 `large_file_offer` 元数据事件；远端实例已可认领 offer、校验对象、复用分片 ACK 下发，完整 ACK 后发布 `large_file_delivered` 清理源实例兜底；对象缺失、校验失败、客户端断开或 ACK 超时时会发布 `large_file_failed` 并保留源实例离线兜底；无本地在线收件人、非法 objectKey/chunk 元数据和非 filesystem store 的边界已覆盖；未 delivered 对象过期后可由 ObjectStore TTL 清理，离线附件兜底仍可回放；不完整 delivered 回执不会清理源实例兜底；服务端已有 `redis_large_file_route` 结构化日志便于聚合治理指标；docs 已明确 delivered 丢失对账任务必须完整 receipt 匹配后才能清队列。下一步优先评估 ObjectStore 抽象和 S3/MinIO 后端。
+1. **Redis 跨实例大文件治理**：当前 Pub/Sub 只承载文本和编码后不超过 1 MB 的小文件/小图片；源实例已可在大文件/编码超限文件进入离线兜底队列后额外写入 filesystem ObjectStore，并发布小体积 `large_file_offer` 元数据事件；远端实例已可认领 offer、校验对象、复用分片 ACK 下发，完整 ACK 后发布 `large_file_delivered` 清理源实例兜底；对象缺失、校验失败、客户端断开或 ACK 超时时会发布 `large_file_failed` 并保留源实例离线兜底；无本地在线收件人、非法 objectKey/chunk 元数据和非 filesystem store 的边界已覆盖；未 delivered 对象过期后可由 ObjectStore TTL 清理，离线附件兜底仍可回放；不完整 delivered 回执不会清理源实例兜底；服务端已有 `redis_large_file_route` 结构化日志便于聚合治理指标；docs 已明确 delivered 丢失对账任务必须完整 receipt 匹配后才能清队列；代码已建立最小 `ObjectStore` 接口并让 filesystem 实现承接写入、校验、读取、删除和 TTL 清理。下一步可评估 S3/MinIO 后端实现。
 2. **安全增强**：TLS 已有可选入口，但还缺证书链校验体验、指纹固定配置；账号密码仍是简单 SHA-256 派生，建议升级为带盐 KDF，再评估端到端加密。
 3. **群组和权限边界**：服务端群组模型已覆盖核心成员变更、重复成员添加拒绝、公告权限和群主自移除保护，后续可补更多边界测试，例如管理员角色、私有群、群文件权限和被移出后的历史可见性。
 4. **结构拆分**：`mainwindow.cpp` 已承载聊天、好友、群组、文件、历史和恢复入口，后续应小步抽出 TransferManager、FriendManager、GroupManager、HistoryService、Storage，降低 UI 层复杂度。
