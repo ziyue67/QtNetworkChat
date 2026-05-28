@@ -31,6 +31,23 @@ int main() {
 
     FilesystemObjectStore store(tempDir.filePath("objects"));
     const ObjectStore& genericStore = store;
+    QString factoryError;
+    std::unique_ptr<ObjectStore> factoryStore = createObjectStore(QString(), tempDir.filePath("factory-objects"), &factoryError);
+    ok = expect(factoryStore != nullptr,
+                "empty object store type should default to filesystem") && ok;
+    ok = expect(factoryError.isEmpty(),
+                "successful object store factory creation should not expose an error") && ok;
+    ok = expect(isSupportedObjectStoreType(QStringLiteral("filesystem")),
+                "filesystem object store type should be supported") && ok;
+    ok = expect(!isSupportedObjectStoreType(QStringLiteral("s3")),
+                "s3 object store type should be reserved but unsupported until implemented") && ok;
+    std::unique_ptr<ObjectStore> unsupportedStore = createObjectStore(QStringLiteral("s3"), tempDir.filePath("s3"), &factoryError);
+    ok = expect(!unsupportedStore && factoryError.contains(QString::fromUtf8("暂不支持")),
+                "unsupported object store types should fail with a clear error") && ok;
+    std::unique_ptr<ObjectStore> missingRootStore = createObjectStore(QStringLiteral("filesystem"), QString(), &factoryError);
+    ok = expect(!missingRootStore && factoryError.contains(QString::fromUtf8("根目录")),
+                "filesystem object store should require a root directory") && ok;
+
     const QByteArray payload("filesystem object store payload");
     QString objectKey;
     QString fileHash;

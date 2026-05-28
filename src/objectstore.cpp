@@ -225,3 +225,38 @@ int FilesystemObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys
     }
     return removed;
 }
+
+QString normalizeObjectStoreType(const QString& storeType) {
+    const QString normalized = storeType.trimmed().toLower();
+    return normalized.isEmpty() ? QStringLiteral("filesystem") : normalized;
+}
+
+bool isSupportedObjectStoreType(const QString& storeType) {
+    return normalizeObjectStoreType(storeType) == QStringLiteral("filesystem");
+}
+
+std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
+                                               const QString& rootDir,
+                                               QString* error) {
+    if (error) {
+        error->clear();
+    }
+
+    const QString normalizedType = normalizeObjectStoreType(storeType);
+    if (normalizedType != QStringLiteral("filesystem")) {
+        if (error) {
+            *error = QStringLiteral("对象存储后端暂不支持: %1").arg(normalizedType);
+        }
+        return {};
+    }
+
+    const QString cleanRoot = QDir::cleanPath(rootDir.trimmed());
+    if (cleanRoot.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("对象存储根目录未配置");
+        }
+        return {};
+    }
+
+    return std::make_unique<FilesystemObjectStore>(cleanRoot);
+}

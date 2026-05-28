@@ -10,8 +10,10 @@
 #include <QJsonObject>
 #include "chatuser.h"
 #include "message.h"
+#include <memory>
 
 class QTimer;
+class ObjectStore;
 class RedisClient;
 class RedisSubscriber;
 
@@ -97,7 +99,9 @@ private:
     qint64 offlineAttachmentUsedBytes() const;
     bool hasOfflineAttachmentCapacity(qint64 incomingBytes) const;
     bool shouldPublishLargeFileOffer(const Message& msg) const;
+    QString objectStoreType() const;
     QString objectStoreRootDir() const;
+    std::unique_ptr<ObjectStore> createConfiguredObjectStore(QString* error = nullptr) const;
     qint64 objectStoreTtlMs() const;
     bool cleanupDeliveredRedisLargeFile(const QJsonObject& event) const;
     QString saveOfflineAttachment(const Message& msg) const;

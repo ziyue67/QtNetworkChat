@@ -57,4 +57,10 @@ private:
     QString m_rootDir;
 };
 
+QString normalizeObjectStoreType(const QString& storeType);
+bool isSupportedObjectStoreType(const QString& storeType);
+std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
+                                               const QString& rootDir,
+                                               QString* error = nullptr);
+
 #endif // OBJECTSTORE_H

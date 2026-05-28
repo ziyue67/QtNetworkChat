@@ -1779,18 +1779,26 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         return failOffer(QStringLiteral("receiver-disconnected"));
     }
 
-    const QString storeType = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE")).trimmed().toLower();
-    if (!storeType.isEmpty() && storeType != "filesystem") return false;
+    if (!isSupportedObjectStoreType(objectStoreType())) {
+        return false;
+    }
 
-    const QString objectRoot = objectStoreRootDir();
+    QString objectStoreError;
+    std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore(&objectStoreError);
+    if (!objectStore) {
+        if (!objectStoreError.isEmpty()) {
+            qWarning() << "Skip large file offer because object store is unavailable" << objectStoreError;
+        }
+        return failOffer(QStringLiteral("object-store-unavailable: ") + objectStoreError);
+    }
+
     const QString objectKey = event["objectKey"].toString().trimmed();
     const qint64 fileSize = event["fileSize"].toVariant().toLongLong();
     const qint64 chunkSize = event["chunkSize"].toVariant().toLongLong();
     const qint64 chunkCount = event["chunkCount"].toVariant().toLongLong();
     const QString fileHash = event["fileHash"].toString().trimmed();
     const QString messageType = event["messageType"].toString();
-    if (objectRoot.isEmpty()
-        || !FilesystemObjectStore::isValidObjectKey(objectKey)
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)
         || fileSize <= 0
         || chunkSize <= 0
         || chunkSize > kForwardChunkBytes
@@ -1803,16 +1811,15 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         return failOffer(QStringLiteral("invalid-offer-metadata"));
     }
 
-    FilesystemObjectStore objectStore(objectRoot);
-    const FilesystemObjectStore::ValidationResult validation =
-        objectStore.validateObject(objectKey, fileSize, fileHash);
+    const ObjectStore::ValidationResult validation =
+        objectStore->validateObject(objectKey, fileSize, fileHash);
     if (!validation.ok) {
         qWarning() << "Rejected large file offer because object validation failed"
                    << objectKey << validation.error;
         return failOffer(QStringLiteral("object-validation-failed: ") + validation.error);
     }
 
-    std::unique_ptr<QIODevice> file = objectStore.openObject(objectKey);
+    std::unique_ptr<QIODevice> file = objectStore->openObject(objectKey);
     if (!file || !file->isOpen()) {
         return failOffer(QStringLiteral("object-open-failed"));
     }
@@ -2401,17 +2408,23 @@ bool Server::shouldPublishLargeFileOffer(const Message& msg) const {
     QTcpSocket* localSocket = m_userSockets.value(msg.receiverId, nullptr);
     if (localSocket && localSocket->state() == QAbstractSocket::ConnectedState) return false;
 
-    const QString storeType = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE")).trimmed().toLower();
-    if (!storeType.isEmpty() && storeType != "filesystem") return false;
-    if (objectStoreRootDir().isEmpty()) return false;
+    if (!createConfiguredObjectStore()) return false;
     if (msg.fileSize <= 0 || msg.chunkSize <= 0 || msg.chunkCount <= 0) return false;
     if (msg.chunkCount != (msg.fileSize + msg.chunkSize - 1) / msg.chunkSize) return false;
     return looksLikeSha256Hex(msg.fileHash);
 }
 
+QString Server::objectStoreType() const {
+    return normalizeObjectStoreType(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE")));
+}
+
 QString Server::objectStoreRootDir() const {
     const QString root = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_ROOT")).trimmed();
     return root.isEmpty() ? QString() : QDir::cleanPath(root);
+}
+
+std::unique_ptr<ObjectStore> Server::createConfiguredObjectStore(QString* error) const {
+    return createObjectStore(objectStoreType(), objectStoreRootDir(), error);
 }
 
 qint64 Server::objectStoreTtlMs() const {
@@ -2527,9 +2540,9 @@ bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
         }
     }
 
-    const QString objectPath = FilesystemObjectStore(objectStoreRootDir()).objectPath(objectKey);
-    if (!objectPath.isEmpty()) {
-        QFile::remove(objectPath);
+    std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore();
+    if (objectStore) {
+        objectStore->removeObject(objectKey);
     }
 
     return true;
@@ -2644,10 +2657,10 @@ void Server::cleanupExpiredOfflineAttachments() {
         parentDir.rmdir(info.fileName());
     }
 
-    const QString objectRoot = objectStoreRootDir();
-    if (!objectRoot.isEmpty()) {
+    std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore();
+    if (objectStore) {
         QStringList removedKeys;
-        const int removedObjects = FilesystemObjectStore(objectRoot).cleanupExpired(objectStoreTtlMs(), &removedKeys);
+        const int removedObjects = objectStore->cleanupExpired(objectStoreTtlMs(), &removedKeys);
         if (removedObjects > 0) {
             qDebug() << "Cleaned expired object-store attachments" << removedObjects << removedKeys;
             QJsonObject cleanupMeta;
@@ -2676,7 +2689,7 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["chunkSize"] = QString::number(msg.chunkSize);
     obj["chunkCount"] = QString::number(msg.chunkCount);
     QString savedAttachmentPath;
-    QString savedObjectPath;
+    QString savedObjectKey;
     bool shouldPublishObjectOffer = false;
     if (!msg.fileData.isEmpty()) {
         const bool shouldStoreAsAttachment = msg.type == MessageType::File || msg.type == MessageType::Image;
@@ -2690,25 +2703,28 @@ void Server::saveOfflineMessage(const Message& msg) const {
             obj["offlineFileStoredOnDisk"] = true;
 
             if (shouldPublishLargeFileOffer(msg)) {
-                FilesystemObjectStore objectStore(objectStoreRootDir());
+                QString objectStoreError;
+                std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore(&objectStoreError);
                 QString objectKey;
                 QString objectHash;
                 QString objectError;
                 const QString extension = QFileInfo(msg.fileName).suffix();
-                if (objectStore.writeObject(msg.fileData, &objectKey, &objectHash, &objectError, extension)
+                if (objectStore
+                    && objectStore->writeObject(msg.fileData, &objectKey, &objectHash, &objectError, extension)
                     && objectHash.compare(msg.fileHash.trimmed(), Qt::CaseInsensitive) == 0) {
-                    savedObjectPath = objectStore.objectPath(objectKey);
+                    savedObjectKey = objectKey;
                     obj["objectStoreKey"] = objectKey;
                     obj["objectStoreHash"] = objectHash;
                     obj["objectStoreCreatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
                     obj["objectStoreExpiresAt"] = QDateTime::currentDateTimeUtc().addMSecs(objectStoreTtlMs()).toString(Qt::ISODate);
                     shouldPublishObjectOffer = true;
                 } else {
-                    if (!objectKey.isEmpty()) {
-                        QFile::remove(objectStore.objectPath(objectKey));
+                    if (objectStore && !objectKey.isEmpty()) {
+                        objectStore->removeObject(objectKey);
                     }
                     qWarning() << "Large file object routing skipped because object write/validation failed"
-                               << msg.receiverId << msg.fileName << objectError;
+                               << msg.receiverId << msg.fileName
+                               << (objectError.isEmpty() ? objectStoreError : objectError);
                 }
             }
         } else {
@@ -2716,12 +2732,13 @@ void Server::saveOfflineMessage(const Message& msg) const {
         }
     }
     const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    auto rollbackSavedAttachment = [&savedAttachmentPath, &savedObjectPath]() {
+    auto rollbackSavedAttachment = [this, &savedAttachmentPath, &savedObjectKey]() {
         if (!savedAttachmentPath.isEmpty() && QFile::remove(savedAttachmentPath)) {
             qWarning() << "Rolled back offline attachment after queue persistence failure" << savedAttachmentPath;
         }
-        if (!savedObjectPath.isEmpty() && QFile::remove(savedObjectPath)) {
-            qWarning() << "Rolled back object-store attachment after queue persistence failure" << savedObjectPath;
+        std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore();
+        if (objectStore && !savedObjectKey.isEmpty() && objectStore->removeObject(savedObjectKey)) {
+            qWarning() << "Rolled back object-store attachment after queue persistence failure" << savedObjectKey;
         }
     };
 
