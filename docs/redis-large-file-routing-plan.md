@@ -105,7 +105,7 @@
 - 没有远端实例认领：源实例离线队列保留，等待收件人回源实例或后续重试。
 - 远端认领后客户端断开：远端发布 failed，源实例保留离线队列。
 - 对象存储不可用：不发布 offer，直接使用源实例离线队列。
-- delivered 丢失：源实例按 TTL 暂时保留对象和离线队列；对象 TTL 到期后可清理 ObjectStore 对象，离线附件队列继续作为回源兜底；后续可补对账任务，按远端 delivery receipt 查询清理队列。
+- delivered 丢失或不完整：源实例只在 `confirmedBytes >= fileSize` 且 sourceInstanceId、transferId、receiverId、objectKey、fileHash 全部匹配时清理队列和对象；回执缺失、confirmedBytes 不足或元数据不匹配时继续保留离线队列。对象 TTL 到期后可清理 ObjectStore 对象，离线附件队列继续作为回源兜底；后续可补对账任务，按远端 delivery receipt 查询清理队列。
 
 ## 配置建议
 
@@ -137,8 +137,9 @@
 6. 已完成：补安全边界测试：无本地在线收件人不 claim、不 delivered，非法 objectKey/chunk 元数据不下发，非 filesystem store 不消费。
 7. 已完成：补 TTL/治理测试：未 delivered 对象超过 ObjectStore TTL 后可被启动清理删除，源实例离线附件队列仍保留并可在收件人回源实例登录后回放。
 8. 已完成：补 `redis_large_file_route` 结构化日志，覆盖 offer/claim/delivered/failed/cleanup 的结果、原因和关键维度。
-9. 下一步：补 delivered 丢失后的对账/保留窗口策略。
-10. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
+9. 已完成：补不完整 delivered 回执保留兜底测试，确保 confirmedBytes 不足时不会清理离线队列或对象。
+10. 下一步：补 delivered 丢失后的对账任务设计，明确后续 receipt/对账如何安全清队列。
+11. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
 
 ## 当前保护边界
 
@@ -151,4 +152,5 @@
 - 已有测试覆盖非法 objectKey/分片元数据不下发、非 filesystem store 不消费，以及不在线收件人不 claim、不 delivered。
 - 已有测试覆盖未 delivered 对象过期后由 ObjectStore TTL 清理，同时离线附件兜底队列仍可回放。
 - 已有结构化日志覆盖跨实例大文件 offer/claim/delivered/failed/cleanup，可按 `event/result/reason` 聚合治理指标。
-- 后续还需补 delivered 丢失对账和保留窗口策略。
+- 已有测试覆盖不完整 delivered 回执不会清理源实例兜底。
+- 后续还需补 delivered 丢失对账任务设计。

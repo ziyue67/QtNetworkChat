@@ -900,6 +900,24 @@ int main(int argc, char** argv) {
             || !findPublishedEvent("large_file_delivered", QString(), failedFallbackObjectKey).isEmpty();
     }, 800), "offers without a local receiver should not be claimed or delivered") && ok;
 
+    QJsonObject partialDeliveredEvent;
+    partialDeliveredEvent["eventType"] = "large_file_delivered";
+    partialDeliveredEvent["instanceId"] = "external-partial-delivered-instance";
+    partialDeliveredEvent["sourceInstanceId"] = failedFallbackOffer["instanceId"].toString();
+    partialDeliveredEvent["transferId"] = failedFallbackOffer["transferId"].toString();
+    partialDeliveredEvent["objectKey"] = failedFallbackObjectKey;
+    partialDeliveredEvent["receiverId"] = failedFallbackReceiverId;
+    partialDeliveredEvent["fileHash"] = failedFallbackOffer["fileHash"].toString();
+    partialDeliveredEvent["confirmedBytes"] = QString::number(failedFallbackPayload.size() - 1);
+    partialDeliveredEvent["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(partialDeliveredEvent).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return QFileInfo::exists(objectStore.objectPath(failedFallbackObjectKey));
+    }, 800), "source server should retain fallback after a partial delivered event") && ok;
+
     QJsonObject failedEvent;
     failedEvent["eventType"] = "large_file_failed";
     failedEvent["instanceId"] = "external-failing-instance";
