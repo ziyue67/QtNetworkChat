@@ -379,6 +379,97 @@ int main() {
                    "s3 status classifier should classify missing status as unknown");
     expectS3Status(302, S3HttpResultKind::Unknown, false, false,
                    "s3 status classifier should classify unexpected redirects as unknown");
+    const auto expectS3RequestResult = [&ok](const S3RequestResult& result,
+                                             S3HttpResultKind expectedKind,
+                                             bool expectedOk,
+                                             bool expectedRetryable,
+                                             const QString& expectedReason,
+                                             const char* message) {
+        ok = expect(result.http.kind == expectedKind
+                        && result.http.ok == expectedOk
+                        && result.http.retryable == expectedRetryable
+                        && result.http.reason == expectedReason,
+                    message) && ok;
+    };
+    expectS3RequestResult(s3RequestResultFromReply(s3Config, 200),
+                          S3HttpResultKind::Success,
+                          true,
+                          false,
+                          QStringLiteral("success"),
+                          "s3 request result should preserve successful HTTP classification");
+    expectS3RequestResult(s3RequestResultFromReply(s3Config, 404),
+                          S3HttpResultKind::NotFound,
+                          false,
+                          false,
+                          QStringLiteral("not_found"),
+                          "s3 request result should preserve not-found classification");
+    expectS3RequestResult(s3RequestResultFromReply(s3Config, 403),
+                          S3HttpResultKind::AuthError,
+                          false,
+                          false,
+                          QStringLiteral("auth_or_permission_error"),
+                          "s3 request result should preserve auth classification");
+    expectS3RequestResult(s3RequestResultFromReply(s3Config, 503),
+                          S3HttpResultKind::ServerError,
+                          false,
+                          true,
+                          QStringLiteral("server_error"),
+                          "s3 request result should preserve retryable server classification");
+    const S3RequestResult networkFailure =
+        s3RequestResultFromReply(s3Config,
+                                 0,
+                                 QStringLiteral("socket failed with access-key and super-secret-value"));
+    expectS3RequestResult(networkFailure,
+                          S3HttpResultKind::Retryable,
+                          false,
+                          true,
+                          QStringLiteral("network_error"),
+                          "s3 request result should classify network errors as retryable");
+    ok = expect(networkFailure.networkError
+                    && !networkFailure.timeout
+                    && !networkFailure.tlsError
+                    && !networkFailure.error.contains(s3Config.accessKey)
+                    && !networkFailure.error.contains(s3Config.secretKey),
+                "s3 network error text should be redacted") && ok;
+    const S3RequestResult timeoutFailure =
+        s3RequestResultFromReply(s3Config, 0, QString(), true);
+    expectS3RequestResult(timeoutFailure,
+                          S3HttpResultKind::Retryable,
+                          false,
+                          true,
+                          QStringLiteral("timeout"),
+                          "s3 request result should classify timeouts as retryable");
+    ok = expect(timeoutFailure.timeout
+                    && timeoutFailure.error.contains(QStringLiteral("timed out")),
+                "s3 timeout result should carry a safe default error") && ok;
+    const S3RequestResult tlsFailure =
+        s3RequestResultFromReply(s3Config,
+                                 0,
+                                 QStringLiteral("TLS failed for temporary-session-token"),
+                                 false,
+                                 true);
+    expectS3RequestResult(tlsFailure,
+                          S3HttpResultKind::AuthError,
+                          false,
+                          false,
+                          QStringLiteral("tls_error"),
+                          "s3 request result should classify TLS failures as non-retryable auth boundary errors");
+    ok = expect(tlsFailure.networkError
+                    && tlsFailure.tlsError
+                    && !tlsFailure.error.contains(s3Config.sessionToken),
+                "s3 TLS error text should be redacted") && ok;
+    const QString redactedS3Error =
+        redactS3ErrorText(s3Config,
+                          QStringLiteral("Authorization=AWS4-HMAC-SHA256 Credential=access-key/20130524/local/s3/aws4_request,SignedHeaders=host,Signature=abcdef "
+                                         "X-Amz-Credential=access-key%2F20130524%2Flocal%2Fs3%2Faws4_request&X-Amz-Signature=012345 "
+                                         "secret=super-secret-value token=temporary-session-token"));
+    ok = expect(redactedS3Error.contains(QStringLiteral("<redacted>"))
+                    && !redactedS3Error.contains(QStringLiteral("access-key"))
+                    && !redactedS3Error.contains(QStringLiteral("super-secret-value"))
+                    && !redactedS3Error.contains(QStringLiteral("temporary-session-token"))
+                    && !redactedS3Error.contains(QStringLiteral("Signature=abcdef"))
+                    && !redactedS3Error.contains(QStringLiteral("X-Amz-Signature=012345")),
+                "s3 error redaction should hide credentials and signature material") && ok;
     const QStringList s3SupportedMethods = {
         QStringLiteral("PUT"),
         QStringLiteral("GET"),

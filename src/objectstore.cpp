@@ -514,6 +514,80 @@ S3HttpResult classifyS3HttpStatus(int statusCode) {
     return result;
 }
 
+QString redactS3ErrorText(const S3ObjectStoreConfig& config, const QString& text) {
+    QString redacted = text;
+    const QString marker = QStringLiteral("<redacted>");
+    const auto redactLiteral = [&redacted, &marker](const QString& value) {
+        const QString trimmed = value.trimmed();
+        if (!trimmed.isEmpty()) {
+            redacted.replace(trimmed, marker, Qt::CaseSensitive);
+        }
+    };
+
+    redactLiteral(config.accessKey);
+    redactLiteral(config.secretKey);
+    redactLiteral(config.sessionToken);
+
+    redacted.replace(QRegularExpression(QStringLiteral("Authorization\\s*[:=]\\s*AWS4-HMAC-SHA256[^\\r\\n]*"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("Authorization=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("Credential=[^,\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("Credential=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("Signature=[^,\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("Signature=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("X-Amz-Credential=[^&\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("X-Amz-Credential=<redacted>"));
+    redacted.replace(QRegularExpression(QStringLiteral("X-Amz-Signature=[^&\\s]+"),
+                                        QRegularExpression::CaseInsensitiveOption),
+                     QStringLiteral("X-Amz-Signature=<redacted>"));
+    return redacted;
+}
+
+S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
+                                         int statusCode,
+                                         const QString& errorText,
+                                         bool timedOut,
+                                         bool tlsFailed) {
+    S3RequestResult result;
+    result.statusCode = statusCode;
+    result.timeout = timedOut;
+    result.tlsError = tlsFailed;
+    result.networkError = !errorText.trimmed().isEmpty();
+    result.error = redactS3ErrorText(config, errorText);
+
+    if (timedOut) {
+        result.http.kind = S3HttpResultKind::Retryable;
+        result.http.retryable = true;
+        result.http.reason = QStringLiteral("timeout");
+        if (result.error.isEmpty()) {
+            result.error = QStringLiteral("S3 request timed out");
+        }
+        return result;
+    }
+
+    if (tlsFailed) {
+        result.http.kind = S3HttpResultKind::AuthError;
+        result.http.reason = QStringLiteral("tls_error");
+        if (result.error.isEmpty()) {
+            result.error = QStringLiteral("S3 TLS verification failed");
+        }
+        return result;
+    }
+
+    if (result.networkError) {
+        result.http.kind = S3HttpResultKind::Retryable;
+        result.http.retryable = true;
+        result.http.reason = QStringLiteral("network_error");
+        return result;
+    }
+
+    result.http = classifyS3HttpStatus(statusCode);
+    return result;
+}
+
 QString s3PayloadSha256Hex(const QByteArray& payload) {
     return sha256Hex(payload);
 }

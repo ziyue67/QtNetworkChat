@@ -97,6 +97,15 @@ struct S3HttpResult {
     QString reason;
 };
 
+struct S3RequestResult {
+    S3HttpResult http;
+    int statusCode = 0;
+    bool networkError = false;
+    bool timeout = false;
+    bool tlsError = false;
+    QString error;
+};
+
 class S3ObjectStore : public ObjectStore {
 public:
     explicit S3ObjectStore(const S3ObjectStoreConfig& config);
@@ -127,6 +136,12 @@ S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment();
 QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey);
 bool isSupportedS3ObjectMethod(const QString& method);
 S3HttpResult classifyS3HttpStatus(int statusCode);
+QString redactS3ErrorText(const S3ObjectStoreConfig& config, const QString& text);
+S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
+                                         int statusCode,
+                                         const QString& errorText = QString(),
+                                         bool timedOut = false,
+                                         bool tlsFailed = false);
 QString s3PayloadSha256Hex(const QByteArray& payload);
 QString s3CredentialScope(const QString& date, const QString& region);
 QString s3CanonicalRequest(const QString& method,
