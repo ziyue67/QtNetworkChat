@@ -127,6 +127,17 @@
 
 其中 `offer/claim/delivered` 成功发布、`delivered_cleanup` 成功清理和 `object_ttl_cleanup` 会走 info 日志；失败、跳过、远端 failed 和保留兜底会走 warning 日志。
 
+## Delivered 丢失对账任务设计
+
+目标是补上“远端已投递但 `large_file_delivered` 控制事件丢失”的后续治理，同时不牺牲离线兜底安全性。对账任务只做保守清理，默认保留队列：
+
+- **对账输入**：源实例本地离线队列中仍含 `objectStoreKey` 的消息、远端 delivery receipt 记录、对象 TTL 清理日志和 `redis_large_file_route` 日志。
+- **可清理条件**：远端 receipt 必须同时匹配 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`，并且 `confirmedBytes >= fileSize`。任一字段缺失、不一致或进度不足，都只能标记为待复查，不能删除离线队列。
+- **对象已过期场景**：ObjectStore 对象被 TTL 清理不代表文件已送达；只清对象，不清离线附件队列。后续如果 receipt 补齐，再按可清理条件清队列和离线附件。
+- **重试窗口**：在对象 TTL 内，源实例仍可等待远端补发 delivered 或 receipt；TTL 后对象可释放空间，但离线附件继续按 `QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS` 作为最终兜底窗口。
+- **误删保护**：对账任务必须复用 `cleanupDeliveredRedisLargeFile()` 的匹配规则或等价校验；不得仅凭 `transferId`、`receiverId`、claim 事件、日志行或对象不存在来删除队列。
+- **观测输出**：对账任务后续应输出 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，并记录保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理。
+
 ## 最小实现顺序
 
 1. 已完成：新增 filesystem `ObjectStore` helper，支持安全 objectKey 生成、共享目录写入、路径穿越拒绝、hash/size 校验和 TTL 清理，并用 CTest 覆盖核心边界。
@@ -138,8 +149,8 @@
 7. 已完成：补 TTL/治理测试：未 delivered 对象超过 ObjectStore TTL 后可被启动清理删除，源实例离线附件队列仍保留并可在收件人回源实例登录后回放。
 8. 已完成：补 `redis_large_file_route` 结构化日志，覆盖 offer/claim/delivered/failed/cleanup 的结果、原因和关键维度。
 9. 已完成：补不完整 delivered 回执保留兜底测试，确保 confirmedBytes 不足时不会清理离线队列或对象。
-10. 下一步：补 delivered 丢失后的对账任务设计，明确后续 receipt/对账如何安全清队列。
-11. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
+10. 已完成：补 delivered 丢失后的对账任务设计，明确 receipt 匹配条件、对象 TTL 后队列保留策略和误删保护。
+11. 下一步：再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
 
 ## 当前保护边界
 
@@ -153,4 +164,5 @@
 - 已有测试覆盖未 delivered 对象过期后由 ObjectStore TTL 清理，同时离线附件兜底队列仍可回放。
 - 已有结构化日志覆盖跨实例大文件 offer/claim/delivered/failed/cleanup，可按 `event/result/reason` 聚合治理指标。
 - 已有测试覆盖不完整 delivered 回执不会清理源实例兜底。
-- 后续还需补 delivered 丢失对账任务设计。
+- 已有 delivered 丢失对账任务设计，强调只有完整 receipt 匹配才能清队列，对象 TTL 清理不等同于投递成功。
+- 后续进入对象存储抽象和 S3/MinIO 后端评估。
