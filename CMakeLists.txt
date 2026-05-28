@@ -136,7 +136,7 @@ if(BUILD_TESTING)
         include/objectstore.h
     )
     target_include_directories(objectstore_test PRIVATE include)
-    target_link_libraries(objectstore_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    target_link_libraries(objectstore_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
 
     add_executable(redis_unavailable_fallback_test
         tests/redis_unavailable_fallback_test.cpp

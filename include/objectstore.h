@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QIODevice>
 #include <QMap>
+#include <QNetworkRequest>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
@@ -69,6 +70,14 @@ struct S3ObjectStoreConfig {
     bool tlsVerify = true;
 };
 
+struct S3SignedObjectRequest {
+    QNetworkRequest request;
+    QByteArray method;
+    QString payloadSha256Hex;
+    QString signedHeaders;
+    QString authorizationHeader;
+};
+
 class S3ObjectStore : public ObjectStore {
 public:
     explicit S3ObjectStore(const S3ObjectStoreConfig& config);
@@ -115,6 +124,11 @@ QString s3AuthorizationHeader(const QString& accessKey,
                               const QString& credentialScope,
                               const QString& signedHeaders,
                               const QString& signatureHex);
+S3SignedObjectRequest s3SignedObjectRequest(const S3ObjectStoreConfig& config,
+                                            const QString& objectKey,
+                                            const QString& method,
+                                            const QByteArray& payload,
+                                            const QString& amzDate = QString());
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
                                                const QString& rootDir,
                                                QString* error = nullptr);

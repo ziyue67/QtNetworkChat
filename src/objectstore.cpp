@@ -8,8 +8,11 @@
 #include <QFileInfo>
 #include <QMap>
 #include <QMessageAuthenticationCode>
+#include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QUrl>
 #include <QUuid>
 
@@ -79,6 +82,31 @@ QString canonicalQueryString(const QUrl& url) {
     QStringList parts = query.split('&', Qt::KeepEmptyParts);
     std::sort(parts.begin(), parts.end());
     return parts.join('&');
+}
+
+QString s3HostHeader(const QUrl& url) {
+    QString host = url.host(QUrl::FullyEncoded);
+    const int port = url.port();
+    const bool includePort = port > 0
+        && !((url.scheme() == QStringLiteral("https") && port == 443)
+             || (url.scheme() == QStringLiteral("http") && port == 80));
+    if (includePort) {
+        host += QStringLiteral(":%1").arg(port);
+    }
+    return host;
+}
+
+QString normalizedS3Region(const S3ObjectStoreConfig& config) {
+    const QString region = config.region.trimmed();
+    return region.isEmpty() ? QStringLiteral("us-east-1") : region;
+}
+
+QString normalizedAmzDate(const QString& amzDate) {
+    const QString trimmed = amzDate.trimmed();
+    if (!trimmed.isEmpty()) {
+        return trimmed;
+    }
+    return QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd'T'HHmmss'Z'"));
 }
 }
 
@@ -490,6 +518,57 @@ QString s3AuthorizationHeader(const QString& accessKey,
              credentialScope.trimmed(),
              signedHeaders.trimmed(),
              signatureHex.trimmed().toLower());
+}
+
+S3SignedObjectRequest s3SignedObjectRequest(const S3ObjectStoreConfig& config,
+                                            const QString& objectKey,
+                                            const QString& method,
+                                            const QByteArray& payload,
+                                            const QString& amzDate) {
+    S3SignedObjectRequest result;
+    result.method = method.trimmed().toUpper().toLatin1();
+
+    const QUrl url = s3ObjectUrl(config, objectKey);
+    if (!url.isValid() || result.method.isEmpty()) {
+        return result;
+    }
+
+    const QString requestDate = normalizedAmzDate(amzDate);
+    const QString credentialDate = requestDate.left(8);
+    const QString region = normalizedS3Region(config);
+    result.payloadSha256Hex = s3PayloadSha256Hex(payload);
+
+    QMap<QString, QString> headers;
+    headers.insert(QStringLiteral("host"), s3HostHeader(url));
+    headers.insert(QStringLiteral("x-amz-content-sha256"), result.payloadSha256Hex);
+    headers.insert(QStringLiteral("x-amz-date"), requestDate);
+
+    const QString canonicalRequest = s3CanonicalRequest(QString::fromLatin1(result.method),
+                                                        url,
+                                                        headers,
+                                                        result.payloadSha256Hex,
+                                                        &result.signedHeaders);
+    const QString credentialScope = s3CredentialScope(credentialDate, region);
+    const QString stringToSign = s3StringToSign(requestDate, credentialScope, canonicalRequest);
+    const QString signature = s3SignatureHex(config.secretKey, credentialDate, region, stringToSign);
+    result.authorizationHeader = s3AuthorizationHeader(config.accessKey,
+                                                       credentialScope,
+                                                       result.signedHeaders,
+                                                       signature);
+
+    result.request = QNetworkRequest(url);
+    result.request.setRawHeader("host", headers.value(QStringLiteral("host")).toLatin1());
+    result.request.setRawHeader("x-amz-content-sha256", result.payloadSha256Hex.toLatin1());
+    result.request.setRawHeader("x-amz-date", requestDate.toLatin1());
+    result.request.setRawHeader("Authorization", result.authorizationHeader.toLatin1());
+#if QT_CONFIG(ssl)
+    if (url.scheme() == QStringLiteral("https") && !config.tlsVerify) {
+        QSslConfiguration sslConfig = result.request.sslConfiguration();
+        sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+        result.request.setSslConfiguration(sslConfig);
+    }
+#endif
+    return result;
 }
 
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,

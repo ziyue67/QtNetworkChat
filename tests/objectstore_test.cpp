@@ -7,6 +7,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QBuffer>
 #include <QTemporaryDir>
 
@@ -297,6 +299,48 @@ int main() {
     ok = expect(messySignedHeaders == QStringLiteral("host;x-amz-content-sha256;x-amz-date")
                     && messyCanonical.startsWith(QStringLiteral("PUT\n/a%20b.txt\npartNumber=1&uploadId=xyz\n")),
                 "s3 canonical request should normalize method, path, query and signed header names") && ok;
+    const QByteArray s3PutPayload = QByteArrayLiteral("signed request payload");
+    const S3SignedObjectRequest signedPutRequest =
+        s3SignedObjectRequest(s3Config,
+                              QStringLiteral("abcdef1234567890.bin"),
+                              QStringLiteral("put"),
+                              s3PutPayload,
+                              QStringLiteral("20130524T010203Z"));
+    ok = expect(signedPutRequest.method == QByteArrayLiteral("PUT")
+                    && signedPutRequest.request.url() == s3Url,
+                "s3 signed request should keep the HTTP method and path-style URL") && ok;
+    ok = expect(signedPutRequest.payloadSha256Hex == s3PayloadSha256Hex(s3PutPayload)
+                    && signedPutRequest.request.rawHeader("x-amz-content-sha256")
+                        == signedPutRequest.payloadSha256Hex.toLatin1(),
+                "s3 signed request should include the payload SHA-256 header") && ok;
+    ok = expect(signedPutRequest.request.rawHeader("host") == QByteArrayLiteral("minio.internal:9000")
+                    && signedPutRequest.request.rawHeader("x-amz-date") == QByteArrayLiteral("20130524T010203Z")
+                    && signedPutRequest.signedHeaders == QStringLiteral("host;x-amz-content-sha256;x-amz-date"),
+                "s3 signed request should include host, date and signed header names") && ok;
+    const QByteArray authHeader = signedPutRequest.request.rawHeader("Authorization");
+    ok = expect(authHeader == signedPutRequest.authorizationHeader.toLatin1()
+                    && authHeader.contains("Credential=access-key/20130524/local/s3/aws4_request")
+                    && authHeader.contains("SignedHeaders=host;x-amz-content-sha256;x-amz-date")
+                    && authHeader.contains("Signature=")
+                    && !authHeader.contains("super-secret-value"),
+                "s3 signed request should include Authorization without leaking the secret key") && ok;
+    S3ObjectStoreConfig noRegionS3Config = s3Config;
+    noRegionS3Config.region.clear();
+    const S3SignedObjectRequest defaultRegionRequest =
+        s3SignedObjectRequest(noRegionS3Config,
+                              QStringLiteral("abcdef1234567890.bin"),
+                              QStringLiteral("head"),
+                              QByteArray(),
+                              QStringLiteral("20130524T010203Z"));
+    ok = expect(defaultRegionRequest.method == QByteArrayLiteral("HEAD")
+                    && defaultRegionRequest.authorizationHeader.contains(QStringLiteral("/20130524/us-east-1/s3/aws4_request")),
+                "s3 signed request should default an empty region to us-east-1") && ok;
+    ok = expect(s3SignedObjectRequest(s3Config,
+                                      QStringLiteral("../escape.bin"),
+                                      QStringLiteral("GET"),
+                                      QByteArray(),
+                                      QStringLiteral("20130524T010203Z")).request.url().isEmpty(),
+                "s3 signed request should reject invalid object keys") && ok;
     qputenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT", "https://minio.internal:9000");
     qputenv("QTNETWORKCHAT_OBJECT_S3_BUCKET", "qtchat-large-files");
     qputenv("QTNETWORKCHAT_OBJECT_S3_REGION", "local");
@@ -311,6 +355,19 @@ int main() {
     S3ObjectStore s3Placeholder(envS3Config);
     ok = expect(s3Placeholder.config().prefix == QStringLiteral("qtchat/large-files/"),
                 "s3 placeholder should keep normalized prefix") && ok;
+    const S3SignedObjectRequest tlsDisabledRequest =
+        s3SignedObjectRequest(envS3Config,
+                              QStringLiteral("abcdef1234567890.bin"),
+                              QStringLiteral("GET"),
+                              QByteArray(),
+                              QStringLiteral("20130524T010203Z"));
+#if QT_CONFIG(ssl)
+    ok = expect(tlsDisabledRequest.request.sslConfiguration().peerVerifyMode() == QSslSocket::VerifyNone,
+                "s3 signed request should disable TLS peer verification only when configured") && ok;
+#else
+    ok = expect(tlsDisabledRequest.request.url().isValid(),
+                "s3 signed request should still be constructible without Qt SSL support") && ok;
+#endif
     QString s3WriteKey;
     QString s3WriteHash;
     QString s3WriteError;
