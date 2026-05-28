@@ -66,6 +66,7 @@ struct S3ObjectStoreConfig {
     QString region;
     QString accessKey;
     QString secretKey;
+    QString sessionToken;
     QString prefix;
     bool tlsVerify = true;
     int requestTimeoutMs = 30000;

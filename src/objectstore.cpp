@@ -435,6 +435,7 @@ S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment() {
     config.region = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_REGION")).trimmed();
     config.accessKey = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY")).trimmed();
     config.secretKey = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY")).trimmed();
+    config.sessionToken = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN")).trimmed();
     config.prefix = normalizeS3ObjectPrefix(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX")));
     config.tlsVerify = envFlagDefaultTrue("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
     config.requestTimeoutMs = envIntInRange("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", 30000, 1000, 300000);
@@ -613,6 +614,10 @@ S3SignedObjectRequest s3SignedObjectRequest(const S3ObjectStoreConfig& config,
     headers.insert(QStringLiteral("host"), s3HostHeader(url));
     headers.insert(QStringLiteral("x-amz-content-sha256"), result.payloadSha256Hex);
     headers.insert(QStringLiteral("x-amz-date"), requestDate);
+    const QString sessionToken = config.sessionToken.trimmed();
+    if (!sessionToken.isEmpty()) {
+        headers.insert(QStringLiteral("x-amz-security-token"), sessionToken);
+    }
 
     const QString canonicalRequest = s3CanonicalRequest(QString::fromLatin1(result.method),
                                                         url,
@@ -631,6 +636,9 @@ S3SignedObjectRequest s3SignedObjectRequest(const S3ObjectStoreConfig& config,
     result.request.setRawHeader("host", headers.value(QStringLiteral("host")).toLatin1());
     result.request.setRawHeader("x-amz-content-sha256", result.payloadSha256Hex.toLatin1());
     result.request.setRawHeader("x-amz-date", requestDate.toLatin1());
+    if (!sessionToken.isEmpty()) {
+        result.request.setRawHeader("x-amz-security-token", sessionToken.toUtf8());
+    }
     result.request.setRawHeader("Authorization", result.authorizationHeader.toLatin1());
 #if QT_CONFIG(ssl)
     if (url.scheme() == QStringLiteral("https") && !config.tlsVerify) {

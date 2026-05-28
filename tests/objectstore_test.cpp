@@ -214,6 +214,7 @@ int main() {
     s3Config.region = QStringLiteral("local");
     s3Config.accessKey = QStringLiteral("access-key");
     s3Config.secretKey = QStringLiteral("super-secret-value");
+    s3Config.sessionToken = QStringLiteral("temporary-session-token");
     s3Config.prefix = QStringLiteral("/qtchat/large-files/");
     QString s3Error;
     ok = expect(validateS3ObjectStoreConfig(s3Config, &s3Error),
@@ -315,12 +316,13 @@ int main() {
                 "s3 signed request should include the payload SHA-256 header") && ok;
     ok = expect(signedPutRequest.request.rawHeader("host") == QByteArrayLiteral("minio.internal:9000")
                     && signedPutRequest.request.rawHeader("x-amz-date") == QByteArrayLiteral("20130524T010203Z")
-                    && signedPutRequest.signedHeaders == QStringLiteral("host;x-amz-content-sha256;x-amz-date"),
-                "s3 signed request should include host, date and signed header names") && ok;
+                    && signedPutRequest.request.rawHeader("x-amz-security-token") == QByteArrayLiteral("temporary-session-token")
+                    && signedPutRequest.signedHeaders == QStringLiteral("host;x-amz-content-sha256;x-amz-date;x-amz-security-token"),
+                "s3 signed request should include host, date, session token and signed header names") && ok;
     const QByteArray authHeader = signedPutRequest.request.rawHeader("Authorization");
     ok = expect(authHeader == signedPutRequest.authorizationHeader.toLatin1()
                     && authHeader.contains("Credential=access-key/20130524/local/s3/aws4_request")
-                    && authHeader.contains("SignedHeaders=host;x-amz-content-sha256;x-amz-date")
+                    && authHeader.contains("SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token")
                     && authHeader.contains("Signature=")
                     && !authHeader.contains("super-secret-value"),
                 "s3 signed request should include Authorization without leaking the secret key") && ok;
@@ -426,14 +428,16 @@ int main() {
     qputenv("QTNETWORKCHAT_OBJECT_S3_REGION", "local");
     qputenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY", "access-key");
     qputenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY", "super-secret-value");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN", "temporary-session-token");
     qputenv("QTNETWORKCHAT_OBJECT_S3_PREFIX", "/qtchat/large-files/");
     qputenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY", "0");
     qputenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", "45000");
     const S3ObjectStoreConfig envS3Config = s3ObjectStoreConfigFromEnvironment();
     ok = expect(envS3Config.prefix == QStringLiteral("qtchat/large-files/")
+                    && envS3Config.sessionToken == QStringLiteral("temporary-session-token")
                     && !envS3Config.tlsVerify
                     && envS3Config.requestTimeoutMs == 45000,
-                "s3 config should parse environment prefix, TLS flag and request timeout") && ok;
+                "s3 config should parse environment prefix, session token, TLS flag and request timeout") && ok;
     qputenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", "999999");
     const S3ObjectStoreConfig invalidTimeoutS3Config = s3ObjectStoreConfigFromEnvironment();
     ok = expect(invalidTimeoutS3Config.requestTimeoutMs == 30000,
@@ -484,13 +488,15 @@ int main() {
     ok = expect(!unsupportedStore
                     && factoryError.contains(QString::fromUtf8("暂未实现"))
                     && !factoryError.contains(QStringLiteral("super-secret-value"))
-                    && !factoryError.contains(QStringLiteral("access-key")),
+                    && !factoryError.contains(QStringLiteral("access-key"))
+                    && !factoryError.contains(QStringLiteral("temporary-session-token")),
                 "configured s3 backend should remain unimplemented without leaking credentials") && ok;
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_BUCKET");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_REGION");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS");
