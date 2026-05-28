@@ -156,13 +156,13 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量和不联网 request 构造测试已完成；下一步补可选 MinIO 手动脚本或真实 PUT/GET/HEAD/DELETE 的最小实现评估。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试和可选 MinIO 手动 smoke 脚本已完成；下一步评估真实 `S3ObjectStore` 的 PUT/GET/HEAD/DELETE 最小接入。
 
 测试替身计划：
 
 - 已实现仅测试使用的 `InMemoryObjectStore`，复用 `ObjectStore` 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
 - 服务端集成测试不连接真实 S3；只验证工厂在 `s3` 配置缺失时不发布 offer，并在未来注入假后端后可复用同一分片 ACK 下发流程。
-- 真实 MinIO 端到端测试后续可作为可选手动脚本或 CI service，不作为默认 CTest 前置条件。
+- 真实 MinIO 端到端验证已提供可选 `scripts/minio-s3-smoke.ps1`，可用 Docker 自动启动本地 MinIO 或通过 `-SkipContainer` 连接已有 MinIO；脚本会用 SigV4 对 bucket 创建和对象 PUT/HEAD/GET/DELETE 做手动 smoke，并输出 QtNetworkChat 所需环境变量示例。该脚本不纳入默认 CTest 前置条件。
 
 ## 治理观测
 
@@ -206,7 +206,8 @@
 17. 已完成：补 S3 path-style URL 纯函数和 Signature V4/Qt Network 实现计划，明确 PUT/GET/HEAD/DELETE、payload hash、TLS 和日志脱敏边界。
 18. 已完成：补 AWS Signature V4 纯函数和固定测试向量，不联网、不接真实 S3。
 19. 已完成：补 Qt Network S3 请求构造测试，验证方法、URL、host、x-amz-date、x-amz-content-sha256、Authorization、空 region 默认值、非法 objectKey 拒绝和 TLS 校验开关边界，仍不连接真实 S3。
-20. 下一步：补可选 MinIO 手动验证脚本或真实 S3/MinIO PUT/GET/HEAD/DELETE 最小实现评估，不把真实 S3 作为默认 CTest 前置条件。
+20. 已完成：补可选 MinIO 手动验证脚本，覆盖 bucket 创建和对象 PUT/HEAD/GET/DELETE smoke，不把真实 S3 作为默认 CTest 前置条件。
+21. 下一步：评估真实 S3/MinIO PUT/GET/HEAD/DELETE 最小实现，保持上传、下载、校验、删除失败时继续回落离线兜底。
 
 ## 当前保护边界
 
@@ -227,4 +228,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/prefix/TLS 解析和错误脱敏；真实后端仍保持未实现。
 - 已有 `S3ObjectStore` 薄适配占位类，所有对象操作在真实后端接入前 fail-closed 且不泄露凭据。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量和不联网 Qt Network 请求构造测试，真实后端仍保持未实现。
-- 后续进入可选 MinIO 手动验证脚本或真实 S3/MinIO 最小网络后端评估。
+- 后续进入真实 S3/MinIO 最小网络后端评估，优先保持 fail-closed 和离线兜底安全边界。
