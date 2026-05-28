@@ -428,13 +428,21 @@ int main() {
     qputenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY", "super-secret-value");
     qputenv("QTNETWORKCHAT_OBJECT_S3_PREFIX", "/qtchat/large-files/");
     qputenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY", "0");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", "45000");
     const S3ObjectStoreConfig envS3Config = s3ObjectStoreConfigFromEnvironment();
     ok = expect(envS3Config.prefix == QStringLiteral("qtchat/large-files/")
-                    && !envS3Config.tlsVerify,
-                "s3 config should parse environment prefix and TLS flag") && ok;
+                    && !envS3Config.tlsVerify
+                    && envS3Config.requestTimeoutMs == 45000,
+                "s3 config should parse environment prefix, TLS flag and request timeout") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", "999999");
+    const S3ObjectStoreConfig invalidTimeoutS3Config = s3ObjectStoreConfigFromEnvironment();
+    ok = expect(invalidTimeoutS3Config.requestTimeoutMs == 30000,
+                "s3 config should fall back to the default timeout when the env value is out of range") && ok;
     S3ObjectStore s3Placeholder(envS3Config);
     ok = expect(s3Placeholder.config().prefix == QStringLiteral("qtchat/large-files/"),
                 "s3 placeholder should keep normalized prefix") && ok;
+    ok = expect(s3Placeholder.config().requestTimeoutMs == 45000,
+                "s3 placeholder should keep the parsed request timeout") && ok;
     const S3SignedObjectRequest tlsDisabledRequest =
         s3SignedObjectRequest(envS3Config,
                               QStringLiteral("abcdef1234567890.bin"),
@@ -485,6 +493,7 @@ int main() {
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS");
 
     const QByteArray payload("filesystem object store payload");
     QString objectKey;

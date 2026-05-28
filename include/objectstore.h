@@ -68,6 +68,7 @@ struct S3ObjectStoreConfig {
     QString secretKey;
     QString prefix;
     bool tlsVerify = true;
+    int requestTimeoutMs = 30000;
 };
 
 struct S3SignedObjectRequest {

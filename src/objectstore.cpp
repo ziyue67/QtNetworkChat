@@ -63,6 +63,20 @@ bool envFlagDefaultTrue(const char* name) {
     return !(value == "0" || value == "false" || value == "no" || value == "off");
 }
 
+int envIntInRange(const char* name, int defaultValue, int minValue, int maxValue) {
+    const QByteArray value = qgetenv(name).trimmed();
+    if (value.isEmpty()) {
+        return defaultValue;
+    }
+
+    bool ok = false;
+    const int parsed = value.toInt(&ok);
+    if (!ok || parsed < minValue || parsed > maxValue) {
+        return defaultValue;
+    }
+    return parsed;
+}
+
 QString collapseHeaderWhitespace(const QString& value) {
     static const QRegularExpression whitespace(QStringLiteral("\\s+"));
     return QString(value).replace(whitespace, QStringLiteral(" ")).trimmed();
@@ -423,6 +437,7 @@ S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment() {
     config.secretKey = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY")).trimmed();
     config.prefix = normalizeS3ObjectPrefix(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX")));
     config.tlsVerify = envFlagDefaultTrue("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
+    config.requestTimeoutMs = envIntInRange("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", 30000, 1000, 300000);
     return config;
 }
 

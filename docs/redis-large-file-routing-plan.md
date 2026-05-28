@@ -131,8 +131,9 @@
 | `QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY` / `QTNETWORKCHAT_OBJECT_S3_SECRET_KEY` | 访问凭据 | 只读进程环境变量，不写入日志、Redis 或离线队列 |
 | `QTNETWORKCHAT_OBJECT_S3_PREFIX` | 对象 key 前缀，例如 `qtchat/large-files/` | 必须规范化，禁止 `..`、反斜杠和绝对路径语义 |
 | `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY` | 是否校验证书链 | 默认开启；关闭时必须输出 warning |
+| `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` | 单次 S3 HTTP 请求超时 | 默认 `30000`，只接受 `1000` 到 `300000` 毫秒；超时走对象路由失败回退 |
 
-当前已完成配置校验骨架：`s3` 模式会解析上述环境变量，校验 endpoint、bucket、access key、secret key 和 prefix；配置错误会返回不含凭据值的明确原因。即使配置完整，真实后端尚未实现时也只返回“暂未实现”，不会把 access key 或 secret key 写入错误信息。
+当前已完成配置校验骨架：`s3` 模式会解析上述环境变量，校验 endpoint、bucket、access key、secret key 和 prefix，并为后续网络请求读取有界超时；配置错误会返回不含凭据值的明确原因。即使配置完整，真实后端尚未实现时也只返回“暂未实现”，不会把 access key 或 secret key 写入错误信息。
 
 当前已完成薄适配骨架：`S3ObjectStore` 类已存在并持有规范化后的配置，但在真实网络上传/下载接入前保持 fail-closed。写入、校验、打开、删除都会返回未实现或失败，TTL 清理为 no-op；单测会校验这些失败路径不泄露 access key 或 secret key。
 
@@ -155,8 +156,8 @@
 - **Canonical request**：方法、规范化路径、规范化查询、`host`、`x-amz-content-sha256`、`x-amz-date`、可选 `x-amz-security-token` 进入 signed headers；payload hash 使用 SHA-256 十六进制，不使用 `UNSIGNED-PAYLOAD`。
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
-- **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类和可选 MinIO 手动 smoke 脚本已完成；下一步评估真实 `S3ObjectStore` 的 PUT/GET/HEAD/DELETE 最小接入。
+- **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置和可选 MinIO 手动 smoke 脚本已完成；下一步评估真实 `S3ObjectStore` 的 PUT/GET/HEAD/DELETE 最小接入。
 
 测试替身计划：
 
@@ -209,7 +210,8 @@
 20. 已完成：补可选 MinIO 手动验证脚本，覆盖 bucket 创建和对象 PUT/HEAD/GET/DELETE smoke，不把真实 S3 作为默认 CTest 前置条件。
 21. 已完成：收紧 S3 对象请求方法边界，签名请求只允许第一阶段 `PUT`、`GET`、`HEAD`、`DELETE`，拒绝 `POST` 等非目标方法。
 22. 已完成：补 S3 HTTP 状态分类纯函数，区分成功、对象不存在、凭据/权限错误、可重试状态、客户端错误、服务端错误和未知状态，为真实网络请求失败回退做准备。
-23. 下一步：评估真实 S3/MinIO PUT/GET/HEAD/DELETE 最小实现，保持上传、下载、校验、删除失败时继续回落离线兜底。
+23. 已完成：补 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 配置解析，默认 30 秒并限制在 1 秒到 5 分钟，避免后续真实 S3 请求无限挂起。
+24. 下一步：评估真实 S3/MinIO PUT/GET/HEAD/DELETE 最小实现，保持上传、下载、校验、删除失败时继续回落离线兜底。
 
 ## 当前保护边界
 
@@ -227,7 +229,7 @@
 - 已有最小 `ObjectStore` 接口和工厂边界，filesystem 后端仍保留安全 objectKey 和本地路径解析能力，服务端远端下发已通过通用读取接口消费对象。
 - 已有 S3/MinIO 后端配置和安全边界设计，明确凭据不进日志/Redis/离线队列、TLS 默认校验、ETag 不作为 SHA-256 依据，以及失败时保留离线兜底。
 - 已有测试专用 `InMemoryObjectStore` 契约替身，覆盖通用 ObjectStore 行为和 TTL no-op 边界。
-- 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/prefix/TLS 解析和错误脱敏；真实后端仍保持未实现。
+- 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/prefix/TLS/请求超时解析和错误脱敏；真实后端仍保持未实现。
 - 已有 `S3ObjectStore` 薄适配占位类，所有对象操作在真实后端接入前 fail-closed 且不泄露凭据。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单和 HTTP 状态分类，真实后端仍保持未实现。
 - 后续进入真实 S3/MinIO 最小网络后端评估，优先保持 fail-closed 和离线兜底安全边界。
