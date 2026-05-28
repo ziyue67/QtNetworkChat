@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QUrl>
 #include <QUuid>
 
 #include <memory>
@@ -42,6 +43,14 @@ QString fileSha256Hex(QFile& file) {
         hasher.addData(chunk);
     }
     return QString::fromLatin1(hasher.result().toHex());
+}
+
+bool envFlagDefaultTrue(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    if (value.isEmpty()) {
+        return true;
+    }
+    return !(value == "0" || value == "false" || value == "no" || value == "off");
 }
 }
 
@@ -235,6 +244,75 @@ bool isSupportedObjectStoreType(const QString& storeType) {
     return normalizeObjectStoreType(storeType) == QStringLiteral("filesystem");
 }
 
+QString normalizeS3ObjectPrefix(const QString& prefix) {
+    QString normalized = prefix.trimmed();
+    while (normalized.startsWith('/')) {
+        normalized.remove(0, 1);
+    }
+    while (normalized.endsWith('/')) {
+        normalized.chop(1);
+    }
+    return normalized.isEmpty() ? QString() : normalized + "/";
+}
+
+bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* error) {
+    if (error) {
+        error->clear();
+    }
+
+    const QUrl endpoint(config.endpoint.trimmed());
+    if (!endpoint.isValid()
+        || endpoint.host().isEmpty()
+        || (endpoint.scheme() != QStringLiteral("https") && endpoint.scheme() != QStringLiteral("http"))) {
+        if (error) *error = QStringLiteral("S3 endpoint 必须是有效的 http/https URL");
+        return false;
+    }
+
+    static const QRegularExpression validBucket(QStringLiteral("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"));
+    const QString bucket = config.bucket.trimmed();
+    if (!validBucket.match(bucket).hasMatch()
+        || bucket.contains(QStringLiteral(".."))
+        || bucket.contains(QStringLiteral(".-"))
+        || bucket.contains(QStringLiteral("-."))) {
+        if (error) *error = QStringLiteral("S3 bucket 名称非法");
+        return false;
+    }
+
+    if (config.accessKey.trimmed().isEmpty()) {
+        if (error) *error = QStringLiteral("S3 access key 未配置");
+        return false;
+    }
+    if (config.secretKey.trimmed().isEmpty()) {
+        if (error) *error = QStringLiteral("S3 secret key 未配置");
+        return false;
+    }
+
+    const QString prefix = normalizeS3ObjectPrefix(config.prefix);
+    static const QRegularExpression validPrefix(QStringLiteral("^[A-Za-z0-9._/-]*$"));
+    if (prefix.contains(QStringLiteral(".."))
+        || prefix.contains('\\')
+        || prefix.contains(':')
+        || prefix.contains(QStringLiteral("//"))
+        || !validPrefix.match(prefix).hasMatch()) {
+        if (error) *error = QStringLiteral("S3 object key 前缀非法");
+        return false;
+    }
+
+    return true;
+}
+
+S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment() {
+    S3ObjectStoreConfig config;
+    config.endpoint = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT")).trimmed();
+    config.bucket = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_BUCKET")).trimmed();
+    config.region = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_REGION")).trimmed();
+    config.accessKey = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY")).trimmed();
+    config.secretKey = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY")).trimmed();
+    config.prefix = normalizeS3ObjectPrefix(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX")));
+    config.tlsVerify = envFlagDefaultTrue("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
+    return config;
+}
+
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
                                                const QString& rootDir,
                                                QString* error) {
@@ -243,6 +321,21 @@ std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
     }
 
     const QString normalizedType = normalizeObjectStoreType(storeType);
+    if (normalizedType == QStringLiteral("s3")) {
+        QString configError;
+        const S3ObjectStoreConfig config = s3ObjectStoreConfigFromEnvironment();
+        if (!validateS3ObjectStoreConfig(config, &configError)) {
+            if (error) {
+                *error = QStringLiteral("S3对象存储配置无效: %1").arg(configError);
+            }
+            return {};
+        }
+        if (error) {
+            *error = QStringLiteral("S3对象存储后端暂未实现");
+        }
+        return {};
+    }
+
     if (normalizedType != QStringLiteral("filesystem")) {
         if (error) {
             *error = QStringLiteral("对象存储后端暂不支持: %1").arg(normalizedType);

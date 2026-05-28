@@ -132,6 +132,8 @@
 | `QTNETWORKCHAT_OBJECT_S3_PREFIX` | 对象 key 前缀，例如 `qtchat/large-files/` | 必须规范化，禁止 `..`、反斜杠和绝对路径语义 |
 | `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY` | 是否校验证书链 | 默认开启；关闭时必须输出 warning |
 
+当前已完成配置校验骨架：`s3` 模式会解析上述环境变量，校验 endpoint、bucket、access key、secret key 和 prefix；配置错误会返回不含凭据值的明确原因。即使配置完整，真实后端尚未实现时也只返回“暂未实现”，不会把 access key 或 secret key 写入错误信息。
+
 适配规则：
 
 - 工厂只在 `QTNETWORKCHAT_OBJECT_STORE=s3` 且 endpoint、bucket、凭据完整时创建后端；配置缺失时返回明确错误并保留源实例离线队列。
@@ -184,7 +186,8 @@
 12. 已完成：新增 ObjectStore 工厂边界，统一处理默认 filesystem、缺根目录和未支持后端错误，让服务端通过配置创建后端。
 13. 已完成：补 S3/MinIO 后端配置、凭据/TLS 边界、失败回退和测试替身设计，不一次引入完整云存储依赖。
 14. 已完成：补 `InMemoryObjectStore` 测试替身并复用 ObjectStore 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
-15. 下一步：评估真实 S3/MinIO 后端依赖、签名、TLS 和可选 MinIO 手动脚本，不作为默认 CTest 前置条件。
+15. 已完成：补 S3 配置校验骨架和测试，覆盖 endpoint、bucket、access key、secret key、prefix、TLS flag、缺配置错误和错误信息不泄露凭据。
+16. 下一步：评估真实 S3/MinIO 后端依赖、签名、TLS 和可选 MinIO 手动脚本，不作为默认 CTest 前置条件。
 
 ## 当前保护边界
 
@@ -202,4 +205,5 @@
 - 已有最小 `ObjectStore` 接口和工厂边界，filesystem 后端仍保留安全 objectKey 和本地路径解析能力，服务端远端下发已通过通用读取接口消费对象。
 - 已有 S3/MinIO 后端配置和安全边界设计，明确凭据不进日志/Redis/离线队列、TLS 默认校验、ETag 不作为 SHA-256 依据，以及失败时保留离线兜底。
 - 已有测试专用 `InMemoryObjectStore` 契约替身，覆盖通用 ObjectStore 行为和 TTL no-op 边界。
+- 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/prefix/TLS 解析和错误脱敏；真实后端仍保持未实现。
 - 后续进入真实 S3/MinIO 后端实现评估和可选 MinIO 手动脚本设计。

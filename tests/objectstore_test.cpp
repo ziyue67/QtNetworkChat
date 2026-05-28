@@ -199,13 +199,55 @@ int main() {
     ok = expect(isSupportedObjectStoreType(QStringLiteral("filesystem")),
                 "filesystem object store type should be supported") && ok;
     ok = expect(!isSupportedObjectStoreType(QStringLiteral("s3")),
-                "s3 object store type should be reserved but unsupported until implemented") && ok;
+                "s3 object store type should remain disabled until implemented") && ok;
     std::unique_ptr<ObjectStore> unsupportedStore = createObjectStore(QStringLiteral("s3"), tempDir.filePath("s3"), &factoryError);
-    ok = expect(!unsupportedStore && factoryError.contains(QString::fromUtf8("暂不支持")),
-                "unsupported object store types should fail with a clear error") && ok;
+    ok = expect(!unsupportedStore && factoryError.contains(QStringLiteral("endpoint")),
+                "s3 object store should fail fast when endpoint is missing") && ok;
     std::unique_ptr<ObjectStore> missingRootStore = createObjectStore(QStringLiteral("filesystem"), QString(), &factoryError);
     ok = expect(!missingRootStore && factoryError.contains(QString::fromUtf8("根目录")),
                 "filesystem object store should require a root directory") && ok;
+    S3ObjectStoreConfig s3Config;
+    s3Config.endpoint = QStringLiteral("https://minio.internal:9000");
+    s3Config.bucket = QStringLiteral("qtchat-large-files");
+    s3Config.region = QStringLiteral("local");
+    s3Config.accessKey = QStringLiteral("access-key");
+    s3Config.secretKey = QStringLiteral("super-secret-value");
+    s3Config.prefix = QStringLiteral("/qtchat/large-files/");
+    QString s3Error;
+    ok = expect(validateS3ObjectStoreConfig(s3Config, &s3Error),
+                "valid s3 object store config should pass validation") && ok;
+    ok = expect(normalizeS3ObjectPrefix(s3Config.prefix) == QStringLiteral("qtchat/large-files/"),
+                "s3 prefix should be normalized without leading slash") && ok;
+    S3ObjectStoreConfig invalidS3Config = s3Config;
+    invalidS3Config.prefix = QStringLiteral("../secret");
+    ok = expect(!validateS3ObjectStoreConfig(invalidS3Config, &s3Error)
+                    && s3Error.contains(QString::fromUtf8("前缀"))
+                    && !s3Error.contains(invalidS3Config.secretKey),
+                "invalid s3 prefix should fail without leaking credentials") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT", "https://minio.internal:9000");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_BUCKET", "qtchat-large-files");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_REGION", "local");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY", "access-key");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY", "super-secret-value");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_PREFIX", "/qtchat/large-files/");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY", "0");
+    const S3ObjectStoreConfig envS3Config = s3ObjectStoreConfigFromEnvironment();
+    ok = expect(envS3Config.prefix == QStringLiteral("qtchat/large-files/")
+                    && !envS3Config.tlsVerify,
+                "s3 config should parse environment prefix and TLS flag") && ok;
+    unsupportedStore = createObjectStore(QStringLiteral("s3"), QString(), &factoryError);
+    ok = expect(!unsupportedStore
+                    && factoryError.contains(QString::fromUtf8("暂未实现"))
+                    && !factoryError.contains(QStringLiteral("super-secret-value"))
+                    && !factoryError.contains(QStringLiteral("access-key")),
+                "configured s3 backend should remain unimplemented without leaking credentials") && ok;
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_BUCKET");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_REGION");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
 
     const QByteArray payload("filesystem object store payload");
     QString objectKey;

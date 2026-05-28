@@ -57,8 +57,21 @@ private:
     QString m_rootDir;
 };
 
+struct S3ObjectStoreConfig {
+    QString endpoint;
+    QString bucket;
+    QString region;
+    QString accessKey;
+    QString secretKey;
+    QString prefix;
+    bool tlsVerify = true;
+};
+
 QString normalizeObjectStoreType(const QString& storeType);
 bool isSupportedObjectStoreType(const QString& storeType);
+QString normalizeS3ObjectPrefix(const QString& prefix);
+bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* error = nullptr);
+S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment();
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
                                                const QString& rootDir,
                                                QString* error = nullptr);
