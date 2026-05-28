@@ -6,11 +6,14 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QMap>
+#include <QMessageAuthenticationCode>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QUrl>
 #include <QUuid>
 
+#include <algorithm>
 #include <memory>
 
 namespace {
@@ -33,6 +36,10 @@ QString sha256Hex(const QByteArray& data) {
     return QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
 }
 
+QByteArray hmacSha256(const QByteArray& key, const QByteArray& message) {
+    return QMessageAuthenticationCode::hash(message, key, QCryptographicHash::Sha256);
+}
+
 QString fileSha256Hex(QFile& file) {
     QCryptographicHash hasher(QCryptographicHash::Sha256);
     while (!file.atEnd()) {
@@ -51,6 +58,27 @@ bool envFlagDefaultTrue(const char* name) {
         return true;
     }
     return !(value == "0" || value == "false" || value == "no" || value == "off");
+}
+
+QString collapseHeaderWhitespace(const QString& value) {
+    static const QRegularExpression whitespace(QStringLiteral("\\s+"));
+    return QString(value).replace(whitespace, QStringLiteral(" ")).trimmed();
+}
+
+QString canonicalUri(const QUrl& url) {
+    const QString path = url.path(QUrl::FullyEncoded);
+    return path.isEmpty() ? QStringLiteral("/") : path;
+}
+
+QString canonicalQueryString(const QUrl& url) {
+    const QString query = url.query(QUrl::FullyEncoded);
+    if (query.isEmpty()) {
+        return QString();
+    }
+
+    QStringList parts = query.split('&', Qt::KeepEmptyParts);
+    std::sort(parts.begin(), parts.end());
+    return parts.join('&');
 }
 }
 
@@ -385,6 +413,83 @@ QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey) {
     path += config.bucket.trimmed() + "/" + normalizeS3ObjectPrefix(config.prefix) + objectKey.trimmed();
     url.setPath(path);
     return url;
+}
+
+QString s3PayloadSha256Hex(const QByteArray& payload) {
+    return sha256Hex(payload);
+}
+
+QString s3CredentialScope(const QString& date, const QString& region) {
+    return QStringLiteral("%1/%2/s3/aws4_request").arg(date.trimmed(), region.trimmed());
+}
+
+QString s3CanonicalRequest(const QString& method,
+                           const QUrl& url,
+                           const QMap<QString, QString>& headers,
+                           const QString& payloadSha256Hex,
+                           QString* signedHeaders) {
+    if (signedHeaders) {
+        signedHeaders->clear();
+    }
+
+    QMap<QString, QString> canonicalHeaders;
+    for (auto it = headers.constBegin(); it != headers.constEnd(); ++it) {
+        const QString name = it.key().trimmed().toLower();
+        if (name.isEmpty()) {
+            continue;
+        }
+        canonicalHeaders.insert(name, collapseHeaderWhitespace(it.value()));
+    }
+
+    QStringList headerLines;
+    QStringList signedHeaderNames;
+    for (auto it = canonicalHeaders.constBegin(); it != canonicalHeaders.constEnd(); ++it) {
+        headerLines.append(QStringLiteral("%1:%2\n").arg(it.key(), it.value()));
+        signedHeaderNames.append(it.key());
+    }
+
+    const QString signedHeaderText = signedHeaderNames.join(';');
+    if (signedHeaders) {
+        *signedHeaders = signedHeaderText;
+    }
+
+    return QStringLiteral("%1\n%2\n%3\n%4\n%5\n%6")
+        .arg(method.trimmed().toUpper(),
+             canonicalUri(url),
+             canonicalQueryString(url),
+             headerLines.join(QString()),
+             signedHeaderText,
+             payloadSha256Hex.trimmed().toLower());
+}
+
+QString s3StringToSign(const QString& amzDate,
+                       const QString& credentialScope,
+                       const QString& canonicalRequest) {
+    const QString canonicalHash = sha256Hex(canonicalRequest.toUtf8());
+    return QStringLiteral("AWS4-HMAC-SHA256\n%1\n%2\n%3")
+        .arg(amzDate.trimmed(), credentialScope.trimmed(), canonicalHash);
+}
+
+QString s3SignatureHex(const QString& secretKey,
+                       const QString& date,
+                       const QString& region,
+                       const QString& stringToSign) {
+    const QByteArray kDate = hmacSha256(QByteArrayLiteral("AWS4") + secretKey.toUtf8(), date.trimmed().toUtf8());
+    const QByteArray kRegion = hmacSha256(kDate, region.trimmed().toUtf8());
+    const QByteArray kService = hmacSha256(kRegion, QByteArrayLiteral("s3"));
+    const QByteArray kSigning = hmacSha256(kService, QByteArrayLiteral("aws4_request"));
+    return QString::fromLatin1(hmacSha256(kSigning, stringToSign.toUtf8()).toHex());
+}
+
+QString s3AuthorizationHeader(const QString& accessKey,
+                              const QString& credentialScope,
+                              const QString& signedHeaders,
+                              const QString& signatureHex) {
+    return QStringLiteral("AWS4-HMAC-SHA256 Credential=%1/%2,SignedHeaders=%3,Signature=%4")
+        .arg(accessKey.trimmed(),
+             credentialScope.trimmed(),
+             signedHeaders.trimmed(),
+             signatureHex.trimmed().toLower());
 }
 
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,

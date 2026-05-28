@@ -3,6 +3,7 @@
 
 #include <QByteArray>
 #include <QIODevice>
+#include <QMap>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
@@ -96,6 +97,24 @@ QString normalizeS3ObjectPrefix(const QString& prefix);
 bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* error = nullptr);
 S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment();
 QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey);
+QString s3PayloadSha256Hex(const QByteArray& payload);
+QString s3CredentialScope(const QString& date, const QString& region);
+QString s3CanonicalRequest(const QString& method,
+                           const QUrl& url,
+                           const QMap<QString, QString>& headers,
+                           const QString& payloadSha256Hex,
+                           QString* signedHeaders = nullptr);
+QString s3StringToSign(const QString& amzDate,
+                       const QString& credentialScope,
+                       const QString& canonicalRequest);
+QString s3SignatureHex(const QString& secretKey,
+                       const QString& date,
+                       const QString& region,
+                       const QString& stringToSign);
+QString s3AuthorizationHeader(const QString& accessKey,
+                              const QString& credentialScope,
+                              const QString& signedHeaders,
+                              const QString& signatureHex);
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
                                                const QString& rootDir,
                                                QString* error = nullptr);

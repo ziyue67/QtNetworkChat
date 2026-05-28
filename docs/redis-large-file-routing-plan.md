@@ -136,7 +136,7 @@
 
 当前已完成薄适配骨架：`S3ObjectStore` 类已存在并持有规范化后的配置，但在真实网络上传/下载接入前保持 fail-closed。写入、校验、打开、删除都会返回未实现或失败，TTL 清理为 no-op；单测会校验这些失败路径不泄露 access key 或 secret key。
 
-当前已完成 URL 边界骨架：`s3ObjectUrl()` 会按 MinIO 兼容的 path-style 格式生成 `endpoint/bucket/prefix/objectKey`，并复用 objectKey 校验拒绝路径穿越。后续真实后端应在该 URL 基础上添加签名和 Qt Network 请求，不把 bucket、endpoint 或凭据写入 Redis 控制事件。
+当前已完成 URL 与签名边界骨架：`s3ObjectUrl()` 会按 MinIO 兼容的 path-style 格式生成 `endpoint/bucket/prefix/objectKey`，并复用 objectKey 校验拒绝路径穿越；Signature V4 纯函数已覆盖 payload SHA-256、credential scope、canonical request、string-to-sign、HMAC signing key、signature 和 Authorization header，并用 AWS GET Object 固定向量锁定输出。后续真实后端应在这些纯函数基础上构造 Qt Network 请求，不把 bucket、endpoint、凭据或 Authorization header 写入 Redis 控制事件或日志。
 
 适配规则：
 
@@ -156,7 +156,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退。
-- **实现顺序**：先补签名纯函数测试和固定 AWS 示例向量；再补不联网的 request 构造测试；最后才接可选 MinIO 手动脚本验证真实 PUT/GET/HEAD/DELETE。
+- **实现顺序**：签名纯函数测试和固定 AWS 示例向量已完成；下一步补不联网的 request 构造测试；最后才接可选 MinIO 手动脚本验证真实 PUT/GET/HEAD/DELETE。
 
 测试替身计划：
 
@@ -204,7 +204,8 @@
 15. 已完成：补 S3 配置校验骨架和测试，覆盖 endpoint、bucket、access key、secret key、prefix、TLS flag、缺配置错误和错误信息不泄露凭据。
 16. 已完成：补 `S3ObjectStore` 薄适配占位类和 fail-closed 测试，真实网络上传/下载未接入前仍不发布可用后端。
 17. 已完成：补 S3 path-style URL 纯函数和 Signature V4/Qt Network 实现计划，明确 PUT/GET/HEAD/DELETE、payload hash、TLS 和日志脱敏边界。
-18. 下一步：补 AWS Signature V4 纯函数和固定测试向量，不联网、不接真实 S3。
+18. 已完成：补 AWS Signature V4 纯函数和固定测试向量，不联网、不接真实 S3。
+19. 下一步：补 Qt Network S3 请求构造测试，验证方法、URL、host、x-amz-date、x-amz-content-sha256、Authorization 和 TLS 校验开关边界，仍不连接真实 S3。
 
 ## 当前保护边界
 
@@ -224,5 +225,5 @@
 - 已有测试专用 `InMemoryObjectStore` 契约替身，覆盖通用 ObjectStore 行为和 TTL no-op 边界。
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/prefix/TLS 解析和错误脱敏；真实后端仍保持未实现。
 - 已有 `S3ObjectStore` 薄适配占位类，所有对象操作在真实后端接入前 fail-closed 且不泄露凭据。
-- 已有 S3 path-style URL 生成和 Signature V4/Qt Network 实现计划，真实后端仍保持未实现。
-- 后续进入 AWS Signature V4 纯函数和固定测试向量。
+- 已有 S3 path-style URL 生成、Signature V4 纯函数和固定 AWS 测试向量，真实后端仍保持未实现。
+- 后续进入 Qt Network S3 请求构造测试和可选 MinIO 手动验证脚本。

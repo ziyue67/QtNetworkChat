@@ -230,6 +230,73 @@ int main() {
                     && s3Error.contains(QString::fromUtf8("前缀"))
                     && !s3Error.contains(invalidS3Config.secretKey),
                 "invalid s3 prefix should fail without leaking credentials") && ok;
+    ok = expect(s3PayloadSha256Hex(QByteArray()) == QStringLiteral("e3b0c44298fc1c149afbf4c8996fb924"
+                                                                    "27ae41e4649b934ca495991b7852b855"),
+                "s3 payload helper should return SHA-256 hex for an empty payload") && ok;
+    QMap<QString, QString> s3Headers;
+    s3Headers.insert(QStringLiteral("Host"), QStringLiteral("examplebucket.s3.amazonaws.com"));
+    s3Headers.insert(QStringLiteral("Range"), QStringLiteral("bytes=0-9"));
+    s3Headers.insert(QStringLiteral("x-amz-content-sha256"), QStringLiteral("e3b0c44298fc1c149afbf4c8996fb924"
+                                                                            "27ae41e4649b934ca495991b7852b855"));
+    s3Headers.insert(QStringLiteral("x-amz-date"), QStringLiteral("20130524T000000Z"));
+    QString signedHeaders;
+    const QString canonicalRequest = s3CanonicalRequest(QStringLiteral("GET"),
+                                                        QUrl(QStringLiteral("https://examplebucket.s3.amazonaws.com/test.txt")),
+                                                        s3Headers,
+                                                        QStringLiteral("e3b0c44298fc1c149afbf4c8996fb924"
+                                                                       "27ae41e4649b934ca495991b7852b855"),
+                                                        &signedHeaders);
+    const QString expectedCanonicalRequest =
+        QStringLiteral("GET\n"
+                       "/test.txt\n"
+                       "\n"
+                       "host:examplebucket.s3.amazonaws.com\n"
+                       "range:bytes=0-9\n"
+                       "x-amz-content-sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n"
+                       "x-amz-date:20130524T000000Z\n"
+                       "\n"
+                       "host;range;x-amz-content-sha256;x-amz-date\n"
+                       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    ok = expect(canonicalRequest == expectedCanonicalRequest
+                    && signedHeaders == QStringLiteral("host;range;x-amz-content-sha256;x-amz-date"),
+                "s3 canonical request should match the AWS Signature V4 GET object example") && ok;
+    const QString credentialScope = s3CredentialScope(QStringLiteral("20130524"), QStringLiteral("us-east-1"));
+    const QString stringToSign = s3StringToSign(QStringLiteral("20130524T000000Z"),
+                                                credentialScope,
+                                                canonicalRequest);
+    ok = expect(stringToSign == QStringLiteral("AWS4-HMAC-SHA256\n"
+                                               "20130524T000000Z\n"
+                                               "20130524/us-east-1/s3/aws4_request\n"
+                                               "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972"),
+                "s3 string-to-sign should match the AWS Signature V4 GET object example") && ok;
+    const QString signature = s3SignatureHex(QStringLiteral("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"),
+                                             QStringLiteral("20130524"),
+                                             QStringLiteral("us-east-1"),
+                                             stringToSign);
+    ok = expect(signature == QStringLiteral("67fe34c8530db585abddc51067328adfedb6e42487d2566dc7d927d6e2722900"),
+                "s3 signature helper should match the AWS Signature V4 GET object example") && ok;
+    const QString authorizationHeader = s3AuthorizationHeader(QStringLiteral("AKIAIOSFODNN7EXAMPLE"),
+                                                              credentialScope,
+                                                              signedHeaders,
+                                                              signature);
+    ok = expect(authorizationHeader == QStringLiteral("AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/"
+                                                      "20130524/us-east-1/s3/aws4_request,SignedHeaders="
+                                                      "host;range;x-amz-content-sha256;x-amz-date,Signature="
+                                                      "67fe34c8530db585abddc51067328adfedb6e42487d2566dc7d927d6e2722900"),
+                "s3 authorization header should match the AWS Signature V4 GET object example") && ok;
+    QMap<QString, QString> messyHeaders;
+    messyHeaders.insert(QStringLiteral(" X-Amz-Date "), QStringLiteral("  20130524T000000Z  "));
+    messyHeaders.insert(QStringLiteral("HOST"), QStringLiteral("examplebucket.s3.amazonaws.com"));
+    messyHeaders.insert(QStringLiteral("x-amz-content-sha256"), s3PayloadSha256Hex(QByteArrayLiteral("payload")));
+    QString messySignedHeaders;
+    const QString messyCanonical = s3CanonicalRequest(QStringLiteral("put"),
+                                                      QUrl(QStringLiteral("https://examplebucket.s3.amazonaws.com/a%20b.txt?partNumber=1&uploadId=xyz")),
+                                                      messyHeaders,
+                                                      s3PayloadSha256Hex(QByteArrayLiteral("payload")),
+                                                      &messySignedHeaders);
+    ok = expect(messySignedHeaders == QStringLiteral("host;x-amz-content-sha256;x-amz-date")
+                    && messyCanonical.startsWith(QStringLiteral("PUT\n/a%20b.txt\npartNumber=1&uploadId=xyz\n")),
+                "s3 canonical request should normalize method, path, query and signed header names") && ok;
     qputenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT", "https://minio.internal:9000");
     qputenv("QTNETWORKCHAT_OBJECT_S3_BUCKET", "qtchat-large-files");
     qputenv("QTNETWORKCHAT_OBJECT_S3_REGION", "local");
