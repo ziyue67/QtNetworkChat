@@ -143,7 +143,7 @@
 
 测试替身计划：
 
-- 先实现一个仅测试使用的 `InMemoryObjectStore` 或临时目录假后端，复用 `ObjectStore` 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
+- 已实现仅测试使用的 `InMemoryObjectStore`，复用 `ObjectStore` 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
 - 服务端集成测试不连接真实 S3；只验证工厂在 `s3` 配置缺失时不发布 offer，并在未来注入假后端后可复用同一分片 ACK 下发流程。
 - 真实 MinIO 端到端测试后续可作为可选手动脚本或 CI service，不作为默认 CTest 前置条件。
 
@@ -183,7 +183,8 @@
 11. 已完成：把 filesystem helper 抽象到最小 `ObjectStore` 接口，覆盖写入、校验、读取、删除和 TTL 清理，并让远端下发改用通用 `QIODevice` 读取对象。
 12. 已完成：新增 ObjectStore 工厂边界，统一处理默认 filesystem、缺根目录和未支持后端错误，让服务端通过配置创建后端。
 13. 已完成：补 S3/MinIO 后端配置、凭据/TLS 边界、失败回退和测试替身设计，不一次引入完整云存储依赖。
-14. 下一步：补 ObjectStore 契约测试替身，例如 `InMemoryObjectStore` 或测试专用 mock 后端，为真实 S3/MinIO 后端实现打底。
+14. 已完成：补 `InMemoryObjectStore` 测试替身并复用 ObjectStore 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
+15. 下一步：评估真实 S3/MinIO 后端依赖、签名、TLS 和可选 MinIO 手动脚本，不作为默认 CTest 前置条件。
 
 ## 当前保护边界
 
@@ -200,4 +201,5 @@
 - 已有 delivered 丢失对账任务设计，强调只有完整 receipt 匹配才能清队列，对象 TTL 清理不等同于投递成功。
 - 已有最小 `ObjectStore` 接口和工厂边界，filesystem 后端仍保留安全 objectKey 和本地路径解析能力，服务端远端下发已通过通用读取接口消费对象。
 - 已有 S3/MinIO 后端配置和安全边界设计，明确凭据不进日志/Redis/离线队列、TLS 默认校验、ETag 不作为 SHA-256 依据，以及失败时保留离线兜底。
-- 后续进入 ObjectStore 契约测试替身和真实 S3/MinIO 后端实现评估。
+- 已有测试专用 `InMemoryObjectStore` 契约替身，覆盖通用 ObjectStore 行为和 TTL no-op 边界。
+- 后续进入真实 S3/MinIO 后端实现评估和可选 MinIO 手动脚本设计。
