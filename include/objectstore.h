@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <QUrl>
 
+#include <functional>
 #include <memory>
 
 class ObjectStore {
@@ -106,9 +107,18 @@ struct S3RequestResult {
     QString error;
 };
 
+struct S3RequestExecutionResult {
+    S3RequestResult result;
+    QMap<QString, QString> headers;
+    QByteArray body;
+};
+
+using S3RequestExecutor = std::function<S3RequestExecutionResult(const S3SignedObjectRequest&)>;
+
 class S3ObjectStore : public ObjectStore {
 public:
     explicit S3ObjectStore(const S3ObjectStoreConfig& config);
+    S3ObjectStore(const S3ObjectStoreConfig& config, S3RequestExecutor requestExecutor);
 
     S3ObjectStoreConfig config() const;
 
@@ -126,6 +136,7 @@ public:
 
 private:
     S3ObjectStoreConfig m_config;
+    S3RequestExecutor m_requestExecutor;
 };
 
 QString normalizeObjectStoreType(const QString& storeType);

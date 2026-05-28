@@ -563,6 +563,76 @@ int main() {
     ok = expect(tlsDisabledRequest.request.url().isValid(),
                 "s3 signed request should still be constructible without Qt SSL support") && ok;
 #endif
+    const QString expectedS3Hash = sha256Hex(QByteArrayLiteral("payload"));
+    QStringList s3ExecutorMethods;
+    S3ObjectStore s3HeadDeleteStore(envS3Config,
+                                    [&s3ExecutorMethods, &envS3Config, expectedS3Hash](const S3SignedObjectRequest& request) {
+        s3ExecutorMethods.append(QString::fromLatin1(request.method));
+        S3RequestExecutionResult result;
+        if (request.method == QByteArrayLiteral("HEAD")) {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.headers.insert(QStringLiteral("Content-Length"), QStringLiteral("7"));
+            result.headers.insert(QStringLiteral("X-Amz-Meta-Sha256"), expectedS3Hash.toUpper());
+        } else if (request.method == QByteArrayLiteral("DELETE")) {
+            result.result = s3RequestResultFromReply(envS3Config, 204);
+        } else {
+            result.result = s3RequestResultFromReply(envS3Config,
+                                                     400,
+                                                     QStringLiteral("unexpected method with super-secret-value"));
+        }
+        return result;
+    });
+    const ObjectStore::ValidationResult s3HeadValidation =
+        s3HeadDeleteStore.validateObject(QStringLiteral("abcdef1234567890.bin"),
+                                         7,
+                                         expectedS3Hash);
+    ok = expect(s3HeadValidation.ok
+                    && s3HeadValidation.size == 7
+                    && s3HeadValidation.fileHash == expectedS3Hash,
+                "s3 injected HEAD path should validate size and SHA-256 metadata") && ok;
+    ok = expect(s3HeadDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin")),
+                "s3 injected DELETE path should report successful deletion") && ok;
+    ok = expect(s3ExecutorMethods == QStringList({QStringLiteral("HEAD"), QStringLiteral("DELETE")}),
+                "s3 injected executor should receive HEAD and DELETE requests only") && ok;
+    S3ObjectStore s3MissingHashStore(envS3Config,
+                                     [&envS3Config](const S3SignedObjectRequest& request) {
+        S3RequestExecutionResult result;
+        result.result = s3RequestResultFromReply(envS3Config, request.method == QByteArrayLiteral("HEAD") ? 200 : 204);
+        result.headers.insert(QStringLiteral("content-length"), QStringLiteral("7"));
+        return result;
+    });
+    const ObjectStore::ValidationResult s3MissingHashValidation =
+        s3MissingHashStore.validateObject(QStringLiteral("abcdef1234567890.bin"), 7, expectedS3Hash);
+    ok = expect(!s3MissingHashValidation.ok
+                    && s3MissingHashValidation.error.contains(QStringLiteral("SHA-256")),
+                "s3 HEAD validation should fail closed when hash metadata is missing") && ok;
+    S3ObjectStore s3FailedHeadStore(envS3Config,
+                                    [&envS3Config](const S3SignedObjectRequest& request) {
+        Q_UNUSED(request);
+        S3RequestExecutionResult result;
+        result.result = s3RequestResultFromReply(envS3Config,
+                                                 0,
+                                                 QStringLiteral("network failed with access-key super-secret-value temporary-session-token"));
+        return result;
+    });
+    const ObjectStore::ValidationResult s3FailedHeadValidation =
+        s3FailedHeadStore.validateObject(QStringLiteral("abcdef1234567890.bin"), 7, expectedS3Hash);
+    ok = expect(!s3FailedHeadValidation.ok
+                    && s3FailedHeadValidation.error.contains(QStringLiteral("network_error"))
+                    && !s3FailedHeadValidation.error.contains(envS3Config.accessKey)
+                    && !s3FailedHeadValidation.error.contains(envS3Config.secretKey)
+                    && !s3FailedHeadValidation.error.contains(envS3Config.sessionToken),
+                "s3 HEAD validation failure should keep errors redacted") && ok;
+    S3ObjectStore s3FailedDeleteStore(envS3Config,
+                                      [&envS3Config](const S3SignedObjectRequest& request) {
+        Q_UNUSED(request);
+        S3RequestExecutionResult result;
+        result.result = s3RequestResultFromReply(envS3Config, 404);
+        return result;
+    });
+    ok = expect(!s3FailedDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin"))
+                    && !s3FailedDeleteStore.removeObject(QStringLiteral("../escape.bin")),
+                "s3 DELETE should fail closed for not-found results and invalid object keys") && ok;
     QString s3WriteKey;
     QString s3WriteHash;
     QString s3WriteError;

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 namespace {
 QString normalizeExtension(const QString& extension) {
@@ -306,8 +307,13 @@ int FilesystemObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys
 }
 
 S3ObjectStore::S3ObjectStore(const S3ObjectStoreConfig& config)
+    : S3ObjectStore(config, {}) {
+}
+
+S3ObjectStore::S3ObjectStore(const S3ObjectStoreConfig& config, S3RequestExecutor requestExecutor)
     : m_config(config) {
     m_config.prefix = normalizeS3ObjectPrefix(m_config.prefix);
+    m_requestExecutor = std::move(requestExecutor);
 }
 
 S3ObjectStoreConfig S3ObjectStore::config() const {
@@ -336,11 +342,65 @@ bool S3ObjectStore::writeObject(const QByteArray& data,
 ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objectKey,
                                                             qint64 expectedSize,
                                                             const QString& expectedHash) const {
-    Q_UNUSED(objectKey);
-    Q_UNUSED(expectedSize);
-    Q_UNUSED(expectedHash);
     ValidationResult result;
-    result.error = QStringLiteral("S3对象存储后端暂未实现");
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        result.error = QStringLiteral("S3 object key 非法");
+        return result;
+    }
+    if (!m_requestExecutor) {
+        result.error = QStringLiteral("S3对象存储后端暂未实现");
+        return result;
+    }
+
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("HEAD"), QByteArray());
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        result.error = QStringLiteral("S3 HEAD 请求构造失败");
+        return result;
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request);
+    if (!execution.result.http.ok) {
+        result.error = QStringLiteral("S3 HEAD 请求失败: %1").arg(execution.result.http.reason);
+        if (!execution.result.error.isEmpty()) {
+            result.error += QStringLiteral(" %1").arg(redactS3ErrorText(m_config, execution.result.error));
+        }
+        return result;
+    }
+
+    const auto headerValue = [&execution](const QString& name) {
+        for (auto it = execution.headers.constBegin(); it != execution.headers.constEnd(); ++it) {
+            if (it.key().compare(name, Qt::CaseInsensitive) == 0) {
+                return it.value().trimmed();
+            }
+        }
+        return QString();
+    };
+
+    bool sizeOk = false;
+    result.size = headerValue(QStringLiteral("content-length")).toLongLong(&sizeOk);
+    if (!sizeOk || result.size < 0) {
+        result.error = QStringLiteral("S3 HEAD 响应缺少有效 Content-Length");
+        return result;
+    }
+    if (expectedSize >= 0 && result.size != expectedSize) {
+        result.error = QStringLiteral("S3对象大小不一致");
+        return result;
+    }
+
+    result.fileHash = headerValue(QStringLiteral("x-amz-meta-sha256")).toLower();
+    const QString normalizedExpectedHash = expectedHash.trimmed().toLower();
+    if (!normalizedExpectedHash.isEmpty()) {
+        if (result.fileHash.isEmpty()) {
+            result.error = QStringLiteral("S3 HEAD 响应缺少 SHA-256 元数据");
+            return result;
+        }
+        if (result.fileHash != normalizedExpectedHash) {
+            result.error = QStringLiteral("S3对象哈希不一致");
+            return result;
+        }
+    }
+
+    result.ok = true;
     return result;
 }
 
@@ -350,8 +410,17 @@ std::unique_ptr<QIODevice> S3ObjectStore::openObject(const QString& objectKey) c
 }
 
 bool S3ObjectStore::removeObject(const QString& objectKey) const {
-    Q_UNUSED(objectKey);
-    return false;
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey) || !m_requestExecutor) {
+        return false;
+    }
+
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("DELETE"), QByteArray());
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        return false;
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request);
+    return execution.result.http.ok;
 }
 
 int S3ObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys) const {
