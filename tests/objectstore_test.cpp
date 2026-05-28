@@ -235,6 +235,33 @@ int main() {
     ok = expect(envS3Config.prefix == QStringLiteral("qtchat/large-files/")
                     && !envS3Config.tlsVerify,
                 "s3 config should parse environment prefix and TLS flag") && ok;
+    S3ObjectStore s3Placeholder(envS3Config);
+    ok = expect(s3Placeholder.config().prefix == QStringLiteral("qtchat/large-files/"),
+                "s3 placeholder should keep normalized prefix") && ok;
+    QString s3WriteKey;
+    QString s3WriteHash;
+    QString s3WriteError;
+    ok = expect(!s3Placeholder.writeObject(QByteArrayLiteral("payload"),
+                                           &s3WriteKey,
+                                           &s3WriteHash,
+                                           &s3WriteError,
+                                           QStringLiteral("bin"))
+                    && s3WriteKey.isEmpty()
+                    && s3WriteHash.isEmpty()
+                    && s3WriteError.contains(QString::fromUtf8("暂未实现"))
+                    && !s3WriteError.contains(envS3Config.secretKey)
+                    && !s3WriteError.contains(envS3Config.accessKey),
+                "s3 placeholder writes should fail without leaking credentials") && ok;
+    const ObjectStore::ValidationResult s3Validation =
+        s3Placeholder.validateObject(QStringLiteral("object-key"), 7, sha256Hex(QByteArrayLiteral("payload")));
+    ok = expect(!s3Validation.ok
+                    && s3Validation.error.contains(QString::fromUtf8("暂未实现"))
+                    && !s3Placeholder.openObject(QStringLiteral("object-key"))
+                    && !s3Placeholder.removeObject(QStringLiteral("object-key")),
+                "s3 placeholder read/validate/remove should fail closed") && ok;
+    QStringList s3RemovedKeys;
+    ok = expect(s3Placeholder.cleanupExpired(0, &s3RemovedKeys) == 0 && s3RemovedKeys.isEmpty(),
+                "s3 placeholder cleanup should be a no-op") && ok;
     unsupportedStore = createObjectStore(QStringLiteral("s3"), QString(), &factoryError);
     ok = expect(!unsupportedStore
                     && factoryError.contains(QString::fromUtf8("暂未实现"))

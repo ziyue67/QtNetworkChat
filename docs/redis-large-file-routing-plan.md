@@ -134,6 +134,8 @@
 
 当前已完成配置校验骨架：`s3` 模式会解析上述环境变量，校验 endpoint、bucket、access key、secret key 和 prefix；配置错误会返回不含凭据值的明确原因。即使配置完整，真实后端尚未实现时也只返回“暂未实现”，不会把 access key 或 secret key 写入错误信息。
 
+当前已完成薄适配骨架：`S3ObjectStore` 类已存在并持有规范化后的配置，但在真实网络上传/下载接入前保持 fail-closed。写入、校验、打开、删除都会返回未实现或失败，TTL 清理为 no-op；单测会校验这些失败路径不泄露 access key 或 secret key。
+
 适配规则：
 
 - 工厂只在 `QTNETWORKCHAT_OBJECT_STORE=s3` 且 endpoint、bucket、凭据完整时创建后端；配置缺失时返回明确错误并保留源实例离线队列。
@@ -187,7 +189,8 @@
 13. 已完成：补 S3/MinIO 后端配置、凭据/TLS 边界、失败回退和测试替身设计，不一次引入完整云存储依赖。
 14. 已完成：补 `InMemoryObjectStore` 测试替身并复用 ObjectStore 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
 15. 已完成：补 S3 配置校验骨架和测试，覆盖 endpoint、bucket、access key、secret key、prefix、TLS flag、缺配置错误和错误信息不泄露凭据。
-16. 下一步：评估真实 S3/MinIO 后端依赖、签名、TLS 和可选 MinIO 手动脚本，不作为默认 CTest 前置条件。
+16. 已完成：补 `S3ObjectStore` 薄适配占位类和 fail-closed 测试，真实网络上传/下载未接入前仍不发布可用后端。
+17. 下一步：评估真实 S3/MinIO 签名、Qt Network 上传下载、TLS 和可选 MinIO 手动脚本，不作为默认 CTest 前置条件。
 
 ## 当前保护边界
 
@@ -206,4 +209,5 @@
 - 已有 S3/MinIO 后端配置和安全边界设计，明确凭据不进日志/Redis/离线队列、TLS 默认校验、ETag 不作为 SHA-256 依据，以及失败时保留离线兜底。
 - 已有测试专用 `InMemoryObjectStore` 契约替身，覆盖通用 ObjectStore 行为和 TTL no-op 边界。
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/prefix/TLS 解析和错误脱敏；真实后端仍保持未实现。
-- 后续进入真实 S3/MinIO 后端实现评估和可选 MinIO 手动脚本设计。
+- 已有 `S3ObjectStore` 薄适配占位类，所有对象操作在真实后端接入前 fail-closed 且不泄露凭据。
+- 后续进入真实 S3/MinIO 签名、Qt Network 上传下载和可选 MinIO 手动脚本设计。

@@ -235,6 +235,63 @@ int FilesystemObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys
     return removed;
 }
 
+S3ObjectStore::S3ObjectStore(const S3ObjectStoreConfig& config)
+    : m_config(config) {
+    m_config.prefix = normalizeS3ObjectPrefix(m_config.prefix);
+}
+
+S3ObjectStoreConfig S3ObjectStore::config() const {
+    return m_config;
+}
+
+bool S3ObjectStore::writeObject(const QByteArray& data,
+                                QString* objectKey,
+                                QString* fileHash,
+                                QString* error,
+                                const QString& extension) const {
+    Q_UNUSED(data);
+    Q_UNUSED(extension);
+    if (objectKey) {
+        objectKey->clear();
+    }
+    if (fileHash) {
+        fileHash->clear();
+    }
+    if (error) {
+        *error = QStringLiteral("S3对象存储后端暂未实现");
+    }
+    return false;
+}
+
+ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objectKey,
+                                                            qint64 expectedSize,
+                                                            const QString& expectedHash) const {
+    Q_UNUSED(objectKey);
+    Q_UNUSED(expectedSize);
+    Q_UNUSED(expectedHash);
+    ValidationResult result;
+    result.error = QStringLiteral("S3对象存储后端暂未实现");
+    return result;
+}
+
+std::unique_ptr<QIODevice> S3ObjectStore::openObject(const QString& objectKey) const {
+    Q_UNUSED(objectKey);
+    return {};
+}
+
+bool S3ObjectStore::removeObject(const QString& objectKey) const {
+    Q_UNUSED(objectKey);
+    return false;
+}
+
+int S3ObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys) const {
+    Q_UNUSED(ttlMs);
+    if (removedKeys) {
+        removedKeys->clear();
+    }
+    return 0;
+}
+
 QString normalizeObjectStoreType(const QString& storeType) {
     const QString normalized = storeType.trimmed().toLower();
     return normalized.isEmpty() ? QStringLiteral("filesystem") : normalized;

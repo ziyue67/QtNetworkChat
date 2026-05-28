@@ -67,6 +67,28 @@ struct S3ObjectStoreConfig {
     bool tlsVerify = true;
 };
 
+class S3ObjectStore : public ObjectStore {
+public:
+    explicit S3ObjectStore(const S3ObjectStoreConfig& config);
+
+    S3ObjectStoreConfig config() const;
+
+    bool writeObject(const QByteArray& data,
+                     QString* objectKey,
+                     QString* fileHash = nullptr,
+                     QString* error = nullptr,
+                     const QString& extension = QString()) const override;
+    ValidationResult validateObject(const QString& objectKey,
+                                    qint64 expectedSize,
+                                    const QString& expectedHash) const override;
+    std::unique_ptr<QIODevice> openObject(const QString& objectKey) const override;
+    bool removeObject(const QString& objectKey) const override;
+    int cleanupExpired(qint64 ttlMs, QStringList* removedKeys = nullptr) const override;
+
+private:
+    S3ObjectStoreConfig m_config;
+};
+
 QString normalizeObjectStoreType(const QString& storeType);
 bool isSupportedObjectStoreType(const QString& storeType);
 QString normalizeS3ObjectPrefix(const QString& prefix);
