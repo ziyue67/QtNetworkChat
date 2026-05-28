@@ -216,6 +216,7 @@ int main() {
     s3Config.secretKey = QStringLiteral("super-secret-value");
     s3Config.sessionToken = QStringLiteral("temporary-session-token");
     s3Config.prefix = QStringLiteral("/qtchat/large-files/");
+    s3Config.requestTimeoutMs = 45000;
     QString s3Error;
     ok = expect(validateS3ObjectStoreConfig(s3Config, &s3Error),
                 "valid s3 object store config should pass validation") && ok;
@@ -319,6 +320,8 @@ int main() {
                     && signedPutRequest.request.rawHeader("x-amz-security-token") == QByteArrayLiteral("temporary-session-token")
                     && signedPutRequest.signedHeaders == QStringLiteral("host;x-amz-content-sha256;x-amz-date;x-amz-security-token"),
                 "s3 signed request should include host, date, session token and signed header names") && ok;
+    ok = expect(signedPutRequest.request.transferTimeout() == 45000,
+                "s3 signed request should apply the configured transfer timeout") && ok;
     const QByteArray authHeader = signedPutRequest.request.rawHeader("Authorization");
     ok = expect(authHeader == signedPutRequest.authorizationHeader.toLatin1()
                     && authHeader.contains("Credential=access-key/20130524/local/s3/aws4_request")
@@ -415,8 +418,9 @@ int main() {
                               QByteArray(),
                               QStringLiteral("20130524T010203Z"));
     ok = expect(defaultRegionRequest.method == QByteArrayLiteral("HEAD")
-                    && defaultRegionRequest.authorizationHeader.contains(QStringLiteral("/20130524/us-east-1/s3/aws4_request")),
-                "s3 signed request should default an empty region to us-east-1") && ok;
+                    && defaultRegionRequest.authorizationHeader.contains(QStringLiteral("/20130524/us-east-1/s3/aws4_request"))
+                    && defaultRegionRequest.request.transferTimeout() == 45000,
+                "s3 signed request should default an empty region to us-east-1 and keep the configured timeout") && ok;
     ok = expect(s3SignedObjectRequest(s3Config,
                                       QStringLiteral("../escape.bin"),
                                       QStringLiteral("GET"),
@@ -442,6 +446,14 @@ int main() {
     const S3ObjectStoreConfig invalidTimeoutS3Config = s3ObjectStoreConfigFromEnvironment();
     ok = expect(invalidTimeoutS3Config.requestTimeoutMs == 30000,
                 "s3 config should fall back to the default timeout when the env value is out of range") && ok;
+    const S3SignedObjectRequest defaultTimeoutRequest =
+        s3SignedObjectRequest(invalidTimeoutS3Config,
+                              QStringLiteral("abcdef1234567890.bin"),
+                              QStringLiteral("GET"),
+                              QByteArray(),
+                              QStringLiteral("20130524T010203Z"));
+    ok = expect(defaultTimeoutRequest.request.transferTimeout() == 30000,
+                "s3 signed request should apply the default timeout after invalid env input") && ok;
     S3ObjectStore s3Placeholder(envS3Config);
     ok = expect(s3Placeholder.config().prefix == QStringLiteral("qtchat/large-files/"),
                 "s3 placeholder should keep normalized prefix") && ok;

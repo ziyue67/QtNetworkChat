@@ -640,6 +640,7 @@ S3SignedObjectRequest s3SignedObjectRequest(const S3ObjectStoreConfig& config,
         result.request.setRawHeader("x-amz-security-token", sessionToken.toUtf8());
     }
     result.request.setRawHeader("Authorization", result.authorizationHeader.toLatin1());
+    result.request.setTransferTimeout(config.requestTimeoutMs);
 #if QT_CONFIG(ssl)
     if (url.scheme() == QStringLiteral("https") && !config.tlsVerify) {
         QSslConfiguration sslConfig = result.request.sslConfiguration();

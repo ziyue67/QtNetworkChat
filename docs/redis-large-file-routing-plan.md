@@ -138,7 +138,7 @@
 
 当前已完成薄适配骨架：`S3ObjectStore` 类已存在并持有规范化后的配置，但在真实网络上传/下载接入前保持 fail-closed。写入、校验、打开、删除都会返回未实现或失败，TTL 清理为 no-op；单测会校验这些失败路径不泄露 access key 或 secret key。
 
-当前已完成 URL、签名与请求构造边界骨架：`s3ObjectUrl()` 会按 MinIO 兼容的 path-style 格式生成 `endpoint/bucket/prefix/objectKey`，并复用 objectKey 校验拒绝路径穿越；Signature V4 纯函数已覆盖 payload SHA-256、credential scope、canonical request、string-to-sign、HMAC signing key、signature 和 Authorization header，并用 AWS GET Object 固定向量锁定输出；`s3SignedObjectRequest()` 可在不联网的前提下生成带 `host`、`x-amz-date`、`x-amz-content-sha256`、可选 `x-amz-security-token` 和 `Authorization` 的 `QNetworkRequest`，覆盖方法规范化、空 region 默认值、非法 objectKey 拒绝、TLS 校验开关、临时凭据 token 签名头和仅允许 `PUT`/`GET`/`HEAD`/`DELETE` 的第一阶段对象方法边界；`classifyS3HttpStatus()` 已把 2xx 成功、404 不存在、401/403 凭据或权限错误、408/409/429 可重试状态、4xx 客户端错误、5xx 可重试服务端错误和未知状态分开。后续真实后端应复用这些边界发起 Qt Network 请求，不把 bucket、endpoint、凭据或 Authorization header 写入 Redis 控制事件或日志。
+当前已完成 URL、签名与请求构造边界骨架：`s3ObjectUrl()` 会按 MinIO 兼容的 path-style 格式生成 `endpoint/bucket/prefix/objectKey`，并复用 objectKey 校验拒绝路径穿越；Signature V4 纯函数已覆盖 payload SHA-256、credential scope、canonical request、string-to-sign、HMAC signing key、signature 和 Authorization header，并用 AWS GET Object 固定向量锁定输出；`s3SignedObjectRequest()` 可在不联网的前提下生成带 `host`、`x-amz-date`、`x-amz-content-sha256`、可选 `x-amz-security-token`、`Authorization` 和 transfer timeout 的 `QNetworkRequest`，覆盖方法规范化、空 region 默认值、非法 objectKey 拒绝、TLS 校验开关、请求超时、临时凭据 token 签名头和仅允许 `PUT`/`GET`/`HEAD`/`DELETE` 的第一阶段对象方法边界；`classifyS3HttpStatus()` 已把 2xx 成功、404 不存在、401/403 凭据或权限错误、408/409/429 可重试状态、4xx 客户端错误、5xx 可重试服务端错误和未知状态分开。后续真实后端应复用这些边界发起 Qt Network 请求，不把 bucket、endpoint、凭据或 Authorization header 写入 Redis 控制事件或日志。
 
 适配规则：
 
@@ -158,7 +158,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置、可选 session token 签名头和可选 MinIO 手动 smoke 脚本已完成；下一步评估真实 `S3ObjectStore` 的 PUT/GET/HEAD/DELETE 最小接入。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头和可选 MinIO 手动 smoke 脚本已完成；下一步评估真实 `S3ObjectStore` 的 PUT/GET/HEAD/DELETE 最小接入。
 
 测试替身计划：
 
@@ -213,7 +213,8 @@
 22. 已完成：补 S3 HTTP 状态分类纯函数，区分成功、对象不存在、凭据/权限错误、可重试状态、客户端错误、服务端错误和未知状态，为真实网络请求失败回退做准备。
 23. 已完成：补 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 配置解析，默认 30 秒并限制在 1 秒到 5 分钟，避免后续真实 S3 请求无限挂起。
 24. 已完成：补可选 `QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN` 解析和 `x-amz-security-token` 签名头，支持后续临时凭据接入且不进入 Redis/日志/离线队列。
-25. 下一步：评估真实 S3/MinIO PUT/GET/HEAD/DELETE 最小实现，保持上传、下载、校验、删除失败时继续回落离线兜底。
+25. 已完成：`s3SignedObjectRequest()` 把有界超时写入 `QNetworkRequest::transferTimeout()`，真实网络执行可直接继承该超时边界。
+26. 下一步：评估真实 S3/MinIO PUT/GET/HEAD/DELETE 最小实现，保持上传、下载、校验、删除失败时继续回落离线兜底。
 
 ## 当前保护边界
 
@@ -233,5 +234,5 @@
 - 已有测试专用 `InMemoryObjectStore` 契约替身，覆盖通用 ObjectStore 行为和 TTL no-op 边界。
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时解析和错误脱敏；真实后端仍保持未实现。
 - 已有 `S3ObjectStore` 薄适配占位类，所有对象操作在真实后端接入前 fail-closed 且不泄露凭据。
-- 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单和 HTTP 状态分类，真实后端仍保持未实现。
+- 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout 和 HTTP 状态分类，真实后端仍保持未实现。
 - 后续进入真实 S3/MinIO 最小网络后端评估，优先保持 fail-closed 和离线兜底安全边界。
