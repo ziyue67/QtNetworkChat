@@ -117,6 +117,16 @@
 | `QTNETWORKCHAT_OBJECT_TTL_HOURS` | 对象保留时间 | `24` |
 | `QTNETWORKCHAT_OBJECT_QUOTA_MB` | 对象存储软配额 | `1024` |
 
+## 治理观测
+
+服务端会输出统一前缀的 `redis_large_file_route` 结构化日志，字段采用 `key=value` 形式，便于压测或线上日志聚合：
+
+- `event`: `offer`、`claim`、`delivered`、`failed`、`failed_received`、`delivered_cleanup`、`object_ttl_cleanup`
+- `result`: `published`、`publish-failed`、`skipped`、`fallback-retained`、`cleaned`、`retained`、`removed`
+- 常见维度：`sourceInstanceId`、`transferId`、`objectKey`、`receiverId`、`fileName`、`messageType`、`bytes`、`reason`
+
+其中 `offer/claim/delivered` 成功发布、`delivered_cleanup` 成功清理和 `object_ttl_cleanup` 会走 info 日志；失败、跳过、远端 failed 和保留兜底会走 warning 日志。
+
 ## 最小实现顺序
 
 1. 已完成：新增 filesystem `ObjectStore` helper，支持安全 objectKey 生成、共享目录写入、路径穿越拒绝、hash/size 校验和 TTL 清理，并用 CTest 覆盖核心边界。
@@ -126,8 +136,9 @@
 5. 已完成：远端对象缺失、校验失败、客户端断开或 ACK 超时时发布 `large_file_failed`；源实例收到后保留离线兜底队列和对象引用，后续登录仍可回源实例回放。
 6. 已完成：补安全边界测试：无本地在线收件人不 claim、不 delivered，非法 objectKey/chunk 元数据不下发，非 filesystem store 不消费。
 7. 已完成：补 TTL/治理测试：未 delivered 对象超过 ObjectStore TTL 后可被启动清理删除，源实例离线附件队列仍保留并可在收件人回源实例登录后回放。
-8. 下一步：补治理指标和 delivered 丢失后的对账/保留窗口策略。
-9. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
+8. 已完成：补 `redis_large_file_route` 结构化日志，覆盖 offer/claim/delivered/failed/cleanup 的结果、原因和关键维度。
+9. 下一步：补 delivered 丢失后的对账/保留窗口策略。
+10. 再评估 S3/MinIO 后端，把 filesystem helper 抽象为最小 `ObjectStore` 接口。
 
 ## 当前保护边界
 
@@ -139,4 +150,5 @@
 - 已有测试覆盖对象缺失时远端发布 `large_file_failed` 且不 claim、不下发，并覆盖源实例收到失败事件后继续保留对象和离线兜底、后续可回源实例回放。
 - 已有测试覆盖非法 objectKey/分片元数据不下发、非 filesystem store 不消费，以及不在线收件人不 claim、不 delivered。
 - 已有测试覆盖未 delivered 对象过期后由 ObjectStore TTL 清理，同时离线附件兜底队列仍可回放。
-- 后续还需补 delivered 丢失对账、治理指标和孤儿对象观测。
+- 已有结构化日志覆盖跨实例大文件 offer/claim/delivered/failed/cleanup，可按 `event/result/reason` 聚合治理指标。
+- 后续还需补 delivered 丢失对账和保留窗口策略。
