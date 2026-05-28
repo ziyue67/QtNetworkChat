@@ -117,6 +117,36 @@
 | `QTNETWORKCHAT_OBJECT_TTL_HOURS` | 对象保留时间 | `24` |
 | `QTNETWORKCHAT_OBJECT_QUOTA_MB` | 对象存储软配额 | `1024` |
 
+## S3/MinIO 后端设计
+
+`s3` 后端用于替换共享文件系统目录，但必须保持与 filesystem 后端相同的 `ObjectStore` 契约：写入返回随机 `objectKey` 和标准 SHA-256，读取前可独立校验 size/hash，删除和 TTL 清理失败时不影响离线附件兜底。第一阶段只设计配置和测试替身，不引入真实云存储依赖。
+
+建议新增配置：
+
+| 环境变量 | 作用 | 安全边界 |
+| --- | --- | --- |
+| `QTNETWORKCHAT_OBJECT_S3_ENDPOINT` | S3/MinIO endpoint，例如 `https://minio.internal:9000` | 必须显式配置，不从 Redis 事件读取 |
+| `QTNETWORKCHAT_OBJECT_S3_BUCKET` | 存储 bucket | 只允许服务端配置，offer 只传 `objectKey` |
+| `QTNETWORKCHAT_OBJECT_S3_REGION` | S3 region，MinIO 可留空或设为本地约定值 | 不参与控制事件 |
+| `QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY` / `QTNETWORKCHAT_OBJECT_S3_SECRET_KEY` | 访问凭据 | 只读进程环境变量，不写入日志、Redis 或离线队列 |
+| `QTNETWORKCHAT_OBJECT_S3_PREFIX` | 对象 key 前缀，例如 `qtchat/large-files/` | 必须规范化，禁止 `..`、反斜杠和绝对路径语义 |
+| `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY` | 是否校验证书链 | 默认开启；关闭时必须输出 warning |
+
+适配规则：
+
+- 工厂只在 `QTNETWORKCHAT_OBJECT_STORE=s3` 且 endpoint、bucket、凭据完整时创建后端；配置缺失时返回明确错误并保留源实例离线队列。
+- S3 object key 仍由服务端随机生成，逻辑 `objectKey` 不包含 bucket、endpoint、绝对路径或凭据；实际远端 key 可由 `prefix + objectKey` 组成。
+- `writeObject()` 上传后必须计算并返回本地 SHA-256；不能信任 S3 ETag 作为文件哈希，因为多段上传和加密场景下 ETag 不等于 MD5 或 SHA-256。
+- `validateObject()` 必须至少校验对象大小和流式 SHA-256；HEAD 只能作为快速大小检查，最终仍以读取校验为准。
+- TTL 清理优先依赖 bucket lifecycle；本地 `cleanupExpired()` 可只做 best-effort 前缀扫描或返回 0，但必须记录不可枚举/权限不足的原因，不能清理离线附件队列。
+- 任何上传、下载、校验、删除、TLS 或凭据错误都回落为对象路由失败，源实例离线附件队列继续保留。
+
+测试替身计划：
+
+- 先实现一个仅测试使用的 `InMemoryObjectStore` 或临时目录假后端，复用 `ObjectStore` 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
+- 服务端集成测试不连接真实 S3；只验证工厂在 `s3` 配置缺失时不发布 offer，并在未来注入假后端后可复用同一分片 ACK 下发流程。
+- 真实 MinIO 端到端测试后续可作为可选手动脚本或 CI service，不作为默认 CTest 前置条件。
+
 ## 治理观测
 
 服务端会输出统一前缀的 `redis_large_file_route` 结构化日志，字段采用 `key=value` 形式，便于压测或线上日志聚合：
@@ -152,7 +182,8 @@
 10. 已完成：补 delivered 丢失后的对账任务设计，明确 receipt 匹配条件、对象 TTL 后队列保留策略和误删保护。
 11. 已完成：把 filesystem helper 抽象到最小 `ObjectStore` 接口，覆盖写入、校验、读取、删除和 TTL 清理，并让远端下发改用通用 `QIODevice` 读取对象。
 12. 已完成：新增 ObjectStore 工厂边界，统一处理默认 filesystem、缺根目录和未支持后端错误，让服务端通过配置创建后端。
-13. 下一步：评估 S3/MinIO 后端实现，优先补配置文档、凭据边界和测试替身，不一次引入完整云存储依赖。
+13. 已完成：补 S3/MinIO 后端配置、凭据/TLS 边界、失败回退和测试替身设计，不一次引入完整云存储依赖。
+14. 下一步：补 ObjectStore 契约测试替身，例如 `InMemoryObjectStore` 或测试专用 mock 后端，为真实 S3/MinIO 后端实现打底。
 
 ## 当前保护边界
 
@@ -168,4 +199,5 @@
 - 已有测试覆盖不完整 delivered 回执不会清理源实例兜底。
 - 已有 delivered 丢失对账任务设计，强调只有完整 receipt 匹配才能清队列，对象 TTL 清理不等同于投递成功。
 - 已有最小 `ObjectStore` 接口和工厂边界，filesystem 后端仍保留安全 objectKey 和本地路径解析能力，服务端远端下发已通过通用读取接口消费对象。
-- 后续进入 S3/MinIO 后端配置、凭据边界和测试替身设计。
+- 已有 S3/MinIO 后端配置和安全边界设计，明确凭据不进日志/Redis/离线队列、TLS 默认校验、ETag 不作为 SHA-256 依据，以及失败时保留离线兜底。
+- 后续进入 ObjectStore 契约测试替身和真实 S3/MinIO 后端实现评估。
