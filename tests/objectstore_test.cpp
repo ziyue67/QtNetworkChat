@@ -218,6 +218,12 @@ int main() {
                 "valid s3 object store config should pass validation") && ok;
     ok = expect(normalizeS3ObjectPrefix(s3Config.prefix) == QStringLiteral("qtchat/large-files/"),
                 "s3 prefix should be normalized without leading slash") && ok;
+    const QUrl s3Url = s3ObjectUrl(s3Config, QStringLiteral("abcdef1234567890.bin"));
+    ok = expect(s3Url.isValid()
+                    && s3Url.toString() == QStringLiteral("https://minio.internal:9000/qtchat-large-files/qtchat/large-files/abcdef1234567890.bin"),
+                "s3 object URL should use path-style bucket and normalized prefix") && ok;
+    ok = expect(s3ObjectUrl(s3Config, QStringLiteral("../escape.bin")).isEmpty(),
+                "s3 object URL should reject invalid object keys") && ok;
     S3ObjectStoreConfig invalidS3Config = s3Config;
     invalidS3Config.prefix = QStringLiteral("../secret");
     ok = expect(!validateS3ObjectStoreConfig(invalidS3Config, &s3Error)

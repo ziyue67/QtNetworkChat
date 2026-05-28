@@ -5,6 +5,7 @@
 #include <QIODevice>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 
 #include <memory>
 
@@ -94,6 +95,7 @@ bool isSupportedObjectStoreType(const QString& storeType);
 QString normalizeS3ObjectPrefix(const QString& prefix);
 bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* error = nullptr);
 S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment();
+QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey);
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
                                                const QString& rootDir,
                                                QString* error = nullptr);

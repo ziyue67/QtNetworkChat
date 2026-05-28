@@ -370,6 +370,23 @@ S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment() {
     return config;
 }
 
+QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey) {
+    QString configError;
+    if (!validateS3ObjectStoreConfig(config, &configError)
+        || !FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        return {};
+    }
+
+    QUrl url(config.endpoint.trimmed());
+    QString path = url.path();
+    if (!path.endsWith('/')) {
+        path += "/";
+    }
+    path += config.bucket.trimmed() + "/" + normalizeS3ObjectPrefix(config.prefix) + objectKey.trimmed();
+    url.setPath(path);
+    return url;
+}
+
 std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
                                                const QString& rootDir,
                                                QString* error) {
