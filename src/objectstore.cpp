@@ -4,17 +4,23 @@
 #include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QMap>
 #include <QMessageAuthenticationCode>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSslConfiguration>
+#include <QSslError>
 #include <QSslSocket>
+#include <QTimer>
 #include <QUrl>
 #include <QUuid>
+#include <QVariant>
 
 #include <algorithm>
 #include <memory>
@@ -655,6 +661,73 @@ S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
 
     result.http = classifyS3HttpStatus(statusCode);
     return result;
+}
+
+S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& config,
+                                                const S3SignedObjectRequest& request,
+                                                const QByteArray& body) {
+    S3RequestExecutionResult execution;
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        execution.result.statusCode = 0;
+        execution.result.error = QStringLiteral("S3 request is invalid");
+        execution.result.http.kind = S3HttpResultKind::Unknown;
+        execution.result.http.reason = QStringLiteral("invalid_request");
+        return execution;
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkReply* reply = manager.sendCustomRequest(request.request, request.method, body);
+    QEventLoop loop;
+    QTimer timeoutTimer;
+    timeoutTimer.setSingleShot(true);
+
+    bool timedOut = false;
+    bool tlsFailed = false;
+    QString tlsErrorText;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timeoutTimer, &QTimer::timeout, [&]() {
+        timedOut = true;
+        if (reply->isRunning()) {
+            reply->abort();
+        }
+        loop.quit();
+    });
+#if QT_CONFIG(ssl)
+    QObject::connect(reply, &QNetworkReply::sslErrors, [&](const QList<QSslError>& errors) {
+        tlsFailed = true;
+        QStringList messages;
+        for (const QSslError& error : errors) {
+            messages.append(error.errorString());
+        }
+        tlsErrorText = messages.join(QStringLiteral("; "));
+    });
+#endif
+
+    const int timeoutMs = config.requestTimeoutMs > 0 ? config.requestTimeoutMs : 30000;
+    timeoutTimer.start(timeoutMs);
+    loop.exec();
+    timeoutTimer.stop();
+
+    const QVariant statusAttribute = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+    const int statusCode = statusAttribute.isValid() ? statusAttribute.toInt() : 0;
+    QString errorText;
+    if (reply->error() != QNetworkReply::NoError) {
+        errorText = reply->errorString();
+    }
+    if (!tlsErrorText.isEmpty()) {
+        errorText = errorText.isEmpty()
+            ? tlsErrorText
+            : QStringLiteral("%1; %2").arg(errorText, tlsErrorText);
+    }
+
+    const QList<QNetworkReply::RawHeaderPair> rawHeaders = reply->rawHeaderPairs();
+    for (const QNetworkReply::RawHeaderPair& header : rawHeaders) {
+        execution.headers.insert(QString::fromLatin1(header.first), QString::fromLatin1(header.second));
+    }
+    execution.body = reply->readAll();
+    execution.result = s3RequestResultFromReply(config, statusCode, errorText, timedOut, tlsFailed);
+    reply->deleteLater();
+    return execution;
 }
 
 QString s3PayloadSha256Hex(const QByteArray& payload) {

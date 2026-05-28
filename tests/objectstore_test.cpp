@@ -470,6 +470,14 @@ int main() {
                     && !redactedS3Error.contains(QStringLiteral("Signature=abcdef"))
                     && !redactedS3Error.contains(QStringLiteral("X-Amz-Signature=012345")),
                 "s3 error redaction should hide credentials and signature material") && ok;
+    const S3RequestExecutionResult invalidNetworkExecution =
+        executeS3ObjectRequest(s3Config, S3SignedObjectRequest());
+    ok = expect(invalidNetworkExecution.result.http.kind == S3HttpResultKind::Unknown
+                    && invalidNetworkExecution.result.http.reason == QStringLiteral("invalid_request")
+                    && !invalidNetworkExecution.result.http.ok
+                    && invalidNetworkExecution.headers.isEmpty()
+                    && invalidNetworkExecution.body.isEmpty(),
+                "s3 Qt Network executor should fail closed before network I/O for invalid requests") && ok;
     const QStringList s3SupportedMethods = {
         QStringLiteral("PUT"),
         QStringLiteral("GET"),
