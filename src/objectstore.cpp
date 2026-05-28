@@ -451,6 +451,53 @@ bool isSupportedS3ObjectMethod(const QString& method) {
         || normalized == QStringLiteral("DELETE");
 }
 
+S3HttpResult classifyS3HttpStatus(int statusCode) {
+    S3HttpResult result;
+
+    if (statusCode == 200 || statusCode == 201 || statusCode == 204 || statusCode == 206) {
+        result.kind = S3HttpResultKind::Success;
+        result.ok = true;
+        result.reason = QStringLiteral("success");
+        return result;
+    }
+
+    if (statusCode == 404) {
+        result.kind = S3HttpResultKind::NotFound;
+        result.reason = QStringLiteral("not_found");
+        return result;
+    }
+
+    if (statusCode == 401 || statusCode == 403) {
+        result.kind = S3HttpResultKind::AuthError;
+        result.reason = QStringLiteral("auth_or_permission_error");
+        return result;
+    }
+
+    if (statusCode == 408 || statusCode == 409 || statusCode == 425 || statusCode == 429) {
+        result.kind = S3HttpResultKind::Retryable;
+        result.retryable = true;
+        result.reason = QStringLiteral("retryable_client_status");
+        return result;
+    }
+
+    if (statusCode >= 500 && statusCode <= 599) {
+        result.kind = S3HttpResultKind::ServerError;
+        result.retryable = true;
+        result.reason = QStringLiteral("server_error");
+        return result;
+    }
+
+    if (statusCode >= 400 && statusCode <= 499) {
+        result.kind = S3HttpResultKind::ClientError;
+        result.reason = QStringLiteral("client_error");
+        return result;
+    }
+
+    result.kind = S3HttpResultKind::Unknown;
+    result.reason = QStringLiteral("unknown_status");
+    return result;
+}
+
 QString s3PayloadSha256Hex(const QByteArray& payload) {
     return sha256Hex(payload);
 }

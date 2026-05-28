@@ -78,6 +78,23 @@ struct S3SignedObjectRequest {
     QString authorizationHeader;
 };
 
+enum class S3HttpResultKind {
+    Success,
+    NotFound,
+    Retryable,
+    AuthError,
+    ClientError,
+    ServerError,
+    Unknown
+};
+
+struct S3HttpResult {
+    S3HttpResultKind kind = S3HttpResultKind::Unknown;
+    bool ok = false;
+    bool retryable = false;
+    QString reason;
+};
+
 class S3ObjectStore : public ObjectStore {
 public:
     explicit S3ObjectStore(const S3ObjectStoreConfig& config);
@@ -107,6 +124,7 @@ bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* err
 S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment();
 QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey);
 bool isSupportedS3ObjectMethod(const QString& method);
+S3HttpResult classifyS3HttpStatus(int statusCode);
 QString s3PayloadSha256Hex(const QByteArray& payload);
 QString s3CredentialScope(const QString& date, const QString& region);
 QString s3CanonicalRequest(const QString& method,

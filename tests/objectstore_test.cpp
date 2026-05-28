@@ -330,6 +330,50 @@ int main() {
                     && isSupportedS3ObjectMethod(QStringLiteral("delete"))
                     && !isSupportedS3ObjectMethod(QStringLiteral("POST")),
                 "s3 object request helper should only allow first-stage object methods") && ok;
+    const auto expectS3Status = [&ok](int statusCode,
+                                      S3HttpResultKind expectedKind,
+                                      bool expectedOk,
+                                      bool expectedRetryable,
+                                      const char* message) {
+        const S3HttpResult result = classifyS3HttpStatus(statusCode);
+        ok = expect(result.kind == expectedKind
+                        && result.ok == expectedOk
+                        && result.retryable == expectedRetryable
+                        && !result.reason.isEmpty(),
+                    message) && ok;
+    };
+    expectS3Status(200, S3HttpResultKind::Success, true, false,
+                   "s3 status classifier should accept 200 as success");
+    expectS3Status(201, S3HttpResultKind::Success, true, false,
+                   "s3 status classifier should accept 201 as success");
+    expectS3Status(204, S3HttpResultKind::Success, true, false,
+                   "s3 status classifier should accept 204 as success");
+    expectS3Status(206, S3HttpResultKind::Success, true, false,
+                   "s3 status classifier should accept 206 as partial content success");
+    expectS3Status(404, S3HttpResultKind::NotFound, false, false,
+                   "s3 status classifier should classify 404 as not found");
+    expectS3Status(401, S3HttpResultKind::AuthError, false, false,
+                   "s3 status classifier should classify 401 as auth error");
+    expectS3Status(403, S3HttpResultKind::AuthError, false, false,
+                   "s3 status classifier should classify 403 as permission error");
+    expectS3Status(408, S3HttpResultKind::Retryable, false, true,
+                   "s3 status classifier should classify 408 as retryable");
+    expectS3Status(409, S3HttpResultKind::Retryable, false, true,
+                   "s3 status classifier should classify 409 as retryable");
+    expectS3Status(429, S3HttpResultKind::Retryable, false, true,
+                   "s3 status classifier should classify 429 as retryable");
+    expectS3Status(400, S3HttpResultKind::ClientError, false, false,
+                   "s3 status classifier should classify 400 as client error");
+    expectS3Status(405, S3HttpResultKind::ClientError, false, false,
+                   "s3 status classifier should classify 405 as client error");
+    expectS3Status(500, S3HttpResultKind::ServerError, false, true,
+                   "s3 status classifier should classify 500 as retryable server error");
+    expectS3Status(503, S3HttpResultKind::ServerError, false, true,
+                   "s3 status classifier should classify 503 as retryable server error");
+    expectS3Status(0, S3HttpResultKind::Unknown, false, false,
+                   "s3 status classifier should classify missing status as unknown");
+    expectS3Status(302, S3HttpResultKind::Unknown, false, false,
+                   "s3 status classifier should classify unexpected redirects as unknown");
     const QStringList s3SupportedMethods = {
         QStringLiteral("PUT"),
         QStringLiteral("GET"),
