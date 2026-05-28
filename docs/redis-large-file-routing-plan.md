@@ -158,7 +158,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头和可选 MinIO 手动 smoke 脚本已完成；下一步评估真实 `S3ObjectStore` 的 PUT/GET/HEAD/DELETE 最小接入。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头和可选 MinIO 手动 smoke 脚本已完成；下一步先补不联网的请求执行结果结构和错误脱敏 helper，统一 `QNetworkReply` 状态码、网络错误、超时、TLS/权限失败到对象路由失败语义，再评估低风险 `HEAD`/`DELETE` 最小接入，最后接 `PUT`/`GET`。
 
 测试替身计划：
 
@@ -214,7 +214,8 @@
 23. 已完成：补 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 配置解析，默认 30 秒并限制在 1 秒到 5 分钟，避免后续真实 S3 请求无限挂起。
 24. 已完成：补可选 `QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN` 解析和 `x-amz-security-token` 签名头，支持后续临时凭据接入且不进入 Redis/日志/离线队列。
 25. 已完成：`s3SignedObjectRequest()` 把有界超时写入 `QNetworkRequest::transferTimeout()`，真实网络执行可直接继承该超时边界。
-26. 下一步：评估真实 S3/MinIO PUT/GET/HEAD/DELETE 最小实现，保持上传、下载、校验、删除失败时继续回落离线兜底。
+26. 下一步：补不联网的 S3 请求执行结果结构和错误脱敏 helper，统一 `QNetworkReply` 状态码、网络错误、超时、TLS/权限失败到 `S3HttpResult`/对象路由失败语义，避免真实网络接入后错误路径发散。
+27. 后续：先接低风险 `HEAD`/`DELETE` 最小实现，保持失败时 fail-closed 和离线兜底；再评估 `PUT`/`GET` 上传下载，并继续不把真实 S3/MinIO 作为默认 CTest 前置条件。
 
 ## 当前保护边界
 
@@ -235,4 +236,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时解析和错误脱敏；真实后端仍保持未实现。
 - 已有 `S3ObjectStore` 薄适配占位类，所有对象操作在真实后端接入前 fail-closed 且不泄露凭据。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout 和 HTTP 状态分类，真实后端仍保持未实现。
-- 后续进入真实 S3/MinIO 最小网络后端评估，优先保持 fail-closed 和离线兜底安全边界。
+- 后续进入真实 S3/MinIO 最小网络后端前，优先补请求执行结果结构、错误脱敏和可测试回退语义；真实后端接入顺序为 `HEAD`/`DELETE` 优先，`PUT`/`GET` 后置，并保持 fail-closed 和离线兜底安全边界。
