@@ -113,7 +113,7 @@ struct S3RequestExecutionResult {
     QByteArray body;
 };
 
-using S3RequestExecutor = std::function<S3RequestExecutionResult(const S3SignedObjectRequest&)>;
+using S3RequestExecutor = std::function<S3RequestExecutionResult(const S3SignedObjectRequest&, const QByteArray&)>;
 
 class S3ObjectStore : public ObjectStore {
 public:

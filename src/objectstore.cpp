@@ -1,5 +1,6 @@
 #include "objectstore.h"
 
+#include <QBuffer>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -331,18 +332,50 @@ bool S3ObjectStore::writeObject(const QByteArray& data,
                                 QString* fileHash,
                                 QString* error,
                                 const QString& extension) const {
-    Q_UNUSED(data);
-    Q_UNUSED(extension);
     if (objectKey) {
         objectKey->clear();
     }
     if (fileHash) {
         fileHash->clear();
     }
-    if (error) {
-        *error = QStringLiteral("S3对象存储后端暂未实现");
+    if (!m_requestExecutor) {
+        if (error) {
+            *error = QStringLiteral("S3对象存储后端暂未实现");
+        }
+        return false;
     }
-    return false;
+
+    const QString generatedKey = FilesystemObjectStore::generateObjectKey(extension);
+    const QString hash = sha256Hex(data);
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, generatedKey, QStringLiteral("PUT"), data);
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        if (error) {
+            *error = QStringLiteral("S3 PUT 请求构造失败");
+        }
+        return false;
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request, data);
+    if (!execution.result.http.ok) {
+        if (error) {
+            *error = QStringLiteral("S3 PUT 请求失败: %1").arg(execution.result.http.reason);
+            if (!execution.result.error.isEmpty()) {
+                *error += QStringLiteral(" %1").arg(redactS3ErrorText(m_config, execution.result.error));
+            }
+        }
+        return false;
+    }
+
+    if (objectKey) {
+        *objectKey = generatedKey;
+    }
+    if (fileHash) {
+        *fileHash = hash;
+    }
+    if (error) {
+        error->clear();
+    }
+    return true;
 }
 
 ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objectKey,
@@ -364,7 +397,7 @@ ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objec
         return result;
     }
 
-    const S3RequestExecutionResult execution = m_requestExecutor(request);
+    const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
     if (!execution.result.http.ok) {
         result.error = QStringLiteral("S3 HEAD 请求失败: %1").arg(execution.result.http.reason);
         if (!execution.result.error.isEmpty()) {
@@ -411,8 +444,26 @@ ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objec
 }
 
 std::unique_ptr<QIODevice> S3ObjectStore::openObject(const QString& objectKey) const {
-    Q_UNUSED(objectKey);
-    return {};
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey) || !m_requestExecutor) {
+        return {};
+    }
+
+    const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("GET"), QByteArray());
+    if (request.method.isEmpty() || !request.request.url().isValid()) {
+        return {};
+    }
+
+    const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
+    if (!execution.result.http.ok) {
+        return {};
+    }
+
+    auto buffer = std::make_unique<QBuffer>();
+    buffer->setData(execution.body);
+    if (!buffer->open(QIODevice::ReadOnly)) {
+        return {};
+    }
+    return buffer;
 }
 
 bool S3ObjectStore::removeObject(const QString& objectKey) const {
@@ -425,7 +476,7 @@ bool S3ObjectStore::removeObject(const QString& objectKey) const {
         return false;
     }
 
-    const S3RequestExecutionResult execution = m_requestExecutor(request);
+    const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
     return execution.result.http.ok;
 }
 

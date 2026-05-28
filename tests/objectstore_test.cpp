@@ -573,11 +573,20 @@ int main() {
 #endif
     const QString expectedS3Hash = sha256Hex(QByteArrayLiteral("payload"));
     QStringList s3ExecutorMethods;
+    QList<QByteArray> s3ExecutorBodies;
     S3ObjectStore s3HeadDeleteStore(envS3Config,
-                                    [&s3ExecutorMethods, &envS3Config, expectedS3Hash](const S3SignedObjectRequest& request) {
+                                    [&s3ExecutorMethods, &s3ExecutorBodies, &envS3Config, expectedS3Hash](
+                                        const S3SignedObjectRequest& request,
+                                        const QByteArray& body) {
         s3ExecutorMethods.append(QString::fromLatin1(request.method));
+        s3ExecutorBodies.append(body);
         S3RequestExecutionResult result;
-        if (request.method == QByteArrayLiteral("HEAD")) {
+        if (request.method == QByteArrayLiteral("PUT")) {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+        } else if (request.method == QByteArrayLiteral("GET")) {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.body = QByteArrayLiteral("payload");
+        } else if (request.method == QByteArrayLiteral("HEAD")) {
             result.result = s3RequestResultFromReply(envS3Config, 200);
             result.headers.insert(QStringLiteral("Content-Length"), QStringLiteral("7"));
             result.headers.insert(QStringLiteral("X-Amz-Meta-Sha256"), expectedS3Hash.toUpper());
@@ -590,6 +599,22 @@ int main() {
         }
         return result;
     });
+    QString s3UploadedKey;
+    QString s3UploadedHash;
+    QString s3UploadError;
+    ok = expect(s3HeadDeleteStore.writeObject(QByteArrayLiteral("payload"),
+                                              &s3UploadedKey,
+                                              &s3UploadedHash,
+                                              &s3UploadError,
+                                              QStringLiteral("bin"))
+                    && FilesystemObjectStore::isValidObjectKey(s3UploadedKey)
+                    && s3UploadedKey.endsWith(QStringLiteral(".bin"))
+                    && s3UploadedHash == expectedS3Hash
+                    && s3UploadError.isEmpty(),
+                "s3 injected PUT path should upload payload and return generated key plus SHA-256") && ok;
+    const std::unique_ptr<QIODevice> s3OpenedObject = s3HeadDeleteStore.openObject(s3UploadedKey);
+    ok = expect(s3OpenedObject && s3OpenedObject->readAll() == QByteArrayLiteral("payload"),
+                "s3 injected GET path should return a readable payload device") && ok;
     const ObjectStore::ValidationResult s3HeadValidation =
         s3HeadDeleteStore.validateObject(QStringLiteral("abcdef1234567890.bin"),
                                          7,
@@ -600,10 +625,19 @@ int main() {
                 "s3 injected HEAD path should validate size and SHA-256 metadata") && ok;
     ok = expect(s3HeadDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin")),
                 "s3 injected DELETE path should report successful deletion") && ok;
-    ok = expect(s3ExecutorMethods == QStringList({QStringLiteral("HEAD"), QStringLiteral("DELETE")}),
-                "s3 injected executor should receive HEAD and DELETE requests only") && ok;
+    ok = expect(s3ExecutorMethods == QStringList({QStringLiteral("PUT"),
+                                                  QStringLiteral("GET"),
+                                                  QStringLiteral("HEAD"),
+                                                  QStringLiteral("DELETE")})
+                    && s3ExecutorBodies.size() == 4
+                    && s3ExecutorBodies.at(0) == QByteArrayLiteral("payload")
+                    && s3ExecutorBodies.at(1).isEmpty()
+                    && s3ExecutorBodies.at(2).isEmpty()
+                    && s3ExecutorBodies.at(3).isEmpty(),
+                "s3 injected executor should receive PUT payload and empty GET/HEAD/DELETE bodies") && ok;
     S3ObjectStore s3MissingHashStore(envS3Config,
-                                     [&envS3Config](const S3SignedObjectRequest& request) {
+                                     [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
+        Q_UNUSED(body);
         S3RequestExecutionResult result;
         result.result = s3RequestResultFromReply(envS3Config, request.method == QByteArrayLiteral("HEAD") ? 200 : 204);
         result.headers.insert(QStringLiteral("content-length"), QStringLiteral("7"));
@@ -615,8 +649,9 @@ int main() {
                     && s3MissingHashValidation.error.contains(QStringLiteral("SHA-256")),
                 "s3 HEAD validation should fail closed when hash metadata is missing") && ok;
     S3ObjectStore s3FailedHeadStore(envS3Config,
-                                    [&envS3Config](const S3SignedObjectRequest& request) {
+                                    [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(request);
+        Q_UNUSED(body);
         S3RequestExecutionResult result;
         result.result = s3RequestResultFromReply(envS3Config,
                                                  0,
@@ -631,9 +666,27 @@ int main() {
                     && !s3FailedHeadValidation.error.contains(envS3Config.secretKey)
                     && !s3FailedHeadValidation.error.contains(envS3Config.sessionToken),
                 "s3 HEAD validation failure should keep errors redacted") && ok;
+    QString s3FailedPutKey;
+    QString s3FailedPutHash;
+    QString s3FailedPutError;
+    ok = expect(!s3FailedHeadStore.writeObject(QByteArrayLiteral("payload"),
+                                               &s3FailedPutKey,
+                                               &s3FailedPutHash,
+                                               &s3FailedPutError,
+                                               QStringLiteral("bin"))
+                    && s3FailedPutKey.isEmpty()
+                    && s3FailedPutHash.isEmpty()
+                    && s3FailedPutError.contains(QStringLiteral("network_error"))
+                    && !s3FailedPutError.contains(envS3Config.accessKey)
+                    && !s3FailedPutError.contains(envS3Config.secretKey)
+                    && !s3FailedPutError.contains(envS3Config.sessionToken),
+                "s3 PUT failure should fail closed and keep errors redacted") && ok;
+    ok = expect(!s3FailedHeadStore.openObject(QStringLiteral("abcdef1234567890.bin")),
+                "s3 GET failure should fail closed without returning a device") && ok;
     S3ObjectStore s3FailedDeleteStore(envS3Config,
-                                      [&envS3Config](const S3SignedObjectRequest& request) {
+                                      [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(request);
+        Q_UNUSED(body);
         S3RequestExecutionResult result;
         result.result = s3RequestResultFromReply(envS3Config, 404);
         return result;
