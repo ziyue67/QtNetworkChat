@@ -233,11 +233,11 @@
 34. 已完成：把 S3 validation reason helper 接入服务端跨实例大文件失败路径，远端对象校验失败发布固定 reason 桶，避免把底层错误文本写入 `large_file_failed.reason` 或结构化日志。
 35. 已完成：补 S3 真实后端显式启用后的 MinIO 手动运行说明，明确先跑 smoke、再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 和 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1`，并强调失败回退与日志脱敏边界。
 36. 已完成：补服务端大文件对象路由日志字段扩展，发布、校验、写入、删除和兜底路径会输出 `storeType` 与 `operation` 等安全维度，继续避免 endpoint、bucket、对象 URL、凭据和 Authorization 进入日志、Redis 事件或离线队列。
-37. 已完成：补真实 S3/MinIO 启用路径的人工验收清单，明确 smoke、双实例投递、失败注入、离线兜底、回源回放和脱敏检查步骤，仍不把真实 S3/MinIO 纳入默认 CTest。
+37. 已完成：补真实 S3/MinIO 启用路径的人工验收清单，明确 smoke、双实例投递、失败注入、离线兜底、回源回放、脱敏检查和 delivered receipt 只读对账演练步骤，仍不把真实 S3/MinIO 纳入默认 CTest。
 38. 已完成：补 `redis_large_file_route` 日志聚合和脱敏扫描辅助脚本，人工验收时可统计事件、结果、reason、storeType 和 operation，并对敏感字段泄露 fail-fast。
 39. 已完成：扩展日志分析脚本的 delivered/failed 对账候选摘要，按 `transferId/objectKey/receiverId` 聚合 delivered cleanup、retained fallback 和缺失 cleanup 线索，不做任何自动删除。
 40. 已完成：补 S3 失败回退演练可选场景脚本，列出 network、auth、missing-object 和 receiver-disconnect 的注入方式、预期固定 reason、日志事件与兜底检查点，并可接入日志分析器。
-41. 下一步：把只读对账原型接入人工验收清单，或补服务端 `delivered_reconcile` 只读日志事件设计，继续保持默认 CTest 不依赖真实 S3/MinIO。
+41. 下一步：补服务端 `delivered_reconcile` 只读日志事件设计或测试替身，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 

@@ -115,7 +115,26 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.p
 
 脚本只读取日志，不连接 Redis 或 S3/MinIO；它会统计 `event/result/reason/storeType/operation`，并按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 的对账候选摘要。脚本在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时返回失败。
 
-## 6. 验收结论记录
+## 6. 可选 delivered 对账演练
+
+如果需要离线复核“远端 receipt 是否足以清理源实例兜底”，先从安全日志、人工记录或脱敏导出的队列摘要中整理两个 JSON/JSONL 文件：
+
+- `receipts.jsonl`：每行包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`。
+- `fallbacks.jsonl`：每行包含同名元数据和 `fileSize`，代表源实例仍保留的离线兜底候选。
+
+然后运行只读对账脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/reconcile-large-file-delivery.ps1 `
+  -ReceiptPath ".\logs\receipts.jsonl" `
+  -FallbackPath ".\logs\fallbacks.jsonl"
+```
+
+脚本只输出 `cleaned` 或 `retained` 候选及固定 reason：`cleaned`、`invalid-receipt`、`invalid-payload`、`receipt-not-matched`、`confirmed-bytes-insufficient`。`cleaned` 只表示摘要满足清理条件，不会删除离线队列、附件或对象；真实清理仍只能由后续显式治理任务执行。
+
+输入摘要不得包含 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature；脚本默认发现这些字段会失败。需要排查历史日志时可临时加 `-NoFailOnSensitive` 查看命中位置，但不能把该输出作为通过结果。
+
+## 7. 验收结论记录
 
 建议记录以下信息即可，不记录凭据：
 
