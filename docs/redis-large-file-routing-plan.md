@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本和 delivered receipt 摘要持久化原型已完成；下一步补 receipt 摘要轮转/压缩策略或把持久化 receipt 直接接入一键对账脚本，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型和一键对账直接读取持久化 receipt 已完成；下一步补 receipt 摘要轮转/压缩策略，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -171,7 +171,7 @@
 - 真实后端人工验收清单已补到 `docs/s3-minio-manual-acceptance.md`，覆盖 smoke、双服务端、远端在线大文件投递、失败注入、离线兜底回源回放和日志/Redis/队列脱敏检查。
 - 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 对账候选摘要，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。
 - 失败回退演练已补可选脚本 `scripts/s3-failure-drill.ps1`，默认只输出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期 reason 和兜底检查点；传入日志路径时复用日志分析器，不连接 Redis、S3/MinIO 或修改离线队列。
-- delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；源实例可通过 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 显式追加脱敏 `delivered-receipts.jsonl` 摘要；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-receipts.ps1` 可从安全 route log 导出 receipt 输入，`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入，`scripts/run-large-file-delivery-reconcile.ps1` 可把三步串成一键只读演练并落盘中间产物，`scripts/write-large-file-reconcile-sample.ps1` 可生成不含 S3 配置或凭据的样例输入并直接演练。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
+- delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；源实例可通过 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 显式追加脱敏 `delivered-receipts.jsonl` 摘要；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-receipts.ps1` 可从安全 route log 导出 receipt 输入，`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入，`scripts/run-large-file-delivery-reconcile.ps1` 可用 `-RouteLogPath` 导出 receipt 或用 `-ReceiptPath` 直接消费持久化 receipt，并把后续步骤串成一键只读演练，`scripts/write-large-file-reconcile-sample.ps1` 可生成不含 S3 配置或凭据的样例输入并直接演练。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
 
 ## 治理观测
 
@@ -194,7 +194,7 @@
 - **误删保护**：对账任务必须复用 `cleanupDeliveredRedisLargeFile()` 的匹配规则或等价校验；不得仅凭 `transferId`、`receiverId`、claim 事件、日志行或对象不存在来删除队列。
 - **观测输出**：服务端收到 delivered 回执时会先输出只读 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，再进入原有 `delivered_cleanup` 清理路径；离线脚本也可用 `-EmitRouteLog` 生成同类事件。该事件只记录候选和保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理；现有日志分析脚本已可聚合 cleaned/retained 候选，不执行自动删除。
 - **receipt 摘要**：设置 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 后，源实例会把有效 delivered 回执追加到 `delivered-receipts.jsonl`，字段仅包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`、`result`、`reason`、`cleanupResult` 和 `createdAt`；默认关闭，且不会修改离线队列、附件或对象。
-- **只读演练**：没有真实日志时，可用 `scripts/write-large-file-reconcile-sample.ps1 -OutputDir sample-reconcile -RunReconcile` 生成脱敏样例并跑完整只读链路；真实验收时再用 `scripts/run-large-file-delivery-reconcile.ps1 -RouteLogPath source.log,remote.log -QueuePath offline-queue.jsonl -SourceInstanceId source-a -OutputDir reconcile -EmitRouteLog` 一键导出 receipt、导出 fallback 并执行只读对账。receipt 摘要需包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`。输出 `cleaned` 仅代表候选满足条件，不会执行真实清理。
+- **只读演练**：没有真实日志时，可用 `scripts/write-large-file-reconcile-sample.ps1 -OutputDir sample-reconcile -RunReconcile` 生成脱敏样例并跑完整只读链路；真实验收时可用 `scripts/run-large-file-delivery-reconcile.ps1 -ReceiptPath delivered-receipts.jsonl -QueuePath offline-queue.jsonl -SourceInstanceId source-a -OutputDir reconcile -EmitRouteLog` 直接消费持久化 receipt，也可用 `-RouteLogPath source.log,remote.log` 从日志导出 receipt。输出 `cleaned` 仅代表候选满足条件，不会执行真实清理。
 
 ## 最小实现顺序
 
@@ -244,7 +244,8 @@
 44. 已完成：补 delivered receipt/fallback/reconcile 一键只读编排脚本，落盘中间摘要和对账日志，方便人工验收复现。
 45. 已完成：补 delivered 对账脱敏样例生成脚本，可生成样例 route log/离线队列摘要并直接运行一键只读对账链路。
 46. 已完成：补 delivered receipt 摘要持久化原型，源实例可通过 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 显式追加脱敏 JSONL receipt 摘要。
-47. 下一步：补 receipt 摘要轮转/压缩策略或把持久化 receipt 直接接入一键对账脚本，继续保持默认 CTest 不依赖真实 S3/MinIO。
+47. 已完成：一键只读对账脚本支持 `-ReceiptPath` 直接消费持久化 `delivered-receipts.jsonl`，也保留 `-RouteLogPath` 日志导出路径。
+48. 下一步：补 receipt 摘要轮转/压缩策略，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 
@@ -265,4 +266,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 治理闭环时，优先补 receipt 摘要轮转/压缩策略或把持久化 receipt 直接接入一键对账脚本，并保持 fail-closed 和离线兜底安全边界。
+- 后续进入真实 S3/MinIO 治理闭环时，优先补 receipt 摘要轮转/压缩策略，并保持 fail-closed 和离线兜底安全边界。

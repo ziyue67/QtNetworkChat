@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 
 $routeLogPath = Join-Path $resolvedOutputDir "sample-route.log"
 $queuePath = Join-Path $resolvedOutputDir "sample-offline-queue.jsonl"
+$receiptPath = Join-Path $resolvedOutputDir "sample-delivered-receipts.jsonl"
 $reconcileOutputDir = Join-Path $resolvedOutputDir "reconcile-output"
 $sourceInstanceId = "source-sample-a"
 $hashA = "a" * 64
@@ -23,6 +24,33 @@ $hashB = "b" * 64
     "redis_large_file_route event=failed result=published sourceInstanceId=$sourceInstanceId transferId=sample-noise objectKey=samplenoise001.bin receiverId=receiver-003 fileHash=$hashA reason=network storeType=s3 operation=publish",
     "redis_large_file_route event=delivered_reconcile result=retained reason=confirmed-bytes-insufficient sourceInstanceId=$sourceInstanceId transferId=sample-retained-log objectKey=sampleretained001.bin receiverId=receiver-004 fileHash=$hashB bytes=256 storeType=s3 operation=reconcile"
 ) | Set-Content -LiteralPath $routeLogPath -Encoding UTF8
+
+@(
+    ([pscustomobject]@{
+        sourceInstanceId = $sourceInstanceId
+        transferId = "sample-clean"
+        receiverId = "receiver-001"
+        objectKey = "sampleclean001.bin"
+        fileHash = $hashA
+        confirmedBytes = 1048576
+        result = "cleaned"
+        reason = "cleaned"
+        cleanupResult = "cleaned"
+        createdAt = "2026-05-29T00:00:00Z"
+    } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{
+        sourceInstanceId = $sourceInstanceId
+        transferId = "sample-partial"
+        receiverId = "receiver-002"
+        objectKey = "samplepartial001.bin"
+        fileHash = $hashB
+        confirmedBytes = 524288
+        result = "retained"
+        reason = "confirmed-bytes-insufficient"
+        cleanupResult = "retained"
+        createdAt = "2026-05-29T00:00:01Z"
+    } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $receiptPath -Encoding UTF8
 
 @(
     ([pscustomobject]@{
@@ -49,6 +77,7 @@ $hashB = "b" * 64
 
 Write-Host "large file reconcile sample"
 Write-Host ("  route log: {0}" -f $routeLogPath)
+Write-Host ("  persisted receipts: {0}" -f $receiptPath)
 Write-Host ("  offline queue: {0}" -f $queuePath)
 Write-Host ("  sourceInstanceId: {0}" -f $sourceInstanceId)
 Write-Host ""
@@ -59,7 +88,7 @@ if ($RunReconcile) {
     Write-Host ""
     Write-Host "running read-only reconciliation sample"
     & powershell -ExecutionPolicy Bypass -File $runner `
-        -RouteLogPath $routeLogPath `
+        -ReceiptPath $receiptPath `
         -QueuePath $queuePath `
         -SourceInstanceId $sourceInstanceId `
         -OutputDir $reconcileOutputDir `

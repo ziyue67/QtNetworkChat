@@ -123,7 +123,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.p
 - `receipts.jsonl`：每行包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`。
 - `fallbacks.jsonl`：每行包含同名元数据和 `fileSize`，代表源实例仍保留的离线兜底候选。
 
-如果启动源实例前设置了 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR`，服务端收到 `large_file_delivered` 后会在该目录追加 `delivered-receipts.jsonl`。该文件只包含逻辑 receipt 字段、`cleaned|retained` 决策和固定 reason，不包含 endpoint、bucket、object URL 或凭据；可作为对账 receipt 输入或与 route log receipt 导出互相校验。
+如果启动源实例前设置了 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR`，服务端收到 `large_file_delivered` 后会在该目录追加 `delivered-receipts.jsonl`。该文件只包含逻辑 receipt 字段、`cleaned|retained` 决策和固定 reason，不包含 endpoint、bucket、object URL 或凭据；可直接作为一键对账的 `-ReceiptPath` 输入，或与 route log receipt 导出互相校验。
 
 没有真实日志时，可先生成脱敏样例并跑完整只读链路，确认本机 PowerShell 和脚本可用：
 
@@ -146,7 +146,9 @@ powershell -ExecutionPolicy Bypass -File scripts/run-large-file-delivery-reconci
   -EmitRouteLog
 ```
 
-该脚本只串联 receipt 导出、fallback 导出和对账判定，会写出 `receipts.jsonl`、`fallbacks.jsonl` 和 `reconcile.log`；它不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
+如果已有持久化 receipt 摘要，可改用 `-ReceiptPath ".\logs\delivered-receipts\delivered-receipts.jsonl"` 代替 `-RouteLogPath`，直接复用服务端落盘摘要。
+
+该脚本只串联 receipt 输入、fallback 导出和对账判定，会写出 `receipts.jsonl`、`fallbacks.jsonl` 和 `reconcile.log`；它不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
 
 也可以分步执行。先从 route log 导出 delivered receipt 输入：
 
