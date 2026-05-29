@@ -16,6 +16,7 @@ class QTimer;
 class ObjectStore;
 class RedisClient;
 class RedisSubscriber;
+struct LargeFileDeliveredReceiptDecision;
 
 class Server : public QObject {
     Q_OBJECT
@@ -103,6 +104,7 @@ private:
     QString objectStoreRootDir() const;
     std::unique_ptr<ObjectStore> createConfiguredObjectStore(QString* error = nullptr) const;
     qint64 objectStoreTtlMs() const;
+    LargeFileDeliveredReceiptDecision evaluateRedisLargeFileDeliveredReceipt(const QJsonObject& event) const;
     bool cleanupDeliveredRedisLargeFile(const QJsonObject& event) const;
     QString saveOfflineAttachment(const Message& msg) const;
     QSet<QString> collectReferencedOfflineAttachments() const;

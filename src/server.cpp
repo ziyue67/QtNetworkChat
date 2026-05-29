@@ -1752,6 +1752,13 @@ void Server::handleRedisLargeFileDelivered(const QJsonObject& event) {
     if (event["instanceId"].toString() == m_instanceId) return;
     if (event["sourceInstanceId"].toString() != m_instanceId) return;
     if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return;
+    const LargeFileDeliveredReceiptDecision reconcileDecision =
+        evaluateRedisLargeFileDeliveredReceipt(event);
+    logRedisLargeFileRouteEvent(QStringLiteral("delivered_reconcile"),
+                                reconcileDecision.shouldCleanup ? QStringLiteral("cleaned") : QStringLiteral("retained"),
+                                largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("reconcile")),
+                                reconcileDecision.reason,
+                                event["confirmedBytes"].toVariant().toLongLong());
     const bool cleaned = cleanupDeliveredRedisLargeFile(event);
     logRedisLargeFileRouteEvent(QStringLiteral("delivered_cleanup"),
                                 cleaned ? QStringLiteral("cleaned") : QStringLiteral("retained"),
@@ -2454,6 +2461,92 @@ qint64 Server::objectStoreTtlMs() const {
                                                      kDefaultObjectStoreTtlHours,
                                                      kMaxObjectStoreTtlHours);
     return hours * 60LL * 60 * 1000;
+}
+
+LargeFileDeliveredReceiptDecision Server::evaluateRedisLargeFileDeliveredReceipt(const QJsonObject& event) const {
+    LargeFileDeliveredReceipt receipt;
+    receipt.sourceInstanceId = event["sourceInstanceId"].toString();
+    receipt.transferId = event["transferId"].toString().trimmed();
+    receipt.receiverId = event["receiverId"].toString().trimmed();
+    receipt.objectKey = event["objectKey"].toString().trimmed();
+    receipt.fileHash = event["fileHash"].toString().trimmed();
+    receipt.confirmedBytes = event["confirmedBytes"].toVariant().toLongLong();
+
+    LargeFileDeliveredReceiptDecision invalidDecision =
+        evaluateLargeFileDeliveredReceiptCleanup(receipt, LargeFileDeliveredFallback());
+    if (invalidDecision.reason == QStringLiteral("invalid-receipt")) {
+        return invalidDecision;
+    }
+
+    LargeFileDeliveredReceiptDecision decision;
+    decision.shouldCleanup = false;
+    decision.reason = QStringLiteral("receipt-not-matched");
+
+    const auto makeFallback = [this](const QJsonObject& obj) {
+        LargeFileDeliveredFallback fallback;
+        fallback.sourceInstanceId = m_instanceId;
+        fallback.transferId = obj["transferId"].toString();
+        fallback.receiverId = obj["receiverId"].toString();
+        fallback.objectKey = obj["objectStoreKey"].toString();
+        fallback.fileHash = obj["fileHash"].toString();
+        fallback.fileSize = obj["fileSize"].toVariant().toLongLong();
+        return fallback;
+    };
+    const auto isSameRoute = [&receipt](const LargeFileDeliveredFallback& fallback) {
+        return receipt.transferId == fallback.transferId.trimmed()
+            && receipt.receiverId == fallback.receiverId.trimmed()
+            && receipt.objectKey == fallback.objectKey.trimmed();
+    };
+    const auto considerPayload = [&](const QJsonObject& obj) {
+        const LargeFileDeliveredFallback fallback = makeFallback(obj);
+        if (!isSameRoute(fallback)) {
+            return false;
+        }
+        decision = evaluateLargeFileDeliveredReceiptCleanup(receipt, fallback);
+        return decision.shouldCleanup;
+    };
+
+    if (ensureAccountDatabase()) {
+        const QString connectionName = "offline_reconcile_" + QString::number(reinterpret_cast<quintptr>(this));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(accountDbPath());
+            if (db.open()) {
+                QSqlQuery query(db);
+                query.prepare("SELECT payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
+                query.addBindValue(receipt.receiverId);
+                if (query.exec()) {
+                    while (query.next()) {
+                        const QJsonDocument doc = QJsonDocument::fromJson(query.value(0).toString().toUtf8());
+                        if (doc.isObject() && considerPayload(doc.object())) {
+                            break;
+                        }
+                    }
+                }
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
+    if (decision.shouldCleanup) {
+        return decision;
+    }
+
+    QFile jsonlFile(offlineFilePath(receipt.receiverId));
+    if (jsonlFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        while (!jsonlFile.atEnd()) {
+            const QByteArray line = jsonlFile.readLine().trimmed();
+            if (line.isEmpty()) continue;
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (doc.isObject() && considerPayload(doc.object())) {
+                break;
+            }
+        }
+        jsonlFile.close();
+    }
+
+    return decision;
 }
 
 bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {

@@ -24,6 +24,7 @@
 #include <QTimer>
 #include <QTemporaryDir>
 
+#include <cstdio>
 #include <functional>
 
 namespace {
@@ -327,11 +328,43 @@ private:
     bool m_failPublishes = false;
 };
 
+QStringList* gCapturedRouteLogs = nullptr;
+QtMessageHandler gPreviousMessageHandler = nullptr;
+
+void captureRouteLogMessage(QtMsgType type, const QMessageLogContext& context, const QString& message) {
+    if (gCapturedRouteLogs && message.contains(QStringLiteral("redis_large_file_route"))) {
+        gCapturedRouteLogs->append(message);
+    }
+    if (gPreviousMessageHandler) {
+        gPreviousMessageHandler(type, context, message);
+    } else {
+        std::fprintf(stderr, "%s\n", message.toLocal8Bit().constData());
+    }
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
     QCoreApplication::setApplicationName("redis_cross_instance_chat_test");
     QStandardPaths::setTestModeEnabled(true);
+    QStringList routeLogs;
+    gCapturedRouteLogs = &routeLogs;
+    gPreviousMessageHandler = qInstallMessageHandler(captureRouteLogMessage);
+    const auto routeLogContains = [&routeLogs](const QStringList& needles) {
+        for (const QString& line : routeLogs) {
+            bool matched = true;
+            for (const QString& needle : needles) {
+                if (!line.contains(needle)) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
+    };
 
     const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (!appDataDir.isEmpty()) {
@@ -741,6 +774,13 @@ int main(int argc, char** argv) {
         return !findPublishedEvent("large_file_delivered", QString(), largeFileObjectKey).isEmpty();
     }), "remote server should publish delivered after the large file is fully acknowledged") && ok;
     ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=delivered_reconcile"),
+                                 QStringLiteral("result=cleaned"),
+                                 QStringLiteral("reason=cleaned"),
+                                 QStringLiteral("operation=reconcile"),
+                                 QStringLiteral("objectKey=") + largeFileObjectKey});
+    }), "source server should emit a read-only cleaned delivered_reconcile route log") && ok;
+    ok = expect(waitFor([&] {
         return !QFileInfo::exists(objectStore.objectPath(largeFileObjectKey));
     }), "source server should remove the delivered large file object") && ok;
 
@@ -923,6 +963,13 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return QFileInfo::exists(objectStore.objectPath(failedFallbackObjectKey));
     }, 800), "source server should retain fallback after a partial delivered event") && ok;
+    ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=delivered_reconcile"),
+                                 QStringLiteral("result=retained"),
+                                 QStringLiteral("reason=confirmed-bytes-insufficient"),
+                                 QStringLiteral("operation=reconcile"),
+                                 QStringLiteral("objectKey=") + failedFallbackObjectKey});
+    }), "source server should emit a retained delivered_reconcile route log for partial receipts") && ok;
 
     QJsonObject failedEvent;
     failedEvent["eventType"] = "large_file_failed";
@@ -1056,6 +1103,9 @@ int main(int argc, char** argv) {
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
     }
+    qInstallMessageHandler(gPreviousMessageHandler);
+    gPreviousMessageHandler = nullptr;
+    gCapturedRouteLogs = nullptr;
     return ok ? 0 : 1;
 }
 
