@@ -1814,9 +1814,10 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
     const ObjectStore::ValidationResult validation =
         objectStore->validateObject(objectKey, fileSize, fileHash);
     if (!validation.ok) {
+        const QString reason = s3ValidationFailureReasonForLog(validation);
         qWarning() << "Rejected large file offer because object validation failed"
-                   << objectKey << validation.error;
-        return failOffer(QStringLiteral("object-validation-failed: ") + validation.error);
+                   << objectKey << reason;
+        return failOffer(reason);
     }
 
     std::unique_ptr<QIODevice> file = objectStore->openObject(objectKey);

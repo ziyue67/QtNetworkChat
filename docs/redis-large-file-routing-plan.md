@@ -222,7 +222,8 @@
 30. 已完成：补 GET 后 size/hash 校验整合，`validateObject()` 在 HEAD 快速检查后读取 GET 响应体计算标准 SHA-256，缺 HEAD hash 时仍可用 body hash 校验，并明确不信任 ETag。
 31. 已完成：补真实后端发布 gating，`createObjectStore(s3)` 默认仍 fail-closed；只有配置完整且 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 时才创建带 Qt Network 执行器的 S3 后端，错误信息不泄露凭据。
 32. 已完成：补 S3 失败 reason 聚合 helper，覆盖 timeout、network、tls、auth、not_found、retryable、client、server、unknown、size 和 hash，helper 只返回固定字符串，不携带 endpoint、bucket、凭据或 Authorization。
-33. 下一步：把 S3 reason helper 接入服务端跨实例大文件结构化日志，确保 S3 上传、下载、校验、删除失败时能按 reason 聚合且不把 endpoint、bucket、凭据或 Authorization 写入日志。
+33. 已完成：把 S3 validation reason helper 接入服务端跨实例大文件失败路径，远端对象校验失败发布固定 reason 桶，避免把底层错误文本写入 `large_file_failed.reason` 或结构化日志。
+34. 下一步：补 S3 真实后端显式启用后的手动 MinIO 运行说明或服务端日志字段扩展，继续确保 endpoint、bucket、凭据和 Authorization 不进入日志、Redis 事件或离线队列。
 
 ## 当前保护边界
 
@@ -243,4 +244,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 服务端集成时，优先把 reason helper 接入结构化日志，并保持 fail-closed 和离线兜底安全边界。
+- 后续进入真实 S3/MinIO 服务端集成时，优先补显式启用后的手动验证说明或日志字段扩展，并保持 fail-closed 和离线兜底安全边界。

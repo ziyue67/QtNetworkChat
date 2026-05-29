@@ -265,13 +265,13 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 后续优化优先级
 
-1. **Redis 跨实例大文件治理**：当前 Pub/Sub 只承载文本和编码后不超过 1 MB 的小文件/小图片；源实例已可在大文件/编码超限文件进入离线兜底队列后额外写入 filesystem ObjectStore，并发布小体积 `large_file_offer` 元数据事件；远端实例已可认领 offer、校验对象、复用分片 ACK 下发，完整 ACK 后发布 `large_file_delivered` 清理源实例兜底；对象缺失、校验失败、客户端断开或 ACK 超时时会发布 `large_file_failed` 并保留源实例离线兜底；无本地在线收件人、非法 objectKey/chunk 元数据和非 filesystem store 的边界已覆盖；未 delivered 对象过期后可由 ObjectStore TTL 清理，离线附件兜底仍可回放；不完整 delivered 回执不会清理源实例兜底；服务端已有 `redis_large_file_route` 结构化日志便于聚合治理指标；docs 已明确 delivered 丢失对账任务必须完整 receipt 匹配后才能清队列；代码已建立最小 `ObjectStore` 接口和后端工厂，filesystem 实现承接写入、校验、读取、删除和 TTL 清理，未支持后端会给出明确错误；docs 已补 S3/MinIO 配置、凭据/TLS 边界和失败回退设计；测试已加入 InMemoryObjectStore 契约替身覆盖通用接口行为；S3 配置校验骨架已覆盖 endpoint、bucket、凭据、session token、prefix、TLS flag、请求超时、显式启用开关和错误脱敏；S3ObjectStore 占位适配类已 fail-closed；S3 path-style URL、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、HTTP 状态分类、transfer timeout 写入、可选 session token 签名头、请求执行结果结构、失败 reason 聚合 helper、错误脱敏 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和 `QTNETWORKCHAT_OBJECT_S3_ENABLE` 发布 gating 已补齐。下一步优先把 S3 reason helper 接入服务端跨实例大文件结构化日志，继续保持默认 CTest 不依赖真实 S3/MinIO。
+1. **Redis 跨实例大文件治理**：当前 Pub/Sub 只承载文本和编码后不超过 1 MB 的小文件/小图片；源实例已可在大文件/编码超限文件进入离线兜底队列后额外写入 filesystem ObjectStore，并发布小体积 `large_file_offer` 元数据事件；远端实例已可认领 offer、校验对象、复用分片 ACK 下发，完整 ACK 后发布 `large_file_delivered` 清理源实例兜底；对象缺失、校验失败、客户端断开或 ACK 超时时会发布 `large_file_failed` 并保留源实例离线兜底；无本地在线收件人、非法 objectKey/chunk 元数据和非 filesystem store 的边界已覆盖；未 delivered 对象过期后可由 ObjectStore TTL 清理，离线附件兜底仍可回放；不完整 delivered 回执不会清理源实例兜底；服务端已有 `redis_large_file_route` 结构化日志便于聚合治理指标；远端对象校验失败已接入固定 reason 桶，`large_file_failed.reason` 不再携带底层错误文本；docs 已明确 delivered 丢失对账任务必须完整 receipt 匹配后才能清队列；代码已建立最小 `ObjectStore` 接口和后端工厂，filesystem 实现承接写入、校验、读取、删除和 TTL 清理，未支持后端会给出明确错误；docs 已补 S3/MinIO 配置、凭据/TLS 边界和失败回退设计；测试已加入 InMemoryObjectStore 契约替身覆盖通用接口行为；S3 配置校验骨架已覆盖 endpoint、bucket、凭据、session token、prefix、TLS flag、请求超时、显式启用开关和错误脱敏；S3ObjectStore 占位适配类已 fail-closed；S3 path-style URL、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、HTTP 状态分类、transfer timeout 写入、可选 session token 签名头、请求执行结果结构、失败 reason 聚合 helper、错误脱敏 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和 `QTNETWORKCHAT_OBJECT_S3_ENABLE` 发布 gating 已补齐。下一步优先补 S3 真实后端启用后的手动 MinIO 运行文档或服务端日志字段扩展，继续保持默认 CTest 不依赖真实 S3/MinIO。
 2. **安全增强**：TLS 已有可选入口，但还缺证书链校验体验、指纹固定配置；账号密码仍是简单 SHA-256 派生，建议升级为带盐 KDF，再评估端到端加密。
 3. **群组和权限边界**：服务端群组模型已覆盖核心成员变更、重复成员添加拒绝、公告权限和群主自移除保护，后续可补更多边界测试，例如管理员角色、私有群、群文件权限和被移出后的历史可见性。
 4. **结构拆分**：`mainwindow.cpp` 已承载聊天、好友、群组、文件、历史和恢复入口，后续应小步抽出 TransferManager、FriendManager、GroupManager、HistoryService、Storage，降低 UI 层复杂度。
 5. **发布与运维体验**：补版本号注入、Release 自动上传、安装包、运行时依赖校验、崩溃日志和可选诊断日志，方便非开发环境使用。
 6. **文件传输后续收尾**：在线文件/图片已覆盖 ACK 超时续传、跨连接持久化续传、元数据冲突隔离、临时拒绝重试、硬拒绝不重试和离线附件缺口续发；后续只建议补用户可见状态、治理指标和性能压测，不再作为首要功能线。
-7. **测试补齐方向**：优先补高价值边界和回归风险点，而不是继续堆同类协议测试；当前更值得覆盖 S3 reason helper 的服务端日志接线、TLS 配置、密码迁移、群权限边界、历史导出一致性和发布脚本。
+7. **测试补齐方向**：优先补高价值边界和回归风险点，而不是继续堆同类协议测试；当前更值得覆盖 S3 真实启用后的手动验证、TLS 配置、密码迁移、群权限边界、历史导出一致性和发布脚本。
 
 ## 说明
 

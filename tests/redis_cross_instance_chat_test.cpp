@@ -805,6 +805,9 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return !findPublishedEvent("large_file_failed", QString(), invalidOfferObjectKey).isEmpty();
     }), "remote server should publish failed when a large file offer object is missing") && ok;
+    ok = expect(findPublishedEvent("large_file_failed", QString(), invalidOfferObjectKey)["reason"].toString()
+                    == QStringLiteral("validation_error"),
+                "remote failed event should publish aggregate-safe object validation reason") && ok;
     ok = expect(!waitFor([&] {
         return !findPublishedEvent("large_file_claim", QString(), invalidOfferObjectKey).isEmpty()
             || bobFileNames.contains(invalidOfferFileName);
@@ -823,6 +826,9 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return !findPublishedEvent("large_file_failed", QString(), unsafeObjectKey).isEmpty();
     }), "remote server should publish failed for an unsafe large file object key") && ok;
+    ok = expect(findPublishedEvent("large_file_failed", QString(), unsafeObjectKey)["reason"].toString()
+                    == QStringLiteral("invalid-offer-metadata"),
+                "unsafe object key failure should keep a fixed metadata reason") && ok;
     ok = expect(!waitFor([&] {
         return !findPublishedEvent("large_file_claim", QString(), unsafeObjectKey).isEmpty()
             || bobFileNames.contains(unsafeKeyOffer["fileName"].toString());
