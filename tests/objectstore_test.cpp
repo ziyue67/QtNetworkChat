@@ -700,6 +700,49 @@ int main() {
                     && s3ValidationFailureReasonForLog(validateS3ObjectBody(QByteArrayLiteral("payload"), 7, sha256Hex(QByteArrayLiteral("other"))))
                         == QStringLiteral("hash"),
                 "s3 validation failure reason helper should expose stable size/hash reasons") && ok;
+    LargeFileDeliveredReceipt deliveredReceipt;
+    deliveredReceipt.sourceInstanceId = QStringLiteral("source-a");
+    deliveredReceipt.transferId = QStringLiteral("transfer-a");
+    deliveredReceipt.receiverId = QStringLiteral("receiver-a");
+    deliveredReceipt.objectKey = QStringLiteral("abcdef1234567890.bin");
+    deliveredReceipt.fileHash = expectedS3Hash.toUpper();
+    deliveredReceipt.confirmedBytes = 7;
+    LargeFileDeliveredFallback deliveredFallback;
+    deliveredFallback.sourceInstanceId = QStringLiteral("source-a");
+    deliveredFallback.transferId = QStringLiteral("transfer-a");
+    deliveredFallback.receiverId = QStringLiteral("receiver-a");
+    deliveredFallback.objectKey = QStringLiteral("abcdef1234567890.bin");
+    deliveredFallback.fileHash = expectedS3Hash;
+    deliveredFallback.fileSize = 7;
+    const LargeFileDeliveredReceiptDecision deliveredDecision =
+        evaluateLargeFileDeliveredReceiptCleanup(deliveredReceipt, deliveredFallback);
+    ok = expect(deliveredDecision.shouldCleanup
+                    && deliveredDecision.reason == QStringLiteral("cleaned"),
+                "large file delivered receipt helper should allow cleanup only for a complete matching receipt") && ok;
+    LargeFileDeliveredReceipt invalidReceipt = deliveredReceipt;
+    invalidReceipt.objectKey = QStringLiteral("../escape.bin");
+    ok = expect(!evaluateLargeFileDeliveredReceiptCleanup(invalidReceipt, deliveredFallback).shouldCleanup
+                    && evaluateLargeFileDeliveredReceiptCleanup(invalidReceipt, deliveredFallback).reason
+                        == QStringLiteral("invalid-receipt"),
+                "large file delivered receipt helper should reject unsafe receipt object keys") && ok;
+    LargeFileDeliveredFallback invalidFallback = deliveredFallback;
+    invalidFallback.fileSize = 0;
+    ok = expect(!evaluateLargeFileDeliveredReceiptCleanup(deliveredReceipt, invalidFallback).shouldCleanup
+                    && evaluateLargeFileDeliveredReceiptCleanup(deliveredReceipt, invalidFallback).reason
+                        == QStringLiteral("invalid-payload"),
+                "large file delivered receipt helper should reject invalid fallback payload metadata") && ok;
+    LargeFileDeliveredFallback mismatchedFallback = deliveredFallback;
+    mismatchedFallback.receiverId = QStringLiteral("other-receiver");
+    ok = expect(!evaluateLargeFileDeliveredReceiptCleanup(deliveredReceipt, mismatchedFallback).shouldCleanup
+                    && evaluateLargeFileDeliveredReceiptCleanup(deliveredReceipt, mismatchedFallback).reason
+                        == QStringLiteral("receipt-not-matched"),
+                "large file delivered receipt helper should retain fallback for metadata mismatches") && ok;
+    LargeFileDeliveredReceipt partialReceipt = deliveredReceipt;
+    partialReceipt.confirmedBytes = 6;
+    ok = expect(!evaluateLargeFileDeliveredReceiptCleanup(partialReceipt, deliveredFallback).shouldCleanup
+                    && evaluateLargeFileDeliveredReceiptCleanup(partialReceipt, deliveredFallback).reason
+                        == QStringLiteral("confirmed-bytes-insufficient"),
+                "large file delivered receipt helper should retain fallback for incomplete receipts") && ok;
     S3ObjectStore s3GetMismatchStore(envS3Config,
                                      [&envS3Config, expectedS3Hash](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(body);

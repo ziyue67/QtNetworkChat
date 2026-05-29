@@ -135,6 +135,25 @@ QString normalizedAmzDate(const QString& amzDate) {
     }
     return QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd'T'HHmmss'Z'"));
 }
+
+bool looksLikeSha256HexObjectHash(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.size() != 64) return false;
+    for (const QChar& ch : trimmed) {
+        const ushort c = ch.toLatin1();
+        const bool isHex = (c >= '0' && c <= '9')
+            || (c >= 'a' && c <= 'f')
+            || (c >= 'A' && c <= 'F');
+        if (!isHex) return false;
+    }
+    return true;
+}
+
+LargeFileDeliveredReceiptDecision retainedLargeFileDecision(const QString& reason) {
+    LargeFileDeliveredReceiptDecision decision;
+    decision.reason = reason;
+    return decision;
+}
 }
 
 FilesystemObjectStore::FilesystemObjectStore(const QString& rootDir)
@@ -778,6 +797,55 @@ QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& res
         return QStringLiteral("hash");
     }
     return QStringLiteral("validation_error");
+}
+
+LargeFileDeliveredReceiptDecision evaluateLargeFileDeliveredReceiptCleanup(
+    const LargeFileDeliveredReceipt& receipt,
+    const LargeFileDeliveredFallback& fallback) {
+    const QString receiptSourceInstanceId = receipt.sourceInstanceId.trimmed();
+    const QString receiptTransferId = receipt.transferId.trimmed();
+    const QString receiptReceiverId = receipt.receiverId.trimmed();
+    const QString receiptObjectKey = receipt.objectKey.trimmed();
+    const QString receiptFileHash = receipt.fileHash.trimmed();
+    if (receiptSourceInstanceId.isEmpty()
+        || receiptTransferId.isEmpty()
+        || receiptReceiverId.isEmpty()
+        || !FilesystemObjectStore::isValidObjectKey(receiptObjectKey)
+        || !looksLikeSha256HexObjectHash(receiptFileHash)
+        || receipt.confirmedBytes <= 0) {
+        return retainedLargeFileDecision(QStringLiteral("invalid-receipt"));
+    }
+
+    const QString fallbackSourceInstanceId = fallback.sourceInstanceId.trimmed();
+    const QString fallbackTransferId = fallback.transferId.trimmed();
+    const QString fallbackReceiverId = fallback.receiverId.trimmed();
+    const QString fallbackObjectKey = fallback.objectKey.trimmed();
+    const QString fallbackFileHash = fallback.fileHash.trimmed();
+    if (fallbackSourceInstanceId.isEmpty()
+        || fallbackTransferId.isEmpty()
+        || fallbackReceiverId.isEmpty()
+        || !FilesystemObjectStore::isValidObjectKey(fallbackObjectKey)
+        || !looksLikeSha256HexObjectHash(fallbackFileHash)
+        || fallback.fileSize <= 0) {
+        return retainedLargeFileDecision(QStringLiteral("invalid-payload"));
+    }
+
+    if (receiptSourceInstanceId != fallbackSourceInstanceId
+        || receiptTransferId != fallbackTransferId
+        || receiptReceiverId != fallbackReceiverId
+        || receiptObjectKey != fallbackObjectKey
+        || receiptFileHash.compare(fallbackFileHash, Qt::CaseInsensitive) != 0) {
+        return retainedLargeFileDecision(QStringLiteral("receipt-not-matched"));
+    }
+
+    if (receipt.confirmedBytes < fallback.fileSize) {
+        return retainedLargeFileDecision(QStringLiteral("confirmed-bytes-insufficient"));
+    }
+
+    LargeFileDeliveredReceiptDecision decision;
+    decision.shouldCleanup = true;
+    decision.reason = QStringLiteral("cleaned");
+    return decision;
 }
 
 S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& config,

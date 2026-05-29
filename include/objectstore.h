@@ -113,6 +113,29 @@ struct S3RequestExecutionResult {
     QByteArray body;
 };
 
+struct LargeFileDeliveredReceipt {
+    QString sourceInstanceId;
+    QString transferId;
+    QString receiverId;
+    QString objectKey;
+    QString fileHash;
+    qint64 confirmedBytes = 0;
+};
+
+struct LargeFileDeliveredFallback {
+    QString sourceInstanceId;
+    QString transferId;
+    QString receiverId;
+    QString objectKey;
+    QString fileHash;
+    qint64 fileSize = 0;
+};
+
+struct LargeFileDeliveredReceiptDecision {
+    bool shouldCleanup = false;
+    QString reason;
+};
+
 using S3RequestExecutor = std::function<S3RequestExecutionResult(const S3SignedObjectRequest&, const QByteArray&)>;
 
 class S3ObjectStore : public ObjectStore {
@@ -156,6 +179,9 @@ S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
                                          bool tlsFailed = false);
 QString s3FailureReasonForLog(const S3RequestResult& result);
 QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& result);
+LargeFileDeliveredReceiptDecision evaluateLargeFileDeliveredReceiptCleanup(
+    const LargeFileDeliveredReceipt& receipt,
+    const LargeFileDeliveredFallback& fallback);
 S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& config,
                                                 const S3SignedObjectRequest& request,
                                                 const QByteArray& body = QByteArray());

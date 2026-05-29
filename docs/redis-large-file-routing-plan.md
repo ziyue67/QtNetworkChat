@@ -105,7 +105,7 @@
 - 没有远端实例认领：源实例离线队列保留，等待收件人回源实例或后续重试。
 - 远端认领后客户端断开：远端发布 failed，源实例保留离线队列。
 - 对象存储不可用：不发布 offer，直接使用源实例离线队列。
-- delivered 丢失或不完整：源实例只在 `confirmedBytes >= fileSize` 且 sourceInstanceId、transferId、receiverId、objectKey、fileHash 全部匹配时清理队列和对象；回执缺失、confirmedBytes 不足或元数据不匹配时继续保留离线队列。对象 TTL 到期后可清理 ObjectStore 对象，离线附件队列继续作为回源兜底；后续可补对账任务，按远端 delivery receipt 查询清理队列。
+- delivered 丢失或不完整：源实例只在 `confirmedBytes >= fileSize` 且 sourceInstanceId、transferId、receiverId、objectKey、fileHash 全部匹配时清理队列和对象；回执缺失、confirmedBytes 不足或元数据不匹配时继续保留离线队列。当前清理资格已提取为只读纯函数，固定输出 `cleaned`、`invalid-receipt`、`invalid-payload`、`receipt-not-matched`、`confirmed-bytes-insufficient`，便于后续对账任务复用同一安全判定；对象 TTL 到期后可清理 ObjectStore 对象，离线附件队列继续作为回源兜底。后续可补对账任务，按远端 delivery receipt 查询清理队列。
 
 ## 配置建议
 
@@ -171,6 +171,7 @@
 - 真实后端人工验收清单已补到 `docs/s3-minio-manual-acceptance.md`，覆盖 smoke、双服务端、远端在线大文件投递、失败注入、离线兜底回源回放和日志/Redis/队列脱敏检查。
 - 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 对账候选摘要，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。
 - 失败回退演练已补可选脚本 `scripts/s3-failure-drill.ps1`，默认只输出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期 reason 和兜底检查点；传入日志路径时复用日志分析器，不连接 Redis、S3/MinIO 或修改离线队列。
+- delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；后续对账原型应只读取日志或 receipt 摘要，先输出候选 cleaned/retained 与固定 reason，再由人工或显式治理任务决定是否触发真实清理。
 
 ## 治理观测
 

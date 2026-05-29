@@ -2462,22 +2462,27 @@ bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
     const QString receiverId = event["receiverId"].toString().trimmed();
     const QString fileHash = event["fileHash"].toString().trimmed();
     const qint64 confirmedBytes = event["confirmedBytes"].toVariant().toLongLong();
-    if (!FilesystemObjectStore::isValidObjectKey(objectKey)
-        || transferId.isEmpty()
-        || receiverId.isEmpty()
-        || !looksLikeSha256Hex(fileHash)
-        || confirmedBytes <= 0) {
+    LargeFileDeliveredReceipt receipt;
+    receipt.sourceInstanceId = event["sourceInstanceId"].toString();
+    receipt.transferId = transferId;
+    receipt.receiverId = receiverId;
+    receipt.objectKey = objectKey;
+    receipt.fileHash = fileHash;
+    receipt.confirmedBytes = confirmedBytes;
+    if (evaluateLargeFileDeliveredReceiptCleanup(receipt, LargeFileDeliveredFallback()).reason
+            == QStringLiteral("invalid-receipt")) {
         return false;
     }
 
     auto matchesPayload = [&](const QJsonObject& obj) {
-        const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
-        return obj["objectStoreKey"].toString().trimmed() == objectKey
-            && obj["transferId"].toString().trimmed() == transferId
-            && obj["receiverId"].toString().trimmed() == receiverId
-            && obj["fileHash"].toString().trimmed().compare(fileHash, Qt::CaseInsensitive) == 0
-            && fileSize > 0
-            && confirmedBytes >= fileSize;
+        LargeFileDeliveredFallback fallback;
+        fallback.sourceInstanceId = m_instanceId;
+        fallback.transferId = obj["transferId"].toString();
+        fallback.receiverId = obj["receiverId"].toString();
+        fallback.objectKey = obj["objectStoreKey"].toString();
+        fallback.fileHash = obj["fileHash"].toString();
+        fallback.fileSize = obj["fileSize"].toVariant().toLongLong();
+        return evaluateLargeFileDeliveredReceiptCleanup(receipt, fallback).shouldCleanup;
     };
 
     QStringList offlineAttachmentPaths;
