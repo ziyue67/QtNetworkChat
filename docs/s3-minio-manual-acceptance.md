@@ -73,6 +73,14 @@ TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本
 - `large_file_failed.reason` 只使用固定 reason 桶或固定协议原因。
 - 不因为对象 TTL 清理而删除离线附件队列。
 
+可先用只读辅助脚本列出场景、预期 reason 和兜底检查点：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/s3-failure-drill.ps1 -Scenario all
+```
+
+如果已经收集了服务端日志，也可以追加 `-LogPath ".\logs\source-server.log", ".\logs\remote-server.log"`，脚本会调用日志分析器做脱敏扫描和 delivered/failed 对账候选摘要。该脚本不连接 Redis、S3 或 MinIO，也不会修改离线队列。
+
 ## 5. 脱敏检查
 
 检查服务端日志、Redis Pub/Sub payload、离线队列 JSONL/SQLite payload。允许出现：

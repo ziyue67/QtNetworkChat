@@ -170,6 +170,7 @@
 - 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/bytes/storeType/operation` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
 - 真实后端人工验收清单已补到 `docs/s3-minio-manual-acceptance.md`，覆盖 smoke、双服务端、远端在线大文件投递、失败注入、离线兜底回源回放和日志/Redis/队列脱敏检查。
 - 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 对账候选摘要，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。
+- 失败回退演练已补可选脚本 `scripts/s3-failure-drill.ps1`，默认只输出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期 reason 和兜底检查点；传入日志路径时复用日志分析器，不连接 Redis、S3/MinIO 或修改离线队列。
 
 ## 治理观测
 
@@ -232,7 +233,8 @@
 36. 已完成：补真实 S3/MinIO 启用路径的人工验收清单，明确 smoke、双实例投递、失败注入、离线兜底、回源回放和脱敏检查步骤，仍不把真实 S3/MinIO 纳入默认 CTest。
 37. 已完成：补 `redis_large_file_route` 日志聚合和脱敏扫描辅助脚本，人工验收时可统计事件、结果、reason、storeType 和 operation，并对敏感字段泄露 fail-fast。
 38. 已完成：扩展日志分析脚本的 delivered/failed 对账候选摘要，按 `transferId/objectKey/receiverId` 聚合 delivered cleanup、retained fallback 和缺失 cleanup 线索，不做任何自动删除。
-39. 下一步：补 S3 失败回退演练的可选场景脚本或 delivered 丢失对账原型，继续保持默认 CTest 不依赖真实 S3/MinIO。
+39. 已完成：补 S3 失败回退演练可选场景脚本，列出 network、auth、missing-object 和 receiver-disconnect 的注入方式、预期固定 reason、日志事件与兜底检查点，并可接入日志分析器。
+40. 下一步：补 delivered 丢失对账纯函数/测试原型，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 
@@ -253,4 +255,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 服务端集成时，优先补失败回退演练的可选场景脚本或 delivered 丢失对账原型，并保持 fail-closed 和离线兜底安全边界。
+- 后续进入真实 S3/MinIO 服务端集成时，优先补 delivered 丢失对账纯函数/测试原型，并保持 fail-closed 和离线兜底安全边界。
