@@ -164,6 +164,17 @@ powershell -ExecutionPolicy Bypass -File scripts/rotate-large-file-receipts.ps1 
 
 轮转脚本会把超出保留条数或保留天数的旧摘要写到 `archive\delivered-receipts-*.jsonl` 或 `.zip`，再重写 active `delivered-receipts.jsonl`；`-SummaryPath` 会额外写出本次轮转摘要，包含 `totalRecords`、`retainedRecords`、`archivedRecords`、`archivePath` 和 `sensitiveHits`，便于定时任务收集。它只处理脱敏 receipt 摘要，不连接 Redis、S3/MinIO，也不会清理离线队列、附件或对象。若输入中出现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature，脚本默认失败。
 
+轮转后可分析摘要并设置简单阈值告警：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-receipt-rotation.ps1 `
+  -SummaryPath ".\logs\delivered-receipts\rotate-summary.json" `
+  -WarnArchivedRecords 50000 `
+  -WarnRetainedRecords 200000
+```
+
+分析脚本只读取 summary JSON，汇总 retained/archived/sensitiveHits；若 `sensitiveHits > 0`、`archivedRecords > 0` 但没有 `archivePath`，或超过传入阈值，会默认以非零退出，便于计划任务或 CI 采集告警。
+
 计划任务中也可以用环境变量提供默认值，命令行参数始终优先：
 
 ```powershell
