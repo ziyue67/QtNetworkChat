@@ -66,6 +66,8 @@ function Get-RouteState([hashtable]$States, [string]$Key) {
             Delivered = 0
             DeliveredCleaned = 0
             DeliveredRetained = 0
+            ReconcileCleaned = 0
+            ReconcileRetained = 0
             Failed = 0
             FallbackRetained = 0
             LastReason = ""
@@ -122,6 +124,10 @@ foreach ($logPath in $Path) {
                 $state.DeliveredCleaned += 1
             } elseif ($eventName -eq "delivered_cleanup" -and $resultName -eq "retained") {
                 $state.DeliveredRetained += 1
+            } elseif ($eventName -eq "delivered_reconcile" -and $resultName -eq "cleaned") {
+                $state.ReconcileCleaned += 1
+            } elseif ($eventName -eq "delivered_reconcile" -and $resultName -eq "retained") {
+                $state.ReconcileRetained += 1
             } elseif ($eventName -eq "failed") {
                 $state.Failed += 1
             } elseif ($eventName -eq "failed_received" -and $resultName -eq "fallback-retained") {
@@ -152,6 +158,8 @@ Write-Counts "stores" $storeCounts
 $deliveredCleaned = 0
 $deliveredRetained = 0
 $deliveredWithoutCleanup = 0
+$reconcileCleaned = 0
+$reconcileRetained = 0
 $failedFallbackRetained = 0
 $failedWithoutFallback = 0
 foreach ($state in $routeStates.Values) {
@@ -163,6 +171,12 @@ foreach ($state in $routeStates.Values) {
     }
     if ($state.Delivered -gt 0 -and $state.DeliveredCleaned -eq 0 -and $state.DeliveredRetained -eq 0) {
         $deliveredWithoutCleanup += 1
+    }
+    if ($state.ReconcileCleaned -gt 0) {
+        $reconcileCleaned += 1
+    }
+    if ($state.ReconcileRetained -gt 0) {
+        $reconcileRetained += 1
     }
     if ($state.FallbackRetained -gt 0) {
         $failedFallbackRetained += 1
@@ -178,6 +192,8 @@ Write-Host ("  route keys: {0}" -f $routeStates.Count)
 Write-Host ("  delivered cleaned: {0}" -f $deliveredCleaned)
 Write-Host ("  delivered retained: {0}" -f $deliveredRetained)
 Write-Host ("  delivered without cleanup log: {0}" -f $deliveredWithoutCleanup)
+Write-Host ("  delivered reconcile cleaned: {0}" -f $reconcileCleaned)
+Write-Host ("  delivered reconcile retained: {0}" -f $reconcileRetained)
 Write-Host ("  failed fallback retained: {0}" -f $failedFallbackRetained)
 Write-Host ("  failed without fallback log: {0}" -f $failedWithoutFallback)
 
