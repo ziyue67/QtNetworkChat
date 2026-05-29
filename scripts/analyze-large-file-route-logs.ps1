@@ -2,7 +2,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string[]]$Path,
 
-    [switch]$NoFailOnSensitive
+    [switch]$NoFailOnSensitive,
+
+    [string]$SummaryPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -148,6 +150,14 @@ function Write-Counts([string]$Title, [hashtable]$Table) {
     }
 }
 
+function ConvertTo-CountObject([hashtable]$Table) {
+    $ordered = [ordered]@{}
+    foreach ($entry in ($Table.GetEnumerator() | Sort-Object Name)) {
+        $ordered[[string]$entry.Name] = [int]$entry.Value
+    }
+    [pscustomobject]$ordered
+}
+
 Write-Host ("redis_large_file_route lines: {0}" -f $routeLineCount)
 Write-Counts "events" $eventCounts
 Write-Counts "results" $resultCounts
@@ -206,4 +216,32 @@ if ($sensitiveHits.Count -gt 0) {
     if (-not $NoFailOnSensitive) {
         throw "Sensitive S3/ObjectStore fields were found in redis_large_file_route logs."
     }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($SummaryPath)) {
+    $resolvedSummaryPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SummaryPath)
+    $summaryParent = Split-Path -Parent $resolvedSummaryPath
+    if (-not [string]::IsNullOrWhiteSpace($summaryParent)) {
+        New-Item -ItemType Directory -Path $summaryParent -Force | Out-Null
+    }
+
+    $summary = [pscustomobject]@{
+        path = @($Path)
+        routeLineCount = $routeLineCount
+        eventCounts = ConvertTo-CountObject $eventCounts
+        resultCounts = ConvertTo-CountObject $resultCounts
+        reasonCounts = ConvertTo-CountObject $reasonCounts
+        operationCounts = ConvertTo-CountObject $operationCounts
+        storeCounts = ConvertTo-CountObject $storeCounts
+        routeKeys = $routeStates.Count
+        deliveredCleaned = $deliveredCleaned
+        deliveredRetained = $deliveredRetained
+        deliveredWithoutCleanup = $deliveredWithoutCleanup
+        reconcileCleaned = $reconcileCleaned
+        reconcileRetained = $reconcileRetained
+        failedFallbackRetained = $failedFallbackRetained
+        failedWithoutFallback = $failedWithoutFallback
+        sensitiveHits = $sensitiveHits.Count
+    }
+    $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $resolvedSummaryPath -Encoding UTF8
 }

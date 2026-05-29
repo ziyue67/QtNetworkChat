@@ -111,10 +111,11 @@ powershell -ExecutionPolicy Bypass -File scripts/s3-failure-drill.ps1 -Scenario 
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.ps1 `
-  -Path ".\logs\source-server.log", ".\logs\remote-server.log"
+  -Path ".\logs\source-server.log", ".\logs\remote-server.log" `
+  -SummaryPath ".\logs\large-file-route-summary.json"
 ```
 
-脚本只读取日志，不连接 Redis 或 S3/MinIO；它会统计 `event/result/reason/storeType/operation`，并按 `transferId/objectKey/receiverId` 输出 delivered cleanup、未来 `delivered_reconcile` 只读事件与 failed fallback 的对账候选摘要。脚本在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时返回失败。
+脚本只读取日志，不连接 Redis 或 S3/MinIO；它会统计 `event/result/reason/storeType/operation`，并按 `transferId/objectKey/receiverId` 输出 delivered cleanup、未来 `delivered_reconcile` 只读事件与 failed fallback 的对账候选摘要。`-SummaryPath` 会额外写出机器可读 JSON，包含 `failedFallbackRetained`、`failedWithoutFallback`、`deliveredWithoutCleanup`、`reasonCounts` 和 `sensitiveHits` 等字段，便于后续趋势或阈值告警。脚本在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时返回失败。
 
 ## 6. 可选 delivered 对账演练
 

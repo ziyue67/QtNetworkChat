@@ -169,7 +169,7 @@
 - 启用真实后端前必须先跑 smoke 脚本确认 endpoint、bucket、access key、secret key、region 和 prefix 可用，再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 与 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 启动服务端。真实后端仍必须遵守离线兜底：任何 S3 上传、下载、校验、删除、TLS、超时或凭据错误都发布固定 reason 并保留源实例离线附件队列。
 - 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/fileHash/bytes/storeType/operation` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
 - 真实后端人工验收清单已补到 `docs/s3-minio-manual-acceptance.md`，覆盖 smoke、双服务端、远端在线大文件投递、失败注入、离线兜底回源回放和日志/Redis/队列脱敏检查。
-- 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 对账候选摘要，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。
+- 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 对账候选摘要，可用 `-SummaryPath` 落盘 failed/fallback/delivered 机器可读 summary，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。
 - 失败回退演练已补可选脚本 `scripts/s3-failure-drill.ps1`，默认只输出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期 reason 和兜底检查点；传入日志路径时复用日志分析器，不连接 Redis、S3/MinIO 或修改离线队列。
 - delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；源实例可通过 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 显式追加脱敏 `delivered-receipts.jsonl` 摘要；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-receipts.ps1` 可从安全 route log 导出 receipt 输入，`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入，`scripts/run-large-file-delivery-reconcile.ps1` 可用 `-RouteLogPath` 导出 receipt 或用 `-ReceiptPath` 直接消费持久化 receipt，并把后续步骤串成一键只读演练，`scripts/write-large-file-reconcile-sample.ps1 -RunReconcile -RunRotate` 可生成不含 S3 配置或凭据的样例输入并直接演练对账和轮转，`scripts/rotate-large-file-receipts.ps1` 可按条数和天数轮转持久化 receipt，并把旧摘要归档为 JSONL 或 ZIP。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
 
@@ -192,7 +192,7 @@
 - **对象已过期场景**：ObjectStore 对象被 TTL 清理不代表文件已送达；只清对象，不清离线附件队列。后续如果 receipt 补齐，再按可清理条件清队列和离线附件。
 - **重试窗口**：在对象 TTL 内，源实例仍可等待远端补发 delivered 或 receipt；TTL 后对象可释放空间，但离线附件继续按 `QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS` 作为最终兜底窗口。
 - **误删保护**：对账任务必须复用 `cleanupDeliveredRedisLargeFile()` 的匹配规则或等价校验；不得仅凭 `transferId`、`receiverId`、claim 事件、日志行或对象不存在来删除队列。
-- **观测输出**：服务端收到 delivered 回执时会先输出只读 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，再进入原有 `delivered_cleanup` 清理路径；离线脚本也可用 `-EmitRouteLog` 生成同类事件。该事件只记录候选和保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理；现有日志分析脚本已可聚合 cleaned/retained 候选，不执行自动删除。
+- **观测输出**：服务端收到 delivered 回执时会先输出只读 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，再进入原有 `delivered_cleanup` 清理路径；离线脚本也可用 `-EmitRouteLog` 生成同类事件。该事件只记录候选和保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理；现有日志分析脚本已可聚合 cleaned/retained、failed fallback retained、failed without fallback 和 delivered without cleanup 等候选，并可落盘 JSON summary，不执行自动删除。
 - **receipt 摘要**：设置 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 后，源实例会把有效 delivered 回执追加到 `delivered-receipts.jsonl`，字段仅包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`、`result`、`reason`、`cleanupResult` 和 `createdAt`；默认关闭，且不会修改离线队列、附件或对象。运维可用 `scripts/rotate-large-file-receipts.ps1 -ReceiptPath delivered-receipts.jsonl -KeepRecords 10000 -MaxAgeDays 30 -CompressArchive -SummaryPath rotate-summary.json` 对摘要做离线轮转，输出旧摘要归档、原子重写 active 文件，并落盘本次轮转摘要供定时任务收集；计划任务也可用 `QTNETWORKCHAT_DELIVERED_RECEIPT_KEEP_RECORDS`、`MAX_AGE_DAYS`、`ARCHIVE_DIR`、`COMPRESS_ARCHIVE`、`SUMMARY_PATH` 提供默认值。`scripts/analyze-large-file-receipt-rotation.ps1` 可读取 summary 并对 retained/archived/sensitiveHits 做只读阈值告警。
 - **只读演练**：没有真实日志时，可用 `scripts/write-large-file-reconcile-sample.ps1 -OutputDir sample-reconcile -RunReconcile -RunRotate` 生成脱敏样例并跑完整只读对账和轮转链路；真实验收时可用 `scripts/run-large-file-delivery-reconcile.ps1 -ReceiptPath delivered-receipts.jsonl -QueuePath offline-queue.jsonl -SourceInstanceId source-a -OutputDir reconcile -EmitRouteLog` 直接消费持久化 receipt，也可用 `-RouteLogPath source.log,remote.log` 从日志导出 receipt。输出 `cleaned` 仅代表候选满足条件，不会执行真实清理。
 
@@ -250,7 +250,8 @@
 50. 已完成：轮转脚本支持 `-SummaryPath` 落盘机器可读摘要，便于定时任务采集 archived/retained/sensitiveHits。
 51. 已完成：轮转脚本支持 `QTNETWORKCHAT_DELIVERED_RECEIPT_*` 环境变量默认值，便于 Windows 计划任务统一配置保留策略。
 52. 已完成：补轮转摘要分析脚本，可对 archived/retained 阈值、sensitiveHits 和缺失 archivePath 做非零退出告警。
-53. 下一步：转向下一条 Redis/S3 治理可观测性小切片，继续保持默认 CTest 不依赖真实 S3/MinIO。
+53. 已完成：日志分析脚本支持 `-SummaryPath` 落盘 failed/fallback/delivered 对账 summary JSON，便于后续趋势或阈值分析。
+54. 下一步：补 route summary 阈值分析或 S3 请求结果摘要脱敏分析，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 
