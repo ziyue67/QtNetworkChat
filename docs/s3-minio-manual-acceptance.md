@@ -130,10 +130,11 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.p
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/write-large-file-reconcile-sample.ps1 `
   -OutputDir ".\logs\sample-reconcile" `
-  -RunReconcile
+  -RunReconcile `
+  -RunRotate
 ```
 
-样例只包含逻辑 `objectKey`、`fileHash`、`transferId`、`receiverId` 和字节数，会同时产生一个 `cleaned` 候选和一个 `confirmed-bytes-insufficient` 保留候选；不包含 endpoint、bucket、object URL 或凭据。
+样例只包含逻辑 `objectKey`、`fileHash`、`transferId`、`receiverId` 和字节数，会同时产生一个 `cleaned` 候选、一个 `confirmed-bytes-insufficient` 保留候选，以及一个用于轮转归档的旧 receipt；不包含 endpoint、bucket、object URL 或凭据。
 
 如果已有源实例和远端实例的 `redis_large_file_route` 日志，以及源实例离线队列 JSON/JSONL 摘要，可直接运行一键只读演练：
 

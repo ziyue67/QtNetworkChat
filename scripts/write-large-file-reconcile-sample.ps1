@@ -2,7 +2,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDir,
 
-    [switch]$RunReconcile
+    [switch]$RunReconcile,
+
+    [switch]$RunRotate
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +15,7 @@ New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 $routeLogPath = Join-Path $resolvedOutputDir "sample-route.log"
 $queuePath = Join-Path $resolvedOutputDir "sample-offline-queue.jsonl"
 $receiptPath = Join-Path $resolvedOutputDir "sample-delivered-receipts.jsonl"
+$rotationReceiptPath = Join-Path $resolvedOutputDir "sample-rotation-receipts.jsonl"
 $reconcileOutputDir = Join-Path $resolvedOutputDir "reconcile-output"
 $sourceInstanceId = "source-sample-a"
 $hashA = "a" * 64
@@ -54,6 +57,22 @@ $hashB = "b" * 64
 
 @(
     ([pscustomobject]@{
+        sourceInstanceId = $sourceInstanceId
+        transferId = "sample-old"
+        receiverId = "receiver-009"
+        objectKey = "sampleold001.bin"
+        fileHash = $hashA
+        confirmedBytes = 128
+        result = "retained"
+        reason = "receipt-not-matched"
+        cleanupResult = "retained"
+        createdAt = "2026-01-01T00:00:00Z"
+    } | ConvertTo-Json -Compress),
+    (Get-Content -LiteralPath $receiptPath)
+) | Set-Content -LiteralPath $rotationReceiptPath -Encoding UTF8
+
+@(
+    ([pscustomobject]@{
         transferId = "sample-clean"
         receiverId = "receiver-001"
         objectStoreKey = "sampleclean001.bin"
@@ -78,10 +97,11 @@ $hashB = "b" * 64
 Write-Host "large file reconcile sample"
 Write-Host ("  route log: {0}" -f $routeLogPath)
 Write-Host ("  persisted receipts: {0}" -f $receiptPath)
+Write-Host ("  rotation receipts: {0}" -f $rotationReceiptPath)
 Write-Host ("  offline queue: {0}" -f $queuePath)
 Write-Host ("  sourceInstanceId: {0}" -f $sourceInstanceId)
 Write-Host ""
-Write-Host "The sample contains one cleaned candidate and one retained candidate; it has no endpoint, bucket, object URL, credentials, or signature fields."
+Write-Host "The sample contains one cleaned candidate, one retained candidate, and one old receipt for rotation; it has no endpoint, bucket, object URL, credentials, or signature fields."
 
 if ($RunReconcile) {
     $runner = Join-Path $PSScriptRoot "run-large-file-delivery-reconcile.ps1"
@@ -95,5 +115,19 @@ if ($RunReconcile) {
         -EmitRouteLog
     if ($LASTEXITCODE -ne 0) {
         throw ("Sample reconciliation failed with exit code {0}" -f $LASTEXITCODE)
+    }
+}
+
+if ($RunRotate) {
+    $rotator = Join-Path $PSScriptRoot "rotate-large-file-receipts.ps1"
+    Write-Host ""
+    Write-Host "running read-only-safe receipt rotation sample"
+    & powershell -ExecutionPolicy Bypass -File $rotator `
+        -ReceiptPath $rotationReceiptPath `
+        -KeepRecords 2 `
+        -MaxAgeDays 30 `
+        -CompressArchive
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Sample receipt rotation failed with exit code {0}" -f $LASTEXITCODE)
     }
 }
