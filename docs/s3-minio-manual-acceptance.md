@@ -150,6 +150,18 @@ powershell -ExecutionPolicy Bypass -File scripts/run-large-file-delivery-reconci
 
 该脚本只串联 receipt 输入、fallback 导出和对账判定，会写出 `receipts.jsonl`、`fallbacks.jsonl` 和 `reconcile.log`；它不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
 
+持久化 receipt 文件较大时，可以先做离线轮转：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/rotate-large-file-receipts.ps1 `
+  -ReceiptPath ".\logs\delivered-receipts\delivered-receipts.jsonl" `
+  -KeepRecords 10000 `
+  -MaxAgeDays 30 `
+  -CompressArchive
+```
+
+轮转脚本会把超出保留条数或保留天数的旧摘要写到 `archive\delivered-receipts-*.jsonl` 或 `.zip`，再重写 active `delivered-receipts.jsonl`；它只处理脱敏 receipt 摘要，不连接 Redis、S3/MinIO，也不会清理离线队列、附件或对象。若输入中出现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature，脚本默认失败。
+
 也可以分步执行。先从 route log 导出 delivered receipt 输入：
 
 ```powershell
