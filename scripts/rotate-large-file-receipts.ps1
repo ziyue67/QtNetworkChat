@@ -18,6 +18,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:CliBoundParameters = @{} + $PSBoundParameters
 
 $sensitivePatterns = @(
     "endpoint",
@@ -84,6 +85,83 @@ function Read-ReceiptRecords([string]$Path) {
     $records
 }
 
+function Get-ReceiptEnvName([string]$Name) {
+    switch ($Name) {
+        "KeepRecords" { return "QTNETWORKCHAT_DELIVERED_RECEIPT_KEEP_RECORDS" }
+        "MaxAgeDays" { return "QTNETWORKCHAT_DELIVERED_RECEIPT_MAX_AGE_DAYS" }
+        "ArchiveDir" { return "QTNETWORKCHAT_DELIVERED_RECEIPT_ARCHIVE_DIR" }
+        "CompressArchive" { return "QTNETWORKCHAT_DELIVERED_RECEIPT_COMPRESS_ARCHIVE" }
+        "SummaryPath" { return "QTNETWORKCHAT_DELIVERED_RECEIPT_SUMMARY_PATH" }
+        default { throw ("Unsupported receipt rotation setting: {0}" -f $Name) }
+    }
+}
+
+function Get-PositiveIntSetting([string]$Name, [int]$CurrentValue) {
+    if ($script:CliBoundParameters.ContainsKey($Name)) {
+        return $CurrentValue
+    }
+    $envName = Get-ReceiptEnvName $Name
+    $value = [string]([Environment]::GetEnvironmentVariable($envName))
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $CurrentValue
+    }
+    $parsed = 0
+    if (-not [int]::TryParse($value.Trim(), [ref]$parsed) -or $parsed -lt 1) {
+        throw ("{0} must be a positive integer." -f $envName)
+    }
+    $parsed
+}
+
+function Get-NonNegativeIntSetting([string]$Name, [int]$CurrentValue) {
+    if ($script:CliBoundParameters.ContainsKey($Name)) {
+        return $CurrentValue
+    }
+    $envName = Get-ReceiptEnvName $Name
+    $value = [string]([Environment]::GetEnvironmentVariable($envName))
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $CurrentValue
+    }
+    $parsed = 0
+    if (-not [int]::TryParse($value.Trim(), [ref]$parsed) -or $parsed -lt 0) {
+        throw ("{0} must be 0 or a positive integer." -f $envName)
+    }
+    $parsed
+}
+
+function Get-StringSetting([string]$Name, [string]$CurrentValue) {
+    if ($script:CliBoundParameters.ContainsKey($Name) -and -not [string]::IsNullOrWhiteSpace($CurrentValue)) {
+        return $CurrentValue
+    }
+    $envName = Get-ReceiptEnvName $Name
+    $value = [string]([Environment]::GetEnvironmentVariable($envName))
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $CurrentValue
+    }
+    $value.Trim()
+}
+
+function Get-BoolSetting([string]$Name, [bool]$CurrentValue) {
+    if ($script:CliBoundParameters.ContainsKey($Name)) {
+        return $CurrentValue
+    }
+    $envName = Get-ReceiptEnvName $Name
+    $value = [string]([Environment]::GetEnvironmentVariable($envName))
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $CurrentValue
+    }
+    switch ($value.Trim().ToLowerInvariant()) {
+        { $_ -in @("1", "true", "yes", "on") } { return $true }
+        { $_ -in @("0", "false", "no", "off") } { return $false }
+        default { throw ("{0} must be one of 1/0, true/false, yes/no, on/off." -f $envName) }
+    }
+}
+
+$KeepRecords = Get-PositiveIntSetting "KeepRecords" $KeepRecords
+$MaxAgeDays = Get-NonNegativeIntSetting "MaxAgeDays" $MaxAgeDays
+$ArchiveDir = Get-StringSetting "ArchiveDir" $ArchiveDir
+$SummaryPath = Get-StringSetting "SummaryPath" $SummaryPath
+$compressArchiveEnabled = Get-BoolSetting "CompressArchive" ([bool]$CompressArchive)
+
 if ($KeepRecords -lt 1) {
     throw "KeepRecords must be greater than 0."
 }
@@ -142,7 +220,7 @@ if (-not $DryRun) {
     if ($archived.Count -gt 0) {
         New-Item -ItemType Directory -Path $resolvedArchiveDir -Force | Out-Null
         $archived.json | Set-Content -LiteralPath $archivePath -Encoding UTF8
-        if ($CompressArchive) {
+        if ($compressArchiveEnabled) {
             Compress-Archive -LiteralPath $archivePath -DestinationPath $zipPath -Force
             Remove-Item -LiteralPath $archivePath -Force
             $archivePath = $zipPath
@@ -163,6 +241,7 @@ $summary = [pscustomobject]@{
     archivedRecords = $archived.Count
     keepRecords = $KeepRecords
     maxAgeDays = $MaxAgeDays
+    compressArchive = $compressArchiveEnabled
     sensitiveHits = $sensitiveHits.Count
 }
 $summaryJson = $summary | ConvertTo-Json -Depth 4

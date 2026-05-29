@@ -164,6 +164,16 @@ powershell -ExecutionPolicy Bypass -File scripts/rotate-large-file-receipts.ps1 
 
 轮转脚本会把超出保留条数或保留天数的旧摘要写到 `archive\delivered-receipts-*.jsonl` 或 `.zip`，再重写 active `delivered-receipts.jsonl`；`-SummaryPath` 会额外写出本次轮转摘要，包含 `totalRecords`、`retainedRecords`、`archivedRecords`、`archivePath` 和 `sensitiveHits`，便于定时任务收集。它只处理脱敏 receipt 摘要，不连接 Redis、S3/MinIO，也不会清理离线队列、附件或对象。若输入中出现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature，脚本默认失败。
 
+计划任务中也可以用环境变量提供默认值，命令行参数始终优先：
+
+```powershell
+$env:QTNETWORKCHAT_DELIVERED_RECEIPT_KEEP_RECORDS = "10000"
+$env:QTNETWORKCHAT_DELIVERED_RECEIPT_MAX_AGE_DAYS = "30"
+$env:QTNETWORKCHAT_DELIVERED_RECEIPT_ARCHIVE_DIR = ".\logs\delivered-receipts\archive"
+$env:QTNETWORKCHAT_DELIVERED_RECEIPT_COMPRESS_ARCHIVE = "1"
+$env:QTNETWORKCHAT_DELIVERED_RECEIPT_SUMMARY_PATH = ".\logs\delivered-receipts\rotate-summary.json"
+```
+
 也可以分步执行。先从 route log 导出 delivered receipt 输入：
 
 ```powershell
