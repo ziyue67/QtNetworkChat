@@ -735,6 +735,51 @@ S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
     return result;
 }
 
+QString s3FailureReasonForLog(const S3RequestResult& result) {
+    if (result.http.ok) {
+        return QStringLiteral("success");
+    }
+    if (result.timeout) {
+        return QStringLiteral("timeout");
+    }
+    if (result.tlsError) {
+        return QStringLiteral("tls");
+    }
+    if (result.networkError) {
+        return QStringLiteral("network");
+    }
+    switch (result.http.kind) {
+    case S3HttpResultKind::NotFound:
+        return QStringLiteral("not_found");
+    case S3HttpResultKind::AuthError:
+        return QStringLiteral("auth");
+    case S3HttpResultKind::Retryable:
+        return QStringLiteral("retryable");
+    case S3HttpResultKind::ClientError:
+        return QStringLiteral("client");
+    case S3HttpResultKind::ServerError:
+        return QStringLiteral("server");
+    case S3HttpResultKind::Success:
+        return QStringLiteral("success");
+    case S3HttpResultKind::Unknown:
+        break;
+    }
+    return QStringLiteral("unknown");
+}
+
+QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& result) {
+    if (result.ok) {
+        return QStringLiteral("success");
+    }
+    if (result.error.contains(QString::fromUtf8("大小"))) {
+        return QStringLiteral("size");
+    }
+    if (result.error.contains(QString::fromUtf8("哈希")) || result.error.contains(QStringLiteral("SHA-256"))) {
+        return QStringLiteral("hash");
+    }
+    return QStringLiteral("validation_error");
+}
+
 S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& config,
                                                 const S3SignedObjectRequest& request,
                                                 const QByteArray& body) {

@@ -139,7 +139,7 @@
 
 当前已完成薄适配骨架：`S3ObjectStore` 类已存在并持有规范化后的配置；默认构造仍保持 fail-closed，工厂只有在配置完整且 `QTNETWORKCHAT_OBJECT_S3_ENABLE` 显式启用时才创建带 Qt Network 执行器的 `s3` 后端。测试可注入 `S3RequestExecutor`，用不联网替身覆盖 `writeObject()` 的 `PUT` 上传、本地 SHA-256 返回、`openObject()` 的 `GET` 只读设备、`validateObject()` 的 `HEAD` 快速大小检查加 `GET` 响应体 size/hash 最终校验，以及 `removeObject()` 的 `DELETE` 结果处理；默认未启用时仍 fail-closed，TTL 清理为 no-op；单测会校验这些失败路径不泄露 access key、secret key 或 session token。
 
-当前已完成 URL、签名与请求构造边界骨架：`s3ObjectUrl()` 会按 MinIO 兼容的 path-style 格式生成 `endpoint/bucket/prefix/objectKey`，并复用 objectKey 校验拒绝路径穿越；Signature V4 纯函数已覆盖 payload SHA-256、credential scope、canonical request、string-to-sign、HMAC signing key、signature 和 Authorization header，并用 AWS GET Object 固定向量锁定输出；`s3SignedObjectRequest()` 可在不联网的前提下生成带 `host`、`x-amz-date`、`x-amz-content-sha256`、可选 `x-amz-security-token`、`Authorization` 和 transfer timeout 的 `QNetworkRequest`，覆盖方法规范化、空 region 默认值、非法 objectKey 拒绝、TLS 校验开关、请求超时、临时凭据 token 签名头和仅允许 `PUT`/`GET`/`HEAD`/`DELETE` 的第一阶段对象方法边界；`classifyS3HttpStatus()` 已把 2xx 成功、404 不存在、401/403 凭据或权限错误、408/409/429 可重试状态、4xx 客户端错误、5xx 可重试服务端错误和未知状态分开；`s3RequestResultFromReply()` 已把 HTTP 状态、网络错误、超时和 TLS 失败归一到 `S3HttpResult`，并由 `redactS3ErrorText()` 脱敏 access key、secret key、session token、Authorization/Credential/Signature 文本；注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界已覆盖上传 payload、返回本地 SHA-256、GET 只读设备、HEAD 快速大小检查、GET 响应体最终 size/hash 校验、缺 HEAD hash 时仍以 body hash 为准、失败错误脱敏和删除结果处理；`executeS3ObjectRequest()` 已提供真实 Qt Network 执行薄层，负责发起 `sendCustomRequest()`、收集响应 header/body、按配置超时 abort、捕获 TLS 错误，并统一返回脱敏后的 `S3RequestExecutionResult`。后续真实后端应复用这些边界发起 Qt Network 请求，不把 bucket、endpoint、凭据或 Authorization header 写入 Redis 控制事件或日志。
+当前已完成 URL、签名与请求构造边界骨架：`s3ObjectUrl()` 会按 MinIO 兼容的 path-style 格式生成 `endpoint/bucket/prefix/objectKey`，并复用 objectKey 校验拒绝路径穿越；Signature V4 纯函数已覆盖 payload SHA-256、credential scope、canonical request、string-to-sign、HMAC signing key、signature 和 Authorization header，并用 AWS GET Object 固定向量锁定输出；`s3SignedObjectRequest()` 可在不联网的前提下生成带 `host`、`x-amz-date`、`x-amz-content-sha256`、可选 `x-amz-security-token`、`Authorization` 和 transfer timeout 的 `QNetworkRequest`，覆盖方法规范化、空 region 默认值、非法 objectKey 拒绝、TLS 校验开关、请求超时、临时凭据 token 签名头和仅允许 `PUT`/`GET`/`HEAD`/`DELETE` 的第一阶段对象方法边界；`classifyS3HttpStatus()` 已把 2xx 成功、404 不存在、401/403 凭据或权限错误、408/409/429 可重试状态、4xx 客户端错误、5xx 可重试服务端错误和未知状态分开；`s3RequestResultFromReply()` 已把 HTTP 状态、网络错误、超时和 TLS 失败归一到 `S3HttpResult`，并由 `redactS3ErrorText()` 脱敏 access key、secret key、session token、Authorization/Credential/Signature 文本；`s3FailureReasonForLog()` 和 `s3ValidationFailureReasonForLog()` 只返回固定 reason 字符串，可聚合 timeout/network/tls/auth/not_found/retryable/client/server/hash/size 等失败而不携带 endpoint、bucket、object URL 或凭据；注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界已覆盖上传 payload、返回本地 SHA-256、GET 只读设备、HEAD 快速大小检查、GET 响应体最终 size/hash 校验、缺 HEAD hash 时仍以 body hash 为准、失败错误脱敏和删除结果处理；`executeS3ObjectRequest()` 已提供真实 Qt Network 执行薄层，负责发起 `sendCustomRequest()`、收集响应 header/body、按配置超时 abort、捕获 TLS 错误，并统一返回脱敏后的 `S3RequestExecutionResult`。后续真实后端应复用这些边界发起 Qt Network 请求，不把 bucket、endpoint、凭据或 Authorization header 写入 Redis 控制事件或日志。
 
 适配规则：
 
@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating 和可选 MinIO 手动 smoke 脚本已完成；下一步补真实后端服务端集成前的治理日志与回退可观测性，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating 和可选 MinIO 手动 smoke 脚本已完成；下一步把 reason helper 接入服务端跨实例大文件结构化日志，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -221,7 +221,8 @@
 29. 已完成：补注入式 `PUT`/`GET` 上传下载边界，`writeObject()` 生成安全 objectKey、本地计算标准 SHA-256 并通过 PUT 上传，`openObject()` 通过 GET 返回只读设备；PUT/GET 失败会 fail-closed 且错误脱敏，默认构造与工厂仍不发布真实后端。
 30. 已完成：补 GET 后 size/hash 校验整合，`validateObject()` 在 HEAD 快速检查后读取 GET 响应体计算标准 SHA-256，缺 HEAD hash 时仍可用 body hash 校验，并明确不信任 ETag。
 31. 已完成：补真实后端发布 gating，`createObjectStore(s3)` 默认仍 fail-closed；只有配置完整且 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 时才创建带 Qt Network 执行器的 S3 后端，错误信息不泄露凭据。
-32. 下一步：补真实 S3 后端服务端集成前的治理日志与回退可观测性，确保 S3 上传、下载、校验、删除失败时能按 reason 聚合且不把 endpoint、bucket、凭据或 Authorization 写入日志。
+32. 已完成：补 S3 失败 reason 聚合 helper，覆盖 timeout、network、tls、auth、not_found、retryable、client、server、unknown、size 和 hash，helper 只返回固定字符串，不携带 endpoint、bucket、凭据或 Authorization。
+33. 下一步：把 S3 reason helper 接入服务端跨实例大文件结构化日志，确保 S3 上传、下载、校验、删除失败时能按 reason 聚合且不把 endpoint、bucket、凭据或 Authorization 写入日志。
 
 ## 当前保护边界
 
@@ -241,5 +242,5 @@
 - 已有测试专用 `InMemoryObjectStore` 契约替身，覆盖通用 ObjectStore 行为和 TTL no-op 边界。
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
-- 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 服务端集成时，优先补治理日志与回退可观测性，并保持 fail-closed 和离线兜底安全边界。
+- 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
+- 后续进入真实 S3/MinIO 服务端集成时，优先把 reason helper 接入结构化日志，并保持 fail-closed 和离线兜底安全边界。

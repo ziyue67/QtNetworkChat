@@ -415,6 +415,14 @@ int main() {
                           true,
                           QStringLiteral("server_error"),
                           "s3 request result should preserve retryable server classification");
+    ok = expect(s3FailureReasonForLog(s3RequestResultFromReply(s3Config, 200)) == QStringLiteral("success")
+                    && s3FailureReasonForLog(s3RequestResultFromReply(s3Config, 404)) == QStringLiteral("not_found")
+                    && s3FailureReasonForLog(s3RequestResultFromReply(s3Config, 403)) == QStringLiteral("auth")
+                    && s3FailureReasonForLog(s3RequestResultFromReply(s3Config, 408)) == QStringLiteral("retryable")
+                    && s3FailureReasonForLog(s3RequestResultFromReply(s3Config, 400)) == QStringLiteral("client")
+                    && s3FailureReasonForLog(s3RequestResultFromReply(s3Config, 503)) == QStringLiteral("server")
+                    && s3FailureReasonForLog(s3RequestResultFromReply(s3Config, 302)) == QStringLiteral("unknown"),
+                "s3 failure reason helper should expose stable aggregate-safe HTTP reasons") && ok;
     const S3RequestResult networkFailure =
         s3RequestResultFromReply(s3Config,
                                  0,
@@ -431,6 +439,8 @@ int main() {
                     && !networkFailure.error.contains(s3Config.accessKey)
                     && !networkFailure.error.contains(s3Config.secretKey),
                 "s3 network error text should be redacted") && ok;
+    ok = expect(s3FailureReasonForLog(networkFailure) == QStringLiteral("network"),
+                "s3 failure reason helper should classify network failures without leaking error text") && ok;
     const S3RequestResult timeoutFailure =
         s3RequestResultFromReply(s3Config, 0, QString(), true);
     expectS3RequestResult(timeoutFailure,
@@ -442,6 +452,8 @@ int main() {
     ok = expect(timeoutFailure.timeout
                     && timeoutFailure.error.contains(QStringLiteral("timed out")),
                 "s3 timeout result should carry a safe default error") && ok;
+    ok = expect(s3FailureReasonForLog(timeoutFailure) == QStringLiteral("timeout"),
+                "s3 failure reason helper should classify timeouts") && ok;
     const S3RequestResult tlsFailure =
         s3RequestResultFromReply(s3Config,
                                  0,
@@ -458,6 +470,8 @@ int main() {
                     && tlsFailure.tlsError
                     && !tlsFailure.error.contains(s3Config.sessionToken),
                 "s3 TLS error text should be redacted") && ok;
+    ok = expect(s3FailureReasonForLog(tlsFailure) == QStringLiteral("tls"),
+                "s3 failure reason helper should classify TLS failures") && ok;
     const QString redactedS3Error =
         redactS3ErrorText(s3Config,
                           QStringLiteral("Authorization=AWS4-HMAC-SHA256 Credential=access-key/20130524/local/s3/aws4_request,SignedHeaders=host,Signature=abcdef "
@@ -679,6 +693,13 @@ int main() {
                 "s3 body validation should reject size mismatches") && ok;
     ok = expect(!validateS3ObjectBody(QByteArrayLiteral("payload"), 7, sha256Hex(QByteArrayLiteral("other"))).ok,
                 "s3 body validation should reject SHA-256 mismatches") && ok;
+    ok = expect(s3ValidationFailureReasonForLog(validateS3ObjectBody(QByteArrayLiteral("payload"), 7, expectedS3Hash))
+                    == QStringLiteral("success")
+                    && s3ValidationFailureReasonForLog(validateS3ObjectBody(QByteArrayLiteral("payload"), 8, expectedS3Hash))
+                        == QStringLiteral("size")
+                    && s3ValidationFailureReasonForLog(validateS3ObjectBody(QByteArrayLiteral("payload"), 7, sha256Hex(QByteArrayLiteral("other"))))
+                        == QStringLiteral("hash"),
+                "s3 validation failure reason helper should expose stable size/hash reasons") && ok;
     S3ObjectStore s3GetMismatchStore(envS3Config,
                                      [&envS3Config, expectedS3Hash](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(body);

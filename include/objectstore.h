@@ -154,6 +154,8 @@ S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
                                          const QString& errorText = QString(),
                                          bool timedOut = false,
                                          bool tlsFailed = false);
+QString s3FailureReasonForLog(const S3RequestResult& result);
+QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& result);
 S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& config,
                                                 const S3SignedObjectRequest& request,
                                                 const QByteArray& body = QByteArray());
