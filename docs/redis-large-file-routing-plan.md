@@ -169,6 +169,7 @@
 - 启用真实后端前必须先跑 smoke 脚本确认 endpoint、bucket、access key、secret key、region 和 prefix 可用，再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 与 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 启动服务端。真实后端仍必须遵守离线兜底：任何 S3 上传、下载、校验、删除、TLS、超时或凭据错误都发布固定 reason 并保留源实例离线附件队列。
 - 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/bytes/storeType/operation` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
 - 真实后端人工验收清单已补到 `docs/s3-minio-manual-acceptance.md`，覆盖 smoke、双服务端、远端在线大文件投递、失败注入、离线兜底回源回放和日志/Redis/队列脱敏检查。
+- 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。
 
 ## 治理观测
 
@@ -229,7 +230,8 @@
 34. 已完成：补 S3 真实后端显式启用后的 MinIO 手动运行说明，明确先跑 smoke、再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 和 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1`，并强调失败回退与日志脱敏边界。
 35. 已完成：补服务端大文件对象路由日志字段扩展，发布、校验、写入、删除和兜底路径会输出 `storeType` 与 `operation` 等安全维度，继续避免 endpoint、bucket、对象 URL、凭据和 Authorization 进入日志、Redis 事件或离线队列。
 36. 已完成：补真实 S3/MinIO 启用路径的人工验收清单，明确 smoke、双实例投递、失败注入、离线兜底、回源回放和脱敏检查步骤，仍不把真实 S3/MinIO 纳入默认 CTest。
-37. 下一步：补 S3 端到端失败回退演练的脚本化辅助或治理指标聚合，继续保持默认 CTest 不依赖真实 S3/MinIO。
+37. 已完成：补 `redis_large_file_route` 日志聚合和脱敏扫描辅助脚本，人工验收时可统计事件、结果、reason、storeType 和 operation，并对敏感字段泄露 fail-fast。
+38. 下一步：补 S3 失败回退演练的可选场景脚本或 delivered 丢失对账原型，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 
@@ -250,4 +252,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 服务端集成时，优先补失败回退演练脚本化或治理指标聚合，并保持 fail-closed 和离线兜底安全边界。
+- 后续进入真实 S3/MinIO 服务端集成时，优先补失败回退演练的可选场景脚本或 delivered 丢失对账原型，并保持 fail-closed 和离线兜底安全边界。
