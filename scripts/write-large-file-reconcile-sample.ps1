@@ -26,7 +26,9 @@ $hashB = "b" * 64
     "redis_large_file_route event=delivered result=published sourceInstanceId=$sourceInstanceId transferId=sample-clean objectKey=sampleclean001.bin receiverId=receiver-001 fileHash=$hashA bytes=1048576 storeType=s3 operation=publish",
     "redis_large_file_route event=delivered result=published sourceInstanceId=$sourceInstanceId transferId=sample-partial objectKey=samplepartial001.bin receiverId=receiver-002 fileHash=$hashB bytes=524288 storeType=s3 operation=publish",
     "redis_large_file_route event=failed result=published sourceInstanceId=$sourceInstanceId transferId=sample-noise objectKey=samplenoise001.bin receiverId=receiver-003 fileHash=$hashA reason=network storeType=s3 operation=publish",
-    "redis_large_file_route event=delivered_reconcile result=retained reason=confirmed-bytes-insufficient sourceInstanceId=$sourceInstanceId transferId=sample-retained-log objectKey=sampleretained001.bin receiverId=receiver-004 fileHash=$hashB bytes=256 storeType=s3 operation=reconcile"
+    "redis_large_file_route event=delivered_reconcile result=retained reason=confirmed-bytes-insufficient sourceInstanceId=$sourceInstanceId transferId=sample-retained-log objectKey=sampleretained001.bin receiverId=receiver-004 fileHash=$hashB bytes=256 storeType=s3 operation=reconcile",
+    "redis_large_file_route event=object_write result=skipped sourceInstanceId=$sourceInstanceId transferId=sample-s3-skip objectKey=samples3skip001.bin receiverId=receiver-005 reason=network storeType=s3 operation=write",
+    "redis_large_file_route event=offer_validation result=rejected sourceInstanceId=$sourceInstanceId transferId=sample-s3-reject objectKey=samples3reject001.bin receiverId=receiver-006 reason=not_found storeType=s3 operation=validate"
 ) | Set-Content -LiteralPath $routeLogPath -Encoding UTF8
 
 @(

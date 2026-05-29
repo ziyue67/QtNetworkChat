@@ -128,6 +128,22 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-summar
 
 该脚本只读取 summary JSON；默认任何 `sensitiveHits > 0` 都会失败，`failedWithoutFallback` 或 `deliveredWithoutCleanup` 超过传入阈值也会非零退出。
 
+如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/analyze-s3-request-results.ps1 `
+  -Path ".\logs\source.log", ".\logs\remote.log" `
+  -SummaryPath ".\logs\s3-request-results-summary.json" `
+  -WarnTimeout 0 `
+  -WarnRetryable 0 `
+  -WarnAuth 0 `
+  -WarnTls 0 `
+  -WarnHash 0 `
+  -WarnSize 0
+```
+
+该脚本只读取日志，不连接 Redis 或 S3/MinIO；它会跳过 publish/reconcile 等控制面事件，只聚合对象请求相关 operation 的固定 reason 桶、operation 和 result，遇到未知 reason 或 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential、Signature 等敏感字段时默认失败。
+
 ## 6. 可选 delivered 对账演练
 
 如果需要离线复核“远端 receipt 是否足以清理源实例兜底”，先从安全日志、人工记录或脱敏导出的队列摘要中整理两个 JSON/JSONL 文件：

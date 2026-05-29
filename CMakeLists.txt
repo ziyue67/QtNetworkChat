@@ -292,4 +292,10 @@ if(BUILD_TESTING)
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
+    add_test(
+        NAME S3RequestResultAnalysis
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-s3-request-results.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_result_analysis.cmake
+    )
 endif()
