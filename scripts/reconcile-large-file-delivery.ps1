@@ -61,7 +61,7 @@ function Read-JsonRecords([string]$Path) {
         }
         $records.Add(($line | ConvertFrom-Json))
     }
-    @($records)
+    @($records.ToArray())
 }
 
 function Test-SafeObjectKey([string]$Value) {

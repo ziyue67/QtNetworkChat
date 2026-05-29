@@ -122,7 +122,20 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.p
 - `receipts.jsonl`：每行包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`。
 - `fallbacks.jsonl`：每行包含同名元数据和 `fileSize`，代表源实例仍保留的离线兜底候选。
 
-如果已有源实例和远端实例的 `redis_large_file_route` 日志，可先导出 delivered receipt 输入：
+如果已有源实例和远端实例的 `redis_large_file_route` 日志，以及源实例离线队列 JSON/JSONL 摘要，可直接运行一键只读演练：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-large-file-delivery-reconcile.ps1 `
+  -RouteLogPath ".\logs\source-server.log", ".\logs\remote-server.log" `
+  -QueuePath ".\logs\offline-queue.jsonl" `
+  -SourceInstanceId "source-instance-id" `
+  -OutputDir ".\logs\reconcile" `
+  -EmitRouteLog
+```
+
+该脚本只串联 receipt 导出、fallback 导出和对账判定，会写出 `receipts.jsonl`、`fallbacks.jsonl` 和 `reconcile.log`；它不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
+
+也可以分步执行。先从 route log 导出 delivered receipt 输入：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/export-large-file-receipts.ps1 `
@@ -132,7 +145,7 @@ powershell -ExecutionPolicy Bypass -File scripts/export-large-file-receipts.ps1 
 
 导出脚本只读取 route log 中的 `delivered` 和 `delivered_reconcile` 成功/cleaned 事件，并只写出 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`；它不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
 
-如果已有源实例离线队列 JSON/JSONL 摘要，可继续导出对账所需的 fallback 输入：
+再从源实例离线队列 JSON/JSONL 摘要导出对账所需的 fallback 输入：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/export-large-file-fallbacks.ps1 `
