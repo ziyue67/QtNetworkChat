@@ -541,6 +541,15 @@ int main() {
                     && !envS3Config.tlsVerify
                     && envS3Config.requestTimeoutMs == 45000,
                 "s3 config should parse environment prefix, session token, TLS flag and request timeout") && ok;
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_ENABLE");
+    ok = expect(!s3ObjectStoreEnabledFromEnvironment(),
+                "s3 backend factory gate should be disabled by default") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ENABLE", "yes");
+    ok = expect(s3ObjectStoreEnabledFromEnvironment(),
+                "s3 backend factory gate should accept explicit opt-in values") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ENABLE", "0");
+    ok = expect(!s3ObjectStoreEnabledFromEnvironment(),
+                "s3 backend factory gate should reject explicit disabled values") && ok;
     qputenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", "999999");
     const S3ObjectStoreConfig invalidTimeoutS3Config = s3ObjectStoreConfigFromEnvironment();
     ok = expect(invalidTimeoutS3Config.requestTimeoutMs == 30000,
@@ -764,11 +773,18 @@ int main() {
                 "s3 placeholder cleanup should be a no-op") && ok;
     unsupportedStore = createObjectStore(QStringLiteral("s3"), QString(), &factoryError);
     ok = expect(!unsupportedStore
-                    && factoryError.contains(QString::fromUtf8("暂未实现"))
+                    && factoryError.contains(QString::fromUtf8("未启用"))
                     && !factoryError.contains(QStringLiteral("super-secret-value"))
                     && !factoryError.contains(QStringLiteral("access-key"))
                     && !factoryError.contains(QStringLiteral("temporary-session-token")),
-                "configured s3 backend should remain unimplemented without leaking credentials") && ok;
+                "configured s3 backend should stay gated by default without leaking credentials") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ENABLE", "1");
+    unsupportedStore = createObjectStore(QStringLiteral("s3"), QString(), &factoryError);
+    ok = expect(unsupportedStore
+                    && dynamic_cast<S3ObjectStore*>(unsupportedStore.get()) != nullptr
+                    && factoryError.isEmpty(),
+                "configured s3 backend should require an explicit opt-in before the factory creates it") && ok;
+    unsupportedStore.reset();
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_BUCKET");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_REGION");
@@ -778,6 +794,7 @@ int main() {
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_ENABLE");
 
     const QByteArray payload("filesystem object store payload");
     QString objectKey;

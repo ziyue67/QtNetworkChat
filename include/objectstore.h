@@ -143,6 +143,7 @@ QString normalizeObjectStoreType(const QString& storeType);
 bool isSupportedObjectStoreType(const QString& storeType);
 QString normalizeS3ObjectPrefix(const QString& prefix);
 bool validateS3ObjectStoreConfig(const S3ObjectStoreConfig& config, QString* error = nullptr);
+bool s3ObjectStoreEnabledFromEnvironment();
 S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment();
 QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey);
 bool isSupportedS3ObjectMethod(const QString& method);

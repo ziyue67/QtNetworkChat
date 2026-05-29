@@ -71,6 +71,11 @@ bool envFlagDefaultTrue(const char* name) {
     return !(value == "0" || value == "false" || value == "no" || value == "off");
 }
 
+bool envFlagDefaultFalse(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
 int envIntInRange(const char* name, int defaultValue, int minValue, int maxValue) {
     const QByteArray value = qgetenv(name).trimmed();
     if (value.isEmpty()) {
@@ -580,6 +585,10 @@ S3ObjectStoreConfig s3ObjectStoreConfigFromEnvironment() {
     return config;
 }
 
+bool s3ObjectStoreEnabledFromEnvironment() {
+    return envFlagDefaultFalse("QTNETWORKCHAT_OBJECT_S3_ENABLE");
+}
+
 QUrl s3ObjectUrl(const S3ObjectStoreConfig& config, const QString& objectKey) {
     QString configError;
     if (!validateS3ObjectStoreConfig(config, &configError)
@@ -968,10 +977,18 @@ std::unique_ptr<ObjectStore> createObjectStore(const QString& storeType,
             }
             return {};
         }
-        if (error) {
-            *error = QStringLiteral("S3对象存储后端暂未实现");
+        if (!s3ObjectStoreEnabledFromEnvironment()) {
+            if (error) {
+                *error = QStringLiteral("S3对象存储后端未启用，请设置 QTNETWORKCHAT_OBJECT_S3_ENABLE=1 后再使用真实网络后端");
+            }
+            return {};
         }
-        return {};
+        if (error) {
+            error->clear();
+        }
+        return std::make_unique<S3ObjectStore>(config, [config](const S3SignedObjectRequest& request, const QByteArray& body) {
+            return executeS3ObjectRequest(config, request, body);
+        });
     }
 
     if (normalizedType != QStringLiteral("filesystem")) {
