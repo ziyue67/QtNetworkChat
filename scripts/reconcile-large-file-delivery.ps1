@@ -5,6 +5,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FallbackPath,
 
+    [switch]$EmitRouteLog,
+
     [switch]$NoFailOnSensitive
 )
 
@@ -157,6 +159,18 @@ function Add-Count([hashtable]$Table, [string]$Key) {
     $Table[$Key] += 1
 }
 
+function ConvertTo-RouteLogValue([string]$Value, [string]$Fallback) {
+    $trimmed = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($trimmed)) {
+        return $Fallback
+    }
+    $safe = [regex]::Replace($trimmed, "[^A-Za-z0-9_.:-]", "_")
+    if ([string]::IsNullOrWhiteSpace($safe)) {
+        return $Fallback
+    }
+    $safe
+}
+
 function Find-SensitiveHits([string[]]$Paths) {
     $hits = New-Object System.Collections.Generic.List[string]
     foreach ($path in $Paths) {
@@ -224,6 +238,24 @@ Write-Host "decision rows"
 foreach ($row in ($rows | Sort-Object routeKey)) {
     Write-Host ("  {0} result={1} reason={2} confirmedBytes={3} fileSize={4}" -f
         $row.routeKey, $row.result, $row.reason, $row.confirmedBytes, $row.fileSize)
+}
+
+if ($EmitRouteLog) {
+    Write-Host ""
+    Write-Host "route log events"
+    foreach ($row in ($rows | Sort-Object routeKey)) {
+        $parts = $row.routeKey -split "\|", 3
+        $transferId = if ($parts.Count -gt 0) { $parts[0] } else { "" }
+        $objectKey = if ($parts.Count -gt 1) { $parts[1] } else { "" }
+        $receiverId = if ($parts.Count -gt 2) { $parts[2] } else { "" }
+        Write-Host ("redis_large_file_route event=delivered_reconcile result={0} reason={1} operation=reconcile transferId={2} objectKey={3} receiverId={4} bytes={5}" -f
+            (ConvertTo-RouteLogValue $row.result "retained"),
+            (ConvertTo-RouteLogValue $row.reason "unknown"),
+            (ConvertTo-RouteLogValue $transferId "unknown"),
+            (ConvertTo-RouteLogValue $objectKey "unknown"),
+            (ConvertTo-RouteLogValue $receiverId "unknown"),
+            [int64]$row.confirmedBytes)
+    }
 }
 
 $sensitiveHits = Find-SensitiveHits @($ReceiptPath, $FallbackPath)
