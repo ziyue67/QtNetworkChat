@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本和样例脚本一键轮转演练已完成；下一步补更细的保留期运维说明或转向下一条 Redis/S3 治理可观测性小切片，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练和轮转摘要落盘已完成；下一步补更细的保留期运维说明或转向下一条 Redis/S3 治理可观测性小切片，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -193,7 +193,7 @@
 - **重试窗口**：在对象 TTL 内，源实例仍可等待远端补发 delivered 或 receipt；TTL 后对象可释放空间，但离线附件继续按 `QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS` 作为最终兜底窗口。
 - **误删保护**：对账任务必须复用 `cleanupDeliveredRedisLargeFile()` 的匹配规则或等价校验；不得仅凭 `transferId`、`receiverId`、claim 事件、日志行或对象不存在来删除队列。
 - **观测输出**：服务端收到 delivered 回执时会先输出只读 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，再进入原有 `delivered_cleanup` 清理路径；离线脚本也可用 `-EmitRouteLog` 生成同类事件。该事件只记录候选和保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理；现有日志分析脚本已可聚合 cleaned/retained 候选，不执行自动删除。
-- **receipt 摘要**：设置 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 后，源实例会把有效 delivered 回执追加到 `delivered-receipts.jsonl`，字段仅包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`、`result`、`reason`、`cleanupResult` 和 `createdAt`；默认关闭，且不会修改离线队列、附件或对象。运维可用 `scripts/rotate-large-file-receipts.ps1 -ReceiptPath delivered-receipts.jsonl -KeepRecords 10000 -MaxAgeDays 30 -CompressArchive` 对摘要做离线轮转，输出旧摘要归档并原子重写 active 文件。
+- **receipt 摘要**：设置 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 后，源实例会把有效 delivered 回执追加到 `delivered-receipts.jsonl`，字段仅包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`、`result`、`reason`、`cleanupResult` 和 `createdAt`；默认关闭，且不会修改离线队列、附件或对象。运维可用 `scripts/rotate-large-file-receipts.ps1 -ReceiptPath delivered-receipts.jsonl -KeepRecords 10000 -MaxAgeDays 30 -CompressArchive -SummaryPath rotate-summary.json` 对摘要做离线轮转，输出旧摘要归档、原子重写 active 文件，并落盘本次轮转摘要供定时任务收集。
 - **只读演练**：没有真实日志时，可用 `scripts/write-large-file-reconcile-sample.ps1 -OutputDir sample-reconcile -RunReconcile -RunRotate` 生成脱敏样例并跑完整只读对账和轮转链路；真实验收时可用 `scripts/run-large-file-delivery-reconcile.ps1 -ReceiptPath delivered-receipts.jsonl -QueuePath offline-queue.jsonl -SourceInstanceId source-a -OutputDir reconcile -EmitRouteLog` 直接消费持久化 receipt，也可用 `-RouteLogPath source.log,remote.log` 从日志导出 receipt。输出 `cleaned` 仅代表候选满足条件，不会执行真实清理。
 
 ## 最小实现顺序
@@ -247,7 +247,8 @@
 47. 已完成：一键只读对账脚本支持 `-ReceiptPath` 直接消费持久化 `delivered-receipts.jsonl`，也保留 `-RouteLogPath` 日志导出路径。
 48. 已完成：补 receipt 摘要轮转/压缩脚本，可按保留条数和天数归档旧 receipt，且继续执行敏感字段扫描。
 49. 已完成：把 receipt 轮转纳入脱敏样例脚本，`-RunRotate` 可一键演练归档压缩路径。
-50. 下一步：补保留期/归档目录的运维建议，或转向下一条 Redis/S3 治理可观测性小切片，继续保持默认 CTest 不依赖真实 S3/MinIO。
+50. 已完成：轮转脚本支持 `-SummaryPath` 落盘机器可读摘要，便于定时任务采集 archived/retained/sensitiveHits。
+51. 下一步：补保留期/归档目录的运维建议，或转向下一条 Redis/S3 治理可观测性小切片，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 

@@ -16,6 +16,7 @@ $routeLogPath = Join-Path $resolvedOutputDir "sample-route.log"
 $queuePath = Join-Path $resolvedOutputDir "sample-offline-queue.jsonl"
 $receiptPath = Join-Path $resolvedOutputDir "sample-delivered-receipts.jsonl"
 $rotationReceiptPath = Join-Path $resolvedOutputDir "sample-rotation-receipts.jsonl"
+$rotationSummaryPath = Join-Path $resolvedOutputDir "sample-rotation-summary.json"
 $reconcileOutputDir = Join-Path $resolvedOutputDir "reconcile-output"
 $sourceInstanceId = "source-sample-a"
 $hashA = "a" * 64
@@ -98,6 +99,7 @@ Write-Host "large file reconcile sample"
 Write-Host ("  route log: {0}" -f $routeLogPath)
 Write-Host ("  persisted receipts: {0}" -f $receiptPath)
 Write-Host ("  rotation receipts: {0}" -f $rotationReceiptPath)
+Write-Host ("  rotation summary: {0}" -f $rotationSummaryPath)
 Write-Host ("  offline queue: {0}" -f $queuePath)
 Write-Host ("  sourceInstanceId: {0}" -f $sourceInstanceId)
 Write-Host ""
@@ -126,7 +128,8 @@ if ($RunRotate) {
         -ReceiptPath $rotationReceiptPath `
         -KeepRecords 2 `
         -MaxAgeDays 30 `
-        -CompressArchive
+        -CompressArchive `
+        -SummaryPath $rotationSummaryPath
     if ($LASTEXITCODE -ne 0) {
         throw ("Sample receipt rotation failed with exit code {0}" -f $LASTEXITCODE)
     }

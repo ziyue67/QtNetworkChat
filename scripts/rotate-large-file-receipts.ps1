@@ -12,7 +12,9 @@ param(
 
     [switch]$DryRun,
 
-    [switch]$NoFailOnSensitive
+    [switch]$NoFailOnSensitive,
+
+    [string]$SummaryPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -163,4 +165,13 @@ $summary = [pscustomobject]@{
     maxAgeDays = $MaxAgeDays
     sensitiveHits = $sensitiveHits.Count
 }
-$summary | ConvertTo-Json -Depth 4
+$summaryJson = $summary | ConvertTo-Json -Depth 4
+if (-not [string]::IsNullOrWhiteSpace($SummaryPath)) {
+    $resolvedSummaryPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SummaryPath)
+    $summaryParent = Split-Path -Parent $resolvedSummaryPath
+    if (-not [string]::IsNullOrWhiteSpace($summaryParent)) {
+        New-Item -ItemType Directory -Path $summaryParent -Force | Out-Null
+    }
+    $summaryJson | Set-Content -LiteralPath $resolvedSummaryPath -Encoding UTF8
+}
+$summaryJson
