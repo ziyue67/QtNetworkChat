@@ -143,7 +143,7 @@
 
 适配规则：
 
-- 工厂只在 `QTNETWORKCHAT_OBJECT_STORE=s3` 且 endpoint、bucket、凭据完整时创建后端；配置缺失时返回明确错误并保留源实例离线队列。
+- 工厂只在 `QTNETWORKCHAT_OBJECT_STORE=s3`、endpoint/bucket/凭据完整且 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 时创建真实网络后端；配置缺失或未显式启用时返回明确错误并保留源实例离线队列。
 - S3 object key 仍由服务端随机生成，逻辑 `objectKey` 不包含 bucket、endpoint、绝对路径或凭据；实际远端 key 可由 `prefix + objectKey` 组成。
 - `writeObject()` 上传后必须计算并返回本地 SHA-256；不能信任 S3 ETag 作为文件哈希，因为多段上传和加密场景下 ETag 不等于 MD5 或 SHA-256。
 - `validateObject()` 必须至少校验对象大小和流式 SHA-256；HEAD 只能作为快速大小检查，最终仍以读取校验为准。
@@ -166,6 +166,8 @@
 - 已实现仅测试使用的 `InMemoryObjectStore`，复用 `ObjectStore` 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
 - 服务端集成测试不连接真实 S3；只验证工厂在 `s3` 配置缺失时不发布 offer，并在未来注入假后端后可复用同一分片 ACK 下发流程。
 - 真实 MinIO 端到端验证已提供可选 `scripts/minio-s3-smoke.ps1`，可用 Docker 自动启动本地 MinIO 或通过 `-SkipContainer` 连接已有 MinIO；脚本会用 SigV4 对 bucket 创建和对象 PUT/HEAD/GET/DELETE 做手动 smoke，并输出 QtNetworkChat 所需环境变量示例。该脚本不纳入默认 CTest 前置条件。
+- 启用真实后端前必须先跑 smoke 脚本确认 endpoint、bucket、access key、secret key、region 和 prefix 可用，再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 与 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 启动服务端。真实后端仍必须遵守离线兜底：任何 S3 上传、下载、校验、删除、TLS、超时或凭据错误都发布固定 reason 并保留源实例离线附件队列。
+- 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/bytes` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
 
 ## 治理观测
 
@@ -223,7 +225,8 @@
 31. 已完成：补真实后端发布 gating，`createObjectStore(s3)` 默认仍 fail-closed；只有配置完整且 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 时才创建带 Qt Network 执行器的 S3 后端，错误信息不泄露凭据。
 32. 已完成：补 S3 失败 reason 聚合 helper，覆盖 timeout、network、tls、auth、not_found、retryable、client、server、unknown、size 和 hash，helper 只返回固定字符串，不携带 endpoint、bucket、凭据或 Authorization。
 33. 已完成：把 S3 validation reason helper 接入服务端跨实例大文件失败路径，远端对象校验失败发布固定 reason 桶，避免把底层错误文本写入 `large_file_failed.reason` 或结构化日志。
-34. 下一步：补 S3 真实后端显式启用后的手动 MinIO 运行说明或服务端日志字段扩展，继续确保 endpoint、bucket、凭据和 Authorization 不进入日志、Redis 事件或离线队列。
+34. 已完成：补 S3 真实后端显式启用后的 MinIO 手动运行说明，明确先跑 smoke、再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 和 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1`，并强调失败回退与日志脱敏边界。
+35. 下一步：补服务端 S3 日志字段扩展或真实启用路径的手动验收清单，继续确保 endpoint、bucket、凭据和 Authorization 不进入日志、Redis 事件或离线队列。
 
 ## 当前保护边界
 
@@ -244,4 +247,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 服务端集成时，优先补显式启用后的手动验证说明或日志字段扩展，并保持 fail-closed 和离线兜底安全边界。
+- 后续进入真实 S3/MinIO 服务端集成时，优先补日志字段扩展或手动验收清单，并保持 fail-closed 和离线兜底安全边界。
