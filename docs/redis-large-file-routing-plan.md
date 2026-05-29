@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating 和可选 MinIO 手动 smoke 脚本已完成；下一步把 reason helper 接入服务端跨实例大文件结构化日志，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本和服务端安全日志字段已完成；下一步补真实启用路径的手动验收清单或 S3 端到端失败回退演练，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -167,15 +167,15 @@
 - 服务端集成测试不连接真实 S3；只验证工厂在 `s3` 配置缺失时不发布 offer，并在未来注入假后端后可复用同一分片 ACK 下发流程。
 - 真实 MinIO 端到端验证已提供可选 `scripts/minio-s3-smoke.ps1`，可用 Docker 自动启动本地 MinIO 或通过 `-SkipContainer` 连接已有 MinIO；脚本会用 SigV4 对 bucket 创建和对象 PUT/HEAD/GET/DELETE 做手动 smoke，并输出 QtNetworkChat 所需环境变量示例。该脚本不纳入默认 CTest 前置条件。
 - 启用真实后端前必须先跑 smoke 脚本确认 endpoint、bucket、access key、secret key、region 和 prefix 可用，再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 与 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 启动服务端。真实后端仍必须遵守离线兜底：任何 S3 上传、下载、校验、删除、TLS、超时或凭据错误都发布固定 reason 并保留源实例离线附件队列。
-- 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/bytes` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
+- 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/bytes/storeType/operation` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
 
 ## 治理观测
 
 服务端会输出统一前缀的 `redis_large_file_route` 结构化日志，字段采用 `key=value` 形式，便于压测或线上日志聚合：
 
-- `event`: `offer`、`claim`、`delivered`、`failed`、`failed_received`、`delivered_cleanup`、`object_ttl_cleanup`
+- `event`: `offer`、`claim`、`delivered`、`failed`、`failed_received`、`delivered_cleanup`、`offer_validation`、`object_write`、`object_ttl_cleanup`
 - `result`: `published`、`publish-failed`、`skipped`、`fallback-retained`、`cleaned`、`retained`、`removed`
-- 常见维度：`sourceInstanceId`、`transferId`、`objectKey`、`receiverId`、`fileName`、`messageType`、`bytes`、`reason`
+- 常见维度：`sourceInstanceId`、`transferId`、`objectKey`、`receiverId`、`fileName`、`messageType`、`storeType`、`operation`、`bytes`、`reason`
 
 其中 `offer/claim/delivered` 成功发布、`delivered_cleanup` 成功清理和 `object_ttl_cleanup` 会走 info 日志；失败、跳过、远端 failed 和保留兜底会走 warning 日志。
 
@@ -226,7 +226,8 @@
 32. 已完成：补 S3 失败 reason 聚合 helper，覆盖 timeout、network、tls、auth、not_found、retryable、client、server、unknown、size 和 hash，helper 只返回固定字符串，不携带 endpoint、bucket、凭据或 Authorization。
 33. 已完成：把 S3 validation reason helper 接入服务端跨实例大文件失败路径，远端对象校验失败发布固定 reason 桶，避免把底层错误文本写入 `large_file_failed.reason` 或结构化日志。
 34. 已完成：补 S3 真实后端显式启用后的 MinIO 手动运行说明，明确先跑 smoke、再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 和 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1`，并强调失败回退与日志脱敏边界。
-35. 下一步：补服务端 S3 日志字段扩展或真实启用路径的手动验收清单，继续确保 endpoint、bucket、凭据和 Authorization 不进入日志、Redis 事件或离线队列。
+35. 已完成：补服务端大文件对象路由日志字段扩展，发布、校验、写入、删除和兜底路径会输出 `storeType` 与 `operation` 等安全维度，继续避免 endpoint、bucket、对象 URL、凭据和 Authorization 进入日志、Redis 事件或离线队列。
+36. 下一步：补真实启用路径的手动验收清单或服务端 S3 端到端失败回退演练，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 

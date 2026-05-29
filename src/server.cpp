@@ -130,6 +130,8 @@ void logRedisLargeFileRouteEvent(const QString& eventName,
     appendStringField("receiverId");
     appendStringField("fileName");
     appendStringField("messageType");
+    appendStringField("storeType");
+    appendStringField("operation");
     if (bytes >= 0) {
         fields << QStringLiteral("bytes=%1").arg(bytes);
     }
@@ -146,6 +148,20 @@ void logRedisLargeFileRouteEvent(const QString& eventName,
     } else {
         qInfo().noquote() << line;
     }
+}
+
+QJsonObject largeFileRouteLogMetadata(QJsonObject metadata,
+                                      const QString& storeType,
+                                      const QString& operation) {
+    const QString trimmedStoreType = storeType.trimmed();
+    if (!trimmedStoreType.isEmpty()) {
+        metadata["storeType"] = trimmedStoreType;
+    }
+    const QString trimmedOperation = operation.trimmed();
+    if (!trimmedOperation.isEmpty()) {
+        metadata["operation"] = trimmedOperation;
+    }
+    return metadata;
 }
 
 bool looksLikeSha256Hex(const QString& value) {
@@ -1545,7 +1561,7 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
                    << "limit:" << kRedisPubSubEventMaxBytes;
         logRedisLargeFileRouteEvent(QStringLiteral("offer"),
                                     QStringLiteral("skipped"),
-                                    event,
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                     QStringLiteral("payload-too-large"),
                                     fileSize);
         return false;
@@ -1553,7 +1569,7 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
     const bool published = m_redisClient->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("offer"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
-                                event,
+                                largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                 published ? QString() : m_redisClient->lastError(),
                                 fileSize);
     return published;
@@ -1575,14 +1591,14 @@ bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
         logRedisLargeFileRouteEvent(QStringLiteral("claim"),
                                     QStringLiteral("skipped"),
-                                    event,
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                     QStringLiteral("payload-too-large"));
         return false;
     }
     const bool published = m_redisClient->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("claim"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
-                                event,
+                                largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                 published ? QString() : m_redisClient->lastError());
     return published;
 }
@@ -1605,7 +1621,7 @@ bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 con
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
         logRedisLargeFileRouteEvent(QStringLiteral("delivered"),
                                     QStringLiteral("skipped"),
-                                    event,
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                     QStringLiteral("payload-too-large"),
                                     confirmedBytes);
         return false;
@@ -1613,7 +1629,7 @@ bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 con
     const bool published = m_redisClient->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("delivered"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
-                                event,
+                                largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                 published ? QString() : m_redisClient->lastError(),
                                 confirmedBytes);
     return published;
@@ -1637,14 +1653,14 @@ bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
         logRedisLargeFileRouteEvent(QStringLiteral("failed"),
                                     QStringLiteral("skipped"),
-                                    event,
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                     QStringLiteral("payload-too-large"));
         return false;
     }
     const bool published = m_redisClient->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("failed"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
-                                event,
+                                largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
                                 published ? reason : m_redisClient->lastError());
     return published;
 }
@@ -1739,7 +1755,7 @@ void Server::handleRedisLargeFileDelivered(const QJsonObject& event) {
     const bool cleaned = cleanupDeliveredRedisLargeFile(event);
     logRedisLargeFileRouteEvent(QStringLiteral("delivered_cleanup"),
                                 cleaned ? QStringLiteral("cleaned") : QStringLiteral("retained"),
-                                event,
+                                largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("delete")),
                                 cleaned ? QString() : QStringLiteral("offline-fallback-not-matched"),
                                 event["confirmedBytes"].toVariant().toLongLong());
 }
@@ -1764,7 +1780,7 @@ void Server::handleRedisLargeFileFailed(const QJsonObject& event) {
                << receiverId << transferId << objectKey << event["reason"].toString();
     logRedisLargeFileRouteEvent(QStringLiteral("failed_received"),
                                 QStringLiteral("fallback-retained"),
-                                event,
+                                largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("fallback")),
                                 event["reason"].toString());
 }
 
@@ -1817,6 +1833,11 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         const QString reason = s3ValidationFailureReasonForLog(validation);
         qWarning() << "Rejected large file offer because object validation failed"
                    << objectKey << reason;
+        logRedisLargeFileRouteEvent(QStringLiteral("offer_validation"),
+                                    QStringLiteral("rejected"),
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("validate")),
+                                    reason,
+                                    fileSize);
         return failOffer(reason);
     }
 
@@ -2668,7 +2689,7 @@ void Server::cleanupExpiredOfflineAttachments() {
             cleanupMeta["objectKey"] = removedKeys.join(QLatin1Char(','));
             logRedisLargeFileRouteEvent(QStringLiteral("object_ttl_cleanup"),
                                         QStringLiteral("removed"),
-                                        cleanupMeta,
+                                        largeFileRouteLogMetadata(cleanupMeta, objectStoreType(), QStringLiteral("delete")),
                                         QStringLiteral("expired"),
                                         removedObjects);
         }
@@ -2723,6 +2744,20 @@ void Server::saveOfflineMessage(const Message& msg) const {
                     if (objectStore && !objectKey.isEmpty()) {
                         objectStore->removeObject(objectKey);
                     }
+                    QJsonObject logMeta;
+                    logMeta["transferId"] = msg.transferId;
+                    logMeta["receiverId"] = msg.receiverId;
+                    logMeta["fileName"] = msg.fileName;
+                    logMeta["messageType"] = msg.type == MessageType::Image ? QStringLiteral("Image") : QStringLiteral("File");
+                    if (!objectKey.isEmpty()) {
+                        logMeta["objectKey"] = objectKey;
+                    }
+                    logRedisLargeFileRouteEvent(QStringLiteral("object_write"),
+                                                QStringLiteral("skipped"),
+                                                largeFileRouteLogMetadata(logMeta, objectStoreType(), QStringLiteral("write")),
+                                                !objectStore ? QStringLiteral("object-store-unavailable")
+                                                             : QStringLiteral("write-or-hash-failed"),
+                                                msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
                     qWarning() << "Large file object routing skipped because object write/validation failed"
                                << msg.receiverId << msg.fileName
                                << (objectError.isEmpty() ? objectStoreError : objectError);
