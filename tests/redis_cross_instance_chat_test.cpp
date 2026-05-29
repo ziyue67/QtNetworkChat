@@ -414,6 +414,9 @@ int main(int argc, char** argv) {
     QTemporaryDir objectRoot;
     ok = expect(objectRoot.isValid(), "temporary object store root should be available") && ok;
     qputenv("QTNETWORKCHAT_OBJECT_ROOT", objectRoot.path().toUtf8());
+    QTemporaryDir receiptSummaryDir;
+    ok = expect(receiptSummaryDir.isValid(), "temporary delivered receipt summary dir should be available") && ok;
+    qputenv("QTNETWORKCHAT_DELIVERED_RECEIPT_DIR", receiptSummaryDir.path().toUtf8());
 
     QList<QByteArray> publishedMessagePayloads;
     QObject::connect(fakeRedis, &FakeRedisHub::published, &app, [&](const QByteArray& channel, const QByteArray& payload) {
@@ -781,6 +784,36 @@ int main(int argc, char** argv) {
                                  QStringLiteral("objectKey=") + largeFileObjectKey,
                                  QStringLiteral("fileHash=") + largeFileOffer["fileHash"].toString()});
     }), "source server should emit a read-only cleaned delivered_reconcile route log") && ok;
+    const QString receiptSummaryPath = receiptSummaryDir.filePath(QStringLiteral("delivered-receipts.jsonl"));
+    const auto receiptSummaryContains = [&receiptSummaryPath](const QString& objectKey,
+                                                              const QString& result,
+                                                              const QString& reason) {
+        QFile file(receiptSummaryPath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            return false;
+        }
+        while (!file.atEnd()) {
+            const QJsonDocument doc = QJsonDocument::fromJson(file.readLine().trimmed());
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            if (obj["objectKey"].toString() == objectKey
+                && obj["result"].toString() == result
+                && obj["reason"].toString() == reason) {
+                return obj["sourceInstanceId"].toString().trimmed().isEmpty() == false
+                    && obj["transferId"].toString().trimmed().isEmpty() == false
+                    && obj["receiverId"].toString().trimmed().isEmpty() == false
+                    && obj["fileHash"].toString().size() == 64
+                    && obj["confirmedBytes"].toString().toLongLong() > 0
+                    && obj["cleanupResult"].toString().trimmed().isEmpty() == false;
+            }
+        }
+        return false;
+    };
+    ok = expect(waitFor([&] {
+        return receiptSummaryContains(largeFileObjectKey,
+                                      QStringLiteral("cleaned"),
+                                      QStringLiteral("cleaned"));
+    }), "source server should persist a safe cleaned delivered receipt summary") && ok;
     ok = expect(waitFor([&] {
         return !QFileInfo::exists(objectStore.objectPath(largeFileObjectKey));
     }), "source server should remove the delivered large file object") && ok;
@@ -972,6 +1005,11 @@ int main(int argc, char** argv) {
                                  QStringLiteral("objectKey=") + failedFallbackObjectKey,
                                  QStringLiteral("fileHash=") + failedFallbackOffer["fileHash"].toString()});
     }), "source server should emit a retained delivered_reconcile route log for partial receipts") && ok;
+    ok = expect(waitFor([&] {
+        return receiptSummaryContains(failedFallbackObjectKey,
+                                      QStringLiteral("retained"),
+                                      QStringLiteral("confirmed-bytes-insufficient"));
+    }), "source server should persist a safe retained delivered receipt summary") && ok;
 
     QJsonObject failedEvent;
     failedEvent["eventType"] = "large_file_failed";
@@ -1097,6 +1135,7 @@ int main(int argc, char** argv) {
     qunsetenv("QTNETWORKCHAT_OBJECT_STORE");
     qunsetenv("QTNETWORKCHAT_OBJECT_ROOT");
     qunsetenv("QTNETWORKCHAT_OBJECT_TTL_HOURS");
+    qunsetenv("QTNETWORKCHAT_DELIVERED_RECEIPT_DIR");
 
     QMetaObject::invokeMethod(fakeRedis, "stop", Qt::BlockingQueuedConnection);
     redisThread.quit();

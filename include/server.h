@@ -105,6 +105,9 @@ private:
     std::unique_ptr<ObjectStore> createConfiguredObjectStore(QString* error = nullptr) const;
     qint64 objectStoreTtlMs() const;
     LargeFileDeliveredReceiptDecision evaluateRedisLargeFileDeliveredReceipt(const QJsonObject& event) const;
+    void persistRedisLargeFileDeliveredReceiptSummary(const QJsonObject& event,
+                                                      const LargeFileDeliveredReceiptDecision& decision,
+                                                      bool cleanupSucceeded) const;
     bool cleanupDeliveredRedisLargeFile(const QJsonObject& event) const;
     QString saveOfflineAttachment(const Message& msg) const;
     QSet<QString> collectReferencedOfflineAttachments() const;

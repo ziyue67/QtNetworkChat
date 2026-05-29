@@ -44,6 +44,7 @@ $env:QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY = "<access-key>"
 $env:QTNETWORKCHAT_OBJECT_S3_SECRET_KEY = "<secret-key>"
 $env:QTNETWORKCHAT_OBJECT_S3_PREFIX = "qtchat/manual-acceptance"
 $env:QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS = "30000"
+$env:QTNETWORKCHAT_DELIVERED_RECEIPT_DIR = ".\logs\delivered-receipts"
 ```
 
 TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本机临时调试时才设置 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0`，并确认日志只出现 TLS 校验关闭的 warning，不输出证书、endpoint 或凭据值。
@@ -121,6 +122,8 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.p
 
 - `receipts.jsonl`：每行包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`。
 - `fallbacks.jsonl`：每行包含同名元数据和 `fileSize`，代表源实例仍保留的离线兜底候选。
+
+如果启动源实例前设置了 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR`，服务端收到 `large_file_delivered` 后会在该目录追加 `delivered-receipts.jsonl`。该文件只包含逻辑 receipt 字段、`cleaned|retained` 决策和固定 reason，不包含 endpoint、bucket、object URL 或凭据；可作为对账 receipt 输入或与 route log receipt 导出互相校验。
 
 没有真实日志时，可先生成脱敏样例并跑完整只读链路，确认本机 PowerShell 和脚本可用：
 

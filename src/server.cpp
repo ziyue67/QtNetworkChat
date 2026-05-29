@@ -1761,6 +1761,7 @@ void Server::handleRedisLargeFileDelivered(const QJsonObject& event) {
                                 reconcileDecision.reason,
                                 event["confirmedBytes"].toVariant().toLongLong());
     const bool cleaned = cleanupDeliveredRedisLargeFile(event);
+    persistRedisLargeFileDeliveredReceiptSummary(event, reconcileDecision, cleaned);
     logRedisLargeFileRouteEvent(QStringLiteral("delivered_cleanup"),
                                 cleaned ? QStringLiteral("cleaned") : QStringLiteral("retained"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("delete")),
@@ -2548,6 +2549,59 @@ LargeFileDeliveredReceiptDecision Server::evaluateRedisLargeFileDeliveredReceipt
     }
 
     return decision;
+}
+
+void Server::persistRedisLargeFileDeliveredReceiptSummary(const QJsonObject& event,
+                                                          const LargeFileDeliveredReceiptDecision& decision,
+                                                          bool cleanupSucceeded) const {
+    const QString configuredDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DELIVERED_RECEIPT_DIR")).trimmed();
+    if (configuredDir.isEmpty()) {
+        return;
+    }
+
+    const QString sourceInstanceId = event["sourceInstanceId"].toString().trimmed();
+    const QString transferId = event["transferId"].toString().trimmed();
+    const QString receiverId = event["receiverId"].toString().trimmed();
+    const QString objectKey = event["objectKey"].toString().trimmed();
+    const QString fileHash = event["fileHash"].toString().trimmed().toLower();
+    const qint64 confirmedBytes = event["confirmedBytes"].toVariant().toLongLong();
+    LargeFileDeliveredReceipt receipt;
+    receipt.sourceInstanceId = sourceInstanceId;
+    receipt.transferId = transferId;
+    receipt.receiverId = receiverId;
+    receipt.objectKey = objectKey;
+    receipt.fileHash = fileHash;
+    receipt.confirmedBytes = confirmedBytes;
+    if (evaluateLargeFileDeliveredReceiptCleanup(receipt, LargeFileDeliveredFallback()).reason
+            == QStringLiteral("invalid-receipt")) {
+        return;
+    }
+
+    QDir dir(QDir::cleanPath(configuredDir));
+    if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
+        qWarning() << "Failed to create delivered receipt summary directory";
+        return;
+    }
+
+    QJsonObject row;
+    row["sourceInstanceId"] = sourceInstanceId;
+    row["transferId"] = transferId;
+    row["receiverId"] = receiverId;
+    row["objectKey"] = objectKey;
+    row["fileHash"] = fileHash;
+    row["confirmedBytes"] = QString::number(confirmedBytes);
+    row["result"] = decision.shouldCleanup ? QStringLiteral("cleaned") : QStringLiteral("retained");
+    row["reason"] = decision.reason;
+    row["cleanupResult"] = cleanupSucceeded ? QStringLiteral("cleaned") : QStringLiteral("retained");
+    row["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    QFile file(dir.filePath(QStringLiteral("delivered-receipts.jsonl")));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        qWarning() << "Failed to open delivered receipt summary file";
+        return;
+    }
+    file.write(QJsonDocument(row).toJson(QJsonDocument::Compact));
+    file.write("\n");
 }
 
 bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
