@@ -105,7 +105,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.p
   -Path ".\logs\source-server.log", ".\logs\remote-server.log"
 ```
 
-脚本只读取日志，不连接 Redis 或 S3/MinIO；它会统计 `event/result/reason/storeType/operation`，并在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时返回失败。
+脚本只读取日志，不连接 Redis 或 S3/MinIO；它会统计 `event/result/reason/storeType/operation`，并按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 的对账候选摘要。脚本在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时返回失败。
 
 ## 6. 验收结论记录
 

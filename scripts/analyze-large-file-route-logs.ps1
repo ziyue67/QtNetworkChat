@@ -48,11 +48,38 @@ function ConvertTo-RouteFields([string]$FieldText) {
     $fields
 }
 
+function Get-RouteKey([hashtable]$Fields) {
+    $transferId = [string]$Fields["transferId"]
+    $objectKey = [string]$Fields["objectKey"]
+    $receiverId = [string]$Fields["receiverId"]
+    if ([string]::IsNullOrWhiteSpace($transferId) -and
+        [string]::IsNullOrWhiteSpace($objectKey) -and
+        [string]::IsNullOrWhiteSpace($receiverId)) {
+        return $null
+    }
+    "{0}|{1}|{2}" -f $transferId, $objectKey, $receiverId
+}
+
+function Get-RouteState([hashtable]$States, [string]$Key) {
+    if (-not $States.ContainsKey($Key)) {
+        $States[$Key] = [ordered]@{
+            Delivered = 0
+            DeliveredCleaned = 0
+            DeliveredRetained = 0
+            Failed = 0
+            FallbackRetained = 0
+            LastReason = ""
+        }
+    }
+    $States[$Key]
+}
+
 $eventCounts = @{}
 $resultCounts = @{}
 $reasonCounts = @{}
 $operationCounts = @{}
 $storeCounts = @{}
+$routeStates = @{}
 $sensitiveHits = New-Object System.Collections.Generic.List[string]
 $routeLineCount = 0
 
@@ -83,6 +110,27 @@ foreach ($logPath in $Path) {
         Add-Count $reasonCounts $fields["reason"]
         Add-Count $operationCounts $fields["operation"]
         Add-Count $storeCounts $fields["storeType"]
+
+        $routeKey = Get-RouteKey $fields
+        if ($null -ne $routeKey) {
+            $state = Get-RouteState $routeStates $routeKey
+            $eventName = [string]$fields["event"]
+            $resultName = [string]$fields["result"]
+            if ($eventName -eq "delivered") {
+                $state.Delivered += 1
+            } elseif ($eventName -eq "delivered_cleanup" -and $resultName -eq "cleaned") {
+                $state.DeliveredCleaned += 1
+            } elseif ($eventName -eq "delivered_cleanup" -and $resultName -eq "retained") {
+                $state.DeliveredRetained += 1
+            } elseif ($eventName -eq "failed") {
+                $state.Failed += 1
+            } elseif ($eventName -eq "failed_received" -and $resultName -eq "fallback-retained") {
+                $state.FallbackRetained += 1
+            }
+            if (-not [string]::IsNullOrWhiteSpace([string]$fields["reason"])) {
+                $state.LastReason = [string]$fields["reason"]
+            }
+        }
     }
 }
 
@@ -100,6 +148,38 @@ Write-Counts "results" $resultCounts
 Write-Counts "reasons" $reasonCounts
 Write-Counts "operations" $operationCounts
 Write-Counts "stores" $storeCounts
+
+$deliveredCleaned = 0
+$deliveredRetained = 0
+$deliveredWithoutCleanup = 0
+$failedFallbackRetained = 0
+$failedWithoutFallback = 0
+foreach ($state in $routeStates.Values) {
+    if ($state.DeliveredCleaned -gt 0) {
+        $deliveredCleaned += 1
+    }
+    if ($state.DeliveredRetained -gt 0) {
+        $deliveredRetained += 1
+    }
+    if ($state.Delivered -gt 0 -and $state.DeliveredCleaned -eq 0 -and $state.DeliveredRetained -eq 0) {
+        $deliveredWithoutCleanup += 1
+    }
+    if ($state.FallbackRetained -gt 0) {
+        $failedFallbackRetained += 1
+    }
+    if ($state.Failed -gt 0 -and $state.FallbackRetained -eq 0) {
+        $failedWithoutFallback += 1
+    }
+}
+
+Write-Host ""
+Write-Host "delivery reconciliation candidates"
+Write-Host ("  route keys: {0}" -f $routeStates.Count)
+Write-Host ("  delivered cleaned: {0}" -f $deliveredCleaned)
+Write-Host ("  delivered retained: {0}" -f $deliveredRetained)
+Write-Host ("  delivered without cleanup log: {0}" -f $deliveredWithoutCleanup)
+Write-Host ("  failed fallback retained: {0}" -f $failedFallbackRetained)
+Write-Host ("  failed without fallback log: {0}" -f $failedWithoutFallback)
 
 if ($sensitiveHits.Count -gt 0) {
     Write-Host ""
