@@ -298,4 +298,22 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-s3-request-results.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_result_analysis.cmake
     )
+    add_test(
+        NAME RouteLogAnalysis
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-large-file-route-logs.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_route_log_analysis.cmake
+    )
+    add_test(
+        NAME RouteSummaryAlerts
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-large-file-route-summary.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_route_summary_alerts.cmake
+    )
+    add_test(
+        NAME ReceiptRotationAlerts
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-large-file-receipt-rotation.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_receipt_rotation_alerts.cmake
+    )
 endif()

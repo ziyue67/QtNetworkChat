@@ -200,8 +200,8 @@ int main() {
                 "successful object store factory creation should not expose an error") && ok;
     ok = expect(isSupportedObjectStoreType(QStringLiteral("filesystem")),
                 "filesystem object store type should be supported") && ok;
-    ok = expect(!isSupportedObjectStoreType(QStringLiteral("s3")),
-                "s3 object store type should remain disabled until implemented") && ok;
+    ok = expect(isSupportedObjectStoreType(QStringLiteral("s3")),
+                "s3 object store type should be recognized as supported") && ok;
     std::unique_ptr<ObjectStore> unsupportedStore = createObjectStore(QStringLiteral("s3"), tempDir.filePath("s3"), &factoryError);
     ok = expect(!unsupportedStore && factoryError.contains(QStringLiteral("endpoint")),
                 "s3 object store should fail fast when endpoint is missing") && ok;

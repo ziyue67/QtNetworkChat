@@ -121,6 +121,9 @@ foreach ($value in @(
 $reasonCounts = @{}
 $operationCounts = @{}
 $resultCounts = @{}
+$eventCounts = @{}
+$eventOperationCounts = @{}
+$storeTypeCounts = @{}
 $unknownReasons = @{}
 $sensitiveHits = New-Object System.Collections.Generic.List[string]
 $s3LineCount = 0
@@ -147,13 +150,17 @@ foreach ($logPath in $Path) {
         }
 
         $fields = ConvertTo-RouteFields $Matches["fields"]
-        if ([string]$fields["storeType"] -ne "s3") {
+        $storeType = [string]$fields["storeType"]
+        Add-Count $storeTypeCounts $storeType
+
+        if ($storeType -ne "s3") {
             return
         }
 
         $reason = [string]$fields["reason"]
         $operation = ([string]$fields["operation"]).ToLowerInvariant()
         $result = [string]$fields["result"]
+        $event = [string]$fields["event"]
         if (-not $requestOperations.Contains($operation)) {
             return
         }
@@ -162,6 +169,8 @@ foreach ($logPath in $Path) {
         Add-Count $reasonCounts $reason
         Add-Count $operationCounts $operation
         Add-Count $resultCounts $result
+        Add-Count $eventCounts $event
+        Add-Count $eventOperationCounts ("{0}:{1}" -f $event, $operation)
 
         if (-not [string]::IsNullOrWhiteSpace($reason) -and -not $allowedReasons.Contains($reason)) {
             Add-Count $unknownReasons $reason
@@ -213,6 +222,24 @@ foreach ($entry in ($resultCounts.GetEnumerator() | Sort-Object Name)) {
     Write-Host ("  {0}: {1}" -f $entry.Name, $entry.Value)
 }
 
+Write-Host ""
+Write-Host "events"
+foreach ($entry in ($eventCounts.GetEnumerator() | Sort-Object Name)) {
+    Write-Host ("  {0}: {1}" -f $entry.Name, $entry.Value)
+}
+
+Write-Host ""
+Write-Host "event:operation"
+foreach ($entry in ($eventOperationCounts.GetEnumerator() | Sort-Object Name)) {
+    Write-Host ("  {0}: {1}" -f $entry.Name, $entry.Value)
+}
+
+Write-Host ""
+Write-Host "store types"
+foreach ($entry in ($storeTypeCounts.GetEnumerator() | Sort-Object Name)) {
+    Write-Host ("  {0}: {1}" -f $entry.Name, $entry.Value)
+}
+
 if ($sensitiveHits.Count -gt 0) {
     Write-Host ""
     Write-Host "sensitive hits"
@@ -235,6 +262,9 @@ if (-not [string]::IsNullOrWhiteSpace($SummaryPath)) {
         reasonCounts = ConvertTo-CountObject $reasonCounts
         operationCounts = ConvertTo-CountObject $operationCounts
         resultCounts = ConvertTo-CountObject $resultCounts
+        eventCounts = ConvertTo-CountObject $eventCounts
+        eventOperationCounts = ConvertTo-CountObject $eventOperationCounts
+        storeTypeCounts = ConvertTo-CountObject $storeTypeCounts
         unknownReasonCounts = ConvertTo-CountObject $unknownReasons
         sensitiveHits = $sensitiveHits.Count
         warnings = @($warnings)

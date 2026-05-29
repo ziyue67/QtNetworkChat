@@ -530,7 +530,9 @@ QString normalizeObjectStoreType(const QString& storeType) {
 }
 
 bool isSupportedObjectStoreType(const QString& storeType) {
-    return normalizeObjectStoreType(storeType) == QStringLiteral("filesystem");
+    const QString normalized = normalizeObjectStoreType(storeType);
+    return normalized == QStringLiteral("filesystem")
+        || normalized == QStringLiteral("s3");
 }
 
 QString normalizeS3ObjectPrefix(const QString& prefix) {

@@ -79,10 +79,10 @@ foreach ($summary in $summaries) {
     if ($summary.archivedRecords -gt 0 -and [string]::IsNullOrWhiteSpace($summary.archivePath)) {
         $warnings.Add(("{0}: archivedRecords={1} but archivePath is empty" -f $summary.path, $summary.archivedRecords))
     }
-    if ($WarnArchivedRecords -gt 0 -and $summary.archivedRecords -gt $WarnArchivedRecords) {
+    if ($WarnArchivedRecords -ge 0 -and $summary.archivedRecords -gt $WarnArchivedRecords) {
         $warnings.Add(("{0}: archivedRecords={1} exceeds threshold {2}" -f $summary.path, $summary.archivedRecords, $WarnArchivedRecords))
     }
-    if ($WarnRetainedRecords -gt 0 -and $summary.retainedRecords -gt $WarnRetainedRecords) {
+    if ($WarnRetainedRecords -ge 0 -and $summary.retainedRecords -gt $WarnRetainedRecords) {
         $warnings.Add(("{0}: retainedRecords={1} exceeds threshold {2}" -f $summary.path, $summary.retainedRecords, $WarnRetainedRecords))
     }
 }
