@@ -167,11 +167,11 @@
 - 服务端集成测试不连接真实 S3；只验证工厂在 `s3` 配置缺失时不发布 offer，并在未来注入假后端后可复用同一分片 ACK 下发流程。
 - 真实 MinIO 端到端验证已提供可选 `scripts/minio-s3-smoke.ps1`，可用 Docker 自动启动本地 MinIO 或通过 `-SkipContainer` 连接已有 MinIO；脚本会用 SigV4 对 bucket 创建和对象 PUT/HEAD/GET/DELETE 做手动 smoke，并输出 QtNetworkChat 所需环境变量示例。该脚本不纳入默认 CTest 前置条件。
 - 启用真实后端前必须先跑 smoke 脚本确认 endpoint、bucket、access key、secret key、region 和 prefix 可用，再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 与 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 启动服务端。真实后端仍必须遵守离线兜底：任何 S3 上传、下载、校验、删除、TLS、超时或凭据错误都发布固定 reason 并保留源实例离线附件队列。
-- 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/bytes/storeType/operation` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
+- 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/fileHash/bytes/storeType/operation` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
 - 真实后端人工验收清单已补到 `docs/s3-minio-manual-acceptance.md`，覆盖 smoke、双服务端、远端在线大文件投递、失败注入、离线兜底回源回放和日志/Redis/队列脱敏检查。
 - 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 对账候选摘要，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。
 - 失败回退演练已补可选脚本 `scripts/s3-failure-drill.ps1`，默认只输出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期 reason 和兜底检查点；传入日志路径时复用日志分析器，不连接 Redis、S3/MinIO 或修改离线队列。
-- delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
+- delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-receipts.ps1` 可从安全 route log 导出 receipt 输入，`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
 
 ## 治理观测
 
@@ -193,7 +193,7 @@
 - **重试窗口**：在对象 TTL 内，源实例仍可等待远端补发 delivered 或 receipt；TTL 后对象可释放空间，但离线附件继续按 `QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS` 作为最终兜底窗口。
 - **误删保护**：对账任务必须复用 `cleanupDeliveredRedisLargeFile()` 的匹配规则或等价校验；不得仅凭 `transferId`、`receiverId`、claim 事件、日志行或对象不存在来删除队列。
 - **观测输出**：服务端收到 delivered 回执时会先输出只读 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，再进入原有 `delivered_cleanup` 清理路径；离线脚本也可用 `-EmitRouteLog` 生成同类事件。该事件只记录候选和保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理；现有日志分析脚本已可聚合 cleaned/retained 候选，不执行自动删除。
-- **只读演练**：当前可先用 `scripts/export-large-file-fallbacks.ps1 -QueuePath offline-queue.jsonl -SourceInstanceId source-a -OutputPath fallbacks.jsonl` 从源实例离线队列摘要导出 fallback 输入，再用 `scripts/reconcile-large-file-delivery.ps1 -ReceiptPath receipts.jsonl -FallbackPath fallbacks.jsonl -EmitRouteLog` 演练判定并生成可聚合的只读 route log；receipt 摘要需包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`。输出 `cleaned` 仅代表候选满足条件，不会执行真实清理。
+- **只读演练**：当前可先用 `scripts/export-large-file-receipts.ps1 -Path source.log,remote.log -OutputPath receipts.jsonl` 从安全 route log 导出 receipt 输入，再用 `scripts/export-large-file-fallbacks.ps1 -QueuePath offline-queue.jsonl -SourceInstanceId source-a -OutputPath fallbacks.jsonl` 从源实例离线队列摘要导出 fallback 输入，最后用 `scripts/reconcile-large-file-delivery.ps1 -ReceiptPath receipts.jsonl -FallbackPath fallbacks.jsonl -EmitRouteLog` 演练判定并生成可聚合的只读 route log；receipt 摘要需包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`。输出 `cleaned` 仅代表候选满足条件，不会执行真实清理。
 
 ## 最小实现顺序
 

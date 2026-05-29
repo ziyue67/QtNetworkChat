@@ -778,7 +778,8 @@ int main(int argc, char** argv) {
                                  QStringLiteral("result=cleaned"),
                                  QStringLiteral("reason=cleaned"),
                                  QStringLiteral("operation=reconcile"),
-                                 QStringLiteral("objectKey=") + largeFileObjectKey});
+                                 QStringLiteral("objectKey=") + largeFileObjectKey,
+                                 QStringLiteral("fileHash=") + largeFileOffer["fileHash"].toString()});
     }), "source server should emit a read-only cleaned delivered_reconcile route log") && ok;
     ok = expect(waitFor([&] {
         return !QFileInfo::exists(objectStore.objectPath(largeFileObjectKey));
@@ -968,7 +969,8 @@ int main(int argc, char** argv) {
                                  QStringLiteral("result=retained"),
                                  QStringLiteral("reason=confirmed-bytes-insufficient"),
                                  QStringLiteral("operation=reconcile"),
-                                 QStringLiteral("objectKey=") + failedFallbackObjectKey});
+                                 QStringLiteral("objectKey=") + failedFallbackObjectKey,
+                                 QStringLiteral("fileHash=") + failedFallbackOffer["fileHash"].toString()});
     }), "source server should emit a retained delivered_reconcile route log for partial receipts") && ok;
 
     QJsonObject failedEvent;

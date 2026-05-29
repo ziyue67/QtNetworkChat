@@ -128,6 +128,7 @@ void logRedisLargeFileRouteEvent(const QString& eventName,
     appendStringField("transferId");
     appendStringField("objectKey");
     appendStringField("receiverId");
+    appendStringField("fileHash");
     appendStringField("fileName");
     appendStringField("messageType");
     appendStringField("storeType");
