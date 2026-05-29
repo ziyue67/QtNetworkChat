@@ -16,6 +16,7 @@ class QTimer;
 class ObjectStore;
 class RedisClient;
 class RedisSubscriber;
+class HeartbeatMonitor;
 struct LargeFileDeliveredReceiptDecision;
 
 class Server : public QObject {
@@ -136,6 +137,7 @@ private:
     RedisSubscriber* m_redisSubscriber;
     QTimer* m_transferCleanupTimer;
     QTimer* m_offlineAttachmentCleanupTimer;
+    HeartbeatMonitor* m_heartbeatMonitor;
     quint16 m_serverPort;
     bool m_tlsEnabled;
     QString m_instanceId;

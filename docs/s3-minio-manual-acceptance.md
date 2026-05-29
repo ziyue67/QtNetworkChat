@@ -117,6 +117,17 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-logs.p
 
 脚本只读取日志，不连接 Redis 或 S3/MinIO；它会统计 `event/result/reason/storeType/operation`，并按 `transferId/objectKey/receiverId` 输出 delivered cleanup、未来 `delivered_reconcile` 只读事件与 failed fallback 的对账候选摘要。`-SummaryPath` 会额外写出机器可读 JSON，包含 `failedFallbackRetained`、`failedWithoutFallback`、`deliveredWithoutCleanup`、`reasonCounts` 和 `sensitiveHits` 等字段，便于后续趋势或阈值告警。脚本在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时返回失败。
 
+如果需要把 summary 接入计划任务或监控，可再运行只读阈值分析：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-summary.ps1 `
+  -SummaryPath ".\logs\large-file-route-summary.json" `
+  -WarnFailedWithoutFallback 0 `
+  -WarnDeliveredWithoutCleanup 0
+```
+
+该脚本只读取 summary JSON；默认任何 `sensitiveHits > 0` 都会失败，`failedWithoutFallback` 或 `deliveredWithoutCleanup` 超过传入阈值也会非零退出。
+
 ## 6. 可选 delivered 对账演练
 
 如果需要离线复核“远端 receipt 是否足以清理源实例兜底”，先从安全日志、人工记录或脱敏导出的队列摘要中整理两个 JSON/JSONL 文件：

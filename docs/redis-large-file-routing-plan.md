@@ -192,7 +192,7 @@
 - **对象已过期场景**：ObjectStore 对象被 TTL 清理不代表文件已送达；只清对象，不清离线附件队列。后续如果 receipt 补齐，再按可清理条件清队列和离线附件。
 - **重试窗口**：在对象 TTL 内，源实例仍可等待远端补发 delivered 或 receipt；TTL 后对象可释放空间，但离线附件继续按 `QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS` 作为最终兜底窗口。
 - **误删保护**：对账任务必须复用 `cleanupDeliveredRedisLargeFile()` 的匹配规则或等价校验；不得仅凭 `transferId`、`receiverId`、claim 事件、日志行或对象不存在来删除队列。
-- **观测输出**：服务端收到 delivered 回执时会先输出只读 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，再进入原有 `delivered_cleanup` 清理路径；离线脚本也可用 `-EmitRouteLog` 生成同类事件。该事件只记录候选和保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理；现有日志分析脚本已可聚合 cleaned/retained、failed fallback retained、failed without fallback 和 delivered without cleanup 等候选，并可落盘 JSON summary，不执行自动删除。
+- **观测输出**：服务端收到 delivered 回执时会先输出只读 `redis_large_file_route event=delivered_reconcile result=cleaned|retained reason=...`，再进入原有 `delivered_cleanup` 清理路径；离线脚本也可用 `-EmitRouteLog` 生成同类事件。该事件只记录候选和保留原因，方便区分 receipt 缺失、hash 不一致、进度不足和对象已 TTL 清理；现有日志分析脚本已可聚合 cleaned/retained、failed fallback retained、failed without fallback 和 delivered without cleanup 等候选，并可落盘 JSON summary；`scripts/analyze-large-file-route-summary.ps1` 可对 failed/delivered 阈值做只读告警，不执行自动删除。
 - **receipt 摘要**：设置 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 后，源实例会把有效 delivered 回执追加到 `delivered-receipts.jsonl`，字段仅包含 `sourceInstanceId`、`transferId`、`receiverId`、`objectKey`、`fileHash`、`confirmedBytes`、`result`、`reason`、`cleanupResult` 和 `createdAt`；默认关闭，且不会修改离线队列、附件或对象。运维可用 `scripts/rotate-large-file-receipts.ps1 -ReceiptPath delivered-receipts.jsonl -KeepRecords 10000 -MaxAgeDays 30 -CompressArchive -SummaryPath rotate-summary.json` 对摘要做离线轮转，输出旧摘要归档、原子重写 active 文件，并落盘本次轮转摘要供定时任务收集；计划任务也可用 `QTNETWORKCHAT_DELIVERED_RECEIPT_KEEP_RECORDS`、`MAX_AGE_DAYS`、`ARCHIVE_DIR`、`COMPRESS_ARCHIVE`、`SUMMARY_PATH` 提供默认值。`scripts/analyze-large-file-receipt-rotation.ps1` 可读取 summary 并对 retained/archived/sensitiveHits 做只读阈值告警。
 - **只读演练**：没有真实日志时，可用 `scripts/write-large-file-reconcile-sample.ps1 -OutputDir sample-reconcile -RunReconcile -RunRotate` 生成脱敏样例并跑完整只读对账和轮转链路；真实验收时可用 `scripts/run-large-file-delivery-reconcile.ps1 -ReceiptPath delivered-receipts.jsonl -QueuePath offline-queue.jsonl -SourceInstanceId source-a -OutputDir reconcile -EmitRouteLog` 直接消费持久化 receipt，也可用 `-RouteLogPath source.log,remote.log` 从日志导出 receipt。输出 `cleaned` 仅代表候选满足条件，不会执行真实清理。
 
@@ -251,7 +251,8 @@
 51. 已完成：轮转脚本支持 `QTNETWORKCHAT_DELIVERED_RECEIPT_*` 环境变量默认值，便于 Windows 计划任务统一配置保留策略。
 52. 已完成：补轮转摘要分析脚本，可对 archived/retained 阈值、sensitiveHits 和缺失 archivePath 做非零退出告警。
 53. 已完成：日志分析脚本支持 `-SummaryPath` 落盘 failed/fallback/delivered 对账 summary JSON，便于后续趋势或阈值分析。
-54. 下一步：补 route summary 阈值分析或 S3 请求结果摘要脱敏分析，继续保持默认 CTest 不依赖真实 S3/MinIO。
+54. 已完成：补 route summary 阈值分析脚本，可对 failedWithoutFallback、deliveredWithoutCleanup 和 sensitiveHits 做非零退出告警。
+55. 下一步：做 S3 请求结果摘要脱敏分析，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 

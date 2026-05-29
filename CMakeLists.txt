@@ -10,7 +10,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Test)
 
 add_executable(QtNetworkChat
     src/main.cpp
@@ -20,6 +20,7 @@ add_executable(QtNetworkChat
     src/redisclient.cpp
     src/message.cpp
     src/objectstore.cpp
+    src/heartbeatmonitor.cpp
     include/mainwindow.h
     include/server.h
     include/client.h
@@ -27,6 +28,7 @@ add_executable(QtNetworkChat
     include/message.h
     include/objectstore.h
     include/chatuser.h
+    include/heartbeatmonitor.h
     ui/mainwindow.ui
 )
 
@@ -50,12 +52,14 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
+        src/heartbeatmonitor.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
         include/objectstore.h
         include/chatuser.h
+        include/heartbeatmonitor.h
     )
     target_include_directories(server_group_member_update_test PRIVATE include)
     target_link_libraries(server_group_member_update_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
@@ -67,12 +71,14 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
+        src/heartbeatmonitor.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
         include/objectstore.h
         include/chatuser.h
+        include/heartbeatmonitor.h
     )
     target_include_directories(file_transfer_cancel_test PRIVATE include)
     target_link_libraries(file_transfer_cancel_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
@@ -84,12 +90,14 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
+        src/heartbeatmonitor.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
         include/objectstore.h
         include/chatuser.h
+        include/heartbeatmonitor.h
     )
     target_include_directories(file_chunk_duplicate_ack_test PRIVATE include)
     target_link_libraries(file_chunk_duplicate_ack_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
@@ -112,12 +120,14 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
+        src/heartbeatmonitor.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
         include/objectstore.h
         include/chatuser.h
+        include/heartbeatmonitor.h
     )
     target_include_directories(offline_attachment_quota_test PRIVATE include)
     target_link_libraries(offline_attachment_quota_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
@@ -145,12 +155,14 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
+        src/heartbeatmonitor.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
         include/objectstore.h
         include/chatuser.h
+        include/heartbeatmonitor.h
     )
     target_include_directories(redis_unavailable_fallback_test PRIVATE include)
     target_link_libraries(redis_unavailable_fallback_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
@@ -170,15 +182,25 @@ if(BUILD_TESTING)
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
+        src/heartbeatmonitor.cpp
         include/server.h
         include/client.h
         include/redisclient.h
         include/message.h
         include/objectstore.h
         include/chatuser.h
+        include/heartbeatmonitor.h
     )
     target_include_directories(redis_cross_instance_chat_test PRIVATE include)
     target_link_libraries(redis_cross_instance_chat_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
+    add_executable(heartbeat_monitor_test
+        tests/heartbeat_monitor_test.cpp
+        src/heartbeatmonitor.cpp
+        include/heartbeatmonitor.h
+    )
+    target_include_directories(heartbeat_monitor_test PRIVATE include)
+    target_link_libraries(heartbeat_monitor_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
 
     add_test(
         NAME QtNetworkChatExecutableExists
@@ -260,6 +282,13 @@ if(BUILD_TESTING)
         NAME RedisCrossInstanceChatRouting
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:redis_cross_instance_chat_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME HeartbeatMonitorTest
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:heartbeat_monitor_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

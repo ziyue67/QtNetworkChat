@@ -1,6 +1,7 @@
 #include "server.h"
 #include "objectstore.h"
 #include "redisclient.h"
+#include "heartbeatmonitor.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCoreApplication>
@@ -406,6 +407,7 @@ Server::Server(QObject* parent)
     , m_redisSubscriber(new RedisSubscriber(this))
     , m_transferCleanupTimer(new QTimer(this))
     , m_offlineAttachmentCleanupTimer(new QTimer(this))
+    , m_heartbeatMonitor(new HeartbeatMonitor(this))
     , m_serverPort(0)
     , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
     , m_instanceId(QUuid::createUuid().toString(QUuid::WithoutBraces))
@@ -421,6 +423,28 @@ Server::Server(QObject* parent)
     connect(m_offlineAttachmentCleanupTimer, &QTimer::timeout, this, &Server::cleanupExpiredOfflineAttachments);
     m_transferCleanupTimer->start(kTransferCleanupIntervalMs);
     m_offlineAttachmentCleanupTimer->start(kOfflineAttachmentCleanupIntervalMs);
+
+    // Configure heartbeat monitor
+    m_heartbeatMonitor->setTimeoutMs(90000); // 90 seconds timeout
+    m_heartbeatMonitor->setTimeoutCallback([this](const QString& clientId) {
+        QTcpSocket* socket = m_userSockets.value(clientId);
+        if (socket) {
+            qWarning() << "Closing connection for timed out client:" << clientId;
+            socket->disconnectFromHost();
+        }
+    });
+    connect(m_heartbeatMonitor, &HeartbeatMonitor::clientTimedOut, this, [this](const QString& clientId) {
+        qWarning() << "Heartbeat timeout detected for client:" << clientId;
+    });
+    connect(m_heartbeatMonitor, &HeartbeatMonitor::statsUpdated, this, [this](const HeartbeatStats& stats) {
+        if (stats.timedOutClients > 0) {
+            qDebug() << "Heartbeat stats - Total:" << stats.totalClients
+                     << "Active:" << stats.activeClients
+                     << "Timed out:" << stats.timedOutClients
+                     << "Avg response:" << stats.avgResponseTimeMs << "ms";
+        }
+    });
+    m_heartbeatMonitor->start(10000); // Check every 10 seconds
 }
 
 Server::~Server() {
@@ -563,6 +587,7 @@ void Server::onClientReadyRead() {
             if (user) {
                 user->lastActive = QDateTime::currentDateTime();
                 refreshRedisPresence(*user);
+                m_heartbeatMonitor->updateClientActivity(user->id);
             }
         }
     }
@@ -580,6 +605,7 @@ void Server::onClientDisconnected() {
         QString userId = user->id;
         QString userName = user->name;
         clearRedisPresence(userId);
+        m_heartbeatMonitor->unregisterClient(userId);
         for (const QString& key : m_pendingFileTransfers.keys()) {
             auto it = m_pendingFileTransfers.find(key);
             if (it != m_pendingFileTransfers.end() && it->socket == socket) {
@@ -697,6 +723,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     recordUserSessionToSqlite(user, "login");
     recordDefaultGroupMembership(user);
     refreshRedisPresence(user);
+    m_heartbeatMonitor->registerClient(user.id);
 
     QJsonObject response;
     response["type"] = "login_success";
