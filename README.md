@@ -167,7 +167,7 @@ $env:QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS = "30000"
 
 完整的真实后端人工验收步骤见 `docs/s3-minio-manual-acceptance.md`：先跑 smoke，再启动 Redis 与两个服务端实例，验证 `large_file_offer/claim/delivered/failed`、`redis_large_file_route` 安全字段、失败回退、回源离线兜底回放，以及可选 delivered receipt 只读对账演练。该清单仍不纳入默认 CTest 或 CI。
 
-验收日志可用 `scripts/analyze-large-file-route-logs.ps1` 做只读聚合和脱敏扫描，统计 `event/result/reason/storeType/operation`，并按 `transferId/objectKey/receiverId` 输出 delivered cleanup、`delivered_reconcile` 只读对账事件与 failed fallback 的对账候选摘要；脚本在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时失败。若要离线评估 delivered receipt 与源实例兜底摘要是否满足清理条件，可用 `scripts/run-large-file-delivery-reconcile.ps1` 串联安全 route log 的 receipt 导出、源实例离线队列摘要的 fallback 导出和只读对账；脚本输出 `cleaned` 或 `retained` 以及固定 reason，并可生成只读 `delivered_reconcile` route log，不连接 Redis/S3 或修改队列。
+验收日志可用 `scripts/analyze-large-file-route-logs.ps1` 做只读聚合和脱敏扫描，统计 `event/result/reason/storeType/operation`，并按 `transferId/objectKey/receiverId` 输出 delivered cleanup、`delivered_reconcile` 只读对账事件与 failed fallback 的对账候选摘要；脚本在 `redis_large_file_route` 行里发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 时失败。若要离线评估 delivered receipt 与源实例兜底摘要是否满足清理条件，可用 `scripts/run-large-file-delivery-reconcile.ps1` 串联安全 route log 的 receipt 导出、源实例离线队列摘要的 fallback 导出和只读对账；脚本输出 `cleaned` 或 `retained` 以及固定 reason，并可生成只读 `delivered_reconcile` route log，不连接 Redis/S3 或修改队列。需要本地演练输入时，可用 `scripts/write-large-file-reconcile-sample.ps1 -RunReconcile` 生成脱敏样例并直接跑完整只读链路。
 
 失败回退演练可用 `scripts/s3-failure-drill.ps1 -Scenario all` 先列出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期固定 reason 和兜底检查点；该脚本默认只输出步骤，不连接 Redis、S3/MinIO 或修改队列。
 

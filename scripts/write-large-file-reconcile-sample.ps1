@@ -1,0 +1,70 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$OutputDir,
+
+    [switch]$RunReconcile
+)
+
+$ErrorActionPreference = "Stop"
+
+$resolvedOutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDir)
+New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
+
+$routeLogPath = Join-Path $resolvedOutputDir "sample-route.log"
+$queuePath = Join-Path $resolvedOutputDir "sample-offline-queue.jsonl"
+$reconcileOutputDir = Join-Path $resolvedOutputDir "reconcile-output"
+$sourceInstanceId = "source-sample-a"
+$hashA = "a" * 64
+$hashB = "b" * 64
+
+@(
+    "redis_large_file_route event=delivered result=published sourceInstanceId=$sourceInstanceId transferId=sample-clean objectKey=sampleclean001.bin receiverId=receiver-001 fileHash=$hashA bytes=1048576 storeType=s3 operation=publish",
+    "redis_large_file_route event=delivered result=published sourceInstanceId=$sourceInstanceId transferId=sample-partial objectKey=samplepartial001.bin receiverId=receiver-002 fileHash=$hashB bytes=524288 storeType=s3 operation=publish",
+    "redis_large_file_route event=failed result=published sourceInstanceId=$sourceInstanceId transferId=sample-noise objectKey=samplenoise001.bin receiverId=receiver-003 fileHash=$hashA reason=network storeType=s3 operation=publish",
+    "redis_large_file_route event=delivered_reconcile result=retained reason=confirmed-bytes-insufficient sourceInstanceId=$sourceInstanceId transferId=sample-retained-log objectKey=sampleretained001.bin receiverId=receiver-004 fileHash=$hashB bytes=256 storeType=s3 operation=reconcile"
+) | Set-Content -LiteralPath $routeLogPath -Encoding UTF8
+
+@(
+    ([pscustomobject]@{
+        transferId = "sample-clean"
+        receiverId = "receiver-001"
+        objectStoreKey = "sampleclean001.bin"
+        fileHash = $hashA
+        fileSize = 1048576
+    } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{
+        transferId = "sample-partial"
+        receiverId = "receiver-002"
+        objectStoreKey = "samplepartial001.bin"
+        fileHash = $hashB
+        fileSize = 1048576
+    } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{
+        transferId = "sample-no-object-store-key"
+        receiverId = "receiver-005"
+        fileHash = $hashA
+        fileSize = 128
+    } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $queuePath -Encoding UTF8
+
+Write-Host "large file reconcile sample"
+Write-Host ("  route log: {0}" -f $routeLogPath)
+Write-Host ("  offline queue: {0}" -f $queuePath)
+Write-Host ("  sourceInstanceId: {0}" -f $sourceInstanceId)
+Write-Host ""
+Write-Host "The sample contains one cleaned candidate and one retained candidate; it has no endpoint, bucket, object URL, credentials, or signature fields."
+
+if ($RunReconcile) {
+    $runner = Join-Path $PSScriptRoot "run-large-file-delivery-reconcile.ps1"
+    Write-Host ""
+    Write-Host "running read-only reconciliation sample"
+    & powershell -ExecutionPolicy Bypass -File $runner `
+        -RouteLogPath $routeLogPath `
+        -QueuePath $queuePath `
+        -SourceInstanceId $sourceInstanceId `
+        -OutputDir $reconcileOutputDir `
+        -EmitRouteLog
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Sample reconciliation failed with exit code {0}" -f $LASTEXITCODE)
+    }
+}
