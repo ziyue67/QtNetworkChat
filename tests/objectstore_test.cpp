@@ -622,32 +622,76 @@ int main() {
     ok = expect(s3HeadValidation.ok
                     && s3HeadValidation.size == 7
                     && s3HeadValidation.fileHash == expectedS3Hash,
-                "s3 injected HEAD path should validate size and SHA-256 metadata") && ok;
+                "s3 injected HEAD+GET path should validate size and SHA-256 body") && ok;
     ok = expect(s3HeadDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin")),
                 "s3 injected DELETE path should report successful deletion") && ok;
     ok = expect(s3ExecutorMethods == QStringList({QStringLiteral("PUT"),
                                                   QStringLiteral("GET"),
                                                   QStringLiteral("HEAD"),
+                                                  QStringLiteral("GET"),
                                                   QStringLiteral("DELETE")})
-                    && s3ExecutorBodies.size() == 4
+                    && s3ExecutorBodies.size() == 5
                     && s3ExecutorBodies.at(0) == QByteArrayLiteral("payload")
                     && s3ExecutorBodies.at(1).isEmpty()
                     && s3ExecutorBodies.at(2).isEmpty()
-                    && s3ExecutorBodies.at(3).isEmpty(),
-                "s3 injected executor should receive PUT payload and empty GET/HEAD/DELETE bodies") && ok;
+                    && s3ExecutorBodies.at(3).isEmpty()
+                    && s3ExecutorBodies.at(4).isEmpty(),
+                "s3 injected executor should receive PUT payload and empty GET/HEAD/GET/DELETE bodies") && ok;
     S3ObjectStore s3MissingHashStore(envS3Config,
                                      [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(body);
         S3RequestExecutionResult result;
-        result.result = s3RequestResultFromReply(envS3Config, request.method == QByteArrayLiteral("HEAD") ? 200 : 204);
-        result.headers.insert(QStringLiteral("content-length"), QStringLiteral("7"));
+        if (request.method == QByteArrayLiteral("HEAD")) {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.headers.insert(QStringLiteral("content-length"), QStringLiteral("7"));
+        } else if (request.method == QByteArrayLiteral("GET")) {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.body = QByteArrayLiteral("payload");
+        } else {
+            result.result = s3RequestResultFromReply(envS3Config, 204);
+        }
         return result;
     });
     const ObjectStore::ValidationResult s3MissingHashValidation =
         s3MissingHashStore.validateObject(QStringLiteral("abcdef1234567890.bin"), 7, expectedS3Hash);
-    ok = expect(!s3MissingHashValidation.ok
-                    && s3MissingHashValidation.error.contains(QStringLiteral("SHA-256")),
-                "s3 HEAD validation should fail closed when hash metadata is missing") && ok;
+    ok = expect(s3MissingHashValidation.ok
+                    && s3MissingHashValidation.size == 7
+                    && s3MissingHashValidation.fileHash == expectedS3Hash,
+                "s3 validation should use GET body hash when HEAD hash metadata is missing") && ok;
+    const ObjectStore::ValidationResult validS3Body =
+        validateS3ObjectBody(QByteArrayLiteral("payload"), 7, expectedS3Hash.toUpper());
+    ok = expect(validS3Body.ok && validS3Body.fileHash == expectedS3Hash,
+                "s3 body validation should accept matching size and case-insensitive SHA-256") && ok;
+    const ObjectStore::ValidationResult emptyHashS3Body =
+        validateS3ObjectBody(QByteArrayLiteral("payload"), 7, QString());
+    ok = expect(emptyHashS3Body.ok && emptyHashS3Body.fileHash == expectedS3Hash,
+                "s3 body validation should compute SHA-256 when expected hash is empty") && ok;
+    ok = expect(!validateS3ObjectBody(QByteArrayLiteral("payload"), 8, expectedS3Hash).ok,
+                "s3 body validation should reject size mismatches") && ok;
+    ok = expect(!validateS3ObjectBody(QByteArrayLiteral("payload"), 7, sha256Hex(QByteArrayLiteral("other"))).ok,
+                "s3 body validation should reject SHA-256 mismatches") && ok;
+    S3ObjectStore s3GetMismatchStore(envS3Config,
+                                     [&envS3Config, expectedS3Hash](const S3SignedObjectRequest& request, const QByteArray& body) {
+        Q_UNUSED(body);
+        S3RequestExecutionResult result;
+        if (request.method == QByteArrayLiteral("HEAD")) {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.headers.insert(QStringLiteral("Content-Length"), QStringLiteral("7"));
+            result.headers.insert(QStringLiteral("ETag"), QStringLiteral("\"not-a-sha256\""));
+            result.headers.insert(QStringLiteral("X-Amz-Meta-Sha256"), expectedS3Hash);
+        } else if (request.method == QByteArrayLiteral("GET")) {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.body = QByteArrayLiteral("tamper");
+        } else {
+            result.result = s3RequestResultFromReply(envS3Config, 204);
+        }
+        return result;
+    });
+    const ObjectStore::ValidationResult s3GetMismatchValidation =
+        s3GetMismatchStore.validateObject(QStringLiteral("abcdef1234567890.bin"), 7, expectedS3Hash);
+    ok = expect(!s3GetMismatchValidation.ok
+                    && s3GetMismatchValidation.error.contains(QString::fromUtf8("大小不一致")),
+                "s3 validation should reject mismatched GET body and not trust ETag or HEAD hash alone") && ok;
     S3ObjectStore s3FailedHeadStore(envS3Config,
                                     [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(request);

@@ -156,6 +156,9 @@ S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
 S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& config,
                                                 const S3SignedObjectRequest& request,
                                                 const QByteArray& body = QByteArray());
+ObjectStore::ValidationResult validateS3ObjectBody(const QByteArray& body,
+                                                   qint64 expectedSize,
+                                                   const QString& expectedHash);
 QString s3PayloadSha256Hex(const QByteArray& payload);
 QString s3CredentialScope(const QString& date, const QString& region);
 QString s3CanonicalRequest(const QString& method,

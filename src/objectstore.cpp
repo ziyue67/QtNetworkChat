@@ -429,18 +429,30 @@ ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objec
     result.fileHash = headerValue(QStringLiteral("x-amz-meta-sha256")).toLower();
     const QString normalizedExpectedHash = expectedHash.trimmed().toLower();
     if (!normalizedExpectedHash.isEmpty()) {
-        if (result.fileHash.isEmpty()) {
-            result.error = QStringLiteral("S3 HEAD 响应缺少 SHA-256 元数据");
-            return result;
-        }
-        if (result.fileHash != normalizedExpectedHash) {
+        if (!result.fileHash.isEmpty() && result.fileHash != normalizedExpectedHash) {
             result.error = QStringLiteral("S3对象哈希不一致");
             return result;
         }
     }
 
-    result.ok = true;
-    return result;
+    const S3SignedObjectRequest getRequest = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("GET"), QByteArray());
+    if (getRequest.method.isEmpty() || !getRequest.request.url().isValid()) {
+        result = {};
+        result.error = QStringLiteral("S3 GET 请求构造失败");
+        return result;
+    }
+
+    const S3RequestExecutionResult getExecution = m_requestExecutor(getRequest, QByteArray());
+    if (!getExecution.result.http.ok) {
+        result = {};
+        result.error = QStringLiteral("S3 GET 请求失败: %1").arg(getExecution.result.http.reason);
+        if (!getExecution.result.error.isEmpty()) {
+            result.error += QStringLiteral(" %1").arg(redactS3ErrorText(m_config, getExecution.result.error));
+        }
+        return result;
+    }
+
+    return validateS3ObjectBody(getExecution.body, expectedSize, expectedHash);
 }
 
 std::unique_ptr<QIODevice> S3ObjectStore::openObject(const QString& objectKey) const {
@@ -779,6 +791,27 @@ S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& confi
     execution.result = s3RequestResultFromReply(config, statusCode, errorText, timedOut, tlsFailed);
     reply->deleteLater();
     return execution;
+}
+
+ObjectStore::ValidationResult validateS3ObjectBody(const QByteArray& body,
+                                                   qint64 expectedSize,
+                                                   const QString& expectedHash) {
+    ObjectStore::ValidationResult result;
+    result.size = body.size();
+    if (expectedSize >= 0 && result.size != expectedSize) {
+        result.error = QStringLiteral("S3对象大小不一致");
+        return result;
+    }
+
+    result.fileHash = sha256Hex(body);
+    const QString normalizedExpectedHash = expectedHash.trimmed().toLower();
+    if (!normalizedExpectedHash.isEmpty() && result.fileHash != normalizedExpectedHash) {
+        result.error = QStringLiteral("S3对象哈希不一致");
+        return result;
+    }
+
+    result.ok = true;
+    return result;
 }
 
 QString s3PayloadSha256Hex(const QByteArray& payload) {
