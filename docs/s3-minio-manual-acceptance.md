@@ -264,4 +264,20 @@ log redaction: passed|failed
 notes:
 ```
 
+也可以把上述只读产物打成一个脱敏归档包，便于留存或交给后续治理任务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-large-file-acceptance.ps1 `
+  -RouteLogPath ".\logs\source-server.log", ".\logs\remote-server.log" `
+  -RouteSummaryPath ".\logs\large-file-route-summary.json" `
+  -S3SummaryPath ".\logs\s3-request-results-summary.json" `
+  -ReconcileDir ".\logs\reconcile" `
+  -RotationSummaryPath ".\logs\delivered-receipts\rotate-summary.json" `
+  -NotesPath ".\logs\acceptance-notes.txt" `
+  -OutputDir ".\logs\acceptance-package" `
+  -PackagePath ".\logs\acceptance-package\large-file-acceptance.zip"
+```
+
+打包脚本只读取本地文件，会先扫描 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential、Signature 等敏感字段；默认发现命中会失败且不生成通过包。归档内会包含 `manifest.json`，记录输入文件、字节数、敏感命中数和只读说明；脚本不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
+
 若任一失败路径没有保留离线兜底，或者日志/Redis/离线队列出现敏感配置，应立即关闭 `QTNETWORKCHAT_OBJECT_S3_ENABLE`，回退到默认 fail-closed 状态。

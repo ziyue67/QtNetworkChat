@@ -322,4 +322,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-large-file-delivery-reconcile.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_reconcile_runner_s3_analysis.cmake
     )
+    add_test(
+        NAME LargeFileAcceptancePackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-large-file-acceptance.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_acceptance_package.cmake
+    )
 endif()
