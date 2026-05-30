@@ -185,6 +185,8 @@ Add-SwitchArg $lines "CompressRotationArchive" $CompressRotationArchive.IsPresen
 Add-ScalarArg $lines "NotesPath" $NotesPath
 Add-SwitchArg $lines "PackageAcceptance" $PackageAcceptance.IsPresent
 Add-ScalarArg $lines "PackagePath" $PackagePath
+Add-ScalarArg $lines "HealthCheckPath" (Join-Path $OutputDir "last-health.json")
+Add-IntArg $lines "HealthMaxWarnings" 0
 
 $lastIndex = $lines.Count - 1
 if ($lastIndex -ge 0) {
@@ -200,6 +202,8 @@ if ($lastIndex -ge 0) {
 
 $lines | Set-Content -LiteralPath $launcherPath -Encoding UTF8
 
+$alertOverviewPath = Join-Path $OutputDir "governance-alert-overview.json"
+$healthCheckOutputPath = Join-Path $OutputDir "last-health.json"
 $actionArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`""
 $preview = [pscustomobject]@{
     taskName = $TaskName
@@ -212,8 +216,10 @@ $preview = [pscustomobject]@{
     launcherPath = $launcherPath
     governanceScript = $governanceScript
     outputDir = $OutputDir
+    alertOverviewPath = $alertOverviewPath
+    healthCheckPath = $healthCheckOutputPath
     readOnly = $true
-    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task."
+    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status or healthCheckPath for a single ok/notOk verdict."
 }
 $preview | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $previewPath -Encoding UTF8
 

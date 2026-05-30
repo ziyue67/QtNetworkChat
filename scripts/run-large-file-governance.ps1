@@ -30,7 +30,11 @@ param(
 
     [switch]$PackageAcceptance,
 
-    [string]$PackagePath
+    [string]$PackagePath,
+
+    [string]$HealthCheckPath,
+
+    [int]$HealthMaxWarnings = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -114,12 +118,15 @@ $reconcileRunner = Join-Path $PSScriptRoot "run-large-file-delivery-reconcile.ps
 $receiptRotator = Join-Path $PSScriptRoot "rotate-large-file-receipts.ps1"
 $rotationAnalyzer = Join-Path $PSScriptRoot "analyze-large-file-receipt-rotation.ps1"
 $packager = Join-Path $PSScriptRoot "package-large-file-acceptance.ps1"
+$healthChecker = Join-Path $PSScriptRoot "check-governance-health.ps1"
 
 $hasRouteLogs = $null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0
+$hasHealthCheck = -not [string]::IsNullOrWhiteSpace($HealthCheckPath)
 $totalSteps = 2
 if ($hasRouteLogs) { $totalSteps += 3 }
 if (-not [string]::IsNullOrWhiteSpace($ReceiptRotationPath)) { $totalSteps += 2 }
 if ($shouldPackageAcceptance) { $totalSteps++ }
+if ($hasHealthCheck) { $totalSteps++ }
 $currentStep = 0
 
 function StepLabel([string]$Label) {
@@ -231,6 +238,18 @@ if ($NoFailOnWarning) {
 }
 Invoke-CheckedScript $aggregator $aggArgs (Join-Path $resolvedOutputDir "aggregate-alerts.log")
 
+if ($hasHealthCheck) {
+    StepLabel "governance health check"
+    $resolvedHealthCheckPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($HealthCheckPath)
+    $healthArgs = @("-AlertOverviewPath", $aggregatedAlertPath, "-HealthOutputPath", $resolvedHealthCheckPath, "-MaxWarnings", $HealthMaxWarnings)
+    if ($NoFailOnWarning) {
+        $healthArgs += "-Quiet"
+    }
+    $healthOutput = & powershell -ExecutionPolicy Bypass -File $healthChecker @healthArgs 2>&1
+    $healthOutput | Set-Content -LiteralPath (Join-Path $resolvedOutputDir "health-check.log") -Encoding UTF8
+    $healthOutput | Write-Host
+}
+
 Write-Host ""
 Write-Host "outputs"
 if ($hasRouteLogs) {
@@ -246,6 +265,9 @@ if (Test-Path -LiteralPath $rotationSummaryPath) {
 }
 if (Test-Path -LiteralPath $aggregatedAlertPath) {
     Write-Host ("  governance alert overview: {0}" -f $aggregatedAlertPath)
+}
+if ($hasHealthCheck -and (Test-Path -LiteralPath $resolvedHealthCheckPath)) {
+    Write-Host ("  health check: {0}" -f $resolvedHealthCheckPath)
 }
 if (Test-Path -LiteralPath $PackagePath) {
     Write-Host ("  package: {0}" -f $PackagePath)

@@ -346,4 +346,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/aggregate-governance-alerts.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_aggregate_governance_alerts.cmake
     )
+    add_test(
+        NAME GovernanceHealthCheck
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-governance-health.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_governance_health_check.cmake
+    )
 endif()
