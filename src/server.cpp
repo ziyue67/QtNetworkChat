@@ -1582,6 +1582,7 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
     event["senderName"] = offlinePayload["senderName"].toString();
     event["receiverId"] = offlinePayload["receiverId"].toString();
     event["messageType"] = messageType == static_cast<int>(MessageType::Image) ? "Image" : "File";
+    event["storeType"] = objectStoreType();
     event["fileName"] = offlinePayload["fileName"].toString();
     event["fileSize"] = QString::number(fileSize);
     event["fileHash"] = fileHash;
@@ -1841,6 +1842,22 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
 
     if (!isSupportedObjectStoreType(objectStoreType())) {
         return false;
+    }
+    const QString localStoreType = objectStoreType();
+    const QString offerStoreType = normalizeObjectStoreType(event["storeType"].toString());
+    if (!isSupportedObjectStoreType(offerStoreType)) {
+        logRedisLargeFileRouteEvent(QStringLiteral("offer_validation"),
+                                    QStringLiteral("rejected"),
+                                    largeFileRouteLogMetadata(event, localStoreType, QStringLiteral("validate")),
+                                    QStringLiteral("unsupported-offer-store-type"));
+        return failOffer(QStringLiteral("unsupported-offer-store-type"));
+    }
+    if (offerStoreType != localStoreType) {
+        logRedisLargeFileRouteEvent(QStringLiteral("offer_validation"),
+                                    QStringLiteral("rejected"),
+                                    largeFileRouteLogMetadata(event, localStoreType, QStringLiteral("validate")),
+                                    QStringLiteral("object-store-type-mismatch"));
+        return failOffer(QStringLiteral("object-store-type-mismatch"));
     }
 
     QString objectStoreError;

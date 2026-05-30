@@ -56,7 +56,8 @@ TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本
 3. 确认 Redis 控制事件只包含小体积元数据：`large_file_offer`、`large_file_claim`、`large_file_delivered`。
 4. 确认接收端收到完整文件，SHA-256 与发送端一致。
 5. 确认源实例在收到完整 delivered 回执后清理本地离线兜底队列，并向 S3/MinIO 发起对象删除。
-6. 确认 `redis_large_file_route` 日志出现 `offer`、`claim`、`delivered`、`delivered_cleanup`，并包含 `storeType=s3`、`operation=publish|delete`、`objectKey`、`receiverId`、`transferId`、`bytes` 等逻辑字段。
+6. 确认 `large_file_offer` 元数据包含 `storeType=s3`，远端实例也配置为 `QTNETWORKCHAT_OBJECT_STORE=s3` 且显式启用后才会 claim；如果远端仍是 filesystem 或 storeType 不支持，应发布固定 reason 的 `large_file_failed`，并且不出现 claim/delivered。
+7. 确认 `redis_large_file_route` 日志出现 `offer`、`claim`、`delivered`、`delivered_cleanup`，并包含 `storeType=s3`、`operation=publish|delete`、`objectKey`、`receiverId`、`transferId`、`bytes` 等逻辑字段。
 
 ## 4. 失败回退路径
 

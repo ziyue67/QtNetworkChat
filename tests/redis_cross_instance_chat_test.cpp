@@ -770,6 +770,8 @@ int main(int argc, char** argv) {
                 "large file offer should target the remote online receiver") && ok;
     ok = expect(largeFileOffer["messageType"].toString() == "File",
                 "large file offer should identify file messages") && ok;
+    ok = expect(largeFileOffer["storeType"].toString() == QStringLiteral("filesystem"),
+                "large file offer should carry the object store type") && ok;
     ok = expect(largeFileOffer["fileSize"].toVariant().toLongLong() == largeFilePayload.size(),
                 "large file offer should carry the original file size") && ok;
     ok = expect(!largeFileOffer["transferId"].toString().trimmed().isEmpty(),
@@ -935,6 +937,50 @@ int main(int argc, char** argv) {
         return !findPublishedEvent("large_file_claim", QString(), invalidChunkObjectKey).isEmpty()
             || bobFileNames.contains(invalidChunkOffer["fileName"].toString());
     }, 800), "invalid chunk metadata should not be claimed or delivered") && ok;
+
+    const QString mismatchedStoreObjectKey = "mismatched-store-offer.bin";
+    QJsonObject mismatchedStoreOffer = invalidOffer;
+    mismatchedStoreOffer["transferId"] = "external-mismatched-store-transfer";
+    mismatchedStoreOffer["objectKey"] = mismatchedStoreObjectKey;
+    mismatchedStoreOffer["fileName"] = "redis-mismatched-store-large-offer.bin";
+    mismatchedStoreOffer["storeType"] = "s3";
+    bobFileNames.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(mismatchedStoreOffer).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_failed", QString(), mismatchedStoreObjectKey).isEmpty();
+    }), "remote server should publish failed when offer storeType does not match local object store") && ok;
+    ok = expect(findPublishedEvent("large_file_failed", QString(), mismatchedStoreObjectKey)["reason"].toString()
+                    == QStringLiteral("object-store-type-mismatch"),
+                "store type mismatch should publish a fixed aggregate-safe reason") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), mismatchedStoreObjectKey).isEmpty()
+            || bobFileNames.contains(mismatchedStoreOffer["fileName"].toString());
+    }, 800), "mismatched store type offers should not be claimed or delivered") && ok;
+
+    const QString unsupportedOfferStoreObjectKey = "unsupported-offer-store.bin";
+    QJsonObject unsupportedOfferStore = invalidOffer;
+    unsupportedOfferStore["transferId"] = "external-unsupported-offer-store-transfer";
+    unsupportedOfferStore["objectKey"] = unsupportedOfferStoreObjectKey;
+    unsupportedOfferStore["fileName"] = "redis-unsupported-offer-store-large-offer.bin";
+    unsupportedOfferStore["storeType"] = "memory";
+    bobFileNames.clear();
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(unsupportedOfferStore).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_failed", QString(), unsupportedOfferStoreObjectKey).isEmpty();
+    }), "remote server should publish failed for unsupported offer storeType") && ok;
+    ok = expect(findPublishedEvent("large_file_failed", QString(), unsupportedOfferStoreObjectKey)["reason"].toString()
+                    == QStringLiteral("unsupported-offer-store-type"),
+                "unsupported offer store type should publish a fixed aggregate-safe reason") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), unsupportedOfferStoreObjectKey).isEmpty()
+            || bobFileNames.contains(unsupportedOfferStore["fileName"].toString());
+    }, 800), "unsupported offer store type should not be claimed or delivered") && ok;
 
     const QString unsupportedStoreObjectKey = "unsupported-store-offer.bin";
     QJsonObject unsupportedStoreOffer = invalidOffer;

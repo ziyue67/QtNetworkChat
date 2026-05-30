@@ -26,7 +26,7 @@
 | 对象存储或共享附件目录 | 原始文件字节 | 可先用共享文件系统目录，后续替换为 S3/MinIO 等对象存储 |
 | 现有 TCP 客户端连接 | 服务端到最终收件人的分片下发 | 复用 `sendChunkedFileToSocket()` 与 ACK 校验 |
 
-源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。远端实例收到 offer 后，已可在收件人在线于本实例时认领对象，校验对象 size/hash/chunk 元数据并按现有分片 ACK 流程下发；完整 ACK 后会发布 `large_file_delivered`，源实例确认匹配后清理本地兜底队列、离线附件和对象文件。远端对象校验、读取、客户端连接或 ACK 失败时会发布 `large_file_failed`，源实例确认来源后保留离线兜底。代码层已有最小 `ObjectStore` 抽象和后端工厂，filesystem 实现通过同一接口提供写入、校验、读取、删除和 TTL 清理；未支持后端会明确拒绝，后续 S3/MinIO 后端应优先复用该边界。
+源实例收到大文件后，把附件写入对象存储，同时在本地离线队列保留同一份可回放状态；当前已完成这一步的 filesystem ObjectStore 写入与 `large_file_offer` 发布。offer 会携带 `storeType`，远端实例收到 offer 后，只有本地 ObjectStore 类型与 offer 匹配且收件人在线于本实例时才认领对象，校验对象 size/hash/chunk 元数据并按现有分片 ACK 流程下发；unsupported/mismatch storeType 会发布固定 reason 的 `large_file_failed` 且不 claim/deliver，避免 S3 显式启用后不同后端实例误消费。完整 ACK 后会发布 `large_file_delivered`，源实例确认匹配后清理本地兜底队列、离线附件和对象文件。远端对象校验、读取、客户端连接或 ACK 失败时会发布 `large_file_failed`，源实例确认来源后保留离线兜底。代码层已有最小 `ObjectStore` 抽象和后端工厂，filesystem 实现通过同一接口提供写入、校验、读取、删除和 TTL 清理；未支持后端会明确拒绝，后续 S3/MinIO 后端应优先复用该边界。
 
 ## 控制事件
 
@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档、治理入口编排、统一 alert summary、告警聚合、健康检查、不健康通知和完整样例管线已完成；下一步转向更大的 Redis/S3 治理功能包，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档、治理入口编排、统一 alert summary、告警聚合、健康检查、不健康通知、完整样例管线和服务端 offer storeType 一致性边界已完成；下一步转向更大的 Redis/S3 治理功能包，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -273,7 +273,8 @@
 66. 已完成：扩展脱敏样例脚本的 `-RunGovernance` 全流程，覆盖 route 分析、S3 request 分析、delivered 对账、receipt 轮转、alert 聚合和健康检查，并补 CTest。
 67. 已完成：补治理诊断包功能，归档治理总览、健康结果、关键 summary、日志和 notes，接入治理入口与计划任务 preview，并用 CTest 覆盖成功打包和敏感字段拒绝。
 68. 已完成：补治理运维报告功能，生成 Markdown/HTML 可读报告，接入治理入口、计划任务 preview 和诊断 zip，并用 CTest 覆盖报告内容与敏感字段拒绝。
-69. 下一步：停止继续做小颗粒脚本补丁，优先选择一个更靠近服务端行为的大块功能包推进，例如“S3 真实后端稳定化与服务端集成边界”或“跨实例大文件运维面板/诊断输出”。
+69. 已完成：补服务端大文件 offer 的 `storeType` 协议字段和消费一致性边界；远端本地 storeType 与 offer 不匹配或 offer storeType 不支持时发布固定 reason 的 failed 事件，且不会 claim/deliver。
+70. 下一步：继续沿服务端真实后端方向推进，例如补 S3 显式启用后的服务端对象写入/校验失败注入边界、失败 reason 日志聚合测试，或做跨实例大文件运维面板/诊断输出。
 
 ## 当前保护边界
 
@@ -281,6 +282,7 @@
 - 已有测试覆盖大文件和编码后超限文件不经 Pub/Sub，并回落源实例离线队列。
 - 已有测试覆盖源实例为大文件和编码超限文件发布小体积 `large_file_offer`，且 offer 指向对象的 size/hash 与原始附件一致。
 - 已有测试覆盖远端实例仅在本地在线收件人存在时认领 `large_file_offer`，并从 filesystem ObjectStore 校验后分片下发给客户端。
+- 已有测试覆盖 `large_file_offer.storeType`，远端只消费本地配置匹配的对象后端；unsupported/mismatch storeType 会固定 reason 拒绝并保留源实例离线兜底。
 - 已有测试覆盖远端完整 ACK 后发布 `large_file_delivered`，源实例清理对应对象并避免收件人回源实例后重复收到已跨实例投递的大文件。
 - 已有测试覆盖对象缺失时远端发布 `large_file_failed` 且不 claim、不下发，并覆盖源实例收到失败事件后继续保留对象和离线兜底、后续可回源实例回放。
 - 已有测试覆盖非法 objectKey/分片元数据不下发、非 filesystem store 不消费，以及不在线收件人不 claim、不 delivered。
