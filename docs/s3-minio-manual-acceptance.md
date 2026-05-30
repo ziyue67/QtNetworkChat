@@ -341,6 +341,17 @@ powershell -ExecutionPolicy Bypass -File scripts/run-large-file-governance.ps1 `
 
 `scripts/write-large-file-governance-report.ps1` 可单独读取治理输出目录并生成 Markdown/HTML 运维报告；报告会汇总健康状态、alert overview、route/S3/receipt rotation/delivered reconcile 指标，并在发现 endpoint、bucket、object URL、凭据或签名字段时拒绝生成。`scripts/package-governance-diagnostics.ps1` 也可单独读取治理输出目录并生成诊断 zip；归档前会扫描敏感字段，生成 `manifest.json`，且不会连接 Redis、S3/MinIO 或修改真实队列、附件、对象。
 
+如果只需要给计划任务、值班脚本或本地运维页面消费一个轻量入口，可生成治理 dashboard：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/write-large-file-governance-dashboard.ps1 `
+  -GovernanceDir ".\logs\governance" `
+  -DashboardPath ".\logs\governance\large-file-governance-dashboard.json" `
+  -MarkdownPath ".\logs\governance\large-file-governance-dashboard.md"
+```
+
+dashboard JSON 使用 `qtnetworkchat-large-file-governance-dashboard-v1` 格式，汇总 `status/ok/reason/totalWarnings/alertCount`、route/S3/receipt/reconcile 核心指标、告警来源和关键产物相对路径；Markdown 版本便于人工快速查看。脚本只读取本地治理产物，发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 会拒绝生成。
+
 没有真实日志时，可以直接跑完整脱敏样例链路：
 
 ```powershell

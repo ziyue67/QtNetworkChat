@@ -47,6 +47,12 @@ param(
 
     [string]$HtmlReportPath,
 
+    [switch]$WriteDashboard,
+
+    [string]$DashboardPath,
+
+    [string]$DashboardMarkdownPath,
+
     [switch]$EmitRouteLog,
 
     [switch]$NoFailOnWarning,
@@ -159,6 +165,8 @@ Assert-NoSensitiveValue "PackagePath" @($PackagePath)
 Assert-NoSensitiveValue "DiagnosticsPackagePath" @($DiagnosticsPackagePath)
 Assert-NoSensitiveValue "ReportPath" @($ReportPath)
 Assert-NoSensitiveValue "HtmlReportPath" @($HtmlReportPath)
+Assert-NoSensitiveValue "DashboardPath" @($DashboardPath)
+Assert-NoSensitiveValue "DashboardMarkdownPath" @($DashboardMarkdownPath)
 
 if ([string]::IsNullOrWhiteSpace($TaskDir)) {
     $TaskDir = Join-Path $OutputDir "scheduled-task"
@@ -203,6 +211,9 @@ Add-ScalarArg $lines "DiagnosticsPackagePath" $DiagnosticsPackagePath
 Add-SwitchArg $lines "WriteReport" ($WriteReport.IsPresent -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath))
 Add-ScalarArg $lines "ReportPath" $ReportPath
 Add-ScalarArg $lines "HtmlReportPath" $HtmlReportPath
+Add-SwitchArg $lines "WriteDashboard" ($WriteDashboard.IsPresent -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath))
+Add-ScalarArg $lines "DashboardPath" $DashboardPath
+Add-ScalarArg $lines "DashboardMarkdownPath" $DashboardMarkdownPath
 Add-ScalarArg $lines "HealthCheckPath" (Join-Path $OutputDir "last-health.json")
 Add-IntArg $lines "HealthMaxWarnings" 0
 Add-SwitchArg $lines "NotifyOnUnhealthy" $true
@@ -238,6 +249,16 @@ $htmlReportPreviewPath = if ([string]::IsNullOrWhiteSpace($HtmlReportPath)) {
 } else {
     $HtmlReportPath
 }
+$dashboardPreviewPath = if ([string]::IsNullOrWhiteSpace($DashboardPath)) {
+    Join-Path $OutputDir "large-file-governance-dashboard.json"
+} else {
+    $DashboardPath
+}
+$dashboardMarkdownPreviewPath = if ([string]::IsNullOrWhiteSpace($DashboardMarkdownPath)) {
+    ""
+} else {
+    $DashboardMarkdownPath
+}
 $actionArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`""
 $preview = [pscustomobject]@{
     taskName = $TaskName
@@ -255,8 +276,10 @@ $preview = [pscustomobject]@{
     diagnosticsPackagePath = $diagnosticsPreviewPath
     reportPath = $reportPreviewPath
     htmlReportPath = $htmlReportPreviewPath
+    dashboardPath = $dashboardPreviewPath
+    dashboardMarkdownPath = $dashboardMarkdownPreviewPath
     readOnly = $true
-    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, reportPath for an operator-readable summary, and diagnosticsPackagePath for a sanitized zip."
+    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, dashboardPath for machine-readable local status, reportPath for an operator-readable summary, and diagnosticsPackagePath for a sanitized zip."
 }
 $preview | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $previewPath -Encoding UTF8
 

@@ -14,6 +14,8 @@ set(PACKAGE_PATH "${OUTPUT_DIR}/acceptance.zip")
 set(DIAGNOSTICS_PATH "${OUTPUT_DIR}/diagnostics.zip")
 set(REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.md")
 set(HTML_REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.html")
+set(DASHBOARD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.json")
+set(DASHBOARD_MD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.md")
 set(SOURCE_INSTANCE "source-governance-a")
 set(FILE_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
@@ -59,6 +61,9 @@ execute_process(
         -WriteReport
         -ReportPath "${REPORT_PATH}"
         -HtmlReportPath "${HTML_REPORT_PATH}"
+        -WriteDashboard
+        -DashboardPath "${DASHBOARD_PATH}"
+        -DashboardMarkdownPath "${DASHBOARD_MD_PATH}"
         -PackageDiagnostics
         -DiagnosticsPackagePath "${DIAGNOSTICS_PATH}"
     RESULT_VARIABLE result
@@ -91,6 +96,8 @@ foreach(expected_file
         "${OUTPUT_DIR}/governance-alert-overview.json"
         "${REPORT_PATH}"
         "${HTML_REPORT_PATH}"
+        "${DASHBOARD_PATH}"
+        "${DASHBOARD_MD_PATH}"
         "${DIAGNOSTICS_PATH}"
         "${PACKAGE_PATH}")
     if(NOT EXISTS "${expected_file}")
@@ -137,6 +144,23 @@ string(JSON s3_alert_lines GET "${s3_alert_content}" "metrics" "s3LineCount")
 if(NOT s3_alert_kind STREQUAL "s3-request-results")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected governance S3 alert kind: ${s3_alert_kind}")
+endif()
+
+file(READ "${DASHBOARD_PATH}" dashboard_content)
+string(JSON dashboard_format GET "${dashboard_content}" "format")
+string(JSON dashboard_status GET "${dashboard_content}" "status")
+string(JSON dashboard_s3_lines GET "${dashboard_content}" "metrics" "s3Lines")
+if(NOT dashboard_format STREQUAL "qtnetworkchat-large-file-governance-dashboard-v1")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected governance dashboard format: ${dashboard_format}")
+endif()
+if(NOT dashboard_status STREQUAL "unknown")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance dashboard status=unknown without HealthCheckPath, got ${dashboard_status}")
+endif()
+if(NOT dashboard_s3_lines EQUAL 2)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance dashboard s3Lines=2, got ${dashboard_s3_lines}")
 endif()
 if(NOT s3_alert_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")

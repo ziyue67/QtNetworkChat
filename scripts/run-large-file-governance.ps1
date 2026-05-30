@@ -50,7 +50,13 @@ param(
 
     [string]$ReportPath,
 
-    [string]$HtmlReportPath
+    [string]$HtmlReportPath,
+
+    [switch]$WriteDashboard,
+
+    [string]$DashboardPath,
+
+    [string]$DashboardMarkdownPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -138,6 +144,7 @@ $healthChecker = Join-Path $PSScriptRoot "check-governance-health.ps1"
 $notifier = Join-Path $PSScriptRoot "notify-governance-unhealthy.ps1"
 $diagnosticsPackager = Join-Path $PSScriptRoot "package-governance-diagnostics.ps1"
 $reportWriter = Join-Path $PSScriptRoot "write-large-file-governance-report.ps1"
+$dashboardWriter = Join-Path $PSScriptRoot "write-large-file-governance-dashboard.ps1"
 
 $hasRouteLogs = $null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0
 $hasHealthCheck = -not [string]::IsNullOrWhiteSpace($HealthCheckPath)
@@ -149,6 +156,7 @@ if ($shouldPackageAcceptance) { $totalSteps++ }
 if ($hasHealthCheck) { $totalSteps++ }
 if ($hasNotify) { $totalSteps++ }
 if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath)) { $totalSteps++ }
+if ($WriteDashboard -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath)) { $totalSteps++ }
 if ($PackageDiagnostics -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) { $totalSteps++ }
 $currentStep = 0
 
@@ -299,6 +307,18 @@ if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [st
     Invoke-CheckedScript $reportWriter $reportArgs (Join-Path $resolvedOutputDir "governance-report.log")
 }
 
+if ($WriteDashboard -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath)) {
+    StepLabel "governance dashboard"
+    if ([string]::IsNullOrWhiteSpace($DashboardPath)) {
+        $DashboardPath = Join-Path $resolvedOutputDir "large-file-governance-dashboard.json"
+    }
+    $dashboardArgs = @("-GovernanceDir", $resolvedOutputDir, "-DashboardPath", $DashboardPath)
+    if (-not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath)) {
+        $dashboardArgs += @("-MarkdownPath", $DashboardMarkdownPath)
+    }
+    Invoke-CheckedScript $dashboardWriter $dashboardArgs (Join-Path $resolvedOutputDir "governance-dashboard.log")
+}
+
 if ($PackageDiagnostics -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) {
     StepLabel "governance diagnostics package"
     $diagnosticsOutputDir = Join-Path $resolvedOutputDir "diagnostics-package"
@@ -339,6 +359,12 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath) -and (Test-Path -LiteralPath 
 }
 if (-not [string]::IsNullOrWhiteSpace($HtmlReportPath) -and (Test-Path -LiteralPath $HtmlReportPath)) {
     Write-Host ("  html report: {0}" -f $HtmlReportPath)
+}
+if (-not [string]::IsNullOrWhiteSpace($DashboardPath) -and (Test-Path -LiteralPath $DashboardPath)) {
+    Write-Host ("  dashboard: {0}" -f $DashboardPath)
+}
+if (-not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath) -and (Test-Path -LiteralPath $DashboardMarkdownPath)) {
+    Write-Host ("  dashboard markdown: {0}" -f $DashboardMarkdownPath)
 }
 if (Test-Path -LiteralPath $PackagePath) {
     Write-Host ("  package: {0}" -f $PackagePath)

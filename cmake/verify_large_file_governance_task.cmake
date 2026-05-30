@@ -10,6 +10,8 @@ set(ROUTE_LOG "${TEMP_DIR}/route.log")
 set(QUEUE_LOG "${TEMP_DIR}/queue.jsonl")
 set(OUTPUT_DIR "${TEMP_DIR}/governance-output")
 set(TASK_DIR "${TEMP_DIR}/task")
+set(DASHBOARD_PATH "${OUTPUT_DIR}/dashboard.json")
+set(DASHBOARD_MD_PATH "${OUTPUT_DIR}/dashboard.md")
 set(SOURCE_INSTANCE "source-task-a")
 set(FILE_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
@@ -36,6 +38,9 @@ execute_process(
         -PackageAcceptance
         -PackageDiagnostics
         -WriteReport
+        -WriteDashboard
+        -DashboardPath "${DASHBOARD_PATH}"
+        -DashboardMarkdownPath "${DASHBOARD_MD_PATH}"
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error_output
@@ -73,7 +78,10 @@ foreach(expected_text
         "-OutputDir"
         "-PackageAcceptance"
         "-PackageDiagnostics"
-        "-WriteReport")
+        "-WriteReport"
+        "-WriteDashboard"
+        "-DashboardPath"
+        "-DashboardMarkdownPath")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -90,6 +98,8 @@ endif()
 string(JSON should_register GET "${preview_content}" "register")
 string(JSON diagnostics_path GET "${preview_content}" "diagnosticsPackagePath")
 string(JSON report_path GET "${preview_content}" "reportPath")
+string(JSON dashboard_path GET "${preview_content}" "dashboardPath")
+string(JSON dashboard_markdown_path GET "${preview_content}" "dashboardMarkdownPath")
 if(should_register)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview mode should not register the scheduled task")
@@ -101,6 +111,14 @@ endif()
 if(report_path STREQUAL "")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview reportPath should not be empty")
+endif()
+if(NOT dashboard_path MATCHES "dashboard.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview dashboardPath missing expected dashboard.json path: ${dashboard_path}")
+endif()
+if(NOT dashboard_markdown_path MATCHES "dashboard.md")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview dashboardMarkdownPath missing expected dashboard.md path: ${dashboard_markdown_path}")
 endif()
 
 execute_process(

@@ -178,7 +178,7 @@
 - Route summary、S3 request result 和 receipt rotation 三类告警分析脚本已统一支持 `-AlertSummaryPath`，落盘 `kind/ok/warnings/metrics` 结构；治理入口会自动生成 `large-file-route-alert-summary.json`、`s3-request-results-alert-summary.json` 和 `receipt-rotation-alert-summary.json`，便于 Windows 计划任务和外部监控只读采集。
 - 告警聚合、健康检查和通知链路已补齐：`scripts/aggregate-governance-alerts.ps1` 汇总三类 alert summary 为治理总览 JSON，`scripts/check-governance-health.ps1` 生成健康状态，`scripts/notify-governance-unhealthy.ps1` 可在不健康时 dry-run 或写入 EventLog/webhook，且继续拒绝 endpoint、bucket、object URL、凭据和签名字段。
 - `scripts/write-large-file-reconcile-sample.ps1 -RunGovernance` 已可生成脱敏样例并串联 route 分析、S3 request 分析、delivered 对账、receipt 轮转、alert 聚合和健康检查；CTest 已覆盖该样例管线，并补齐治理相关测试列表。
-- 治理诊断包和运维报告已补齐：`scripts/write-large-file-governance-report.ps1` 可从治理输出目录生成 Markdown/HTML 报告并拒绝敏感字段，`scripts/package-governance-diagnostics.ps1` 可把治理总览、健康结果、route/S3/receipt summary、alert summary、报告、关键日志和 notes 打成脱敏 zip；`run-large-file-governance.ps1 -WriteReport -PackageDiagnostics` 与计划任务 preview 已接入报告和 zip 路径，CTest 覆盖 manifest、关键文件、报告内容和敏感字段拒绝。
+- 治理诊断包和运维报告已补齐：`scripts/write-large-file-governance-report.ps1` 可从治理输出目录生成 Markdown/HTML 报告并拒绝敏感字段，`scripts/write-large-file-governance-dashboard.ps1` 可生成单文件 JSON/Markdown 运维面板，汇总健康状态、告警来源、S3/route/receipt/reconcile 指标和关键产物相对路径；`scripts/package-governance-diagnostics.ps1` 可把治理总览、健康结果、route/S3/receipt summary、alert summary、报告、关键日志和 notes 打成脱敏 zip；`run-large-file-governance.ps1 -WriteReport -WriteDashboard -PackageDiagnostics` 与计划任务 preview 已接入报告、dashboard 和 zip 路径，CTest 覆盖 manifest、关键文件、报告/dashboard 内容和敏感字段拒绝。
 
 ## 治理观测
 
