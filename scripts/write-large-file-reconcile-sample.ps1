@@ -6,7 +6,9 @@ param(
 
     [switch]$RunRotate,
 
-    [switch]$RunS3RequestAnalysis
+    [switch]$RunS3RequestAnalysis,
+
+    [switch]$RunGovernance
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +22,12 @@ $receiptPath = Join-Path $resolvedOutputDir "sample-delivered-receipts.jsonl"
 $rotationReceiptPath = Join-Path $resolvedOutputDir "sample-rotation-receipts.jsonl"
 $rotationSummaryPath = Join-Path $resolvedOutputDir "sample-rotation-summary.json"
 $s3RequestSummaryPath = Join-Path $resolvedOutputDir "sample-s3-request-summary.json"
+$s3AlertSummaryPath = Join-Path $resolvedOutputDir "sample-s3-alert-summary.json"
+$routeAlertSummaryPath = Join-Path $resolvedOutputDir "sample-route-alert-summary.json"
+$routeSummaryPath = Join-Path $resolvedOutputDir "sample-route-summary.json"
+$governanceAlertDir = Join-Path $resolvedOutputDir "governance"
+$governanceOverviewPath = Join-Path $governanceAlertDir "governance-alert-overview.json"
+$healthCheckPath = Join-Path $resolvedOutputDir "sample-last-health.json"
 $reconcileOutputDir = Join-Path $resolvedOutputDir "reconcile-output"
 $sourceInstanceId = "source-sample-a"
 $hashA = "a" * 64
@@ -147,8 +155,78 @@ if ($RunS3RequestAnalysis) {
     Write-Host "running read-only-safe S3 request result analysis sample"
     & powershell -ExecutionPolicy Bypass -File $analyzer `
         -Path $routeLogPath `
-        -SummaryPath $s3RequestSummaryPath
+        -SummaryPath $s3RequestSummaryPath `
+        -AlertSummaryPath $s3AlertSummaryPath `
+        -NoFailOnWarning
     if ($LASTEXITCODE -ne 0) {
         throw ("Sample S3 request result analysis failed with exit code {0}" -f $LASTEXITCODE)
     }
+}
+
+if ($RunGovernance) {
+    $routeSummaryAnalyzer = Join-Path $PSScriptRoot "analyze-large-file-route-logs.ps1"
+    $routeAlertAnalyzer = Join-Path $PSScriptRoot "analyze-large-file-route-summary.ps1"
+    $s3Analyzer = Join-Path $PSScriptRoot "analyze-s3-request-results.ps1"
+    $aggregator = Join-Path $PSScriptRoot "aggregate-governance-alerts.ps1"
+    $healthChecker = Join-Path $PSScriptRoot "check-governance-health.ps1"
+
+    New-Item -ItemType Directory -Path $governanceAlertDir -Force | Out-Null
+    $govRouteAlertPath = Join-Path $governanceAlertDir "large-file-route-alert-summary.json"
+    $govS3AlertPath = Join-Path $governanceAlertDir "s3-request-results-alert-summary.json"
+
+    Write-Host ""
+    Write-Host "running full governance sample pipeline"
+
+    Write-Host "  step 1: route log analysis"
+    & powershell -ExecutionPolicy Bypass -File $routeSummaryAnalyzer `
+        -Path $routeLogPath `
+        -SummaryPath $routeSummaryPath `
+        -NoFailOnSensitive
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Governance sample: route log analysis failed with exit code {0}" -f $LASTEXITCODE)
+    }
+
+    Write-Host "  step 2: route summary alerts"
+    & powershell -ExecutionPolicy Bypass -File $routeAlertAnalyzer `
+        -SummaryPath $routeSummaryPath `
+        -AlertSummaryPath $govRouteAlertPath `
+        -NoFailOnWarning
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Governance sample: route summary alerts failed with exit code {0}" -f $LASTEXITCODE)
+    }
+
+    Write-Host "  step 3: S3 request result analysis"
+    & powershell -ExecutionPolicy Bypass -File $s3Analyzer `
+        -Path $routeLogPath `
+        -SummaryPath $s3RequestSummaryPath `
+        -AlertSummaryPath $govS3AlertPath `
+        -NoFailOnWarning
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Governance sample: S3 request analysis failed with exit code {0}" -f $LASTEXITCODE)
+    }
+
+    Write-Host "  step 4: aggregate governance alerts"
+    & powershell -ExecutionPolicy Bypass -File $aggregator `
+        -OutputDir $governanceAlertDir `
+        -AggregatedPath $governanceOverviewPath `
+        -NoFailOnWarning
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Governance sample: alert aggregation failed with exit code {0}" -f $LASTEXITCODE)
+    }
+
+    Write-Host "  step 5: health check"
+    & powershell -ExecutionPolicy Bypass -File $healthChecker `
+        -AlertOverviewPath $governanceOverviewPath `
+        -HealthOutputPath $healthCheckPath `
+        -MaxWarnings 99
+    $healthExitCode = $LASTEXITCODE
+
+    Write-Host ""
+    Write-Host "governance sample outputs:"
+    Write-Host ("  route summary: {0}" -f $routeSummaryPath)
+    Write-Host ("  route alert summary: {0}" -f $govRouteAlertPath)
+    Write-Host ("  S3 request summary: {0}" -f $s3RequestSummaryPath)
+    Write-Host ("  S3 alert summary: {0}" -f $govS3AlertPath)
+    Write-Host ("  governance overview: {0}" -f $governanceOverviewPath)
+    Write-Host ("  health check: {0} (exit={1})" -f $healthCheckPath, $healthExitCode)
 }
