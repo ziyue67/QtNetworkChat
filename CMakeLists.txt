@@ -358,4 +358,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-large-file-reconcile-sample.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_governance_sample_pipeline.cmake
     )
+    add_test(
+        NAME NotifyGovernanceUnhealthy
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/notify-governance-unhealthy.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_notify_governance_unhealthy.cmake
+    )
 endif()

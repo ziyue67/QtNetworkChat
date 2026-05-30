@@ -34,7 +34,13 @@ param(
 
     [string]$HealthCheckPath,
 
-    [int]$HealthMaxWarnings = 0
+    [int]$HealthMaxWarnings = 0,
+
+    [switch]$NotifyOnUnhealthy,
+
+    [string]$NotifyEventLogSource = "QtNetworkChatGovernance",
+
+    [string]$NotifyWebhookUrl
 )
 
 $ErrorActionPreference = "Stop"
@@ -119,14 +125,17 @@ $receiptRotator = Join-Path $PSScriptRoot "rotate-large-file-receipts.ps1"
 $rotationAnalyzer = Join-Path $PSScriptRoot "analyze-large-file-receipt-rotation.ps1"
 $packager = Join-Path $PSScriptRoot "package-large-file-acceptance.ps1"
 $healthChecker = Join-Path $PSScriptRoot "check-governance-health.ps1"
+$notifier = Join-Path $PSScriptRoot "notify-governance-unhealthy.ps1"
 
 $hasRouteLogs = $null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0
 $hasHealthCheck = -not [string]::IsNullOrWhiteSpace($HealthCheckPath)
+$hasNotify = $NotifyOnUnhealthy -and $hasHealthCheck
 $totalSteps = 2
 if ($hasRouteLogs) { $totalSteps += 3 }
 if (-not [string]::IsNullOrWhiteSpace($ReceiptRotationPath)) { $totalSteps += 2 }
 if ($shouldPackageAcceptance) { $totalSteps++ }
 if ($hasHealthCheck) { $totalSteps++ }
+if ($hasNotify) { $totalSteps++ }
 $currentStep = 0
 
 function StepLabel([string]$Label) {
@@ -248,6 +257,20 @@ if ($hasHealthCheck) {
     $healthOutput = & powershell -ExecutionPolicy Bypass -File $healthChecker @healthArgs 2>&1
     $healthOutput | Set-Content -LiteralPath (Join-Path $resolvedOutputDir "health-check.log") -Encoding UTF8
     $healthOutput | Write-Host
+}
+
+if ($hasNotify) {
+    StepLabel "unhealthy notification"
+    $notifyArgs = @("-HealthCheckPath", $resolvedHealthCheckPath)
+    if (-not [string]::IsNullOrWhiteSpace($NotifyEventLogSource)) {
+        $notifyArgs += @("-EventLogSource", $NotifyEventLogSource)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($NotifyWebhookUrl)) {
+        $notifyArgs += @("-WebhookUrl", $NotifyWebhookUrl)
+    }
+    $notifyOutput = & powershell -ExecutionPolicy Bypass -File $notifier @notifyArgs 2>&1
+    $notifyOutput | Set-Content -LiteralPath (Join-Path $resolvedOutputDir "notify-unhealthy.log") -Encoding UTF8
+    $notifyOutput | Write-Host
 }
 
 Write-Host ""

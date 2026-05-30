@@ -187,6 +187,7 @@ Add-SwitchArg $lines "PackageAcceptance" $PackageAcceptance.IsPresent
 Add-ScalarArg $lines "PackagePath" $PackagePath
 Add-ScalarArg $lines "HealthCheckPath" (Join-Path $OutputDir "last-health.json")
 Add-IntArg $lines "HealthMaxWarnings" 0
+Add-SwitchArg $lines "NotifyOnUnhealthy" $true
 
 $lastIndex = $lines.Count - 1
 if ($lastIndex -ge 0) {

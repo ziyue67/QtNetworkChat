@@ -222,6 +222,7 @@ GitHub Actions (`.github/workflows/windows-build.yml`) builds on `main` pushes a
 | `scripts/reconcile-large-file-delivery.ps1` | Core delivered receipt vs offline fallback reconciliation logic |
 | `scripts/aggregate-governance-alerts.ps1` | Aggregate multiple alert summary JSONs into single governance overview |
 | `scripts/check-governance-health.ps1` | Read governance alert overview and emit healthy/unhealthy verdict for monitoring |
+| `scripts/notify-governance-unhealthy.ps1` | Notify on unhealthy governance via Windows EventLog and optional webhook |
 
 ### Governance output directory structure
 
