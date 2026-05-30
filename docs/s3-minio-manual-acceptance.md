@@ -129,7 +129,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-summar
 
 该脚本只读取 summary JSON；默认任何 `sensitiveHits > 0` 都会失败，`failedWithoutFallback` 或 `deliveredWithoutCleanup` 超过传入阈值也会非零退出。追加 `-AlertSummaryPath` 时会写出统一格式的告警 JSON，包含 `kind`、`ok`、`warnings` 和 `metrics`，便于 Windows 计划任务或外部监控直接采集。
 
-如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行：
+如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行。服务端对象写入失败会使用固定 reason 桶，例如 `object-store-unavailable`、`timeout`、`network`、`tls`、`auth`、`not_found`、`retryable`、`client`、`server`、`unknown`、`hash` 或 `write_failed`，不会把 endpoint、bucket、object URL、凭据或签名文本写入 route log：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/analyze-s3-request-results.ps1 `

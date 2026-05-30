@@ -700,6 +700,54 @@ int main() {
                     && s3ValidationFailureReasonForLog(validateS3ObjectBody(QByteArrayLiteral("payload"), 7, sha256Hex(QByteArrayLiteral("other"))))
                         == QStringLiteral("hash"),
                 "s3 validation failure reason helper should expose stable size/hash reasons") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
+                                                    false,
+                                                    QStringLiteral("S3 endpoint secret should not leak"),
+                                                    expectedS3Hash,
+                                                    QString()) == QStringLiteral("object-store-unavailable"),
+                "object store write reason helper should classify unavailable stores") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
+                                                    true,
+                                                    QStringLiteral("S3 PUT 请求失败: timeout access-key super-secret-value"),
+                                                    expectedS3Hash,
+                                                    QString()) == QStringLiteral("timeout"),
+                "object store write reason helper should classify S3 timeouts without exposing error text") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
+                                                    true,
+                                                    QStringLiteral("S3 PUT 请求失败: network_error socket closed"),
+                                                    expectedS3Hash,
+                                                    QString()) == QStringLiteral("network"),
+                "object store write reason helper should classify S3 network failures") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
+                                                    true,
+                                                    QStringLiteral("S3 PUT 请求失败: tls_error temporary-session-token"),
+                                                    expectedS3Hash,
+                                                    QString()) == QStringLiteral("tls"),
+                "object store write reason helper should classify S3 TLS failures") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
+                                                    true,
+                                                    QStringLiteral("S3 PUT 请求失败: auth_or_permission_error"),
+                                                    expectedS3Hash,
+                                                    QString()) == QStringLiteral("auth"),
+                "object store write reason helper should classify S3 auth failures") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
+                                                    true,
+                                                    QStringLiteral("S3 PUT 请求失败: server_error"),
+                                                    expectedS3Hash,
+                                                    QString()) == QStringLiteral("server"),
+                "object store write reason helper should classify S3 server failures") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
+                                                    true,
+                                                    QString(),
+                                                    expectedS3Hash,
+                                                    sha256Hex(QByteArrayLiteral("other"))) == QStringLiteral("hash"),
+                "object store write reason helper should classify write hash mismatches") && ok;
+    ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("filesystem"),
+                                                    true,
+                                                    QStringLiteral("disk full"),
+                                                    expectedS3Hash,
+                                                    QString()) == QStringLiteral("write_failed"),
+                "object store write reason helper should keep non-S3 write failures aggregate-safe") && ok;
     LargeFileDeliveredReceipt deliveredReceipt;
     deliveredReceipt.sourceInstanceId = QStringLiteral("source-a");
     deliveredReceipt.transferId = QStringLiteral("transfer-a");

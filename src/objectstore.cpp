@@ -801,6 +801,58 @@ QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& res
     return QStringLiteral("validation_error");
 }
 
+QString objectStoreWriteFailureReasonForLog(const QString& storeType,
+                                            bool storeAvailable,
+                                            const QString& writeError,
+                                            const QString& expectedHash,
+                                            const QString& actualHash) {
+    if (!storeAvailable) {
+        return QStringLiteral("object-store-unavailable");
+    }
+
+    const QString normalizedExpectedHash = expectedHash.trimmed().toLower();
+    const QString normalizedActualHash = actualHash.trimmed().toLower();
+    if (!normalizedExpectedHash.isEmpty()
+        && !normalizedActualHash.isEmpty()
+        && normalizedExpectedHash != normalizedActualHash) {
+        return QStringLiteral("hash");
+    }
+
+    const QString normalizedStoreType = normalizeObjectStoreType(storeType);
+    const QString error = writeError.trimmed();
+    if (normalizedStoreType == QStringLiteral("s3")) {
+        static const QMap<QString, QString> s3ReasonTokens = {
+            {QStringLiteral("timeout"), QStringLiteral("timeout")},
+            {QStringLiteral("network_error"), QStringLiteral("network")},
+            {QStringLiteral("tls_error"), QStringLiteral("tls")},
+            {QStringLiteral("auth_or_permission_error"), QStringLiteral("auth")},
+            {QStringLiteral("not_found"), QStringLiteral("not_found")},
+            {QStringLiteral("retryable_client_status"), QStringLiteral("retryable")},
+            {QStringLiteral("server_error"), QStringLiteral("server")},
+            {QStringLiteral("client_error"), QStringLiteral("client")},
+            {QStringLiteral("unknown_status"), QStringLiteral("unknown")},
+            {QStringLiteral("invalid_request"), QStringLiteral("unknown")}
+        };
+        for (auto it = s3ReasonTokens.constBegin(); it != s3ReasonTokens.constEnd(); ++it) {
+            if (error.contains(it.key(), Qt::CaseInsensitive)) {
+                return it.value();
+            }
+        }
+        if (error.contains(QStringLiteral("TLS"), Qt::CaseInsensitive)) {
+            return QStringLiteral("tls");
+        }
+        if (error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)) {
+            return QStringLiteral("timeout");
+        }
+        if (error.contains(QStringLiteral("network"), Qt::CaseInsensitive)
+            || error.contains(QStringLiteral("socket"), Qt::CaseInsensitive)) {
+            return QStringLiteral("network");
+        }
+    }
+
+    return QStringLiteral("write_failed");
+}
+
 LargeFileDeliveredReceiptDecision evaluateLargeFileDeliveredReceiptCleanup(
     const LargeFileDeliveredReceipt& receipt,
     const LargeFileDeliveredFallback& fallback) {

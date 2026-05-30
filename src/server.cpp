@@ -2957,15 +2957,19 @@ void Server::saveOfflineMessage(const Message& msg) const {
                     if (!objectKey.isEmpty()) {
                         logMeta["objectKey"] = objectKey;
                     }
+                    const QString writeFailureReason =
+                        objectStoreWriteFailureReasonForLog(objectStoreType(),
+                                                            static_cast<bool>(objectStore),
+                                                            objectError.isEmpty() ? objectStoreError : objectError,
+                                                            msg.fileHash,
+                                                            objectHash);
                     logRedisLargeFileRouteEvent(QStringLiteral("object_write"),
                                                 QStringLiteral("skipped"),
                                                 largeFileRouteLogMetadata(logMeta, objectStoreType(), QStringLiteral("write")),
-                                                !objectStore ? QStringLiteral("object-store-unavailable")
-                                                             : QStringLiteral("write-or-hash-failed"),
+                                                writeFailureReason,
                                                 msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
                     qWarning() << "Large file object routing skipped because object write/validation failed"
-                               << msg.receiverId << msg.fileName
-                               << (objectError.isEmpty() ? objectStoreError : objectError);
+                               << msg.receiverId << msg.fileName << writeFailureReason;
                 }
             }
         } else {

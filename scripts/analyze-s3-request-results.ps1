@@ -37,7 +37,9 @@ $allowedReasons = @(
     "server",
     "unknown",
     "size",
-    "hash"
+    "hash",
+    "object-store-unavailable",
+    "write_failed"
 )
 
 $requestOperations = @(
