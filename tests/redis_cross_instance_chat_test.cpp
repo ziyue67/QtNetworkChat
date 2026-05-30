@@ -165,10 +165,12 @@ QByteArray redisRawMessageEventPayload(const QJsonObject& message) {
 class SharedMemoryObjectStore final : public ObjectStore {
 public:
     explicit SharedMemoryObjectStore(QMap<QString, QByteArray>* objects,
+                                     QString writeFailureReason = QString(),
                                      QString validationFailureReason = QString(),
                                      QString openFailureReason = QString(),
                                      QString removeFailureReason = QString())
         : m_objects(objects)
+        , m_writeFailureReason(std::move(writeFailureReason))
         , m_validationFailureReason(std::move(validationFailureReason))
         , m_openFailureReason(std::move(openFailureReason))
         , m_removeFailureReason(std::move(removeFailureReason)) {
@@ -184,6 +186,10 @@ public:
         if (error) error->clear();
         if (!m_objects) {
             if (error) *error = QStringLiteral("object-store-unavailable");
+            return false;
+        }
+        if (!m_writeFailureReason.isEmpty()) {
+            if (error) *error = m_writeFailureReason;
             return false;
         }
         const QString key = FilesystemObjectStore::generateObjectKey(extension);
@@ -266,6 +272,7 @@ public:
 
 private:
     QMap<QString, QByteArray>* m_objects = nullptr;
+    QString m_writeFailureReason;
     QString m_validationFailureReason;
     QString m_openFailureReason;
     QString m_removeFailureReason;
@@ -541,11 +548,13 @@ int main(int argc, char** argv) {
     ok = expect(receiptSummaryDir.isValid(), "temporary delivered receipt summary dir should be available") && ok;
     qputenv("QTNETWORKCHAT_DELIVERED_RECEIPT_DIR", receiptSummaryDir.path().toUtf8());
     QMap<QString, QByteArray> injectedS3Objects;
+    QString injectedS3WriteFailureReason;
     QString injectedS3ValidationFailureReason;
     QString injectedS3OpenFailureReason;
     QString injectedS3RemoveFailureReason;
     auto injectedS3Factory = [&objectRoot,
                               &injectedS3Objects,
+                              &injectedS3WriteFailureReason,
                               &injectedS3ValidationFailureReason,
                               &injectedS3OpenFailureReason,
                               &injectedS3RemoveFailureReason](QString* error) -> std::unique_ptr<ObjectStore> {
@@ -554,6 +563,7 @@ int main(int argc, char** argv) {
             return std::make_unique<FilesystemObjectStore>(objectRoot.path());
         }
         return std::make_unique<SharedMemoryObjectStore>(&injectedS3Objects,
+                                                         injectedS3WriteFailureReason,
                                                          injectedS3ValidationFailureReason,
                                                          injectedS3OpenFailureReason,
                                                          injectedS3RemoveFailureReason);
@@ -1229,9 +1239,48 @@ int main(int argc, char** argv) {
 
     qputenv("QTNETWORKCHAT_OBJECT_STORE", "s3");
     injectedS3Objects.clear();
+    injectedS3WriteFailureReason.clear();
     injectedS3ValidationFailureReason.clear();
     injectedS3OpenFailureReason.clear();
     injectedS3RemoveFailureReason.clear();
+    const QString s3WriteFailureFileName = "redis-s3-write-timeout-fallback.bin";
+    const QString s3WriteFailurePath = transferDir.filePath(s3WriteFailureFileName);
+    const QByteArray s3WriteFailurePayload = makePatternPayload(1024 * 1024 + 8192);
+    QFile s3WriteFailureFile(s3WriteFailurePath);
+    ok = expect(s3WriteFailureFile.open(QIODevice::WriteOnly),
+                "injected S3 write failure transfer file should open for writing") && ok;
+    if (s3WriteFailureFile.isOpen()) {
+        ok = expect(s3WriteFailureFile.write(s3WriteFailurePayload) == s3WriteFailurePayload.size(),
+                    "injected S3 write failure transfer file should be written") && ok;
+        s3WriteFailureFile.close();
+    }
+    injectedS3WriteFailureReason = QStringLiteral("timeout while writing injected S3 PUT");
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    ok = expect(alice.sendFile(s3WriteFailurePath, "960002"),
+                "alice should keep the offline fallback when injected S3 write fails") && ok;
+    ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=object_write"),
+                                 QStringLiteral("result=skipped"),
+                                 QStringLiteral("reason=timeout"),
+                                 QStringLiteral("storeType=s3"),
+                                 QStringLiteral("operation=write"),
+                                 QStringLiteral("fileName=") + s3WriteFailureFileName});
+    }), "source server should log injected S3 write failure with a fixed timeout reason") && ok;
+    ok = expect(!routeLogContains({QStringLiteral("event=object_write"),
+                                   QStringLiteral("injected S3 PUT")}),
+                "route log should not include injected S3 write error detail") && ok;
+    ok = expect(!waitFor([&] {
+        return !findLargeFileOffer(s3WriteFailureFileName).isEmpty()
+            || !findPublishedEvent("large_file_claim", s3WriteFailureFileName).isEmpty()
+            || !findPublishedEvent("large_file_delivered", s3WriteFailureFileName).isEmpty()
+            || !findPublishedEvent("large_file_failed", s3WriteFailureFileName).isEmpty()
+            || bobFileNames.contains(s3WriteFailureFileName);
+    }, 800), "S3 write failures should not publish offers or deliver immediately") && ok;
+    ok = expect(injectedS3Objects.isEmpty(),
+                "injected S3 write failure should not retain a partial object") && ok;
+    injectedS3WriteFailureReason.clear();
+
     const QString s3ValidationFailureFileName = "redis-s3-validation-failure.bin";
     const QString s3ValidationFailurePath = transferDir.filePath(s3ValidationFailureFileName);
     const QByteArray s3ValidationFailurePayload = makePatternPayload(1024 * 1024 + 12288);
@@ -1555,8 +1604,10 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return bobPrivateMessages.contains(fallbackPrivateMessage)
             && bobFileNames.contains(fallbackFileName)
-            && bobFilePayloads.contains(fallbackFilePayload);
-    }, 9000), "publish failures should fall back to the origin server offline queue") && ok;
+            && bobFilePayloads.contains(fallbackFilePayload)
+            && bobFileNames.contains(s3WriteFailureFileName)
+            && bobFilePayloads.contains(s3WriteFailurePayload);
+    }, 9000), "publish and S3 write failures should fall back to the origin server offline queue") && ok;
     ok = expect(!waitFor([&] {
         return bobPrivateMessages.contains(privateMessage)
             || bobFileNames.contains(fileName)

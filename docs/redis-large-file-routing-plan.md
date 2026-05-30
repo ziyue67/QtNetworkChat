@@ -278,9 +278,10 @@
 71. 已完成：补远端对象校验失败 reason 聚合边界，S3 HEAD/GET 的 timeout/network/tls/auth/not_found 等失败会输出固定 reason，不再退化为 `validation_error`。
 72. 已完成：补 S3 GET/open 失败和 DELETE/remove 失败 route log 边界，真实后端读取与清理失败会以固定 reason 进入治理分析。
 73. 已完成：补远端对象下发阶段失败 route log 边界，客户端断开、分片拒绝、ACK 超时和对象读取异常会输出 `offer_delivery operation=deliver` 固定 reason，并接入 S3 request result 分析脚本与跨实例集成测试。
-74. 已完成：补服务端注入式 ObjectStore 工厂和 S3 跨实例失败兜底集成测试，默认不连接真实 S3/MinIO；注入替身可模拟 `storeType=s3` 写入成功、远端 TLS 校验失败、`offer_validation operation=validate reason=tls` 日志、`failed_received operation=fallback reason=tls` 源实例兜底保留。
+74. 已完成：补服务端注入式 ObjectStore 工厂和 S3 跨实例失败兜底集成测试，默认不连接真实 S3/MinIO；注入替身可模拟 `storeType=s3` 写入成功、源端写入 timeout 失败、远端 TLS 校验失败、`object_write operation=write reason=timeout` 日志、`offer_validation operation=validate reason=tls` 日志、`failed_received operation=fallback reason=tls` 源实例兜底保留。
 75. 已完成：补 ObjectStore 通用 open/remove 失败 reason 接口和 S3 注入式组合测试，覆盖 `offer_read operation=read reason=network`、`object_delete operation=delete reason=server`、远端不 claim/deliver 读取失败对象，以及删除失败时对象保留。
-76. 下一步：继续沿服务端真实后端稳定化推进，例如扩展注入替身覆盖 S3 写入失败和批量失败压测摘要，或做治理 UI/CLI 消费入口。
+76. 已完成：补源实例 S3 写入失败端到端兜底边界；写入 timeout 时不发布 `large_file_offer`、不触发远端 claim/deliver/failed，不保留半写对象，但收件人回到源实例后仍可从离线兜底回放。
+77. 下一步：继续沿服务端真实后端稳定化推进，例如扩展批量失败压测摘要、真实后端 retry/timeout 运维样例，或做治理 UI/CLI 消费入口。
 
 ## 当前保护边界
 
@@ -289,7 +290,7 @@
 - 已有测试覆盖源实例为大文件和编码超限文件发布小体积 `large_file_offer`，且 offer 指向对象的 size/hash 与原始附件一致。
 - 已有测试覆盖远端实例仅在本地在线收件人存在时认领 `large_file_offer`，并从 filesystem ObjectStore 校验后分片下发给客户端。
 - 已有测试覆盖 `large_file_offer.storeType`，远端只消费本地配置匹配的对象后端；unsupported/mismatch storeType 会固定 reason 拒绝并保留源实例离线兜底。
-- 已有测试覆盖服务端注入式 S3 替身，`storeType=s3` 的远端校验、读取和删除失败会发布固定 reason，并且源实例 `failed_received` 或 `object_delete` 日志确认兜底保留。
+- 已有测试覆盖服务端注入式 S3 替身，`storeType=s3` 的源端写入失败会固定 reason 记录 `object_write operation=write` 并保留离线兜底，远端校验、读取和删除失败会发布固定 reason，并且源实例 `failed_received` 或 `object_delete` 日志确认兜底保留。
 - 已有测试覆盖远端完整 ACK 后发布 `large_file_delivered`，源实例清理对应对象并避免收件人回源实例后重复收到已跨实例投递的大文件。
 - 已有测试覆盖远端对象下发阶段固定 reason 日志，接收端拒绝分片时 `large_file_failed` 保留协议细节，而 `redis_large_file_route event=offer_delivery operation=deliver` 只输出 `chunk-rejected` 固定桶。
 - 已有测试覆盖对象缺失时远端发布 `large_file_failed` 且不 claim、不下发，并覆盖源实例收到失败事件后继续保留对象和离线兜底、后续可回源实例回放。
