@@ -169,13 +169,19 @@ if ($RunGovernance) {
     $s3Analyzer = Join-Path $PSScriptRoot "analyze-s3-request-results.ps1"
     $aggregator = Join-Path $PSScriptRoot "aggregate-governance-alerts.ps1"
     $healthChecker = Join-Path $PSScriptRoot "check-governance-health.ps1"
+    $reconcileScript = Join-Path $PSScriptRoot "run-large-file-delivery-reconcile.ps1"
+    $rotateScript = Join-Path $PSScriptRoot "rotate-large-file-receipts.ps1"
+    $rotationAlertScript = Join-Path $PSScriptRoot "analyze-large-file-receipt-rotation.ps1"
 
     New-Item -ItemType Directory -Path $governanceAlertDir -Force | Out-Null
     $govRouteAlertPath = Join-Path $governanceAlertDir "large-file-route-alert-summary.json"
     $govS3AlertPath = Join-Path $governanceAlertDir "s3-request-results-alert-summary.json"
+    $govRotationAlertPath = Join-Path $governanceAlertDir "receipt-rotation-alert-summary.json"
+    $govReconcileDir = Join-Path $resolvedOutputDir "governance-reconcile"
+    $govRotationSummaryPath = Join-Path $resolvedOutputDir "governance-rotation-summary.json"
 
     Write-Host ""
-    Write-Host "running full governance sample pipeline"
+    Write-Host "running full governance sample pipeline (reconcile + rotation + analysis + alerts + health)"
 
     Write-Host "  step 1: route log analysis"
     & powershell -ExecutionPolicy Bypass -File $routeSummaryAnalyzer `
@@ -205,7 +211,38 @@ if ($RunGovernance) {
         throw ("Governance sample: S3 request analysis failed with exit code {0}" -f $LASTEXITCODE)
     }
 
-    Write-Host "  step 4: aggregate governance alerts"
+    Write-Host "  step 4: delivered receipt reconciliation"
+    & powershell -ExecutionPolicy Bypass -File $reconcileScript `
+        -ReceiptPath $receiptPath `
+        -QueuePath $queuePath `
+        -SourceInstanceId $sourceInstanceId `
+        -OutputDir $govReconcileDir `
+        -EmitRouteLog
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Governance sample: reconciliation failed with exit code {0}" -f $LASTEXITCODE)
+    }
+
+    Write-Host "  step 5: receipt rotation"
+    & powershell -ExecutionPolicy Bypass -File $rotateScript `
+        -ReceiptPath $rotationReceiptPath `
+        -KeepRecords 2 `
+        -MaxAgeDays 30 `
+        -CompressArchive `
+        -SummaryPath $govRotationSummaryPath
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Governance sample: receipt rotation failed with exit code {0}" -f $LASTEXITCODE)
+    }
+
+    Write-Host "  step 6: receipt rotation alerts"
+    & powershell -ExecutionPolicy Bypass -File $rotationAlertScript `
+        -SummaryPath $govRotationSummaryPath `
+        -AlertSummaryPath $govRotationAlertPath `
+        -NoFailOnWarning
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Governance sample: rotation alerts failed with exit code {0}" -f $LASTEXITCODE)
+    }
+
+    Write-Host "  step 7: aggregate governance alerts"
     & powershell -ExecutionPolicy Bypass -File $aggregator `
         -OutputDir $governanceAlertDir `
         -AggregatedPath $governanceOverviewPath `
@@ -214,7 +251,7 @@ if ($RunGovernance) {
         throw ("Governance sample: alert aggregation failed with exit code {0}" -f $LASTEXITCODE)
     }
 
-    Write-Host "  step 5: health check"
+    Write-Host "  step 8: health check"
     & powershell -ExecutionPolicy Bypass -File $healthChecker `
         -AlertOverviewPath $governanceOverviewPath `
         -HealthOutputPath $healthCheckPath `
@@ -227,6 +264,9 @@ if ($RunGovernance) {
     Write-Host ("  route alert summary: {0}" -f $govRouteAlertPath)
     Write-Host ("  S3 request summary: {0}" -f $s3RequestSummaryPath)
     Write-Host ("  S3 alert summary: {0}" -f $govS3AlertPath)
+    Write-Host ("  reconcile dir: {0}" -f $govReconcileDir)
+    Write-Host ("  rotation summary: {0}" -f $govRotationSummaryPath)
+    Write-Host ("  rotation alert summary: {0}" -f $govRotationAlertPath)
     Write-Host ("  governance overview: {0}" -f $governanceOverviewPath)
     Write-Host ("  health check: {0} (exit={1})" -f $healthCheckPath, $healthExitCode)
 }

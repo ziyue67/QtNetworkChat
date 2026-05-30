@@ -32,7 +32,10 @@ set(EXPECTED_FILES
     "sample-last-health.json"
     "governance/large-file-route-alert-summary.json"
     "governance/s3-request-results-alert-summary.json"
+    "governance/receipt-rotation-alert-summary.json"
     "governance/governance-alert-overview.json"
+    "governance-reconcile/reconcile.log"
+    "governance-rotation-summary.json"
 )
 
 foreach(expected_file ${EXPECTED_FILES})

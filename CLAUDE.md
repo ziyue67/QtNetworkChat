@@ -197,8 +197,17 @@ Invalid values (empty, non-numeric, out-of-range) silently fall back to defaults
 - `RedisCrossInstanceChatRouting` — cross-instance chat/file routing via Pub/Sub.
 - `HeartbeatMonitorTest` — heartbeat timeout tracking and liveness.
 - `S3RequestResultAnalysis` — S3/MinIO request result analysis script validation.
+- `RouteLogAnalysis` — route log aggregation script validation.
+- `RouteSummaryAlerts` — route summary threshold alert script validation.
+- `ReceiptRotationAlerts` — receipt rotation alert script validation.
+- `ReconcileRunnerS3Analysis` — reconcile runner with S3 analysis integration.
+- `LargeFileAcceptancePackage` — acceptance package generation validation.
+- `LargeFileGovernanceRunner` — governance runner end-to-end validation.
+- `LargeFileGovernanceTask` — scheduled task helper command generation and sensitive field rejection.
 - `AggregateGovernanceAlerts` — governance alert aggregation script validation.
 - `GovernanceHealthCheck` — governance health check script validation.
+- `GovernanceSamplePipeline` — full governance sample pipeline integration test.
+- `NotifyGovernanceUnhealthy` — unhealthy notification script validation.
 
 GitHub Actions (`.github/workflows/windows-build.yml`) builds on `main` pushes and PRs using Qt 6.8.3 / MSVC 2022, then runs CTest. Manual workflow dispatch also runs the Windows package script and uploads the zip artifact.
 
