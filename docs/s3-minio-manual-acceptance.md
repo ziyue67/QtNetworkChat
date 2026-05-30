@@ -57,7 +57,7 @@ TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本
 4. 确认接收端收到完整文件，SHA-256 与发送端一致。
 5. 确认源实例在收到完整 delivered 回执后清理本地离线兜底队列，并向 S3/MinIO 发起对象删除。
 6. 确认 `large_file_offer` 元数据包含 `storeType=s3`，远端实例也配置为 `QTNETWORKCHAT_OBJECT_STORE=s3` 且显式启用后才会 claim；如果远端仍是 filesystem 或 storeType 不支持，应发布固定 reason 的 `large_file_failed`，并且不出现 claim/delivered。
-7. 确认 `redis_large_file_route` 日志出现 `offer`、`claim`、`delivered`、`delivered_cleanup`，并包含 `storeType=s3`、`operation=publish|delete`、`objectKey`、`receiverId`、`transferId`、`bytes` 等逻辑字段。
+7. 确认 `redis_large_file_route` 日志出现 `offer`、`claim`、`delivered`、`delivered_cleanup`，并包含 `storeType=s3`、`operation=publish|delete`、`objectKey`、`receiverId`、`transferId`、`bytes` 等逻辑字段；若下发阶段失败，应出现 `event=offer_delivery operation=deliver` 和固定 reason。
 
 ## 4. 失败回退路径
 
@@ -66,7 +66,7 @@ TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本
 - 停止 MinIO 或断开网络，验证上传、HEAD、GET 或 DELETE 失败时固定 reason 聚合为 `timeout`、`network`、`retryable`、`server` 或 `unknown`；HEAD/GET 校验失败不应退回泛化的 `validation_error`，远端读取对象失败也应输出 `operation=read` 的 `offer_read` route log，并使用 S3 GET/open 的固定 reason，而不是泛化的 `object-open-failed`；源实例 delivered cleanup 或队列持久化回滚删除对象失败时应输出 `event=object_delete operation=delete`，reason 仍为固定桶且不影响离线兜底判定。
 - 把 access key 或 secret key 改为无效值，验证 reason 聚合为 `auth`。
 - 删除对象或改动对象内容，验证远端发布 `large_file_failed`，reason 聚合为 `not_found`、`size` 或 `hash`。
-- 断开接收端客户端，验证源实例保留离线附件兜底，后续接收者回源实例登录时仍可回放。
+- 断开接收端客户端，或让测试客户端拒绝分片 ACK，验证远端发布 `large_file_failed`，并输出 `event=offer_delivery operation=deliver`；reason 只能是 `receiver-disconnected`、`chunk-rejected`、`chunk-ack-timeout`、`object-read-failed` 或 `object-seek-failed`。`large_file_failed.reason` 可保留面向协议的拒绝说明，但 route log 必须只保留固定 reason 桶，源实例离线附件兜底仍保留，后续接收者回源实例登录时仍可回放。
 
 失败场景都必须满足：
 
@@ -129,7 +129,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-summar
 
 该脚本只读取 summary JSON；默认任何 `sensitiveHits > 0` 都会失败，`failedWithoutFallback` 或 `deliveredWithoutCleanup` 超过传入阈值也会非零退出。追加 `-AlertSummaryPath` 时会写出统一格式的告警 JSON，包含 `kind`、`ok`、`warnings` 和 `metrics`，便于 Windows 计划任务或外部监控直接采集。
 
-如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行。服务端对象写入、校验、读取和删除失败会使用固定 reason 桶，例如 `object-store-unavailable`、`timeout`、`network`、`tls`、`auth`、`not_found`、`retryable`、`client`、`server`、`unknown`、`hash` 或 `write_failed`；远端 GET/open 失败会以 `event=offer_read operation=read` 进入同一分析链路，源实例 DELETE/remove 失败会以 `event=object_delete operation=delete` 进入同一分析链路，不会把 endpoint、bucket、object URL、凭据或签名文本写入 route log：
+如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行。服务端对象写入、校验、读取、删除和远端下发失败会使用固定 reason 桶，例如 `object-store-unavailable`、`timeout`、`network`、`tls`、`auth`、`not_found`、`retryable`、`client`、`server`、`unknown`、`hash`、`write_failed`、`receiver-disconnected`、`chunk-rejected` 或 `chunk-ack-timeout`；远端 GET/open 失败会以 `event=offer_read operation=read` 进入同一分析链路，源实例 DELETE/remove 失败会以 `event=object_delete operation=delete` 进入同一分析链路，下发阶段失败会以 `event=offer_delivery operation=deliver` 进入同一分析链路，不会把 endpoint、bucket、object URL、凭据或签名文本写入 route log：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/analyze-s3-request-results.ps1 `

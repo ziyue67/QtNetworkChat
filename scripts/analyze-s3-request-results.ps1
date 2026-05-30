@@ -39,7 +39,12 @@ $allowedReasons = @(
     "size",
     "hash",
     "object-store-unavailable",
-    "write_failed"
+    "write_failed",
+    "object-seek-failed",
+    "object-read-failed",
+    "receiver-disconnected",
+    "chunk-rejected",
+    "chunk-ack-timeout"
 )
 
 $requestOperations = @(
@@ -52,7 +57,8 @@ $requestOperations = @(
     "validate",
     "remove",
     "upload",
-    "download"
+    "download",
+    "deliver"
 )
 
 $sensitivePatterns = @(

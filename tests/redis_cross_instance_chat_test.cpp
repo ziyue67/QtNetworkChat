@@ -794,6 +794,97 @@ int main(int argc, char** argv) {
                                  QStringLiteral("objectKey=") + largeFileObjectKey,
                                  QStringLiteral("fileHash=") + largeFileOffer["fileHash"].toString()});
     }), "source server should emit a read-only cleaned delivered_reconcile route log") && ok;
+
+    QTcpSocket rejectReceiver;
+    QByteArray rejectReceiverBuffer;
+    bool rejectReceiverLoggedIn = false;
+    int rejectReceiverChunkCount = 0;
+    auto drainRejectReceiver = [&]() {
+        rejectReceiverBuffer.append(rejectReceiver.readAll());
+        while (rejectReceiverBuffer.contains('\n')) {
+            const int newlineIndex = rejectReceiverBuffer.indexOf('\n');
+            const QByteArray line = rejectReceiverBuffer.left(newlineIndex);
+            rejectReceiverBuffer = rejectReceiverBuffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                rejectReceiverLoggedIn = true;
+            } else if (type == "file_chunk") {
+                ++rejectReceiverChunkCount;
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = false;
+                ack["reason"] = "scripted receiver rejection with internal detail";
+                ack["receivedBytes"] = QStringLiteral("0");
+                rejectReceiver.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                rejectReceiver.write("\n");
+                rejectReceiver.flush();
+            }
+        }
+    };
+    QObject::connect(&rejectReceiver, &QTcpSocket::readyRead, &app, drainRejectReceiver);
+    rejectReceiver.connectToHost("127.0.0.1", serverBPort);
+    ok = expect(rejectReceiver.waitForConnected(5000),
+                "rejecting raw receiver should connect to the second server") && ok;
+    QJsonObject rejectLogin;
+    rejectLogin["type"] = "login";
+    rejectLogin["mode"] = "register";
+    rejectLogin["account"] = "960011";
+    rejectLogin["password"] = "secret";
+    rejectLogin["userName"] = "RejectRedisReceiver";
+    rejectReceiver.write(QJsonDocument(rejectLogin).toJson(QJsonDocument::Compact));
+    rejectReceiver.write("\n");
+    rejectReceiver.flush();
+    ok = expect(waitFor([&] {
+        drainRejectReceiver();
+        return rejectReceiverLoggedIn;
+    }), "rejecting raw receiver should log in") && ok;
+
+    const QString rejectedDeliveryFileName = "redis-large-delivery-rejected.bin";
+    const QString rejectedDeliveryFilePath = transferDir.filePath(rejectedDeliveryFileName);
+    const QByteArray rejectedDeliveryPayload = makePatternPayload(1024 * 1024 + 2048);
+    QFile rejectedDeliveryFile(rejectedDeliveryFilePath);
+    ok = expect(rejectedDeliveryFile.open(QIODevice::WriteOnly),
+                "rejected delivery file should open for writing") && ok;
+    if (rejectedDeliveryFile.isOpen()) {
+        ok = expect(rejectedDeliveryFile.write(rejectedDeliveryPayload) == rejectedDeliveryPayload.size(),
+                    "rejected delivery file should be written") && ok;
+        rejectedDeliveryFile.close();
+    }
+    ok = expect(alice.sendFile(rejectedDeliveryFilePath, "960011"),
+                "alice should upload a large file for a rejecting remote receiver") && ok;
+    ok = expect(waitFor([&] {
+        return !findLargeFileOffer(rejectedDeliveryFileName).isEmpty();
+    }), "rejected large files should publish an object-store offer") && ok;
+    const QJsonObject rejectedDeliveryOffer = findLargeFileOffer(rejectedDeliveryFileName);
+    const QString rejectedDeliveryObjectKey = rejectedDeliveryOffer["objectKey"].toString();
+    ok = expect(waitFor([&] {
+        drainRejectReceiver();
+        return rejectReceiverChunkCount > 0
+            && !findPublishedEvent("large_file_failed", QString(), rejectedDeliveryObjectKey).isEmpty();
+    }), "remote server should publish failed when the receiver rejects object-store delivery") && ok;
+    ok = expect(findPublishedEvent("large_file_failed", QString(), rejectedDeliveryObjectKey)["reason"].toString()
+                    .startsWith(QStringLiteral("chunk-rejected:")),
+                "large_file_failed may keep the receiver-facing rejection detail") && ok;
+    ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=offer_delivery"),
+                                 QStringLiteral("result=failed"),
+                                 QStringLiteral("reason=chunk-rejected"),
+                                 QStringLiteral("operation=deliver"),
+                                 QStringLiteral("objectKey=") + rejectedDeliveryObjectKey,
+                                 QStringLiteral("fileHash=") + rejectedDeliveryOffer["fileHash"].toString()});
+    }), "remote server should emit a fixed-reason offer_delivery route log for rejected delivery") && ok;
+    ok = expect(!routeLogContains({QStringLiteral("event=offer_delivery"),
+                                   QStringLiteral("scripted receiver rejection")}),
+                "offer_delivery route log should not include raw receiver rejection detail") && ok;
+    rejectReceiver.disconnectFromHost();
+
     const QString receiptSummaryPath = receiptSummaryDir.filePath(QStringLiteral("delivered-receipts.jsonl"));
     const auto receiptSummaryContains = [&receiptSummaryPath](const QString& objectKey,
                                                               const QString& result,

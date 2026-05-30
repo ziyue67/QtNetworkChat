@@ -1838,12 +1838,20 @@ void Server::handleRedisLargeFileFailed(const QJsonObject& event) {
 
 bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket) {
     QPointer<QTcpSocket> socketGuard(socket);
+    auto logDeliveryFailure = [this, &event](const QString& reason, qint64 bytes = 0) {
+        logRedisLargeFileRouteEvent(QStringLiteral("offer_delivery"),
+                                    QStringLiteral("failed"),
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("deliver")),
+                                    reason,
+                                    bytes);
+    };
     auto failOffer = [this, &event](const QString& reason) {
         publishRedisLargeFileFailed(event, reason);
         return false;
     };
 
     if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState) {
+        logDeliveryFailure(QStringLiteral("receiver-disconnected"));
         return failOffer(QStringLiteral("receiver-disconnected"));
     }
 
@@ -1936,10 +1944,12 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
     const QString fileName = event["fileName"].toString();
     for (qint64 index = 0; index < chunkCount; ++index) {
         if (!file->seek(index * chunkSize)) {
+            logDeliveryFailure(QStringLiteral("object-seek-failed"), index * chunkSize);
             return failOffer(QStringLiteral("object-seek-failed"));
         }
         const QByteArray chunk = file->read(chunkSize);
         if (chunk.isEmpty() || (index < chunkCount - 1 && chunk.size() != chunkSize)) {
+            logDeliveryFailure(QStringLiteral("object-read-failed"), index * chunkSize);
             return failOffer(QStringLiteral("object-read-failed"));
         }
 
@@ -1965,6 +1975,7 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         const QByteArray data = QJsonDocument(chunkObj).toJson(QJsonDocument::Compact);
         for (int attempt = 1; attempt <= kChunkSendMaxAttempts; ++attempt) {
             if (!socketGuard || socketGuard->state() != QAbstractSocket::ConnectedState || socketGuard->write(data) <= 0) {
+                logDeliveryFailure(QStringLiteral("receiver-disconnected"), index * chunkSize);
                 return failOffer(QStringLiteral("receiver-disconnected"));
             }
             socketGuard->write("\n");
@@ -1981,19 +1992,23 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
                 break;
             }
             if (!socketGuard) {
+                logDeliveryFailure(QStringLiteral("receiver-disconnected"), index * chunkSize);
                 return failOffer(QStringLiteral("receiver-disconnected"));
             }
             if (!ackRejectReason.isEmpty()) {
                 qWarning() << "Large file offer chunk rejected by receiver:" << ackRejectReason;
+                logDeliveryFailure(QStringLiteral("chunk-rejected"), qMin(fileSize, index * chunkSize + chunk.size()));
                 return failOffer(QStringLiteral("chunk-rejected: ") + ackRejectReason);
             }
         }
         if (!acknowledged) {
             if (!ackRejectReason.isEmpty()) {
                 qWarning() << "Large file offer chunk rejected by receiver:" << ackRejectReason;
+                logDeliveryFailure(QStringLiteral("chunk-rejected"), qMin(fileSize, index * chunkSize + chunk.size()));
                 return failOffer(QStringLiteral("chunk-rejected: ") + ackRejectReason);
             }
             qWarning() << "Large file offer chunk ack timeout:" << fileName << index + 1 << "/" << chunkCount;
+            logDeliveryFailure(QStringLiteral("chunk-ack-timeout"), qMin(fileSize, index * chunkSize + chunk.size()));
             return failOffer(QStringLiteral("chunk-ack-timeout"));
         }
     }
