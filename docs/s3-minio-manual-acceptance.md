@@ -235,7 +235,7 @@ powershell -ExecutionPolicy Bypass -File scripts/register-large-file-governance-
   -PackageAcceptance
 ```
 
-默认不会注册系统计划任务，只会在 `OutputDir\scheduled-task` 下写出 `run-large-file-governance-task.ps1` 和 `scheduled-task-preview.json`。确认 preview 只包含本地日志、队列摘要、receipt 摘要和输出目录后，再追加 `-Register` 创建或更新 Windows Scheduled Task。该入口仍只读运行治理聚合；除显式 receipt 轮转外，不会连接 Redis、S3/MinIO，也不会清理离线队列、附件或对象。
+默认不会注册系统计划任务，只会在 `OutputDir\scheduled-task` 下写出 `run-large-file-governance-task.ps1` 和 `scheduled-task-preview.json`。确认 preview 只包含本地日志、队列摘要、receipt 摘要和输出目录后，再追加 `-Register` 创建或更新 Windows Scheduled Task。该入口仍只读运行治理聚合；除显式 receipt 轮转外，不会连接 Redis、S3/MinIO，也不会清理离线队列、附件或对象。若设置 `-RotationKeepRecords`、`-RotationMaxAgeDays` 或 `-CompressRotationArchive`，必须同时提供 `-ReceiptRotationPath`，避免计划任务看似成功但实际跳过 receipt 保留策略。
 
 也可以分步执行。先从 route log 导出 delivered receipt 输入：
 

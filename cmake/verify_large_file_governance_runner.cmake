@@ -84,6 +84,23 @@ foreach(expected_file
     endif()
 endforeach()
 
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -RouteLogPath "${ROUTE_LOG}"
+        -QueuePath "${QUEUE_LOG}"
+        -SourceInstanceId "${SOURCE_INSTANCE}"
+        -OutputDir "${TEMP_DIR}/bad-rotation"
+        -RotationKeepRecords 1
+    RESULT_VARIABLE bad_rotation_result
+    OUTPUT_VARIABLE bad_rotation_output
+    ERROR_VARIABLE bad_rotation_error
+)
+
+if(bad_rotation_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Governance runner should fail when rotation options are set without ReceiptRotationPath")
+endif()
+
 file(READ "${OUTPUT_DIR}/s3-request-results-summary.json" s3_summary_content)
 string(JSON s3_lines GET "${s3_summary_content}" "s3LineCount")
 if(NOT s3_lines EQUAL 2)

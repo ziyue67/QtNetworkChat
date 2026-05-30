@@ -106,5 +106,23 @@ if(bad_result EQUAL 0)
     message(FATAL_ERROR "Scheduled task helper should reject sensitive URL-like input")
 endif()
 
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -RouteLogPath "${ROUTE_LOG}"
+        -QueuePath "${QUEUE_LOG}"
+        -SourceInstanceId "${SOURCE_INSTANCE}"
+        -OutputDir "${OUTPUT_DIR}/bad-rotation"
+        -TaskDir "${TEMP_DIR}/bad-rotation-task"
+        -RotationMaxAgeDays 30
+    RESULT_VARIABLE bad_rotation_result
+    OUTPUT_VARIABLE bad_rotation_output
+    ERROR_VARIABLE bad_rotation_error
+)
+
+if(bad_rotation_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Scheduled task helper should fail when rotation options are set without ReceiptRotationPath")
+endif()
+
 file(REMOVE_RECURSE "${TEMP_DIR}")
 message(STATUS "Large file governance scheduled task helper test passed")

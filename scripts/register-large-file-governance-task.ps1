@@ -120,8 +120,20 @@ if (($null -eq $RouteLogPath -or $RouteLogPath.Count -eq 0) -and [string]::IsNul
 if (($null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0) -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
     throw "Use either RouteLogPath or ReceiptPath, not both."
 }
+if ([string]::IsNullOrWhiteSpace($SourceInstanceId)) {
+    throw "SourceInstanceId is required."
+}
+if ($null -eq $QueuePath -or $QueuePath.Count -eq 0) {
+    throw "QueuePath is required."
+}
+if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    throw "OutputDir is required."
+}
 if ($Schedule -eq "Hourly" -and $EveryHours -lt 1) {
     throw "EveryHours must be greater than zero."
+}
+if ([string]::IsNullOrWhiteSpace($ReceiptRotationPath) -and ($RotationKeepRecords -gt 0 -or $RotationMaxAgeDays -gt 0 -or $CompressRotationArchive)) {
+    throw "ReceiptRotationPath is required when receipt rotation options are set."
 }
 
 Assert-NoSensitiveValue "TaskName" @($TaskName)
