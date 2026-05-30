@@ -340,4 +340,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/register-large-file-governance-task.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_governance_task.cmake
     )
+    add_test(
+        NAME AggregateGovernanceAlerts
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/aggregate-governance-alerts.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_aggregate_governance_alerts.cmake
+    )
 endif()

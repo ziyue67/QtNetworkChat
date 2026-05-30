@@ -116,7 +116,7 @@ $rotationAnalyzer = Join-Path $PSScriptRoot "analyze-large-file-receipt-rotation
 $packager = Join-Path $PSScriptRoot "package-large-file-acceptance.ps1"
 
 $hasRouteLogs = $null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0
-$totalSteps = 1
+$totalSteps = 2
 if ($hasRouteLogs) { $totalSteps += 3 }
 if (-not [string]::IsNullOrWhiteSpace($ReceiptRotationPath)) { $totalSteps += 2 }
 if ($shouldPackageAcceptance) { $totalSteps++ }
@@ -221,6 +221,16 @@ if ($shouldPackageAcceptance) {
     Invoke-CheckedScript $packager $packageArgs (Join-Path $resolvedOutputDir "acceptance-package.log")
 }
 
+$aggregator = Join-Path $PSScriptRoot "aggregate-governance-alerts.ps1"
+$aggregatedAlertPath = Join-Path $resolvedOutputDir "governance-alert-overview.json"
+
+StepLabel "aggregate governance alerts"
+$aggArgs = @("-OutputDir", $resolvedOutputDir, "-AggregatedPath", $aggregatedAlertPath)
+if ($NoFailOnWarning) {
+    $aggArgs += "-NoFailOnWarning"
+}
+Invoke-CheckedScript $aggregator $aggArgs (Join-Path $resolvedOutputDir "aggregate-alerts.log")
+
 Write-Host ""
 Write-Host "outputs"
 if ($hasRouteLogs) {
@@ -233,6 +243,9 @@ Write-Host ("  reconcile dir: {0}" -f $reconcileOutputDir)
 if (Test-Path -LiteralPath $rotationSummaryPath) {
     Write-Host ("  rotation summary: {0}" -f $rotationSummaryPath)
     Write-Host ("  rotation alert summary: {0}" -f $rotationAlertSummaryPath)
+}
+if (Test-Path -LiteralPath $aggregatedAlertPath) {
+    Write-Host ("  governance alert overview: {0}" -f $aggregatedAlertPath)
 }
 if (Test-Path -LiteralPath $PackagePath) {
     Write-Host ("  package: {0}" -f $PackagePath)
