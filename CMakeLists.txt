@@ -382,4 +382,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-large-file-governance-dashboard.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_governance_dashboard.cmake
     )
+    add_test(
+        NAME LargeFileGovernanceStatus
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/show-large-file-governance-status.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_governance_status.cmake
+    )
 endif()

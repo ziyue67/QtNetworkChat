@@ -354,6 +354,18 @@ powershell -ExecutionPolicy Bypass -File scripts/write-large-file-governance-das
 
 dashboard JSON 使用 `qtnetworkchat-large-file-governance-dashboard-v1` 格式，汇总 `status/ok/reason/totalWarnings/alertCount`、route/S3/receipt/reconcile 核心指标、告警来源和关键产物相对路径；Markdown 版本便于人工快速查看。脚本只读取本地治理产物，发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 会拒绝生成。
 
+计划任务或值班脚本只需要判断当前治理状态时，可以读取 dashboard、health 和 alert overview 生成轻量状态输出；`-FailOnUnhealthy` 会在 unhealthy 或 unknown 时返回非零退出码：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/show-large-file-governance-status.ps1 `
+  -GovernanceDir ".\logs\governance" `
+  -JsonPath ".\logs\governance\large-file-governance-status.json" `
+  -MarkdownPath ".\logs\governance\large-file-governance-status.md" `
+  -FailOnUnhealthy
+```
+
+该状态 CLI 只读取本地治理产物，不连接 Redis、S3/MinIO，不修改队列、附件、对象或 receipt；如果输入中出现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature，会拒绝输出。
+
 没有真实日志时，可以直接跑完整脱敏样例链路：
 
 ```powershell
