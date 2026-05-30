@@ -215,6 +215,28 @@ $env:QTNETWORKCHAT_DELIVERED_RECEIPT_COMPRESS_ARCHIVE = "1"
 $env:QTNETWORKCHAT_DELIVERED_RECEIPT_SUMMARY_PATH = ".\logs\delivered-receipts\rotate-summary.json"
 ```
 
+如果需要把完整治理入口交给 Windows Scheduled Task，先生成 preview 并人工确认命令不含 endpoint、bucket、object URL 或凭据：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/register-large-file-governance-task.ps1 `
+  -TaskName "QtNetworkChatLargeFileGovernance" `
+  -Schedule Daily `
+  -At "03:00" `
+  -RouteLogPath ".\logs\source-server.log", ".\logs\remote-server.log" `
+  -QueuePath ".\logs\offline-queue.jsonl" `
+  -SourceInstanceId "source-instance-id" `
+  -OutputDir ".\logs\governance" `
+  -ReceiptRotationPath ".\logs\delivered-receipts\delivered-receipts.jsonl" `
+  -RotationKeepRecords 10000 `
+  -RotationMaxAgeDays 30 `
+  -CompressRotationArchive `
+  -EmitRouteLog `
+  -NoFailOnWarning `
+  -PackageAcceptance
+```
+
+默认不会注册系统计划任务，只会在 `OutputDir\scheduled-task` 下写出 `run-large-file-governance-task.ps1` 和 `scheduled-task-preview.json`。确认 preview 只包含本地日志、队列摘要、receipt 摘要和输出目录后，再追加 `-Register` 创建或更新 Windows Scheduled Task。该入口仍只读运行治理聚合；除显式 receipt 轮转外，不会连接 Redis、S3/MinIO，也不会清理离线队列、附件或对象。
+
 也可以分步执行。先从 route log 导出 delivered receipt 输入：
 
 ```powershell
