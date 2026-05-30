@@ -33,6 +33,14 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
+QString appDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
+
 bool isRetriableFileChunkRejectReason(const QString& reason) {
     const QString trimmed = reason.trimmed();
     if (trimmed.isEmpty()) {
@@ -172,7 +180,7 @@ qint64 receivedBytesFromChunks(const QSet<qint64>& receivedChunks,
 }
 
 QString outgoingTransferStateFilePath() {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString dir = appDataDir();
     if (dir.isEmpty()) {
         dir = QDir::currentPath();
     }

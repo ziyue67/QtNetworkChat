@@ -173,12 +173,13 @@ powershell -ExecutionPolicy Bypass -File scripts/run-large-file-delivery-reconci
   -QueuePath ".\logs\offline-queue.jsonl" `
   -SourceInstanceId "source-instance-id" `
   -OutputDir ".\logs\reconcile" `
-  -EmitRouteLog
+  -EmitRouteLog `
+  -RunS3Analysis
 ```
 
 如果已有持久化 receipt 摘要，可改用 `-ReceiptPath ".\logs\delivered-receipts\delivered-receipts.jsonl"` 代替 `-RouteLogPath`，直接复用服务端落盘摘要。
 
-该脚本只串联 receipt 输入、fallback 导出和对账判定，会写出 `receipts.jsonl`、`fallbacks.jsonl` 和 `reconcile.log`；它不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
+该脚本只串联 receipt 输入、fallback 导出和对账判定，会写出 `receipts.jsonl`、`fallbacks.jsonl` 和 `reconcile.log`；加上 `-RunS3Analysis` 时还会从 `-RouteLogPath` 读取 S3 对象请求结果并写出 `s3-analysis-summary.json`。该分析需要原始 route log，因此使用 `-ReceiptPath` 时不能同时启用 `-RunS3Analysis`。它不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
 
 持久化 receipt 文件较大时，可以先做离线轮转：
 

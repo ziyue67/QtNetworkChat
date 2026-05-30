@@ -6,6 +6,20 @@ if(WIN32 AND DEFINED QT_BIN_DIR AND EXISTS "${QT_BIN_DIR}")
     set(ENV{PATH} "${QT_BIN_DIR};$ENV{PATH}")
 endif()
 
+get_filename_component(TEST_WORK_DIR "${TEST_EXE}" DIRECTORY)
+set(TEST_RUNTIME_ROOT "${TEST_WORK_DIR}/qt_test_runtime")
+file(MAKE_DIRECTORY
+    "${TEST_RUNTIME_ROOT}/AppData/Roaming"
+    "${TEST_RUNTIME_ROOT}/AppData/Local"
+    "${TEST_RUNTIME_ROOT}/Temp"
+)
+
+set(ENV{APPDATA} "${TEST_RUNTIME_ROOT}/AppData/Roaming")
+set(ENV{LOCALAPPDATA} "${TEST_RUNTIME_ROOT}/AppData/Local")
+set(ENV{TEMP} "${TEST_RUNTIME_ROOT}/Temp")
+set(ENV{TMP} "${TEST_RUNTIME_ROOT}/Temp")
+set(ENV{QTNETWORKCHAT_APPDATA_DIR} "${TEST_RUNTIME_ROOT}/AppData/QtNetworkChat")
+
 execute_process(
     COMMAND "${TEST_EXE}"
     RESULT_VARIABLE test_result

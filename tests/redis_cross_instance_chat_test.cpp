@@ -28,6 +28,14 @@
 #include <functional>
 
 namespace {
+QString testAppDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
+
 bool expect(bool condition, const char* message) {
     if (!condition) {
         qWarning() << message;
@@ -366,7 +374,7 @@ int main(int argc, char** argv) {
         return false;
     };
 
-    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString appDataDir = testAppDataDir();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
         QDir().mkpath(appDataDir);

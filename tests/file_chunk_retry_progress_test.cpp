@@ -41,6 +41,14 @@ const char kInvalidAckProgressFileName[] = "invalid-ack-progress.bin";
 const char kTransientRejectRetryFileName[] = "transient-reject-retry.bin";
 const char kHardRejectNoRetryFileName[] = "hard-reject-no-retry.bin";
 
+QString testAppDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
+
 bool expect(bool condition, const char* message) {
     if (!condition) {
         qWarning() << message;
@@ -87,8 +95,7 @@ bool writeResumeFile(const QString& filePath, qint64* fileSize) {
 }
 
 QString outgoingTransferStatePath() {
-    return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
-        .filePath("outgoing_transfer_state.json");
+    return QDir(testAppDataDir()).filePath("outgoing_transfer_state.json");
 }
 
 bool writeOutgoingTransferState(const QJsonObject& state) {
@@ -558,7 +565,7 @@ int main(int argc, char** argv) {
     QCoreApplication::setApplicationName("file_chunk_retry_progress_test");
     QStandardPaths::setTestModeEnabled(true);
 
-    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString appDataDir = testAppDataDir();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
         QDir().mkpath(appDataDir);

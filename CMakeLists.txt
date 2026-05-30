@@ -316,4 +316,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-large-file-receipt-rotation.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_receipt_rotation_alerts.cmake
     )
+    add_test(
+        NAME ReconcileRunnerS3Analysis
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-large-file-delivery-reconcile.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_reconcile_runner_s3_analysis.cmake
+    )
 endif()

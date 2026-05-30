@@ -171,7 +171,7 @@
 - 真实后端人工验收清单已补到 `docs/s3-minio-manual-acceptance.md`，覆盖 smoke、双服务端、远端在线大文件投递、失败注入、离线兜底回源回放和日志/Redis/队列脱敏检查。
 - 日志聚合与脱敏检查已补可选脚本 `scripts/analyze-large-file-route-logs.ps1`，只读取服务端日志，统计 `event/result/reason/storeType/operation`，按 `transferId/objectKey/receiverId` 输出 delivered cleanup 与 failed fallback 对账候选摘要，可用 `-SummaryPath` 落盘 failed/fallback/delivered 机器可读 summary，并在结构化日志中发现 endpoint、bucket、object URL、凭据或签名字段时失败。`scripts/analyze-s3-request-results.ps1` 可进一步过滤 `storeType=s3` 且对象请求相关的 operation，聚合固定 reason 桶、operation 和 result，对 timeout/retryable/auth/tls/hash/size 做阈值告警。
 - 失败回退演练已补可选脚本 `scripts/s3-failure-drill.ps1`，默认只输出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期 reason 和兜底检查点；传入日志路径时复用日志分析器，不连接 Redis、S3/MinIO 或修改离线队列。
-- delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；源实例可通过 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 显式追加脱敏 `delivered-receipts.jsonl` 摘要；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-receipts.ps1` 可从安全 route log 导出 receipt 输入，`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入，`scripts/run-large-file-delivery-reconcile.ps1` 可用 `-RouteLogPath` 导出 receipt 或用 `-ReceiptPath` 直接消费持久化 receipt，并把后续步骤串成一键只读演练，`scripts/write-large-file-reconcile-sample.ps1 -RunReconcile -RunRotate -RunS3RequestAnalysis` 可生成不含 S3 配置或凭据的样例输入并直接演练对账、轮转和 S3 request result 分析，`scripts/rotate-large-file-receipts.ps1` 可按条数和天数轮转持久化 receipt，并把旧摘要归档为 JSONL 或 ZIP。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
+- delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；源实例可通过 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 显式追加脱敏 `delivered-receipts.jsonl` 摘要；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-receipts.ps1` 可从安全 route log 导出 receipt 输入，`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入，`scripts/run-large-file-delivery-reconcile.ps1` 可用 `-RouteLogPath` 导出 receipt 或用 `-ReceiptPath` 直接消费持久化 receipt，并把后续步骤串成一键只读演练；`-RunS3Analysis` 会复用 `-RouteLogPath` 做 S3 request result 分析并落盘 `s3-analysis-summary.json`，使用 `-ReceiptPath` 时会明确拒绝该选项。`scripts/write-large-file-reconcile-sample.ps1 -RunReconcile -RunRotate -RunS3RequestAnalysis` 可生成不含 S3 配置或凭据的样例输入并直接演练对账、轮转和 S3 request result 分析，`scripts/rotate-large-file-receipts.ps1` 可按条数和天数轮转持久化 receipt，并把旧摘要归档为 JSONL 或 ZIP。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
 
 ## 治理观测
 
@@ -254,7 +254,8 @@
 54. 已完成：补 route summary 阈值分析脚本，可对 failedWithoutFallback、deliveredWithoutCleanup 和 sensitiveHits 做非零退出告警。
 55. 已完成：补 S3 request result 只读分析脚本，可聚合 `storeType=s3` 且对象请求相关 operation 的 fixed reason/operation/result，对 timeout、retryable、auth、tls、hash、size 和 sensitiveHits 做阈值告警，并拒绝未知 reason 桶。
 56. 已完成：把 S3 request result 分析接入脱敏样例演练，`write-large-file-reconcile-sample.ps1 -RunS3RequestAnalysis` 可生成并验证 `sample-s3-request-summary.json`。
-57. 下一步：把 S3 request result 分析接入真实人工验收一键脚本，或清理重复的 operation 分析草稿，继续保持默认 CTest 不依赖真实 S3/MinIO。
+57. 已完成：修复一键对账脚本的 `-RunS3Analysis`，现在复用真实 `-RouteLogPath` 生成 `s3-analysis-summary.json`，并在仅使用 `-ReceiptPath` 时明确拒绝 S3 route log 分析；已加 CTest 覆盖。
+58. 下一步：清理重复的 operation 分析草稿，或补真实人工验收输出打包/归档脚本，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 

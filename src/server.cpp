@@ -83,6 +83,14 @@ qint64 offlineAttachmentTtlMs() {
     return days * 24LL * 60 * 60 * 1000;
 }
 
+QString appDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
+
 QString safePathPart(const QString& value) {
     QString safe;
     safe.reserve(value.size());
@@ -2384,7 +2392,7 @@ bool Server::ensureAccountDatabase() const {
 }
 
 QString Server::accountDbPath() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString dir = appDataDir();
     if (dir.isEmpty()) dir = ".";
     QDir().mkpath(dir);
     return dir + "/accounts.sqlite3";
@@ -2406,14 +2414,14 @@ void Server::saveAccounts(const QJsonObject& accounts) const {
 }
 
 QString Server::accountsFilePath() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString dir = appDataDir();
     if (dir.isEmpty()) dir = ".";
     QDir().mkpath(dir);
     return dir + "/accounts.json";
 }
 
 QString Server::offlineFilePath(const QString& userId) const {
-    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString baseDir = appDataDir();
     if (baseDir.isEmpty()) baseDir = ".";
     QString dir = baseDir + "/offline";
     QDir().mkpath(dir);
@@ -2421,7 +2429,7 @@ QString Server::offlineFilePath(const QString& userId) const {
 }
 
 QString Server::offlineAttachmentRootDir() const {
-    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString baseDir = appDataDir();
     if (baseDir.isEmpty()) baseDir = ".";
     const QString dir = baseDir + "/offline_files";
     QDir().mkpath(dir);
@@ -2809,7 +2817,7 @@ QSet<QString> Server::collectReferencedOfflineAttachments() const {
         QSqlDatabase::removeDatabase(connectionName);
     }
 
-    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString baseDir = appDataDir();
     if (baseDir.isEmpty()) baseDir = ".";
     QDir offlineDir(baseDir + "/offline");
     const QFileInfoList offlineFiles = offlineDir.entryInfoList(QStringList() << "*.jsonl", QDir::Files);

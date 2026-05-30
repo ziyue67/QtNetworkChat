@@ -84,6 +84,9 @@ if (($null -eq $RouteLogPath -or $RouteLogPath.Count -eq 0) -and [string]::IsNul
 if (($null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0) -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
     throw "Use either RouteLogPath or ReceiptPath, not both."
 }
+if ($RunS3Analysis -and ($null -eq $RouteLogPath -or $RouteLogPath.Count -eq 0)) {
+    throw "RunS3Analysis requires RouteLogPath because S3 request results are only present in route logs."
+}
 
 $fallbackArgs = @("-QueuePath") + $QueuePath + @("-SourceInstanceId", $SourceInstanceId, "-OutputPath", $fallbacksPath)
 $reconcileArgs = @("-ReceiptPath", $receiptsPath, "-FallbackPath", $fallbacksPath)
@@ -121,9 +124,9 @@ Invoke-CheckedScript $reconcileScript $reconcileArgs $reconcileLogPath
 
 if ($RunS3Analysis) {
     StepLabel "S3 request result analysis"
-    $s3AnalysisArgs = @("-Path") + @($resolvedOutputDir) + @("-SummaryPath", $s3AnalysisSummaryPath)
+    $s3AnalysisArgs = @("-Path") + $RouteLogPath + @("-SummaryPath", $s3AnalysisSummaryPath)
     if ($NoFailOnSensitive) {
-        $s3AnalysisArgs += "-NoFailOnSensitive"
+        $s3AnalysisArgs += "-NoFailOnWarning"
     }
     $s3AnalysisLogPath = Join-Path $resolvedOutputDir "s3-analysis.log"
     Invoke-CheckedScript $s3AnalysisScript $s3AnalysisArgs $s3AnalysisLogPath
