@@ -1904,7 +1904,21 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
 
     std::unique_ptr<QIODevice> file = objectStore->openObject(objectKey);
     if (!file || !file->isOpen()) {
-        return failOffer(QStringLiteral("object-open-failed"));
+        QString reason = QStringLiteral("object-open-failed");
+        if (S3ObjectStore* s3Store = dynamic_cast<S3ObjectStore*>(objectStore.get())) {
+            const QString s3Reason = s3Store->lastOpenFailureReason();
+            if (!s3Reason.isEmpty()) {
+                reason = s3Reason;
+            }
+        }
+        qWarning() << "Rejected large file offer because object open failed"
+                   << objectKey << reason;
+        logRedisLargeFileRouteEvent(QStringLiteral("offer_read"),
+                                    QStringLiteral("rejected"),
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("read")),
+                                    reason,
+                                    fileSize);
+        return failOffer(reason);
     }
 
     publishRedisLargeFileClaim(event);

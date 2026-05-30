@@ -638,6 +638,8 @@ int main() {
     const std::unique_ptr<QIODevice> s3OpenedObject = s3HeadDeleteStore.openObject(s3UploadedKey);
     ok = expect(s3OpenedObject && s3OpenedObject->readAll() == QByteArrayLiteral("payload"),
                 "s3 injected GET path should return a readable payload device") && ok;
+    ok = expect(s3HeadDeleteStore.lastOpenFailureReason().isEmpty(),
+                "s3 successful GET path should clear the last open failure reason") && ok;
     const ObjectStore::ValidationResult s3HeadValidation =
         s3HeadDeleteStore.validateObject(QStringLiteral("abcdef1234567890.bin"),
                                          7,
@@ -864,6 +866,55 @@ int main() {
                 "s3 PUT failure should fail closed and keep errors redacted") && ok;
     ok = expect(!s3FailedHeadStore.openObject(QStringLiteral("abcdef1234567890.bin")),
                 "s3 GET failure should fail closed without returning a device") && ok;
+    ok = expect(s3FailedHeadStore.lastOpenFailureReason() == QStringLiteral("network"),
+                "s3 GET network failure should expose a stable open failure reason") && ok;
+    S3ObjectStore s3FailedGetStore(envS3Config,
+                                   [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
+        Q_UNUSED(body);
+        S3RequestExecutionResult result;
+        if (request.method == QByteArrayLiteral("GET")) {
+            result.result = s3RequestResultFromReply(envS3Config, 403);
+        } else {
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+        }
+        return result;
+    });
+    ok = expect(!s3FailedGetStore.openObject(QStringLiteral("abcdef1234567890.bin"))
+                    && s3FailedGetStore.lastOpenFailureReason() == QStringLiteral("auth"),
+                "s3 GET auth failure should expose a stable open failure reason without leaking credentials") && ok;
+    ok = expect(!s3FailedGetStore.lastOpenFailureReason().contains(envS3Config.accessKey)
+                    && !s3FailedGetStore.lastOpenFailureReason().contains(envS3Config.secretKey)
+                    && !s3FailedGetStore.lastOpenFailureReason().contains(envS3Config.sessionToken),
+                "s3 GET open failure reason should not include credentials") && ok;
+    S3ObjectStore s3TlsGetStore(envS3Config,
+                                [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
+        Q_UNUSED(request);
+        Q_UNUSED(body);
+        S3RequestExecutionResult result;
+        result.result = s3RequestResultFromReply(envS3Config,
+                                                 0,
+                                                 QStringLiteral("certificate rejected"),
+                                                 false,
+                                                 true);
+        return result;
+    });
+    ok = expect(!s3TlsGetStore.openObject(QStringLiteral("abcdef1234567890.bin"))
+                    && s3TlsGetStore.lastOpenFailureReason() == QStringLiteral("tls"),
+                "s3 GET TLS failure should expose a stable open failure reason") && ok;
+    S3ObjectStore s3MissingGetStore(envS3Config,
+                                    [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
+        Q_UNUSED(request);
+        Q_UNUSED(body);
+        S3RequestExecutionResult result;
+        result.result = s3RequestResultFromReply(envS3Config, 404);
+        return result;
+    });
+    ok = expect(!s3MissingGetStore.openObject(QStringLiteral("abcdef1234567890.bin"))
+                    && s3MissingGetStore.lastOpenFailureReason() == QStringLiteral("not_found"),
+                "s3 GET missing object should expose not_found as the open failure reason") && ok;
+    ok = expect(!s3MissingGetStore.openObject(QStringLiteral("../escape.bin"))
+                    && s3MissingGetStore.lastOpenFailureReason() == QStringLiteral("unknown"),
+                "s3 invalid object key open should fail closed with a fixed reason bucket") && ok;
     S3ObjectStore s3FailedDeleteStore(envS3Config,
                                       [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(request);

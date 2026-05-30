@@ -154,12 +154,14 @@ public:
                                     qint64 expectedSize,
                                     const QString& expectedHash) const override;
     std::unique_ptr<QIODevice> openObject(const QString& objectKey) const override;
+    QString lastOpenFailureReason() const;
     bool removeObject(const QString& objectKey) const override;
     int cleanupExpired(qint64 ttlMs, QStringList* removedKeys = nullptr) const override;
 
 private:
     S3ObjectStoreConfig m_config;
     S3RequestExecutor m_requestExecutor;
+    mutable QString m_lastOpenFailureReason;
 };
 
 QString normalizeObjectStoreType(const QString& storeType);

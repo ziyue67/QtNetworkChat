@@ -512,26 +512,39 @@ ObjectStore::ValidationResult S3ObjectStore::validateObject(const QString& objec
 }
 
 std::unique_ptr<QIODevice> S3ObjectStore::openObject(const QString& objectKey) const {
-    if (!FilesystemObjectStore::isValidObjectKey(objectKey) || !m_requestExecutor) {
+    m_lastOpenFailureReason.clear();
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        m_lastOpenFailureReason = QStringLiteral("unknown");
+        return {};
+    }
+    if (!m_requestExecutor) {
+        m_lastOpenFailureReason = QStringLiteral("object-store-unavailable");
         return {};
     }
 
     const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("GET"), QByteArray());
     if (request.method.isEmpty() || !request.request.url().isValid()) {
+        m_lastOpenFailureReason = QStringLiteral("unknown");
         return {};
     }
 
     const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
     if (!execution.result.http.ok) {
+        m_lastOpenFailureReason = s3FailureReasonForLog(execution.result);
         return {};
     }
 
     auto buffer = std::make_unique<QBuffer>();
     buffer->setData(execution.body);
     if (!buffer->open(QIODevice::ReadOnly)) {
+        m_lastOpenFailureReason = QStringLiteral("unknown");
         return {};
     }
     return buffer;
+}
+
+QString S3ObjectStore::lastOpenFailureReason() const {
+    return m_lastOpenFailureReason;
 }
 
 bool S3ObjectStore::removeObject(const QString& objectKey) const {
