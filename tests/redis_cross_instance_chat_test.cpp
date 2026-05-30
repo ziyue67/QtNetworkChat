@@ -16,6 +16,8 @@
 #include <QList>
 #include <QMap>
 #include <QObject>
+#include <QBuffer>
+#include <QCryptographicHash>
 #include <QSet>
 #include <QStandardPaths>
 #include <QTcpServer>
@@ -26,6 +28,8 @@
 
 #include <cstdio>
 #include <functional>
+#include <memory>
+#include <utility>
 
 namespace {
 QString testAppDataDir() {
@@ -157,6 +161,89 @@ QByteArray redisRawMessageEventPayload(const QJsonObject& message) {
     event["message"] = message;
     return QJsonDocument(event).toJson(QJsonDocument::Compact);
 }
+
+class SharedMemoryObjectStore final : public ObjectStore {
+public:
+    explicit SharedMemoryObjectStore(QMap<QString, QByteArray>* objects,
+                                     QString validationFailureReason = QString())
+        : m_objects(objects)
+        , m_validationFailureReason(std::move(validationFailureReason)) {
+    }
+
+    bool writeObject(const QByteArray& data,
+                     QString* objectKey,
+                     QString* fileHash = nullptr,
+                     QString* error = nullptr,
+                     const QString& extension = QString()) const override {
+        if (objectKey) objectKey->clear();
+        if (fileHash) fileHash->clear();
+        if (error) error->clear();
+        if (!m_objects) {
+            if (error) *error = QStringLiteral("object-store-unavailable");
+            return false;
+        }
+        const QString key = FilesystemObjectStore::generateObjectKey(extension);
+        (*m_objects)[key] = data;
+        if (objectKey) *objectKey = key;
+        if (fileHash) {
+            *fileHash = QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
+        }
+        return true;
+    }
+
+    ValidationResult validateObject(const QString& objectKey,
+                                    qint64 expectedSize,
+                                    const QString& expectedHash) const override {
+        ValidationResult result;
+        if (!m_validationFailureReason.isEmpty()) {
+            result.error = m_validationFailureReason;
+            return result;
+        }
+        if (!m_objects || !FilesystemObjectStore::isValidObjectKey(objectKey) || !m_objects->contains(objectKey)) {
+            result.error = QStringLiteral("not_found");
+            return result;
+        }
+        const QByteArray data = m_objects->value(objectKey);
+        result.size = data.size();
+        result.fileHash = QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
+        if (result.size != expectedSize) {
+            result.error = QString::fromUtf8("大小不匹配");
+            return result;
+        }
+        if (result.fileHash.compare(expectedHash, Qt::CaseInsensitive) != 0) {
+            result.error = QStringLiteral("SHA-256 mismatch");
+            return result;
+        }
+        result.ok = true;
+        return result;
+    }
+
+    std::unique_ptr<QIODevice> openObject(const QString& objectKey) const override {
+        if (!m_objects || !m_objects->contains(objectKey)) {
+            return {};
+        }
+        auto buffer = std::make_unique<QBuffer>();
+        buffer->setData(m_objects->value(objectKey));
+        if (!buffer->open(QIODevice::ReadOnly)) {
+            return {};
+        }
+        return buffer;
+    }
+
+    bool removeObject(const QString& objectKey) const override {
+        return m_objects && m_objects->remove(objectKey) > 0;
+    }
+
+    int cleanupExpired(qint64 ttlMs, QStringList* removedKeys = nullptr) const override {
+        Q_UNUSED(ttlMs);
+        if (removedKeys) removedKeys->clear();
+        return 0;
+    }
+
+private:
+    QMap<QString, QByteArray>* m_objects = nullptr;
+    QString m_validationFailureReason;
+};
 }
 
 class FakeRedisHub : public QObject {
@@ -425,6 +512,15 @@ int main(int argc, char** argv) {
     QTemporaryDir receiptSummaryDir;
     ok = expect(receiptSummaryDir.isValid(), "temporary delivered receipt summary dir should be available") && ok;
     qputenv("QTNETWORKCHAT_DELIVERED_RECEIPT_DIR", receiptSummaryDir.path().toUtf8());
+    QMap<QString, QByteArray> injectedS3Objects;
+    QString injectedS3ValidationFailureReason;
+    auto injectedS3Factory = [&objectRoot, &injectedS3Objects, &injectedS3ValidationFailureReason](QString* error) -> std::unique_ptr<ObjectStore> {
+        if (error) error->clear();
+        if (normalizeObjectStoreType(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE"))) == QStringLiteral("filesystem")) {
+            return std::make_unique<FilesystemObjectStore>(objectRoot.path());
+        }
+        return std::make_unique<SharedMemoryObjectStore>(&injectedS3Objects, injectedS3ValidationFailureReason);
+    };
 
     QList<QByteArray> publishedMessagePayloads;
     QObject::connect(fakeRedis, &FakeRedisHub::published, &app, [&](const QByteArray& channel, const QByteArray& payload) {
@@ -461,6 +557,8 @@ int main(int argc, char** argv) {
 
     Server serverA;
     Server serverB;
+    serverA.setObjectStoreFactoryForTesting(injectedS3Factory);
+    serverB.setObjectStoreFactoryForTesting(injectedS3Factory);
     ok = expect(serverA.start(serverAPort), "first server instance should start") && ok;
     ok = expect(serverB.start(serverBPort), "second server instance should start") && ok;
 
@@ -1090,6 +1188,85 @@ int main(int argc, char** argv) {
             || !findPublishedEvent("large_file_failed", QString(), unsupportedStoreObjectKey).isEmpty()
             || bobFileNames.contains(unsupportedStoreOffer["fileName"].toString());
     }, 800), "non-filesystem object stores should not consume large file offers") && ok;
+    qputenv("QTNETWORKCHAT_OBJECT_STORE", "filesystem");
+
+    qputenv("QTNETWORKCHAT_OBJECT_STORE", "s3");
+    injectedS3Objects.clear();
+    injectedS3ValidationFailureReason.clear();
+    const QString s3ValidationFailureFileName = "redis-s3-validation-failure.bin";
+    const QString s3ValidationFailurePath = transferDir.filePath(s3ValidationFailureFileName);
+    const QByteArray s3ValidationFailurePayload = makePatternPayload(1024 * 1024 + 12288);
+    QFile s3ValidationFailureFile(s3ValidationFailurePath);
+    ok = expect(s3ValidationFailureFile.open(QIODevice::WriteOnly),
+                "injected S3 validation transfer file should open for writing") && ok;
+    if (s3ValidationFailureFile.isOpen()) {
+        ok = expect(s3ValidationFailureFile.write(s3ValidationFailurePayload) == s3ValidationFailurePayload.size(),
+                    "injected S3 validation transfer file should be written") && ok;
+        s3ValidationFailureFile.close();
+    }
+    injectedS3ValidationFailureReason = QStringLiteral("tls_error from injected S3 HEAD");
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    ok = expect(alice.sendFile(s3ValidationFailurePath, "960002"),
+                "alice should publish an injected S3 large file offer") && ok;
+    ok = expect(waitFor([&] {
+        return !findLargeFileOffer(s3ValidationFailureFileName).isEmpty();
+    }), "injected S3 large file should publish a storeType=s3 offer") && ok;
+    const QJsonObject s3ValidationFailureOffer = findLargeFileOffer(s3ValidationFailureFileName);
+    const QString s3ValidationFailureObjectKey = s3ValidationFailureOffer["objectKey"].toString();
+    ok = expect(s3ValidationFailureOffer["storeType"].toString() == QStringLiteral("s3"),
+                "injected S3 offer should carry storeType=s3") && ok;
+    ok = expect(FilesystemObjectStore::isValidObjectKey(s3ValidationFailureObjectKey),
+                "injected S3 offer should use a safe object key") && ok;
+    ok = expect(injectedS3Objects.contains(s3ValidationFailureObjectKey),
+                "injected S3 object store should retain the uploaded object for fallback") && ok;
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_failed", QString(), s3ValidationFailureObjectKey).isEmpty();
+    }), "remote server should publish failed for injected S3 validation errors") && ok;
+    ok = expect(findPublishedEvent("large_file_failed", QString(), s3ValidationFailureObjectKey)["reason"].toString()
+                    == QStringLiteral("tls"),
+                "injected S3 validation failure should publish a fixed TLS reason") && ok;
+    ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=offer_validation"),
+                                 QStringLiteral("result=rejected"),
+                                 QStringLiteral("reason=tls"),
+                                 QStringLiteral("storeType=s3"),
+                                 QStringLiteral("operation=validate"),
+                                 QStringLiteral("objectKey=") + s3ValidationFailureObjectKey});
+    }), "remote server should log injected S3 validation failure with safe fixed metadata") && ok;
+    ok = expect(!routeLogContains({QStringLiteral("event=offer_validation"),
+                                   QStringLiteral("injected S3 HEAD")}),
+                "route log should not include injected S3 validation error detail") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), s3ValidationFailureObjectKey).isEmpty()
+            || bobFileNames.contains(s3ValidationFailureFileName);
+    }, 800), "S3 validation failures should not be claimed or delivered") && ok;
+
+    QJsonObject injectedS3FailedEvent;
+    injectedS3FailedEvent["eventType"] = "large_file_failed";
+    injectedS3FailedEvent["instanceId"] = "external-injected-s3-failure";
+    injectedS3FailedEvent["sourceInstanceId"] = s3ValidationFailureOffer["instanceId"].toString();
+    injectedS3FailedEvent["transferId"] = s3ValidationFailureOffer["transferId"].toString();
+    injectedS3FailedEvent["objectKey"] = s3ValidationFailureObjectKey;
+    injectedS3FailedEvent["receiverId"] = "960002";
+    injectedS3FailedEvent["fileHash"] = s3ValidationFailureOffer["fileHash"].toString();
+    injectedS3FailedEvent["reason"] = "tls";
+    injectedS3FailedEvent["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QMetaObject::invokeMethod(fakeRedis,
+                              "injectMessageEvent",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QByteArray, QJsonDocument(injectedS3FailedEvent).toJson(QJsonDocument::Compact)));
+    ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=failed_received"),
+                                 QStringLiteral("result=fallback-retained"),
+                                 QStringLiteral("reason=tls"),
+                                 QStringLiteral("storeType=s3"),
+                                 QStringLiteral("operation=fallback"),
+                                 QStringLiteral("objectKey=") + s3ValidationFailureObjectKey});
+    }), "source server should log S3 failed receipt while retaining fallback") && ok;
+    ok = expect(injectedS3Objects.contains(s3ValidationFailureObjectKey),
+                "source injected S3 fallback object should remain after remote failure") && ok;
+    injectedS3ValidationFailureReason.clear();
     qputenv("QTNETWORKCHAT_OBJECT_STORE", "filesystem");
 
     const QString failedFallbackReceiverId = "960010";

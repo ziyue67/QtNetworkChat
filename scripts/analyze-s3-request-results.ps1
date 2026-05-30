@@ -58,7 +58,8 @@ $requestOperations = @(
     "remove",
     "upload",
     "download",
-    "deliver"
+    "deliver",
+    "fallback"
 )
 
 $sensitivePatterns = @(

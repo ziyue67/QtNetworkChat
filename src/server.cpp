@@ -459,6 +459,10 @@ Server::~Server() {
     stop();
 }
 
+void Server::setObjectStoreFactoryForTesting(ObjectStoreFactory factory) {
+    m_objectStoreFactoryForTesting = std::move(factory);
+}
+
 bool Server::start(quint16 port) {
     if (m_redisClient->isEnabled()) {
         const bool redisConnected = m_redisClient->connectToServer();
@@ -2543,6 +2547,9 @@ QString Server::objectStoreRootDir() const {
 }
 
 std::unique_ptr<ObjectStore> Server::createConfiguredObjectStore(QString* error) const {
+    if (m_objectStoreFactoryForTesting) {
+        return m_objectStoreFactoryForTesting(error);
+    }
     return createObjectStore(objectStoreType(), objectStoreRootDir(), error);
 }
 

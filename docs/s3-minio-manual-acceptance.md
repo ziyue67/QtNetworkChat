@@ -131,6 +131,8 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-summar
 
 如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行。服务端对象写入、校验、读取、删除和远端下发失败会使用固定 reason 桶，例如 `object-store-unavailable`、`timeout`、`network`、`tls`、`auth`、`not_found`、`retryable`、`client`、`server`、`unknown`、`hash`、`write_failed`、`receiver-disconnected`、`chunk-rejected` 或 `chunk-ack-timeout`；远端 GET/open 失败会以 `event=offer_read operation=read` 进入同一分析链路，源实例 DELETE/remove 失败会以 `event=object_delete operation=delete` 进入同一分析链路，下发阶段失败会以 `event=offer_delivery operation=deliver` 进入同一分析链路，不会把 endpoint、bucket、object URL、凭据或签名文本写入 route log：
 
+默认 CTest 还包含一个不联网的服务端注入式 S3 替身场景：源实例以 `storeType=s3` 写入对象并发布 offer，远端模拟 TLS 校验失败，预期出现 `offer_validation operation=validate reason=tls`，源实例收到 failed 后输出 `failed_received operation=fallback reason=tls` 并保留兜底。真实验收时可以用同一组字段核对 route log，但不需要把 endpoint、bucket 或凭据写入日志。
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/analyze-s3-request-results.ps1 `
   -Path ".\logs\source.log", ".\logs\remote.log" `

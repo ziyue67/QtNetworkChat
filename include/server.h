@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include "chatuser.h"
 #include "message.h"
+#include <functional>
 #include <memory>
 
 class QTimer;
@@ -23,6 +24,8 @@ class Server : public QObject {
     Q_OBJECT
 
 public:
+    using ObjectStoreFactory = std::function<std::unique_ptr<ObjectStore>(QString* error)>;
+
     explicit Server(QObject* parent = nullptr);
     ~Server();
 
@@ -30,6 +33,7 @@ public:
     void stop();
     quint16 serverPort() const { return m_serverPort; }
     QString transportSecurityDescription() const;
+    void setObjectStoreFactoryForTesting(ObjectStoreFactory factory);
 
 signals:
     void newMessage(const Message& msg);
@@ -151,6 +155,7 @@ private:
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
     QSet<QString> m_usedNames;
     QMap<QString, PendingFileTransfer> m_pendingFileTransfers;
+    ObjectStoreFactory m_objectStoreFactoryForTesting;
 };
 
 #endif // SERVER_H
