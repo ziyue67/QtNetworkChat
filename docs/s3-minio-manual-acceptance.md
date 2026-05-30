@@ -63,7 +63,7 @@ TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本
 
 任选一个失败注入方式，每次只改一个变量，便于定位：
 
-- 停止 MinIO 或断开网络，验证上传、HEAD、GET 或 DELETE 失败时固定 reason 聚合为 `timeout`、`network`、`retryable`、`server` 或 `unknown`；HEAD/GET 校验失败不应退回泛化的 `validation_error`，远端读取对象失败也应输出 `operation=read` 的 `offer_read` route log，并使用 S3 GET/open 的固定 reason，而不是泛化的 `object-open-failed`。
+- 停止 MinIO 或断开网络，验证上传、HEAD、GET 或 DELETE 失败时固定 reason 聚合为 `timeout`、`network`、`retryable`、`server` 或 `unknown`；HEAD/GET 校验失败不应退回泛化的 `validation_error`，远端读取对象失败也应输出 `operation=read` 的 `offer_read` route log，并使用 S3 GET/open 的固定 reason，而不是泛化的 `object-open-failed`；源实例 delivered cleanup 或队列持久化回滚删除对象失败时应输出 `event=object_delete operation=delete`，reason 仍为固定桶且不影响离线兜底判定。
 - 把 access key 或 secret key 改为无效值，验证 reason 聚合为 `auth`。
 - 删除对象或改动对象内容，验证远端发布 `large_file_failed`，reason 聚合为 `not_found`、`size` 或 `hash`。
 - 断开接收端客户端，验证源实例保留离线附件兜底，后续接收者回源实例登录时仍可回放。
@@ -129,7 +129,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-summar
 
 该脚本只读取 summary JSON；默认任何 `sensitiveHits > 0` 都会失败，`failedWithoutFallback` 或 `deliveredWithoutCleanup` 超过传入阈值也会非零退出。追加 `-AlertSummaryPath` 时会写出统一格式的告警 JSON，包含 `kind`、`ok`、`warnings` 和 `metrics`，便于 Windows 计划任务或外部监控直接采集。
 
-如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行。服务端对象写入、校验和读取失败会使用固定 reason 桶，例如 `object-store-unavailable`、`timeout`、`network`、`tls`、`auth`、`not_found`、`retryable`、`client`、`server`、`unknown`、`hash` 或 `write_failed`；远端 GET/open 失败会以 `event=offer_read operation=read` 进入同一分析链路，不会把 endpoint、bucket、object URL、凭据或签名文本写入 route log：
+如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行。服务端对象写入、校验、读取和删除失败会使用固定 reason 桶，例如 `object-store-unavailable`、`timeout`、`network`、`tls`、`auth`、`not_found`、`retryable`、`client`、`server`、`unknown`、`hash` 或 `write_failed`；远端 GET/open 失败会以 `event=offer_read operation=read` 进入同一分析链路，源实例 DELETE/remove 失败会以 `event=object_delete operation=delete` 进入同一分析链路，不会把 endpoint、bucket、object URL、凭据或签名文本写入 route log：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/analyze-s3-request-results.ps1 `

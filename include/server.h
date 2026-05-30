@@ -109,7 +109,13 @@ private:
     void persistRedisLargeFileDeliveredReceiptSummary(const QJsonObject& event,
                                                       const LargeFileDeliveredReceiptDecision& decision,
                                                       bool cleanupSucceeded) const;
-    bool cleanupDeliveredRedisLargeFile(const QJsonObject& event) const;
+    struct LargeFileCleanupResult {
+        bool queueCleaned = false;
+        bool objectDeleteAttempted = false;
+        bool objectDeleted = false;
+        QString objectDeleteReason;
+    };
+    LargeFileCleanupResult cleanupDeliveredRedisLargeFile(const QJsonObject& event) const;
     QString saveOfflineAttachment(const Message& msg) const;
     QSet<QString> collectReferencedOfflineAttachments() const;
     void cleanupExpiredOfflineAttachments();

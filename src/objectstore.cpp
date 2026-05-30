@@ -548,17 +548,32 @@ QString S3ObjectStore::lastOpenFailureReason() const {
 }
 
 bool S3ObjectStore::removeObject(const QString& objectKey) const {
-    if (!FilesystemObjectStore::isValidObjectKey(objectKey) || !m_requestExecutor) {
+    m_lastRemoveFailureReason.clear();
+    if (!FilesystemObjectStore::isValidObjectKey(objectKey)) {
+        m_lastRemoveFailureReason = QStringLiteral("unknown");
+        return false;
+    }
+    if (!m_requestExecutor) {
+        m_lastRemoveFailureReason = QStringLiteral("object-store-unavailable");
         return false;
     }
 
     const S3SignedObjectRequest request = s3SignedObjectRequest(m_config, objectKey, QStringLiteral("DELETE"), QByteArray());
     if (request.method.isEmpty() || !request.request.url().isValid()) {
+        m_lastRemoveFailureReason = QStringLiteral("unknown");
         return false;
     }
 
     const S3RequestExecutionResult execution = m_requestExecutor(request, QByteArray());
-    return execution.result.http.ok;
+    if (!execution.result.http.ok) {
+        m_lastRemoveFailureReason = s3FailureReasonForLog(execution.result);
+        return false;
+    }
+    return true;
+}
+
+QString S3ObjectStore::lastRemoveFailureReason() const {
+    return m_lastRemoveFailureReason;
 }
 
 int S3ObjectStore::cleanupExpired(qint64 ttlMs, QStringList* removedKeys) const {

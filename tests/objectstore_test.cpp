@@ -650,6 +650,8 @@ int main() {
                 "s3 injected HEAD+GET path should validate size and SHA-256 body") && ok;
     ok = expect(s3HeadDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin")),
                 "s3 injected DELETE path should report successful deletion") && ok;
+    ok = expect(s3HeadDeleteStore.lastRemoveFailureReason().isEmpty(),
+                "s3 successful DELETE path should clear the last remove failure reason") && ok;
     ok = expect(s3ExecutorMethods == QStringList({QStringLiteral("PUT"),
                                                   QStringLiteral("GET"),
                                                   QStringLiteral("HEAD"),
@@ -924,8 +926,38 @@ int main() {
         return result;
     });
     ok = expect(!s3FailedDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin"))
+                    && s3FailedDeleteStore.lastRemoveFailureReason() == QStringLiteral("not_found")
                     && !s3FailedDeleteStore.removeObject(QStringLiteral("../escape.bin")),
                 "s3 DELETE should fail closed for not-found results and invalid object keys") && ok;
+    ok = expect(s3FailedDeleteStore.lastRemoveFailureReason() == QStringLiteral("unknown"),
+                "s3 invalid object key DELETE should expose a fixed remove failure reason") && ok;
+    S3ObjectStore s3AuthDeleteStore(envS3Config,
+                                    [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
+        Q_UNUSED(request);
+        Q_UNUSED(body);
+        S3RequestExecutionResult result;
+        result.result = s3RequestResultFromReply(envS3Config, 403);
+        return result;
+    });
+    ok = expect(!s3AuthDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin"))
+                    && s3AuthDeleteStore.lastRemoveFailureReason() == QStringLiteral("auth"),
+                "s3 DELETE auth failure should expose a stable remove failure reason") && ok;
+    S3ObjectStore s3NetworkDeleteStore(envS3Config,
+                                       [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
+        Q_UNUSED(request);
+        Q_UNUSED(body);
+        S3RequestExecutionResult result;
+        result.result = s3RequestResultFromReply(envS3Config,
+                                                 0,
+                                                 QStringLiteral("network failed with access-key super-secret-value temporary-session-token"));
+        return result;
+    });
+    ok = expect(!s3NetworkDeleteStore.removeObject(QStringLiteral("abcdef1234567890.bin"))
+                    && s3NetworkDeleteStore.lastRemoveFailureReason() == QStringLiteral("network")
+                    && !s3NetworkDeleteStore.lastRemoveFailureReason().contains(envS3Config.accessKey)
+                    && !s3NetworkDeleteStore.lastRemoveFailureReason().contains(envS3Config.secretKey)
+                    && !s3NetworkDeleteStore.lastRemoveFailureReason().contains(envS3Config.sessionToken),
+                "s3 DELETE network failure should expose a redacted stable remove failure reason") && ok;
     QString s3WriteKey;
     QString s3WriteHash;
     QString s3WriteError;

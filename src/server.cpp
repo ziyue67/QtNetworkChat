@@ -1796,13 +1796,20 @@ void Server::handleRedisLargeFileDelivered(const QJsonObject& event) {
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("reconcile")),
                                 reconcileDecision.reason,
                                 event["confirmedBytes"].toVariant().toLongLong());
-    const bool cleaned = cleanupDeliveredRedisLargeFile(event);
-    persistRedisLargeFileDeliveredReceiptSummary(event, reconcileDecision, cleaned);
+    const LargeFileCleanupResult cleanupResult = cleanupDeliveredRedisLargeFile(event);
+    persistRedisLargeFileDeliveredReceiptSummary(event, reconcileDecision, cleanupResult.queueCleaned);
     logRedisLargeFileRouteEvent(QStringLiteral("delivered_cleanup"),
-                                cleaned ? QStringLiteral("cleaned") : QStringLiteral("retained"),
+                                cleanupResult.queueCleaned ? QStringLiteral("cleaned") : QStringLiteral("retained"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("delete")),
-                                cleaned ? QString() : QStringLiteral("offline-fallback-not-matched"),
+                                cleanupResult.queueCleaned ? QString() : QStringLiteral("offline-fallback-not-matched"),
                                 event["confirmedBytes"].toVariant().toLongLong());
+    if (cleanupResult.objectDeleteAttempted) {
+        logRedisLargeFileRouteEvent(QStringLiteral("object_delete"),
+                                    cleanupResult.objectDeleted ? QStringLiteral("deleted") : QStringLiteral("retained"),
+                                    largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("delete")),
+                                    cleanupResult.objectDeleteReason,
+                                    event["confirmedBytes"].toVariant().toLongLong());
+    }
 }
 
 void Server::handleRedisLargeFileFailed(const QJsonObject& event) {
@@ -2670,7 +2677,8 @@ void Server::persistRedisLargeFileDeliveredReceiptSummary(const QJsonObject& eve
     file.write("\n");
 }
 
-bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
+Server::LargeFileCleanupResult Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
+    LargeFileCleanupResult result;
     const QString objectKey = event["objectKey"].toString().trimmed();
     const QString transferId = event["transferId"].toString().trimmed();
     const QString receiverId = event["receiverId"].toString().trimmed();
@@ -2685,7 +2693,7 @@ bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
     receipt.confirmedBytes = confirmedBytes;
     if (evaluateLargeFileDeliveredReceiptCleanup(receipt, LargeFileDeliveredFallback()).reason
             == QStringLiteral("invalid-receipt")) {
-        return false;
+        return result;
     }
 
     auto matchesPayload = [&](const QJsonObject& obj) {
@@ -2771,8 +2779,9 @@ bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
     }
 
     if (!removedQueue) {
-        return false;
+        return result;
     }
+    result.queueCleaned = true;
 
     offlineAttachmentPaths.removeDuplicates();
     for (const QString& path : offlineAttachmentPaths) {
@@ -2783,10 +2792,21 @@ bool Server::cleanupDeliveredRedisLargeFile(const QJsonObject& event) const {
 
     std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore();
     if (objectStore) {
-        objectStore->removeObject(objectKey);
+        result.objectDeleteAttempted = true;
+        result.objectDeleted = objectStore->removeObject(objectKey);
+        if (result.objectDeleted) {
+            result.objectDeleteReason = QStringLiteral("success");
+        } else if (S3ObjectStore* s3Store = dynamic_cast<S3ObjectStore*>(objectStore.get())) {
+            result.objectDeleteReason = s3Store->lastRemoveFailureReason();
+            if (result.objectDeleteReason.isEmpty()) {
+                result.objectDeleteReason = QStringLiteral("unknown");
+            }
+        } else {
+            result.objectDeleteReason = QStringLiteral("unknown");
+        }
     }
 
-    return true;
+    return result;
 }
 
 QString Server::saveOfflineAttachment(const Message& msg) const {
@@ -2991,13 +3011,37 @@ void Server::saveOfflineMessage(const Message& msg) const {
         }
     }
     const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    auto rollbackSavedAttachment = [this, &savedAttachmentPath, &savedObjectKey]() {
+    auto rollbackSavedAttachment = [this, &savedAttachmentPath, &savedObjectKey, &obj]() {
         if (!savedAttachmentPath.isEmpty() && QFile::remove(savedAttachmentPath)) {
             qWarning() << "Rolled back offline attachment after queue persistence failure" << savedAttachmentPath;
         }
         std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore();
-        if (objectStore && !savedObjectKey.isEmpty() && objectStore->removeObject(savedObjectKey)) {
-            qWarning() << "Rolled back object-store attachment after queue persistence failure" << savedObjectKey;
+        if (objectStore && !savedObjectKey.isEmpty()) {
+            const bool removedObject = objectStore->removeObject(savedObjectKey);
+            QString reason = removedObject ? QStringLiteral("success") : QStringLiteral("unknown");
+            if (!removedObject) {
+                if (S3ObjectStore* s3Store = dynamic_cast<S3ObjectStore*>(objectStore.get())) {
+                    reason = s3Store->lastRemoveFailureReason();
+                    if (reason.isEmpty()) {
+                        reason = QStringLiteral("unknown");
+                    }
+                }
+            }
+            QJsonObject logMeta;
+            logMeta["transferId"] = obj["transferId"].toString();
+            logMeta["receiverId"] = obj["receiverId"].toString();
+            logMeta["objectKey"] = savedObjectKey;
+            logRedisLargeFileRouteEvent(QStringLiteral("object_delete"),
+                                        removedObject ? QStringLiteral("deleted") : QStringLiteral("retained"),
+                                        largeFileRouteLogMetadata(logMeta, objectStoreType(), QStringLiteral("delete")),
+                                        reason,
+                                        obj["fileSize"].toVariant().toLongLong());
+            if (removedObject) {
+                qWarning() << "Rolled back object-store attachment after queue persistence failure" << savedObjectKey;
+            } else {
+                qWarning() << "Object-store rollback delete failed after queue persistence failure"
+                           << savedObjectKey << reason;
+            }
         }
     };
 
