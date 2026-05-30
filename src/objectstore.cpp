@@ -154,6 +154,38 @@ LargeFileDeliveredReceiptDecision retainedLargeFileDecision(const QString& reaso
     decision.reason = reason;
     return decision;
 }
+
+QString s3ReasonFromText(const QString& text) {
+    const QString error = text.trimmed();
+    static const QMap<QString, QString> s3ReasonTokens = {
+        {QStringLiteral("timeout"), QStringLiteral("timeout")},
+        {QStringLiteral("network_error"), QStringLiteral("network")},
+        {QStringLiteral("tls_error"), QStringLiteral("tls")},
+        {QStringLiteral("auth_or_permission_error"), QStringLiteral("auth")},
+        {QStringLiteral("not_found"), QStringLiteral("not_found")},
+        {QStringLiteral("retryable_client_status"), QStringLiteral("retryable")},
+        {QStringLiteral("server_error"), QStringLiteral("server")},
+        {QStringLiteral("client_error"), QStringLiteral("client")},
+        {QStringLiteral("unknown_status"), QStringLiteral("unknown")},
+        {QStringLiteral("invalid_request"), QStringLiteral("unknown")}
+    };
+    for (auto it = s3ReasonTokens.constBegin(); it != s3ReasonTokens.constEnd(); ++it) {
+        if (error.contains(it.key(), Qt::CaseInsensitive)) {
+            return it.value();
+        }
+    }
+    if (error.contains(QStringLiteral("TLS"), Qt::CaseInsensitive)) {
+        return QStringLiteral("tls");
+    }
+    if (error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)) {
+        return QStringLiteral("timeout");
+    }
+    if (error.contains(QStringLiteral("network"), Qt::CaseInsensitive)
+        || error.contains(QStringLiteral("socket"), Qt::CaseInsensitive)) {
+        return QStringLiteral("network");
+    }
+    return QString();
+}
 }
 
 FilesystemObjectStore::FilesystemObjectStore(const QString& rootDir)
@@ -798,6 +830,10 @@ QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& res
     if (result.error.contains(QString::fromUtf8("哈希")) || result.error.contains(QStringLiteral("SHA-256"))) {
         return QStringLiteral("hash");
     }
+    const QString s3Reason = s3ReasonFromText(result.error);
+    if (!s3Reason.isEmpty()) {
+        return s3Reason;
+    }
     return QStringLiteral("validation_error");
 }
 
@@ -821,32 +857,9 @@ QString objectStoreWriteFailureReasonForLog(const QString& storeType,
     const QString normalizedStoreType = normalizeObjectStoreType(storeType);
     const QString error = writeError.trimmed();
     if (normalizedStoreType == QStringLiteral("s3")) {
-        static const QMap<QString, QString> s3ReasonTokens = {
-            {QStringLiteral("timeout"), QStringLiteral("timeout")},
-            {QStringLiteral("network_error"), QStringLiteral("network")},
-            {QStringLiteral("tls_error"), QStringLiteral("tls")},
-            {QStringLiteral("auth_or_permission_error"), QStringLiteral("auth")},
-            {QStringLiteral("not_found"), QStringLiteral("not_found")},
-            {QStringLiteral("retryable_client_status"), QStringLiteral("retryable")},
-            {QStringLiteral("server_error"), QStringLiteral("server")},
-            {QStringLiteral("client_error"), QStringLiteral("client")},
-            {QStringLiteral("unknown_status"), QStringLiteral("unknown")},
-            {QStringLiteral("invalid_request"), QStringLiteral("unknown")}
-        };
-        for (auto it = s3ReasonTokens.constBegin(); it != s3ReasonTokens.constEnd(); ++it) {
-            if (error.contains(it.key(), Qt::CaseInsensitive)) {
-                return it.value();
-            }
-        }
-        if (error.contains(QStringLiteral("TLS"), Qt::CaseInsensitive)) {
-            return QStringLiteral("tls");
-        }
-        if (error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)) {
-            return QStringLiteral("timeout");
-        }
-        if (error.contains(QStringLiteral("network"), Qt::CaseInsensitive)
-            || error.contains(QStringLiteral("socket"), Qt::CaseInsensitive)) {
-            return QStringLiteral("network");
+        const QString s3Reason = s3ReasonFromText(error);
+        if (!s3Reason.isEmpty()) {
+            return s3Reason;
         }
     }
 

@@ -63,7 +63,7 @@ TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本
 
 任选一个失败注入方式，每次只改一个变量，便于定位：
 
-- 停止 MinIO 或断开网络，验证上传、HEAD、GET 或 DELETE 失败时固定 reason 聚合为 `timeout`、`network`、`retryable`、`server` 或 `unknown`。
+- 停止 MinIO 或断开网络，验证上传、HEAD、GET 或 DELETE 失败时固定 reason 聚合为 `timeout`、`network`、`retryable`、`server` 或 `unknown`；HEAD/GET 校验失败不应退回泛化的 `validation_error`。
 - 把 access key 或 secret key 改为无效值，验证 reason 聚合为 `auth`。
 - 删除对象或改动对象内容，验证远端发布 `large_file_failed`，reason 聚合为 `not_found`、`size` 或 `hash`。
 - 断开接收端客户端，验证源实例保留离线附件兜底，后续接收者回源实例登录时仍可回放。

@@ -700,6 +700,22 @@ int main() {
                     && s3ValidationFailureReasonForLog(validateS3ObjectBody(QByteArrayLiteral("payload"), 7, sha256Hex(QByteArrayLiteral("other"))))
                         == QStringLiteral("hash"),
                 "s3 validation failure reason helper should expose stable size/hash reasons") && ok;
+    ObjectStore::ValidationResult s3HeadNetworkValidation;
+    s3HeadNetworkValidation.error = QStringLiteral("S3 HEAD 请求失败: network_error socket closed");
+    ObjectStore::ValidationResult s3HeadTimeoutValidation;
+    s3HeadTimeoutValidation.error = QStringLiteral("S3 HEAD 请求失败: timeout S3 request timed out");
+    ObjectStore::ValidationResult s3GetTlsValidation;
+    s3GetTlsValidation.error = QStringLiteral("S3 GET 请求失败: tls_error temporary-session-token");
+    ObjectStore::ValidationResult s3GetAuthValidation;
+    s3GetAuthValidation.error = QStringLiteral("S3 GET 请求失败: auth_or_permission_error");
+    ObjectStore::ValidationResult s3GetNotFoundValidation;
+    s3GetNotFoundValidation.error = QStringLiteral("S3 GET 请求失败: not_found");
+    ok = expect(s3ValidationFailureReasonForLog(s3HeadNetworkValidation) == QStringLiteral("network")
+                    && s3ValidationFailureReasonForLog(s3HeadTimeoutValidation) == QStringLiteral("timeout")
+                    && s3ValidationFailureReasonForLog(s3GetTlsValidation) == QStringLiteral("tls")
+                    && s3ValidationFailureReasonForLog(s3GetAuthValidation) == QStringLiteral("auth")
+                    && s3ValidationFailureReasonForLog(s3GetNotFoundValidation) == QStringLiteral("not_found"),
+                "s3 validation failure reason helper should classify HEAD/GET request failures") && ok;
     ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
                                                     false,
                                                     QStringLiteral("S3 endpoint secret should not leak"),
