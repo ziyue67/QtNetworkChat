@@ -165,9 +165,13 @@ QByteArray redisRawMessageEventPayload(const QJsonObject& message) {
 class SharedMemoryObjectStore final : public ObjectStore {
 public:
     explicit SharedMemoryObjectStore(QMap<QString, QByteArray>* objects,
-                                     QString validationFailureReason = QString())
+                                     QString validationFailureReason = QString(),
+                                     QString openFailureReason = QString(),
+                                     QString removeFailureReason = QString())
         : m_objects(objects)
-        , m_validationFailureReason(std::move(validationFailureReason)) {
+        , m_validationFailureReason(std::move(validationFailureReason))
+        , m_openFailureReason(std::move(openFailureReason))
+        , m_removeFailureReason(std::move(removeFailureReason)) {
     }
 
     bool writeObject(const QByteArray& data,
@@ -219,19 +223,39 @@ public:
     }
 
     std::unique_ptr<QIODevice> openObject(const QString& objectKey) const override {
+        m_lastOpenFailureReason.clear();
+        if (!m_openFailureReason.isEmpty()) {
+            m_lastOpenFailureReason = m_openFailureReason;
+            return {};
+        }
         if (!m_objects || !m_objects->contains(objectKey)) {
+            m_lastOpenFailureReason = QStringLiteral("not_found");
             return {};
         }
         auto buffer = std::make_unique<QBuffer>();
         buffer->setData(m_objects->value(objectKey));
         if (!buffer->open(QIODevice::ReadOnly)) {
+            m_lastOpenFailureReason = QStringLiteral("unknown");
             return {};
         }
         return buffer;
     }
 
+    QString lastOpenFailureReason() const override {
+        return m_lastOpenFailureReason;
+    }
+
     bool removeObject(const QString& objectKey) const override {
+        m_lastRemoveFailureReason.clear();
+        if (!m_removeFailureReason.isEmpty()) {
+            m_lastRemoveFailureReason = m_removeFailureReason;
+            return false;
+        }
         return m_objects && m_objects->remove(objectKey) > 0;
+    }
+
+    QString lastRemoveFailureReason() const override {
+        return m_lastRemoveFailureReason;
     }
 
     int cleanupExpired(qint64 ttlMs, QStringList* removedKeys = nullptr) const override {
@@ -243,6 +267,10 @@ public:
 private:
     QMap<QString, QByteArray>* m_objects = nullptr;
     QString m_validationFailureReason;
+    QString m_openFailureReason;
+    QString m_removeFailureReason;
+    mutable QString m_lastOpenFailureReason;
+    mutable QString m_lastRemoveFailureReason;
 };
 }
 
@@ -514,12 +542,21 @@ int main(int argc, char** argv) {
     qputenv("QTNETWORKCHAT_DELIVERED_RECEIPT_DIR", receiptSummaryDir.path().toUtf8());
     QMap<QString, QByteArray> injectedS3Objects;
     QString injectedS3ValidationFailureReason;
-    auto injectedS3Factory = [&objectRoot, &injectedS3Objects, &injectedS3ValidationFailureReason](QString* error) -> std::unique_ptr<ObjectStore> {
+    QString injectedS3OpenFailureReason;
+    QString injectedS3RemoveFailureReason;
+    auto injectedS3Factory = [&objectRoot,
+                              &injectedS3Objects,
+                              &injectedS3ValidationFailureReason,
+                              &injectedS3OpenFailureReason,
+                              &injectedS3RemoveFailureReason](QString* error) -> std::unique_ptr<ObjectStore> {
         if (error) error->clear();
         if (normalizeObjectStoreType(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_STORE"))) == QStringLiteral("filesystem")) {
             return std::make_unique<FilesystemObjectStore>(objectRoot.path());
         }
-        return std::make_unique<SharedMemoryObjectStore>(&injectedS3Objects, injectedS3ValidationFailureReason);
+        return std::make_unique<SharedMemoryObjectStore>(&injectedS3Objects,
+                                                         injectedS3ValidationFailureReason,
+                                                         injectedS3OpenFailureReason,
+                                                         injectedS3RemoveFailureReason);
     };
 
     QList<QByteArray> publishedMessagePayloads;
@@ -1193,6 +1230,8 @@ int main(int argc, char** argv) {
     qputenv("QTNETWORKCHAT_OBJECT_STORE", "s3");
     injectedS3Objects.clear();
     injectedS3ValidationFailureReason.clear();
+    injectedS3OpenFailureReason.clear();
+    injectedS3RemoveFailureReason.clear();
     const QString s3ValidationFailureFileName = "redis-s3-validation-failure.bin";
     const QString s3ValidationFailurePath = transferDir.filePath(s3ValidationFailureFileName);
     const QByteArray s3ValidationFailurePayload = makePatternPayload(1024 * 1024 + 12288);
@@ -1267,6 +1306,88 @@ int main(int argc, char** argv) {
     ok = expect(injectedS3Objects.contains(s3ValidationFailureObjectKey),
                 "source injected S3 fallback object should remain after remote failure") && ok;
     injectedS3ValidationFailureReason.clear();
+
+    injectedS3Objects.clear();
+    injectedS3OpenFailureReason = QStringLiteral("network");
+    const QString s3OpenFailureFileName = "redis-s3-open-failure.bin";
+    const QString s3OpenFailurePath = transferDir.filePath(s3OpenFailureFileName);
+    const QByteArray s3OpenFailurePayload = makePatternPayload(1024 * 1024 + 16384);
+    QFile s3OpenFailureFile(s3OpenFailurePath);
+    ok = expect(s3OpenFailureFile.open(QIODevice::WriteOnly),
+                "injected S3 open failure transfer file should open for writing") && ok;
+    if (s3OpenFailureFile.isOpen()) {
+        ok = expect(s3OpenFailureFile.write(s3OpenFailurePayload) == s3OpenFailurePayload.size(),
+                    "injected S3 open failure transfer file should be written") && ok;
+        s3OpenFailureFile.close();
+    }
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    ok = expect(alice.sendFile(s3OpenFailurePath, "960002"),
+                "alice should publish an injected S3 open failure offer") && ok;
+    ok = expect(waitFor([&] {
+        return !findLargeFileOffer(s3OpenFailureFileName).isEmpty();
+    }), "injected S3 open failure file should publish an offer") && ok;
+    const QJsonObject s3OpenFailureOffer = findLargeFileOffer(s3OpenFailureFileName);
+    const QString s3OpenFailureObjectKey = s3OpenFailureOffer["objectKey"].toString();
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_failed", QString(), s3OpenFailureObjectKey).isEmpty();
+    }), "remote server should publish failed for injected S3 open errors") && ok;
+    ok = expect(findPublishedEvent("large_file_failed", QString(), s3OpenFailureObjectKey)["reason"].toString()
+                    == QStringLiteral("network"),
+                "injected S3 open failure should publish a fixed network reason") && ok;
+    ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=offer_read"),
+                                 QStringLiteral("result=rejected"),
+                                 QStringLiteral("reason=network"),
+                                 QStringLiteral("storeType=s3"),
+                                 QStringLiteral("operation=read"),
+                                 QStringLiteral("objectKey=") + s3OpenFailureObjectKey});
+    }), "remote server should log injected S3 open failure with safe fixed metadata") && ok;
+    ok = expect(!waitFor([&] {
+        return !findPublishedEvent("large_file_claim", QString(), s3OpenFailureObjectKey).isEmpty()
+            || bobFileNames.contains(s3OpenFailureFileName);
+    }, 800), "S3 open failures should not be claimed or delivered") && ok;
+    injectedS3OpenFailureReason.clear();
+
+    injectedS3Objects.clear();
+    injectedS3RemoveFailureReason = QStringLiteral("server");
+    const QString s3DeleteFailureFileName = "redis-s3-delete-failure.bin";
+    const QString s3DeleteFailurePath = transferDir.filePath(s3DeleteFailureFileName);
+    const QByteArray s3DeleteFailurePayload = makePatternPayload(1024 * 1024 + 24576);
+    QFile s3DeleteFailureFile(s3DeleteFailurePath);
+    ok = expect(s3DeleteFailureFile.open(QIODevice::WriteOnly),
+                "injected S3 delete failure transfer file should open for writing") && ok;
+    if (s3DeleteFailureFile.isOpen()) {
+        ok = expect(s3DeleteFailureFile.write(s3DeleteFailurePayload) == s3DeleteFailurePayload.size(),
+                    "injected S3 delete failure transfer file should be written") && ok;
+        s3DeleteFailureFile.close();
+    }
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    ok = expect(alice.sendFile(s3DeleteFailurePath, "960002"),
+                "alice should publish an injected S3 delete failure offer") && ok;
+    ok = expect(waitFor([&] {
+        return !findLargeFileOffer(s3DeleteFailureFileName).isEmpty();
+    }), "injected S3 delete failure file should publish an offer") && ok;
+    const QJsonObject s3DeleteFailureOffer = findLargeFileOffer(s3DeleteFailureFileName);
+    const QString s3DeleteFailureObjectKey = s3DeleteFailureOffer["objectKey"].toString();
+    ok = expect(waitFor([&] {
+        return bobFileNames.contains(s3DeleteFailureFileName) && bobFilePayloads.contains(s3DeleteFailurePayload);
+    }, 9000), "bob should receive the injected S3 delete failure transfer before cleanup") && ok;
+    ok = expect(waitFor([&] {
+        return !findPublishedEvent("large_file_delivered", QString(), s3DeleteFailureObjectKey).isEmpty();
+    }), "remote server should publish delivered before injected S3 delete failure") && ok;
+    ok = expect(waitFor([&] {
+        return routeLogContains({QStringLiteral("event=object_delete"),
+                                 QStringLiteral("result=retained"),
+                                 QStringLiteral("reason=server"),
+                                 QStringLiteral("storeType=s3"),
+                                 QStringLiteral("operation=delete"),
+                                 QStringLiteral("objectKey=") + s3DeleteFailureObjectKey});
+    }), "source server should log injected S3 delete failure with a fixed server reason") && ok;
+    ok = expect(injectedS3Objects.contains(s3DeleteFailureObjectKey),
+                "injected S3 object should remain when delete fails") && ok;
+    injectedS3RemoveFailureReason.clear();
     qputenv("QTNETWORKCHAT_OBJECT_STORE", "filesystem");
 
     const QString failedFallbackReceiverId = "960010";

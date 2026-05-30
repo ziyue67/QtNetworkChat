@@ -159,12 +159,12 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档、治理入口编排、统一 alert summary、告警聚合、健康检查、不健康通知、完整样例管线、服务端 offer storeType 一致性边界、S3 GET/open 失败 reason 接线、S3 DELETE/remove 失败 reason 接线、远端对象下发阶段 `offer_delivery operation=deliver` 固定 reason 日志和服务端注入式 S3 跨实例失败兜底测试已完成；下一步转向更大的 Redis/S3 治理功能包，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档、治理入口编排、统一 alert summary、告警聚合、健康检查、不健康通知、完整样例管线、服务端 offer storeType 一致性边界、S3 GET/open 失败 reason 接线、S3 DELETE/remove 失败 reason 接线、远端对象下发阶段 `offer_delivery operation=deliver` 固定 reason 日志、服务端注入式 S3 跨实例失败兜底测试和 GET/DELETE 失败组合测试已完成；下一步转向更大的 Redis/S3 治理功能包，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
 - 已实现仅测试使用的 `InMemoryObjectStore`，复用 `ObjectStore` 契约测试，覆盖写入、读取、删除、size/hash 不一致和 TTL no-op 行为。
-- 服务端集成测试不连接真实 S3；`Server::setObjectStoreFactoryForTesting()` 可注入共享内存 ObjectStore 替身，在 `QTNETWORKCHAT_OBJECT_STORE=s3` 下复用真实跨实例 offer/claim/failed 路由，覆盖源实例写入、远端校验失败固定 reason、route log 脱敏和源实例兜底保留。
+- 服务端集成测试不连接真实 S3；`Server::setObjectStoreFactoryForTesting()` 可注入共享内存 ObjectStore 替身，在 `QTNETWORKCHAT_OBJECT_STORE=s3` 下复用真实跨实例 offer/claim/failed/delivered 路由，覆盖源实例写入、远端校验失败、GET/open 失败、DELETE/remove 失败、route log 脱敏和源实例兜底保留。`ObjectStore` 通用接口已暴露 `lastOpenFailureReason()` 与 `lastRemoveFailureReason()`，服务端不再只依赖具体 `S3ObjectStore` 类型也能保留固定 reason。
 - 真实 MinIO 端到端验证已提供可选 `scripts/minio-s3-smoke.ps1`，可用 Docker 自动启动本地 MinIO 或通过 `-SkipContainer` 连接已有 MinIO；脚本会用 SigV4 对 bucket 创建和对象 PUT/HEAD/GET/DELETE 做手动 smoke，并输出 QtNetworkChat 所需环境变量示例。该脚本不纳入默认 CTest 前置条件。
 - 启用真实后端前必须先跑 smoke 脚本确认 endpoint、bucket、access key、secret key、region 和 prefix 可用，再设置 `QTNETWORKCHAT_OBJECT_STORE=s3` 与 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 启动服务端。真实后端仍必须遵守离线兜底：任何 S3 上传、下载、校验、删除、TLS、超时或凭据错误都发布固定 reason 并保留源实例离线附件队列。
 - 手动验收日志只检查 `redis_large_file_route` 的 `event/result/reason/objectKey/receiverId/fileHash/bytes/storeType/operation` 等逻辑字段；不得输出 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。默认 CTest、CI 和 smoke 脚本都不要求真实 S3 长驻运行。
@@ -279,7 +279,8 @@
 72. 已完成：补 S3 GET/open 失败和 DELETE/remove 失败 route log 边界，真实后端读取与清理失败会以固定 reason 进入治理分析。
 73. 已完成：补远端对象下发阶段失败 route log 边界，客户端断开、分片拒绝、ACK 超时和对象读取异常会输出 `offer_delivery operation=deliver` 固定 reason，并接入 S3 request result 分析脚本与跨实例集成测试。
 74. 已完成：补服务端注入式 ObjectStore 工厂和 S3 跨实例失败兜底集成测试，默认不连接真实 S3/MinIO；注入替身可模拟 `storeType=s3` 写入成功、远端 TLS 校验失败、`offer_validation operation=validate reason=tls` 日志、`failed_received operation=fallback reason=tls` 源实例兜底保留。
-75. 下一步：继续沿服务端真实后端稳定化推进，例如扩展注入替身覆盖 S3 写入失败、GET/open 失败、DELETE/remove 失败的跨实例端到端组合，或做批量失败压测摘要和治理 UI/CLI 消费入口。
+75. 已完成：补 ObjectStore 通用 open/remove 失败 reason 接口和 S3 注入式组合测试，覆盖 `offer_read operation=read reason=network`、`object_delete operation=delete reason=server`、远端不 claim/deliver 读取失败对象，以及删除失败时对象保留。
+76. 下一步：继续沿服务端真实后端稳定化推进，例如扩展注入替身覆盖 S3 写入失败和批量失败压测摘要，或做治理 UI/CLI 消费入口。
 
 ## 当前保护边界
 
@@ -288,7 +289,7 @@
 - 已有测试覆盖源实例为大文件和编码超限文件发布小体积 `large_file_offer`，且 offer 指向对象的 size/hash 与原始附件一致。
 - 已有测试覆盖远端实例仅在本地在线收件人存在时认领 `large_file_offer`，并从 filesystem ObjectStore 校验后分片下发给客户端。
 - 已有测试覆盖 `large_file_offer.storeType`，远端只消费本地配置匹配的对象后端；unsupported/mismatch storeType 会固定 reason 拒绝并保留源实例离线兜底。
-- 已有测试覆盖服务端注入式 S3 替身，`storeType=s3` 的远端校验失败会发布固定 reason，并且源实例 `failed_received` 日志确认离线兜底保留。
+- 已有测试覆盖服务端注入式 S3 替身，`storeType=s3` 的远端校验、读取和删除失败会发布固定 reason，并且源实例 `failed_received` 或 `object_delete` 日志确认兜底保留。
 - 已有测试覆盖远端完整 ACK 后发布 `large_file_delivered`，源实例清理对应对象并避免收件人回源实例后重复收到已跨实例投递的大文件。
 - 已有测试覆盖远端对象下发阶段固定 reason 日志，接收端拒绝分片时 `large_file_failed` 保留协议细节，而 `redis_large_file_route event=offer_delivery operation=deliver` 只输出 `chunk-rejected` 固定桶。
 - 已有测试覆盖对象缺失时远端发布 `large_file_failed` 且不 claim、不下发，并覆盖源实例收到失败事件后继续保留对象和离线兜底、后续可回源实例回放。

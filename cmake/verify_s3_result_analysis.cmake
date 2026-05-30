@@ -23,7 +23,9 @@ file(WRITE "${SAMPLE_LOG}"
 "2025-05-30T10:00:10 redis_large_file_route event=offer_delivery result=failed transferId=t11 objectKey=xyz123abc456 receiverId=user12 fileHash=e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0 storeType=s3 operation=deliver reason=receiver-disconnected\n"
 "2025-05-30T10:00:11 redis_large_file_route event=offer_validation result=rejected transferId=t12 objectKey=abc789s3tls receiverId=user13 fileHash=f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1 storeType=s3 operation=validate reason=tls\n"
 "2025-05-30T10:00:12 redis_large_file_route event=failed_received result=fallback-retained transferId=t12 objectKey=abc789s3tls receiverId=user13 fileHash=f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1 storeType=s3 operation=fallback reason=tls\n"
-"2025-05-30T10:00:13 redis_large_file_route event=failed result=skipped transferId=t8 objectKey=klm789nop012 receiverId=user9 fileHash=b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7 storeType=filesystem operation=PUT reason=success\n"
+"2025-05-30T10:00:13 redis_large_file_route event=offer_read result=rejected transferId=t13 objectKey=readfail123 receiverId=user14 fileHash=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef storeType=s3 operation=read reason=network\n"
+"2025-05-30T10:00:14 redis_large_file_route event=object_delete result=retained transferId=t14 objectKey=deletefail123 receiverId=user15 fileHash=123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0 storeType=s3 operation=delete reason=server\n"
+"2025-05-30T10:00:15 redis_large_file_route event=failed result=skipped transferId=t8 objectKey=klm789nop012 receiverId=user9 fileHash=b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7 storeType=filesystem operation=PUT reason=success\n"
 )
 
 execute_process(
@@ -64,14 +66,14 @@ file(READ "${SUMMARY_OUT}" summary_content)
 string(JSON s3_lines GET "${summary_content}" "s3LineCount")
 string(JSON route_lines GET "${summary_content}" "routeLineCount")
 
-if(NOT s3_lines EQUAL 13)
+if(NOT s3_lines EQUAL 15)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Expected s3LineCount=13, got ${s3_lines}")
+    message(FATAL_ERROR "Expected s3LineCount=15, got ${s3_lines}")
 endif()
 
-if(NOT route_lines EQUAL 14)
+if(NOT route_lines EQUAL 16)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Expected routeLineCount=14, got ${route_lines}")
+    message(FATAL_ERROR "Expected routeLineCount=16, got ${route_lines}")
 endif()
 
 file(READ "${ALERT_OUT}" alert_content)
@@ -86,9 +88,9 @@ if(alert_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected alert ok=false because timeout/auth warnings are present")
 endif()
-if(NOT alert_s3_lines EQUAL 13)
+if(NOT alert_s3_lines EQUAL 15)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Expected alert metrics s3LineCount=13, got ${alert_s3_lines}")
+    message(FATAL_ERROR "Expected alert metrics s3LineCount=15, got ${alert_s3_lines}")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

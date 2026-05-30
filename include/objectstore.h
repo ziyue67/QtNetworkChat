@@ -32,7 +32,9 @@ public:
                                             qint64 expectedSize,
                                             const QString& expectedHash) const = 0;
     virtual std::unique_ptr<QIODevice> openObject(const QString& objectKey) const = 0;
+    virtual QString lastOpenFailureReason() const { return {}; }
     virtual bool removeObject(const QString& objectKey) const = 0;
+    virtual QString lastRemoveFailureReason() const { return {}; }
     virtual int cleanupExpired(qint64 ttlMs, QStringList* removedKeys = nullptr) const = 0;
 };
 
@@ -154,9 +156,9 @@ public:
                                     qint64 expectedSize,
                                     const QString& expectedHash) const override;
     std::unique_ptr<QIODevice> openObject(const QString& objectKey) const override;
-    QString lastOpenFailureReason() const;
+    QString lastOpenFailureReason() const override;
     bool removeObject(const QString& objectKey) const override;
-    QString lastRemoveFailureReason() const;
+    QString lastRemoveFailureReason() const override;
     int cleanupExpired(qint64 ttlMs, QStringList* removedKeys = nullptr) const override;
 
 private:

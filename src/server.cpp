@@ -1924,11 +1924,9 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
     std::unique_ptr<QIODevice> file = objectStore->openObject(objectKey);
     if (!file || !file->isOpen()) {
         QString reason = QStringLiteral("object-open-failed");
-        if (S3ObjectStore* s3Store = dynamic_cast<S3ObjectStore*>(objectStore.get())) {
-            const QString s3Reason = s3Store->lastOpenFailureReason();
-            if (!s3Reason.isEmpty()) {
-                reason = s3Reason;
-            }
+        const QString storeReason = objectStore->lastOpenFailureReason();
+        if (!storeReason.isEmpty()) {
+            reason = storeReason;
         }
         qWarning() << "Rejected large file offer because object open failed"
                    << objectKey << reason;
@@ -2818,13 +2816,11 @@ Server::LargeFileCleanupResult Server::cleanupDeliveredRedisLargeFile(const QJso
         result.objectDeleted = objectStore->removeObject(objectKey);
         if (result.objectDeleted) {
             result.objectDeleteReason = QStringLiteral("success");
-        } else if (S3ObjectStore* s3Store = dynamic_cast<S3ObjectStore*>(objectStore.get())) {
-            result.objectDeleteReason = s3Store->lastRemoveFailureReason();
+        } else {
+            result.objectDeleteReason = objectStore->lastRemoveFailureReason();
             if (result.objectDeleteReason.isEmpty()) {
                 result.objectDeleteReason = QStringLiteral("unknown");
             }
-        } else {
-            result.objectDeleteReason = QStringLiteral("unknown");
         }
     }
 
@@ -3042,11 +3038,9 @@ void Server::saveOfflineMessage(const Message& msg) const {
             const bool removedObject = objectStore->removeObject(savedObjectKey);
             QString reason = removedObject ? QStringLiteral("success") : QStringLiteral("unknown");
             if (!removedObject) {
-                if (S3ObjectStore* s3Store = dynamic_cast<S3ObjectStore*>(objectStore.get())) {
-                    reason = s3Store->lastRemoveFailureReason();
-                    if (reason.isEmpty()) {
-                        reason = QStringLiteral("unknown");
-                    }
+                reason = objectStore->lastRemoveFailureReason();
+                if (reason.isEmpty()) {
+                    reason = QStringLiteral("unknown");
                 }
             }
             QJsonObject logMeta;
