@@ -8,6 +8,8 @@ param(
 
     [int]$WarnSensitiveHits = 0,
 
+    [string]$AlertSummaryPath,
+
     [switch]$NoFailOnWarning
 )
 
@@ -112,6 +114,30 @@ foreach ($summary in ($summaries | Sort-Object path)) {
         $summary.deliveredWithoutCleanup,
         $summary.reconcileRetained,
         $summary.sensitiveHits)
+}
+
+if (-not [string]::IsNullOrWhiteSpace($AlertSummaryPath)) {
+    $resolvedAlertSummaryPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($AlertSummaryPath)
+    $alertParent = Split-Path -Parent $resolvedAlertSummaryPath
+    if (-not [string]::IsNullOrWhiteSpace($alertParent)) {
+        New-Item -ItemType Directory -Path $alertParent -Force | Out-Null
+    }
+
+    [pscustomobject]@{
+        kind = "large-file-route-summary"
+        ok = ($warnings.Count -eq 0)
+        warnings = @($warnings)
+        metrics = [pscustomobject]@{
+            files = $summaries.Count
+            routeLineCount = $routeLineCount
+            routeKeys = $routeKeys
+            failedFallbackRetained = $failedFallbackRetained
+            failedWithoutFallback = $failedWithoutFallback
+            deliveredWithoutCleanup = $deliveredWithoutCleanup
+            reconcileRetained = $reconcileRetained
+            sensitiveHits = $sensitiveHits
+        }
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $resolvedAlertSummaryPath -Encoding UTF8
 }
 
 if ($warnings.Count -gt 0) {

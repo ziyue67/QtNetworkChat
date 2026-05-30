@@ -7,6 +7,7 @@ file(MAKE_DIRECTORY "${TEMP_DIR}")
 
 set(SUMMARY_CLEAN "${TEMP_DIR}/input_summary_clean.json")
 set(SUMMARY_WARN "${TEMP_DIR}/input_summary_warn.json")
+set(ALERT_OUT "${TEMP_DIR}/route-alert-summary.json")
 
 # Clean summary: no thresholds exceeded
 file(WRITE "${SUMMARY_CLEAN}"
@@ -65,6 +66,7 @@ execute_process(
         -WarnFailedWithoutFallback 0
         -WarnDeliveredWithoutCleanup 0
         -WarnSensitiveHits 0
+        -AlertSummaryPath "${ALERT_OUT}"
         -NoFailOnWarning
     RESULT_VARIABLE result2
     OUTPUT_VARIABLE output2
@@ -81,6 +83,26 @@ endif()
 if(NOT result2 EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Route summary alerts (warning case) exited with code ${result2}")
+endif()
+if(NOT EXISTS "${ALERT_OUT}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Route alert summary JSON was not created: ${ALERT_OUT}")
+endif()
+file(READ "${ALERT_OUT}" alert_content)
+string(JSON alert_kind GET "${alert_content}" "kind")
+string(JSON alert_ok GET "${alert_content}" "ok")
+string(JSON alert_failed_without_fallback GET "${alert_content}" "metrics" "failedWithoutFallback")
+if(NOT alert_kind STREQUAL "large-file-route-summary")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected route alert kind: ${alert_kind}")
+endif()
+if(alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected route alert ok=false because warnings are present")
+endif()
+if(NOT alert_failed_without_fallback EQUAL 1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected failedWithoutFallback=1, got ${alert_failed_without_fallback}")
 endif()
 
 # Test 3: warnings triggered without NoFailOnWarning should fail

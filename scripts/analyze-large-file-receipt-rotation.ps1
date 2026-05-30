@@ -6,6 +6,8 @@ param(
 
     [int]$WarnRetainedRecords = 0,
 
+    [string]$AlertSummaryPath,
+
     [switch]$NoFailOnWarning
 )
 
@@ -104,6 +106,28 @@ foreach ($summary in ($summaries | Sort-Object path)) {
         $summary.archivedRecords,
         $summary.sensitiveHits,
         $(if ([string]::IsNullOrWhiteSpace($summary.archivePath)) { "<none>" } else { $summary.archivePath }))
+}
+
+if (-not [string]::IsNullOrWhiteSpace($AlertSummaryPath)) {
+    $resolvedAlertSummaryPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($AlertSummaryPath)
+    $alertParent = Split-Path -Parent $resolvedAlertSummaryPath
+    if (-not [string]::IsNullOrWhiteSpace($alertParent)) {
+        New-Item -ItemType Directory -Path $alertParent -Force | Out-Null
+    }
+
+    [pscustomobject]@{
+        kind = "large-file-receipt-rotation"
+        ok = ($warnings.Count -eq 0)
+        warnings = @($warnings)
+        metrics = [pscustomobject]@{
+            files = $summaries.Count
+            totalRecords = $totalRecords
+            retainedRecords = $retainedRecords
+            archivedRecords = $archivedRecords
+            sensitiveHits = $sensitiveHits
+            dryRuns = $dryRuns
+        }
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $resolvedAlertSummaryPath -Encoding UTF8
 }
 
 if ($warnings.Count -gt 0) {

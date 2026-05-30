@@ -8,6 +8,7 @@ file(MAKE_DIRECTORY "${TEMP_DIR}")
 set(SUMMARY_IN "${TEMP_DIR}/rotation_summary.json")
 set(SUMMARY_IN2 "${TEMP_DIR}/rotation_summary2.json")
 set(SUMMARY_WARN "${TEMP_DIR}/rotation_summary_warn.json")
+set(ALERT_OUT "${TEMP_DIR}/rotation-alert-summary.json")
 
 # Clean summary: no built-in warnings
 file(WRITE "${SUMMARY_IN}"
@@ -81,7 +82,7 @@ endif()
 # Test 2: warnings triggered with NoFailOnWarning (built-in warning from warn file)
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -Command
-        "& '${SCRIPT_PATH}' -SummaryPath '${SUMMARY_IN}','${SUMMARY_WARN}' -WarnArchivedRecords 999 -WarnRetainedRecords 999 -NoFailOnWarning"
+        "& '${SCRIPT_PATH}' -SummaryPath '${SUMMARY_IN}','${SUMMARY_WARN}' -WarnArchivedRecords 999 -WarnRetainedRecords 999 -AlertSummaryPath '${ALERT_OUT}' -NoFailOnWarning"
     RESULT_VARIABLE result2
     OUTPUT_VARIABLE output2
     ERROR_VARIABLE error_output2
@@ -97,6 +98,26 @@ endif()
 if(NOT result2 EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Receipt rotation alerts (warning-tolerant case) exited with code ${result2}")
+endif()
+if(NOT EXISTS "${ALERT_OUT}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Receipt rotation alert summary JSON was not created: ${ALERT_OUT}")
+endif()
+file(READ "${ALERT_OUT}" alert_content)
+string(JSON alert_kind GET "${alert_content}" "kind")
+string(JSON alert_ok GET "${alert_content}" "ok")
+string(JSON alert_archived_records GET "${alert_content}" "metrics" "archivedRecords")
+if(NOT alert_kind STREQUAL "large-file-receipt-rotation")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected receipt rotation alert kind: ${alert_kind}")
+endif()
+if(alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected receipt rotation alert ok=false because warnings are present")
+endif()
+if(NOT alert_archived_records EQUAL 100)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected archivedRecords=100, got ${alert_archived_records}")
 endif()
 
 # Test 3: warnings triggered without NoFailOnWarning should fail

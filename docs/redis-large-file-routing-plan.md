@@ -175,6 +175,7 @@
 - 真实人工验收输出可用 `scripts/package-large-file-acceptance.ps1` 打包归档，输入包括 route log、route summary、S3 summary、对账输出、轮转摘要和结论 notes；脚本会在压缩前重新扫描 endpoint、bucket、object URL、凭据和签名字段，生成 `manifest.json` 记录输入、字节数、敏感命中数和只读说明，不连接 Redis/S3/MinIO，也不会修改离线队列、附件或对象。
 - 治理入口 `scripts/run-large-file-governance.ps1` 已可一键串联 route log 聚合、route summary 阈值告警、S3 request result 分析、delivered receipt 对账、可选 receipt 摘要轮转/告警和验收包打包；该入口不连接 Redis/S3/MinIO，不修改离线队列、附件或对象，只有显式传入 `-ReceiptRotationPath` 时治理脱敏 receipt 摘要文件。
 - Windows 计划任务入口 `scripts/register-large-file-governance-task.ps1` 已可为治理 runner 生成默认 preview 的启动脚本和 JSON 预览，只有显式 `-Register` 才创建或更新 Windows Scheduled Task；脚本会拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 和 Signature 等敏感字段进入任务参数；治理 runner 和计划任务 helper 都会在 receipt 轮转参数缺少 `ReceiptRotationPath` 时 fail-fast。
+- Route summary、S3 request result 和 receipt rotation 三类告警分析脚本已统一支持 `-AlertSummaryPath`，落盘 `kind/ok/warnings/metrics` 结构；治理入口会自动生成 `large-file-route-alert-summary.json`、`s3-request-results-alert-summary.json` 和 `receipt-rotation-alert-summary.json`，便于 Windows 计划任务和外部监控只读采集。
 
 ## 治理观测
 
@@ -262,7 +263,8 @@
 59. 已完成：补大文件治理入口脚本，可串联日志聚合、S3 reason 分析、delivered 对账、receipt 轮转告警和验收包打包；已加 CTest 覆盖 route log 输入、轮转、打包和 manifest。
 60. 已完成：补治理入口的 Windows 计划任务辅助脚本，默认只生成 preview 和 launcher，显式 `-Register` 才触碰系统计划任务，并加 CTest 覆盖命令生成和敏感字段拒绝。
 61. 已完成：补治理入口和计划任务 helper 的轮转参数 fail-fast 校验，避免设置保留条数、保留天数或压缩开关但缺少 `ReceiptRotationPath` 时静默跳过 receipt 保留策略。
-62. 下一步：清理重复的 operation 分析草稿，或补治理入口的输出目录/保留策略样例固化，继续保持默认 CTest 不依赖真实 S3/MinIO。
+62. 已完成：统一三类治理告警脚本的 alert summary 输出，治理入口会落盘 route/S3/receipt rotation 的 `kind/ok/warnings/metrics` JSON，便于计划任务采集。
+63. 下一步：清理重复的 operation 分析草稿，或补治理入口的输出目录/保留策略样例固化，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 

@@ -7,6 +7,7 @@ file(MAKE_DIRECTORY "${TEMP_DIR}")
 
 set(SAMPLE_LOG "${TEMP_DIR}/sample_route.log")
 set(SUMMARY_OUT "${TEMP_DIR}/summary.json")
+set(ALERT_OUT "${TEMP_DIR}/alert-summary.json")
 
 file(WRITE "${SAMPLE_LOG}"
 "2025-05-30T10:00:00 redis_large_file_route event=object_write result=skipped transferId=t1 objectKey=abc123def456 receiverId=user2 fileHash=a0f0e1d2c3b4a5968778695a4b3c2d1e0f1e2d3c4b5a697887766554433221100 storeType=s3 operation=PUT reason=timeout\n"
@@ -24,6 +25,7 @@ execute_process(
         -WarnTimeout 0
         -WarnAuth 0
         -SummaryPath "${SUMMARY_OUT}"
+        -AlertSummaryPath "${ALERT_OUT}"
         -NoFailOnWarning
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
@@ -46,6 +48,10 @@ if(NOT EXISTS "${SUMMARY_OUT}")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Summary JSON was not created: ${SUMMARY_OUT}")
 endif()
+if(NOT EXISTS "${ALERT_OUT}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Alert summary JSON was not created: ${ALERT_OUT}")
+endif()
 
 file(READ "${SUMMARY_OUT}" summary_content)
 string(JSON s3_lines GET "${summary_content}" "s3LineCount")
@@ -59,6 +65,23 @@ endif()
 if(NOT route_lines EQUAL 7)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected routeLineCount=7, got ${route_lines}")
+endif()
+
+file(READ "${ALERT_OUT}" alert_content)
+string(JSON alert_kind GET "${alert_content}" "kind")
+string(JSON alert_ok GET "${alert_content}" "ok")
+string(JSON alert_s3_lines GET "${alert_content}" "metrics" "s3LineCount")
+if(NOT alert_kind STREQUAL "s3-request-results")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected alert kind: ${alert_kind}")
+endif()
+if(alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected alert ok=false because timeout/auth warnings are present")
+endif()
+if(NOT alert_s3_lines EQUAL 6)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected alert metrics s3LineCount=6, got ${alert_s3_lines}")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

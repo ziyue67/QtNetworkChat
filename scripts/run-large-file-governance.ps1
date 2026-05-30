@@ -95,9 +95,12 @@ $resolvedOutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPa
 New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 
 $routeSummaryPath = Join-Path $resolvedOutputDir "large-file-route-summary.json"
+$routeAlertSummaryPath = Join-Path $resolvedOutputDir "large-file-route-alert-summary.json"
 $s3SummaryPath = Join-Path $resolvedOutputDir "s3-request-results-summary.json"
+$s3AlertSummaryPath = Join-Path $resolvedOutputDir "s3-request-results-alert-summary.json"
 $reconcileOutputDir = Join-Path $resolvedOutputDir "reconcile"
 $rotationSummaryPath = Join-Path $resolvedOutputDir "receipt-rotation-summary.json"
+$rotationAlertSummaryPath = Join-Path $resolvedOutputDir "receipt-rotation-alert-summary.json"
 $packageOutputDir = Join-Path $resolvedOutputDir "acceptance-package"
 $shouldPackageAcceptance = $PackageAcceptance -or -not [string]::IsNullOrWhiteSpace($PackagePath)
 if ([string]::IsNullOrWhiteSpace($PackagePath)) {
@@ -137,14 +140,14 @@ if ($hasRouteLogs) {
     Invoke-CheckedScript $routeLogAnalyzer $routeArgs (Join-Path $resolvedOutputDir "route-analysis.log")
 
     StepLabel "route summary alerts"
-    $routeSummaryArgs = @("-SummaryPath", $routeSummaryPath)
+    $routeSummaryArgs = @("-SummaryPath", $routeSummaryPath, "-AlertSummaryPath", $routeAlertSummaryPath)
     if ($NoFailOnWarning) {
         $routeSummaryArgs += "-NoFailOnWarning"
     }
     Invoke-CheckedScript $routeSummaryAnalyzer $routeSummaryArgs (Join-Path $resolvedOutputDir "route-summary-alerts.log")
 
     StepLabel "S3 request result analysis"
-    $s3Args = @("-Path") + $RouteLogPath + @("-SummaryPath", $s3SummaryPath)
+    $s3Args = @("-Path") + $RouteLogPath + @("-SummaryPath", $s3SummaryPath, "-AlertSummaryPath", $s3AlertSummaryPath)
     if ($NoFailOnWarning) {
         $s3Args += "-NoFailOnWarning"
     }
@@ -184,7 +187,7 @@ if (-not [string]::IsNullOrWhiteSpace($ReceiptRotationPath)) {
     Invoke-CheckedScript $receiptRotator $rotationArgs (Join-Path $resolvedOutputDir "receipt-rotation.log")
 
     StepLabel "receipt rotation alerts"
-    $rotationAlertArgs = @("-SummaryPath", $rotationSummaryPath)
+    $rotationAlertArgs = @("-SummaryPath", $rotationSummaryPath, "-AlertSummaryPath", $rotationAlertSummaryPath)
     if ($NoFailOnWarning) {
         $rotationAlertArgs += "-NoFailOnWarning"
     }
@@ -222,11 +225,14 @@ Write-Host ""
 Write-Host "outputs"
 if ($hasRouteLogs) {
     Write-Host ("  route summary: {0}" -f $routeSummaryPath)
+    Write-Host ("  route alert summary: {0}" -f $routeAlertSummaryPath)
     Write-Host ("  S3 summary: {0}" -f $s3SummaryPath)
+    Write-Host ("  S3 alert summary: {0}" -f $s3AlertSummaryPath)
 }
 Write-Host ("  reconcile dir: {0}" -f $reconcileOutputDir)
 if (Test-Path -LiteralPath $rotationSummaryPath) {
     Write-Host ("  rotation summary: {0}" -f $rotationSummaryPath)
+    Write-Host ("  rotation alert summary: {0}" -f $rotationAlertSummaryPath)
 }
 if (Test-Path -LiteralPath $PackagePath) {
     Write-Host ("  package: {0}" -f $PackagePath)

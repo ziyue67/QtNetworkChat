@@ -126,7 +126,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-route-summar
   -WarnDeliveredWithoutCleanup 0
 ```
 
-该脚本只读取 summary JSON；默认任何 `sensitiveHits > 0` 都会失败，`failedWithoutFallback` 或 `deliveredWithoutCleanup` 超过传入阈值也会非零退出。
+该脚本只读取 summary JSON；默认任何 `sensitiveHits > 0` 都会失败，`failedWithoutFallback` 或 `deliveredWithoutCleanup` 超过传入阈值也会非零退出。追加 `-AlertSummaryPath` 时会写出统一格式的告警 JSON，包含 `kind`、`ok`、`warnings` 和 `metrics`，便于 Windows 计划任务或外部监控直接采集。
 
 如果只需要关注真实 S3/MinIO 后端的失败 reason 分布，可直接分析 route log 中的 `storeType=s3` 行：
 
@@ -142,7 +142,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-s3-request-results.ps1 
   -WarnSize 0
 ```
 
-该脚本只读取日志，不连接 Redis 或 S3/MinIO；它会跳过 publish/reconcile 等控制面事件，只聚合对象请求相关 operation 的固定 reason 桶、operation 和 result，遇到未知 reason 或 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential、Signature 等敏感字段时默认失败。
+该脚本只读取日志，不连接 Redis 或 S3/MinIO；它会跳过 publish/reconcile 等控制面事件，只聚合对象请求相关 operation 的固定 reason 桶、operation 和 result，遇到未知 reason 或 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential、Signature 等敏感字段时默认失败。追加 `-AlertSummaryPath` 时同样会写出统一告警 JSON，`kind` 为 `s3-request-results`，`metrics` 包含 S3 route 行数、reason/operation/result/event:operation 计数和敏感命中数。
 
 ## 6. 可选 delivered 对账演练
 
@@ -203,7 +203,7 @@ powershell -ExecutionPolicy Bypass -File scripts/analyze-large-file-receipt-rota
   -WarnRetainedRecords 200000
 ```
 
-分析脚本只读取 summary JSON，汇总 retained/archived/sensitiveHits；若 `sensitiveHits > 0`、`archivedRecords > 0` 但没有 `archivePath`，或超过传入阈值，会默认以非零退出，便于计划任务或 CI 采集告警。
+分析脚本只读取 summary JSON，汇总 retained/archived/sensitiveHits；若 `sensitiveHits > 0`、`archivedRecords > 0` 但没有 `archivePath`，或超过传入阈值，会默认以非零退出，便于计划任务或 CI 采集告警。追加 `-AlertSummaryPath` 时会写出统一告警 JSON，`kind` 为 `large-file-receipt-rotation`，便于和 route summary、S3 request result 的告警输出并排归档。
 
 计划任务中也可以用环境变量提供默认值，命令行参数始终优先：
 
@@ -318,6 +318,6 @@ powershell -ExecutionPolicy Bypass -File scripts/run-large-file-governance.ps1 `
   -PackageAcceptance
 ```
 
-该入口仍不连接 Redis、S3/MinIO，不修改离线队列、附件或对象；只有传入 `-ReceiptRotationPath` 时会对脱敏 receipt 摘要文件执行本地轮转。默认任何敏感字段命中都会失败；`-NoFailOnWarning` 只允许阈值告警继续产出，不会放过敏感字段。
+该入口仍不连接 Redis、S3/MinIO，不修改离线队列、附件或对象；只有传入 `-ReceiptRotationPath` 时会对脱敏 receipt 摘要文件执行本地轮转。默认任何敏感字段命中都会失败；`-NoFailOnWarning` 只允许阈值告警继续产出，不会放过敏感字段。治理入口还会同时落盘 `large-file-route-alert-summary.json`、`s3-request-results-alert-summary.json` 和 `receipt-rotation-alert-summary.json`，三者都使用统一的 `kind/ok/warnings/metrics` 结构；计划任务可以只检查这些文件的 `ok` 字段和 `warnings` 列表，而不解析控制台文本。
 
 若任一失败路径没有保留离线兜底，或者日志/Redis/离线队列出现敏感配置，应立即关闭 `QTNETWORKCHAT_OBJECT_S3_ENABLE`，回退到默认 fail-closed 状态。

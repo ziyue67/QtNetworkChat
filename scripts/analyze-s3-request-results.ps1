@@ -18,6 +18,8 @@ param(
 
     [int]$WarnSensitiveHits = 0,
 
+    [string]$AlertSummaryPath,
+
     [switch]$NoFailOnWarning
 )
 
@@ -269,6 +271,29 @@ if (-not [string]::IsNullOrWhiteSpace($SummaryPath)) {
         sensitiveHits = $sensitiveHits.Count
         warnings = @($warnings)
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $resolvedSummaryPath -Encoding UTF8
+}
+
+if (-not [string]::IsNullOrWhiteSpace($AlertSummaryPath)) {
+    $resolvedAlertSummaryPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($AlertSummaryPath)
+    $alertParent = Split-Path -Parent $resolvedAlertSummaryPath
+    if (-not [string]::IsNullOrWhiteSpace($alertParent)) {
+        New-Item -ItemType Directory -Path $alertParent -Force | Out-Null
+    }
+
+    [pscustomobject]@{
+        kind = "s3-request-results"
+        ok = ($warnings.Count -eq 0)
+        warnings = @($warnings)
+        metrics = [pscustomobject]@{
+            routeLineCount = $routeLineCount
+            s3LineCount = $s3LineCount
+            sensitiveHits = $sensitiveHits.Count
+            reasonCounts = ConvertTo-CountObject $reasonCounts
+            operationCounts = ConvertTo-CountObject $operationCounts
+            resultCounts = ConvertTo-CountObject $resultCounts
+            eventOperationCounts = ConvertTo-CountObject $eventOperationCounts
+        }
+    } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $resolvedAlertSummaryPath -Encoding UTF8
 }
 
 if ($warnings.Count -gt 0) {

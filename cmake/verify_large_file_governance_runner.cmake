@@ -72,11 +72,14 @@ endif()
 
 foreach(expected_file
         "${OUTPUT_DIR}/large-file-route-summary.json"
+        "${OUTPUT_DIR}/large-file-route-alert-summary.json"
         "${OUTPUT_DIR}/s3-request-results-summary.json"
+        "${OUTPUT_DIR}/s3-request-results-alert-summary.json"
         "${OUTPUT_DIR}/reconcile/receipts.jsonl"
         "${OUTPUT_DIR}/reconcile/fallbacks.jsonl"
         "${OUTPUT_DIR}/reconcile/s3-analysis-summary.json"
         "${OUTPUT_DIR}/receipt-rotation-summary.json"
+        "${OUTPUT_DIR}/receipt-rotation-alert-summary.json"
         "${PACKAGE_PATH}")
     if(NOT EXISTS "${expected_file}")
         file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -113,6 +116,35 @@ string(JSON archived_records GET "${rotation_summary_content}" "archivedRecords"
 if(NOT archived_records EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected archivedRecords=1, got ${archived_records}")
+endif()
+
+file(READ "${OUTPUT_DIR}/s3-request-results-alert-summary.json" s3_alert_content)
+string(JSON s3_alert_kind GET "${s3_alert_content}" "kind")
+string(JSON s3_alert_ok GET "${s3_alert_content}" "ok")
+string(JSON s3_alert_lines GET "${s3_alert_content}" "metrics" "s3LineCount")
+if(NOT s3_alert_kind STREQUAL "s3-request-results")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected governance S3 alert kind: ${s3_alert_kind}")
+endif()
+if(NOT s3_alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance S3 alert ok=true because default thresholds do not warn on network")
+endif()
+if(NOT s3_alert_lines EQUAL 2)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance S3 alert s3LineCount=2, got ${s3_alert_lines}")
+endif()
+
+file(READ "${OUTPUT_DIR}/receipt-rotation-alert-summary.json" rotation_alert_content)
+string(JSON rotation_alert_kind GET "${rotation_alert_content}" "kind")
+string(JSON rotation_alert_ok GET "${rotation_alert_content}" "ok")
+if(NOT rotation_alert_kind STREQUAL "large-file-receipt-rotation")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected governance rotation alert kind: ${rotation_alert_kind}")
+endif()
+if(rotation_alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance rotation alert ok=false because archived/retained default thresholds are exceeded")
 endif()
 
 set(EXTRACT_DIR "${TEMP_DIR}/extracted")
