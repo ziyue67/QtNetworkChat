@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本和真实人工验收输出打包归档已完成；下一步转向下一条 Redis/S3 治理可观测性小切片，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档和治理入口编排已完成；下一步转向下一条 Redis/S3 治理可观测性小切片，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -173,6 +173,7 @@
 - 失败回退演练已补可选脚本 `scripts/s3-failure-drill.ps1`，默认只输出 network、auth、missing-object、receiver-disconnect 场景的注入方式、预期 reason 和兜底检查点；传入日志路径时复用日志分析器，不连接 Redis、S3/MinIO 或修改离线队列。
 - delivered 回执清理判定已补 `evaluateLargeFileDeliveredReceiptCleanup()` 纯函数和 CTest，运行时源实例清理逻辑复用该 helper；源实例可通过 `QTNETWORKCHAT_DELIVERED_RECEIPT_DIR` 显式追加脱敏 `delivered-receipts.jsonl` 摘要；只读对账原型脚本 `scripts/reconcile-large-file-delivery.ps1` 可读取 receipt 与源实例兜底 JSON/JSONL 摘要，输出候选 `cleaned`/`retained` 与固定 reason，`-EmitRouteLog` 可额外生成只读 `redis_large_file_route event=delivered_reconcile` 行供日志分析器聚合；`scripts/export-large-file-receipts.ps1` 可从安全 route log 导出 receipt 输入，`scripts/export-large-file-fallbacks.ps1` 可从离线队列摘要导出只含安全字段的 fallback 输入，`scripts/run-large-file-delivery-reconcile.ps1` 可用 `-RouteLogPath` 导出 receipt 或用 `-ReceiptPath` 直接消费持久化 receipt，并把后续步骤串成一键只读演练；`-RunS3Analysis` 会复用 `-RouteLogPath` 做 S3 request result 分析并落盘 `s3-analysis-summary.json`，使用 `-ReceiptPath` 时会明确拒绝该选项。`scripts/write-large-file-reconcile-sample.ps1 -RunReconcile -RunRotate -RunS3RequestAnalysis` 可生成不含 S3 配置或凭据的样例输入并直接演练对账、轮转和 S3 request result 分析，`scripts/rotate-large-file-receipts.ps1` 可按条数和天数轮转持久化 receipt，并把旧摘要归档为 JSONL 或 ZIP。脚本都会扫描输入中是否误带 endpoint、bucket、object URL、凭据或签名字段；不连接 Redis、S3/MinIO，也不会修改离线队列、附件或对象。后续治理任务应先复用这类只读输出，再由人工或显式任务决定是否触发真实清理。
 - 真实人工验收输出可用 `scripts/package-large-file-acceptance.ps1` 打包归档，输入包括 route log、route summary、S3 summary、对账输出、轮转摘要和结论 notes；脚本会在压缩前重新扫描 endpoint、bucket、object URL、凭据和签名字段，生成 `manifest.json` 记录输入、字节数、敏感命中数和只读说明，不连接 Redis/S3/MinIO，也不会修改离线队列、附件或对象。
+- 治理入口 `scripts/run-large-file-governance.ps1` 已可一键串联 route log 聚合、route summary 阈值告警、S3 request result 分析、delivered receipt 对账、可选 receipt 摘要轮转/告警和验收包打包；该入口不连接 Redis/S3/MinIO，不修改离线队列、附件或对象，只有显式传入 `-ReceiptRotationPath` 时治理脱敏 receipt 摘要文件。
 
 ## 治理观测
 
@@ -257,7 +258,8 @@
 56. 已完成：把 S3 request result 分析接入脱敏样例演练，`write-large-file-reconcile-sample.ps1 -RunS3RequestAnalysis` 可生成并验证 `sample-s3-request-summary.json`。
 57. 已完成：修复一键对账脚本的 `-RunS3Analysis`，现在复用真实 `-RouteLogPath` 生成 `s3-analysis-summary.json`，并在仅使用 `-ReceiptPath` 时明确拒绝 S3 route log 分析；已加 CTest 覆盖。
 58. 已完成：补真实人工验收输出打包/归档脚本，可归档 route log、summary、对账输出、轮转摘要和结论 notes，压缩前执行敏感字段扫描并生成 manifest；已加 CTest 覆盖成功打包和敏感字段拒绝。
-59. 下一步：清理重复的 operation 分析草稿，或补打包归档产物的 Windows 计划任务示例，继续保持默认 CTest 不依赖真实 S3/MinIO。
+59. 已完成：补大文件治理入口脚本，可串联日志聚合、S3 reason 分析、delivered 对账、receipt 轮转告警和验收包打包；已加 CTest 覆盖 route log 输入、轮转、打包和 manifest。
+60. 下一步：清理重复的 operation 分析草稿，或补治理入口的 Windows 计划任务示例，继续保持默认 CTest 不依赖真实 S3/MinIO。
 
 ## 当前保护边界
 

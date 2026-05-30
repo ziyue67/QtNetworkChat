@@ -280,4 +280,22 @@ powershell -ExecutionPolicy Bypass -File scripts/package-large-file-acceptance.p
 
 打包脚本只读取本地文件，会先扫描 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential、Signature 等敏感字段；默认发现命中会失败且不生成通过包。归档内会包含 `manifest.json`，记录输入文件、字节数、敏感命中数和只读说明；脚本不会连接 Redis、S3/MinIO，也不会修改队列、附件或对象。
 
+如果希望在人工验收或 Windows 计划任务里一次性完成日志聚合、S3 reason 分析、delivered 对账、receipt 轮转告警和验收包打包，可以使用治理入口脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-large-file-governance.ps1 `
+  -RouteLogPath ".\logs\source-server.log", ".\logs\remote-server.log" `
+  -QueuePath ".\logs\offline-queue.jsonl" `
+  -SourceInstanceId "source-instance-id" `
+  -ReceiptRotationPath ".\logs\delivered-receipts\delivered-receipts.jsonl" `
+  -OutputDir ".\logs\governance" `
+  -NotesPath ".\logs\acceptance-notes.txt" `
+  -EmitRouteLog `
+  -NoFailOnWarning `
+  -CompressRotationArchive `
+  -PackageAcceptance
+```
+
+该入口仍不连接 Redis、S3/MinIO，不修改离线队列、附件或对象；只有传入 `-ReceiptRotationPath` 时会对脱敏 receipt 摘要文件执行本地轮转。默认任何敏感字段命中都会失败；`-NoFailOnWarning` 只允许阈值告警继续产出，不会放过敏感字段。
+
 若任一失败路径没有保留离线兜底，或者日志/Redis/离线队列出现敏感配置，应立即关闭 `QTNETWORKCHAT_OBJECT_S3_ENABLE`，回退到默认 fail-closed 状态。

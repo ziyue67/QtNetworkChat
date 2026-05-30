@@ -328,4 +328,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-large-file-acceptance.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_acceptance_package.cmake
     )
+    add_test(
+        NAME LargeFileGovernanceRunner
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-large-file-governance.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_governance_runner.cmake
+    )
 endif()
