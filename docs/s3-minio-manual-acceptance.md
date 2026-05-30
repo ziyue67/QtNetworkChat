@@ -318,6 +318,36 @@ powershell -ExecutionPolicy Bypass -File scripts/run-large-file-governance.ps1 `
   -PackageAcceptance
 ```
 
-该入口仍不连接 Redis、S3/MinIO，不修改离线队列、附件或对象；只有传入 `-ReceiptRotationPath` 时会对脱敏 receipt 摘要文件执行本地轮转。默认任何敏感字段命中都会失败；`-NoFailOnWarning` 只允许阈值告警继续产出，不会放过敏感字段。治理入口还会同时落盘 `large-file-route-alert-summary.json`、`s3-request-results-alert-summary.json` 和 `receipt-rotation-alert-summary.json`，三者都使用统一的 `kind/ok/warnings/metrics` 结构；计划任务可以只检查这些文件的 `ok` 字段和 `warnings` 列表，而不解析控制台文本。
+该入口仍不连接 Redis、S3/MinIO，不修改离线队列、附件或对象；只有传入 `-ReceiptRotationPath` 时会对脱敏 receipt 摘要文件执行本地轮转。默认任何敏感字段命中都会失败；`-NoFailOnWarning` 只允许阈值告警继续产出，不会放过敏感字段。治理入口还会同时落盘 `large-file-route-alert-summary.json`、`s3-request-results-alert-summary.json` 和 `receipt-rotation-alert-summary.json`，三者都使用统一的 `kind/ok/warnings/metrics` 结构；计划任务可以只检查这些文件的 `ok` 字段和 `warnings` 列表，而不解析控制台文本。后续可用 `scripts/aggregate-governance-alerts.ps1` 汇总这些 alert summary 为 `governance-alert-overview.json`，再用 `scripts/check-governance-health.ps1` 生成 `last-health.json`；若状态不健康，可用 `scripts/notify-governance-unhealthy.ps1 -DryRun` 演练 EventLog/webhook 通知边界。上述脚本都会继续避免 endpoint、bucket、object URL、凭据和签名字段进入输出。
+
+需要一次性归档治理总览、健康结果、关键 summary 和日志时，可在治理入口追加诊断包输出：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-large-file-governance.ps1 `
+  -RouteLogPath ".\logs\source-server.log", ".\logs\remote-server.log" `
+  -QueuePath ".\logs\offline-queue.jsonl" `
+  -SourceInstanceId "source-instance-id" `
+  -ReceiptRotationPath ".\logs\delivered-receipts\delivered-receipts.jsonl" `
+  -OutputDir ".\logs\governance" `
+  -NotesPath ".\logs\acceptance-notes.txt" `
+  -NoFailOnWarning `
+  -WriteReport `
+  -ReportPath ".\logs\governance\large-file-governance-report.md" `
+  -HtmlReportPath ".\logs\governance\large-file-governance-report.html" `
+  -PackageDiagnostics `
+  -DiagnosticsPackagePath ".\logs\governance\large-file-governance-diagnostics.zip"
+```
+
+`scripts/write-large-file-governance-report.ps1` 可单独读取治理输出目录并生成 Markdown/HTML 运维报告；报告会汇总健康状态、alert overview、route/S3/receipt rotation/delivered reconcile 指标，并在发现 endpoint、bucket、object URL、凭据或签名字段时拒绝生成。`scripts/package-governance-diagnostics.ps1` 也可单独读取治理输出目录并生成诊断 zip；归档前会扫描敏感字段，生成 `manifest.json`，且不会连接 Redis、S3/MinIO 或修改真实队列、附件、对象。
+
+没有真实日志时，可以直接跑完整脱敏样例链路：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/write-large-file-reconcile-sample.ps1 `
+  -OutputDir ".\logs\sample-governance" `
+  -RunGovernance
+```
+
+该样例会生成 route log、离线队列摘要、receipt 摘要和治理输出，并串联 route 分析、S3 request 分析、delivered 对账、receipt 轮转、alert 聚合和健康检查；它不连接 Redis、S3/MinIO，也不会修改真实队列、附件或对象。
 
 若任一失败路径没有保留离线兜底，或者日志/Redis/离线队列出现敏感配置，应立即关闭 `QTNETWORKCHAT_OBJECT_S3_ENABLE`，回退到默认 fail-closed 状态。

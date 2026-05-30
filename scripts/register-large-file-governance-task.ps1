@@ -37,6 +37,16 @@ param(
 
     [string]$PackagePath,
 
+    [switch]$PackageDiagnostics,
+
+    [string]$DiagnosticsPackagePath,
+
+    [switch]$WriteReport,
+
+    [string]$ReportPath,
+
+    [string]$HtmlReportPath,
+
     [switch]$EmitRouteLog,
 
     [switch]$NoFailOnWarning,
@@ -146,6 +156,9 @@ Assert-NoSensitiveValue "TaskDir" @($TaskDir)
 Assert-NoSensitiveValue "ReceiptRotationPath" @($ReceiptRotationPath)
 Assert-NoSensitiveValue "NotesPath" @($NotesPath)
 Assert-NoSensitiveValue "PackagePath" @($PackagePath)
+Assert-NoSensitiveValue "DiagnosticsPackagePath" @($DiagnosticsPackagePath)
+Assert-NoSensitiveValue "ReportPath" @($ReportPath)
+Assert-NoSensitiveValue "HtmlReportPath" @($HtmlReportPath)
 
 if ([string]::IsNullOrWhiteSpace($TaskDir)) {
     $TaskDir = Join-Path $OutputDir "scheduled-task"
@@ -185,6 +198,11 @@ Add-SwitchArg $lines "CompressRotationArchive" $CompressRotationArchive.IsPresen
 Add-ScalarArg $lines "NotesPath" $NotesPath
 Add-SwitchArg $lines "PackageAcceptance" $PackageAcceptance.IsPresent
 Add-ScalarArg $lines "PackagePath" $PackagePath
+Add-SwitchArg $lines "PackageDiagnostics" ($PackageDiagnostics.IsPresent -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath))
+Add-ScalarArg $lines "DiagnosticsPackagePath" $DiagnosticsPackagePath
+Add-SwitchArg $lines "WriteReport" ($WriteReport.IsPresent -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath))
+Add-ScalarArg $lines "ReportPath" $ReportPath
+Add-ScalarArg $lines "HtmlReportPath" $HtmlReportPath
 Add-ScalarArg $lines "HealthCheckPath" (Join-Path $OutputDir "last-health.json")
 Add-IntArg $lines "HealthMaxWarnings" 0
 Add-SwitchArg $lines "NotifyOnUnhealthy" $true
@@ -205,6 +223,21 @@ $lines | Set-Content -LiteralPath $launcherPath -Encoding UTF8
 
 $alertOverviewPath = Join-Path $OutputDir "governance-alert-overview.json"
 $healthCheckOutputPath = Join-Path $OutputDir "last-health.json"
+$diagnosticsPreviewPath = if ([string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) {
+    Join-Path (Join-Path $OutputDir "diagnostics-package") "large-file-governance-diagnostics.zip"
+} else {
+    $DiagnosticsPackagePath
+}
+$reportPreviewPath = if ([string]::IsNullOrWhiteSpace($ReportPath)) {
+    Join-Path $OutputDir "large-file-governance-report.md"
+} else {
+    $ReportPath
+}
+$htmlReportPreviewPath = if ([string]::IsNullOrWhiteSpace($HtmlReportPath)) {
+    ""
+} else {
+    $HtmlReportPath
+}
 $actionArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`""
 $preview = [pscustomobject]@{
     taskName = $TaskName
@@ -219,8 +252,11 @@ $preview = [pscustomobject]@{
     outputDir = $OutputDir
     alertOverviewPath = $alertOverviewPath
     healthCheckPath = $healthCheckOutputPath
+    diagnosticsPackagePath = $diagnosticsPreviewPath
+    reportPath = $reportPreviewPath
+    htmlReportPath = $htmlReportPreviewPath
     readOnly = $true
-    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status or healthCheckPath for a single ok/notOk verdict."
+    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, reportPath for an operator-readable summary, and diagnosticsPackagePath for a sanitized zip."
 }
 $preview | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $previewPath -Encoding UTF8
 

@@ -11,6 +11,9 @@ set(RECEIPTS "${TEMP_DIR}/delivered-receipts.jsonl")
 set(NOTES "${TEMP_DIR}/notes.txt")
 set(OUTPUT_DIR "${TEMP_DIR}/governance")
 set(PACKAGE_PATH "${OUTPUT_DIR}/acceptance.zip")
+set(DIAGNOSTICS_PATH "${OUTPUT_DIR}/diagnostics.zip")
+set(REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.md")
+set(HTML_REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.html")
 set(SOURCE_INSTANCE "source-governance-a")
 set(FILE_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
@@ -53,6 +56,11 @@ execute_process(
         -NotesPath "${NOTES}"
         -PackageAcceptance
         -PackagePath "${PACKAGE_PATH}"
+        -WriteReport
+        -ReportPath "${REPORT_PATH}"
+        -HtmlReportPath "${HTML_REPORT_PATH}"
+        -PackageDiagnostics
+        -DiagnosticsPackagePath "${DIAGNOSTICS_PATH}"
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error_output
@@ -80,6 +88,10 @@ foreach(expected_file
         "${OUTPUT_DIR}/reconcile/s3-analysis-summary.json"
         "${OUTPUT_DIR}/receipt-rotation-summary.json"
         "${OUTPUT_DIR}/receipt-rotation-alert-summary.json"
+        "${OUTPUT_DIR}/governance-alert-overview.json"
+        "${REPORT_PATH}"
+        "${HTML_REPORT_PATH}"
+        "${DIAGNOSTICS_PATH}"
         "${PACKAGE_PATH}")
     if(NOT EXISTS "${expected_file}")
         file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -163,6 +175,32 @@ endif()
 if(NOT EXISTS "${EXTRACT_DIR}/manifest.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Governance package manifest missing")
+endif()
+
+set(DIAG_EXTRACT_DIR "${TEMP_DIR}/diagnostics-extracted")
+file(MAKE_DIRECTORY "${DIAG_EXTRACT_DIR}")
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E tar xfz "${DIAGNOSTICS_PATH}"
+    WORKING_DIRECTORY "${DIAG_EXTRACT_DIR}"
+    RESULT_VARIABLE diag_extract_result
+    ERROR_VARIABLE diag_extract_error
+)
+if(NOT diag_extract_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Failed to extract governance diagnostics package: ${diag_extract_error}")
+endif()
+
+if(NOT EXISTS "${DIAG_EXTRACT_DIR}/manifest.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Governance diagnostics manifest missing")
+endif()
+if(NOT EXISTS "${DIAG_EXTRACT_DIR}/governance-alert-overview.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Governance diagnostics overview missing")
+endif()
+if(NOT EXISTS "${DIAG_EXTRACT_DIR}/large-file-governance-report.md")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Governance diagnostics report missing")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

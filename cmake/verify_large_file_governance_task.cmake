@@ -34,6 +34,8 @@ execute_process(
         -EmitRouteLog
         -NoFailOnWarning
         -PackageAcceptance
+        -PackageDiagnostics
+        -WriteReport
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error_output
@@ -69,7 +71,9 @@ foreach(expected_text
         "-QueuePath"
         "-SourceInstanceId"
         "-OutputDir"
-        "-PackageAcceptance")
+        "-PackageAcceptance"
+        "-PackageDiagnostics"
+        "-WriteReport")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -84,9 +88,19 @@ if(NOT task_name STREQUAL "QtNetworkChatLargeFileGovernancePreview")
     message(FATAL_ERROR "Unexpected taskName in preview: ${task_name}")
 endif()
 string(JSON should_register GET "${preview_content}" "register")
+string(JSON diagnostics_path GET "${preview_content}" "diagnosticsPackagePath")
+string(JSON report_path GET "${preview_content}" "reportPath")
 if(should_register)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview mode should not register the scheduled task")
+endif()
+if(diagnostics_path STREQUAL "")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview diagnosticsPackagePath should not be empty")
+endif()
+if(report_path STREQUAL "")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview reportPath should not be empty")
 endif()
 
 execute_process(

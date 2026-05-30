@@ -364,4 +364,16 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/notify-governance-unhealthy.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_notify_governance_unhealthy.cmake
     )
+    add_test(
+        NAME GovernanceDiagnosticsPackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-governance-diagnostics.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_governance_diagnostics_package.cmake
+    )
+    add_test(
+        NAME LargeFileGovernanceReport
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-large-file-governance-report.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_governance_report.cmake
+    )
 endif()

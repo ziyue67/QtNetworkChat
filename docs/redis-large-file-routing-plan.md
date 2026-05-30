@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档和治理入口编排已完成；下一步转向下一条 Redis/S3 治理可观测性小切片，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档、治理入口编排、统一 alert summary、告警聚合、健康检查、不健康通知和完整样例管线已完成；下一步转向更大的 Redis/S3 治理功能包，保持失败时 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -176,6 +176,9 @@
 - 治理入口 `scripts/run-large-file-governance.ps1` 已可一键串联 route log 聚合、route summary 阈值告警、S3 request result 分析、delivered receipt 对账、可选 receipt 摘要轮转/告警和验收包打包；该入口不连接 Redis/S3/MinIO，不修改离线队列、附件或对象，只有显式传入 `-ReceiptRotationPath` 时治理脱敏 receipt 摘要文件。
 - Windows 计划任务入口 `scripts/register-large-file-governance-task.ps1` 已可为治理 runner 生成默认 preview 的启动脚本和 JSON 预览，只有显式 `-Register` 才创建或更新 Windows Scheduled Task；脚本会拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 和 Signature 等敏感字段进入任务参数；治理 runner 和计划任务 helper 都会在 receipt 轮转参数缺少 `ReceiptRotationPath` 时 fail-fast。
 - Route summary、S3 request result 和 receipt rotation 三类告警分析脚本已统一支持 `-AlertSummaryPath`，落盘 `kind/ok/warnings/metrics` 结构；治理入口会自动生成 `large-file-route-alert-summary.json`、`s3-request-results-alert-summary.json` 和 `receipt-rotation-alert-summary.json`，便于 Windows 计划任务和外部监控只读采集。
+- 告警聚合、健康检查和通知链路已补齐：`scripts/aggregate-governance-alerts.ps1` 汇总三类 alert summary 为治理总览 JSON，`scripts/check-governance-health.ps1` 生成健康状态，`scripts/notify-governance-unhealthy.ps1` 可在不健康时 dry-run 或写入 EventLog/webhook，且继续拒绝 endpoint、bucket、object URL、凭据和签名字段。
+- `scripts/write-large-file-reconcile-sample.ps1 -RunGovernance` 已可生成脱敏样例并串联 route 分析、S3 request 分析、delivered 对账、receipt 轮转、alert 聚合和健康检查；CTest 已覆盖该样例管线，并补齐治理相关测试列表。
+- 治理诊断包和运维报告已补齐：`scripts/write-large-file-governance-report.ps1` 可从治理输出目录生成 Markdown/HTML 报告并拒绝敏感字段，`scripts/package-governance-diagnostics.ps1` 可把治理总览、健康结果、route/S3/receipt summary、alert summary、报告、关键日志和 notes 打成脱敏 zip；`run-large-file-governance.ps1 -WriteReport -PackageDiagnostics` 与计划任务 preview 已接入报告和 zip 路径，CTest 覆盖 manifest、关键文件、报告内容和敏感字段拒绝。
 
 ## 治理观测
 
@@ -264,7 +267,13 @@
 60. 已完成：补治理入口的 Windows 计划任务辅助脚本，默认只生成 preview 和 launcher，显式 `-Register` 才触碰系统计划任务，并加 CTest 覆盖命令生成和敏感字段拒绝。
 61. 已完成：补治理入口和计划任务 helper 的轮转参数 fail-fast 校验，避免设置保留条数、保留天数或压缩开关但缺少 `ReceiptRotationPath` 时静默跳过 receipt 保留策略。
 62. 已完成：统一三类治理告警脚本的 alert summary 输出，治理入口会落盘 route/S3/receipt rotation 的 `kind/ok/warnings/metrics` JSON，便于计划任务采集。
-63. 下一步：清理重复的 operation 分析草稿，或补治理入口的输出目录/保留策略样例固化，继续保持默认 CTest 不依赖真实 S3/MinIO。
+63. 已完成：补治理告警聚合脚本，把 route/S3/receipt rotation 三类 alert summary 汇总成单个治理总览 JSON。
+64. 已完成：补治理健康检查脚本并接入计划任务/治理入口，输出 healthy/unhealthy/unknown 和固定 reason，便于定时任务判断。
+65. 已完成：补治理不健康通知脚本和 CTest，支持 dry-run、EventLog/webhook 边界和敏感字段拒绝。
+66. 已完成：扩展脱敏样例脚本的 `-RunGovernance` 全流程，覆盖 route 分析、S3 request 分析、delivered 对账、receipt 轮转、alert 聚合和健康检查，并补 CTest。
+67. 已完成：补治理诊断包功能，归档治理总览、健康结果、关键 summary、日志和 notes，接入治理入口与计划任务 preview，并用 CTest 覆盖成功打包和敏感字段拒绝。
+68. 已完成：补治理运维报告功能，生成 Markdown/HTML 可读报告，接入治理入口、计划任务 preview 和诊断 zip，并用 CTest 覆盖报告内容与敏感字段拒绝。
+69. 下一步：停止继续做小颗粒脚本补丁，优先选择一个更靠近服务端行为的大块功能包推进，例如“S3 真实后端稳定化与服务端集成边界”或“跨实例大文件运维面板/诊断输出”。
 
 ## 当前保护边界
 
@@ -285,4 +294,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 治理闭环时，优先转向下一条 Redis/S3 治理可观测性小切片，或补轮转摘要告警阈值说明，并保持 fail-closed 和离线兜底安全边界。
+- 后续进入真实 S3/MinIO 治理闭环时，优先转向横跨服务端、脚本、测试和文档的大块功能包；避免只改一两个字段或只补一个小脚本，并继续保持 fail-closed 和离线兜底安全边界。

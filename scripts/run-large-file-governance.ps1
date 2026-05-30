@@ -40,7 +40,17 @@ param(
 
     [string]$NotifyEventLogSource = "QtNetworkChatGovernance",
 
-    [string]$NotifyWebhookUrl
+    [string]$NotifyWebhookUrl,
+
+    [switch]$PackageDiagnostics,
+
+    [string]$DiagnosticsPackagePath,
+
+    [switch]$WriteReport,
+
+    [string]$ReportPath,
+
+    [string]$HtmlReportPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,6 +136,8 @@ $rotationAnalyzer = Join-Path $PSScriptRoot "analyze-large-file-receipt-rotation
 $packager = Join-Path $PSScriptRoot "package-large-file-acceptance.ps1"
 $healthChecker = Join-Path $PSScriptRoot "check-governance-health.ps1"
 $notifier = Join-Path $PSScriptRoot "notify-governance-unhealthy.ps1"
+$diagnosticsPackager = Join-Path $PSScriptRoot "package-governance-diagnostics.ps1"
+$reportWriter = Join-Path $PSScriptRoot "write-large-file-governance-report.ps1"
 
 $hasRouteLogs = $null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0
 $hasHealthCheck = -not [string]::IsNullOrWhiteSpace($HealthCheckPath)
@@ -136,6 +148,8 @@ if (-not [string]::IsNullOrWhiteSpace($ReceiptRotationPath)) { $totalSteps += 2 
 if ($shouldPackageAcceptance) { $totalSteps++ }
 if ($hasHealthCheck) { $totalSteps++ }
 if ($hasNotify) { $totalSteps++ }
+if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath)) { $totalSteps++ }
+if ($PackageDiagnostics -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) { $totalSteps++ }
 $currentStep = 0
 
 function StepLabel([string]$Label) {
@@ -273,6 +287,34 @@ if ($hasNotify) {
     $notifyOutput | Write-Host
 }
 
+if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath)) {
+    StepLabel "governance report"
+    if ([string]::IsNullOrWhiteSpace($ReportPath)) {
+        $ReportPath = Join-Path $resolvedOutputDir "large-file-governance-report.md"
+    }
+    $reportArgs = @("-GovernanceDir", $resolvedOutputDir, "-ReportPath", $ReportPath)
+    if (-not [string]::IsNullOrWhiteSpace($HtmlReportPath)) {
+        $reportArgs += @("-HtmlReportPath", $HtmlReportPath)
+    }
+    Invoke-CheckedScript $reportWriter $reportArgs (Join-Path $resolvedOutputDir "governance-report.log")
+}
+
+if ($PackageDiagnostics -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) {
+    StepLabel "governance diagnostics package"
+    $diagnosticsOutputDir = Join-Path $resolvedOutputDir "diagnostics-package"
+    if ([string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) {
+        $DiagnosticsPackagePath = Join-Path $diagnosticsOutputDir "large-file-governance-diagnostics.zip"
+    }
+    $diagnosticsArgs = @("-GovernanceDir", $resolvedOutputDir, "-OutputDir", $diagnosticsOutputDir, "-PackagePath", $DiagnosticsPackagePath)
+    if (-not [string]::IsNullOrWhiteSpace($NotesPath)) {
+        $diagnosticsArgs += @("-NotesPath", $NotesPath)
+    }
+    if ($NoFailOnSensitive) {
+        $diagnosticsArgs += "-NoFailOnSensitive"
+    }
+    Invoke-CheckedScript $diagnosticsPackager $diagnosticsArgs (Join-Path $resolvedOutputDir "diagnostics-package.log")
+}
+
 Write-Host ""
 Write-Host "outputs"
 if ($hasRouteLogs) {
@@ -292,8 +334,17 @@ if (Test-Path -LiteralPath $aggregatedAlertPath) {
 if ($hasHealthCheck -and (Test-Path -LiteralPath $resolvedHealthCheckPath)) {
     Write-Host ("  health check: {0}" -f $resolvedHealthCheckPath)
 }
+if (-not [string]::IsNullOrWhiteSpace($ReportPath) -and (Test-Path -LiteralPath $ReportPath)) {
+    Write-Host ("  report: {0}" -f $ReportPath)
+}
+if (-not [string]::IsNullOrWhiteSpace($HtmlReportPath) -and (Test-Path -LiteralPath $HtmlReportPath)) {
+    Write-Host ("  html report: {0}" -f $HtmlReportPath)
+}
 if (Test-Path -LiteralPath $PackagePath) {
     Write-Host ("  package: {0}" -f $PackagePath)
+}
+if (-not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath) -and (Test-Path -LiteralPath $DiagnosticsPackagePath)) {
+    Write-Host ("  diagnostics package: {0}" -f $DiagnosticsPackagePath)
 }
 Write-Host ""
 Write-Host "This governance run is read-only except optional receipt rotation; it does not connect to Redis/S3/MinIO and does not modify queues, attachments, or objects."
