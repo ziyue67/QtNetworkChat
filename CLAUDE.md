@@ -222,3 +222,38 @@ GitHub Actions (`.github/workflows/windows-build.yml`) builds on `main` pushes a
 | `scripts/reconcile-large-file-delivery.ps1` | Core delivered receipt vs offline fallback reconciliation logic |
 | `scripts/aggregate-governance-alerts.ps1` | Aggregate multiple alert summary JSONs into single governance overview |
 | `scripts/check-governance-health.ps1` | Read governance alert overview and emit healthy/unhealthy verdict for monitoring |
+
+### Governance output directory structure
+
+When `scripts/run-large-file-governance.ps1` runs with `-OutputDir <path>`, it produces the following layout:
+
+```
+<OutputDir>/
+├── large-file-route-summary.json        # Route log aggregation (if RouteLogPath provided)
+├── large-file-route-alert-summary.json   # Route summary threshold alerts
+├── s3-request-results-summary.json       # S3 request result buckets
+├── s3-request-results-alert-summary.json # S3 result threshold alerts
+├── receipt-rotation-summary.json         # Receipt rotation stats (if ReceiptRotationPath provided)
+├── receipt-rotation-alert-summary.json   # Rotation threshold alerts
+├── governance-alert-overview.json        # Aggregated alert overview (all kinds)
+├── last-health.json                      # Health check verdict (if HealthCheckPath provided)
+├── route-analysis.log                    # Step stdout logs
+├── route-summary-alerts.log
+├── s3-request-analysis.log
+├── reconcile-run.log
+├── receipt-rotation.log
+├── receipt-rotation-alerts.log
+├── aggregate-alerts.log
+├── health-check.log
+├── acceptance-package.log                # (if PackageAcceptance)
+├── reconcile/                            # Reconciliation output subdirectory
+│   ├── reconcile-report.json
+│   └── s3-analysis-summary.json
+├── acceptance-package/                   # (if PackageAcceptance)
+│   └── large-file-acceptance.zip
+└── scheduled-task/                       # (if register-large-file-governance-task.ps1)
+    ├── run-large-file-governance-task.ps1
+    └── scheduled-task-preview.json
+```
+
+Retention guidance: governance outputs are ephemeral per-run artifacts. The scheduled task overwrites them each execution. For audit trails, use `-PackageAcceptance` to produce a timestamped zip, or archive `governance-alert-overview.json` and `last-health.json` externally before the next run.
