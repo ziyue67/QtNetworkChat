@@ -1251,42 +1251,61 @@ int main(int argc, char** argv) {
     injectedS3ValidationFailureReason.clear();
     injectedS3OpenFailureReason.clear();
     injectedS3RemoveFailureReason.clear();
-    const QString s3WriteFailureFileName = "redis-s3-write-timeout-fallback.bin";
-    const QString s3WriteFailurePath = transferDir.filePath(s3WriteFailureFileName);
-    const QByteArray s3WriteFailurePayload = makePatternPayload(1024 * 1024 + 8192);
-    QFile s3WriteFailureFile(s3WriteFailurePath);
-    ok = expect(s3WriteFailureFile.open(QIODevice::WriteOnly),
-                "injected S3 write failure transfer file should open for writing") && ok;
-    if (s3WriteFailureFile.isOpen()) {
-        ok = expect(s3WriteFailureFile.write(s3WriteFailurePayload) == s3WriteFailurePayload.size(),
-                    "injected S3 write failure transfer file should be written") && ok;
-        s3WriteFailureFile.close();
+    struct S3WriteFailureCase {
+        QString suffix;
+        QString injectedReason;
+        QString expectedReason;
+    };
+    const QVector<S3WriteFailureCase> s3WriteFailureCases = {
+        {QStringLiteral("timeout"), QStringLiteral("timeout while writing injected S3 PUT"), QStringLiteral("timeout")},
+        {QStringLiteral("network"), QStringLiteral("network_error while writing injected S3 PUT"), QStringLiteral("network")},
+        {QStringLiteral("tls"), QStringLiteral("tls_error while writing injected S3 PUT"), QStringLiteral("tls")},
+        {QStringLiteral("auth"), QStringLiteral("auth_or_permission_error while writing injected S3 PUT"), QStringLiteral("auth")},
+        {QStringLiteral("retryable"), QStringLiteral("retryable_client_status while writing injected S3 PUT"), QStringLiteral("retryable")},
+        {QStringLiteral("server"), QStringLiteral("server_error while writing injected S3 PUT"), QStringLiteral("server")},
+        {QStringLiteral("client"), QStringLiteral("client_error while writing injected S3 PUT"), QStringLiteral("client")}
+    };
+    QVector<QPair<QString, QByteArray>> s3WriteFailureFallbacks;
+    for (const S3WriteFailureCase& writeCase : s3WriteFailureCases) {
+        injectedS3Objects.clear();
+        injectedS3WriteFailureReason = writeCase.injectedReason;
+        const QString caseFileName = QStringLiteral("redis-s3-write-%1-fallback.bin").arg(writeCase.suffix);
+        const QString caseFilePath = transferDir.filePath(caseFileName);
+        const QByteArray casePayload = makePatternPayload(1024 * 1024 + 8192 + writeCase.suffix.size());
+        QFile caseFile(caseFilePath);
+        ok = expect(caseFile.open(QIODevice::WriteOnly),
+                    QStringLiteral("injected S3 %1 write failure transfer file should open for writing").arg(writeCase.suffix)) && ok;
+        if (caseFile.isOpen()) {
+            ok = expect(caseFile.write(casePayload) == casePayload.size(),
+                        QStringLiteral("injected S3 %1 write failure transfer file should be written").arg(writeCase.suffix)) && ok;
+            caseFile.close();
+        }
+        bobFileNames.clear();
+        bobFilePayloads.clear();
+        ok = expect(alice.sendFile(caseFilePath, "960002"),
+                    QStringLiteral("alice should keep the offline fallback when injected S3 %1 write fails").arg(writeCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return routeLogContains({QStringLiteral("event=object_write"),
+                                     QStringLiteral("result=skipped"),
+                                     QStringLiteral("reason=") + writeCase.expectedReason,
+                                     QStringLiteral("storeType=s3"),
+                                     QStringLiteral("operation=write"),
+                                     QStringLiteral("fileName=") + caseFileName});
+        }), QStringLiteral("source server should log injected S3 %1 write failure with a fixed reason").arg(writeCase.suffix)) && ok;
+        ok = expect(!routeLogContains({QStringLiteral("event=object_write"),
+                                       writeCase.injectedReason}),
+                    QStringLiteral("route log should not include injected S3 %1 write error detail").arg(writeCase.suffix)) && ok;
+        ok = expect(!waitFor([&] {
+            return !findLargeFileOffer(caseFileName).isEmpty()
+                || !findPublishedEvent("large_file_claim", caseFileName).isEmpty()
+                || !findPublishedEvent("large_file_delivered", caseFileName).isEmpty()
+                || !findPublishedEvent("large_file_failed", caseFileName).isEmpty()
+                || bobFileNames.contains(caseFileName);
+        }, 800), QStringLiteral("S3 %1 write failures should not publish offers or deliver immediately").arg(writeCase.suffix)) && ok;
+        ok = expect(injectedS3Objects.isEmpty(),
+                    QStringLiteral("injected S3 %1 write failure should not retain a partial object").arg(writeCase.suffix)) && ok;
+        s3WriteFailureFallbacks.append(qMakePair(caseFileName, casePayload));
     }
-    injectedS3WriteFailureReason = QStringLiteral("timeout while writing injected S3 PUT");
-    bobFileNames.clear();
-    bobFilePayloads.clear();
-    ok = expect(alice.sendFile(s3WriteFailurePath, "960002"),
-                "alice should keep the offline fallback when injected S3 write fails") && ok;
-    ok = expect(waitFor([&] {
-        return routeLogContains({QStringLiteral("event=object_write"),
-                                 QStringLiteral("result=skipped"),
-                                 QStringLiteral("reason=timeout"),
-                                 QStringLiteral("storeType=s3"),
-                                 QStringLiteral("operation=write"),
-                                 QStringLiteral("fileName=") + s3WriteFailureFileName});
-    }), "source server should log injected S3 write failure with a fixed timeout reason") && ok;
-    ok = expect(!routeLogContains({QStringLiteral("event=object_write"),
-                                   QStringLiteral("injected S3 PUT")}),
-                "route log should not include injected S3 write error detail") && ok;
-    ok = expect(!waitFor([&] {
-        return !findLargeFileOffer(s3WriteFailureFileName).isEmpty()
-            || !findPublishedEvent("large_file_claim", s3WriteFailureFileName).isEmpty()
-            || !findPublishedEvent("large_file_delivered", s3WriteFailureFileName).isEmpty()
-            || !findPublishedEvent("large_file_failed", s3WriteFailureFileName).isEmpty()
-            || bobFileNames.contains(s3WriteFailureFileName);
-    }, 800), "S3 write failures should not publish offers or deliver immediately") && ok;
-    ok = expect(injectedS3Objects.isEmpty(),
-                "injected S3 write failure should not retain a partial object") && ok;
     injectedS3WriteFailureReason.clear();
 
     const QString s3ValidationFailureFileName = "redis-s3-validation-failure.bin";
@@ -1673,11 +1692,18 @@ int main(int argc, char** argv) {
     ok = expect(bob.waitForLoginResult(5000),
                 "bob should log in on the first server for offline replay check") && ok;
     ok = expect(waitFor([&] {
-        return bobPrivateMessages.contains(fallbackPrivateMessage)
-            && bobFileNames.contains(fallbackFileName)
-            && bobFilePayloads.contains(fallbackFilePayload)
-            && bobFileNames.contains(s3WriteFailureFileName)
-            && bobFilePayloads.contains(s3WriteFailurePayload);
+        if (!bobPrivateMessages.contains(fallbackPrivateMessage)
+            || !bobFileNames.contains(fallbackFileName)
+            || !bobFilePayloads.contains(fallbackFilePayload)) {
+            return false;
+        }
+        for (const QPair<QString, QByteArray>& fallback : s3WriteFailureFallbacks) {
+            if (!bobFileNames.contains(fallback.first)
+                || !bobFilePayloads.contains(fallback.second)) {
+                return false;
+            }
+        }
+        return true;
     }, 9000), "publish and S3 write failures should fall back to the origin server offline queue") && ok;
     ok = expect(!waitFor([&] {
         return bobPrivateMessages.contains(privateMessage)
