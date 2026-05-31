@@ -1,4 +1,6 @@
 #include "client.h"
+#include "filetransferstatus.h"
+#include "tlssecurity.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -207,7 +209,8 @@ Client::Client(QObject* parent)
         connect(sslSocket, &QSslSocket::encrypted, this, &Client::onConnected);
         connect(sslSocket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
                 this, [sslSocket](const QList<QSslError>&) {
-                    if (!envEnabled("QTNETWORKCHAT_TLS_VERIFY")) {
+                    if (!envEnabled("QTNETWORKCHAT_TLS_VERIFY")
+                        && configuredPinnedTlsFingerprint().isEmpty()) {
                         sslSocket->ignoreSslErrors();
                     }
                 });
@@ -242,8 +245,23 @@ bool Client::connectToServer(const QString& host, quint16 port) {
         const bool encrypted = sslSocket->waitForEncrypted(5000);
         if (!encrypted) {
             m_loginError = "TLS 握手失败: " + sslSocket->errorString();
+            return false;
         }
-        return encrypted;
+        const QString pinnedFingerprint = configuredPinnedTlsFingerprint();
+        if (!pinnedFingerprint.isEmpty()) {
+            QString actualFingerprint;
+            if (!pinnedCertificateFingerprintMatches(sslSocket->peerCertificate(),
+                                                     pinnedFingerprint,
+                                                     &actualFingerprint)) {
+                m_loginError = QStringLiteral("TLS 证书指纹不匹配: expected=%1 actual=%2")
+                    .arg(normalizedSha256Fingerprint(pinnedFingerprint),
+                         actualFingerprint.isEmpty() ? QStringLiteral("unavailable") : actualFingerprint);
+                sslSocket->disconnectFromHost();
+                emit connectionError(QStringLiteral("TLS 证书指纹不匹配，已断开连接"));
+                return false;
+            }
+        }
+        return true;
     }
     m_socket->connectToHost(host, port);
     return m_socket->waitForConnected(5000);
@@ -875,11 +893,13 @@ bool Client::sendFilePayload(const QString& filePath,
             }
             if (!ackRejectReason.isEmpty()) {
                 if (isRetriableFileChunkRejectReason(ackRejectReason) && attempt < kChunkSendMaxAttempts) {
-                    emit connectionError(QString("文件分片暂时被拒绝，正在重试：%1").arg(ackRejectReason));
+                    emit connectionError(fileTransferUserMessage(ackRejectReason,
+                        QString("文件分片暂时被拒绝，正在重试：%1").arg(ackRejectReason)) + QStringLiteral("，正在重试"));
                     ackRejectReason.clear();
                     continue;
                 }
-                emit connectionError(QString("文件分片发送被拒绝：%1").arg(ackRejectReason));
+                emit connectionError(fileTransferUserMessage(ackRejectReason,
+                    QString("文件分片发送被拒绝：%1").arg(ackRejectReason)));
                 file.close();
                 return false;
             }
@@ -956,7 +976,8 @@ bool Client::sendFilePayload(const QString& filePath,
             continue;
         }
         if (!acknowledged) {
-            emit connectionError(QString("文件分片发送超时：%1 第 %2/%3 片").arg(fileInfo.fileName()).arg(chunkIndex + 1).arg(chunkCount));
+            emit connectionError(fileTransferUserMessage(QStringLiteral("chunk-ack-timeout"),
+                QString("文件分片发送超时：%1 第 %2/%3 片").arg(fileInfo.fileName()).arg(chunkIndex + 1).arg(chunkCount)));
             file.close();
             return false;
         }

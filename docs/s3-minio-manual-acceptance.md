@@ -49,6 +49,19 @@ $env:QTNETWORKCHAT_DELIVERED_RECEIPT_DIR = ".\logs\delivered-receipts"
 
 TLS 使用自签名 MinIO 时，优先把证书加入本机信任链。只有本机临时调试时才设置 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0`，并确认日志只出现 TLS 校验关闭的 warning，不输出证书、endpoint 或凭据值。
 
+真实后端稳定化证据建议在 route/S3 summary 生成后追加：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/write-s3-stabilization-evidence.ps1 `
+  -S3SummaryPath .\artifacts\s3-request-results-summary.json `
+  -RouteSummaryPath .\artifacts\large-file-route-summary.json `
+  -OutputPath .\artifacts\s3-stabilization-evidence.json `
+  -MarkdownPath .\artifacts\s3-stabilization-evidence.md `
+  -AlertSummaryPath .\artifacts\s3-stabilization-evidence-alert.json
+```
+
+该步骤只读取脱敏 summary，不连接 Redis/S3/MinIO，不修改对象、队列或附件；脚本会检查 timeout/network/tls/auth/retryable/server/hash/size reason 桶和 PUT/HEAD/GET/DELETE/validate/read/delete 操作覆盖，并拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization/Credential/Signature。
+
 ## 3. 成功投递路径
 
 1. 在源实例登录发送者，在远端实例登录接收者。

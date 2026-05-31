@@ -12,6 +12,13 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Test)
 
+set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
+    src/tlssecurity.cpp
+    src/filetransferstatus.cpp
+    include/tlssecurity.h
+    include/filetransferstatus.h
+)
+
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
@@ -22,6 +29,7 @@ add_executable(QtNetworkChat
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
     src/logincredentialstore.cpp
+    ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     include/mainwindow.h
     include/server.h
     include/client.h
@@ -51,6 +59,7 @@ if(BUILD_TESTING)
         tests/server_group_member_update_test.cpp
         src/server.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
@@ -70,6 +79,7 @@ if(BUILD_TESTING)
         tests/account_password_kdf_test.cpp
         src/server.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
@@ -93,10 +103,27 @@ if(BUILD_TESTING)
     target_include_directories(login_credential_store_test PRIVATE include)
     target_link_libraries(login_credential_store_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
 
+    add_executable(tls_security_test
+        tests/tls_security_test.cpp
+        src/tlssecurity.cpp
+        include/tlssecurity.h
+    )
+    target_include_directories(tls_security_test PRIVATE include)
+    target_link_libraries(tls_security_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+
+    add_executable(file_transfer_status_test
+        tests/file_transfer_status_test.cpp
+        src/filetransferstatus.cpp
+        include/filetransferstatus.h
+    )
+    target_include_directories(file_transfer_status_test PRIVATE include)
+    target_link_libraries(file_transfer_status_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
         src/server.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
@@ -116,6 +143,7 @@ if(BUILD_TESTING)
         tests/file_chunk_duplicate_ack_test.cpp
         src/server.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
@@ -134,6 +162,7 @@ if(BUILD_TESTING)
     add_executable(file_chunk_retry_progress_test
         tests/file_chunk_retry_progress_test.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/message.cpp
         include/client.h
         include/message.h
@@ -146,6 +175,7 @@ if(BUILD_TESTING)
         tests/offline_attachment_quota_test.cpp
         src/server.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
@@ -181,6 +211,7 @@ if(BUILD_TESTING)
         tests/redis_unavailable_fallback_test.cpp
         src/server.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
@@ -208,6 +239,7 @@ if(BUILD_TESTING)
         tests/redis_cross_instance_chat_test.cpp
         src/server.cpp
         src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/redisclient.cpp
         src/message.cpp
         src/objectstore.cpp
@@ -262,6 +294,20 @@ if(BUILD_TESTING)
         NAME LoginCredentialStoreSafety
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:login_credential_store_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME TlsSecurityPinning
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:tls_security_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME FileTransferUserStatus
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:file_transfer_status_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
@@ -358,6 +404,12 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-s3-stability-runbook.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_stability_runbook.cmake
+    )
+    add_test(
+        NAME S3StabilizationEvidence
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-s3-stabilization-evidence.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_stabilization_evidence.cmake
     )
     add_test(
         NAME RouteLogAnalysis
