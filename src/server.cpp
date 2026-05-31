@@ -3902,6 +3902,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
     }
 
     QJsonArray groups;
+    QJsonArray removedGroups;
     QString connectionName = "server_group_snapshot_" + QString::number(reinterpret_cast<quintptr>(this));
     {
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
@@ -3968,6 +3969,33 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     groups.append(groupObj);
                 }
             }
+
+            QSqlQuery removedQuery(db);
+            removedQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), "
+                                 "COALESCE(g.owner_id, ''), COALESCE(r.removed_by, ''), "
+                                 "COALESCE(r.removed_by_name, ''), r.removed_at "
+                                 "FROM server_group_removed_members r "
+                                 "JOIN server_groups g ON g.group_id = r.group_id "
+                                 "LEFT JOIN server_group_members m ON m.group_id = r.group_id AND m.user_id = r.user_id "
+                                 "WHERE r.user_id = ? AND m.user_id IS NULL "
+                                 "ORDER BY r.removed_at DESC, g.group_id ASC");
+            removedQuery.addBindValue(userId);
+            if (removedQuery.exec()) {
+                while (removedQuery.next()) {
+                    QJsonObject groupObj;
+                    groupObj["groupId"] = removedQuery.value(0).toString();
+                    groupObj["groupName"] = removedQuery.value(1).toString();
+                    groupObj["announcement"] = removedQuery.value(2).toString();
+                    groupObj["ownerId"] = removedQuery.value(3).toString();
+                    groupObj["membershipState"] = "removed";
+                    groupObj["canSend"] = false;
+                    groupObj["canReadHistory"] = true;
+                    groupObj["removedBy"] = removedQuery.value(4).toString();
+                    groupObj["removedByName"] = removedQuery.value(5).toString();
+                    groupObj["removedAt"] = removedQuery.value(6).toString();
+                    removedGroups.append(groupObj);
+                }
+            }
             db.close();
         }
     }
@@ -3976,6 +4004,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
     QJsonObject obj;
     obj["type"] = "server_group_snapshot";
     obj["groups"] = groups;
+    obj["removedGroups"] = removedGroups;
     socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();

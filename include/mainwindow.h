@@ -11,6 +11,7 @@
 #include <QEvent>
 #include <QDate>
 #include <QJsonArray>
+#include <QJsonObject>
 #include "client.h"
 #include "chatuser.h"
 #include "message.h"
@@ -137,6 +138,7 @@ private:
     QMap<QString, QString> m_serverGroupMemberNames;
     QMap<QString, QString> m_serverGroupMemberRoles;
     QMap<QString, QJsonArray> m_serverGroupAuditEvents;
+    QMap<QString, QJsonObject> m_removedServerGroups;
     bool m_hasServerGroupSnapshot;
     bool m_wasInPublicServerGroup;
     QMap<QString, ChatUser> m_knownUsers;

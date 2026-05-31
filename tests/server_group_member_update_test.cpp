@@ -102,6 +102,23 @@ QJsonArray publicGroupAuditEvents(const QJsonArray& groups) {
     return publicGroup(groups)["auditEvents"].toArray();
 }
 
+QJsonObject removedPublicGroup(const QJsonArray& removedGroups) {
+    for (const QJsonValue& value : removedGroups) {
+        const QJsonObject group = value.toObject();
+        if (group["groupId"].toString() == "public") return group;
+    }
+    return {};
+}
+
+bool hasRemovedPublicGroup(const Client& client) {
+    const QJsonObject removed = removedPublicGroup(client.removedServerGroups());
+    return removed["membershipState"].toString() == "removed"
+        && !removed["removedBy"].toString().isEmpty()
+        && !removed["removedAt"].toString().isEmpty()
+        && removed["canReadHistory"].toBool(false)
+        && !removed["canSend"].toBool(true);
+}
+
 int publicGroupAuditActionCount(const QJsonArray& groups, const QString& action) {
     int count = 0;
     const QJsonArray auditEvents = publicGroupAuditEvents(groups);
@@ -245,8 +262,8 @@ int main(int argc, char** argv) {
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "remove"),
                 "owner should submit member removal") && ok;
     ok = expect(waitFor([&] {
-        return member.serverGroups().isEmpty();
-    }), "removed member should receive an empty server group snapshot") && ok;
+        return member.serverGroups().isEmpty() && hasRemovedPublicGroup(member);
+    }), "removed member should receive an empty active group snapshot plus removed group history marker") && ok;
     ok = expect(waitFor([&] {
         return publicGroupHasAuditEvent(owner.serverGroups(), "remove", ownerId, memberId);
     }), "owner removal should be visible in group audit events") && ok;
@@ -275,8 +292,8 @@ int main(int argc, char** argv) {
     ok = expect(member.waitForLoginResult(5000),
                 "removed member should log in with existing account") && ok;
     ok = expect(waitFor([&] {
-        return member.serverGroups().isEmpty();
-    }), "removed member should not be auto-added to public group on re-login") && ok;
+        return member.serverGroups().isEmpty() && hasRemovedPublicGroup(member);
+    }), "removed member should not be auto-added to public group on re-login and should keep removed marker") && ok;
 
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "add"),
                 "owner should submit member add") && ok;
@@ -284,6 +301,9 @@ int main(int argc, char** argv) {
         return publicGroupHasMember(member.serverGroups(), ownerId)
             && publicGroupHasMember(member.serverGroups(), memberId);
     }), "added member should receive restored public group snapshot") && ok;
+    ok = expect(waitFor([&] {
+        return member.removedServerGroups().isEmpty();
+    }), "re-added member should no longer receive the removed group marker") && ok;
     ok = expect(waitFor([&] {
         return publicGroupHasAuditEvent(member.serverGroups(), "add", ownerId, memberId);
     }), "owner member add should be visible in group audit events") && ok;
@@ -350,8 +370,8 @@ int main(int argc, char** argv) {
     ok = expect(member.sendServerGroupMemberUpdate("public", guestId, "remove"),
                 "admin should be able to remove a plain member") && ok;
     ok = expect(waitFor([&] {
-        return guest.serverGroups().isEmpty();
-    }), "guest removed by admin should receive an empty public group snapshot") && ok;
+        return guest.serverGroups().isEmpty() && hasRemovedPublicGroup(guest);
+    }), "guest removed by admin should receive an empty public group snapshot plus removed marker") && ok;
 
     const QString blockedFilePath = QDir(appDataDir).filePath("removed-member-file.txt");
     QFile blockedFile(blockedFilePath);

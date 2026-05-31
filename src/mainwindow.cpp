@@ -2855,6 +2855,7 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
     m_serverGroupMemberNames.clear();
     m_serverGroupMemberRoles.clear();
     m_serverGroupAuditEvents.clear();
+    m_removedServerGroups.clear();
 
     for (const QJsonValue& value : groups) {
         const QJsonObject groupObj = value.toObject();
@@ -2880,17 +2881,36 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
         m_serverGroupAuditEvents[groupId] = groupObj["auditEvents"].toArray();
     }
 
+    const QJsonArray removedGroups = m_client ? m_client->removedServerGroups() : QJsonArray();
+    for (const QJsonValue& value : removedGroups) {
+        const QJsonObject groupObj = value.toObject();
+        const QString groupId = groupObj["groupId"].toString();
+        if (groupId.isEmpty()) continue;
+
+        m_removedServerGroups[groupId] = groupObj;
+        m_serverGroupNames[groupId] = groupObj["groupName"].toString(groupId);
+        m_serverGroupAnnouncements[groupId] = groupObj["announcement"].toString();
+        m_serverGroupOwners[groupId] = groupObj["ownerId"].toString();
+    }
+
     const bool isInPublicGroup = m_serverGroupMembers.value("public").contains(m_currentUserId);
     m_wasInPublicServerGroup = isInPublicGroup;
 
     if (m_privateChatTarget.isEmpty()) {
         if (isCurrentUserRemovedFromPublicGroup()) {
+            const QJsonObject removedInfo = m_removedServerGroups.value("public");
+            const QString removedBy = removedInfo["removedByName"].toString(removedInfo["removedBy"].toString());
+            const QString removedAt = removedInfo["removedAt"].toString();
+            const QString removedDetail = removedBy.isEmpty()
+                ? QStringLiteral("可查看本机历史，等待群主或管理员重新邀请")
+                : QStringLiteral("由 %1 移出%2 · 可查看本机历史，等待重新邀请")
+                    .arg(removedBy, removedAt.isEmpty() ? QString() : QStringLiteral("于 %1").arg(removedAt));
             ui->chatTitleLabel->setText("公共聊天室");
-            ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · 等待群主或管理员重新邀请").arg(m_currentUserId));
+            ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · %2").arg(m_currentUserId, removedDetail));
             ui->announcementTitleLabel->setText("群公告");
-            ui->announcementBodyLabel->setText("当前账号已不在公共群。等待群主或管理员重新邀请后，会自动恢复群公告和成员列表。");
+            ui->announcementBodyLabel->setText(QString("当前账号已不在公共群。%1；重新邀请后会自动恢复群公告和成员列表。").arg(removedDetail));
             if (!hadServerGroupSnapshot || wasInPublicGroup) {
-                appendSystemMessage("你已不在公共群，暂不能发送公共群消息、文件或图片；群主或管理员重新邀请后会自动恢复。");
+                appendSystemMessage(QString("你已不在公共群，暂不能发送公共群消息、文件或图片；%1。").arg(removedDetail));
             }
             ui->statusbar->showMessage("当前账号已不在公共群，等待重新邀请", 3200);
         } else {
@@ -5427,9 +5447,16 @@ void MainWindow::onBackToGroupChat() {
     setWindowTitle("QtNetworkChat - " + m_currentUserName);
     ui->chatTitleLabel->setText("公共聊天室");
     if (isCurrentUserRemovedFromPublicGroup()) {
-        ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · 等待群主或管理员重新邀请").arg(m_currentUserId));
+        const QJsonObject removedInfo = m_removedServerGroups.value("public");
+        const QString removedBy = removedInfo["removedByName"].toString(removedInfo["removedBy"].toString());
+        const QString removedAt = removedInfo["removedAt"].toString();
+        const QString removedDetail = removedBy.isEmpty()
+            ? QStringLiteral("等待群主或管理员重新邀请")
+            : QStringLiteral("由 %1 移出%2，等待重新邀请")
+                .arg(removedBy, removedAt.isEmpty() ? QString() : QStringLiteral("于 %1").arg(removedAt));
+        ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · %2").arg(m_currentUserId, removedDetail));
         ui->announcementTitleLabel->setText("群公告");
-        ui->announcementBodyLabel->setText("当前账号已不在公共群。等待群主或管理员重新邀请后，会自动恢复群公告和成员列表。");
+        ui->announcementBodyLabel->setText(QString("当前账号已不在公共群，%1。你仍可查看本机历史记录；重新邀请后会自动恢复群公告和成员列表。").arg(removedDetail));
     } else {
         ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
         ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
@@ -7696,20 +7723,27 @@ void MainWindow::refreshGroupMemberPanel() {
 
     const QStringList serverPublicMembers = m_serverGroupMembers.value("public");
     if (isCurrentUserRemovedFromPublicGroup()) {
-        QStandardItem* removedItem = new QStandardItem(QString("已不在公共群 QQ:%1\n等待群主或管理员重新邀请").arg(m_currentUserId));
+        const QJsonObject removedInfo = m_removedServerGroups.value("public");
+        const QString removedBy = removedInfo["removedByName"].toString(removedInfo["removedBy"].toString());
+        const QString removedAt = removedInfo["removedAt"].toString();
+        const QString detail = removedBy.isEmpty()
+            ? QStringLiteral("只读历史 · 等待重新邀请")
+            : QStringLiteral("只读历史 · %1 移出%2")
+                .arg(removedBy, removedAt.isEmpty() ? QString() : QStringLiteral(" · %1").arg(removedAt));
+        QStandardItem* removedItem = new QStandardItem(QString("已不在公共群 QQ:%1\n%2").arg(m_currentUserId, detail));
         removedItem->setData(m_currentUserId, Qt::UserRole + 1);
         removedItem->setEditable(false);
         removedItem->setEnabled(false);
         removedItem->setForeground(QColor(170, 110, 20));
-        removedItem->setToolTip("服务端已移出当前账号，重新邀请后会自动恢复群成员列表");
+        removedItem->setToolTip("服务端已移出当前账号；本机聊天历史仍可查看，重新邀请后会自动恢复群成员列表");
         if (filter.isEmpty()
             || m_currentUserId.contains(filter, Qt::CaseInsensitive)
-            || QString("等待邀请").contains(filter, Qt::CaseInsensitive)) {
+            || QString("等待邀请 只读 历史").contains(filter, Qt::CaseInsensitive)) {
             m_groupMemberModel->appendRow(removedItem);
         } else {
             delete removedItem;
         }
-        ui->memberTitleLabel->setText("公共群成员 · 当前账号已被移出 · 等待重新邀请");
+        ui->memberTitleLabel->setText("公共群成员 · 当前账号已被移出 · 历史只读");
         return;
     }
 
@@ -7895,6 +7929,7 @@ bool MainWindow::isContactOnline(const QString& userId) const {
 bool MainWindow::isCurrentUserRemovedFromPublicGroup() const {
     return m_hasServerGroupSnapshot
         && !m_currentUserId.isEmpty()
+        && m_removedServerGroups.contains("public")
         && !m_serverGroupMembers.value("public").contains(m_currentUserId);
 }
 

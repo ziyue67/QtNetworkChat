@@ -79,6 +79,7 @@ public:
     QString transportSecurityDescription() const;
     bool hasServerGroupSnapshot() const { return m_hasServerGroupSnapshot; }
     QJsonArray serverGroups() const { return m_serverGroups; }
+    QJsonArray removedServerGroups() const { return m_removedServerGroups; }
 
 signals:
     void connected();
@@ -187,6 +188,7 @@ private:
     QString m_currentOutgoingReceiverId;
     QString m_currentOutgoingFileName;
     QJsonArray m_serverGroups;
+    QJsonArray m_removedServerGroups;
     QMap<QString, E2ESession> m_e2eSessions;
 };
 

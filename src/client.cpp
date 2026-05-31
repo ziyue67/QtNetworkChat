@@ -289,6 +289,7 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
     m_hasServerGroupSnapshot = false;
     m_cancelOutgoingTransfer = false;
     m_serverGroups = QJsonArray();
+    m_removedServerGroups = QJsonArray();
     m_loginError.clear();
 }
 
@@ -1305,6 +1306,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
 
     if (type == "server_group_snapshot") {
         m_serverGroups = obj["groups"].toArray();
+        m_removedServerGroups = obj["removedGroups"].toArray();
         m_hasServerGroupSnapshot = true;
         emit serverGroupSnapshotReceived(m_serverGroups);
         return;

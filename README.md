@@ -28,9 +28,9 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 公共群成员面板支持群主/管理员按 QQ 邀请或右键移出成员，群主可右键设置或取消管理员
 - 服务端会限制管理员越权设置管理员、移出其他管理员或修改群主角色
 - 服务端会阻止已移出公共群的账号继续发送公共群消息或文件
-- 服务端记录公共群移出状态，避免被移出账号重登后自动重新入群
+- 服务端记录公共群移出状态，避免被移出账号重登后自动重新入群；群快照会同步只读移出记录，客户端可继续查看本机历史并提示移出人/时间
 - 服务端记录公共群公告和成员变更审计事件，并随群快照同步最近审计记录；客户端群成员面板会展示最近审计摘要，拒绝的越权或重复操作不会写入审计
-- 客户端会提示公共群被移出/重新加入状态，并在被移出时禁用公共群发送入口
+- 客户端会提示公共群被移出/重新加入状态，并在被移出时禁用公共群发送入口、标记公共群历史只读
 - 好友私聊
 - QQ 号搜索用户
 - 好友申请、同意、拒绝
@@ -49,7 +49,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 未读消息提醒
 - 系统托盘提醒
 - 自动重连和心跳保活
-- CTest 覆盖消息序列化、账号密码 PBKDF2-SHA256 KDF 新注册入库、旧 SHA-256 派生账号兼容登录与成功后升级、错误密码不升级、文件分片 ACK 接收进度、重复分片 ACK 去重、空分片、越界分片、分片数量不一致、非末尾分片大小和同传输元数据变更拒绝、fileHash 变更拒绝并清理 pending 续传状态、伪造 senderId 分片拒绝、跨账号续传查询不泄露 pending 元数据、乱序缺片保持未完成状态、服务端/客户端断点续传状态查询、查询续传状态后校验元数据并按最早缺失分片续传、跨连接恢复持久化发送状态并只发送下一缺失分片、跳过已确认分片并按实际 received chunks 汇总进度、服务端组包后 hash 不一致拒绝、在线接收端拒绝转发分片后回落离线附件队列、发送端续传元数据持久化与恢复 helper、完整续传状态清理持久化发送状态、过期恢复状态清理、离线附件配额拒绝、离线附件成功回放后的队列和附件清理、离线附件缺失/大小/hash/chunkSize/chunkCount 异常提示和队列清理、离线附件队列持久化失败回滚、离线附件下发中断后队列和附件保留及重试成功清理、离线附件拒绝 ACK、非法确认进度和部分 ACK 后重试成功清理、部分 ACK 后记录 confirmedBytes/confirmedChunks/resumeUpdatedAt 并按 confirmedBytes 续发、confirmedChunks 为空时按有效 confirmedBytes 续发、过期或超过自定义 TTL 的 resumeUpdatedAt 回退完整回放、无效 confirmedBytes 回退完整回放、非法 confirmedBytes 回退 confirmedBytes 续发、confirmedBytes 与 confirmedChunks 冲突时按 confirmedChunks 最早缺口续发、confirmedChunks 非连续缺口从最早缺失分片续发、重复 confirmedChunks 去重后仍从最早缺口续发、confirmedChunks 覆盖全部分片时不再发送分片并直接清理、孤儿离线附件启动清理、仍被队列引用的离线附件启动保留、自定义 TTL 过期离线附件启动清理和后续缺失提示、ACK 超时后自动查询续传状态、分片 ACK 丢失、临时拒绝和非法确认进度后的发送端/服务端转发重试、硬拒绝不重试、文件取消清理、服务端群成员变更、群审计快照、拒绝操作不落审计、重复成员添加拒绝、群主自移除保护、公告权限、管理员升降级、管理员越权拒绝和被移出成员公共群文件拒绝协议
+- CTest 覆盖消息序列化、账号密码 PBKDF2-SHA256 KDF 新注册入库、旧 SHA-256 派生账号兼容登录与成功后升级、错误密码不升级、文件分片 ACK 接收进度、重复分片 ACK 去重、空分片、越界分片、分片数量不一致、非末尾分片大小和同传输元数据变更拒绝、fileHash 变更拒绝并清理 pending 续传状态、伪造 senderId 分片拒绝、跨账号续传查询不泄露 pending 元数据、乱序缺片保持未完成状态、服务端/客户端断点续传状态查询、查询续传状态后校验元数据并按最早缺失分片续传、跨连接恢复持久化发送状态并只发送下一缺失分片、跳过已确认分片并按实际 received chunks 汇总进度、服务端组包后 hash 不一致拒绝、在线接收端拒绝转发分片后回落离线附件队列、发送端续传元数据持久化与恢复 helper、完整续传状态清理持久化发送状态、过期恢复状态清理、离线附件配额拒绝、离线附件成功回放后的队列和附件清理、离线附件缺失/大小/hash/chunkSize/chunkCount 异常提示和队列清理、离线附件队列持久化失败回滚、离线附件下发中断后队列和附件保留及重试成功清理、离线附件拒绝 ACK、非法确认进度和部分 ACK 后重试成功清理、部分 ACK 后记录 confirmedBytes/confirmedChunks/resumeUpdatedAt 并按 confirmedBytes 续发、confirmedChunks 为空时按有效 confirmedBytes 续发、过期或超过自定义 TTL 的 resumeUpdatedAt 回退完整回放、无效 confirmedBytes 回退完整回放、非法 confirmedBytes 回退 confirmedBytes 续发、confirmedBytes 与 confirmedChunks 冲突时按 confirmedChunks 最早缺口续发、confirmedChunks 非连续缺口从最早缺失分片续发、重复 confirmedChunks 去重后仍从最早缺口续发、confirmedChunks 覆盖全部分片时不再发送分片并直接清理、孤儿离线附件启动清理、仍被队列引用的离线附件启动保留、自定义 TTL 过期离线附件启动清理和后续缺失提示、ACK 超时后自动查询续传状态、分片 ACK 丢失、临时拒绝和非法确认进度后的发送端/服务端转发重试、硬拒绝不重试、文件取消清理、服务端群成员变更、群审计快照、拒绝操作不落审计、重复成员添加拒绝、群主自移除保护、公告权限、管理员升降级、管理员越权拒绝、被移出成员公共群文件拒绝协议和被移出后只读历史标记
 - CTest 覆盖客户端登录凭据本地存储安全：记住登录只保存账号、昵称和记住标志，不保存明文密码；旧 SQLite/QSettings 明文密码会在加载或迁移时清理
 - CTest 覆盖 TLS 证书 SHA-256 指纹固定配置、端到端加密最小协议 envelope/key agreement 序列化、文本加解密、篡改认证失败、缺少会话密钥 fail-closed、服务端透明转发和接收端解密链路、文件传输失败 reason 到用户可读状态/诊断文本的映射，以及 S3 稳定化证据 JSON/Markdown/alert 输出
 - CTest 覆盖 Redis RESP 命令编码、响应解析、presence 命令流、Pub/Sub 发布/订阅基础、断线重订阅、跨实例群聊/私聊/小文件/小图片路由、订阅侧超大文件/图片事件拒收、编码后超限的 Redis file/image 事件拒收、缺少 senderId、非聊天 eventType、空消息或未知类型的 Redis 事件拒收、大文件和编码后超限文件不经 Pub/Sub 并离线兜底、源实例写入 ObjectStore 后发布带 `storeType` 的 `large_file_offer` 元数据、远端实例仅在本地 ObjectStore 类型与 offer 匹配时认领 offer 并校验对象后分片下发、完整 ACK 后发布 `large_file_delivered` 并清理源实例兜底状态、源实例只读输出 `delivered_reconcile` cleaned/retained 日志、远端对象下发阶段以 `offer_delivery operation=deliver` 输出固定 reason 失败日志、对象缺失等失败路径发布 `large_file_failed` 且源实例保留离线兜底、非法 objectKey/分片元数据不下发、offer storeType 不支持或与本地配置不匹配时固定 reason 拒绝且不 claim、非 filesystem store 不消费、过期未 delivered 对象可由 ObjectStore TTL 清理且离线兜底仍可回放、私聊文本和小文件发布失败离线兜底、Redis 不可用降级登录
@@ -323,13 +323,13 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
    S3 稳定化覆盖已从对象层推进到服务端路由层：写入、HEAD/GET 校验、GET/open 读取、DELETE/remove 清理失败都会收敛到 timeout、network、tls、auth、retryable、client、server、not_found、hash、size、unknown 等固定桶，route log、Redis 事件、离线队列、报告和诊断包不携带 endpoint、bucket、object URL、凭据、session token、Authorization/Credential/Signature 或底层错误文本；delivered cleanup 仍以离线兜底匹配结果为准，不会因为 S3 删除失败误删或误报。跨实例测试已覆盖源端写入失败不发布 offer、远端 validate/read fail-closed、源端 delete retained、下发失败 fallback retained，以及收件人回源实例后的离线回放。
 
-   运维闭环已经接入一键治理入口、真实后端 evidence 汇总、S3 批量失败演练、S3 稳定化 runbook、统一 alert summary、健康检查、JSON/Markdown dashboard、只读 status CLI、Markdown/HTML 运维报告和治理诊断 zip。`stabilizationCoverage` 会在 runbook、dashboard、status、report 和 diagnostics manifest 中展示默认测试已覆盖的稳定化边界、固定 reason 桶和观测缺口，便于人工验收和计划任务消费。下一步优先做“覆盖缺口告警/状态门禁”或“真实后端 retry/timeout/TLS/hash/size 组合证据”这类横跨服务端、脚本、测试和文档的大块功能包，不再继续堆零碎字段补丁。
-2. **安全增强**：账号密码已升级为带盐 PBKDF2-SHA256 KDF，并兼容旧 SHA-256 派生账号的登录后迁移；客户端本地登录记忆已改为不保存明文密码并清理旧明文；TLS 已支持证书链校验和证书 SHA-256 指纹固定；端到端加密已具备最小 envelope/key agreement 协议骨架和 fail-closed 测试，后续重点是接入真实密钥协商、消息/文件加密执行路径和 UI 开关。
-3. **群组和权限边界**：服务端群组模型已覆盖核心成员变更、重复成员添加拒绝、公告权限、群主自移除保护、管理员升降级、管理员越权拒绝和被移出成员公共群文件拒绝。后续更值得补的是私有群、群文件权限细分、被移出后的历史可见性和群审计日志。
+   运维闭环已经接入一键治理入口、真实后端 evidence 汇总、S3 批量失败演练、S3 稳定化 runbook、统一 alert summary、健康检查、JSON/Markdown dashboard、只读 status CLI、Markdown/HTML 运维报告和治理诊断 zip。`stabilizationCoverage` 会在 runbook、dashboard、status、report 和 diagnostics manifest 中展示默认测试已覆盖的稳定化边界、固定 reason 桶和观测缺口，便于人工验收和计划任务消费。真实本地 MinIO/S3 smoke/evidence 已可通过 `scripts/minio-s3-smoke.ps1` 生成脱敏证据包，后续只在需要故障注入增强时继续扩展。
+2. **安全增强**：账号密码已升级为带盐 PBKDF2-SHA256 KDF，并兼容旧 SHA-256 派生账号的登录后迁移；客户端本地登录记忆已改为不保存明文密码并清理旧明文；TLS 已支持证书链校验和证书 SHA-256 指纹固定；端到端加密已具备最小 envelope/key agreement 协议骨架、私聊文本加解密执行路径和 fail-closed 测试，后续重点是真实密钥协商、会话轮换、文件内容加密和 UI 开关。
+3. **群组和权限边界**：服务端群组模型已覆盖核心成员变更、重复成员添加拒绝、公告权限、群主自移除保护、管理员升降级、管理员越权拒绝、被移出成员公共群文件拒绝、被移出后只读历史标记和公共群审计闭环。后续更值得补的是私有群和群文件权限细分。
 4. **结构拆分**：`mainwindow.cpp` 已承载聊天、好友、群组、文件、历史和恢复入口，后续应小步抽出 TransferManager、FriendManager、GroupManager、HistoryService、Storage，降低 UI 层复杂度。
 5. **发布与运维体验**：补版本号注入、Release 自动上传、安装包、运行时依赖校验、崩溃日志和可选诊断日志，方便非开发环境使用。
 6. **文件传输后续收尾**：在线文件/图片已覆盖 ACK 超时续传、跨连接持久化续传、元数据冲突隔离、临时拒绝重试、硬拒绝不重试和离线附件缺口续发；后续只建议补用户可见状态、治理指标和性能压测，不再作为首要功能线。
-7. **测试补齐方向**：优先补高价值边界和回归风险点，而不是继续堆同类协议测试；当前更值得覆盖真实 S3/MinIO 组合证据、端到端加密执行路径、私有群/历史可见性、历史导出一致性和发布脚本。
+7. **测试补齐方向**：优先补高价值边界和回归风险点，而不是继续堆同类协议测试；当前更值得覆盖端到端加密产品化、私有群/群文件权限细分、历史导出一致性和发布脚本。
 
 ## 说明
 
