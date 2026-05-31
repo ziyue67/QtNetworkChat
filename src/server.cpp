@@ -20,6 +20,7 @@
 #include <QSqlError>
 #include <QVariant>
 #include <QRandomGenerator>
+#include <QMessageAuthenticationCode>
 #include <QSslSocket>
 #include <QSslCertificate>
 #include <QSslKey>
@@ -49,6 +50,9 @@ constexpr qint64 kRedisPubSubFileMaxBytes = 1LL * 1024 * 1024;
 constexpr qint64 kRedisPubSubEventMaxBytes = 1LL * 1024 * 1024;
 constexpr qint64 kDefaultObjectStoreTtlHours = 24;
 constexpr qint64 kMaxObjectStoreTtlHours = 24LL * 365;
+constexpr int kPasswordKdfIterations = 120000;
+constexpr int kPasswordKdfSaltBytes = 16;
+constexpr int kPasswordKdfOutputBytes = 32;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -185,6 +189,108 @@ bool looksLikeSha256Hex(const QString& value) {
         if (!isHex) return false;
     }
     return true;
+}
+
+QByteArray pbkdf2Sha256(const QByteArray& password, const QByteArray& salt, int iterations, int outputBytes) {
+    if (iterations <= 0 || outputBytes <= 0) {
+        return QByteArray();
+    }
+
+    QByteArray derived;
+    quint32 blockIndex = 1;
+    while (derived.size() < outputBytes) {
+        QByteArray counter;
+        counter.append(char((blockIndex >> 24) & 0xff));
+        counter.append(char((blockIndex >> 16) & 0xff));
+        counter.append(char((blockIndex >> 8) & 0xff));
+        counter.append(char(blockIndex & 0xff));
+
+        QByteArray u = QMessageAuthenticationCode::hash(salt + counter, password, QCryptographicHash::Sha256);
+        QByteArray block = u;
+        for (int i = 1; i < iterations; ++i) {
+            u = QMessageAuthenticationCode::hash(u, password, QCryptographicHash::Sha256);
+            for (int j = 0; j < block.size(); ++j) {
+                block[j] = char(uchar(block.at(j)) ^ uchar(u.at(j)));
+            }
+        }
+        derived += block;
+        ++blockIndex;
+    }
+    return derived.left(outputBytes);
+}
+
+QByteArray randomSalt(int bytes) {
+    QByteArray salt;
+    salt.reserve(bytes);
+    while (salt.size() < bytes) {
+        const quint64 value = QRandomGenerator::global()->generate64();
+        for (int shift = 0; shift < 64 && salt.size() < bytes; shift += 8) {
+            salt.append(char((value >> shift) & 0xff));
+        }
+    }
+    return salt;
+}
+
+QString legacyPasswordHash(const QString& account, const QString& password) {
+    return QString::fromLatin1(QCryptographicHash::hash((account + ":" + password).toUtf8(),
+                                                        QCryptographicHash::Sha256).toHex());
+}
+
+QString makePasswordKdfHash(const QString& account, const QString& password, const QByteArray& salt = QByteArray()) {
+    const QByteArray actualSalt = salt.isEmpty() ? randomSalt(kPasswordKdfSaltBytes) : salt;
+    const QByteArray material = (account + ":" + password).toUtf8();
+    const QByteArray hash = pbkdf2Sha256(material, actualSalt, kPasswordKdfIterations, kPasswordKdfOutputBytes);
+    return QStringLiteral("kdf$pbkdf2-sha256$%1$%2$%3")
+        .arg(kPasswordKdfIterations)
+        .arg(QString::fromLatin1(actualSalt.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)))
+        .arg(QString::fromLatin1(hash.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
+}
+
+bool verifyPasswordKdfHash(const QString& account, const QString& password, const QString& storedHash) {
+    const QStringList parts = storedHash.split(QLatin1Char('$'));
+    if (parts.size() != 5
+        || parts.at(0) != QLatin1String("kdf")
+        || parts.at(1) != QLatin1String("pbkdf2-sha256")) {
+        return false;
+    }
+
+    bool ok = false;
+    const int iterations = parts.at(2).toInt(&ok);
+    if (!ok || iterations <= 0 || iterations > 1000000) {
+        return false;
+    }
+    const QByteArray salt = QByteArray::fromBase64(parts.at(3).toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+    const QByteArray expected = QByteArray::fromBase64(parts.at(4).toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+    if (salt.isEmpty() || expected.size() != kPasswordKdfOutputBytes) {
+        return false;
+    }
+
+    const QByteArray material = (account + ":" + password).toUtf8();
+    return pbkdf2Sha256(material, salt, iterations, expected.size()) == expected;
+}
+
+bool isKdfPasswordHash(const QString& storedHash) {
+    return storedHash.startsWith(QStringLiteral("kdf$pbkdf2-sha256$"));
+}
+
+bool verifyStoredPasswordHash(const QString& account,
+                              const QString& password,
+                              const QString& storedHash,
+                              bool* needsUpgrade = nullptr) {
+    if (needsUpgrade) {
+        *needsUpgrade = false;
+    }
+    if (isKdfPasswordHash(storedHash)) {
+        return verifyPasswordKdfHash(account, password, storedHash);
+    }
+    if (looksLikeSha256Hex(storedHash)) {
+        const bool ok = storedHash.compare(legacyPasswordHash(account, password), Qt::CaseInsensitive) == 0;
+        if (ok && needsUpgrade) {
+            *needsUpgrade = true;
+        }
+        return ok;
+    }
+    return false;
 }
 
 class TlsTcpServer : public QTcpServer {
@@ -670,7 +776,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
         if (account.isEmpty()) {
             account = generateAccountId(accounts);
         }
-        QString passwordHash = QString::fromLatin1(QCryptographicHash::hash((account + ":" + password).toUtf8(), QCryptographicHash::Sha256).toHex());
+        QString passwordHash = makePasswordKdfHash(account, password);
         if (accounts.contains(account)) {
             QJsonObject response;
             response["type"] = "login_failed";
@@ -687,17 +793,17 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
         accounts[account] = accountObj;
         insertAccountToSqlite(account, passwordHash, userName);
     } else if (accounts.contains(account)) {
-        QString passwordHash = QString::fromLatin1(QCryptographicHash::hash((account + ":" + password).toUtf8(), QCryptographicHash::Sha256).toHex());
         QJsonObject accountObj = accounts[account].toObject();
         QString storedHash = accountObj["passwordHash"].toString();
         if (storedHash.isEmpty()) {
-            storedHash = QString::fromLatin1(QCryptographicHash::hash((account + ":" + accountObj["password"].toString()).toUtf8(), QCryptographicHash::Sha256).toHex());
+            storedHash = legacyPasswordHash(account, accountObj["password"].toString());
             accountObj.remove("password");
             accountObj["passwordHash"] = storedHash;
             accounts[account] = accountObj;
             insertAccountToSqlite(account, storedHash, accountObj["userName"].toString(userName));
         }
-        if (storedHash != passwordHash) {
+        bool needsPasswordHashUpgrade = false;
+        if (!verifyStoredPasswordHash(account, password, storedHash, &needsPasswordHashUpgrade)) {
             QJsonObject response;
             response["type"] = "login_failed";
             response["reason"] = "密码错误";
@@ -705,6 +811,12 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
             socket->write("\n");
             socket->flush();
             return;
+        }
+        if (needsPasswordHashUpgrade) {
+            const QString upgradedHash = makePasswordKdfHash(account, password);
+            accountObj["passwordHash"] = upgradedHash;
+            accounts[account] = accountObj;
+            updateAccountPasswordHashInSqlite(account, upgradedHash);
         }
         userName = accountObj["userName"].toString(userName);
     } else if (!account.isEmpty()) {
@@ -2071,7 +2183,7 @@ QJsonObject Server::loadAccountsFromSqlite() const {
             QJsonObject accountObj = it.value().toObject();
             QString passwordHash = accountObj["passwordHash"].toString();
             if (passwordHash.isEmpty() && accountObj.contains("password")) {
-                passwordHash = QString::fromLatin1(QCryptographicHash::hash((it.key() + ":" + accountObj["password"].toString()).toUtf8(), QCryptographicHash::Sha256).toHex());
+                passwordHash = legacyPasswordHash(it.key(), accountObj["password"].toString());
             }
             QString userName = accountObj["userName"].toString(it.key());
             if (!passwordHash.isEmpty() && insertAccountToSqlite(it.key(), passwordHash, userName)) {
@@ -2101,6 +2213,27 @@ bool Server::insertAccountToSqlite(const QString& account, const QString& passwo
             query.addBindValue(account);
             query.addBindValue(passwordHash);
             query.addBindValue(userName);
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool Server::updateAccountPasswordHashInSqlite(const QString& account, const QString& passwordHash) const {
+    if (account.isEmpty() || passwordHash.isEmpty() || !ensureAccountDatabase()) return false;
+
+    QString connectionName = "accounts_password_update_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("UPDATE accounts SET password_hash = ?, updated_at = datetime('now') WHERE account = ?");
+            query.addBindValue(passwordHash);
+            query.addBindValue(account);
             ok = query.exec();
             db.close();
         }

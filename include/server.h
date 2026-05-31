@@ -82,6 +82,7 @@ private:
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
     bool insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const;
+    bool updateAccountPasswordHashInSqlite(const QString& account, const QString& passwordHash) const;
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool recordDefaultGroupMembership(const ChatUser& user) const;
     bool isServerGroupMember(const QString& groupId, const QString& userId) const;
