@@ -46,6 +46,21 @@ bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
     return predicate();
 }
 
+void drainEvents(int rounds = 5) {
+    for (int i = 0; i < rounds; ++i) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(10);
+    }
+}
+
+void disconnectClient(Client& client) {
+    client.disconnectFromServer();
+    waitFor([&] {
+        return !client.isConnected();
+    }, 2000);
+    drainEvents();
+}
+
 quint16 freeLocalPort() {
     QTcpServer probe;
     if (!probe.listen(QHostAddress::LocalHost, 0)) return 0;
@@ -111,38 +126,39 @@ int main(int argc, char** argv) {
     ok = expect(port != 0, "a local test port should be available") && ok;
     if (!ok) return 1;
 
-    Server server;
-    ok = expect(server.start(port), "server should start on the test port") && ok;
-    if (!ok) return 1;
+    {
+        Server server;
+        ok = expect(server.start(port), "server should start on the test port") && ok;
+        if (!ok) return 1;
 
-    Client owner;
-    Client member;
-    Client guest;
-    QStringList ownerGroupMessages;
-    QStringList ownerSystemMessages;
-    QStringList memberSystemMessages;
-    QStringList guestSystemMessages;
-    QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
-        if (msg.type == MessageType::Text) {
-            ownerGroupMessages << msg.content;
-        } else if (msg.type == MessageType::System) {
-            ownerSystemMessages << msg.content;
-        }
-    });
-    QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
-        if (msg.type == MessageType::System) {
-            memberSystemMessages << msg.content;
-        }
-    });
-    QObject::connect(&guest, &Client::newMessage, &app, [&](const Message& msg) {
-        if (msg.type == MessageType::System) {
-            guestSystemMessages << msg.content;
-        }
-    });
+        Client owner;
+        Client member;
+        Client guest;
+        QStringList ownerGroupMessages;
+        QStringList ownerSystemMessages;
+        QStringList memberSystemMessages;
+        QStringList guestSystemMessages;
+        QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::Text) {
+                ownerGroupMessages << msg.content;
+            } else if (msg.type == MessageType::System) {
+                ownerSystemMessages << msg.content;
+            }
+        });
+        QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::System) {
+                memberSystemMessages << msg.content;
+            }
+        });
+        QObject::connect(&guest, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::System) {
+                guestSystemMessages << msg.content;
+            }
+        });
 
-    const QString ownerId = "910001";
-    const QString memberId = "910002";
-    const QString guestId = "910003";
+        const QString ownerId = "910001";
+        const QString memberId = "910002";
+        const QString guestId = "910003";
 
     ok = expect(registerClient(owner, ownerId, "Owner", port), "owner should register and log in") && ok;
     ok = expect(waitFor([&] {
@@ -338,10 +354,13 @@ int main(int argc, char** argv) {
     ok = expect(publicGroupHasMember(member.serverGroups(), ownerId),
                 "owner should remain in public group after rejected removal") && ok;
 
-    owner.disconnectFromServer();
-    member.disconnectFromServer();
-    guest.disconnectFromServer();
-    server.stop();
+        disconnectClient(owner);
+        disconnectClient(member);
+        disconnectClient(guest);
+        server.stop();
+        drainEvents();
+    }
+    drainEvents();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
     }
