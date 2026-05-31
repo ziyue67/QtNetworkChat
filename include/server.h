@@ -86,6 +86,13 @@ private:
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool recordDefaultGroupMembership(const ChatUser& user) const;
     bool isServerGroupMember(const QString& groupId, const QString& userId) const;
+    bool recordServerGroupAuditEvent(const QString& groupId,
+                                     const QString& action,
+                                     const QString& actorId,
+                                     const QString& actorName,
+                                     const QString& targetUserId,
+                                     const QString& targetUserName,
+                                     const QJsonObject& details = QJsonObject()) const;
     bool saveMessageToSqlite(const Message& msg, const QString& deliveryState) const;
     bool saveFriendEventToSqlite(const QString& eventType,
                                  const QString& senderId,

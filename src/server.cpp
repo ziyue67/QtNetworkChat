@@ -1058,6 +1058,14 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
         return;
     }
 
+    recordServerGroupAuditEvent(groupId,
+                                QStringLiteral("announcement_update"),
+                                requester->id,
+                                requester->name,
+                                QString(),
+                                QString(),
+                                QJsonObject{{QStringLiteral("contentLength"), announcement.size()}});
+
     const QString notice = QString("%1 更新了群公告").arg(requester->name.isEmpty() ? requester->id : requester->name);
     for (const QString& memberId : memberIds) {
         QTcpSocket* memberSocket = m_userSockets.value(memberId);
@@ -1268,6 +1276,14 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
         sendSystemNotice(socket, errorText.isEmpty() ? "群成员变更未生效" : errorText);
         return;
     }
+
+    recordServerGroupAuditEvent(groupId,
+                                action,
+                                requester->id,
+                                requester->name,
+                                memberId,
+                                memberName,
+                                QJsonObject{{QStringLiteral("roleAction"), roleAction}});
 
     const QString displayName = memberName.isEmpty() ? memberId : memberName;
     QString notice;
@@ -2461,6 +2477,45 @@ bool Server::isServerGroupMember(const QString& groupId, const QString& userId) 
     return exists;
 }
 
+bool Server::recordServerGroupAuditEvent(const QString& groupId,
+                                         const QString& action,
+                                         const QString& actorId,
+                                         const QString& actorName,
+                                         const QString& targetUserId,
+                                         const QString& targetUserName,
+                                         const QJsonObject& details) const {
+    if (groupId.trimmed().isEmpty()
+        || action.trimmed().isEmpty()
+        || actorId.trimmed().isEmpty()
+        || !ensureAccountDatabase()) {
+        return false;
+    }
+
+    QString connectionName = "server_group_audit_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(accountDbPath());
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT INTO server_group_audit_events("
+                          "group_id, action, actor_id, actor_name, target_user_id, target_user_name, details, created_at) "
+                          "VALUES(?, ?, ?, ?, ?, ?, ?, datetime('now'))");
+            query.addBindValue(groupId.trimmed());
+            query.addBindValue(action.trimmed().toLower());
+            query.addBindValue(actorId.trimmed());
+            query.addBindValue(actorName.trimmed());
+            query.addBindValue(targetUserId.trimmed());
+            query.addBindValue(targetUserName.trimmed());
+            query.addBindValue(QString::fromUtf8(QJsonDocument(details).toJson(QJsonDocument::Compact)));
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
 bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryState) const {
     if (!ensureAccountDatabase()) return false;
 
@@ -2633,6 +2688,18 @@ bool Server::ensureAccountDatabase() const {
                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
             if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_audit_events ("
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                "group_id TEXT NOT NULL, "
+                                "action TEXT NOT NULL, "
+                                "actor_id TEXT NOT NULL, "
+                                "actor_name TEXT, "
+                                "target_user_id TEXT, "
+                                "target_user_name TEXT, "
+                                "details TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
                 query.exec("INSERT OR IGNORE INTO server_groups(group_id, group_name, announcement, created_at, updated_at) "
                            "VALUES('public', '公共聊天室', '欢迎来到公共聊天室。', datetime('now'), datetime('now'))");
             }
@@ -2645,6 +2712,7 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_members_user ON server_group_members(user_id, group_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_removed_members_user ON server_group_removed_members(user_id, group_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_announcements_group ON server_group_announcements(group_id, id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_audit_group ON server_group_audit_events(group_id, id)");
             }
             db.close();
         }
@@ -3872,6 +3940,31 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                         }
                     }
                     groupObj["members"] = members;
+
+                    QJsonArray auditEvents;
+                    QSqlQuery auditQuery(db);
+                    auditQuery.prepare("SELECT action, actor_id, COALESCE(actor_name, ''), "
+                                       "COALESCE(target_user_id, ''), COALESCE(target_user_name, ''), "
+                                       "COALESCE(details, ''), created_at "
+                                       "FROM server_group_audit_events "
+                                       "WHERE group_id = ? "
+                                       "ORDER BY id DESC LIMIT 20");
+                    auditQuery.addBindValue(groupId);
+                    if (auditQuery.exec()) {
+                        while (auditQuery.next()) {
+                            QJsonObject auditObj;
+                            auditObj["action"] = auditQuery.value(0).toString();
+                            auditObj["actorId"] = auditQuery.value(1).toString();
+                            auditObj["actorName"] = auditQuery.value(2).toString();
+                            auditObj["targetUserId"] = auditQuery.value(3).toString();
+                            auditObj["targetUserName"] = auditQuery.value(4).toString();
+                            const QJsonDocument detailsDoc = QJsonDocument::fromJson(auditQuery.value(5).toString().toUtf8());
+                            auditObj["details"] = detailsDoc.isObject() ? detailsDoc.object() : QJsonObject();
+                            auditObj["createdAt"] = auditQuery.value(6).toString();
+                            auditEvents.prepend(auditObj);
+                        }
+                    }
+                    groupObj["auditEvents"] = auditEvents;
                     groups.append(groupObj);
                 }
             }

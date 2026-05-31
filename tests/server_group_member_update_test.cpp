@@ -98,6 +98,37 @@ QString publicGroupAnnouncement(const QJsonArray& groups) {
     return publicGroup(groups)["announcement"].toString();
 }
 
+QJsonArray publicGroupAuditEvents(const QJsonArray& groups) {
+    return publicGroup(groups)["auditEvents"].toArray();
+}
+
+int publicGroupAuditActionCount(const QJsonArray& groups, const QString& action) {
+    int count = 0;
+    const QJsonArray auditEvents = publicGroupAuditEvents(groups);
+    for (const QJsonValue& value : auditEvents) {
+        if (value.toObject()["action"].toString() == action) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool publicGroupHasAuditEvent(const QJsonArray& groups,
+                              const QString& action,
+                              const QString& actorId,
+                              const QString& targetUserId = QString()) {
+    const QJsonArray auditEvents = publicGroupAuditEvents(groups);
+    for (const QJsonValue& value : auditEvents) {
+        const QJsonObject event = value.toObject();
+        if (event["action"].toString() == action
+            && event["actorId"].toString() == actorId
+            && (targetUserId.isEmpty() || event["targetUserId"].toString() == targetUserId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool registerClient(Client& client,
                     const QString& account,
                     const QString& userName,
@@ -179,6 +210,9 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement;
     }), "owner announcement should be synced to public group members") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(member.serverGroups(), "announcement_update", ownerId);
+    }), "owner announcement update should be visible in group audit events") && ok;
 
     memberSystemMessages.clear();
     const QString rejectedAnnouncement = "Member announcement should be rejected";
@@ -192,6 +226,8 @@ int main(int argc, char** argv) {
     }), "plain member announcement update should be rejected by server-side role check") && ok;
     ok = expect(publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement,
                 "rejected member announcement should not change public group announcement") && ok;
+    ok = expect(publicGroupAuditActionCount(member.serverGroups(), "announcement_update") == 1,
+                "rejected member announcement should not create an audit event") && ok;
 
     ownerSystemMessages.clear();
     ok = expect(owner.sendServerGroupMemberUpdate("public", ownerId, "remove"),
@@ -211,6 +247,9 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] {
         return member.serverGroups().isEmpty();
     }), "removed member should receive an empty server group snapshot") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(owner.serverGroups(), "remove", ownerId, memberId);
+    }), "owner removal should be visible in group audit events") && ok;
 
     const QString blockedBroadcast = "removed member broadcast should be blocked";
     memberSystemMessages.clear();
@@ -245,6 +284,9 @@ int main(int argc, char** argv) {
         return publicGroupHasMember(member.serverGroups(), ownerId)
             && publicGroupHasMember(member.serverGroups(), memberId);
     }), "added member should receive restored public group snapshot") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(member.serverGroups(), "add", ownerId, memberId);
+    }), "owner member add should be visible in group audit events") && ok;
 
     ownerSystemMessages.clear();
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "add"),
@@ -258,6 +300,8 @@ int main(int argc, char** argv) {
     ok = expect(publicGroupHasMember(member.serverGroups(), memberId)
                     && publicGroupMemberRole(member.serverGroups(), memberId) == "member",
                 "duplicate member add should keep the existing member role") && ok;
+    ok = expect(publicGroupAuditActionCount(member.serverGroups(), "add") == 1,
+                "duplicate member add should not create another audit event") && ok;
 
     const QString restoredBroadcast = "restored member broadcast should pass";
     ownerGroupMessages.clear();
@@ -273,6 +317,9 @@ int main(int argc, char** argv) {
         return publicGroupMemberRole(owner.serverGroups(), memberId) == "admin"
             && publicGroupMemberRole(member.serverGroups(), memberId) == "admin";
     }), "owner should be able to promote a public group member to admin") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasAuditEvent(owner.serverGroups(), "promote_admin", ownerId, memberId);
+    }), "owner admin promotion should be visible in group audit events") && ok;
 
     const QString adminAnnouncement = "Admin announcement protocol test";
     ok = expect(member.sendServerGroupAnnouncementUpdate("public", adminAnnouncement),
