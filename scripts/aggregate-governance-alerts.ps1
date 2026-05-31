@@ -21,6 +21,7 @@ $resolvedOutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPa
 $knownAlertFiles = @(
     "large-file-route-alert-summary.json",
     "s3-request-results-alert-summary.json",
+    "s3-failure-batch-alert-summary.json",
     "receipt-rotation-alert-summary.json"
 )
 

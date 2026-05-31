@@ -56,7 +56,11 @@ param(
 
     [string]$DashboardPath,
 
-    [string]$DashboardMarkdownPath
+    [string]$DashboardMarkdownPath,
+
+    [switch]$RunS3FailureBatchSample,
+
+    [int]$S3FailureBatchCountPerReason = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -98,6 +102,9 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 }
 if ([string]::IsNullOrWhiteSpace($ReceiptRotationPath) -and ($RotationKeepRecords -gt 0 -or $RotationMaxAgeDays -gt 0 -or $CompressRotationArchive)) {
     throw "ReceiptRotationPath is required when receipt rotation options are set."
+}
+if ($S3FailureBatchCountPerReason -lt 1) {
+    throw "S3FailureBatchCountPerReason must be 1 or greater."
 }
 foreach ($path in $QueuePath) {
     Assert-PathExists $path "QueuePath"
@@ -145,6 +152,7 @@ $notifier = Join-Path $PSScriptRoot "notify-governance-unhealthy.ps1"
 $diagnosticsPackager = Join-Path $PSScriptRoot "package-governance-diagnostics.ps1"
 $reportWriter = Join-Path $PSScriptRoot "write-large-file-governance-report.ps1"
 $dashboardWriter = Join-Path $PSScriptRoot "write-large-file-governance-dashboard.ps1"
+$s3FailureBatchWriter = Join-Path $PSScriptRoot "write-s3-failure-batch-sample.ps1"
 
 $hasRouteLogs = $null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0
 $hasHealthCheck = -not [string]::IsNullOrWhiteSpace($HealthCheckPath)
@@ -155,6 +163,7 @@ if (-not [string]::IsNullOrWhiteSpace($ReceiptRotationPath)) { $totalSteps += 2 
 if ($shouldPackageAcceptance) { $totalSteps++ }
 if ($hasHealthCheck) { $totalSteps++ }
 if ($hasNotify) { $totalSteps++ }
+if ($RunS3FailureBatchSample) { $totalSteps++ }
 if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath)) { $totalSteps++ }
 if ($WriteDashboard -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath)) { $totalSteps++ }
 if ($PackageDiagnostics -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) { $totalSteps++ }
@@ -262,6 +271,19 @@ if ($shouldPackageAcceptance) {
 $aggregator = Join-Path $PSScriptRoot "aggregate-governance-alerts.ps1"
 $aggregatedAlertPath = Join-Path $resolvedOutputDir "governance-alert-overview.json"
 
+if ($RunS3FailureBatchSample) {
+    StepLabel "S3 failure batch sample"
+    $batchOutputDir = Join-Path $resolvedOutputDir "s3-failure-batch"
+    $batchArgs = @("-OutputDir", $batchOutputDir, "-CountPerReason", $S3FailureBatchCountPerReason, "-RunAnalysis", "-NoFailOnWarning")
+    Invoke-CheckedScript $s3FailureBatchWriter $batchArgs (Join-Path $resolvedOutputDir "s3-failure-batch.log")
+    foreach ($name in @("s3-failure-batch-route.log", "s3-failure-batch-summary.json", "s3-failure-batch-alert-summary.json")) {
+        $source = Join-Path $batchOutputDir $name
+        if (Test-Path -LiteralPath $source) {
+            Copy-Item -LiteralPath $source -Destination (Join-Path $resolvedOutputDir $name) -Force
+        }
+    }
+}
+
 StepLabel "aggregate governance alerts"
 $aggArgs = @("-OutputDir", $resolvedOutputDir, "-AggregatedPath", $aggregatedAlertPath)
 if ($NoFailOnWarning) {
@@ -350,6 +372,9 @@ if (Test-Path -LiteralPath $rotationSummaryPath) {
 }
 if (Test-Path -LiteralPath $aggregatedAlertPath) {
     Write-Host ("  governance alert overview: {0}" -f $aggregatedAlertPath)
+}
+if (Test-Path -LiteralPath (Join-Path $resolvedOutputDir "s3-failure-batch-summary.json")) {
+    Write-Host ("  S3 failure batch summary: {0}" -f (Join-Path $resolvedOutputDir "s3-failure-batch-summary.json"))
 }
 if ($hasHealthCheck -and (Test-Path -LiteralPath $resolvedHealthCheckPath)) {
     Write-Host ("  health check: {0}" -f $resolvedHealthCheckPath)

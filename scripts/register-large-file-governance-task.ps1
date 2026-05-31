@@ -53,6 +53,10 @@ param(
 
     [string]$DashboardMarkdownPath,
 
+    [switch]$RunS3FailureBatchSample,
+
+    [int]$S3FailureBatchCountPerReason = 2,
+
     [switch]$EmitRouteLog,
 
     [switch]$NoFailOnWarning,
@@ -151,6 +155,9 @@ if ($Schedule -eq "Hourly" -and $EveryHours -lt 1) {
 if ([string]::IsNullOrWhiteSpace($ReceiptRotationPath) -and ($RotationKeepRecords -gt 0 -or $RotationMaxAgeDays -gt 0 -or $CompressRotationArchive)) {
     throw "ReceiptRotationPath is required when receipt rotation options are set."
 }
+if ($S3FailureBatchCountPerReason -lt 1) {
+    throw "S3FailureBatchCountPerReason must be 1 or greater."
+}
 
 Assert-NoSensitiveValue "TaskName" @($TaskName)
 Assert-NoSensitiveValue "RouteLogPath" $RouteLogPath
@@ -214,6 +221,8 @@ Add-ScalarArg $lines "HtmlReportPath" $HtmlReportPath
 Add-SwitchArg $lines "WriteDashboard" ($WriteDashboard.IsPresent -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath))
 Add-ScalarArg $lines "DashboardPath" $DashboardPath
 Add-ScalarArg $lines "DashboardMarkdownPath" $DashboardMarkdownPath
+Add-SwitchArg $lines "RunS3FailureBatchSample" $RunS3FailureBatchSample.IsPresent
+Add-IntArg $lines "S3FailureBatchCountPerReason" $S3FailureBatchCountPerReason
 Add-ScalarArg $lines "HealthCheckPath" (Join-Path $OutputDir "last-health.json")
 Add-IntArg $lines "HealthMaxWarnings" 0
 Add-SwitchArg $lines "NotifyOnUnhealthy" $true
@@ -259,6 +268,11 @@ $dashboardMarkdownPreviewPath = if ([string]::IsNullOrWhiteSpace($DashboardMarkd
 } else {
     $DashboardMarkdownPath
 }
+$s3FailureBatchPreviewPath = if ($RunS3FailureBatchSample) {
+    Join-Path $OutputDir "s3-failure-batch-summary.json"
+} else {
+    ""
+}
 $actionArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`""
 $preview = [pscustomobject]@{
     taskName = $TaskName
@@ -278,6 +292,8 @@ $preview = [pscustomobject]@{
     htmlReportPath = $htmlReportPreviewPath
     dashboardPath = $dashboardPreviewPath
     dashboardMarkdownPath = $dashboardMarkdownPreviewPath
+    s3FailureBatchSummaryPath = $s3FailureBatchPreviewPath
+    s3FailureBatchCountPerReason = if ($RunS3FailureBatchSample) { $S3FailureBatchCountPerReason } else { $null }
     readOnly = $true
     notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, dashboardPath for machine-readable local status, reportPath for an operator-readable summary, and diagnosticsPackagePath for a sanitized zip."
 }

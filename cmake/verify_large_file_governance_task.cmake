@@ -41,6 +41,8 @@ execute_process(
         -WriteDashboard
         -DashboardPath "${DASHBOARD_PATH}"
         -DashboardMarkdownPath "${DASHBOARD_MD_PATH}"
+        -RunS3FailureBatchSample
+        -S3FailureBatchCountPerReason 3
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error_output
@@ -81,7 +83,9 @@ foreach(expected_text
         "-WriteReport"
         "-WriteDashboard"
         "-DashboardPath"
-        "-DashboardMarkdownPath")
+        "-DashboardMarkdownPath"
+        "-RunS3FailureBatchSample"
+        "-S3FailureBatchCountPerReason")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -100,6 +104,8 @@ string(JSON diagnostics_path GET "${preview_content}" "diagnosticsPackagePath")
 string(JSON report_path GET "${preview_content}" "reportPath")
 string(JSON dashboard_path GET "${preview_content}" "dashboardPath")
 string(JSON dashboard_markdown_path GET "${preview_content}" "dashboardMarkdownPath")
+string(JSON s3_batch_path GET "${preview_content}" "s3FailureBatchSummaryPath")
+string(JSON s3_batch_count GET "${preview_content}" "s3FailureBatchCountPerReason")
 if(should_register)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview mode should not register the scheduled task")
@@ -119,6 +125,14 @@ endif()
 if(NOT dashboard_markdown_path MATCHES "dashboard.md")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview dashboardMarkdownPath missing expected dashboard.md path: ${dashboard_markdown_path}")
+endif()
+if(NOT s3_batch_path MATCHES "s3-failure-batch-summary.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview S3 failure batch summary path missing expected file: ${s3_batch_path}")
+endif()
+if(NOT s3_batch_count EQUAL 3)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview S3 failure batch count should be 3, got ${s3_batch_count}")
 endif()
 
 execute_process(

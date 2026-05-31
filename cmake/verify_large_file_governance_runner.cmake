@@ -64,6 +64,8 @@ execute_process(
         -WriteDashboard
         -DashboardPath "${DASHBOARD_PATH}"
         -DashboardMarkdownPath "${DASHBOARD_MD_PATH}"
+        -RunS3FailureBatchSample
+        -S3FailureBatchCountPerReason 2
         -PackageDiagnostics
         -DiagnosticsPackagePath "${DIAGNOSTICS_PATH}"
     RESULT_VARIABLE result
@@ -88,6 +90,8 @@ foreach(expected_file
         "${OUTPUT_DIR}/large-file-route-alert-summary.json"
         "${OUTPUT_DIR}/s3-request-results-summary.json"
         "${OUTPUT_DIR}/s3-request-results-alert-summary.json"
+        "${OUTPUT_DIR}/s3-failure-batch-summary.json"
+        "${OUTPUT_DIR}/s3-failure-batch-alert-summary.json"
         "${OUTPUT_DIR}/reconcile/receipts.jsonl"
         "${OUTPUT_DIR}/reconcile/fallbacks.jsonl"
         "${OUTPUT_DIR}/reconcile/s3-analysis-summary.json"
@@ -169,6 +173,25 @@ endif()
 if(NOT s3_alert_lines EQUAL 2)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected governance S3 alert s3LineCount=2, got ${s3_alert_lines}")
+endif()
+
+file(READ "${OUTPUT_DIR}/s3-failure-batch-summary.json" s3_batch_content)
+string(JSON s3_batch_lines GET "${s3_batch_content}" "s3LineCount")
+string(JSON s3_batch_timeouts GET "${s3_batch_content}" "reasonCounts" "timeout")
+if(NOT s3_batch_lines EQUAL 22)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 failure batch s3LineCount=22, got ${s3_batch_lines}")
+endif()
+if(NOT s3_batch_timeouts EQUAL 2)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 failure batch timeout count=2, got ${s3_batch_timeouts}")
+endif()
+
+file(READ "${OUTPUT_DIR}/governance-alert-overview.json" overview_content)
+string(JSON overview_alert_count GET "${overview_content}" "alertCount")
+if(NOT overview_alert_count EQUAL 4)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance alertCount=4 with S3 batch sample, got ${overview_alert_count}")
 endif()
 
 file(READ "${OUTPUT_DIR}/receipt-rotation-alert-summary.json" rotation_alert_content)

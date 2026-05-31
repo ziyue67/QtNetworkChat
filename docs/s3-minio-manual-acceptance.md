@@ -378,6 +378,8 @@ powershell -ExecutionPolicy Bypass -File scripts/write-s3-failure-batch-sample.p
 
 该样例会生成脱敏 `s3-failure-batch-route.log`、`s3-failure-batch-summary.json` 和 `s3-failure-batch-alert-summary.json`，覆盖 timeout、network、tls、auth、retryable、server、hash、size、下发 ACK 超时、接收端断开和删除保留等固定桶；脚本只写本地样例文件，不连接 Redis、S3/MinIO，也不会修改队列、附件、对象或 receipt。
 
+治理入口也可以追加 `-RunS3FailureBatchSample -S3FailureBatchCountPerReason 3`，把上述样例纳入 `governance-alert-overview.json`、dashboard、报告和诊断包；计划任务 helper 会在 preview 中写出 `s3FailureBatchSummaryPath`，便于确认只生成本地样例产物。
+
 没有真实日志时，可以直接跑完整脱敏样例链路：
 
 ```powershell
