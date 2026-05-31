@@ -68,6 +68,27 @@ function Copy-DiagnosticFile([string]$SourcePath, [string]$TargetDir, [string]$K
     })
 }
 
+function Read-JsonFile([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
+        return $null
+    }
+    $raw = Get-Content -LiteralPath $PathValue -Raw -Encoding UTF8
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $null
+    }
+    $raw | ConvertFrom-Json
+}
+
+function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
+    if ($null -eq $ObjectValue) {
+        return $DefaultValue
+    }
+    if ($ObjectValue.PSObject.Properties.Name -contains $Name) {
+        return $ObjectValue.$Name
+    }
+    $DefaultValue
+}
+
 $resolvedGovernanceDir = Resolve-RequiredPath $GovernanceDir "GovernanceDir"
 if (-not (Test-Path -LiteralPath $resolvedGovernanceDir -PathType Container)) {
     throw "GovernanceDir is not a directory: $GovernanceDir"
@@ -146,11 +167,18 @@ if ($sensitiveHits.Count -gt 0 -and -not $NoFailOnSensitive) {
 }
 
 $manifestPath = Join-Path $stagingDir "manifest.json"
+$runbook = Read-JsonFile (Join-Path $resolvedGovernanceDir "s3-stability-runbook.json")
+$runbookMetrics = Get-JsonValue $runbook "metrics" ([pscustomobject]@{})
 [pscustomobject]@{
     createdAt = (Get-Date).ToUniversalTime().ToString("o")
     packageFormat = "qtnetworkchat-large-file-governance-diagnostics-v1"
     readOnly = $true
     sensitiveHits = $sensitiveHits.Count
+    s3StabilizationCoverage = [pscustomobject]@{
+        areaCount = [int](Get-JsonValue $runbookMetrics "coverageAreaCount" 0)
+        fixedReasonCount = [int](Get-JsonValue $runbookMetrics "coverageFixedReasonCount" 0)
+        areas = @(@((Get-JsonValue $runbook "stabilizationCoverage" @())) | ForEach-Object { [string](Get-JsonValue $_ "area" "") } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
     inputs = @($manifestInputs)
     notes = "Package contains only governance diagnostic artifacts; it does not connect to Redis/S3/MinIO and does not modify queues, attachments, or objects."
 } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8

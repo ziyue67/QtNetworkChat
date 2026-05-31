@@ -97,6 +97,7 @@ $healthPath = Join-Path $resolvedGovernanceDir "last-health.json"
 $routeSummaryPath = Join-Path $resolvedGovernanceDir "large-file-route-summary.json"
 $s3SummaryPath = Join-Path $resolvedGovernanceDir "s3-request-results-summary.json"
 $s3EvidencePath = Join-Path $resolvedGovernanceDir "s3-real-backend-evidence.json"
+$s3RunbookPath = Join-Path $resolvedGovernanceDir "s3-stability-runbook.json"
 $rotationSummaryPath = Join-Path $resolvedGovernanceDir "receipt-rotation-summary.json"
 $reconcileSummaryPath = Join-Path (Join-Path $resolvedGovernanceDir "reconcile") "reconcile-summary.json"
 
@@ -105,6 +106,7 @@ $health = Read-JsonFile $healthPath
 $routeSummary = Read-JsonFile $routeSummaryPath
 $s3Summary = Read-JsonFile $s3SummaryPath
 $s3Evidence = Read-JsonFile $s3EvidencePath
+$s3Runbook = Read-JsonFile $s3RunbookPath
 $rotationSummary = Read-JsonFile $rotationSummaryPath
 $reconcileSummary = Read-JsonFile $reconcileSummaryPath
 
@@ -114,6 +116,7 @@ $scanPaths = @(
     $routeSummaryPath,
     $s3SummaryPath,
     $s3EvidencePath,
+    $s3RunbookPath,
     $rotationSummaryPath,
     $reconcileSummaryPath
 )
@@ -194,6 +197,23 @@ if ($null -ne $s3Evidence -and $null -ne $s3Evidence.metrics) {
     }
 }
 Add-MetricTable $lines "S3 Real Backend Evidence" $s3EvidenceMetrics
+
+if ($null -ne $s3Runbook -and $null -ne $s3Runbook.stabilizationCoverage) {
+    $lines.Add("")
+    $lines.Add("## S3 Stabilization Coverage")
+    $lines.Add("")
+    $lines.Add("| Area | Event | Operation | Fixed reasons | Observed event operations |")
+    $lines.Add("| --- | --- | --- | --- | ---: |")
+    foreach ($item in @($s3Runbook.stabilizationCoverage)) {
+        $fixedReasons = if ($null -eq $item.fixedReasons) { "" } else { @($item.fixedReasons) -join ", " }
+        $lines.Add(("| {0} | {1} | {2} | {3} | {4} |" -f
+                (Format-Value $item.area),
+                (Format-Value $item.event),
+                (Format-Value $item.operation),
+                $fixedReasons,
+                (Format-Value $item.observedEventOperationCount)))
+    }
+}
 
 $rotationMetrics = @{}
 if ($null -ne $rotationSummary) {

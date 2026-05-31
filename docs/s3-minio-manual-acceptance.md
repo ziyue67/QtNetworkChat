@@ -341,7 +341,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run-large-file-governance.ps1 `
   -DiagnosticsPackagePath ".\logs\governance\large-file-governance-diagnostics.zip"
 ```
 
-`scripts/write-large-file-governance-report.ps1` 可单独读取治理输出目录并生成 Markdown/HTML 运维报告；报告会汇总健康状态、alert overview、route/S3/receipt rotation/delivered reconcile 指标，并在发现 endpoint、bucket、object URL、凭据或签名字段时拒绝生成。`scripts/package-governance-diagnostics.ps1` 也可单独读取治理输出目录并生成诊断 zip；归档前会扫描敏感字段，生成 `manifest.json`，且不会连接 Redis、S3/MinIO 或修改真实队列、附件、对象。
+`scripts/write-large-file-governance-report.ps1` 可单独读取治理输出目录并生成 Markdown/HTML 运维报告；报告会汇总健康状态、alert overview、route/S3/receipt rotation/delivered reconcile 指标，如果治理目录里已有 S3 stability runbook，还会追加 S3 稳定化覆盖面表格，展示默认 CTest 已覆盖的固定 reason 边界和本次观测计数，并在发现 endpoint、bucket、object URL、凭据或签名字段时拒绝生成。`scripts/package-governance-diagnostics.ps1` 也可单独读取治理输出目录并生成诊断 zip；归档前会扫描敏感字段，生成 `manifest.json`，其中包含 `s3StabilizationCoverage.areaCount/fixedReasonCount/areas` 摘要，且不会连接 Redis、S3/MinIO 或修改真实队列、附件、对象。
 
 如果只需要给计划任务、值班脚本或本地运维页面消费一个轻量入口，可生成治理 dashboard：
 

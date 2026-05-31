@@ -55,7 +55,7 @@ file(WRITE "${GOV_DIR}/s3-real-backend-evidence-alert-summary.json"
 "{\"kind\":\"s3-real-backend-evidence\",\"ok\":true,\"warnings\":[],\"metrics\":{\"s3LineCount\":2}}\n"
 )
 file(WRITE "${GOV_DIR}/s3-stability-runbook.json"
-"{\"format\":\"qtnetworkchat-s3-stability-runbook-v1\",\"ok\":true,\"warnings\":[],\"metrics\":{\"successCount\":1,\"timeoutCount\":0},\"actions\":[{\"reason\":\"baseline\",\"count\":0}]}\n"
+"{\"format\":\"qtnetworkchat-s3-stability-runbook-v1\",\"ok\":true,\"warnings\":[],\"metrics\":{\"successCount\":1,\"timeoutCount\":0,\"coverageAreaCount\":5,\"coverageFixedReasonCount\":30},\"stabilizationCoverage\":[{\"area\":\"source-write-fallback\",\"event\":\"object_write\",\"operation\":\"write\",\"fixedReasons\":[\"timeout\",\"network\"]}],\"actions\":[{\"reason\":\"baseline\",\"count\":0}]}\n"
 )
 file(WRITE "${GOV_DIR}/s3-stability-runbook.md"
 "# QtNetworkChat S3 Stability Runbook\n"
@@ -141,6 +141,9 @@ endif()
 file(READ "${MANIFEST}" manifest_content)
 string(JSON package_format GET "${manifest_content}" "packageFormat")
 string(JSON sensitive_hits GET "${manifest_content}" "sensitiveHits")
+string(JSON coverage_area_count GET "${manifest_content}" "s3StabilizationCoverage" "areaCount")
+string(JSON coverage_reason_count GET "${manifest_content}" "s3StabilizationCoverage" "fixedReasonCount")
+string(JSON coverage_area0 GET "${manifest_content}" "s3StabilizationCoverage" "areas" 0)
 if(NOT package_format STREQUAL "qtnetworkchat-large-file-governance-diagnostics-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected diagnostics package format: ${package_format}")
@@ -148,6 +151,18 @@ endif()
 if(NOT sensitive_hits EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected sensitiveHits=0, got ${sensitive_hits}")
+endif()
+if(NOT coverage_area_count EQUAL 5)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverage areaCount=5, got ${coverage_area_count}")
+endif()
+if(NOT coverage_reason_count EQUAL 30)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverage fixedReasonCount=30, got ${coverage_reason_count}")
+endif()
+if(NOT coverage_area0 STREQUAL "source-write-fallback")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected first coverage area source-write-fallback, got ${coverage_area0}")
 endif()
 
 foreach(expected_file

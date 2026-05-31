@@ -43,6 +43,17 @@ file(WRITE "${GOV_DIR}/s3-request-results-summary.json"
 file(WRITE "${GOV_DIR}/s3-real-backend-evidence.json"
 "{\"format\":\"qtnetworkchat-s3-real-backend-evidence-v1\",\"ok\":true,\"warnings\":[],\"metrics\":{\"s3LineCount\":2,\"routeLineCount\":3,\"successCount\":1,\"fixedFailureReasonCount\":1,\"sensitiveHits\":0,\"s3SummarySensitiveHits\":0,\"governanceStatus\":\"healthy\",\"governanceOk\":true}}\n"
 )
+file(WRITE "${GOV_DIR}/s3-stability-runbook.json"
+"{\n"
+"  \"format\":\"qtnetworkchat-s3-stability-runbook-v1\",\n"
+"  \"ok\":true,\n"
+"  \"metrics\":{\"coverageAreaCount\":5,\"coverageFixedReasonCount\":30},\n"
+"  \"stabilizationCoverage\":[\n"
+"    {\"area\":\"source-write-fallback\",\"event\":\"object_write\",\"operation\":\"write\",\"fixedReasons\":[\"timeout\",\"network\"],\"observedEventOperationCount\":2},\n"
+"    {\"area\":\"source-delete-retained\",\"event\":\"object_delete\",\"operation\":\"delete\",\"fixedReasons\":[\"server\",\"unknown\"],\"observedEventOperationCount\":1}\n"
+"  ]\n"
+"}\n"
+)
 file(WRITE "${GOV_DIR}/receipt-rotation-summary.json"
 "{\"totalRecords\":3,\"retainedRecords\":2,\"archivedRecords\":1,\"sensitiveHits\":0}\n"
 )
@@ -91,6 +102,9 @@ foreach(expected_text
         "## S3 Request Summary"
         "## S3 Real Backend Evidence"
         "fixedFailureReasonCount"
+        "## S3 Stabilization Coverage"
+        "source-write-fallback"
+        "source-delete-retained"
         "## Delivered Reconcile Summary"
         "Sensitive hits: `0`")
     string(FIND "${report_content}" "${expected_text}" found_at)
