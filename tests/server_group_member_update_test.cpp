@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -116,9 +117,11 @@ int main(int argc, char** argv) {
 
     Client owner;
     Client member;
+    Client guest;
     QStringList ownerGroupMessages;
     QStringList ownerSystemMessages;
     QStringList memberSystemMessages;
+    QStringList guestSystemMessages;
     QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             ownerGroupMessages << msg.content;
@@ -131,9 +134,15 @@ int main(int argc, char** argv) {
             memberSystemMessages << msg.content;
         }
     });
+    QObject::connect(&guest, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::System) {
+            guestSystemMessages << msg.content;
+        }
+    });
 
     const QString ownerId = "910001";
     const QString memberId = "910002";
+    const QString guestId = "910003";
 
     ok = expect(registerClient(owner, ownerId, "Owner", port), "owner should register and log in") && ok;
     ok = expect(waitFor([&] {
@@ -242,6 +251,81 @@ int main(int argc, char** argv) {
         return ownerGroupMessages.contains(restoredBroadcast);
     }), "restored member message should be broadcast to public group") && ok;
 
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "promote_admin"),
+                "owner should submit admin promotion") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupMemberRole(owner.serverGroups(), memberId) == "admin"
+            && publicGroupMemberRole(member.serverGroups(), memberId) == "admin";
+    }), "owner should be able to promote a public group member to admin") && ok;
+
+    const QString adminAnnouncement = "Admin announcement protocol test";
+    ok = expect(member.sendServerGroupAnnouncementUpdate("public", adminAnnouncement),
+                "admin should submit public group announcement update") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupAnnouncement(owner.serverGroups()) == adminAnnouncement;
+    }), "admin announcement should be accepted and synced") && ok;
+
+    ok = expect(registerClient(guest, guestId, "Guest", port), "guest should register and log in") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupHasMember(guest.serverGroups(), ownerId)
+            && publicGroupHasMember(guest.serverGroups(), memberId)
+            && publicGroupHasMember(guest.serverGroups(), guestId);
+    }), "guest should join public group before admin boundary checks") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupMemberUpdate("public", guestId, "promote_admin"),
+                "admin role change request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主可以设置管理员"))) return true;
+        }
+        return false;
+    }), "admin should not be allowed to promote another admin") && ok;
+    ok = expect(publicGroupMemberRole(guest.serverGroups(), guestId) == "member",
+                "rejected admin promotion should keep guest as plain member") && ok;
+
+    ok = expect(member.sendServerGroupMemberUpdate("public", guestId, "remove"),
+                "admin should be able to remove a plain member") && ok;
+    ok = expect(waitFor([&] {
+        return guest.serverGroups().isEmpty();
+    }), "guest removed by admin should receive an empty public group snapshot") && ok;
+
+    const QString blockedFilePath = QDir(appDataDir).filePath("removed-member-file.txt");
+    QFile blockedFile(blockedFilePath);
+    ok = expect(blockedFile.open(QIODevice::WriteOnly), "test file for removed member should be writable") && ok;
+    if (blockedFile.isOpen()) {
+        blockedFile.write("removed member public file should be blocked");
+        blockedFile.close();
+    }
+    guestSystemMessages.clear();
+    ok = expect(!guest.sendFile(blockedFilePath),
+                "removed member public file transfer should be rejected by server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("已不在该群组"))) return true;
+        }
+        return false;
+    }), "removed member public file rejection should be visible as a system notice") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "demote_admin"),
+                "owner should submit admin demotion") && ok;
+    ok = expect(waitFor([&] {
+        return publicGroupMemberRole(owner.serverGroups(), memberId) == "member"
+            && publicGroupMemberRole(member.serverGroups(), memberId) == "member";
+    }), "owner should be able to demote an admin back to member") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupAnnouncementUpdate("public", "Demoted admin should be rejected"),
+                "demoted admin announcement request should still be sent to server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("只有群主或管理员"))) return true;
+        }
+        return false;
+    }), "demoted admin should no longer be allowed to edit announcements") && ok;
+    ok = expect(publicGroupAnnouncement(owner.serverGroups()) == adminAnnouncement,
+                "rejected demoted-admin announcement should keep current announcement") && ok;
+
     memberSystemMessages.clear();
     ok = expect(member.sendServerGroupMemberUpdate("public", ownerId, "remove"),
                 "plain member request should still be sent to server") && ok;
@@ -256,6 +340,7 @@ int main(int argc, char** argv) {
 
     owner.disconnectFromServer();
     member.disconnectFromServer();
+    guest.disconnectFromServer();
     server.stop();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();

@@ -1918,6 +1918,19 @@ void MainWindow::setupUi() {
         QAction* copyAllAction = menu.addAction("复制群成员列表");
         QAction* copyOnlineAction = menu.addAction("复制在线群成员");
         QAction* renameAction = menu.addAction("设置备注");
+        QAction* promoteAdminAction = nullptr;
+        QAction* demoteAdminAction = nullptr;
+        const QString serverTargetRole = isServerPublicGroup
+            ? m_serverGroupMemberRoles.value("public|" + memberId).toLower()
+            : QString();
+        const bool canSetPublicAdmin = isServerPublicGroup
+            && (m_serverGroupOwners.value("public") == m_currentUserId
+                || m_serverGroupMemberRoles.value("public|" + m_currentUserId).toLower() == "owner")
+            && memberId != ownerId;
+        if (isServerPublicGroup) {
+            promoteAdminAction = menu.addAction("设为管理员");
+            demoteAdminAction = menu.addAction("取消管理员");
+        }
         QAction* removeAction = menu.addAction("移出群聊");
         auto describeMemberAction = [](QAction* action, const QString& tip) {
             action->setToolTip(tip);
@@ -1929,6 +1942,18 @@ void MainWindow::setupUi() {
         describeMemberAction(copyAllAction, "复制当前群聊的全部成员列表");
         describeMemberAction(copyOnlineAction, "复制当前群聊在线成员的 QQ 和昵称");
         describeMemberAction(renameAction, "修改当前群成员在本地显示的备注名");
+        if (promoteAdminAction) {
+            describeMemberAction(promoteAdminAction, canSetPublicAdmin
+                ? "由服务端校验群主权限，并把该公共群成员设为管理员"
+                : "只有公共群群主可以设置管理员");
+            promoteAdminAction->setEnabled(canSetPublicAdmin && serverTargetRole == "member");
+        }
+        if (demoteAdminAction) {
+            describeMemberAction(demoteAdminAction, canSetPublicAdmin
+                ? "由服务端校验群主权限，并取消该公共群成员的管理员角色"
+                : "只有公共群群主可以取消管理员");
+            demoteAdminAction->setEnabled(canSetPublicAdmin && serverTargetRole == "admin");
+        }
         describeMemberAction(removeAction, canManageGroup
             ? (isLocalGroup ? "将当前成员从本地群聊成员列表中移除" : "通过服务端权限校验移出公共群成员")
             : (isLocalGroup ? "只有群主可以移出群成员" : "只有公共群群主或管理员可以移出成员"));
@@ -2007,6 +2032,18 @@ void MainWindow::setupUi() {
             refreshFriendList();
             refreshGroupMemberPanel();
             appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
+        } else if (promoteAdminAction && selected == promoteAdminAction) {
+            if (!canSetPublicAdmin) {
+                ui->statusbar->showMessage("只有群主可以设置公共群管理员", 2400);
+                return;
+            }
+            requestServerGroupMemberUpdate(memberId, "promote_admin");
+        } else if (demoteAdminAction && selected == demoteAdminAction) {
+            if (!canSetPublicAdmin) {
+                ui->statusbar->showMessage("只有群主可以取消公共群管理员", 2400);
+                return;
+            }
+            requestServerGroupMemberUpdate(memberId, "demote_admin");
         } else if (selected == removeAction) {
             if (!canManageGroup) {
                 ui->statusbar->showMessage(isLocalGroup ? "只有群主可以移出群成员" : "只有群主或管理员可以移出公共群成员", 2400);
@@ -7837,7 +7874,8 @@ bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const Q
     const QString targetId = memberId.trimmed();
     const QString normalizedAction = action.trimmed().toLower();
     const QStringList members = m_serverGroupMembers.value("public");
-    if (targetId.isEmpty() || (normalizedAction != "add" && normalizedAction != "remove")) {
+    const bool roleAction = normalizedAction == "promote_admin" || normalizedAction == "demote_admin";
+    if (targetId.isEmpty() || (normalizedAction != "add" && normalizedAction != "remove" && !roleAction)) {
         ui->statusbar->showMessage("公共群成员变更参数无效", 2200);
         return false;
     }
@@ -7850,11 +7888,18 @@ bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const Q
         appendSystemMessage("公共群成员变更被权限保护拦截：当前账号不是群主或管理员");
         return false;
     }
+    if (roleAction
+        && m_serverGroupOwners.value("public") != m_currentUserId
+        && m_serverGroupMemberRoles.value("public|" + m_currentUserId).toLower() != "owner") {
+        ui->statusbar->showMessage("只有群主可以设置或取消公共群管理员", 2600);
+        appendSystemMessage("公共群管理员变更被权限保护拦截：当前账号不是群主");
+        return false;
+    }
     if (normalizedAction == "add" && members.contains(targetId)) {
         ui->statusbar->showMessage("该 QQ 已在公共群中", 1800);
         return false;
     }
-    if (normalizedAction == "remove") {
+    if (normalizedAction == "remove" || roleAction) {
         if (!members.contains(targetId)) {
             ui->statusbar->showMessage("该 QQ 不在公共群中", 1800);
             return false;
@@ -7875,7 +7920,11 @@ bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const Q
     }
 
     const QString displayName = m_serverGroupMemberNames.value("public|" + targetId, contactDisplayName(targetId));
-    const QString actionText = normalizedAction == "add" ? "邀请" : "移出";
+    const QString actionText = normalizedAction == "add"
+        ? QStringLiteral("邀请")
+        : (normalizedAction == "remove"
+            ? QStringLiteral("移出")
+            : (normalizedAction == "promote_admin" ? QStringLiteral("设置管理员") : QStringLiteral("取消管理员")));
     appendSystemMessage(QString("已提交公共群%1成员请求：%2（QQ:%3），等待服务端同步").arg(actionText, displayName, targetId));
     ui->statusbar->showMessage(QString("公共群%1请求已提交，等待服务端同步").arg(actionText), 2400);
     return true;

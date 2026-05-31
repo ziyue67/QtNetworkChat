@@ -397,13 +397,22 @@ bool Client::sendServerGroupMemberUpdate(const QString& groupId, const QString& 
     if (!isConnected() || groupId.trimmed().isEmpty() || memberId.trimmed().isEmpty()) return false;
 
     const QString normalizedAction = action.trimmed().toLower();
-    if (normalizedAction != "add" && normalizedAction != "remove") return false;
+    if (normalizedAction != "add"
+        && normalizedAction != "remove"
+        && normalizedAction != "promote_admin"
+        && normalizedAction != "demote_admin"
+        && normalizedAction != "set_admin"
+        && normalizedAction != "unset_admin") {
+        return false;
+    }
 
     QJsonObject obj;
     obj["type"] = "server_group_member_update";
     obj["groupId"] = groupId.trimmed();
     obj["memberId"] = memberId.trimmed();
-    obj["action"] = normalizedAction;
+    obj["action"] = normalizedAction == QLatin1String("set_admin")
+        ? QStringLiteral("promote_admin")
+        : (normalizedAction == QLatin1String("unset_admin") ? QStringLiteral("demote_admin") : normalizedAction);
     obj["senderId"] = m_userId;
     obj["senderName"] = m_userName;
     return sendJson(obj);

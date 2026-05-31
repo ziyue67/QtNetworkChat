@@ -1051,7 +1051,8 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
         : obj["groupId"].toString("public").trimmed();
     const QString action = obj["action"].toString().trimmed().toLower();
     const QString memberId = obj["memberId"].toString().trimmed();
-    if ((action != "add" && action != "remove") || groupId.isEmpty() || memberId.isEmpty()) {
+    const bool roleAction = action == QLatin1String("promote_admin") || action == QLatin1String("demote_admin");
+    if ((action != "add" && action != "remove" && !roleAction) || groupId.isEmpty() || memberId.isEmpty()) {
         sendSystemNotice(socket, "群成员变更失败：请求参数无效");
         return;
     }
@@ -1090,6 +1091,8 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                 const bool allowed = ownerId == requester->id || requesterRole == "owner" || requesterRole == "admin";
                 if (!allowed) {
                     errorText = "群成员变更失败：只有群主或管理员可以管理成员";
+                } else if (roleAction && ownerId != requester->id && requesterRole != QLatin1String("owner")) {
+                    errorText = "群成员变更失败：只有群主可以设置管理员";
                 }
             }
 
@@ -1152,6 +1155,8 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                     errorText = "群成员变更失败：目标用户不在该群组";
                 } else if (memberId == ownerId || targetRole == "owner") {
                     errorText = "群成员变更失败：不能移出群主";
+                } else if (requesterRole == QLatin1String("admin") && targetRole == QLatin1String("admin")) {
+                    errorText = "群成员变更失败：管理员不能移出其他管理员";
                 } else if (memberId == requester->id) {
                     errorText = "群成员变更失败：不能通过管理操作移出自己";
                 } else {
@@ -1173,6 +1178,36 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                             qWarning() << "Failed to record removed group member marker:" << removedQuery.lastError().text();
                         }
                         changed = true;
+                    }
+                }
+            } else if (errorText.isEmpty() && roleAction) {
+                if (!alreadyMember) {
+                    errorText = "群成员变更失败：目标用户不在该群组";
+                } else if (memberId == ownerId || targetRole == "owner") {
+                    errorText = "群成员变更失败：群主角色不能被修改";
+                } else if (memberId == requester->id) {
+                    errorText = "群成员变更失败：不能修改自己的管理员角色";
+                } else {
+                    const QString desiredRole = action == QLatin1String("promote_admin")
+                        ? QStringLiteral("admin")
+                        : QStringLiteral("member");
+                    if (targetRole == desiredRole) {
+                        errorText = action == QLatin1String("promote_admin")
+                            ? QStringLiteral("群成员变更失败：目标用户已经是管理员")
+                            : QStringLiteral("群成员变更失败：目标用户已经是普通成员");
+                    } else {
+                        QSqlQuery updateRoleQuery(db);
+                        updateRoleQuery.prepare("UPDATE server_group_members "
+                                                "SET role = ?, updated_at = datetime('now') "
+                                                "WHERE group_id = ? AND user_id = ?");
+                        updateRoleQuery.addBindValue(desiredRole);
+                        updateRoleQuery.addBindValue(groupId);
+                        updateRoleQuery.addBindValue(memberId);
+                        if (!updateRoleQuery.exec()) {
+                            errorText = "群成员变更失败：更新成员角色失败";
+                        } else {
+                            changed = true;
+                        }
                     }
                 }
             }
@@ -1207,9 +1242,16 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
     }
 
     const QString displayName = memberName.isEmpty() ? memberId : memberName;
-    const QString notice = action == "add"
-        ? QString("%1 已被加入群组").arg(displayName)
-        : QString("%1 已被移出群组").arg(displayName);
+    QString notice;
+    if (action == QLatin1String("add")) {
+        notice = QString("%1 已被加入群组").arg(displayName);
+    } else if (action == QLatin1String("remove")) {
+        notice = QString("%1 已被移出群组").arg(displayName);
+    } else if (action == QLatin1String("promote_admin")) {
+        notice = QString("%1 已被设为群管理员").arg(displayName);
+    } else {
+        notice = QString("%1 已被取消群管理员").arg(displayName);
+    }
     for (const QString& userId : affectedUserIds) {
         QTcpSocket* memberSocket = m_userSockets.value(userId);
         if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
@@ -1465,6 +1507,10 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     }
     if (!declaredSenderId.isEmpty() && declaredSenderId != senderId) {
         rejectTransfer("发送者身份不一致");
+        return;
+    }
+    if (obj["receiverId"].toString().trimmed().isEmpty() && !isServerGroupMember("public", senderId)) {
+        rejectTransfer("已不在该群组");
         return;
     }
     if (fileSize <= 0 || fileSize > kMaxIncomingPayloadBytes) {
@@ -3783,7 +3829,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     memberQuery.prepare("SELECT user_id, COALESCE(user_name, ''), role "
                                         "FROM server_group_members "
                                         "WHERE group_id = ? "
-                                        "ORDER BY role = 'owner' DESC, joined_at ASC, user_id ASC");
+                                        "ORDER BY role = 'owner' DESC, role = 'admin' DESC, joined_at ASC, user_id ASC");
                     memberQuery.addBindValue(groupId);
                     if (memberQuery.exec()) {
                         while (memberQuery.next()) {
