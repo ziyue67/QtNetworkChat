@@ -893,11 +893,13 @@ bool Client::sendFilePayload(const QString& filePath,
             }
             if (!ackRejectReason.isEmpty()) {
                 if (isRetriableFileChunkRejectReason(ackRejectReason) && attempt < kChunkSendMaxAttempts) {
+                    emit fileTransferStatusChanged(fileInfo.fileName(), transferId, ackRejectReason, sentBytes, fileInfo.size());
                     emit connectionError(fileTransferUserMessage(ackRejectReason,
                         QString("文件分片暂时被拒绝，正在重试：%1").arg(ackRejectReason)) + QStringLiteral("，正在重试"));
                     ackRejectReason.clear();
                     continue;
                 }
+                emit fileTransferStatusChanged(fileInfo.fileName(), transferId, ackRejectReason, sentBytes, fileInfo.size());
                 emit connectionError(fileTransferUserMessage(ackRejectReason,
                     QString("文件分片发送被拒绝：%1").arg(ackRejectReason)));
                 file.close();
@@ -976,6 +978,11 @@ bool Client::sendFilePayload(const QString& filePath,
             continue;
         }
         if (!acknowledged) {
+            emit fileTransferStatusChanged(fileInfo.fileName(),
+                                           transferId,
+                                           QStringLiteral("chunk-ack-timeout"),
+                                           sentBytes,
+                                           fileInfo.size());
             emit connectionError(fileTransferUserMessage(QStringLiteral("chunk-ack-timeout"),
                 QString("文件分片发送超时：%1 第 %2/%3 片").arg(fileInfo.fileName()).arg(chunkIndex + 1).arg(chunkCount)));
             file.close();

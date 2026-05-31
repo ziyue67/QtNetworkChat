@@ -93,6 +93,7 @@ signals:
     void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);
     void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
     void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes);
+    void fileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason, qint64 receivedBytes);
     void fileTransferResumeStateReceived(const QString& transferId,
                                          bool canResume,

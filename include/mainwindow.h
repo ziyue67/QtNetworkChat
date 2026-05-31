@@ -66,6 +66,7 @@ private slots:
     void onInsertMention();
     void onResumeSavedOutgoingTransfer();
     void onClearSavedOutgoingTransfer();
+    void onFileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
 
 signals:
     void logoutRequested();
@@ -92,6 +93,7 @@ private:
     void refreshGroupMemberPanel();
     void refreshComposerState();
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
+    void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);
@@ -143,6 +145,8 @@ private:
     QMenu* m_trayMenu;
     QAction* m_resumeSavedTransferAction;
     QAction* m_clearSavedTransferAction;
+    QAction* m_copyLastTransferStatusAction;
+    QString m_lastTransferStatusDiagnostic;
     int m_unreadCount;
     bool m_isQuitting;
 

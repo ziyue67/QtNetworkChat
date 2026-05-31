@@ -84,3 +84,61 @@ QString fileTransferUserMessage(const QString& reason, const QString& fallback) 
     }
     return QStringLiteral("%1：%2").arg(info.title, info.detail);
 }
+
+QString fileTransferStatusEventMessage(const QString& fileName,
+                                       const QString& transferId,
+                                       const QString& reason,
+                                       qint64 receivedBytes,
+                                       qint64 totalBytes) {
+    const FileTransferStatusInfo info = describeFileTransferReason(reason);
+    QStringList parts;
+    parts << QStringLiteral("文件状态") << info.title;
+    const QString trimmedFileName = fileName.trimmed();
+    if (!trimmedFileName.isEmpty()) {
+        parts << trimmedFileName;
+    }
+    if (totalBytes > 0) {
+        const qint64 boundedReceived = qBound<qint64>(0, receivedBytes, totalBytes);
+        parts << QStringLiteral("%1/%2 字节").arg(boundedReceived).arg(totalBytes);
+    } else if (receivedBytes > 0) {
+        parts << QStringLiteral("已确认 %1 字节").arg(receivedBytes);
+    }
+    if (info.retryable) {
+        parts << QStringLiteral("可重试或等待回放");
+    }
+    const QString trimmedTransferId = transferId.trimmed();
+    if (!trimmedTransferId.isEmpty()) {
+        parts << QStringLiteral("ID:%1").arg(trimmedTransferId.left(12));
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
+QString fileTransferStatusDiagnostic(const QString& fileName,
+                                     const QString& transferId,
+                                     const QString& reason,
+                                     qint64 receivedBytes,
+                                     qint64 totalBytes) {
+    const FileTransferStatusInfo info = describeFileTransferReason(reason);
+    QStringList rows;
+    rows << QStringLiteral("QtNetworkChat 文件传输诊断");
+    rows << QStringLiteral("category=%1").arg(info.category);
+    rows << QStringLiteral("retryable=%1").arg(info.retryable ? QStringLiteral("true") : QStringLiteral("false"));
+    rows << QStringLiteral("title=%1").arg(info.title);
+    rows << QStringLiteral("detail=%1").arg(info.detail);
+    if (!fileName.trimmed().isEmpty()) {
+        rows << QStringLiteral("fileName=%1").arg(fileName.trimmed());
+    }
+    if (!transferId.trimmed().isEmpty()) {
+        rows << QStringLiteral("transferId=%1").arg(transferId.trimmed());
+    }
+    if (!reason.trimmed().isEmpty()) {
+        rows << QStringLiteral("reason=%1").arg(reason.trimmed());
+    }
+    if (totalBytes > 0) {
+        rows << QStringLiteral("receivedBytes=%1").arg(qBound<qint64>(0, receivedBytes, totalBytes));
+        rows << QStringLiteral("totalBytes=%1").arg(totalBytes);
+    } else if (receivedBytes > 0) {
+        rows << QStringLiteral("receivedBytes=%1").arg(receivedBytes);
+    }
+    return rows.join('\n');
+}

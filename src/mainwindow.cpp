@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "filetransferstatus.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -322,6 +323,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendRequestSent, this, &MainWindow::onFriendRequestSent);
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
     connect(m_client, &Client::serverGroupSnapshotReceived, this, &MainWindow::onServerGroupSnapshotReceived);
+    connect(m_client, &Client::fileTransferStatusChanged, this, &MainWindow::onFileTransferStatusChanged);
     connect(m_client, &Client::fileReceiveProgress, this, [this](const QString& fileName, qint64 bytesReceived, qint64 totalBytes) {
         const int percent = totalBytes > 0
             ? qBound(0, static_cast<int>((bytesReceived * 100) / totalBytes), 100)
@@ -481,6 +483,31 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
     }
 
     return false;
+}
+
+void MainWindow::onFileTransferStatusChanged(const QString& fileName,
+                                             const QString& transferId,
+                                             const QString& reason,
+                                             qint64 receivedBytes,
+                                             qint64 totalBytes) {
+    showFileTransferStatusEvent(fileName, transferId, reason, receivedBytes, totalBytes);
+}
+
+void MainWindow::showFileTransferStatusEvent(const QString& fileName,
+                                             const QString& transferId,
+                                             const QString& reason,
+                                             qint64 receivedBytes,
+                                             qint64 totalBytes) {
+    const QString eventText = fileTransferStatusEventMessage(fileName, transferId, reason, receivedBytes, totalBytes);
+    m_lastTransferStatusDiagnostic = fileTransferStatusDiagnostic(fileName, transferId, reason, receivedBytes, totalBytes);
+    if (m_copyLastTransferStatusAction) {
+        m_copyLastTransferStatusAction->setVisible(true);
+        m_copyLastTransferStatusAction->setEnabled(true);
+        m_copyLastTransferStatusAction->setToolTip("复制最近一次文件传输失败、重试或离线兜底状态诊断");
+    }
+    appendSystemMessage(eventText);
+    ui->chatHintLabel->setText(eventText);
+    ui->statusbar->showMessage(eventText, 4200);
 }
 
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
@@ -1051,6 +1078,9 @@ void MainWindow::setupUi() {
     m_clearSavedTransferAction = new QAction("清除恢复记录", this);
     m_clearSavedTransferAction->setVisible(false);
     m_clearSavedTransferAction->setEnabled(false);
+    m_copyLastTransferStatusAction = new QAction("复制最近文件状态", this);
+    m_copyLastTransferStatusAction->setVisible(false);
+    m_copyLastTransferStatusAction->setEnabled(false);
     QAction* filterHistoryAction = new QAction("按日期查记录", this);
     QAction* exportHistoryAction = new QAction("导出聊天记录", this);
     QAction* copyAccountAction = new QAction("复制账号", this);
@@ -1063,6 +1093,7 @@ void MainWindow::setupUi() {
     ui->menubar->addAction(sendFileAction);
     ui->menubar->addAction(m_resumeSavedTransferAction);
     ui->menubar->addAction(m_clearSavedTransferAction);
+    ui->menubar->addAction(m_copyLastTransferStatusAction);
     ui->menubar->addAction(filterHistoryAction);
     ui->menubar->addAction(exportHistoryAction);
     ui->menubar->addAction(copyAccountAction);
@@ -1076,6 +1107,14 @@ void MainWindow::setupUi() {
     connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
     connect(m_resumeSavedTransferAction, &QAction::triggered, this, &MainWindow::onResumeSavedOutgoingTransfer);
     connect(m_clearSavedTransferAction, &QAction::triggered, this, &MainWindow::onClearSavedOutgoingTransfer);
+    connect(m_copyLastTransferStatusAction, &QAction::triggered, this, [this]() {
+        if (m_lastTransferStatusDiagnostic.trimmed().isEmpty()) {
+            ui->statusbar->showMessage("暂无可复制的文件状态诊断", 1800);
+            return;
+        }
+        QApplication::clipboard()->setText(m_lastTransferStatusDiagnostic);
+        ui->statusbar->showMessage("最近文件状态诊断已复制", 2200);
+    });
     connect(filterHistoryAction, &QAction::triggered, this, &MainWindow::onFilterHistoryByDate);
     connect(exportHistoryAction, &QAction::triggered, this, &MainWindow::onExportHistory);
     connect(copyAccountAction, &QAction::triggered, this, &MainWindow::onCopyAccount);

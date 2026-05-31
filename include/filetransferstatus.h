@@ -12,5 +12,15 @@ struct FileTransferStatusInfo {
 
 FileTransferStatusInfo describeFileTransferReason(const QString& reason);
 QString fileTransferUserMessage(const QString& reason, const QString& fallback = QString());
+QString fileTransferStatusEventMessage(const QString& fileName,
+                                       const QString& transferId,
+                                       const QString& reason,
+                                       qint64 receivedBytes = 0,
+                                       qint64 totalBytes = 0);
+QString fileTransferStatusDiagnostic(const QString& fileName,
+                                     const QString& transferId,
+                                     const QString& reason,
+                                     qint64 receivedBytes = 0,
+                                     qint64 totalBytes = 0);
 
 #endif // FILETRANSFERSTATUS_H
