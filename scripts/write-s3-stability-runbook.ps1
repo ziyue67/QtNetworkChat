@@ -122,6 +122,26 @@ function New-Action([string]$Reason, [int]$Count, [string]$Severity, [string]$Ac
     }
 }
 
+function New-CoverageItem([string]$Area, [string]$Event, [string]$Operation, [string[]]$Reasons, [object]$ReasonCounts, [object]$EventOperationCounts) {
+    $observed = [ordered]@{}
+    $observedTotal = 0
+    foreach ($reason in $Reasons) {
+        $count = Get-CountValue $ReasonCounts $reason
+        $observed[$reason] = $count
+        $observedTotal += $count
+    }
+    [pscustomobject]@{
+        area = $Area
+        event = $Event
+        operation = $Operation
+        fixedReasons = @($Reasons)
+        coveredByDefaultCTest = $true
+        observedReasonCounts = [pscustomobject]$observed
+        observedReasonTotal = $observedTotal
+        observedEventOperationCount = Get-CountValue $EventOperationCounts ("{0}:{1}" -f $Event, $Operation)
+    }
+}
+
 foreach ($value in @(
         @{ Name = "MinSuccess"; Value = $MinSuccess },
         @{ Name = "WarnTimeout"; Value = $WarnTimeout },
@@ -160,6 +180,7 @@ $governanceStatus = if (-not [string]::IsNullOrWhiteSpace($resolvedGovernanceSta
 
 $reasonCounts = Get-JsonValue $s3Summary "reasonCounts" ([pscustomobject]@{})
 $operationCounts = Get-JsonValue $s3Summary "operationCounts" ([pscustomobject]@{})
+$eventOperationCounts = Get-JsonValue $s3Summary "eventOperationCounts" ([pscustomobject]@{})
 $s3LineCount = Get-CountValue $s3Summary "s3LineCount"
 $summarySensitiveHits = Get-CountValue $s3Summary "sensitiveHits"
 $successCount = Get-CountValue $reasonCounts "success"
@@ -225,6 +246,18 @@ if ($actions.Count -eq 0) {
     $actions.Add((New-Action "baseline" 0 "info" "No S3 stability action is required by current thresholds; keep the same fail-closed and fallback policy." "Archive this runbook with the evidence and dashboard outputs."))
 }
 
+$stabilizationCoverage = @(
+    New-CoverageItem "source-write-fallback" "object_write" "write" @("timeout", "network", "tls", "auth", "retryable", "server", "client") $reasonCounts $eventOperationCounts
+    New-CoverageItem "remote-validation-fail-closed" "offer_validation" "validate" @("tls", "auth", "retryable", "hash", "size") $reasonCounts $eventOperationCounts
+    New-CoverageItem "remote-read-fail-closed" "offer_read" "read" @("timeout", "network", "tls", "auth", "retryable", "server", "not_found", "unknown") $reasonCounts $eventOperationCounts
+    New-CoverageItem "source-delete-retained" "object_delete" "delete" @("timeout", "network", "tls", "auth", "retryable", "server", "unknown") $reasonCounts $eventOperationCounts
+    New-CoverageItem "delivery-fallback-retained" "offer_delivery" "deliver" @("receiver-disconnected", "chunk-rejected", "chunk-ack-timeout") $reasonCounts $eventOperationCounts
+)
+$coverageReasonCount = 0
+foreach ($item in $stabilizationCoverage) {
+    $coverageReasonCount += @($item.fixedReasons).Count
+}
+
 $metrics = [pscustomobject]@{
     "s3LineCount" = $s3LineCount
     "successCount" = $successCount
@@ -237,6 +270,8 @@ $metrics = [pscustomobject]@{
     "hashCount" = $hashCount
     "sizeCount" = $sizeCount
     "notFoundCount" = $notFoundCount
+    "coverageAreaCount" = @($stabilizationCoverage).Count
+    "coverageFixedReasonCount" = $coverageReasonCount
     "sensitiveHits" = [int]$sensitiveHits.Count
     "s3SummarySensitiveHits" = $summarySensitiveHits
     "evidenceOk" = $evidenceOk
@@ -260,6 +295,8 @@ $runbook = [pscustomobject]@{
     "metrics" = $metrics
     "reasonCounts" = $reasonCounts
     "operationCounts" = $operationCounts
+    "eventOperationCounts" = $eventOperationCounts
+    "stabilizationCoverage" = @($stabilizationCoverage)
     "actions" = @($actions.ToArray())
     "inputs" = $inputs
     "notes" = "This runbook is generated from local summaries only; it does not connect to Redis/S3/MinIO and does not modify queues, attachments, objects, or receipt files."
@@ -283,6 +320,14 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add("| --- | ---: | --- | --- | --- |")
     foreach ($action in $actions) {
         $lines.Add(("| {0} | {1} | {2} | {3} | {4} |" -f $action.reason, $action.count, $action.severity, $action.action, $action.validation))
+    }
+    $lines.Add("")
+    $lines.Add("## Stabilization Coverage")
+    $lines.Add("")
+    $lines.Add("| Area | Event | Operation | Fixed reasons | Observed event operations |")
+    $lines.Add("| --- | --- | --- | --- | ---: |")
+    foreach ($item in $stabilizationCoverage) {
+        $lines.Add(("| {0} | {1} | {2} | {3} | {4} |" -f $item.area, $item.event, $item.operation, (@($item.fixedReasons) -join ", "), $item.observedEventOperationCount))
     }
     $lines.Add("")
     $lines.Add("This runbook is read-only and contains no sensitive request data.")

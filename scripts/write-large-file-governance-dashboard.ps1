@@ -121,6 +121,9 @@ $routeSummaryPath = Join-Path $resolvedGovernanceDir "large-file-route-summary.j
 $routeAlertPath = Join-Path $resolvedGovernanceDir "large-file-route-alert-summary.json"
 $s3SummaryPath = Join-Path $resolvedGovernanceDir "s3-request-results-summary.json"
 $s3AlertPath = Join-Path $resolvedGovernanceDir "s3-request-results-alert-summary.json"
+$s3RunbookPath = Join-Path $resolvedGovernanceDir "s3-stability-runbook.json"
+$s3RunbookMarkdownPath = Join-Path $resolvedGovernanceDir "s3-stability-runbook.md"
+$s3RunbookAlertPath = Join-Path $resolvedGovernanceDir "s3-stability-runbook-alert-summary.json"
 $rotationSummaryPath = Join-Path $resolvedGovernanceDir "receipt-rotation-summary.json"
 $rotationAlertPath = Join-Path $resolvedGovernanceDir "receipt-rotation-alert-summary.json"
 $reconcileSummaryPath = Join-Path (Join-Path $resolvedGovernanceDir "reconcile") "reconcile-summary.json"
@@ -136,6 +139,9 @@ $scanPaths = @(
     $routeAlertPath,
     $s3SummaryPath,
     $s3AlertPath,
+    $s3RunbookPath,
+    $s3RunbookMarkdownPath,
+    $s3RunbookAlertPath,
     $rotationSummaryPath,
     $rotationAlertPath,
     $reconcileSummaryPath,
@@ -157,6 +163,7 @@ $overview = Read-JsonFile $overviewPath
 $health = Read-JsonFile $healthPath
 $routeSummary = Read-JsonFile $routeSummaryPath
 $s3Summary = Read-JsonFile $s3SummaryPath
+$s3Runbook = Read-JsonFile $s3RunbookPath
 $rotationSummary = Read-JsonFile $rotationSummaryPath
 $reconcileSummary = Read-JsonFile $reconcileSummaryPath
 
@@ -167,6 +174,8 @@ Add-Metric $metrics "s3Lines" (Get-JsonValue $s3Summary "s3LineCount")
 Add-Metric $metrics "s3Timeouts" (Get-JsonValue $s3Summary "timeoutCount")
 Add-Metric $metrics "s3AuthFailures" (Get-JsonValue $s3Summary "authCount")
 Add-Metric $metrics "s3TlsFailures" (Get-JsonValue $s3Summary "tlsCount")
+Add-Metric $metrics "s3CoverageAreas" (Get-JsonValue (Get-JsonValue $s3Runbook "metrics" ([pscustomobject]@{})) "coverageAreaCount")
+Add-Metric $metrics "s3CoverageFixedReasons" (Get-JsonValue (Get-JsonValue $s3Runbook "metrics" ([pscustomobject]@{})) "coverageFixedReasonCount")
 Add-Metric $metrics "reconcileCleaned" (Get-JsonValue $reconcileSummary "cleanedCount")
 Add-Metric $metrics "reconcileRetained" (Get-JsonValue $reconcileSummary "retainedCount")
 Add-Metric $metrics "receiptRetained" (Get-JsonValue $rotationSummary "retainedRecords")
@@ -189,6 +198,8 @@ $artifacts += New-Artifact "alert overview" $overviewPath $resolvedGovernanceDir
 $artifacts += New-Artifact "health" $healthPath $resolvedGovernanceDir
 $artifacts += New-Artifact "route summary" $routeSummaryPath $resolvedGovernanceDir
 $artifacts += New-Artifact "s3 summary" $s3SummaryPath $resolvedGovernanceDir
+$artifacts += New-Artifact "s3 stability runbook" $s3RunbookPath $resolvedGovernanceDir
+$artifacts += New-Artifact "s3 stability runbook markdown" $s3RunbookMarkdownPath $resolvedGovernanceDir
 $artifacts += New-Artifact "receipt rotation summary" $rotationSummaryPath $resolvedGovernanceDir
 $artifacts += New-Artifact "reconcile summary" $reconcileSummaryPath $resolvedGovernanceDir
 $artifacts += New-Artifact "markdown report" $reportPath $resolvedGovernanceDir
@@ -207,6 +218,7 @@ $dashboard = [pscustomobject]@{
     totalWarnings = [int](Get-JsonValue $overview "totalWarnings" 0)
     alertCount    = [int](Get-JsonValue $overview "alertCount" 0)
     metrics       = [pscustomobject]$metrics
+    s3StabilizationCoverage = @((Get-JsonValue $s3Runbook "stabilizationCoverage" @()))
     alerts        = $alerts
     artifacts     = $artifacts
     sensitiveHits = [int]$sensitiveHits.Count
@@ -236,6 +248,22 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add("| --- | --- |")
     foreach ($key in $metrics.Keys) {
         $lines.Add(("| {0} | {1} |" -f $key, (Format-Value $metrics[$key])))
+    }
+    if ($dashboard.s3StabilizationCoverage.Count -gt 0) {
+        $lines.Add("")
+        $lines.Add("## S3 Stabilization Coverage")
+        $lines.Add("")
+        $lines.Add("| Area | Event | Operation | Fixed reasons | Observed event operations |")
+        $lines.Add("| --- | --- | --- | --- | ---: |")
+        foreach ($item in $dashboard.s3StabilizationCoverage) {
+            $fixedReasons = @((Get-JsonValue $item "fixedReasons" @())) -join ", "
+            $lines.Add(("| {0} | {1} | {2} | {3} | {4} |" -f
+                    (Get-JsonValue $item "area" ""),
+                    (Get-JsonValue $item "event" ""),
+                    (Get-JsonValue $item "operation" ""),
+                    $fixedReasons,
+                    (Get-JsonValue $item "observedEventOperationCount" 0)))
+        }
     }
     $lines.Add("")
     $lines.Add("## Alerts")

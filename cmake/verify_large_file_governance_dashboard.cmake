@@ -33,6 +33,18 @@ file(WRITE "${GOV_DIR}/large-file-route-summary.json"
 file(WRITE "${GOV_DIR}/s3-request-results-summary.json"
 "{\"routeLineCount\":5,\"s3LineCount\":3,\"sensitiveHits\":0,\"timeoutCount\":1,\"authCount\":1,\"tlsCount\":0}\n"
 )
+file(WRITE "${GOV_DIR}/s3-stability-runbook.json"
+"{\n"
+"  \"format\":\"qtnetworkchat-s3-stability-runbook-v1\",\n"
+"  \"ok\":true,\n"
+"  \"metrics\":{\"coverageAreaCount\":5,\"coverageFixedReasonCount\":30},\n"
+"  \"stabilizationCoverage\":[\n"
+"    {\"area\":\"source-write-fallback\",\"event\":\"object_write\",\"operation\":\"write\",\"fixedReasons\":[\"timeout\",\"network\",\"tls\",\"auth\",\"retryable\",\"server\",\"client\"],\"observedEventOperationCount\":2},\n"
+"    {\"area\":\"remote-read-fail-closed\",\"event\":\"offer_read\",\"operation\":\"read\",\"fixedReasons\":[\"timeout\",\"network\",\"tls\",\"auth\",\"retryable\",\"server\",\"not_found\",\"unknown\"],\"observedEventOperationCount\":1}\n"
+"  ]\n"
+"}\n"
+)
+file(WRITE "${GOV_DIR}/s3-stability-runbook.md" "# safe s3 runbook\n")
 file(WRITE "${GOV_DIR}/receipt-rotation-summary.json"
 "{\"totalRecords\":4,\"retainedRecords\":2,\"archivedRecords\":2,\"sensitiveHits\":0}\n"
 )
@@ -79,8 +91,11 @@ string(JSON dashboard_ok GET "${dashboard_content}" "ok")
 string(JSON dashboard_warnings GET "${dashboard_content}" "totalWarnings")
 string(JSON dashboard_alert_count GET "${dashboard_content}" "alertCount")
 string(JSON dashboard_s3_lines GET "${dashboard_content}" "metrics" "s3Lines")
+string(JSON dashboard_s3_coverage_areas GET "${dashboard_content}" "metrics" "s3CoverageAreas")
+string(JSON dashboard_s3_coverage_reasons GET "${dashboard_content}" "metrics" "s3CoverageFixedReasons")
 string(JSON dashboard_retained GET "${dashboard_content}" "metrics" "reconcileRetained")
 string(JSON dashboard_sensitive GET "${dashboard_content}" "sensitiveHits")
+string(JSON dashboard_coverage_area0 GET "${dashboard_content}" "s3StabilizationCoverage" 0 "area")
 if(NOT dashboard_format STREQUAL "qtnetworkchat-large-file-governance-dashboard-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected dashboard format: ${dashboard_format}")
@@ -105,6 +120,18 @@ if(NOT dashboard_s3_lines EQUAL 3)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected dashboard s3Lines=3, got ${dashboard_s3_lines}")
 endif()
+if(NOT dashboard_s3_coverage_areas EQUAL 5)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected dashboard s3CoverageAreas=5, got ${dashboard_s3_coverage_areas}")
+endif()
+if(NOT dashboard_s3_coverage_reasons EQUAL 30)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected dashboard s3CoverageFixedReasons=30, got ${dashboard_s3_coverage_reasons}")
+endif()
+if(NOT dashboard_coverage_area0 STREQUAL "source-write-fallback")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected first dashboard coverage area source-write-fallback, got ${dashboard_coverage_area0}")
+endif()
 if(NOT dashboard_retained EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected dashboard reconcileRetained=1, got ${dashboard_retained}")
@@ -119,9 +146,13 @@ foreach(expected_text
         "QtNetworkChat Large File Governance Dashboard"
         "## Metrics"
         "s3Lines"
+        "## S3 Stabilization Coverage"
+        "source-write-fallback"
+        "remote-read-fail-closed"
         "## Alerts"
         "s3-real-backend-evidence"
         "## Artifacts"
+        "s3-stability-runbook.json"
         "large-file-governance-report.md")
     string(FIND "${markdown_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)

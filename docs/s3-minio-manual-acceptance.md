@@ -352,7 +352,7 @@ powershell -ExecutionPolicy Bypass -File scripts/write-large-file-governance-das
   -MarkdownPath ".\logs\governance\large-file-governance-dashboard.md"
 ```
 
-dashboard JSON 使用 `qtnetworkchat-large-file-governance-dashboard-v1` 格式，汇总 `status/ok/reason/totalWarnings/alertCount`、route/S3/receipt/reconcile 核心指标、告警来源和关键产物相对路径；Markdown 版本便于人工快速查看。脚本只读取本地治理产物，发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 会拒绝生成。
+dashboard JSON 使用 `qtnetworkchat-large-file-governance-dashboard-v1` 格式，汇总 `status/ok/reason/totalWarnings/alertCount`、route/S3/receipt/reconcile 核心指标、告警来源和关键产物相对路径；如果治理目录里已有 S3 stability runbook，还会透出 `s3StabilizationCoverage`，列出默认 CTest 已覆盖的 write、validate、read、delete、deliver 固定 reason 边界以及本次日志观测到的 event/operation 计数。Markdown 版本便于人工快速查看。脚本只读取本地治理产物，发现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature 会拒绝生成。
 
 计划任务或值班脚本只需要判断当前治理状态时，可以读取 dashboard、health 和 alert overview 生成轻量状态输出；`-FailOnUnhealthy` 会在 unhealthy 或 unknown 时返回非零退出码：
 
@@ -364,7 +364,7 @@ powershell -ExecutionPolicy Bypass -File scripts/show-large-file-governance-stat
   -FailOnUnhealthy
 ```
 
-该状态 CLI 只读取本地治理产物，不连接 Redis、S3/MinIO，不修改队列、附件、对象或 receipt；如果输入中出现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature，会拒绝输出。
+该状态 CLI 只读取本地治理产物，不连接 Redis、S3/MinIO，不修改队列、附件、对象或 receipt；如果 dashboard 已包含 `s3StabilizationCoverage`，状态 JSON/Markdown 会保留这份覆盖摘要，便于计划任务或值班脚本在健康状态旁边展示 S3 稳定化边界。若输入中出现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature，会拒绝输出。
 
 如果需要在没有真实 S3/MinIO 故障窗口时演练 reason 分布和阈值告警，可生成批量失败样例并直接复用 S3 request result 分析器：
 
@@ -419,7 +419,7 @@ powershell -ExecutionPolicy Bypass -File scripts/write-s3-stability-runbook.ps1 
   -NoFailOnWarning
 ```
 
-runbook 脚本只读取本地 summary/evidence/status，不连接 Redis、S3/MinIO，也不会修改队列、附件、对象或 receipt。它会把 timeout、retryable、network、server、auth、tls、hash、size 和 not_found 固定桶映射成只读处置建议与复验口径，并拒绝 endpoint、bucket、object URL、凭据和签名字段。生成的 runbook JSON/Markdown 与 alert summary 放入治理目录后，也会被诊断 zip、统一 alert overview、dashboard 和 status CLI 自动采集。
+runbook 脚本只读取本地 summary/evidence/status，不连接 Redis、S3/MinIO，也不会修改队列、附件、对象或 receipt。它会把 timeout、retryable、network、server、auth、tls、hash、size 和 not_found 固定桶映射成只读处置建议与复验口径，并额外写出 `stabilizationCoverage`：包括源实例 write 失败兜底、远端 validate/read fail-closed、源实例 delete retained、下发 fallback retained 等默认 CTest 覆盖边界。脚本会拒绝 endpoint、bucket、object URL、凭据和签名字段。生成的 runbook JSON/Markdown 与 alert summary 放入治理目录后，也会被诊断 zip、统一 alert overview、dashboard 和 status CLI 自动采集。
 
 治理入口和计划任务预览也可以直接生成 runbook。若已经传入 `-RouteLogPath` 并产出 `s3-request-results-summary.json`，追加 `-WriteS3StabilityRunbook` 即可在治理目录写出 `s3-stability-runbook.json` 和 `s3-stability-runbook-alert-summary.json`；需要 Markdown 版本时再传 `-S3StabilityRunbookMarkdownPath`。计划任务 helper 会把同名参数透传到 launcher，并在 preview JSON 中展示 runbook 输出路径。
 

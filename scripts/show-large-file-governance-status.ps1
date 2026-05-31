@@ -134,6 +134,7 @@ if ($null -eq $dashboard -and $null -eq $health -and $null -eq $overview) {
 }
 
 $metrics = Get-JsonValue $dashboard "metrics" ([pscustomobject]@{})
+$s3StabilizationCoverage = @((Get-JsonValue $dashboard "s3StabilizationCoverage" @()))
 $alerts = @((Get-JsonValue $dashboard "alerts" @()))
 if ($alerts.Count -eq 0 -and $null -ne $overview) {
     $alerts = @((Get-JsonValue $overview "alerts" @()))
@@ -169,6 +170,7 @@ $summary = [pscustomobject]@{
     alertCount     = $alertCount
     warningSources = $warningSources
     metrics        = $metrics
+    s3StabilizationCoverage = $s3StabilizationCoverage
     sensitiveHits  = [int]$sensitiveHits.Count
     inputs         = [pscustomobject]@{
         governanceDir = $resolvedGovernanceDir
@@ -209,6 +211,21 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     foreach ($source in $warningSources) {
         $lines.Add(("| {0} | {1} | {2} |" -f $source.kind, (Format-Value $source.ok), $source.warningCount))
     }
+    if ($summary.s3StabilizationCoverage.Count -gt 0) {
+        $lines.Add("")
+        $lines.Add("## S3 Stabilization Coverage")
+        $lines.Add("")
+        $lines.Add("| Area | Event | Operation | Fixed Reason Count |")
+        $lines.Add("| --- | --- | --- | ---: |")
+        foreach ($item in $summary.s3StabilizationCoverage) {
+            $fixedReasonCount = @((Get-JsonValue $item "fixedReasons" @())).Count
+            $lines.Add(("| {0} | {1} | {2} | {3} |" -f
+                    (Get-JsonValue $item "area" ""),
+                    (Get-JsonValue $item "event" ""),
+                    (Get-JsonValue $item "operation" ""),
+                    $fixedReasonCount))
+        }
+    }
     $lines.Add("")
     $lines.Add("This status view is read-only. It does not connect to Redis/S3/MinIO and does not modify queues, attachments, objects, or receipt files.")
     $lines | Set-Content -LiteralPath $resolvedMarkdownPath -Encoding UTF8
@@ -220,6 +237,7 @@ Write-Host ("  ok: {0}" -f (Format-Value $summary.ok))
 Write-Host ("  reason: {0}" -f $summary.reason)
 Write-Host ("  warnings: {0}" -f $summary.totalWarnings)
 Write-Host ("  alert sources: {0}" -f $summary.alertCount)
+Write-Host ("  s3 coverage areas: {0}" -f $summary.s3StabilizationCoverage.Count)
 Write-Host ("  sensitive hits: {0}" -f $summary.sensitiveHits)
 
 if ($FailOnUnhealthy -and (-not $summary.ok -or $summary.status -ne "healthy")) {

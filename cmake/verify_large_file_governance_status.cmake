@@ -20,6 +20,7 @@ file(WRITE "${GOV_DIR}/large-file-governance-dashboard.json"
 "  \"totalWarnings\":0,\n"
 "  \"alertCount\":3,\n"
 "  \"metrics\":{\"s3Lines\":4,\"routeLines\":7,\"reconcileRetained\":0},\n"
+"  \"s3StabilizationCoverage\":[{\"area\":\"source-write-fallback\",\"event\":\"object_write\",\"operation\":\"write\",\"fixedReasons\":[\"timeout\",\"network\"]}],\n"
 "  \"alerts\":[\n"
 "    {\"kind\":\"large-file-route-summary\",\"ok\":true,\"warnings\":[]},\n"
 "    {\"kind\":\"s3-request-results\",\"ok\":true,\"warnings\":[]},\n"
@@ -70,6 +71,7 @@ string(JSON status_ok GET "${status_content}" "ok")
 string(JSON status_warning_count GET "${status_content}" "totalWarnings")
 string(JSON status_alert_count GET "${status_content}" "alertCount")
 string(JSON status_s3_lines GET "${status_content}" "metrics" "s3Lines")
+string(JSON status_coverage_area0 GET "${status_content}" "s3StabilizationCoverage" 0 "area")
 if(NOT status_format STREQUAL "qtnetworkchat-large-file-governance-status-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected status format: ${status_format}")
@@ -94,11 +96,17 @@ if(NOT status_s3_lines EQUAL 4)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected s3Lines=4, got ${status_s3_lines}")
 endif()
+if(NOT status_coverage_area0 STREQUAL "source-write-fallback")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected status coverage area source-write-fallback, got ${status_coverage_area0}")
+endif()
 
 file(READ "${STATUS_MD}" markdown_content)
 foreach(expected_text
         "QtNetworkChat Large File Governance Status"
         "Status: `healthy`"
+        "## S3 Stabilization Coverage"
+        "source-write-fallback"
         "This status view is read-only")
     string(FIND "${markdown_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)

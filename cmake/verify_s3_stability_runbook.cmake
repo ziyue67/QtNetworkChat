@@ -72,6 +72,8 @@ string(JSON runbook_timeout GET "${runbook_content}" "metrics" "timeoutCount")
 string(JSON runbook_network GET "${runbook_content}" "metrics" "networkCount")
 string(JSON runbook_auth GET "${runbook_content}" "metrics" "authCount")
 string(JSON runbook_status GET "${runbook_content}" "metrics" "governanceStatus")
+string(JSON runbook_coverage_areas GET "${runbook_content}" "metrics" "coverageAreaCount")
+string(JSON runbook_coverage_reasons GET "${runbook_content}" "metrics" "coverageFixedReasonCount")
 if(NOT runbook_format STREQUAL "qtnetworkchat-s3-stability-runbook-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected runbook format: ${runbook_format}")
@@ -99,6 +101,21 @@ endif()
 if(NOT runbook_status STREQUAL "healthy")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected governanceStatus=healthy, got ${runbook_status}")
+endif()
+if(NOT runbook_coverage_areas EQUAL 5)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverageAreaCount=5, got ${runbook_coverage_areas}")
+endif()
+if(NOT runbook_coverage_reasons EQUAL 30)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverageFixedReasonCount=30, got ${runbook_coverage_reasons}")
+endif()
+string(JSON coverage_area0 GET "${runbook_content}" "stabilizationCoverage" 0 "area")
+string(JSON coverage_event0 GET "${runbook_content}" "stabilizationCoverage" 0 "event")
+string(JSON coverage_reason0 GET "${runbook_content}" "stabilizationCoverage" 0 "fixedReasons" 0)
+if(NOT coverage_area0 STREQUAL "source-write-fallback" OR NOT coverage_event0 STREQUAL "object_write" OR NOT coverage_reason0 STREQUAL "timeout")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected first stabilization coverage entry")
 endif()
 foreach(expected_reason "timeout" "retryable" "auth" "integrity" "not_found")
     string(FIND "${runbook_content}" "\"${expected_reason}\"" reason_pos)
@@ -131,6 +148,9 @@ file(READ "${RUNBOOK_MD}" markdown_content)
 foreach(expected_text
         "QtNetworkChat S3 Stability Runbook"
         "## Actions"
+        "## Stabilization Coverage"
+        "source-write-fallback"
+        "source-delete-retained"
         "timeout"
         "integrity"
         "This runbook is read-only")
