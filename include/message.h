@@ -4,6 +4,7 @@
 #include <QString>
 #include <QDateTime>
 #include <QJsonObject>
+#include "e2eenvelope.h"
 
 enum class MessageType {
     Text,
@@ -30,6 +31,8 @@ struct Message {
     qint64 chunkCount;
     MessageType type;
     QDateTime timestamp;
+    E2EEnvelope e2eEnvelope;
+    E2EKeyAgreement e2eKeyAgreement;
 
     Message() : fileSize(0), chunkSize(0), chunkCount(0), type(MessageType::Text), timestamp(QDateTime::currentDateTime()) {}
 

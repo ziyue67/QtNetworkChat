@@ -60,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts/write-s3-stabilization-evidence
   -AlertSummaryPath .\artifacts\s3-stabilization-evidence-alert.json
 ```
 
-该步骤只读取脱敏 summary，不连接 Redis/S3/MinIO，不修改对象、队列或附件；脚本会检查 timeout/network/tls/auth/retryable/server/hash/size reason 桶和 PUT/HEAD/GET/DELETE/validate/read/delete 操作覆盖，并拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization/Credential/Signature。
+该步骤只读取脱敏 summary，不连接 Redis/S3/MinIO，不修改对象、队列或附件；脚本会检查 timeout/network/tls/auth/retryable/server/hash/size reason 桶和 PUT/HEAD/GET/DELETE/validate/read/remove 操作覆盖，并拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization/Credential/Signature。
 
 ## 3. 成功投递路径
 

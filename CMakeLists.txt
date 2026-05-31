@@ -15,8 +15,10 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql 
 set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/tlssecurity.cpp
     src/filetransferstatus.cpp
+    src/e2eenvelope.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
+    include/e2eenvelope.h
 )
 
 add_executable(QtNetworkChat
@@ -50,10 +52,20 @@ if(BUILD_TESTING)
     add_executable(message_serialization_test
         tests/message_serialization_test.cpp
         src/message.cpp
+        src/e2eenvelope.cpp
         include/message.h
+        include/e2eenvelope.h
     )
     target_include_directories(message_serialization_test PRIVATE include)
     target_link_libraries(message_serialization_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(e2e_envelope_test
+        tests/e2e_envelope_test.cpp
+        src/e2eenvelope.cpp
+        include/e2eenvelope.h
+    )
+    target_include_directories(e2e_envelope_test PRIVATE include)
+    target_link_libraries(e2e_envelope_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(server_group_member_update_test
         tests/server_group_member_update_test.cpp
@@ -273,6 +285,13 @@ if(BUILD_TESTING)
         NAME MessageSerializationRoundTrip
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:message_serialization_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME E2EEnvelopeProtocol
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:e2e_envelope_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

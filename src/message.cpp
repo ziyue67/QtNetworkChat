@@ -24,6 +24,15 @@ QByteArray Message::toJson() const {
         obj["hasFile"] = true;
     }
 
+    QString validationReason;
+    if (e2eEnvelope.isValid(&validationReason)) {
+        obj["e2eEnvelope"] = e2eEnvelope.toJson();
+        obj["isEncrypted"] = true;
+    }
+    if (e2eKeyAgreement.isValid(&validationReason)) {
+        obj["e2eKeyAgreement"] = e2eKeyAgreement.toJson();
+    }
+
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }
 
@@ -48,6 +57,19 @@ Message Message::fromJson(const QByteArray& json) {
 
     if (obj.contains("hasFile") && obj["hasFile"].toBool()) {
         msg.fileData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+    }
+
+    if (obj.value("e2eEnvelope").isObject()) {
+        const E2EEnvelope envelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+        if (envelope.isValid()) {
+            msg.e2eEnvelope = envelope;
+        }
+    }
+    if (obj.value("e2eKeyAgreement").isObject()) {
+        const E2EKeyAgreement agreement = E2EKeyAgreement::fromJson(obj.value("e2eKeyAgreement").toObject());
+        if (agreement.isValid()) {
+            msg.e2eKeyAgreement = agreement;
+        }
     }
 
     if (msg.timestamp.isNull()) {

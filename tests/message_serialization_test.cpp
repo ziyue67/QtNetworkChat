@@ -28,6 +28,20 @@ int main() {
     original.chunkCount = 3;
     original.type = MessageType::File;
     original.timestamp = QDateTime::fromString("2026-05-24T15:54:00", Qt::ISODate);
+    original.e2eKeyAgreement.protocol = "qtnetworkchat-e2e-v1";
+    original.e2eKeyAgreement.suite = "x25519-hkdf-sha256-aes-256-gcm";
+    original.e2eKeyAgreement.senderId = original.senderId;
+    original.e2eKeyAgreement.receiverId = original.receiverId;
+    original.e2eKeyAgreement.keyId = "alice-bob-1";
+    original.e2eKeyAgreement.publicKey = QByteArray::fromHex("00112233445566778899aabbccddeeff");
+    original.e2eEnvelope.protocol = "qtnetworkchat-e2e-v1";
+    original.e2eEnvelope.suite = "x25519-hkdf-sha256-aes-256-gcm";
+    original.e2eEnvelope.senderId = original.senderId;
+    original.e2eEnvelope.receiverId = original.receiverId;
+    original.e2eEnvelope.keyId = "alice-bob-1";
+    original.e2eEnvelope.nonce = QByteArray("123456789012", 12);
+    original.e2eEnvelope.ciphertext = QByteArray("encrypted-payload", 17);
+    original.e2eEnvelope.tag = QByteArray("1234567890abcdef", 16);
 
     const Message restored = Message::fromJson(original.toJson());
 
@@ -44,6 +58,12 @@ int main() {
     ok = expect(restored.chunkCount == original.chunkCount, "chunkCount should round-trip") && ok;
     ok = expect(restored.type == original.type, "message type should round-trip") && ok;
     ok = expect(restored.timestamp == original.timestamp, "timestamp should round-trip") && ok;
+    ok = expect(restored.e2eKeyAgreement.publicKey == original.e2eKeyAgreement.publicKey,
+                "e2e key agreement should round-trip") && ok;
+    ok = expect(restored.e2eEnvelope.ciphertext == original.e2eEnvelope.ciphertext,
+                "e2e envelope should round-trip") && ok;
+    ok = expect(restored.e2eEnvelope.tag == original.e2eEnvelope.tag,
+                "e2e envelope auth tag should round-trip") && ok;
 
     return ok ? 0 : 1;
 }
