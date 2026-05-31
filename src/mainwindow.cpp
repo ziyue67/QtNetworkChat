@@ -503,7 +503,7 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
     if (m_copyLastTransferStatusAction) {
         m_copyLastTransferStatusAction->setVisible(true);
         m_copyLastTransferStatusAction->setEnabled(true);
-        m_copyLastTransferStatusAction->setToolTip("复制最近一次文件传输失败、重试或离线兜底状态诊断");
+        m_copyLastTransferStatusAction->setToolTip("复制最近一次文件传输准备、续传、完成、失败或离线兜底状态诊断");
     }
     appendSystemMessage(eventText);
     ui->chatHintLabel->setText(eventText);

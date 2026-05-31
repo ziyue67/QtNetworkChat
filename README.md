@@ -257,9 +257,9 @@ set QTNETWORKCHAT_TLS_PINNED_SHA256=ab12cd34...
 
 当前版本只落地端到端加密的最小可测试协议骨架，还没有在聊天 UI 中默认加密消息内容。`E2EKeyAgreement` 与 `E2EEnvelope` 使用 `qtnetworkchat-e2e-v1` 协议名，支持 `x25519-hkdf-sha256-aes-256-gcm` 套件标识，消息 JSON 可携带 key agreement、nonce、ciphertext、tag、AAD 和 SHA-256 指纹。CTest 会验证这些字段的 base64url 序列化、Message 往返、unsupported protocol/suite、无效 peer、nonce、tag、空 ciphertext、缺 public key 等 fail-closed 边界。后续接入真实加密时仍需补密钥生成/认证、会话轮换、历史迁移、文件分片加密和 UI 开关。
 
-### 文件传输状态提示
+### 文件传输状态时间线
 
-文件分片 ACK 被拒绝、ACK 超时、临时重试或离线兜底保留时，客户端会把固定 reason 映射为用户可读状态。主界面会同步显示到状态栏、聊天系统消息和聊天提示，并在菜单中提供“复制最近文件状态”，便于把最近一次失败、重试或兜底状态整理成诊断文本。该诊断只包含文件名、传输 ID、固定 reason、分类、是否可重试和进度字节，不包含对象存储 endpoint、bucket、URL、凭据或签名信息。
+文件传输会把准备清单、续传恢复、完成送达、ACK 拒绝、ACK 超时、临时重试和离线兜底保留统一映射为用户可读状态。主界面会同步显示到状态栏、聊天系统消息和聊天提示，并在菜单中提供“复制最近文件状态”，便于把最近一次准备、恢复、完成、失败、重试或兜底状态整理成诊断文本。该诊断只包含文件名、传输 ID、固定 reason、分类、是否可重试和进度字节，不包含对象存储 endpoint、bucket、URL、凭据或签名信息。
 
 ### 如何启用 Redis 在线状态服务
 

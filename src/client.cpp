@@ -802,6 +802,11 @@ bool Client::sendFilePayload(const QString& filePath,
     m_currentOutgoingTransferId = transferId;
     m_currentOutgoingReceiverId = receiverId;
     m_currentOutgoingFileName = fileInfo.fileName();
+    emit fileTransferStatusChanged(fileInfo.fileName(),
+                                   transferId,
+                                   resumeMode ? QStringLiteral("transfer-resumed") : QStringLiteral("transfer-prepared"),
+                                   resumeMode ? resumeConfirmedBytes : 0,
+                                   fileInfo.size());
     if (!saveOutgoingTransferState(transferId,
                                    fileInfo.absoluteFilePath(),
                                    receiverId,
@@ -820,6 +825,11 @@ bool Client::sendFilePayload(const QString& filePath,
         const bool completed = sentBytes == fileInfo.size();
         if (completed) {
             clearOutgoingTransferState();
+            emit fileTransferStatusChanged(fileInfo.fileName(),
+                                           transferId,
+                                           QStringLiteral("transfer-completed"),
+                                           sentBytes,
+                                           fileInfo.size());
         }
         return completed;
     }
@@ -972,6 +982,11 @@ bool Client::sendFilePayload(const QString& filePath,
                 const bool completed = sentBytes == fileInfo.size();
                 if (completed) {
                     clearOutgoingTransferState();
+                    emit fileTransferStatusChanged(fileInfo.fileName(),
+                                                   transferId,
+                                                   QStringLiteral("transfer-completed"),
+                                                   sentBytes,
+                                                   fileInfo.size());
                 }
                 return completed;
             }
@@ -1000,6 +1015,11 @@ bool Client::sendFilePayload(const QString& filePath,
     const bool completed = sentBytes == fileInfo.size() && chunkIndex == chunkCount;
     if (completed) {
         clearOutgoingTransferState();
+        emit fileTransferStatusChanged(fileInfo.fileName(),
+                                       transferId,
+                                       QStringLiteral("transfer-completed"),
+                                       sentBytes,
+                                       fileInfo.size());
     }
     return completed;
 }

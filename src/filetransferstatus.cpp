@@ -22,6 +22,24 @@ FileTransferStatusInfo describeFileTransferReason(const QString& reason) {
                 true};
     }
 
+    if (containsAny(trimmed, QStringList{QStringLiteral("prepared"), QString::fromUtf8("清单")})) {
+        return {QStringLiteral("prepared"),
+                QStringLiteral("文件校验清单已生成"),
+                QStringLiteral("客户端已完成本地读取、分片规划和 SHA-256 校验清单生成，准备开始发送。"),
+                false};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("resume"), QStringLiteral("resumed"), QString::fromUtf8("续传"), QString::fromUtf8("恢复")})) {
+        return {QStringLiteral("resumed"),
+                QStringLiteral("文件传输已按续传状态恢复"),
+                QStringLiteral("客户端已确认服务端保存的进度，并会从最早缺失分片继续发送。"),
+                true};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("completed"), QStringLiteral("delivered"), QString::fromUtf8("完成"), QString::fromUtf8("送达")})) {
+        return {QStringLiteral("completed"),
+                QStringLiteral("文件传输已完成"),
+                QStringLiteral("所有分片都已确认，客户端已清理本地未完成发送记录。"),
+                false};
+    }
     if (containsAny(trimmed, QStringList{QStringLiteral("timeout"), QString::fromUtf8("超时"), QStringLiteral("chunk-ack-timeout")})) {
         return {QStringLiteral("timeout"),
                 QStringLiteral("文件传输等待确认超时"),
