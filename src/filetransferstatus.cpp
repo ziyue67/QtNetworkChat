@@ -22,6 +22,36 @@ FileTransferStatusInfo describeFileTransferReason(const QString& reason) {
                 true};
     }
 
+    if (containsAny(trimmed, QStringList{QStringLiteral("receive-started"), QStringLiteral("receiving"), QString::fromUtf8("开始接收")})) {
+        return {QStringLiteral("receive-started"),
+                QStringLiteral("文件接收已开始"),
+                QStringLiteral("接收端已收到文件分片元数据，正在按传输编号汇总分片。"),
+                true};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("receive-completed"), QStringLiteral("assembled"), QString::fromUtf8("组包完成")})) {
+        return {QStringLiteral("receive-completed"),
+                QStringLiteral("文件分片已接收完成"),
+                QStringLiteral("接收端已拿到全部分片并完成组包，随后会进入本机保存和完整性提示。"),
+                false};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("receive-saved"), QStringLiteral("save-completed"), QString::fromUtf8("保存完成"), QString::fromUtf8("已保存")})) {
+        return {QStringLiteral("receive-saved"),
+                QStringLiteral("文件已保存到本机"),
+                QStringLiteral("接收端已把文件写入下载目录，可从聊天记录双击打开或复制保存路径。"),
+                false};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("save-failed"), QStringLiteral("receive-save-failed"), QString::fromUtf8("保存失败"), QString::fromUtf8("写入失败")})) {
+        return {QStringLiteral("receive-save-failed"),
+                QStringLiteral("文件保存到本机失败"),
+                QStringLiteral("接收端已拿到文件数据，但写入下载目录失败。请检查目录权限、磁盘空间或安全软件拦截。"),
+                true};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("open-failed"), QStringLiteral("receive-open-failed"), QString::fromUtf8("打开失败"), QString::fromUtf8("无法打开")})) {
+        return {QStringLiteral("receive-open-failed"),
+                QStringLiteral("保存文件无法打开"),
+                QStringLiteral("文件可能已移动、删除或被系统拒绝打开。可从聊天记录复制保存路径后手动检查。"),
+                false};
+    }
     if (containsAny(trimmed, QStringList{QStringLiteral("prepared"), QString::fromUtf8("清单")})) {
         return {QStringLiteral("prepared"),
                 QStringLiteral("文件校验清单已生成"),
@@ -82,7 +112,11 @@ FileTransferStatusInfo describeFileTransferReason(const QString& reason) {
                 QStringLiteral("这是可重试状态，客户端会按当前策略重试，仍失败时可稍后再次发送。"),
                 true};
     }
-    if (containsAny(trimmed, QStringList{QStringLiteral("fallback"), QString::fromUtf8("兜底")})) {
+    if (containsAny(trimmed, QStringList{QStringLiteral("large_file_failed"),
+                                         QStringLiteral("offer_delivery"),
+                                         QStringLiteral("failed_received"),
+                                         QStringLiteral("fallback"),
+                                         QString::fromUtf8("兜底")})) {
         return {QStringLiteral("fallback-retained"),
                 QStringLiteral("离线兜底已保留"),
                 QStringLiteral("跨实例直达未完成时，源实例会保留离线兜底，避免文件丢失。"),

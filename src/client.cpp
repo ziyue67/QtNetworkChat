@@ -1167,6 +1167,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.receiverId = obj["receiverId"].toString();
         msg.content = obj["content"].toString();
         msg.fileName = obj["fileName"].toString();
+        msg.transferId = obj["transferId"].toString();
         msg.fileSize = obj["fileSize"].toVariant().toLongLong();
         msg.fileHash = obj["fileHash"].toString();
         msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
@@ -1263,17 +1264,24 @@ void Client::handleServerMessage(const QJsonObject& obj) {
 
 void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     const QString transferId = obj["transferId"].toString().trimmed();
+    const QString fileName = obj["fileName"].toString();
     const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
     const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
     const qint64 chunkCount = obj["chunkCount"].toVariant().toLongLong();
     const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
     const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
 
-    auto failTransfer = [this, transferId, chunkIndex](const QString& reason) {
+    auto failTransfer = [this, transferId, fileName, fileSize, chunkIndex](const QString& reason) {
+        qint64 receivedBytes = 0;
+        const auto it = m_incomingFileTransfers.constFind(transferId);
+        if (it != m_incomingFileTransfers.constEnd()) {
+            receivedBytes = it->receivedBytes;
+        }
         if (!transferId.isEmpty()) {
             sendFileChunkAck(transferId, chunkIndex, false, reason);
             m_incomingFileTransfers.remove(transferId);
         }
+        emit fileTransferStatusChanged(fileName, transferId, reason, receivedBytes, fileSize);
         emit connectionError("文件分片接收失败：" + reason);
     };
 
@@ -1307,7 +1315,6 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     if (pending.chunks.isEmpty()) {
         pending.envelope = obj;
         pending.envelope["type"] = "file";
-        pending.envelope.remove("transferId");
         pending.envelope.remove("chunkIndex");
         pending.envelope.remove("fileData");
         pending.fileName = obj["fileName"].toString();
@@ -1315,6 +1322,11 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         pending.chunkSize = chunkSize;
         pending.chunkCount = chunkCount;
         pending.chunks.resize(static_cast<int>(chunkCount));
+        emit fileTransferStatusChanged(pending.fileName,
+                                       transferId,
+                                       QStringLiteral("receive-started"),
+                                       0,
+                                       fileSize);
     } else if (pending.fileSize != fileSize || pending.chunkSize != chunkSize || pending.chunkCount != chunkCount) {
         failTransfer("同一传输编号的元数据不一致");
         return;
@@ -1350,6 +1362,11 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     QJsonObject fullFile = pending.envelope;
     m_incomingFileTransfers.remove(transferId);
     sendFileChunkAck(transferId, chunkIndex, true, QString(), fileData.size());
+    emit fileTransferStatusChanged(fileName,
+                                   transferId,
+                                   QStringLiteral("receive-completed"),
+                                   fileData.size(),
+                                   fileSize);
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleServerMessage(fullFile);
 }

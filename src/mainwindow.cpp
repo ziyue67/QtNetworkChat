@@ -1369,6 +1369,11 @@ void MainWindow::setupUi() {
             && QDesktopServices::openUrl(QUrl::fromLocalFile(savePathInfo.absoluteFilePath()))) {
             ui->statusbar->showMessage("已打开保存文件", 2200);
         } else {
+            showFileTransferStatusEvent(savePathInfo.fileName(),
+                                        QString(),
+                                        QStringLiteral("receive-open-failed"),
+                                        0,
+                                        0);
             ui->statusbar->showMessage("保存文件不存在或无法打开", 2600);
         }
     });
@@ -1523,6 +1528,11 @@ void MainWindow::setupUi() {
             if (canOpenSavedFile && QDesktopServices::openUrl(QUrl::fromLocalFile(savePathInfoForMenu.absoluteFilePath()))) {
                 ui->statusbar->showMessage("已打开保存文件", 2200);
             } else {
+                showFileTransferStatusEvent(savePathInfoForMenu.fileName(),
+                                            QString(),
+                                            QStringLiteral("receive-open-failed"),
+                                            0,
+                                            0);
                 ui->statusbar->showMessage("当前消息没有可打开的文件", 2200);
             }
         } else if (selected == openSaveFolderAction) {
@@ -2642,6 +2652,13 @@ void MainWindow::onNewMessage(const Message& msg) {
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
+            showFileTransferStatusEvent(receivedName,
+                                        msg.transferId,
+                                        integrityText.startsWith("完整性校验失败")
+                                            ? QStringLiteral("hash")
+                                            : QStringLiteral("receive-saved"),
+                                        msg.fileData.size(),
+                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
             ui->chatHintLabel->setText(QString("已接收图片 · %1 · %2 · 来自 %3%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
             ui->statusbar->showMessage(QString("图片已保存到下载目录 · %1%2%3").arg(receivedSize, manifestSuffix, integritySuffix), 3000);
         } else {
@@ -2650,6 +2667,11 @@ void MainWindow::onNewMessage(const Message& msg) {
             failedItem->setForeground(QColor(180, 70, 70));
             failedItem->setBackground(QColor(255, 245, 245));
             m_chatModel->appendRow(failedItem);
+            showFileTransferStatusEvent(receivedName,
+                                        msg.transferId,
+                                        QStringLiteral("receive-save-failed"),
+                                        msg.fileData.size(),
+                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
             ui->chatHintLabel->setText(QString("图片保存失败 · %1 · 来自 %2").arg(receivedName, displayName));
             ui->statusbar->showMessage("图片保存失败，请检查下载目录权限", 3200);
         }
@@ -2686,6 +2708,13 @@ void MainWindow::onNewMessage(const Message& msg) {
             replyItem->setForeground(QColor(86, 116, 130));
             replyItem->setBackground(QColor(246, 251, 253));
             m_chatModel->appendRow(replyItem);
+            showFileTransferStatusEvent(receivedName,
+                                        msg.transferId,
+                                        integrityText.startsWith("完整性校验失败")
+                                            ? QStringLiteral("hash")
+                                            : QStringLiteral("receive-saved"),
+                                        msg.fileData.size(),
+                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
             ui->chatHintLabel->setText(QString("已接收文件 · %1 · %2 · 来自 %3%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
             ui->statusbar->showMessage(QString("文件已保存到下载目录 · %1%2%3").arg(receivedSize, manifestSuffix, integritySuffix), 3000);
         } else {
@@ -2694,6 +2723,11 @@ void MainWindow::onNewMessage(const Message& msg) {
             failedItem->setForeground(QColor(180, 70, 70));
             failedItem->setBackground(QColor(255, 245, 245));
             m_chatModel->appendRow(failedItem);
+            showFileTransferStatusEvent(receivedName,
+                                        msg.transferId,
+                                        QStringLiteral("receive-save-failed"),
+                                        msg.fileData.size(),
+                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
             ui->chatHintLabel->setText(QString("文件保存失败 · %1 · 来自 %2").arg(receivedName, displayName));
             ui->statusbar->showMessage("文件保存失败，请检查下载目录权限", 3200);
         }

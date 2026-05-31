@@ -35,6 +35,24 @@ int main(int argc, char** argv) {
     info = describeFileTransferReason(QStringLiteral("transfer-completed"));
     ok = expect(info.category == QStringLiteral("completed") && !info.retryable,
                 "completed transfer should be categorized as final status") && ok;
+    info = describeFileTransferReason(QStringLiteral("receive-started"));
+    ok = expect(info.category == QStringLiteral("receive-started") && info.retryable,
+                "receive-started should be categorized as receiver-side recoverable status") && ok;
+    info = describeFileTransferReason(QStringLiteral("receive-completed"));
+    ok = expect(info.category == QStringLiteral("receive-completed") && !info.retryable,
+                "receive-completed should be categorized as receiver-side assembled status") && ok;
+    info = describeFileTransferReason(QStringLiteral("receive-saved"));
+    ok = expect(info.category == QStringLiteral("receive-saved") && !info.retryable,
+                "receive-saved should be categorized as local save success") && ok;
+    info = describeFileTransferReason(QString::fromUtf8("文件保存失败"));
+    ok = expect(info.category == QStringLiteral("receive-save-failed") && info.retryable,
+                "save failure should be categorized as receiver-side retryable local failure") && ok;
+    info = describeFileTransferReason(QStringLiteral("receive-open-failed"));
+    ok = expect(info.category == QStringLiteral("receive-open-failed") && !info.retryable,
+                "open failure should be categorized as receiver-side local open failure") && ok;
+    info = describeFileTransferReason(QStringLiteral("large_file_failed offer_delivery failed_received"));
+    ok = expect(info.category == QStringLiteral("fallback-retained") && info.retryable,
+                "cross-instance large file failure should be visible as fallback retained") && ok;
     ok = expect(fileTransferUserMessage(QStringLiteral("auth")).contains(QString::fromUtf8("权限")),
                 "auth reason should produce user-facing permission text") && ok;
     ok = expect(fileTransferUserMessage(QString(), QString::fromUtf8("备用提示")) == QString::fromUtf8("备用提示"),
@@ -65,5 +83,13 @@ int main(int argc, char** argv) {
     ok = expect(completedText.contains(QString::fromUtf8("文件传输已完成"))
                     && !completedText.contains(QString::fromUtf8("可重试")),
                 "completed event should not ask the user to retry") && ok;
+    const QString saveFailedDiagnostic = fileTransferStatusDiagnostic(QStringLiteral("report.zip"),
+                                                                      QStringLiteral("transfer-receive-001"),
+                                                                      QStringLiteral("receive-save-failed"),
+                                                                      4096,
+                                                                      4096);
+    ok = expect(saveFailedDiagnostic.contains(QStringLiteral("category=receive-save-failed"))
+                    && saveFailedDiagnostic.contains(QStringLiteral("retryable=true")),
+                "receiver save failure diagnostic should expose category and retryability") && ok;
     return ok ? 0 : 1;
 }
