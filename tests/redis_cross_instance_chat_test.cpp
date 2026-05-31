@@ -48,6 +48,14 @@ bool expect(bool condition, const char* message) {
     return true;
 }
 
+bool expect(bool condition, const QString& message) {
+    if (!condition) {
+        qWarning() << message;
+        return false;
+    }
+    return true;
+}
+
 bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
     QElapsedTimer timer;
     timer.start();
@@ -1354,6 +1362,69 @@ int main(int argc, char** argv) {
     }), "source server should log S3 failed receipt while retaining fallback") && ok;
     ok = expect(injectedS3Objects.contains(s3ValidationFailureObjectKey),
                 "source injected S3 fallback object should remain after remote failure") && ok;
+    injectedS3ValidationFailureReason.clear();
+
+    struct S3ValidationFailureCase {
+        QString suffix;
+        QString injectedReason;
+        QString expectedReason;
+    };
+    const QVector<S3ValidationFailureCase> s3ValidationFailureCases = {
+        {QStringLiteral("auth"), QStringLiteral("auth_or_permission_error from injected S3 HEAD"), QStringLiteral("auth")},
+        {QStringLiteral("retryable"), QStringLiteral("retryable_client_status from injected S3 HEAD"), QStringLiteral("retryable")},
+        {QStringLiteral("hash"), QStringLiteral("SHA-256 mismatch from injected S3 GET"), QStringLiteral("hash")},
+        {QStringLiteral("size"), QString::fromUtf8("大小不匹配 from injected S3 HEAD"), QStringLiteral("size")}
+    };
+    for (const S3ValidationFailureCase& validationCase : s3ValidationFailureCases) {
+        injectedS3Objects.clear();
+        injectedS3ValidationFailureReason = validationCase.injectedReason;
+        const QString caseFileName = QStringLiteral("redis-s3-validation-%1-failure.bin").arg(validationCase.suffix);
+        const QString caseFilePath = transferDir.filePath(caseFileName);
+        const QByteArray casePayload = makePatternPayload(1024 * 1024 + 13000 + validationCase.suffix.size());
+        QFile caseFile(caseFilePath);
+        ok = expect(caseFile.open(QIODevice::WriteOnly),
+                    QStringLiteral("injected S3 %1 validation transfer file should open for writing").arg(validationCase.suffix)) && ok;
+        if (caseFile.isOpen()) {
+            ok = expect(caseFile.write(casePayload) == casePayload.size(),
+                        QStringLiteral("injected S3 %1 validation transfer file should be written").arg(validationCase.suffix)) && ok;
+            caseFile.close();
+        }
+        bobFileNames.clear();
+        bobFilePayloads.clear();
+        ok = expect(alice.sendFile(caseFilePath, "960002"),
+                    QStringLiteral("alice should publish an injected S3 %1 validation offer").arg(validationCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return !findLargeFileOffer(caseFileName).isEmpty();
+        }), QStringLiteral("injected S3 %1 validation file should publish an offer").arg(validationCase.suffix)) && ok;
+        const QJsonObject caseOffer = findLargeFileOffer(caseFileName);
+        const QString caseObjectKey = caseOffer["objectKey"].toString();
+        ok = expect(caseOffer["storeType"].toString() == QStringLiteral("s3"),
+                    QStringLiteral("injected S3 %1 validation offer should carry storeType=s3").arg(validationCase.suffix)) && ok;
+        ok = expect(injectedS3Objects.contains(caseObjectKey),
+                    QStringLiteral("injected S3 %1 validation object should remain in fallback store").arg(validationCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return !findPublishedEvent("large_file_failed", QString(), caseObjectKey).isEmpty();
+        }), QStringLiteral("remote server should publish failed for injected S3 %1 validation errors").arg(validationCase.suffix)) && ok;
+        ok = expect(findPublishedEvent("large_file_failed", QString(), caseObjectKey)["reason"].toString()
+                        == validationCase.expectedReason,
+                    QStringLiteral("injected S3 %1 validation failure should publish a fixed reason").arg(validationCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return routeLogContains({QStringLiteral("event=offer_validation"),
+                                     QStringLiteral("result=rejected"),
+                                     QStringLiteral("reason=") + validationCase.expectedReason,
+                                     QStringLiteral("storeType=s3"),
+                                     QStringLiteral("operation=validate"),
+                                     QStringLiteral("objectKey=") + caseObjectKey});
+        }), QStringLiteral("remote server should log injected S3 %1 validation failure with safe metadata").arg(validationCase.suffix)) && ok;
+        ok = expect(!routeLogContains({QStringLiteral("event=offer_validation"),
+                                       validationCase.injectedReason}),
+                    QStringLiteral("route log should not include injected S3 %1 validation error detail").arg(validationCase.suffix)) && ok;
+        ok = expect(!waitFor([&] {
+            return !findPublishedEvent("large_file_claim", QString(), caseObjectKey).isEmpty()
+                || !findPublishedEvent("large_file_delivered", QString(), caseObjectKey).isEmpty()
+                || bobFileNames.contains(caseFileName);
+        }, 800), QStringLiteral("S3 %1 validation failures should not be claimed or delivered").arg(validationCase.suffix)) && ok;
+    }
     injectedS3ValidationFailureReason.clear();
 
     injectedS3Objects.clear();
