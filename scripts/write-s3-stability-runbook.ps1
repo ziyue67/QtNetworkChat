@@ -6,6 +6,8 @@ param(
 
     [string]$GovernanceStatusPath,
 
+    [string]$CoveragePolicyPath,
+
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
 
@@ -98,6 +100,11 @@ function Get-CountValue([object]$ObjectValue, [string]$Name) {
     [int](Get-JsonValue $ObjectValue $Name 0)
 }
 
+function Get-StringArrayValue([object]$ObjectValue, [string]$Name) {
+    $value = Get-JsonValue $ObjectValue $Name @()
+    @($value) | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+}
+
 function Add-SensitiveHits([string]$PathValue, [System.Collections.ArrayList]$Hits) {
     if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
         return
@@ -161,9 +168,10 @@ foreach ($value in @(
 $resolvedS3SummaryPath = Resolve-RequiredFile $S3SummaryPath "S3SummaryPath"
 $resolvedEvidencePath = Resolve-OptionalFile $EvidencePath
 $resolvedGovernanceStatusPath = Resolve-OptionalFile $GovernanceStatusPath
+$resolvedCoveragePolicyPath = Resolve-OptionalFile $CoveragePolicyPath
 $resolvedOutputPath = Resolve-OutputPath $OutputPath
 
-$inputPaths = @($resolvedS3SummaryPath, $resolvedEvidencePath, $resolvedGovernanceStatusPath) |
+$inputPaths = @($resolvedS3SummaryPath, $resolvedEvidencePath, $resolvedGovernanceStatusPath, $resolvedCoveragePolicyPath) |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 $sensitiveHits = New-Object System.Collections.ArrayList
 foreach ($path in $inputPaths) {
@@ -179,6 +187,7 @@ if ($sensitiveHits.Count -gt 0) {
 $s3Summary = Read-JsonFile $resolvedS3SummaryPath
 $evidence = if (-not [string]::IsNullOrWhiteSpace($resolvedEvidencePath)) { Read-JsonFile $resolvedEvidencePath } else { $null }
 $governanceStatus = if (-not [string]::IsNullOrWhiteSpace($resolvedGovernanceStatusPath)) { Read-JsonFile $resolvedGovernanceStatusPath } else { $null }
+$coveragePolicyInput = if (-not [string]::IsNullOrWhiteSpace($resolvedCoveragePolicyPath)) { Read-JsonFile $resolvedCoveragePolicyPath } else { $null }
 
 $reasonCounts = Get-JsonValue $s3Summary "reasonCounts" ([pscustomobject]@{})
 $operationCounts = Get-JsonValue $s3Summary "operationCounts" ([pscustomobject]@{})
@@ -267,8 +276,28 @@ foreach ($item in $stabilizationCoverage) {
     }
 }
 $coverageGapCount = @($coverageGapAreas).Count
-if ($WarnUnobservedCoverage -and $coverageGapCount -gt 0) {
-    $warnings.Add(("stabilizationCoverage unobserved areas={0}: {1}" -f $coverageGapCount, ($coverageGapAreas -join ", ")))
+$allCoverageAreas = @($stabilizationCoverage | ForEach-Object { [string]$_.area })
+$policyRequiredAreas = Get-StringArrayValue $coveragePolicyInput "requiredAreas"
+if (@($policyRequiredAreas).Count -eq 0) {
+    $policyRequiredAreas = $allCoverageAreas
+}
+$policyAllowedGapAreas = Get-StringArrayValue $coveragePolicyInput "allowedGapAreas"
+$policyMinObservedAreas = [int](Get-JsonValue $coveragePolicyInput "minObservedAreas" 0)
+$unknownRequiredAreas = @($policyRequiredAreas | Where-Object { $_ -notin $allCoverageAreas })
+$unknownAllowedGapAreas = @($policyAllowedGapAreas | Where-Object { $_ -notin $allCoverageAreas })
+if (@($unknownRequiredAreas).Count -gt 0) {
+    throw ("Coverage policy contains unknown requiredAreas: {0}" -f ($unknownRequiredAreas -join ", "))
+}
+if (@($unknownAllowedGapAreas).Count -gt 0) {
+    throw ("Coverage policy contains unknown allowedGapAreas: {0}" -f ($unknownAllowedGapAreas -join ", "))
+}
+$coverageActionableGapAreas = @($coverageGapAreas | Where-Object { $_ -in $policyRequiredAreas -and $_ -notin $policyAllowedGapAreas })
+$coverageActionableGapCount = @($coverageActionableGapAreas).Count
+if ($WarnUnobservedCoverage -and $coverageActionableGapCount -gt 0) {
+    $warnings.Add(("stabilizationCoverage actionable gaps={0}: {1}" -f $coverageActionableGapCount, ($coverageActionableGapAreas -join ", ")))
+}
+if ($WarnUnobservedCoverage -and $policyMinObservedAreas -gt 0 -and $coverageObservedAreaCount -lt $policyMinObservedAreas) {
+    $warnings.Add(("stabilizationCoverage observed areas={0} below policy minimum {1}" -f $coverageObservedAreaCount, $policyMinObservedAreas))
 }
 
 $metrics = [pscustomobject]@{
@@ -287,6 +316,8 @@ $metrics = [pscustomobject]@{
     "coverageFixedReasonCount" = $coverageReasonCount
     "coverageObservedAreaCount" = $coverageObservedAreaCount
     "coverageGapCount" = $coverageGapCount
+    "coverageActionableGapCount" = $coverageActionableGapCount
+    "coveragePolicyMinObservedAreas" = $policyMinObservedAreas
     "sensitiveHits" = [int]$sensitiveHits.Count
     "s3SummarySensitiveHits" = $summarySensitiveHits
     "evidenceOk" = $evidenceOk
@@ -298,6 +329,7 @@ $inputs = [pscustomobject]@{
     "s3SummaryPath" = $resolvedS3SummaryPath
     "evidencePath" = $resolvedEvidencePath
     "governanceStatusPath" = $resolvedGovernanceStatusPath
+    "coveragePolicyPath" = $resolvedCoveragePolicyPath
 }
 
 $runbookOk = ($warnings.Count -eq 0)
@@ -313,6 +345,12 @@ $runbook = [pscustomobject]@{
     "eventOperationCounts" = $eventOperationCounts
     "stabilizationCoverage" = @($stabilizationCoverage)
     "coverageGapAreas" = @($coverageGapAreas)
+    "coverageActionableGapAreas" = @($coverageActionableGapAreas)
+    "coveragePolicy" = [pscustomobject]@{
+        requiredAreas = @($policyRequiredAreas)
+        allowedGapAreas = @($policyAllowedGapAreas)
+        minObservedAreas = $policyMinObservedAreas
+    }
     "actions" = @($actions.ToArray())
     "inputs" = $inputs
     "notes" = "This runbook is generated from local summaries only; it does not connect to Redis/S3/MinIO and does not modify queues, attachments, objects, or receipt files."
@@ -330,6 +368,7 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(('- Success count: `{0}`' -f $successCount))
     $lines.Add(('- Governance status: `{0}`' -f $governanceStatusText))
     $lines.Add(('- Coverage gaps: `{0}`' -f $coverageGapCount))
+    $lines.Add(('- Actionable coverage gaps: `{0}`' -f $coverageActionableGapCount))
     $lines.Add("")
     $lines.Add("## Actions")
     $lines.Add("")
@@ -350,6 +389,10 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
         $lines.Add("")
         $gapText = $coverageGapAreas -join ", "
         $lines.Add(("Unobserved coverage areas: {0}" -f $gapText))
+    }
+    if ($coverageActionableGapCount -gt 0) {
+        $actionableGapText = $coverageActionableGapAreas -join ", "
+        $lines.Add(("Actionable coverage gaps: {0}" -f $actionableGapText))
     }
     $lines.Add("")
     $lines.Add("This runbook is read-only and contains no sensitive request data.")

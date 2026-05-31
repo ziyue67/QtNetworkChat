@@ -14,6 +14,7 @@ set(DASHBOARD_PATH "${OUTPUT_DIR}/dashboard.json")
 set(DASHBOARD_MD_PATH "${OUTPUT_DIR}/dashboard.md")
 set(S3_RUNBOOK_PATH "${OUTPUT_DIR}/s3-runbook.json")
 set(S3_RUNBOOK_MD_PATH "${OUTPUT_DIR}/s3-runbook.md")
+set(S3_POLICY_PATH "${TEMP_DIR}/s3-policy.json")
 set(SOURCE_INSTANCE "source-task-a")
 set(FILE_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
@@ -24,6 +25,7 @@ file(WRITE "${ROUTE_LOG}"
 file(WRITE "${QUEUE_LOG}"
 "{\"transferId\":\"taskclean001\",\"receiverId\":\"receiver001\",\"objectStoreKey\":\"taskclean001.bin\",\"fileHash\":\"${FILE_HASH}\",\"fileSize\":1024}\n"
 )
+file(WRITE "${S3_POLICY_PATH}" "{\"requiredAreas\":[\"source-write-fallback\"],\"allowedGapAreas\":[],\"minObservedAreas\":1}\n")
 
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
@@ -46,6 +48,7 @@ execute_process(
         -WriteS3StabilityRunbook
         -S3StabilityRunbookPath "${S3_RUNBOOK_PATH}"
         -S3StabilityRunbookMarkdownPath "${S3_RUNBOOK_MD_PATH}"
+        -S3CoveragePolicyPath "${S3_POLICY_PATH}"
         -WarnS3CoverageGaps
         -RunS3FailureBatchSample
         -S3FailureBatchCountPerReason 3
@@ -93,6 +96,7 @@ foreach(expected_text
         "-WriteS3StabilityRunbook"
         "-S3StabilityRunbookPath"
         "-S3StabilityRunbookMarkdownPath"
+        "-S3CoveragePolicyPath"
         "-WarnS3CoverageGaps"
         "-RunS3FailureBatchSample"
         "-S3FailureBatchCountPerReason")
@@ -116,6 +120,7 @@ string(JSON dashboard_path GET "${preview_content}" "dashboardPath")
 string(JSON dashboard_markdown_path GET "${preview_content}" "dashboardMarkdownPath")
 string(JSON s3_runbook_path GET "${preview_content}" "s3StabilityRunbookPath")
 string(JSON s3_runbook_markdown_path GET "${preview_content}" "s3StabilityRunbookMarkdownPath")
+string(JSON s3_policy_path GET "${preview_content}" "s3CoveragePolicyPath")
 string(JSON warn_s3_coverage_gaps GET "${preview_content}" "warnS3CoverageGaps")
 string(JSON s3_batch_path GET "${preview_content}" "s3FailureBatchSummaryPath")
 string(JSON s3_batch_count GET "${preview_content}" "s3FailureBatchCountPerReason")
@@ -150,6 +155,10 @@ endif()
 if(NOT warn_s3_coverage_gaps)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview warnS3CoverageGaps should be true")
+endif()
+if(NOT s3_policy_path MATCHES "s3-policy.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview s3CoveragePolicyPath missing expected policy path: ${s3_policy_path}")
 endif()
 if(NOT s3_batch_path MATCHES "s3-failure-batch-summary.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")

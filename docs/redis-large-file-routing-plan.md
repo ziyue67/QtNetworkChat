@@ -290,7 +290,8 @@
 83. 已完成：补 S3 稳定化 runbook 脚本和 CTest，读取 S3 summary/evidence/status 后生成只读 JSON/Markdown/alert summary，并把 timeout/retryable/network/server/auth/tls/hash/size/not_found 固定桶映射到处置建议。
 84. 已完成：把 S3 稳定化 runbook 接入治理入口和计划任务 preview，route log 分析后可直接生成 runbook/alert summary，并随统一告警、dashboard/status 和诊断包消费。
 85. 已完成：补 S3 稳定化覆盖缺口告警开关，`-WarnUnobservedCoverage`/`-WarnS3CoverageGaps` 可把未观测到的 stabilizationCoverage 区域写入 runbook alert summary，并通过统一 alert overview、health、dashboard/status 和计划任务 preview 消费。
-86. 下一步：继续沿服务端真实后端稳定化推进，例如补真实后端 retry/timeout 注入式服务端组合边界。
+86. 已完成：补 S3 覆盖缺口 policy 门禁，`-CoveragePolicyPath`/`-S3CoveragePolicyPath` 支持 requiredAreas、allowedGapAreas、minObservedAreas，并把 coverageActionableGapAreas 透出到 runbook、alert、dashboard、report、status 和计划任务 preview。
+87. 下一步：继续沿服务端真实后端稳定化推进，例如补真实后端 retry/timeout 注入式服务端组合边界。
 
 ## 当前保护边界
 

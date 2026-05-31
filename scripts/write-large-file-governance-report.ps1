@@ -54,6 +54,16 @@ function Format-Value([object]$Value) {
     return [string]$Value
 }
 
+function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
+    if ($null -eq $ObjectValue) {
+        return $DefaultValue
+    }
+    if ($ObjectValue.PSObject.Properties.Name -contains $Name) {
+        return $ObjectValue.$Name
+    }
+    return $DefaultValue
+}
+
 function Add-SensitiveHits([string]$PathValue, [System.Collections.ArrayList]$Hits) {
     if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
         return
@@ -212,6 +222,17 @@ if ($null -ne $s3Runbook -and $null -ne $s3Runbook.stabilizationCoverage) {
                 (Format-Value $item.operation),
                 $fixedReasons,
                 (Format-Value $item.observedEventOperationCount)))
+    }
+    $gapAreas = @((Get-JsonValue $s3Runbook "coverageGapAreas" @()))
+    $actionableGapAreas = @((Get-JsonValue $s3Runbook "coverageActionableGapAreas" @()))
+    if ($gapAreas.Count -gt 0) {
+        $lines.Add("")
+        $gapText = $gapAreas -join ", "
+        $lines.Add(("- Coverage gaps: {0}" -f $gapText))
+    }
+    if ($actionableGapAreas.Count -gt 0) {
+        $actionableGapText = $actionableGapAreas -join ", "
+        $lines.Add(("- Actionable coverage gaps: {0}" -f $actionableGapText))
     }
 }
 

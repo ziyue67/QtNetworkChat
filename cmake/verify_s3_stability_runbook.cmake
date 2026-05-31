@@ -9,6 +9,7 @@ file(MAKE_DIRECTORY "${TEMP_DIR}")
 set(S3_SUMMARY "${TEMP_DIR}/s3-summary.json")
 set(EVIDENCE_JSON "${TEMP_DIR}/evidence.json")
 set(STATUS_JSON "${TEMP_DIR}/status.json")
+set(POLICY_JSON "${TEMP_DIR}/coverage-policy.json")
 set(RUNBOOK_JSON "${TEMP_DIR}/s3-stability-runbook.json")
 set(RUNBOOK_MD "${TEMP_DIR}/s3-stability-runbook.md")
 set(ALERT_JSON "${TEMP_DIR}/s3-stability-runbook-alert-summary.json")
@@ -29,12 +30,16 @@ file(WRITE "${EVIDENCE_JSON}"
 file(WRITE "${STATUS_JSON}"
 "{\"format\":\"qtnetworkchat-large-file-governance-status-v1\",\"status\":\"healthy\",\"ok\":true,\"totalWarnings\":0}\n"
 )
+file(WRITE "${POLICY_JSON}"
+"{\"format\":\"qtnetworkchat-s3-stability-coverage-policy-v1\",\"requiredAreas\":[\"source-write-fallback\",\"remote-validation-fail-closed\",\"remote-read-fail-closed\",\"source-delete-retained\",\"delivery-fallback-retained\"],\"allowedGapAreas\":[],\"minObservedAreas\":5}\n"
+)
 
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
         -S3SummaryPath "${S3_SUMMARY}"
         -EvidencePath "${EVIDENCE_JSON}"
         -GovernanceStatusPath "${STATUS_JSON}"
+        -CoveragePolicyPath "${POLICY_JSON}"
         -OutputPath "${RUNBOOK_JSON}"
         -MarkdownPath "${RUNBOOK_MD}"
         -AlertSummaryPath "${ALERT_JSON}"
@@ -77,6 +82,7 @@ string(JSON runbook_coverage_areas GET "${runbook_content}" "metrics" "coverageA
 string(JSON runbook_coverage_reasons GET "${runbook_content}" "metrics" "coverageFixedReasonCount")
 string(JSON runbook_coverage_observed GET "${runbook_content}" "metrics" "coverageObservedAreaCount")
 string(JSON runbook_coverage_gaps GET "${runbook_content}" "metrics" "coverageGapCount")
+string(JSON runbook_actionable_gaps GET "${runbook_content}" "metrics" "coverageActionableGapCount")
 if(NOT runbook_format STREQUAL "qtnetworkchat-s3-stability-runbook-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected runbook format: ${runbook_format}")
@@ -120,6 +126,10 @@ endif()
 if(NOT runbook_coverage_gaps EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected coverageGapCount=0, got ${runbook_coverage_gaps}")
+endif()
+if(NOT runbook_actionable_gaps EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverageActionableGapCount=0, got ${runbook_actionable_gaps}")
 endif()
 string(JSON coverage_area0 GET "${runbook_content}" "stabilizationCoverage" 0 "area")
 string(JSON coverage_event0 GET "${runbook_content}" "stabilizationCoverage" 0 "event")
@@ -192,6 +202,7 @@ if(warning_result EQUAL 0)
 endif()
 
 set(GAP_SUMMARY "${TEMP_DIR}/gap-s3-summary.json")
+set(GAP_POLICY "${TEMP_DIR}/gap-policy.json")
 set(GAP_RUNBOOK "${TEMP_DIR}/gap-runbook.json")
 set(GAP_ALERT "${TEMP_DIR}/gap-alert.json")
 file(WRITE "${GAP_SUMMARY}"
@@ -203,9 +214,13 @@ file(WRITE "${GAP_SUMMARY}"
 "  \"eventOperationCounts\": {\"object_write:write\": 1}\n"
 "}\n"
 )
+file(WRITE "${GAP_POLICY}"
+"{\"format\":\"qtnetworkchat-s3-stability-coverage-policy-v1\",\"requiredAreas\":[\"source-write-fallback\",\"remote-validation-fail-closed\",\"remote-read-fail-closed\"],\"allowedGapAreas\":[\"remote-read-fail-closed\"],\"minObservedAreas\":1}\n"
+)
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
         -S3SummaryPath "${GAP_SUMMARY}"
+        -CoveragePolicyPath "${GAP_POLICY}"
         -OutputPath "${GAP_RUNBOOK}"
         -AlertSummaryPath "${GAP_ALERT}"
         -MinSuccess 1
@@ -223,7 +238,9 @@ file(READ "${GAP_RUNBOOK}" gap_runbook_content)
 file(READ "${GAP_ALERT}" gap_alert_content)
 string(JSON gap_runbook_ok GET "${gap_runbook_content}" "ok")
 string(JSON gap_count GET "${gap_runbook_content}" "metrics" "coverageGapCount")
+string(JSON gap_actionable_count GET "${gap_runbook_content}" "metrics" "coverageActionableGapCount")
 string(JSON gap_area0 GET "${gap_runbook_content}" "coverageGapAreas" 0)
+string(JSON gap_actionable_area0 GET "${gap_runbook_content}" "coverageActionableGapAreas" 0)
 string(JSON gap_alert_ok GET "${gap_alert_content}" "ok")
 if(gap_runbook_ok OR gap_alert_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -233,9 +250,17 @@ if(NOT gap_count EQUAL 4)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected coverageGapCount=4, got ${gap_count}")
 endif()
+if(NOT gap_actionable_count EQUAL 1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverageActionableGapCount=1, got ${gap_actionable_count}")
+endif()
 if(NOT gap_area0 STREQUAL "remote-validation-fail-closed")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected first coverage gap area: ${gap_area0}")
+endif()
+if(NOT gap_actionable_area0 STREQUAL "remote-validation-fail-closed")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected first actionable coverage gap area: ${gap_actionable_area0}")
 endif()
 
 set(BAD_SUMMARY "${TEMP_DIR}/bad-s3-summary.json")

@@ -19,8 +19,10 @@ file(WRITE "${GOV_DIR}/large-file-governance-dashboard.json"
 "  \"reason\":\"all checks passed\",\n"
 "  \"totalWarnings\":0,\n"
 "  \"alertCount\":3,\n"
-"  \"metrics\":{\"s3Lines\":4,\"routeLines\":7,\"reconcileRetained\":0},\n"
+"  \"metrics\":{\"s3Lines\":4,\"routeLines\":7,\"reconcileRetained\":0,\"s3CoverageGaps\":1,\"s3CoverageActionableGaps\":1},\n"
 "  \"s3StabilizationCoverage\":[{\"area\":\"source-write-fallback\",\"event\":\"object_write\",\"operation\":\"write\",\"fixedReasons\":[\"timeout\",\"network\"]}],\n"
+"  \"s3CoverageGapAreas\":[\"remote-validation-fail-closed\"],\n"
+"  \"s3CoverageActionableGapAreas\":[\"remote-validation-fail-closed\"],\n"
 "  \"alerts\":[\n"
 "    {\"kind\":\"large-file-route-summary\",\"ok\":true,\"warnings\":[]},\n"
 "    {\"kind\":\"s3-request-results\",\"ok\":true,\"warnings\":[]},\n"
@@ -72,6 +74,8 @@ string(JSON status_warning_count GET "${status_content}" "totalWarnings")
 string(JSON status_alert_count GET "${status_content}" "alertCount")
 string(JSON status_s3_lines GET "${status_content}" "metrics" "s3Lines")
 string(JSON status_coverage_area0 GET "${status_content}" "s3StabilizationCoverage" 0 "area")
+string(JSON status_gap_area0 GET "${status_content}" "s3CoverageGapAreas" 0)
+string(JSON status_actionable_gap_area0 GET "${status_content}" "s3CoverageActionableGapAreas" 0)
 if(NOT status_format STREQUAL "qtnetworkchat-large-file-governance-status-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected status format: ${status_format}")
@@ -100,6 +104,10 @@ if(NOT status_coverage_area0 STREQUAL "source-write-fallback")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected status coverage area source-write-fallback, got ${status_coverage_area0}")
 endif()
+if(NOT status_gap_area0 STREQUAL "remote-validation-fail-closed" OR NOT status_actionable_gap_area0 STREQUAL "remote-validation-fail-closed")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected status coverage gap area remote-validation-fail-closed")
+endif()
 
 file(READ "${STATUS_MD}" markdown_content)
 foreach(expected_text
@@ -107,6 +115,8 @@ foreach(expected_text
         "Status: `healthy`"
         "## S3 Stabilization Coverage"
         "source-write-fallback"
+        "Actionable coverage gaps"
+        "remote-validation-fail-closed"
         "This status view is read-only")
     string(FIND "${markdown_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)

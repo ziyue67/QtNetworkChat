@@ -18,6 +18,7 @@ set(DASHBOARD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.json")
 set(DASHBOARD_MD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.md")
 set(S3_RUNBOOK_PATH "${OUTPUT_DIR}/s3-stability-runbook.json")
 set(S3_RUNBOOK_MD_PATH "${OUTPUT_DIR}/s3-stability-runbook.md")
+set(S3_POLICY_PATH "${TEMP_DIR}/s3-coverage-policy.json")
 set(SOURCE_INSTANCE "source-governance-a")
 set(FILE_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
@@ -44,6 +45,9 @@ file(WRITE "${NOTES}"
 "fallback path: passed\n"
 "log redaction: passed\n"
 )
+file(WRITE "${S3_POLICY_PATH}"
+"{\"format\":\"qtnetworkchat-s3-stability-coverage-policy-v1\",\"requiredAreas\":[\"source-write-fallback\",\"remote-validation-fail-closed\",\"remote-read-fail-closed\",\"source-delete-retained\"],\"allowedGapAreas\":[\"remote-read-fail-closed\"],\"minObservedAreas\":1}\n"
+)
 
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
@@ -69,6 +73,7 @@ execute_process(
         -WriteS3StabilityRunbook
         -S3StabilityRunbookPath "${S3_RUNBOOK_PATH}"
         -S3StabilityRunbookMarkdownPath "${S3_RUNBOOK_MD_PATH}"
+        -S3CoveragePolicyPath "${S3_POLICY_PATH}"
         -WarnS3CoverageGaps
         -RunS3FailureBatchSample
         -S3FailureBatchCountPerReason 2
@@ -163,6 +168,7 @@ file(READ "${DASHBOARD_PATH}" dashboard_content)
 string(JSON dashboard_format GET "${dashboard_content}" "format")
 string(JSON dashboard_status GET "${dashboard_content}" "status")
 string(JSON dashboard_s3_lines GET "${dashboard_content}" "metrics" "s3Lines")
+string(JSON dashboard_actionable_gaps GET "${dashboard_content}" "metrics" "s3CoverageActionableGaps")
 if(NOT dashboard_format STREQUAL "qtnetworkchat-large-file-governance-dashboard-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected governance dashboard format: ${dashboard_format}")
@@ -174,6 +180,10 @@ endif()
 if(NOT dashboard_s3_lines EQUAL 2)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected governance dashboard s3Lines=2, got ${dashboard_s3_lines}")
+endif()
+if(NOT dashboard_actionable_gaps EQUAL 2)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance dashboard actionable gap count=2, got ${dashboard_actionable_gaps}")
 endif()
 if(NOT s3_alert_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -200,6 +210,7 @@ file(READ "${S3_RUNBOOK_PATH}" runbook_content)
 string(JSON runbook_format GET "${runbook_content}" "format")
 string(JSON runbook_success GET "${runbook_content}" "metrics" "successCount")
 string(JSON runbook_gap_count GET "${runbook_content}" "metrics" "coverageGapCount")
+string(JSON runbook_actionable_gap_count GET "${runbook_content}" "metrics" "coverageActionableGapCount")
 if(NOT runbook_format STREQUAL "qtnetworkchat-s3-stability-runbook-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected S3 stability runbook format: ${runbook_format}")
@@ -212,11 +223,16 @@ if(NOT runbook_gap_count EQUAL 4)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected S3 stability runbook coverageGapCount=4, got ${runbook_gap_count}")
 endif()
+if(NOT runbook_actionable_gap_count EQUAL 2)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 stability runbook coverageActionableGapCount=2, got ${runbook_actionable_gap_count}")
+endif()
 
 file(READ "${OUTPUT_DIR}/s3-stability-runbook-alert-summary.json" runbook_alert_content)
 string(JSON runbook_alert_kind GET "${runbook_alert_content}" "kind")
 string(JSON runbook_alert_ok GET "${runbook_alert_content}" "ok")
 string(JSON runbook_alert_gap_count GET "${runbook_alert_content}" "metrics" "coverageGapCount")
+string(JSON runbook_alert_actionable_gap_count GET "${runbook_alert_content}" "metrics" "coverageActionableGapCount")
 if(NOT runbook_alert_kind STREQUAL "s3-stability-runbook")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected S3 stability runbook alert kind: ${runbook_alert_kind}")
@@ -228,6 +244,10 @@ endif()
 if(NOT runbook_alert_gap_count EQUAL 4)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected S3 stability runbook alert coverageGapCount=4, got ${runbook_alert_gap_count}")
+endif()
+if(NOT runbook_alert_actionable_gap_count EQUAL 2)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 stability runbook alert actionable gap count=2, got ${runbook_alert_actionable_gap_count}")
 endif()
 
 file(READ "${OUTPUT_DIR}/governance-alert-overview.json" overview_content)

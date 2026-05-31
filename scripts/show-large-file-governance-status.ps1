@@ -135,6 +135,8 @@ if ($null -eq $dashboard -and $null -eq $health -and $null -eq $overview) {
 
 $metrics = Get-JsonValue $dashboard "metrics" ([pscustomobject]@{})
 $s3StabilizationCoverage = @((Get-JsonValue $dashboard "s3StabilizationCoverage" @()))
+$s3CoverageGapAreas = @((Get-JsonValue $dashboard "s3CoverageGapAreas" @()))
+$s3CoverageActionableGapAreas = @((Get-JsonValue $dashboard "s3CoverageActionableGapAreas" @()))
 $alerts = @((Get-JsonValue $dashboard "alerts" @()))
 if ($alerts.Count -eq 0 -and $null -ne $overview) {
     $alerts = @((Get-JsonValue $overview "alerts" @()))
@@ -171,6 +173,8 @@ $summary = [pscustomobject]@{
     warningSources = $warningSources
     metrics        = $metrics
     s3StabilizationCoverage = $s3StabilizationCoverage
+    s3CoverageGapAreas = $s3CoverageGapAreas
+    s3CoverageActionableGapAreas = $s3CoverageActionableGapAreas
     sensitiveHits  = [int]$sensitiveHits.Count
     inputs         = [pscustomobject]@{
         governanceDir = $resolvedGovernanceDir
@@ -225,6 +229,15 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
                     (Get-JsonValue $item "operation" ""),
                     $fixedReasonCount))
         }
+        if ($summary.s3CoverageGapAreas.Count -gt 0) {
+            $lines.Add("")
+            $gapText = @($summary.s3CoverageGapAreas) -join ", "
+            $lines.Add(("- Coverage gaps: {0}" -f $gapText))
+        }
+        if ($summary.s3CoverageActionableGapAreas.Count -gt 0) {
+            $actionableGapText = @($summary.s3CoverageActionableGapAreas) -join ", "
+            $lines.Add(("- Actionable coverage gaps: {0}" -f $actionableGapText))
+        }
     }
     $lines.Add("")
     $lines.Add("This status view is read-only. It does not connect to Redis/S3/MinIO and does not modify queues, attachments, objects, or receipt files.")
@@ -238,6 +251,8 @@ Write-Host ("  reason: {0}" -f $summary.reason)
 Write-Host ("  warnings: {0}" -f $summary.totalWarnings)
 Write-Host ("  alert sources: {0}" -f $summary.alertCount)
 Write-Host ("  s3 coverage areas: {0}" -f $summary.s3StabilizationCoverage.Count)
+Write-Host ("  s3 coverage gaps: {0}" -f $summary.s3CoverageGapAreas.Count)
+Write-Host ("  s3 actionable coverage gaps: {0}" -f $summary.s3CoverageActionableGapAreas.Count)
 Write-Host ("  sensitive hits: {0}" -f $summary.sensitiveHits)
 
 if ($FailOnUnhealthy -and (-not $summary.ok -or $summary.status -ne "healthy")) {

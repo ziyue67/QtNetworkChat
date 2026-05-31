@@ -176,6 +176,8 @@ Add-Metric $metrics "s3AuthFailures" (Get-JsonValue $s3Summary "authCount")
 Add-Metric $metrics "s3TlsFailures" (Get-JsonValue $s3Summary "tlsCount")
 Add-Metric $metrics "s3CoverageAreas" (Get-JsonValue (Get-JsonValue $s3Runbook "metrics" ([pscustomobject]@{})) "coverageAreaCount")
 Add-Metric $metrics "s3CoverageFixedReasons" (Get-JsonValue (Get-JsonValue $s3Runbook "metrics" ([pscustomobject]@{})) "coverageFixedReasonCount")
+Add-Metric $metrics "s3CoverageGaps" (Get-JsonValue (Get-JsonValue $s3Runbook "metrics" ([pscustomobject]@{})) "coverageGapCount")
+Add-Metric $metrics "s3CoverageActionableGaps" (Get-JsonValue (Get-JsonValue $s3Runbook "metrics" ([pscustomobject]@{})) "coverageActionableGapCount")
 Add-Metric $metrics "reconcileCleaned" (Get-JsonValue $reconcileSummary "cleanedCount")
 Add-Metric $metrics "reconcileRetained" (Get-JsonValue $reconcileSummary "retainedCount")
 Add-Metric $metrics "receiptRetained" (Get-JsonValue $rotationSummary "retainedRecords")
@@ -219,6 +221,9 @@ $dashboard = [pscustomobject]@{
     alertCount    = [int](Get-JsonValue $overview "alertCount" 0)
     metrics       = [pscustomobject]$metrics
     s3StabilizationCoverage = @((Get-JsonValue $s3Runbook "stabilizationCoverage" @()))
+    s3CoverageGapAreas = @((Get-JsonValue $s3Runbook "coverageGapAreas" @()))
+    s3CoverageActionableGapAreas = @((Get-JsonValue $s3Runbook "coverageActionableGapAreas" @()))
+    s3CoveragePolicy = Get-JsonValue $s3Runbook "coveragePolicy" ([pscustomobject]@{})
     alerts        = $alerts
     artifacts     = $artifacts
     sensitiveHits = [int]$sensitiveHits.Count
@@ -263,6 +268,15 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
                     (Get-JsonValue $item "operation" ""),
                     $fixedReasons,
                     (Get-JsonValue $item "observedEventOperationCount" 0)))
+        }
+        if ($dashboard.s3CoverageGapAreas.Count -gt 0) {
+            $lines.Add("")
+            $gapText = @($dashboard.s3CoverageGapAreas) -join ", "
+            $lines.Add(("- Coverage gaps: {0}" -f $gapText))
+        }
+        if ($dashboard.s3CoverageActionableGapAreas.Count -gt 0) {
+            $actionableGapText = @($dashboard.s3CoverageActionableGapAreas) -join ", "
+            $lines.Add(("- Actionable coverage gaps: {0}" -f $actionableGapText))
         }
     }
     $lines.Add("")

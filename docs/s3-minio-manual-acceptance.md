@@ -419,9 +419,20 @@ powershell -ExecutionPolicy Bypass -File scripts/write-s3-stability-runbook.ps1 
   -NoFailOnWarning
 ```
 
-runbook 脚本只读取本地 summary/evidence/status，不连接 Redis、S3/MinIO，也不会修改队列、附件、对象或 receipt。它会把 timeout、retryable、network、server、auth、tls、hash、size 和 not_found 固定桶映射成只读处置建议与复验口径，并额外写出 `stabilizationCoverage`：包括源实例 write 失败兜底、远端 validate/read fail-closed、源实例 delete retained、下发 fallback retained 等默认 CTest 覆盖边界。追加 `-WarnUnobservedCoverage` 后，任何本次 route log 未观测到的覆盖区域都会写入 `coverageGapAreas`，并让 runbook alert summary 变为 `ok=false`；统一 alert overview、health check、dashboard 和 status CLI 会自然消费这条覆盖缺口告警。脚本会拒绝 endpoint、bucket、object URL、凭据和签名字段。生成的 runbook JSON/Markdown 与 alert summary 放入治理目录后，也会被诊断 zip、统一 alert overview、dashboard 和 status CLI 自动采集。
+runbook 脚本只读取本地 summary/evidence/status，不连接 Redis、S3/MinIO，也不会修改队列、附件、对象或 receipt。它会把 timeout、retryable、network、server、auth、tls、hash、size 和 not_found 固定桶映射成只读处置建议与复验口径，并额外写出 `stabilizationCoverage`：包括源实例 write 失败兜底、远端 validate/read fail-closed、源实例 delete retained、下发 fallback retained 等默认 CTest 覆盖边界。追加 `-WarnUnobservedCoverage` 后，本次 route log 未观测到的覆盖区域会写入 `coverageGapAreas`；如果同时传入 `-CoveragePolicyPath`，脚本会按 policy 的 `requiredAreas`、`allowedGapAreas` 和 `minObservedAreas` 计算 `coverageActionableGapAreas`，只有策略命中的缺口才让 runbook alert summary 变为 `ok=false`。统一 alert overview、health check、dashboard、report 和 status CLI 会自然消费这些覆盖缺口字段。脚本会拒绝 endpoint、bucket、object URL、凭据和签名字段。生成的 runbook JSON/Markdown 与 alert summary 放入治理目录后，也会被诊断 zip、统一 alert overview、dashboard 和 status CLI 自动采集。
 
-治理入口和计划任务预览也可以直接生成 runbook。若已经传入 `-RouteLogPath` 并产出 `s3-request-results-summary.json`，追加 `-WriteS3StabilityRunbook` 即可在治理目录写出 `s3-stability-runbook.json` 和 `s3-stability-runbook-alert-summary.json`；需要 Markdown 版本时再传 `-S3StabilityRunbookMarkdownPath`。需要把覆盖缺口作为值班门禁时，治理入口使用 `-WarnS3CoverageGaps`，计划任务 helper 会把该参数透传到 launcher，并在 preview JSON 中展示 runbook 输出路径和 `warnS3CoverageGaps`。
+coverage policy 是本地只读 JSON，例如：
+
+```json
+{
+  "format": "qtnetworkchat-s3-stability-coverage-policy-v1",
+  "requiredAreas": ["source-write-fallback", "remote-validation-fail-closed"],
+  "allowedGapAreas": ["remote-read-fail-closed"],
+  "minObservedAreas": 2
+}
+```
+
+治理入口和计划任务预览也可以直接生成 runbook。若已经传入 `-RouteLogPath` 并产出 `s3-request-results-summary.json`，追加 `-WriteS3StabilityRunbook` 即可在治理目录写出 `s3-stability-runbook.json` 和 `s3-stability-runbook-alert-summary.json`；需要 Markdown 版本时再传 `-S3StabilityRunbookMarkdownPath`。需要把覆盖缺口作为值班门禁时，治理入口使用 `-WarnS3CoverageGaps -S3CoveragePolicyPath ".\ops\s3-coverage-policy.json"`，计划任务 helper 会把这两个参数透传到 launcher，并在 preview JSON 中展示 runbook 输出路径、policy 路径和 `warnS3CoverageGaps`。
 
 没有真实日志时，可以直接跑完整脱敏样例链路：
 
