@@ -1926,7 +1926,7 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         QString reason = QStringLiteral("object-open-failed");
         const QString storeReason = objectStore->lastOpenFailureReason();
         if (!storeReason.isEmpty()) {
-            reason = storeReason;
+            reason = objectStoreOpenFailureReasonForLog(objectStoreType(), storeReason);
         }
         qWarning() << "Rejected large file offer because object open failed"
                    << objectKey << reason;

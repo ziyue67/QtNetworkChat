@@ -1446,46 +1446,77 @@ int main(int argc, char** argv) {
     }
     injectedS3ValidationFailureReason.clear();
 
-    injectedS3Objects.clear();
-    injectedS3OpenFailureReason = QStringLiteral("network");
-    const QString s3OpenFailureFileName = "redis-s3-open-failure.bin";
-    const QString s3OpenFailurePath = transferDir.filePath(s3OpenFailureFileName);
-    const QByteArray s3OpenFailurePayload = makePatternPayload(1024 * 1024 + 16384);
-    QFile s3OpenFailureFile(s3OpenFailurePath);
-    ok = expect(s3OpenFailureFile.open(QIODevice::WriteOnly),
-                "injected S3 open failure transfer file should open for writing") && ok;
-    if (s3OpenFailureFile.isOpen()) {
-        ok = expect(s3OpenFailureFile.write(s3OpenFailurePayload) == s3OpenFailurePayload.size(),
-                    "injected S3 open failure transfer file should be written") && ok;
-        s3OpenFailureFile.close();
+    struct S3OpenFailureCase {
+        QString suffix;
+        QString injectedReason;
+        QString expectedReason;
+    };
+    const QVector<S3OpenFailureCase> s3OpenFailureCases = {
+        {QStringLiteral("timeout"), QStringLiteral("timeout while reading injected S3 GET"), QStringLiteral("timeout")},
+        {QStringLiteral("network"), QStringLiteral("network_error while reading injected S3 GET"), QStringLiteral("network")},
+        {QStringLiteral("tls"), QStringLiteral("tls_error while reading injected S3 GET"), QStringLiteral("tls")},
+        {QStringLiteral("auth"), QStringLiteral("auth_or_permission_error while reading injected S3 GET"), QStringLiteral("auth")},
+        {QStringLiteral("retryable"), QStringLiteral("retryable_client_status while reading injected S3 GET"), QStringLiteral("retryable")},
+        {QStringLiteral("server"), QStringLiteral("server_error while reading injected S3 GET"), QStringLiteral("server")},
+        {QStringLiteral("not-found"), QStringLiteral("not_found while reading injected S3 GET"), QStringLiteral("not_found")},
+        {QStringLiteral("unknown"), QStringLiteral("unknown_status while reading injected S3 GET"), QStringLiteral("unknown")}
+    };
+    for (const S3OpenFailureCase& openCase : s3OpenFailureCases) {
+        injectedS3Objects.clear();
+        injectedS3OpenFailureReason = openCase.injectedReason;
+        const QString caseFileName = QStringLiteral("redis-s3-open-%1-failure.bin").arg(openCase.suffix);
+        const QString caseFilePath = transferDir.filePath(caseFileName);
+        const QByteArray casePayload = makePatternPayload(1024 * 1024 + 16384 + openCase.suffix.size());
+        QFile caseFile(caseFilePath);
+        ok = expect(caseFile.open(QIODevice::WriteOnly),
+                    QStringLiteral("injected S3 %1 open failure transfer file should open for writing").arg(openCase.suffix)) && ok;
+        if (caseFile.isOpen()) {
+            ok = expect(caseFile.write(casePayload) == casePayload.size(),
+                        QStringLiteral("injected S3 %1 open failure transfer file should be written").arg(openCase.suffix)) && ok;
+            caseFile.close();
+        }
+        bobFileNames.clear();
+        bobFilePayloads.clear();
+        ok = expect(alice.sendFile(caseFilePath, "960002"),
+                    QStringLiteral("alice should publish an injected S3 %1 open failure offer").arg(openCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return !findLargeFileOffer(caseFileName).isEmpty();
+        }), QStringLiteral("injected S3 %1 open failure file should publish an offer").arg(openCase.suffix)) && ok;
+        const QJsonObject caseOffer = findLargeFileOffer(caseFileName);
+        const QString caseObjectKey = caseOffer["objectKey"].toString();
+        ok = expect(waitFor([&] {
+            return !findPublishedEvent("large_file_failed", QString(), caseObjectKey).isEmpty();
+        }), QStringLiteral("remote server should publish failed for injected S3 %1 open errors").arg(openCase.suffix)) && ok;
+        ok = expect(findPublishedEvent("large_file_failed", QString(), caseObjectKey)["reason"].toString()
+                        == openCase.expectedReason,
+                    QStringLiteral("injected S3 %1 open failure should publish a fixed reason").arg(openCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return routeLogContains({QStringLiteral("event=offer_read"),
+                                     QStringLiteral("result=rejected"),
+                                     QStringLiteral("reason=") + openCase.expectedReason,
+                                     QStringLiteral("storeType=s3"),
+                                     QStringLiteral("operation=read"),
+                                     QStringLiteral("objectKey=") + caseObjectKey});
+        }), QStringLiteral("remote server should log injected S3 %1 open failure with safe fixed metadata").arg(openCase.suffix)) && ok;
+        ok = expect(!routeLogContains({QStringLiteral("event=offer_read"),
+                                       openCase.injectedReason}),
+                    QStringLiteral("route log should not include injected S3 %1 open error detail").arg(openCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return routeLogContains({QStringLiteral("event=failed_received"),
+                                     QStringLiteral("result=fallback-retained"),
+                                     QStringLiteral("reason=") + openCase.expectedReason,
+                                     QStringLiteral("storeType=s3"),
+                                     QStringLiteral("operation=fallback"),
+                                     QStringLiteral("objectKey=") + caseObjectKey});
+        }), QStringLiteral("source server should retain fallback after injected S3 %1 open failure").arg(openCase.suffix)) && ok;
+        ok = expect(injectedS3Objects.contains(caseObjectKey),
+                    QStringLiteral("source injected S3 %1 open failure fallback object should remain").arg(openCase.suffix)) && ok;
+        ok = expect(!waitFor([&] {
+            return !findPublishedEvent("large_file_claim", QString(), caseObjectKey).isEmpty()
+                || !findPublishedEvent("large_file_delivered", QString(), caseObjectKey).isEmpty()
+                || bobFileNames.contains(caseFileName);
+        }, 800), QStringLiteral("S3 %1 open failures should not be claimed or delivered").arg(openCase.suffix)) && ok;
     }
-    bobFileNames.clear();
-    bobFilePayloads.clear();
-    ok = expect(alice.sendFile(s3OpenFailurePath, "960002"),
-                "alice should publish an injected S3 open failure offer") && ok;
-    ok = expect(waitFor([&] {
-        return !findLargeFileOffer(s3OpenFailureFileName).isEmpty();
-    }), "injected S3 open failure file should publish an offer") && ok;
-    const QJsonObject s3OpenFailureOffer = findLargeFileOffer(s3OpenFailureFileName);
-    const QString s3OpenFailureObjectKey = s3OpenFailureOffer["objectKey"].toString();
-    ok = expect(waitFor([&] {
-        return !findPublishedEvent("large_file_failed", QString(), s3OpenFailureObjectKey).isEmpty();
-    }), "remote server should publish failed for injected S3 open errors") && ok;
-    ok = expect(findPublishedEvent("large_file_failed", QString(), s3OpenFailureObjectKey)["reason"].toString()
-                    == QStringLiteral("network"),
-                "injected S3 open failure should publish a fixed network reason") && ok;
-    ok = expect(waitFor([&] {
-        return routeLogContains({QStringLiteral("event=offer_read"),
-                                 QStringLiteral("result=rejected"),
-                                 QStringLiteral("reason=network"),
-                                 QStringLiteral("storeType=s3"),
-                                 QStringLiteral("operation=read"),
-                                 QStringLiteral("objectKey=") + s3OpenFailureObjectKey});
-    }), "remote server should log injected S3 open failure with safe fixed metadata") && ok;
-    ok = expect(!waitFor([&] {
-        return !findPublishedEvent("large_file_claim", QString(), s3OpenFailureObjectKey).isEmpty()
-            || bobFileNames.contains(s3OpenFailureFileName);
-    }, 800), "S3 open failures should not be claimed or delivered") && ok;
     injectedS3OpenFailureReason.clear();
 
     injectedS3Objects.clear();

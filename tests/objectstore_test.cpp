@@ -720,6 +720,31 @@ int main() {
                     && s3ValidationFailureReasonForLog(s3GetAuthValidation) == QStringLiteral("auth")
                     && s3ValidationFailureReasonForLog(s3GetNotFoundValidation) == QStringLiteral("not_found"),
                 "s3 validation failure reason helper should classify HEAD/GET request failures") && ok;
+    ok = expect(objectStoreOpenFailureReasonForLog(QStringLiteral("s3"),
+                                                   QStringLiteral("S3 GET 请求失败: timeout access-key super-secret-value"))
+                    == QStringLiteral("timeout")
+                    && objectStoreOpenFailureReasonForLog(QStringLiteral("s3"),
+                                                          QStringLiteral("S3 GET 请求失败: network_error socket closed"))
+                        == QStringLiteral("network")
+                    && objectStoreOpenFailureReasonForLog(QStringLiteral("s3"),
+                                                          QStringLiteral("S3 GET 请求失败: tls_error temporary-session-token"))
+                        == QStringLiteral("tls")
+                    && objectStoreOpenFailureReasonForLog(QStringLiteral("s3"),
+                                                          QStringLiteral("S3 GET 请求失败: auth_or_permission_error"))
+                        == QStringLiteral("auth")
+                    && objectStoreOpenFailureReasonForLog(QStringLiteral("s3"),
+                                                          QStringLiteral("S3 GET 请求失败: retryable_client_status"))
+                        == QStringLiteral("retryable")
+                    && objectStoreOpenFailureReasonForLog(QStringLiteral("s3"),
+                                                          QStringLiteral("S3 GET 请求失败: server_error"))
+                        == QStringLiteral("server")
+                    && objectStoreOpenFailureReasonForLog(QStringLiteral("s3"),
+                                                          QStringLiteral("S3 GET 请求失败: unknown_status"))
+                        == QStringLiteral("unknown")
+                    && objectStoreOpenFailureReasonForLog(QStringLiteral("filesystem"),
+                                                          QStringLiteral("disk path detail"))
+                        == QStringLiteral("object-open-failed"),
+                "object store open reason helper should classify S3 failures without exposing error text") && ok;
     ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
                                                     false,
                                                     QStringLiteral("S3 endpoint secret should not leak"),

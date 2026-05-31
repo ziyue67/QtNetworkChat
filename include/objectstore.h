@@ -185,6 +185,8 @@ S3RequestResult s3RequestResultFromReply(const S3ObjectStoreConfig& config,
                                          bool tlsFailed = false);
 QString s3FailureReasonForLog(const S3RequestResult& result);
 QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& result);
+QString objectStoreOpenFailureReasonForLog(const QString& storeType,
+                                           const QString& openError);
 QString objectStoreWriteFailureReasonForLog(const QString& storeType,
                                             bool storeAvailable,
                                             const QString& writeError,

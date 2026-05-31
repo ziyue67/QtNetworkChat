@@ -865,6 +865,22 @@ QString s3ValidationFailureReasonForLog(const ObjectStore::ValidationResult& res
     return QStringLiteral("validation_error");
 }
 
+QString objectStoreOpenFailureReasonForLog(const QString& storeType,
+                                           const QString& openError) {
+    const QString normalizedStoreType = normalizeObjectStoreType(storeType);
+    const QString error = openError.trimmed();
+    if (normalizedStoreType == QStringLiteral("s3")) {
+        const QString s3Reason = s3ReasonFromText(error);
+        if (!s3Reason.isEmpty()) {
+            return s3Reason;
+        }
+    }
+    if (!error.isEmpty()) {
+        return QStringLiteral("object-open-failed");
+    }
+    return QStringLiteral("object-open-failed");
+}
+
 QString objectStoreWriteFailureReasonForLog(const QString& storeType,
                                             bool storeAvailable,
                                             const QString& writeError,
