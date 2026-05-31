@@ -397,7 +397,7 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-s3-real-backend-evidence
   -RequireFailureReason
 ```
 
-该证据脚本只读取本地产物，会拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature；`-RequireSuccess` 和 `-RequireFailureReason` 可确保真实验收同时包含成功路径和至少一个固定失败 reason。
+该证据脚本只读取本地产物，会拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature；`-RequireSuccess` 和 `-RequireFailureReason` 可确保真实验收同时包含成功路径和至少一个固定失败 reason。生成的 `s3-real-backend-evidence.json`、Markdown 和 alert summary 放入治理输出目录后，会被治理报告和诊断 zip 自动采集。
 
 没有真实日志时，可以直接跑完整脱敏样例链路：
 

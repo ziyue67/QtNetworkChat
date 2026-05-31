@@ -96,6 +96,7 @@ $overviewPath = Join-Path $resolvedGovernanceDir "governance-alert-overview.json
 $healthPath = Join-Path $resolvedGovernanceDir "last-health.json"
 $routeSummaryPath = Join-Path $resolvedGovernanceDir "large-file-route-summary.json"
 $s3SummaryPath = Join-Path $resolvedGovernanceDir "s3-request-results-summary.json"
+$s3EvidencePath = Join-Path $resolvedGovernanceDir "s3-real-backend-evidence.json"
 $rotationSummaryPath = Join-Path $resolvedGovernanceDir "receipt-rotation-summary.json"
 $reconcileSummaryPath = Join-Path (Join-Path $resolvedGovernanceDir "reconcile") "reconcile-summary.json"
 
@@ -103,6 +104,7 @@ $overview = Read-JsonFile $overviewPath
 $health = Read-JsonFile $healthPath
 $routeSummary = Read-JsonFile $routeSummaryPath
 $s3Summary = Read-JsonFile $s3SummaryPath
+$s3Evidence = Read-JsonFile $s3EvidencePath
 $rotationSummary = Read-JsonFile $rotationSummaryPath
 $reconcileSummary = Read-JsonFile $reconcileSummaryPath
 
@@ -111,6 +113,7 @@ $scanPaths = @(
     $healthPath,
     $routeSummaryPath,
     $s3SummaryPath,
+    $s3EvidencePath,
     $rotationSummaryPath,
     $reconcileSummaryPath
 )
@@ -181,6 +184,16 @@ if ($null -ne $s3Summary) {
     }
 }
 Add-MetricTable $lines "S3 Request Summary" $s3Metrics
+
+$s3EvidenceMetrics = @{}
+if ($null -ne $s3Evidence -and $null -ne $s3Evidence.metrics) {
+    foreach ($name in @("s3LineCount", "routeLineCount", "successCount", "fixedFailureReasonCount", "sensitiveHits", "s3SummarySensitiveHits", "governanceStatus", "governanceOk")) {
+        if ($s3Evidence.metrics.PSObject.Properties.Name -contains $name) {
+            $s3EvidenceMetrics[$name] = $s3Evidence.metrics.$name
+        }
+    }
+}
+Add-MetricTable $lines "S3 Real Backend Evidence" $s3EvidenceMetrics
 
 $rotationMetrics = @{}
 if ($null -ne $rotationSummary) {

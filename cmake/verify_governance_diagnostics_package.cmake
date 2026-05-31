@@ -44,6 +44,16 @@ file(WRITE "${GOV_DIR}/s3-request-results-summary.json"
 file(WRITE "${GOV_DIR}/s3-request-results-alert-summary.json"
 "{\"kind\":\"s3-request-results\",\"ok\":true,\"warnings\":[],\"metrics\":{\"s3LineCount\":2}}\n"
 )
+file(WRITE "${GOV_DIR}/s3-real-backend-evidence.json"
+"{\"format\":\"qtnetworkchat-s3-real-backend-evidence-v1\",\"ok\":true,\"warnings\":[],\"metrics\":{\"s3LineCount\":2,\"successCount\":1,\"fixedFailureReasonCount\":1,\"sensitiveHits\":0}}\n"
+)
+file(WRITE "${GOV_DIR}/s3-real-backend-evidence.md"
+"# QtNetworkChat S3 Real Backend Evidence\n"
+"- S3 lines: `2`\n"
+)
+file(WRITE "${GOV_DIR}/s3-real-backend-evidence-alert-summary.json"
+"{\"kind\":\"s3-real-backend-evidence\",\"ok\":true,\"warnings\":[],\"metrics\":{\"s3LineCount\":2}}\n"
+)
 file(WRITE "${GOV_DIR}/receipt-rotation-summary.json"
 "{\"totalRecords\":3,\"retainedRecords\":2,\"archivedRecords\":1,\"sensitiveHits\":0}\n"
 )
@@ -134,6 +144,8 @@ foreach(expected_file
         "${EXTRACT_DIR}/governance-alert-overview.json"
         "${EXTRACT_DIR}/last-health.json"
         "${EXTRACT_DIR}/large-file-governance-report.md"
+        "${EXTRACT_DIR}/s3-real-backend-evidence.json"
+        "${EXTRACT_DIR}/s3-real-backend-evidence.md"
         "${EXTRACT_DIR}/s3-request-results-alert-summary.json")
     if(NOT EXISTS "${expected_file}")
         file(REMOVE_RECURSE "${TEMP_DIR}")
