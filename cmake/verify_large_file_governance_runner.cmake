@@ -69,6 +69,7 @@ execute_process(
         -WriteS3StabilityRunbook
         -S3StabilityRunbookPath "${S3_RUNBOOK_PATH}"
         -S3StabilityRunbookMarkdownPath "${S3_RUNBOOK_MD_PATH}"
+        -WarnS3CoverageGaps
         -RunS3FailureBatchSample
         -S3FailureBatchCountPerReason 2
         -PackageDiagnostics
@@ -198,6 +199,7 @@ endif()
 file(READ "${S3_RUNBOOK_PATH}" runbook_content)
 string(JSON runbook_format GET "${runbook_content}" "format")
 string(JSON runbook_success GET "${runbook_content}" "metrics" "successCount")
+string(JSON runbook_gap_count GET "${runbook_content}" "metrics" "coverageGapCount")
 if(NOT runbook_format STREQUAL "qtnetworkchat-s3-stability-runbook-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected S3 stability runbook format: ${runbook_format}")
@@ -206,19 +208,38 @@ if(NOT runbook_success EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected S3 stability runbook successCount=1, got ${runbook_success}")
 endif()
+if(NOT runbook_gap_count EQUAL 4)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 stability runbook coverageGapCount=4, got ${runbook_gap_count}")
+endif()
 
 file(READ "${OUTPUT_DIR}/s3-stability-runbook-alert-summary.json" runbook_alert_content)
 string(JSON runbook_alert_kind GET "${runbook_alert_content}" "kind")
+string(JSON runbook_alert_ok GET "${runbook_alert_content}" "ok")
+string(JSON runbook_alert_gap_count GET "${runbook_alert_content}" "metrics" "coverageGapCount")
 if(NOT runbook_alert_kind STREQUAL "s3-stability-runbook")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected S3 stability runbook alert kind: ${runbook_alert_kind}")
 endif()
+if(runbook_alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 stability runbook alert ok=false with coverage gaps enabled")
+endif()
+if(NOT runbook_alert_gap_count EQUAL 4)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 stability runbook alert coverageGapCount=4, got ${runbook_alert_gap_count}")
+endif()
 
 file(READ "${OUTPUT_DIR}/governance-alert-overview.json" overview_content)
 string(JSON overview_alert_count GET "${overview_content}" "alertCount")
+string(JSON overview_ok GET "${overview_content}" "ok")
 if(NOT overview_alert_count EQUAL 5)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected governance alertCount=5 with S3 batch sample and runbook, got ${overview_alert_count}")
+endif()
+if(overview_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance overview ok=false when S3 coverage gap warning is enabled")
 endif()
 
 file(READ "${OUTPUT_DIR}/receipt-rotation-alert-summary.json" rotation_alert_content)

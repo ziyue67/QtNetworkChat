@@ -59,6 +59,8 @@ param(
 
     [string]$S3StabilityRunbookMarkdownPath,
 
+    [switch]$WarnS3CoverageGaps,
+
     [switch]$RunS3FailureBatchSample,
 
     [int]$S3FailureBatchCountPerReason = 2,
@@ -232,6 +234,7 @@ Add-ScalarArg $lines "DashboardMarkdownPath" $DashboardMarkdownPath
 Add-SwitchArg $lines "WriteS3StabilityRunbook" ($WriteS3StabilityRunbook.IsPresent -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookPath) -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath))
 Add-ScalarArg $lines "S3StabilityRunbookPath" $S3StabilityRunbookPath
 Add-ScalarArg $lines "S3StabilityRunbookMarkdownPath" $S3StabilityRunbookMarkdownPath
+Add-SwitchArg $lines "WarnS3CoverageGaps" $WarnS3CoverageGaps.IsPresent
 Add-SwitchArg $lines "RunS3FailureBatchSample" $RunS3FailureBatchSample.IsPresent
 Add-IntArg $lines "S3FailureBatchCountPerReason" $S3FailureBatchCountPerReason
 Add-ScalarArg $lines "HealthCheckPath" (Join-Path $OutputDir "last-health.json")
@@ -315,6 +318,7 @@ $preview = [pscustomobject]@{
     dashboardMarkdownPath = $dashboardMarkdownPreviewPath
     s3StabilityRunbookPath = $s3StabilityRunbookPreviewPath
     s3StabilityRunbookMarkdownPath = $s3StabilityRunbookMarkdownPreviewPath
+    warnS3CoverageGaps = $WarnS3CoverageGaps.IsPresent
     s3FailureBatchSummaryPath = $s3FailureBatchPreviewPath
     s3FailureBatchCountPerReason = if ($RunS3FailureBatchSample) { $S3FailureBatchCountPerReason } else { $null }
     readOnly = $true

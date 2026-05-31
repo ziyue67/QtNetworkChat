@@ -19,7 +19,8 @@ file(WRITE "${S3_SUMMARY}"
 "  \"s3LineCount\": 8,\n"
 "  \"sensitiveHits\": 0,\n"
 "  \"reasonCounts\": {\"success\": 3, \"timeout\": 1, \"retryable\": 1, \"network\": 1, \"auth\": 1, \"hash\": 1, \"not_found\": 1},\n"
-"  \"operationCounts\": {\"put\": 2, \"get\": 2, \"head\": 1, \"delete\": 1, \"validate\": 1, \"read\": 1}\n"
+"  \"operationCounts\": {\"put\": 2, \"get\": 2, \"head\": 1, \"delete\": 1, \"validate\": 1, \"read\": 1},\n"
+"  \"eventOperationCounts\": {\"object_write:write\": 2, \"offer_validation:validate\": 1, \"offer_read:read\": 1, \"object_delete:delete\": 1, \"offer_delivery:deliver\": 1}\n"
 "}\n"
 )
 file(WRITE "${EVIDENCE_JSON}"
@@ -74,6 +75,8 @@ string(JSON runbook_auth GET "${runbook_content}" "metrics" "authCount")
 string(JSON runbook_status GET "${runbook_content}" "metrics" "governanceStatus")
 string(JSON runbook_coverage_areas GET "${runbook_content}" "metrics" "coverageAreaCount")
 string(JSON runbook_coverage_reasons GET "${runbook_content}" "metrics" "coverageFixedReasonCount")
+string(JSON runbook_coverage_observed GET "${runbook_content}" "metrics" "coverageObservedAreaCount")
+string(JSON runbook_coverage_gaps GET "${runbook_content}" "metrics" "coverageGapCount")
 if(NOT runbook_format STREQUAL "qtnetworkchat-s3-stability-runbook-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected runbook format: ${runbook_format}")
@@ -110,6 +113,14 @@ if(NOT runbook_coverage_reasons EQUAL 30)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected coverageFixedReasonCount=30, got ${runbook_coverage_reasons}")
 endif()
+if(NOT runbook_coverage_observed EQUAL 5)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverageObservedAreaCount=5, got ${runbook_coverage_observed}")
+endif()
+if(NOT runbook_coverage_gaps EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverageGapCount=0, got ${runbook_coverage_gaps}")
+endif()
 string(JSON coverage_area0 GET "${runbook_content}" "stabilizationCoverage" 0 "area")
 string(JSON coverage_event0 GET "${runbook_content}" "stabilizationCoverage" 0 "event")
 string(JSON coverage_reason0 GET "${runbook_content}" "stabilizationCoverage" 0 "fixedReasons" 0)
@@ -143,6 +154,11 @@ if(NOT alert_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected runbook alert ok=true")
 endif()
+string(JSON alert_coverage_gaps GET "${alert_content}" "metrics" "coverageGapCount")
+if(NOT alert_coverage_gaps EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected runbook alert coverageGapCount=0, got ${alert_coverage_gaps}")
+endif()
 
 file(READ "${RUNBOOK_MD}" markdown_content)
 foreach(expected_text
@@ -173,6 +189,53 @@ execute_process(
 if(warning_result EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Runbook should fail when MinSuccess is not met")
+endif()
+
+set(GAP_SUMMARY "${TEMP_DIR}/gap-s3-summary.json")
+set(GAP_RUNBOOK "${TEMP_DIR}/gap-runbook.json")
+set(GAP_ALERT "${TEMP_DIR}/gap-alert.json")
+file(WRITE "${GAP_SUMMARY}"
+"{\n"
+"  \"routeLineCount\": 2,\n"
+"  \"s3LineCount\": 2,\n"
+"  \"sensitiveHits\": 0,\n"
+"  \"reasonCounts\": {\"success\": 1},\n"
+"  \"eventOperationCounts\": {\"object_write:write\": 1}\n"
+"}\n"
+)
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -S3SummaryPath "${GAP_SUMMARY}"
+        -OutputPath "${GAP_RUNBOOK}"
+        -AlertSummaryPath "${GAP_ALERT}"
+        -MinSuccess 1
+        -WarnUnobservedCoverage
+        -NoFailOnWarning
+    RESULT_VARIABLE gap_result
+    OUTPUT_VARIABLE gap_output
+    ERROR_VARIABLE gap_error
+)
+if(NOT gap_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Runbook gap warning mode should succeed with NoFailOnWarning, got ${gap_result}")
+endif()
+file(READ "${GAP_RUNBOOK}" gap_runbook_content)
+file(READ "${GAP_ALERT}" gap_alert_content)
+string(JSON gap_runbook_ok GET "${gap_runbook_content}" "ok")
+string(JSON gap_count GET "${gap_runbook_content}" "metrics" "coverageGapCount")
+string(JSON gap_area0 GET "${gap_runbook_content}" "coverageGapAreas" 0)
+string(JSON gap_alert_ok GET "${gap_alert_content}" "ok")
+if(gap_runbook_ok OR gap_alert_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Coverage gap runbook and alert should be ok=false")
+endif()
+if(NOT gap_count EQUAL 4)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected coverageGapCount=4, got ${gap_count}")
+endif()
+if(NOT gap_area0 STREQUAL "remote-validation-fail-closed")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected first coverage gap area: ${gap_area0}")
 endif()
 
 set(BAD_SUMMARY "${TEMP_DIR}/bad-s3-summary.json")

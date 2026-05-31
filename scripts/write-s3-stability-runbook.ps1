@@ -29,6 +29,8 @@ param(
 
     [int]$WarnSensitiveHits = 0,
 
+    [switch]$WarnUnobservedCoverage,
+
     [switch]$NoFailOnWarning
 )
 
@@ -254,8 +256,19 @@ $stabilizationCoverage = @(
     New-CoverageItem "delivery-fallback-retained" "offer_delivery" "deliver" @("receiver-disconnected", "chunk-rejected", "chunk-ack-timeout") $reasonCounts $eventOperationCounts
 )
 $coverageReasonCount = 0
+$coverageObservedAreaCount = 0
+$coverageGapAreas = @()
 foreach ($item in $stabilizationCoverage) {
     $coverageReasonCount += @($item.fixedReasons).Count
+    if ([int]$item.observedEventOperationCount -gt 0) {
+        $coverageObservedAreaCount += 1
+    } else {
+        $coverageGapAreas += [string]$item.area
+    }
+}
+$coverageGapCount = @($coverageGapAreas).Count
+if ($WarnUnobservedCoverage -and $coverageGapCount -gt 0) {
+    $warnings.Add(("stabilizationCoverage unobserved areas={0}: {1}" -f $coverageGapCount, ($coverageGapAreas -join ", ")))
 }
 
 $metrics = [pscustomobject]@{
@@ -272,6 +285,8 @@ $metrics = [pscustomobject]@{
     "notFoundCount" = $notFoundCount
     "coverageAreaCount" = @($stabilizationCoverage).Count
     "coverageFixedReasonCount" = $coverageReasonCount
+    "coverageObservedAreaCount" = $coverageObservedAreaCount
+    "coverageGapCount" = $coverageGapCount
     "sensitiveHits" = [int]$sensitiveHits.Count
     "s3SummarySensitiveHits" = $summarySensitiveHits
     "evidenceOk" = $evidenceOk
@@ -297,6 +312,7 @@ $runbook = [pscustomobject]@{
     "operationCounts" = $operationCounts
     "eventOperationCounts" = $eventOperationCounts
     "stabilizationCoverage" = @($stabilizationCoverage)
+    "coverageGapAreas" = @($coverageGapAreas)
     "actions" = @($actions.ToArray())
     "inputs" = $inputs
     "notes" = "This runbook is generated from local summaries only; it does not connect to Redis/S3/MinIO and does not modify queues, attachments, objects, or receipt files."
@@ -313,6 +329,7 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(('- S3 lines: `{0}`' -f $s3LineCount))
     $lines.Add(('- Success count: `{0}`' -f $successCount))
     $lines.Add(('- Governance status: `{0}`' -f $governanceStatusText))
+    $lines.Add(('- Coverage gaps: `{0}`' -f $coverageGapCount))
     $lines.Add("")
     $lines.Add("## Actions")
     $lines.Add("")
@@ -328,6 +345,11 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add("| --- | --- | --- | --- | ---: |")
     foreach ($item in $stabilizationCoverage) {
         $lines.Add(("| {0} | {1} | {2} | {3} | {4} |" -f $item.area, $item.event, $item.operation, (@($item.fixedReasons) -join ", "), $item.observedEventOperationCount))
+    }
+    if ($coverageGapCount -gt 0) {
+        $lines.Add("")
+        $gapText = $coverageGapAreas -join ", "
+        $lines.Add(("Unobserved coverage areas: {0}" -f $gapText))
     }
     $lines.Add("")
     $lines.Add("This runbook is read-only and contains no sensitive request data.")

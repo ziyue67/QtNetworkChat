@@ -64,6 +64,8 @@ param(
 
     [string]$S3StabilityRunbookMarkdownPath,
 
+    [switch]$WarnS3CoverageGaps,
+
     [switch]$RunS3FailureBatchSample,
 
     [int]$S3FailureBatchCountPerReason = 2
@@ -308,6 +310,9 @@ if ($WriteS3StabilityRunbook -or -not [string]::IsNullOrWhiteSpace($S3StabilityR
     }
     if (-not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath)) {
         $runbookArgs += @("-MarkdownPath", $S3StabilityRunbookMarkdownPath)
+    }
+    if ($WarnS3CoverageGaps) {
+        $runbookArgs += "-WarnUnobservedCoverage"
     }
     if ($NoFailOnWarning) {
         $runbookArgs += "-NoFailOnWarning"

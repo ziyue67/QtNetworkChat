@@ -46,6 +46,7 @@ execute_process(
         -WriteS3StabilityRunbook
         -S3StabilityRunbookPath "${S3_RUNBOOK_PATH}"
         -S3StabilityRunbookMarkdownPath "${S3_RUNBOOK_MD_PATH}"
+        -WarnS3CoverageGaps
         -RunS3FailureBatchSample
         -S3FailureBatchCountPerReason 3
     RESULT_VARIABLE result
@@ -92,6 +93,7 @@ foreach(expected_text
         "-WriteS3StabilityRunbook"
         "-S3StabilityRunbookPath"
         "-S3StabilityRunbookMarkdownPath"
+        "-WarnS3CoverageGaps"
         "-RunS3FailureBatchSample"
         "-S3FailureBatchCountPerReason")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
@@ -114,6 +116,7 @@ string(JSON dashboard_path GET "${preview_content}" "dashboardPath")
 string(JSON dashboard_markdown_path GET "${preview_content}" "dashboardMarkdownPath")
 string(JSON s3_runbook_path GET "${preview_content}" "s3StabilityRunbookPath")
 string(JSON s3_runbook_markdown_path GET "${preview_content}" "s3StabilityRunbookMarkdownPath")
+string(JSON warn_s3_coverage_gaps GET "${preview_content}" "warnS3CoverageGaps")
 string(JSON s3_batch_path GET "${preview_content}" "s3FailureBatchSummaryPath")
 string(JSON s3_batch_count GET "${preview_content}" "s3FailureBatchCountPerReason")
 if(should_register)
@@ -143,6 +146,10 @@ endif()
 if(NOT s3_runbook_markdown_path MATCHES "s3-runbook.md")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview s3StabilityRunbookMarkdownPath missing expected s3-runbook.md path: ${s3_runbook_markdown_path}")
+endif()
+if(NOT warn_s3_coverage_gaps)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview warnS3CoverageGaps should be true")
 endif()
 if(NOT s3_batch_path MATCHES "s3-failure-batch-summary.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
