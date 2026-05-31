@@ -16,15 +16,16 @@ file(WRITE "${GOV_DIR}/governance-alert-overview.json"
 "{\n"
 "  \"ok\": false,\n"
 "  \"totalWarnings\": 2,\n"
-"  \"alertCount\": 3,\n"
+"  \"alertCount\": 4,\n"
 "  \"alerts\": [\n"
 "    {\"kind\":\"large-file-route-summary\",\"ok\":true,\"warnings\":[],\"source\":\"large-file-route-alert-summary.json\"},\n"
-"    {\"kind\":\"s3-request-results\",\"ok\":false,\"warnings\":[\"auth=1 exceeds threshold 0\"],\"source\":\"s3-request-results-alert-summary.json\"}\n"
+"    {\"kind\":\"s3-request-results\",\"ok\":false,\"warnings\":[\"auth=1 exceeds threshold 0\"],\"source\":\"s3-request-results-alert-summary.json\"},\n"
+"    {\"kind\":\"s3-real-backend-evidence\",\"ok\":true,\"warnings\":[],\"source\":\"s3-real-backend-evidence-alert-summary.json\"}\n"
 "  ]\n"
 "}\n"
 )
 file(WRITE "${GOV_DIR}/last-health.json"
-"{\"status\":\"unhealthy\",\"reason\":\"overview.ok=false\",\"ok\":false,\"totalWarnings\":2,\"alertCount\":3}\n"
+"{\"status\":\"unhealthy\",\"reason\":\"overview.ok=false\",\"ok\":false,\"totalWarnings\":2,\"alertCount\":4}\n"
 )
 file(WRITE "${GOV_DIR}/large-file-route-summary.json"
 "{\"routeLineCount\":5,\"routeKeys\":4,\"sensitiveHits\":0,\"deliveredCount\":1,\"failedCount\":2}\n"
@@ -76,6 +77,7 @@ string(JSON dashboard_format GET "${dashboard_content}" "format")
 string(JSON dashboard_status GET "${dashboard_content}" "status")
 string(JSON dashboard_ok GET "${dashboard_content}" "ok")
 string(JSON dashboard_warnings GET "${dashboard_content}" "totalWarnings")
+string(JSON dashboard_alert_count GET "${dashboard_content}" "alertCount")
 string(JSON dashboard_s3_lines GET "${dashboard_content}" "metrics" "s3Lines")
 string(JSON dashboard_retained GET "${dashboard_content}" "metrics" "reconcileRetained")
 string(JSON dashboard_sensitive GET "${dashboard_content}" "sensitiveHits")
@@ -94,6 +96,10 @@ endif()
 if(NOT dashboard_warnings EQUAL 2)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected dashboard totalWarnings=2, got ${dashboard_warnings}")
+endif()
+if(NOT dashboard_alert_count EQUAL 4)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected dashboard alertCount=4, got ${dashboard_alert_count}")
 endif()
 if(NOT dashboard_s3_lines EQUAL 3)
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -114,6 +120,7 @@ foreach(expected_text
         "## Metrics"
         "s3Lines"
         "## Alerts"
+        "s3-real-backend-evidence"
         "## Artifacts"
         "large-file-governance-report.md")
     string(FIND "${markdown_content}" "${expected_text}" found_at)

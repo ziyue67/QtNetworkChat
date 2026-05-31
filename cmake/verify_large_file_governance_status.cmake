@@ -18,20 +18,21 @@ file(WRITE "${GOV_DIR}/large-file-governance-dashboard.json"
 "  \"ok\":true,\n"
 "  \"reason\":\"all checks passed\",\n"
 "  \"totalWarnings\":0,\n"
-"  \"alertCount\":2,\n"
+"  \"alertCount\":3,\n"
 "  \"metrics\":{\"s3Lines\":4,\"routeLines\":7,\"reconcileRetained\":0},\n"
 "  \"alerts\":[\n"
 "    {\"kind\":\"large-file-route-summary\",\"ok\":true,\"warnings\":[]},\n"
-"    {\"kind\":\"s3-request-results\",\"ok\":true,\"warnings\":[]}\n"
+"    {\"kind\":\"s3-request-results\",\"ok\":true,\"warnings\":[]},\n"
+"    {\"kind\":\"s3-real-backend-evidence\",\"ok\":true,\"warnings\":[]}\n"
 "  ],\n"
 "  \"sensitiveHits\":0\n"
 "}\n"
 )
 file(WRITE "${GOV_DIR}/last-health.json"
-"{\"status\":\"healthy\",\"reason\":\"all checks passed\",\"ok\":true,\"totalWarnings\":0,\"alertCount\":2}\n"
+"{\"status\":\"healthy\",\"reason\":\"all checks passed\",\"ok\":true,\"totalWarnings\":0,\"alertCount\":3}\n"
 )
 file(WRITE "${GOV_DIR}/governance-alert-overview.json"
-"{\"ok\":true,\"totalWarnings\":0,\"alertCount\":2,\"alerts\":[]}\n"
+"{\"ok\":true,\"totalWarnings\":0,\"alertCount\":3,\"alerts\":[{\"kind\":\"s3-real-backend-evidence\",\"ok\":true,\"warnings\":[]}]}\n"
 )
 
 set(STATUS_JSON "${OUT_DIR}/status.json")
@@ -67,6 +68,7 @@ string(JSON status_format GET "${status_content}" "format")
 string(JSON status_value GET "${status_content}" "status")
 string(JSON status_ok GET "${status_content}" "ok")
 string(JSON status_warning_count GET "${status_content}" "totalWarnings")
+string(JSON status_alert_count GET "${status_content}" "alertCount")
 string(JSON status_s3_lines GET "${status_content}" "metrics" "s3Lines")
 if(NOT status_format STREQUAL "qtnetworkchat-large-file-governance-status-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -83,6 +85,10 @@ endif()
 if(NOT status_warning_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected no warnings, got ${status_warning_count}")
+endif()
+if(NOT status_alert_count EQUAL 3)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected alertCount=3, got ${status_alert_count}")
 endif()
 if(NOT status_s3_lines EQUAL 4)
     file(REMOVE_RECURSE "${TEMP_DIR}")
