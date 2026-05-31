@@ -380,6 +380,25 @@ powershell -ExecutionPolicy Bypass -File scripts/write-s3-failure-batch-sample.p
 
 治理入口也可以追加 `-RunS3FailureBatchSample -S3FailureBatchCountPerReason 3`，把上述样例纳入 `governance-alert-overview.json`、dashboard、报告和诊断包；计划任务 helper 会在 preview 中写出 `s3FailureBatchSummaryPath`，便于确认只生成本地样例产物。
 
+真实 S3/MinIO 验收完成后，可把 S3 request result summary、route summary、治理状态、smoke 日志和人工 notes 汇总成单个脱敏证据文件：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify-s3-real-backend-evidence.ps1 `
+  -S3SummaryPath ".\logs\governance\s3-request-results-summary.json" `
+  -RouteSummaryPath ".\logs\governance\large-file-route-summary.json" `
+  -GovernanceStatusPath ".\logs\governance\large-file-governance-status.json" `
+  -SmokeLogPath ".\logs\minio-smoke.log" `
+  -NotesPath ".\logs\acceptance-notes.txt" `
+  -OutputPath ".\logs\governance\s3-real-backend-evidence.json" `
+  -MarkdownPath ".\logs\governance\s3-real-backend-evidence.md" `
+  -AlertSummaryPath ".\logs\governance\s3-real-backend-evidence-alert-summary.json" `
+  -MinS3Lines 1 `
+  -RequireSuccess `
+  -RequireFailureReason
+```
+
+该证据脚本只读取本地产物，会拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature；`-RequireSuccess` 和 `-RequireFailureReason` 可确保真实验收同时包含成功路径和至少一个固定失败 reason。
+
 没有真实日志时，可以直接跑完整脱敏样例链路：
 
 ```powershell

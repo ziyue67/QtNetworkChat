@@ -178,7 +178,7 @@
 - Route summary、S3 request result、S3 failure batch 和 receipt rotation 告警分析脚本已统一支持或复用 `-AlertSummaryPath`，落盘 `kind/ok/warnings/metrics` 结构；治理入口会自动生成 `large-file-route-alert-summary.json`、`s3-request-results-alert-summary.json`、可选 `s3-failure-batch-alert-summary.json` 和 `receipt-rotation-alert-summary.json`，便于 Windows 计划任务和外部监控只读采集。
 - 告警聚合、健康检查和通知链路已补齐：`scripts/aggregate-governance-alerts.ps1` 汇总三类 alert summary 为治理总览 JSON，`scripts/check-governance-health.ps1` 生成健康状态，`scripts/notify-governance-unhealthy.ps1` 可在不健康时 dry-run 或写入 EventLog/webhook，且继续拒绝 endpoint、bucket、object URL、凭据和签名字段。
 - `scripts/write-large-file-reconcile-sample.ps1 -RunGovernance` 已可生成脱敏样例并串联 route 分析、S3 request 分析、delivered 对账、receipt 轮转、alert 聚合和健康检查；CTest 已覆盖该样例管线，并补齐治理相关测试列表。
-- 治理诊断包和运维报告已补齐：`scripts/write-large-file-governance-report.ps1` 可从治理输出目录生成 Markdown/HTML 报告并拒绝敏感字段，`scripts/write-large-file-governance-dashboard.ps1` 可生成单文件 JSON/Markdown 运维面板，汇总健康状态、告警来源、S3/route/receipt/reconcile 指标和关键产物相对路径；`scripts/package-governance-diagnostics.ps1` 可把治理总览、健康结果、route/S3/receipt summary、alert summary、报告、关键日志和 notes 打成脱敏 zip；`scripts/show-large-file-governance-status.ps1` 可读取 dashboard、health 或 alert overview 输出值班摘要/JSON/Markdown，并在 `-FailOnUnhealthy` 下把 unhealthy/unknown 转为非零退出；`scripts/write-s3-failure-batch-sample.ps1 -RunAnalysis` 可生成批量 S3 失败 route log 样例并复用 S3 request result 分析器，覆盖 timeout/network/tls/auth/retryable/server/hash/size/下发失败/删除保留等固定桶，默认不连接真实 S3/MinIO；`run-large-file-governance.ps1 -WriteReport -WriteDashboard -PackageDiagnostics` 与计划任务 preview 已接入报告、dashboard 和 zip 路径，CTest 覆盖 manifest、关键文件、报告/dashboard/status、批量失败样例和敏感字段拒绝。
+- 治理诊断包和运维报告已补齐：`scripts/write-large-file-governance-report.ps1` 可从治理输出目录生成 Markdown/HTML 报告并拒绝敏感字段，`scripts/write-large-file-governance-dashboard.ps1` 可生成单文件 JSON/Markdown 运维面板，汇总健康状态、告警来源、S3/route/receipt/reconcile 指标和关键产物相对路径；`scripts/package-governance-diagnostics.ps1` 可把治理总览、健康结果、route/S3/receipt summary、alert summary、报告、关键日志和 notes 打成脱敏 zip；`scripts/show-large-file-governance-status.ps1` 可读取 dashboard、health 或 alert overview 输出值班摘要/JSON/Markdown，并在 `-FailOnUnhealthy` 下把 unhealthy/unknown 转为非零退出；`scripts/write-s3-failure-batch-sample.ps1 -RunAnalysis` 可生成批量 S3 失败 route log 样例并复用 S3 request result 分析器，覆盖 timeout/network/tls/auth/retryable/server/hash/size/下发失败/删除保留等固定桶，默认不连接真实 S3/MinIO；`scripts/verify-s3-real-backend-evidence.ps1` 可汇总真实验收的 S3 summary、route summary、governance status、smoke log 和 notes，生成脱敏 evidence JSON/Markdown，并校验成功路径与固定失败 reason；`run-large-file-governance.ps1 -WriteReport -WriteDashboard -PackageDiagnostics` 与计划任务 preview 已接入报告、dashboard 和 zip 路径，CTest 覆盖 manifest、关键文件、报告/dashboard/status、批量失败样例、真实后端证据汇总和敏感字段拒绝。
 
 ## 治理观测
 
@@ -284,7 +284,8 @@
 77. 已完成：补治理 dashboard 的只读状态 CLI，可读取 dashboard/health/alert overview，输出摘要或 JSON/Markdown，并在 `-FailOnUnhealthy` 下为计划任务和值班脚本返回非零状态。
 78. 已完成：补 S3 批量失败演练样例，可生成脱敏 route log 并直接运行 S3 request result 分析，覆盖多 reason/operation 分布和告警输出。
 79. 已完成：把 S3 批量失败演练接入治理 runner、alert overview 和计划任务 preview，便于值班链路一键生成样例 summary/dashboard。
-80. 下一步：继续沿服务端真实后端稳定化推进，例如把真实后端 retry/timeout 运维样例接入人工验收，或把治理入口进一步接入本地 UI。
+80. 已完成：补真实 S3/MinIO 后端证据汇总脚本，读取本地 summary/status/smoke/notes 生成脱敏 evidence JSON/Markdown，并可要求成功路径和固定失败 reason 同时出现。
+81. 下一步：继续沿服务端真实后端稳定化推进，例如把真实后端 retry/timeout 运维样例接入治理入口，或把 evidence 输出纳入诊断包。
 
 ## 当前保护边界
 

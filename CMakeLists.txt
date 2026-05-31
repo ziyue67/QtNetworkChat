@@ -305,6 +305,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_failure_batch_sample.cmake
     )
     add_test(
+        NAME S3RealBackendEvidence
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-s3-real-backend-evidence.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_real_backend_evidence.cmake
+    )
+    add_test(
         NAME RouteLogAnalysis
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-large-file-route-logs.ps1
