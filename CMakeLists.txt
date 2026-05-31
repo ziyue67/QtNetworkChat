@@ -299,6 +299,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_result_analysis.cmake
     )
     add_test(
+        NAME S3FailureBatchSample
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-s3-failure-batch-sample.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_failure_batch_sample.cmake
+    )
+    add_test(
         NAME RouteLogAnalysis
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-large-file-route-logs.ps1

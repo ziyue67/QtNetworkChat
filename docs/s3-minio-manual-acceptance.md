@@ -366,6 +366,18 @@ powershell -ExecutionPolicy Bypass -File scripts/show-large-file-governance-stat
 
 该状态 CLI 只读取本地治理产物，不连接 Redis、S3/MinIO，不修改队列、附件、对象或 receipt；如果输入中出现 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature，会拒绝输出。
 
+如果需要在没有真实 S3/MinIO 故障窗口时演练 reason 分布和阈值告警，可生成批量失败样例并直接复用 S3 request result 分析器：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/write-s3-failure-batch-sample.ps1 `
+  -OutputDir ".\logs\s3-failure-batch" `
+  -CountPerReason 3 `
+  -RunAnalysis `
+  -NoFailOnWarning
+```
+
+该样例会生成脱敏 `s3-failure-batch-route.log`、`s3-failure-batch-summary.json` 和 `s3-failure-batch-alert-summary.json`，覆盖 timeout、network、tls、auth、retryable、server、hash、size、下发 ACK 超时、接收端断开和删除保留等固定桶；脚本只写本地样例文件，不连接 Redis、S3/MinIO，也不会修改队列、附件、对象或 receipt。
+
 没有真实日志时，可以直接跑完整脱敏样例链路：
 
 ```powershell
