@@ -59,6 +59,18 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
+void appendE2EFields(QJsonObject* obj, const Message& msg) {
+    if (!obj) return;
+    QString reason;
+    if (msg.e2eEnvelope.isValid(&reason)) {
+        (*obj)["e2eEnvelope"] = msg.e2eEnvelope.toJson();
+        (*obj)["isEncrypted"] = true;
+    }
+    if (msg.e2eKeyAgreement.isValid(&reason)) {
+        (*obj)["e2eKeyAgreement"] = msg.e2eKeyAgreement.toJson();
+    }
+}
+
 qint64 positiveIntegerEnvOrDefault(const char* name, qint64 defaultValue, qint64 maxValue = 0) {
     const QByteArray value = qgetenv(name).trimmed();
     if (value.isEmpty()) {
@@ -899,6 +911,22 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     if (ChatUser* sender = findUserBySocket(socket)) {
         msg.senderId = sender->id;
         msg.senderName = sender->name;
+    }
+
+    if (obj.value("e2eEnvelope").isObject()) {
+        QString reason;
+        const E2EEnvelope envelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+        if (!envelope.isValid(&reason)
+            || msg.receiverId.isEmpty()
+            || envelope.senderId != msg.senderId
+            || envelope.receiverId != msg.receiverId) {
+            sendSystemNotice(socket, QStringLiteral("加密消息转发失败：端到端加密信封无效"));
+            return;
+        }
+        msg.e2eEnvelope = envelope;
+        if (msg.content.trimmed().isEmpty()) {
+            msg.content = QStringLiteral("[encrypted]");
+        }
     }
 
     QString deliveryState = "broadcast";
@@ -3144,6 +3172,7 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["fileHash"] = msg.fileHash;
     obj["chunkSize"] = QString::number(msg.chunkSize);
     obj["chunkCount"] = QString::number(msg.chunkCount);
+    appendE2EFields(&obj, msg);
     QString savedAttachmentPath;
     QString savedObjectKey;
     bool shouldPublishObjectOffer = false;
@@ -3708,6 +3737,7 @@ void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
     if (!msg.fileData.isEmpty() && msg.type != MessageType::File && msg.type != MessageType::Image) {
         obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
     }
+    appendE2EFields(&obj, msg);
     QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
         QTcpSocket* socket = it.key();
@@ -3751,6 +3781,7 @@ void Server::sendToUser(const Message& msg) {
         if (!msg.fileData.isEmpty()) {
             obj["fileData"] = QString::fromLatin1(msg.fileData.toBase64());
         }
+        appendE2EFields(&obj, msg);
         QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
         targetSocket->write(data);
         targetSocket->write("\n");

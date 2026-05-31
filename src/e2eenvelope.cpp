@@ -2,6 +2,8 @@
 
 #include <QCryptographicHash>
 #include <QJsonValue>
+#include <QMessageAuthenticationCode>
+#include <QRandomGenerator>
 
 namespace {
 constexpr qsizetype MaxKeyIdLength = 128;
@@ -12,6 +14,8 @@ constexpr qsizetype MinTagBytes = 16;
 constexpr qsizetype MaxTagBytes = 32;
 constexpr qsizetype MaxPublicKeyBytes = 4096;
 constexpr qsizetype MaxSignatureBytes = 4096;
+constexpr qsizetype SessionKeyBytes = 32;
+constexpr qsizetype MinSessionKeyBytes = 16;
 
 QString trimmed(QString value) {
     return value.trimmed();
@@ -35,6 +39,66 @@ bool fail(QString* reason, const QString& value) {
 
 bool validIdentity(const QString& value) {
     return !value.trimmed().isEmpty() && value.size() <= 128;
+}
+
+QByteArray randomBytes(qsizetype size) {
+    QByteArray value;
+    value.resize(size);
+    for (qsizetype i = 0; i < size; ++i) {
+        value[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
+    }
+    return value;
+}
+
+QByteArray hmacSha256(const QByteArray& key, const QByteArray& data) {
+    return QMessageAuthenticationCode::hash(data, key, QCryptographicHash::Sha256);
+}
+
+QByteArray streamXor(const QByteArray& sessionKey,
+                     const QByteArray& nonce,
+                     const QString& aad,
+                     const QByteArray& input) {
+    QByteArray output;
+    output.resize(input.size());
+    qsizetype offset = 0;
+    quint32 counter = 0;
+    while (offset < input.size()) {
+        QByteArray seed;
+        seed.reserve(sessionKey.size() + nonce.size() + aad.toUtf8().size() + 8);
+        seed.append(sessionKey);
+        seed.append(nonce);
+        seed.append(aad.toUtf8());
+        seed.append(static_cast<char>((counter >> 24) & 0xff));
+        seed.append(static_cast<char>((counter >> 16) & 0xff));
+        seed.append(static_cast<char>((counter >> 8) & 0xff));
+        seed.append(static_cast<char>(counter & 0xff));
+        const QByteArray block = QCryptographicHash::hash(seed, QCryptographicHash::Sha256);
+        for (qsizetype i = 0; i < block.size() && offset < input.size(); ++i, ++offset) {
+            output[offset] = static_cast<char>(input[offset] ^ block[i]);
+        }
+        ++counter;
+    }
+    return output;
+}
+
+QByteArray envelopeTagData(const E2EEnvelope& envelope) {
+    QByteArray data;
+    data.append(normalizedE2EProtocol(envelope.protocol).toUtf8());
+    data.append('|');
+    data.append(normalizedE2ESuite(envelope.suite).toUtf8());
+    data.append('|');
+    data.append(envelope.senderId.trimmed().toUtf8());
+    data.append('|');
+    data.append(envelope.receiverId.trimmed().toUtf8());
+    data.append('|');
+    data.append(envelope.keyId.trimmed().toUtf8());
+    data.append('|');
+    data.append(envelope.aad.toUtf8());
+    data.append('|');
+    data.append(envelope.nonce);
+    data.append('|');
+    data.append(envelope.ciphertext);
+    return data;
 }
 }
 
@@ -172,4 +236,75 @@ E2EEnvelope E2EEnvelope::fromJson(const QJsonObject& obj) {
     envelope.tag = base64Field(obj, "tag");
     envelope.aad = obj.value("aad").toString();
     return envelope;
+}
+
+QByteArray generateE2ESessionKey() {
+    return randomBytes(SessionKeyBytes);
+}
+
+E2EEnvelope encryptE2EText(const QString& senderId,
+                           const QString& receiverId,
+                           const QString& keyId,
+                           const QByteArray& sessionKey,
+                           const QString& plaintext,
+                           QString* reason) {
+    E2EEnvelope envelope;
+    envelope.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
+    envelope.suite = QStringLiteral("draft-placeholder");
+    envelope.senderId = trimmed(senderId);
+    envelope.receiverId = trimmed(receiverId);
+    envelope.keyId = trimmed(keyId);
+    envelope.nonce = randomBytes(MinNonceBytes);
+    envelope.aad = QStringLiteral("text/private/v1");
+
+    if (sessionKey.size() < MinSessionKeyBytes) {
+        fail(reason, QStringLiteral("invalid-session-key"));
+        return envelope;
+    }
+    if (plaintext.isEmpty()) {
+        fail(reason, QStringLiteral("empty-plaintext"));
+        return envelope;
+    }
+
+    envelope.ciphertext = streamXor(sessionKey, envelope.nonce, envelope.aad, plaintext.toUtf8());
+    envelope.tag = hmacSha256(sessionKey, envelopeTagData(envelope));
+    if (!envelope.isValid(reason)) {
+        return E2EEnvelope();
+    }
+    if (reason) {
+        reason->clear();
+    }
+    return envelope;
+}
+
+bool decryptE2EText(const E2EEnvelope& envelope,
+                    const QByteArray& sessionKey,
+                    QString* plaintext,
+                    QString* reason) {
+    if (plaintext) {
+        plaintext->clear();
+    }
+    if (sessionKey.size() < MinSessionKeyBytes) {
+        return fail(reason, QStringLiteral("invalid-session-key"));
+    }
+    QString validationReason;
+    if (!envelope.isValid(&validationReason)) {
+        return fail(reason, validationReason);
+    }
+    const QByteArray expectedTag = hmacSha256(sessionKey, envelopeTagData(envelope));
+    if (expectedTag != envelope.tag) {
+        return fail(reason, QStringLiteral("authentication-failed"));
+    }
+    const QByteArray plainBytes = streamXor(sessionKey, envelope.nonce, envelope.aad, envelope.ciphertext);
+    const QString decoded = QString::fromUtf8(plainBytes);
+    if (decoded.toUtf8() != plainBytes) {
+        return fail(reason, QStringLiteral("invalid-plaintext"));
+    }
+    if (plaintext) {
+        *plaintext = decoded;
+    }
+    if (reason) {
+        reason->clear();
+    }
+    return true;
 }

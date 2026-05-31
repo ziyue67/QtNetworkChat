@@ -310,6 +310,23 @@ bool Client::waitForLoginResult(int timeoutMs) {
     return m_loginOk;
 }
 
+void Client::setE2ESessionKey(const QString& peerId, const QString& keyId, const QByteArray& sessionKey) {
+    const QString normalizedPeerId = peerId.trimmed();
+    const QString normalizedKeyId = keyId.trimmed();
+    if (normalizedPeerId.isEmpty() || normalizedKeyId.isEmpty() || sessionKey.size() < 16) {
+        return;
+    }
+
+    E2ESession session;
+    session.keyId = normalizedKeyId;
+    session.sessionKey = sessionKey;
+    m_e2eSessions[normalizedPeerId] = session;
+}
+
+void Client::clearE2ESessionKey(const QString& peerId) {
+    m_e2eSessions.remove(peerId.trimmed());
+}
+
 QString Client::transportSecurityDescription() const {
     if (const QSslSocket* sslSocket = qobject_cast<const QSslSocket*>(m_socket)) {
         return sslSocket->isEncrypted()
@@ -345,6 +362,45 @@ bool Client::sendPrivateMessage(const QString& receiverId, const QString& conten
     obj["senderName"] = m_userName;
     obj["receiverId"] = receiverId;
     obj["content"] = content;
+
+    return sendJson(obj);
+}
+
+bool Client::sendEncryptedPrivateMessage(const QString& receiverId, const QString& content, QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    if (!isConnected()) {
+        if (rejectReason) *rejectReason = QStringLiteral("not-connected");
+        return false;
+    }
+
+    const QString normalizedReceiverId = receiverId.trimmed();
+    const auto sessionIt = m_e2eSessions.constFind(normalizedReceiverId);
+    if (normalizedReceiverId.isEmpty() || sessionIt == m_e2eSessions.constEnd()) {
+        if (rejectReason) *rejectReason = QStringLiteral("missing-session");
+        return false;
+    }
+
+    QString reason;
+    const E2EEnvelope envelope = encryptE2EText(m_userId,
+                                               normalizedReceiverId,
+                                               sessionIt->keyId,
+                                               sessionIt->sessionKey,
+                                               content,
+                                               &reason);
+    if (!envelope.isValid(&reason)) {
+        if (rejectReason) *rejectReason = reason.isEmpty() ? QStringLiteral("invalid-envelope") : reason;
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["type"] = "private";
+    obj["messageType"] = static_cast<int>(MessageType::Private);
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    obj["receiverId"] = normalizedReceiverId;
+    obj["content"] = QStringLiteral("[encrypted]");
+    obj["e2eEnvelope"] = envelope.toJson();
+    obj["isEncrypted"] = true;
 
     return sendJson(obj);
 }
@@ -1164,6 +1220,27 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.receiverId = obj["receiverId"].toString();
         msg.content = obj["content"].toString();
         msg.timestamp = QDateTime::currentDateTime();
+        if (obj.value("e2eEnvelope").isObject()) {
+            const E2EEnvelope envelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+            QString reason;
+            if (envelope.isValid(&reason)) {
+                msg.e2eEnvelope = envelope;
+                const auto sessionIt = m_e2eSessions.constFind(msg.senderId);
+                QString plaintext;
+                if (sessionIt != m_e2eSessions.constEnd()
+                    && sessionIt->keyId == envelope.keyId
+                    && decryptE2EText(envelope, sessionIt->sessionKey, &plaintext, &reason)) {
+                    msg.content = plaintext;
+                } else {
+                    msg.content = QStringLiteral("加密消息无法解密");
+                    emit connectionError(QStringLiteral("端到端加密消息无法解密：%1")
+                        .arg(reason.isEmpty() ? QStringLiteral("missing-session") : reason));
+                }
+            } else {
+                msg.content = QStringLiteral("加密消息格式无效");
+                emit connectionError(QStringLiteral("端到端加密消息格式无效：%1").arg(reason));
+            }
+        }
         emit newMessage(msg);
         return;
     }

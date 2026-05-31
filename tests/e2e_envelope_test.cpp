@@ -90,5 +90,30 @@ int main() {
     ok = expect(!invalidAgreement.isValid(&reason) && reason == "invalid-public-key",
                 "missing public key should fail closed") && ok;
 
+    const QByteArray sessionKey = generateE2ESessionKey();
+    ok = expect(sessionKey.size() == 32,
+                "generated session key should use 32 bytes") && ok;
+
+    const QString plaintext = "encrypted hello";
+    const E2EEnvelope encrypted = encryptE2EText("10001", "10002", "alice-bob-2", sessionKey, plaintext, &reason);
+    ok = expect(encrypted.isValid(&reason) && reason.isEmpty(),
+                "encrypted text envelope should be valid") && ok;
+    ok = expect(encrypted.ciphertext != plaintext.toUtf8(),
+                "encrypted text should not expose plaintext bytes") && ok;
+
+    QString decrypted;
+    ok = expect(decryptE2EText(encrypted, sessionKey, &decrypted, &reason) && decrypted == plaintext,
+                "encrypted text should decrypt with the matching session key") && ok;
+
+    E2EEnvelope tampered = encrypted;
+    tampered.ciphertext[0] = static_cast<char>(tampered.ciphertext[0] ^ 0x01);
+    ok = expect(!decryptE2EText(tampered, sessionKey, &decrypted, &reason)
+                    && reason == "authentication-failed",
+                "tampered ciphertext should fail authentication") && ok;
+
+    ok = expect(!decryptE2EText(encrypted, QByteArray("too-short"), &decrypted, &reason)
+                    && reason == "invalid-session-key",
+                "short session keys should fail closed") && ok;
+
     return ok ? 0 : 1;
 }

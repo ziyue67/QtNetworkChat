@@ -23,8 +23,11 @@ public:
     void disconnectFromServer();
 
     void setAccountInfo(const QString& account, const QString& password, bool registerMode);
+    void setE2ESessionKey(const QString& peerId, const QString& keyId, const QByteArray& sessionKey);
+    void clearE2ESessionKey(const QString& peerId);
     bool sendMessage(const QString& content);
     bool sendPrivateMessage(const QString& receiverId, const QString& content);
+    bool sendEncryptedPrivateMessage(const QString& receiverId, const QString& content, QString* rejectReason = nullptr);
     bool sendFriendRequest(const QString& receiverId);
     bool searchFriendByAccount(const QString& account);
     bool sendFriendResponse(const QString& receiverId, bool accepted);
@@ -143,6 +146,11 @@ private:
                                         QString* fileHash = nullptr);
     void cleanupExpiredIncomingFileTransfers();
 
+    struct E2ESession {
+        QString keyId;
+        QByteArray sessionKey;
+    };
+
     struct PendingIncomingFileTransfer {
         QJsonObject envelope;
         QString fileName;
@@ -179,6 +187,7 @@ private:
     QString m_currentOutgoingReceiverId;
     QString m_currentOutgoingFileName;
     QJsonArray m_serverGroups;
+    QMap<QString, E2ESession> m_e2eSessions;
 };
 
 #endif // CLIENT_H

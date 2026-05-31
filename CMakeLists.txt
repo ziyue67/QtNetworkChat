@@ -67,6 +67,26 @@ if(BUILD_TESTING)
     target_include_directories(e2e_envelope_test PRIVATE include)
     target_link_libraries(e2e_envelope_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
+    add_executable(e2e_private_message_delivery_test
+        tests/e2e_private_message_delivery_test.cpp
+        src/server.cpp
+        src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
+        src/redisclient.cpp
+        src/message.cpp
+        src/objectstore.cpp
+        src/heartbeatmonitor.cpp
+        include/server.h
+        include/client.h
+        include/redisclient.h
+        include/message.h
+        include/objectstore.h
+        include/chatuser.h
+        include/heartbeatmonitor.h
+    )
+    target_include_directories(e2e_private_message_delivery_test PRIVATE include)
+    target_link_libraries(e2e_private_message_delivery_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
     add_executable(server_group_member_update_test
         tests/server_group_member_update_test.cpp
         src/server.cpp
@@ -292,6 +312,13 @@ if(BUILD_TESTING)
         NAME E2EEnvelopeProtocol
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:e2e_envelope_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME E2EPrivateMessageDelivery
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:e2e_private_message_delivery_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
