@@ -25,6 +25,34 @@ powershell -ExecutionPolicy Bypass -File scripts/minio-s3-smoke.ps1 `
 
 如果 MinIO 已由外部环境启动，追加 `-SkipContainer`。脚本通过后再启动 QtNetworkChat 服务端；脚本失败时不要启用真实后端。
 
+如果本机已经安装 Windows 版 MinIO，可不依赖 Docker，直接让脚本启动本地可执行文件并输出脱敏证据输入。例如：
+
+```powershell
+$artifactDir = ".\build-qt6-mingw\manual-s3-real-evidence"
+New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+
+powershell -ExecutionPolicy Bypass -File scripts/minio-s3-smoke.ps1 `
+  -Endpoint "http://127.0.0.1:19000" `
+  -Bucket "qtchat-large-files" `
+  -Region "us-east-1" `
+  -AccessKey "qtchat-dev" `
+  -SecretKey "qtchat-dev-secret" `
+  -Prefix "qtchat/manual-smoke" `
+  -MinioExePath "D:\Dminio-server\minio.windows-amd64.RELEASE.2025-09-07T16-13-09Z.exe" `
+  -DataDir "$artifactDir\data" `
+  -ConsolePort 19001 `
+  -SanitizedRouteLogPath "$artifactDir\real-minio-route.log" `
+  -SanitizedSummaryPath "$artifactDir\real-minio-smoke-summary.json" `
+  -SanitizedSmokeLogPath "$artifactDir\real-minio-smoke.log"
+
+powershell -ExecutionPolicy Bypass -File scripts/analyze-s3-request-results.ps1 `
+  -Path "$artifactDir\real-minio-route.log" `
+  -SummaryPath "$artifactDir\real-minio-s3-summary.json" `
+  -AlertSummaryPath "$artifactDir\real-minio-s3-alert.json"
+```
+
+上述 route log 和 summary 是脱敏产物，可继续作为真实后端 evidence 输入；原始 smoke 控制台输出包含本地 endpoint/bucket 示例，只用于人工查看，不应打包或提交。
+
 ## 2. 启动 Redis 和两个服务端实例
 
 两个服务端实例都设置相同的 Redis 与 S3/MinIO 配置，并使用不同端口：

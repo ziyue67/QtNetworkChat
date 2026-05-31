@@ -6,7 +6,14 @@ param(
     [string]$SecretKey = "qtchat-dev-secret",
     [string]$Prefix = "qtchat/manual-smoke",
     [string]$ContainerName = "qtchat-minio-smoke",
-    [switch]$SkipContainer
+    [switch]$SkipContainer,
+    [string]$MinioExePath,
+    [string]$DataDir,
+    [int]$ConsolePort = 9001,
+    [switch]$KeepLocalServer,
+    [string]$SanitizedRouteLogPath,
+    [string]$SanitizedSummaryPath,
+    [string]$SanitizedSmokeLogPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -118,6 +125,23 @@ function Invoke-S3Request(
     Invoke-WebRequest @invokeArgs
 }
 
+function Get-ResponseBytes($Response) {
+    if ($null -ne $Response.RawContentStream) {
+        $stream = $Response.RawContentStream
+        if ($stream.CanSeek) {
+            $stream.Position = 0
+        }
+        $memory = [System.IO.MemoryStream]::new()
+        try {
+            $stream.CopyTo($memory)
+            return $memory.ToArray()
+        } finally {
+            $memory.Dispose()
+        }
+    }
+    [System.Text.Encoding]::UTF8.GetBytes([string]$Response.Content)
+}
+
 function Wait-MinIOReady([string]$Endpoint) {
     for ($attempt = 1; $attempt -le 30; ++$attempt) {
         try {
@@ -130,10 +154,57 @@ function Wait-MinIOReady([string]$Endpoint) {
     throw "MinIO did not become ready at $Endpoint"
 }
 
-if (-not $SkipContainer) {
+function Write-ParentDirectory([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return
+    }
+    $parent = Split-Path -Parent $PathValue
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+}
+
+function Add-SmokeRouteLine([System.Collections.Generic.List[string]]$Lines,
+                            [string]$EventName,
+                            [string]$Result,
+                            [string]$Operation,
+                            [string]$Reason,
+                            [long]$Bytes = -1) {
+    $fields = @(
+        "event=$EventName",
+        "result=$Result",
+        "storeType=s3",
+        "operation=$Operation",
+        "reason=$Reason"
+    )
+    if ($Bytes -ge 0) {
+        $fields += "bytes=$Bytes"
+    }
+    $Lines.Add(("redis_large_file_route {0}" -f ($fields -join " ")))
+}
+
+$localMinioProcess = $null
+if (-not [string]::IsNullOrWhiteSpace($MinioExePath)) {
+    if (-not (Test-Path -LiteralPath $MinioExePath -PathType Leaf)) {
+        throw "MinioExePath not found: $MinioExePath"
+    }
+    if ([string]::IsNullOrWhiteSpace($DataDir)) {
+        $DataDir = Join-Path ([System.IO.Path]::GetTempPath()) "qtnetworkchat-minio-smoke-data"
+    }
+    New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
+    $env:MINIO_ROOT_USER = $AccessKey
+    $env:MINIO_ROOT_PASSWORD = $SecretKey
+    $endpointUri = [Uri]$Endpoint
+    $listenAddress = "{0}:{1}" -f $endpointUri.Host, $endpointUri.Port
+    $consoleAddress = "127.0.0.1:{0}" -f $ConsolePort
+    $localMinioProcess = Start-Process -FilePath $MinioExePath `
+        -ArgumentList @("server", $DataDir, "--address", $listenAddress, "--console-address", $consoleAddress) `
+        -WindowStyle Hidden `
+        -PassThru
+} elseif (-not $SkipContainer) {
     $docker = Get-Command docker -ErrorAction SilentlyContinue
     if (-not $docker) {
-        throw "Docker was not found. Install Docker, start MinIO yourself, or rerun with -SkipContainer."
+        throw "Docker was not found. Install Docker, start MinIO yourself, pass -MinioExePath, or rerun with -SkipContainer."
     }
 
     $existing = docker ps -a --filter "name=^/$ContainerName$" --format "{{.Names}}"
@@ -148,44 +219,107 @@ if (-not $SkipContainer) {
     }
 }
 
-Wait-MinIOReady $Endpoint
+$routeLines = [System.Collections.Generic.List[string]]::new()
+$smokeOk = $false
+$operations = [ordered]@{
+    createBucket = $false
+    put = $false
+    head = $false
+    get = $false
+    delete = $false
+}
 
-$bucketUrl = "$( $Endpoint.TrimEnd('/') )/$Bucket"
 try {
-    Invoke-S3Request "PUT" $bucketUrl | Out-Null
-} catch {
-    if ($_.Exception.Response.StatusCode.value__ -ne 409) {
-        throw
+    Wait-MinIOReady $Endpoint
+
+    $bucketUrl = "$( $Endpoint.TrimEnd('/') )/$Bucket"
+    try {
+        Invoke-S3Request "PUT" $bucketUrl | Out-Null
+        $operations.createBucket = $true
+        Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "put" "success"
+    } catch {
+        if ($_.Exception.Response.StatusCode.value__ -ne 409) {
+            Add-SmokeRouteLine $routeLines "real_backend_smoke" "rejected" "put" "server"
+            throw
+        }
+        $operations.createBucket = $true
+        Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "put" "success"
+    }
+
+    $safePrefix = $Prefix.Trim("/").Replace("\", "/")
+    $objectKey = Join-S3Path $safePrefix ("manual-smoke-{0}.txt" -f ([Guid]::NewGuid().ToString("N")))
+    $objectUrl = "$( $Endpoint.TrimEnd('/') )/$Bucket/$objectKey"
+    $payloadText = "QtNetworkChat MinIO S3 smoke " + [DateTime]::UtcNow.ToString("o")
+    $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($payloadText)
+    $expectedHash = Get-Sha256Hex $payloadBytes
+
+    Invoke-S3Request "PUT" $objectUrl $payloadBytes | Out-Null
+    $operations.put = $true
+    Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "put" "success" $payloadBytes.Length
+
+    Invoke-S3Request "HEAD" $objectUrl | Out-Null
+    $operations.head = $true
+    Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "head" "success" $payloadBytes.Length
+
+    $download = Invoke-S3Request "GET" $objectUrl
+    $downloadBytes = Get-ResponseBytes $download
+    $actualHash = Get-Sha256Hex $downloadBytes
+    if ($actualHash -ne $expectedHash) {
+        Add-SmokeRouteLine $routeLines "real_backend_smoke" "rejected" "get" "hash" $downloadBytes.Length
+        throw "Downloaded object hash mismatch."
+    }
+    $operations.get = $true
+    Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "get" "success" $downloadBytes.Length
+
+    Invoke-S3Request "DELETE" $objectUrl | Out-Null
+    $operations.delete = $true
+    Add-SmokeRouteLine $routeLines "real_backend_smoke" "cleaned" "delete" "success" $payloadBytes.Length
+    $smokeOk = $true
+
+    if (-not [string]::IsNullOrWhiteSpace($SanitizedRouteLogPath)) {
+        Write-ParentDirectory $SanitizedRouteLogPath
+        $routeLines | Set-Content -LiteralPath $SanitizedRouteLogPath -Encoding UTF8
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SanitizedSummaryPath)) {
+        Write-ParentDirectory $SanitizedSummaryPath
+        [pscustomobject]@{
+            format = "qtnetworkchat-minio-s3-smoke-summary-v1"
+            generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+            ok = $smokeOk
+            readOnlyEvidence = $false
+            serverMode = if ($localMinioProcess) { "local-exe" } elseif ($SkipContainer) { "external" } else { "docker" }
+            operations = [pscustomobject]$operations
+            sanitizedRouteLogPath = if ([string]::IsNullOrWhiteSpace($SanitizedRouteLogPath)) { "" } else { $SanitizedRouteLogPath }
+            notes = "Summary is sanitized: no endpoint, bucket, object URL, credentials, Authorization, Credential, or Signature values are written."
+        } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $SanitizedSummaryPath -Encoding UTF8
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SanitizedSmokeLogPath)) {
+        Write-ParentDirectory $SanitizedSmokeLogPath
+        $serverMode = if ($localMinioProcess) { "local-exe" } elseif ($SkipContainer) { "external" } else { "docker" }
+        @(
+            "MinIO S3 smoke passed.",
+            "serverMode={0}" -f $serverMode,
+            "operations=createBucket,put,head,get,delete",
+            "sensitiveFields=redacted"
+        ) | Set-Content -LiteralPath $SanitizedSmokeLogPath -Encoding UTF8
+    }
+
+    Write-Host "MinIO S3 smoke passed."
+    Write-Host "Endpoint: $Endpoint"
+    Write-Host "Bucket: $Bucket"
+    Write-Host "ObjectKey: $objectKey"
+    Write-Host ""
+    Write-Host "QtNetworkChat environment example:"
+    Write-Host "  set QTNETWORKCHAT_OBJECT_STORE=s3"
+    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ENDPOINT=$Endpoint"
+    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_BUCKET=$Bucket"
+    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_REGION=$Region"
+    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY=$AccessKey"
+    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_SECRET_KEY=<redacted>"
+    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_PREFIX=$safePrefix"
+} finally {
+    if ($localMinioProcess -and -not $KeepLocalServer) {
+        Stop-Process -Id $localMinioProcess.Id -Force -ErrorAction SilentlyContinue
+        $localMinioProcess.WaitForExit(5000) | Out-Null
     }
 }
-
-$safePrefix = $Prefix.Trim("/").Replace("\", "/")
-$objectKey = Join-S3Path $safePrefix ("manual-smoke-{0}.txt" -f ([Guid]::NewGuid().ToString("N")))
-$objectUrl = "$( $Endpoint.TrimEnd('/') )/$Bucket/$objectKey"
-$payloadText = "QtNetworkChat MinIO S3 smoke " + [DateTime]::UtcNow.ToString("o")
-$payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($payloadText)
-$expectedHash = Get-Sha256Hex $payloadBytes
-
-Invoke-S3Request "PUT" $objectUrl $payloadBytes | Out-Null
-Invoke-S3Request "HEAD" $objectUrl | Out-Null
-$download = Invoke-S3Request "GET" $objectUrl
-$downloadBytes = [System.Text.Encoding]::UTF8.GetBytes($download.Content)
-$actualHash = Get-Sha256Hex $downloadBytes
-if ($actualHash -ne $expectedHash) {
-    throw "Downloaded object hash mismatch."
-}
-Invoke-S3Request "DELETE" $objectUrl | Out-Null
-
-Write-Host "MinIO S3 smoke passed."
-Write-Host "Endpoint: $Endpoint"
-Write-Host "Bucket: $Bucket"
-Write-Host "ObjectKey: $objectKey"
-Write-Host ""
-Write-Host "QtNetworkChat environment example:"
-Write-Host "  set QTNETWORKCHAT_OBJECT_STORE=s3"
-Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ENDPOINT=$Endpoint"
-Write-Host "  set QTNETWORKCHAT_OBJECT_S3_BUCKET=$Bucket"
-Write-Host "  set QTNETWORKCHAT_OBJECT_S3_REGION=$Region"
-Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY=$AccessKey"
-Write-Host "  set QTNETWORKCHAT_OBJECT_S3_SECRET_KEY=<redacted>"
-Write-Host "  set QTNETWORKCHAT_OBJECT_S3_PREFIX=$safePrefix"
