@@ -40,7 +40,7 @@ if(NOT agg1_count EQUAL 0)
 endif()
 file(REMOVE "${AGG_OUT}")
 
-# Test 2: all-ok alert summaries -> aggregated ok=true, alertCount=3
+# Test 2: all-ok alert summaries -> aggregated ok=true, alertCount=4
 file(WRITE "${TEMP_DIR}/large-file-route-alert-summary.json"
 "{\"kind\":\"large-file-route-summary\",\"ok\":true,\"warnings\":[],\"metrics\":{\"totalEntries\":10}}\n"
 )
@@ -49,6 +49,9 @@ file(WRITE "${TEMP_DIR}/s3-request-results-alert-summary.json"
 )
 file(WRITE "${TEMP_DIR}/s3-real-backend-evidence-alert-summary.json"
 "{\"kind\":\"s3-real-backend-evidence\",\"ok\":true,\"warnings\":[],\"metrics\":{\"successPathCount\":1,\"failureReasonCount\":1}}\n"
+)
+file(WRITE "${TEMP_DIR}/s3-stability-runbook-alert-summary.json"
+"{\"kind\":\"s3-stability-runbook\",\"ok\":true,\"warnings\":[],\"metrics\":{\"successCount\":1,\"timeoutCount\":0}}\n"
 )
 
 execute_process(
@@ -72,14 +75,19 @@ if(NOT agg2_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Test2: expected ok=true")
 endif()
-if(NOT agg2_count EQUAL 3)
+if(NOT agg2_count EQUAL 4)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Test2: expected alertCount=3, got ${agg2_count}")
+    message(FATAL_ERROR "Test2: expected alertCount=4, got ${agg2_count}")
 endif()
 string(FIND "${agg2_content}" "s3-real-backend-evidence" agg2_evidence_pos)
 if(agg2_evidence_pos EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Test2: aggregated output missing s3-real-backend-evidence alert")
+endif()
+string(FIND "${agg2_content}" "s3-stability-runbook" agg2_runbook_pos)
+if(agg2_runbook_pos EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Test2: aggregated output missing s3-stability-runbook alert")
 endif()
 file(REMOVE "${AGG_OUT}")
 
@@ -123,9 +131,9 @@ if(agg4_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Test4: expected ok=false")
 endif()
-if(NOT agg4_count EQUAL 4)
+if(NOT agg4_count EQUAL 5)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Test4: expected alertCount=4, got ${agg4_count}")
+    message(FATAL_ERROR "Test4: expected alertCount=5, got ${agg4_count}")
 endif()
 if(NOT agg4_warnings EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")

@@ -399,6 +399,28 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-s3-real-backend-evidence
 
 该证据脚本只读取本地产物，会拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature；`-RequireSuccess` 和 `-RequireFailureReason` 可确保真实验收同时包含成功路径和至少一个固定失败 reason。生成的 `s3-real-backend-evidence.json`、Markdown 和 alert summary 放入治理输出目录后，会被治理报告、诊断 zip、统一 alert overview、dashboard 和 status CLI 自动采集。
 
+若希望把同一组真实后端摘要转成值班可读的稳定化处置建议，可继续生成 S3 runbook：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/write-s3-stability-runbook.ps1 `
+  -S3SummaryPath ".\logs\governance\s3-request-results-summary.json" `
+  -EvidencePath ".\logs\governance\s3-real-backend-evidence.json" `
+  -GovernanceStatusPath ".\logs\governance\large-file-governance-status.json" `
+  -OutputPath ".\logs\governance\s3-stability-runbook.json" `
+  -MarkdownPath ".\logs\governance\s3-stability-runbook.md" `
+  -AlertSummaryPath ".\logs\governance\s3-stability-runbook-alert-summary.json" `
+  -MinSuccess 1 `
+  -WarnTimeout 0 `
+  -WarnRetryable 0 `
+  -WarnAuth 0 `
+  -WarnTls 0 `
+  -WarnHash 0 `
+  -WarnSize 0 `
+  -NoFailOnWarning
+```
+
+runbook 脚本只读取本地 summary/evidence/status，不连接 Redis、S3/MinIO，也不会修改队列、附件、对象或 receipt。它会把 timeout、retryable、network、server、auth、tls、hash、size 和 not_found 固定桶映射成只读处置建议与复验口径，并拒绝 endpoint、bucket、object URL、凭据和签名字段。生成的 runbook JSON/Markdown 与 alert summary 放入治理目录后，也会被诊断 zip、统一 alert overview、dashboard 和 status CLI 自动采集。
+
 没有真实日志时，可以直接跑完整脱敏样例链路：
 
 ```powershell

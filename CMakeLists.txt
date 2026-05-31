@@ -311,6 +311,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_real_backend_evidence.cmake
     )
     add_test(
+        NAME S3StabilityRunbook
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-s3-stability-runbook.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_s3_stability_runbook.cmake
+    )
+    add_test(
         NAME RouteLogAnalysis
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/analyze-large-file-route-logs.ps1

@@ -23,6 +23,7 @@ $knownAlertFiles = @(
     "s3-request-results-alert-summary.json",
     "s3-failure-batch-alert-summary.json",
     "s3-real-backend-evidence-alert-summary.json",
+    "s3-stability-runbook-alert-summary.json",
     "receipt-rotation-alert-summary.json"
 )
 
