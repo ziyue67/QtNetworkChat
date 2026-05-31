@@ -58,6 +58,12 @@ param(
 
     [string]$DashboardMarkdownPath,
 
+    [switch]$WriteS3StabilityRunbook,
+
+    [string]$S3StabilityRunbookPath,
+
+    [string]$S3StabilityRunbookMarkdownPath,
+
     [switch]$RunS3FailureBatchSample,
 
     [int]$S3FailureBatchCountPerReason = 2
@@ -153,6 +159,7 @@ $diagnosticsPackager = Join-Path $PSScriptRoot "package-governance-diagnostics.p
 $reportWriter = Join-Path $PSScriptRoot "write-large-file-governance-report.ps1"
 $dashboardWriter = Join-Path $PSScriptRoot "write-large-file-governance-dashboard.ps1"
 $s3FailureBatchWriter = Join-Path $PSScriptRoot "write-s3-failure-batch-sample.ps1"
+$s3StabilityRunbookWriter = Join-Path $PSScriptRoot "write-s3-stability-runbook.ps1"
 
 $hasRouteLogs = $null -ne $RouteLogPath -and $RouteLogPath.Count -gt 0
 $hasHealthCheck = -not [string]::IsNullOrWhiteSpace($HealthCheckPath)
@@ -164,6 +171,7 @@ if ($shouldPackageAcceptance) { $totalSteps++ }
 if ($hasHealthCheck) { $totalSteps++ }
 if ($hasNotify) { $totalSteps++ }
 if ($RunS3FailureBatchSample) { $totalSteps++ }
+if ($WriteS3StabilityRunbook -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookPath) -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath)) { $totalSteps++ }
 if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath)) { $totalSteps++ }
 if ($WriteDashboard -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath)) { $totalSteps++ }
 if ($PackageDiagnostics -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) { $totalSteps++ }
@@ -284,6 +292,29 @@ if ($RunS3FailureBatchSample) {
     }
 }
 
+if ($WriteS3StabilityRunbook -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookPath) -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath)) {
+    if (-not (Test-Path -LiteralPath $s3SummaryPath -PathType Leaf)) {
+        throw "S3StabilityRunbook requires RouteLogPath so s3-request-results-summary.json can be produced."
+    }
+    StepLabel "S3 stability runbook"
+    if ([string]::IsNullOrWhiteSpace($S3StabilityRunbookPath)) {
+        $S3StabilityRunbookPath = Join-Path $resolvedOutputDir "s3-stability-runbook.json"
+    }
+    $runbookAlertPath = Join-Path $resolvedOutputDir "s3-stability-runbook-alert-summary.json"
+    $runbookArgs = @("-S3SummaryPath", $s3SummaryPath, "-OutputPath", $S3StabilityRunbookPath, "-AlertSummaryPath", $runbookAlertPath)
+    $evidencePath = Join-Path $resolvedOutputDir "s3-real-backend-evidence.json"
+    if (Test-Path -LiteralPath $evidencePath -PathType Leaf) {
+        $runbookArgs += @("-EvidencePath", $evidencePath)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath)) {
+        $runbookArgs += @("-MarkdownPath", $S3StabilityRunbookMarkdownPath)
+    }
+    if ($NoFailOnWarning) {
+        $runbookArgs += "-NoFailOnWarning"
+    }
+    Invoke-CheckedScript $s3StabilityRunbookWriter $runbookArgs (Join-Path $resolvedOutputDir "s3-stability-runbook.log")
+}
+
 StepLabel "aggregate governance alerts"
 $aggArgs = @("-OutputDir", $resolvedOutputDir, "-AggregatedPath", $aggregatedAlertPath)
 if ($NoFailOnWarning) {
@@ -375,6 +406,12 @@ if (Test-Path -LiteralPath $aggregatedAlertPath) {
 }
 if (Test-Path -LiteralPath (Join-Path $resolvedOutputDir "s3-failure-batch-summary.json")) {
     Write-Host ("  S3 failure batch summary: {0}" -f (Join-Path $resolvedOutputDir "s3-failure-batch-summary.json"))
+}
+if (-not [string]::IsNullOrWhiteSpace($S3StabilityRunbookPath) -and (Test-Path -LiteralPath $S3StabilityRunbookPath)) {
+    Write-Host ("  S3 stability runbook: {0}" -f $S3StabilityRunbookPath)
+}
+if (-not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath) -and (Test-Path -LiteralPath $S3StabilityRunbookMarkdownPath)) {
+    Write-Host ("  S3 stability runbook markdown: {0}" -f $S3StabilityRunbookMarkdownPath)
 }
 if ($hasHealthCheck -and (Test-Path -LiteralPath $resolvedHealthCheckPath)) {
     Write-Host ("  health check: {0}" -f $resolvedHealthCheckPath)

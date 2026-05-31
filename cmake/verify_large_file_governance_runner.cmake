@@ -16,6 +16,8 @@ set(REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.md")
 set(HTML_REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.html")
 set(DASHBOARD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.json")
 set(DASHBOARD_MD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.md")
+set(S3_RUNBOOK_PATH "${OUTPUT_DIR}/s3-stability-runbook.json")
+set(S3_RUNBOOK_MD_PATH "${OUTPUT_DIR}/s3-stability-runbook.md")
 set(SOURCE_INSTANCE "source-governance-a")
 set(FILE_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
@@ -64,6 +66,9 @@ execute_process(
         -WriteDashboard
         -DashboardPath "${DASHBOARD_PATH}"
         -DashboardMarkdownPath "${DASHBOARD_MD_PATH}"
+        -WriteS3StabilityRunbook
+        -S3StabilityRunbookPath "${S3_RUNBOOK_PATH}"
+        -S3StabilityRunbookMarkdownPath "${S3_RUNBOOK_MD_PATH}"
         -RunS3FailureBatchSample
         -S3FailureBatchCountPerReason 2
         -PackageDiagnostics
@@ -92,6 +97,7 @@ foreach(expected_file
         "${OUTPUT_DIR}/s3-request-results-alert-summary.json"
         "${OUTPUT_DIR}/s3-failure-batch-summary.json"
         "${OUTPUT_DIR}/s3-failure-batch-alert-summary.json"
+        "${OUTPUT_DIR}/s3-stability-runbook-alert-summary.json"
         "${OUTPUT_DIR}/reconcile/receipts.jsonl"
         "${OUTPUT_DIR}/reconcile/fallbacks.jsonl"
         "${OUTPUT_DIR}/reconcile/s3-analysis-summary.json"
@@ -102,6 +108,8 @@ foreach(expected_file
         "${HTML_REPORT_PATH}"
         "${DASHBOARD_PATH}"
         "${DASHBOARD_MD_PATH}"
+        "${S3_RUNBOOK_PATH}"
+        "${S3_RUNBOOK_MD_PATH}"
         "${DIAGNOSTICS_PATH}"
         "${PACKAGE_PATH}")
     if(NOT EXISTS "${expected_file}")
@@ -187,11 +195,30 @@ if(NOT s3_batch_timeouts EQUAL 2)
     message(FATAL_ERROR "Expected S3 failure batch timeout count=2, got ${s3_batch_timeouts}")
 endif()
 
+file(READ "${S3_RUNBOOK_PATH}" runbook_content)
+string(JSON runbook_format GET "${runbook_content}" "format")
+string(JSON runbook_success GET "${runbook_content}" "metrics" "successCount")
+if(NOT runbook_format STREQUAL "qtnetworkchat-s3-stability-runbook-v1")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected S3 stability runbook format: ${runbook_format}")
+endif()
+if(NOT runbook_success EQUAL 1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected S3 stability runbook successCount=1, got ${runbook_success}")
+endif()
+
+file(READ "${OUTPUT_DIR}/s3-stability-runbook-alert-summary.json" runbook_alert_content)
+string(JSON runbook_alert_kind GET "${runbook_alert_content}" "kind")
+if(NOT runbook_alert_kind STREQUAL "s3-stability-runbook")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected S3 stability runbook alert kind: ${runbook_alert_kind}")
+endif()
+
 file(READ "${OUTPUT_DIR}/governance-alert-overview.json" overview_content)
 string(JSON overview_alert_count GET "${overview_content}" "alertCount")
-if(NOT overview_alert_count EQUAL 4)
+if(NOT overview_alert_count EQUAL 5)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Expected governance alertCount=4 with S3 batch sample, got ${overview_alert_count}")
+    message(FATAL_ERROR "Expected governance alertCount=5 with S3 batch sample and runbook, got ${overview_alert_count}")
 endif()
 
 file(READ "${OUTPUT_DIR}/receipt-rotation-alert-summary.json" rotation_alert_content)
@@ -248,6 +275,10 @@ endif()
 if(NOT EXISTS "${DIAG_EXTRACT_DIR}/large-file-governance-report.md")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Governance diagnostics report missing")
+endif()
+if(NOT EXISTS "${DIAG_EXTRACT_DIR}/s3-stability-runbook.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Governance diagnostics S3 stability runbook missing")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

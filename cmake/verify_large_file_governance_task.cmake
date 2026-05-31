@@ -12,6 +12,8 @@ set(OUTPUT_DIR "${TEMP_DIR}/governance-output")
 set(TASK_DIR "${TEMP_DIR}/task")
 set(DASHBOARD_PATH "${OUTPUT_DIR}/dashboard.json")
 set(DASHBOARD_MD_PATH "${OUTPUT_DIR}/dashboard.md")
+set(S3_RUNBOOK_PATH "${OUTPUT_DIR}/s3-runbook.json")
+set(S3_RUNBOOK_MD_PATH "${OUTPUT_DIR}/s3-runbook.md")
 set(SOURCE_INSTANCE "source-task-a")
 set(FILE_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
@@ -41,6 +43,9 @@ execute_process(
         -WriteDashboard
         -DashboardPath "${DASHBOARD_PATH}"
         -DashboardMarkdownPath "${DASHBOARD_MD_PATH}"
+        -WriteS3StabilityRunbook
+        -S3StabilityRunbookPath "${S3_RUNBOOK_PATH}"
+        -S3StabilityRunbookMarkdownPath "${S3_RUNBOOK_MD_PATH}"
         -RunS3FailureBatchSample
         -S3FailureBatchCountPerReason 3
     RESULT_VARIABLE result
@@ -84,6 +89,9 @@ foreach(expected_text
         "-WriteDashboard"
         "-DashboardPath"
         "-DashboardMarkdownPath"
+        "-WriteS3StabilityRunbook"
+        "-S3StabilityRunbookPath"
+        "-S3StabilityRunbookMarkdownPath"
         "-RunS3FailureBatchSample"
         "-S3FailureBatchCountPerReason")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
@@ -104,6 +112,8 @@ string(JSON diagnostics_path GET "${preview_content}" "diagnosticsPackagePath")
 string(JSON report_path GET "${preview_content}" "reportPath")
 string(JSON dashboard_path GET "${preview_content}" "dashboardPath")
 string(JSON dashboard_markdown_path GET "${preview_content}" "dashboardMarkdownPath")
+string(JSON s3_runbook_path GET "${preview_content}" "s3StabilityRunbookPath")
+string(JSON s3_runbook_markdown_path GET "${preview_content}" "s3StabilityRunbookMarkdownPath")
 string(JSON s3_batch_path GET "${preview_content}" "s3FailureBatchSummaryPath")
 string(JSON s3_batch_count GET "${preview_content}" "s3FailureBatchCountPerReason")
 if(should_register)
@@ -125,6 +135,14 @@ endif()
 if(NOT dashboard_markdown_path MATCHES "dashboard.md")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview dashboardMarkdownPath missing expected dashboard.md path: ${dashboard_markdown_path}")
+endif()
+if(NOT s3_runbook_path MATCHES "s3-runbook.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview s3StabilityRunbookPath missing expected s3-runbook.json path: ${s3_runbook_path}")
+endif()
+if(NOT s3_runbook_markdown_path MATCHES "s3-runbook.md")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview s3StabilityRunbookMarkdownPath missing expected s3-runbook.md path: ${s3_runbook_markdown_path}")
 endif()
 if(NOT s3_batch_path MATCHES "s3-failure-batch-summary.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")

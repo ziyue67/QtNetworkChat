@@ -53,6 +53,12 @@ param(
 
     [string]$DashboardMarkdownPath,
 
+    [switch]$WriteS3StabilityRunbook,
+
+    [string]$S3StabilityRunbookPath,
+
+    [string]$S3StabilityRunbookMarkdownPath,
+
     [switch]$RunS3FailureBatchSample,
 
     [int]$S3FailureBatchCountPerReason = 2,
@@ -174,6 +180,8 @@ Assert-NoSensitiveValue "ReportPath" @($ReportPath)
 Assert-NoSensitiveValue "HtmlReportPath" @($HtmlReportPath)
 Assert-NoSensitiveValue "DashboardPath" @($DashboardPath)
 Assert-NoSensitiveValue "DashboardMarkdownPath" @($DashboardMarkdownPath)
+Assert-NoSensitiveValue "S3StabilityRunbookPath" @($S3StabilityRunbookPath)
+Assert-NoSensitiveValue "S3StabilityRunbookMarkdownPath" @($S3StabilityRunbookMarkdownPath)
 
 if ([string]::IsNullOrWhiteSpace($TaskDir)) {
     $TaskDir = Join-Path $OutputDir "scheduled-task"
@@ -221,6 +229,9 @@ Add-ScalarArg $lines "HtmlReportPath" $HtmlReportPath
 Add-SwitchArg $lines "WriteDashboard" ($WriteDashboard.IsPresent -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath))
 Add-ScalarArg $lines "DashboardPath" $DashboardPath
 Add-ScalarArg $lines "DashboardMarkdownPath" $DashboardMarkdownPath
+Add-SwitchArg $lines "WriteS3StabilityRunbook" ($WriteS3StabilityRunbook.IsPresent -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookPath) -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath))
+Add-ScalarArg $lines "S3StabilityRunbookPath" $S3StabilityRunbookPath
+Add-ScalarArg $lines "S3StabilityRunbookMarkdownPath" $S3StabilityRunbookMarkdownPath
 Add-SwitchArg $lines "RunS3FailureBatchSample" $RunS3FailureBatchSample.IsPresent
 Add-IntArg $lines "S3FailureBatchCountPerReason" $S3FailureBatchCountPerReason
 Add-ScalarArg $lines "HealthCheckPath" (Join-Path $OutputDir "last-health.json")
@@ -273,6 +284,16 @@ $s3FailureBatchPreviewPath = if ($RunS3FailureBatchSample) {
 } else {
     ""
 }
+$s3StabilityRunbookPreviewPath = if ([string]::IsNullOrWhiteSpace($S3StabilityRunbookPath)) {
+    Join-Path $OutputDir "s3-stability-runbook.json"
+} else {
+    $S3StabilityRunbookPath
+}
+$s3StabilityRunbookMarkdownPreviewPath = if ([string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath)) {
+    ""
+} else {
+    $S3StabilityRunbookMarkdownPath
+}
 $actionArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`""
 $preview = [pscustomobject]@{
     taskName = $TaskName
@@ -292,6 +313,8 @@ $preview = [pscustomobject]@{
     htmlReportPath = $htmlReportPreviewPath
     dashboardPath = $dashboardPreviewPath
     dashboardMarkdownPath = $dashboardMarkdownPreviewPath
+    s3StabilityRunbookPath = $s3StabilityRunbookPreviewPath
+    s3StabilityRunbookMarkdownPath = $s3StabilityRunbookMarkdownPreviewPath
     s3FailureBatchSummaryPath = $s3FailureBatchPreviewPath
     s3FailureBatchCountPerReason = if ($RunS3FailureBatchSample) { $S3FailureBatchCountPerReason } else { $null }
     readOnly = $true

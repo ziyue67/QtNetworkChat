@@ -285,7 +285,7 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
         $lines.Add(("| {0} | {1} | {2} | {3} | {4} |" -f $action.reason, $action.count, $action.severity, $action.action, $action.validation))
     }
     $lines.Add("")
-    $lines.Add("This runbook is read-only and contains no storage location, object URL, credentials, or signatures.")
+    $lines.Add("This runbook is read-only and contains no sensitive request data.")
     $lines | Set-Content -LiteralPath $resolvedMarkdownPath -Encoding UTF8
 }
 
