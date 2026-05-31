@@ -2817,10 +2817,8 @@ Server::LargeFileCleanupResult Server::cleanupDeliveredRedisLargeFile(const QJso
         if (result.objectDeleted) {
             result.objectDeleteReason = QStringLiteral("success");
         } else {
-            result.objectDeleteReason = objectStore->lastRemoveFailureReason();
-            if (result.objectDeleteReason.isEmpty()) {
-                result.objectDeleteReason = QStringLiteral("unknown");
-            }
+            result.objectDeleteReason =
+                objectStoreRemoveFailureReasonForLog(objectStoreType(), objectStore->lastRemoveFailureReason());
         }
     }
 
@@ -3038,10 +3036,7 @@ void Server::saveOfflineMessage(const Message& msg) const {
             const bool removedObject = objectStore->removeObject(savedObjectKey);
             QString reason = removedObject ? QStringLiteral("success") : QStringLiteral("unknown");
             if (!removedObject) {
-                reason = objectStore->lastRemoveFailureReason();
-                if (reason.isEmpty()) {
-                    reason = QStringLiteral("unknown");
-                }
+                reason = objectStoreRemoveFailureReasonForLog(objectStoreType(), objectStore->lastRemoveFailureReason());
             }
             QJsonObject logMeta;
             logMeta["transferId"] = obj["transferId"].toString();

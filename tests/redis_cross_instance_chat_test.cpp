@@ -1519,44 +1519,63 @@ int main(int argc, char** argv) {
     }
     injectedS3OpenFailureReason.clear();
 
-    injectedS3Objects.clear();
-    injectedS3RemoveFailureReason = QStringLiteral("server");
-    const QString s3DeleteFailureFileName = "redis-s3-delete-failure.bin";
-    const QString s3DeleteFailurePath = transferDir.filePath(s3DeleteFailureFileName);
-    const QByteArray s3DeleteFailurePayload = makePatternPayload(1024 * 1024 + 24576);
-    QFile s3DeleteFailureFile(s3DeleteFailurePath);
-    ok = expect(s3DeleteFailureFile.open(QIODevice::WriteOnly),
-                "injected S3 delete failure transfer file should open for writing") && ok;
-    if (s3DeleteFailureFile.isOpen()) {
-        ok = expect(s3DeleteFailureFile.write(s3DeleteFailurePayload) == s3DeleteFailurePayload.size(),
-                    "injected S3 delete failure transfer file should be written") && ok;
-        s3DeleteFailureFile.close();
+    struct S3RemoveFailureCase {
+        QString suffix;
+        QString injectedReason;
+        QString expectedReason;
+    };
+    const QVector<S3RemoveFailureCase> s3RemoveFailureCases = {
+        {QStringLiteral("timeout"), QStringLiteral("timeout while deleting injected S3 object"), QStringLiteral("timeout")},
+        {QStringLiteral("network"), QStringLiteral("network_error while deleting injected S3 object"), QStringLiteral("network")},
+        {QStringLiteral("tls"), QStringLiteral("tls_error while deleting injected S3 object"), QStringLiteral("tls")},
+        {QStringLiteral("auth"), QStringLiteral("auth_or_permission_error while deleting injected S3 object"), QStringLiteral("auth")},
+        {QStringLiteral("retryable"), QStringLiteral("retryable_client_status while deleting injected S3 object"), QStringLiteral("retryable")},
+        {QStringLiteral("server"), QStringLiteral("server_error while deleting injected S3 object"), QStringLiteral("server")},
+        {QStringLiteral("unknown"), QStringLiteral("unknown_status while deleting injected S3 object"), QStringLiteral("unknown")}
+    };
+    for (const S3RemoveFailureCase& removeCase : s3RemoveFailureCases) {
+        injectedS3Objects.clear();
+        injectedS3RemoveFailureReason = removeCase.injectedReason;
+        const QString caseFileName = QStringLiteral("redis-s3-delete-%1-failure.bin").arg(removeCase.suffix);
+        const QString caseFilePath = transferDir.filePath(caseFileName);
+        const QByteArray casePayload = makePatternPayload(1024 * 1024 + 24576 + removeCase.suffix.size());
+        QFile caseFile(caseFilePath);
+        ok = expect(caseFile.open(QIODevice::WriteOnly),
+                    QStringLiteral("injected S3 %1 delete failure transfer file should open for writing").arg(removeCase.suffix)) && ok;
+        if (caseFile.isOpen()) {
+            ok = expect(caseFile.write(casePayload) == casePayload.size(),
+                        QStringLiteral("injected S3 %1 delete failure transfer file should be written").arg(removeCase.suffix)) && ok;
+            caseFile.close();
+        }
+        bobFileNames.clear();
+        bobFilePayloads.clear();
+        ok = expect(alice.sendFile(caseFilePath, "960002"),
+                    QStringLiteral("alice should publish an injected S3 %1 delete failure offer").arg(removeCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return !findLargeFileOffer(caseFileName).isEmpty();
+        }), QStringLiteral("injected S3 %1 delete failure file should publish an offer").arg(removeCase.suffix)) && ok;
+        const QJsonObject caseOffer = findLargeFileOffer(caseFileName);
+        const QString caseObjectKey = caseOffer["objectKey"].toString();
+        ok = expect(waitFor([&] {
+            return bobFileNames.contains(caseFileName) && bobFilePayloads.contains(casePayload);
+        }, 9000), QStringLiteral("bob should receive the injected S3 %1 delete failure transfer before cleanup").arg(removeCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return !findPublishedEvent("large_file_delivered", QString(), caseObjectKey).isEmpty();
+        }), QStringLiteral("remote server should publish delivered before injected S3 %1 delete failure").arg(removeCase.suffix)) && ok;
+        ok = expect(waitFor([&] {
+            return routeLogContains({QStringLiteral("event=object_delete"),
+                                     QStringLiteral("result=retained"),
+                                     QStringLiteral("reason=") + removeCase.expectedReason,
+                                     QStringLiteral("storeType=s3"),
+                                     QStringLiteral("operation=delete"),
+                                     QStringLiteral("objectKey=") + caseObjectKey});
+        }), QStringLiteral("source server should log injected S3 %1 delete failure with a fixed reason").arg(removeCase.suffix)) && ok;
+        ok = expect(!routeLogContains({QStringLiteral("event=object_delete"),
+                                       removeCase.injectedReason}),
+                    QStringLiteral("route log should not include injected S3 %1 delete error detail").arg(removeCase.suffix)) && ok;
+        ok = expect(injectedS3Objects.contains(caseObjectKey),
+                    QStringLiteral("injected S3 %1 object should remain when delete fails").arg(removeCase.suffix)) && ok;
     }
-    bobFileNames.clear();
-    bobFilePayloads.clear();
-    ok = expect(alice.sendFile(s3DeleteFailurePath, "960002"),
-                "alice should publish an injected S3 delete failure offer") && ok;
-    ok = expect(waitFor([&] {
-        return !findLargeFileOffer(s3DeleteFailureFileName).isEmpty();
-    }), "injected S3 delete failure file should publish an offer") && ok;
-    const QJsonObject s3DeleteFailureOffer = findLargeFileOffer(s3DeleteFailureFileName);
-    const QString s3DeleteFailureObjectKey = s3DeleteFailureOffer["objectKey"].toString();
-    ok = expect(waitFor([&] {
-        return bobFileNames.contains(s3DeleteFailureFileName) && bobFilePayloads.contains(s3DeleteFailurePayload);
-    }, 9000), "bob should receive the injected S3 delete failure transfer before cleanup") && ok;
-    ok = expect(waitFor([&] {
-        return !findPublishedEvent("large_file_delivered", QString(), s3DeleteFailureObjectKey).isEmpty();
-    }), "remote server should publish delivered before injected S3 delete failure") && ok;
-    ok = expect(waitFor([&] {
-        return routeLogContains({QStringLiteral("event=object_delete"),
-                                 QStringLiteral("result=retained"),
-                                 QStringLiteral("reason=server"),
-                                 QStringLiteral("storeType=s3"),
-                                 QStringLiteral("operation=delete"),
-                                 QStringLiteral("objectKey=") + s3DeleteFailureObjectKey});
-    }), "source server should log injected S3 delete failure with a fixed server reason") && ok;
-    ok = expect(injectedS3Objects.contains(s3DeleteFailureObjectKey),
-                "injected S3 object should remain when delete fails") && ok;
     injectedS3RemoveFailureReason.clear();
     qputenv("QTNETWORKCHAT_OBJECT_STORE", "filesystem");
 

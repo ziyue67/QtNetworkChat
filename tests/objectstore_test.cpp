@@ -745,6 +745,31 @@ int main() {
                                                           QStringLiteral("disk path detail"))
                         == QStringLiteral("object-open-failed"),
                 "object store open reason helper should classify S3 failures without exposing error text") && ok;
+    ok = expect(objectStoreRemoveFailureReasonForLog(QStringLiteral("s3"),
+                                                     QStringLiteral("S3 DELETE 请求失败: timeout access-key super-secret-value"))
+                    == QStringLiteral("timeout")
+                    && objectStoreRemoveFailureReasonForLog(QStringLiteral("s3"),
+                                                            QStringLiteral("S3 DELETE 请求失败: network_error socket closed"))
+                        == QStringLiteral("network")
+                    && objectStoreRemoveFailureReasonForLog(QStringLiteral("s3"),
+                                                            QStringLiteral("S3 DELETE 请求失败: tls_error temporary-session-token"))
+                        == QStringLiteral("tls")
+                    && objectStoreRemoveFailureReasonForLog(QStringLiteral("s3"),
+                                                            QStringLiteral("S3 DELETE 请求失败: auth_or_permission_error"))
+                        == QStringLiteral("auth")
+                    && objectStoreRemoveFailureReasonForLog(QStringLiteral("s3"),
+                                                            QStringLiteral("S3 DELETE 请求失败: retryable_client_status"))
+                        == QStringLiteral("retryable")
+                    && objectStoreRemoveFailureReasonForLog(QStringLiteral("s3"),
+                                                            QStringLiteral("S3 DELETE 请求失败: server_error"))
+                        == QStringLiteral("server")
+                    && objectStoreRemoveFailureReasonForLog(QStringLiteral("s3"),
+                                                            QStringLiteral("S3 DELETE 请求失败: unknown_status"))
+                        == QStringLiteral("unknown")
+                    && objectStoreRemoveFailureReasonForLog(QStringLiteral("filesystem"),
+                                                            QStringLiteral("disk path detail"))
+                        == QStringLiteral("object-delete-failed"),
+                "object store remove reason helper should classify S3 failures without exposing error text") && ok;
     ok = expect(objectStoreWriteFailureReasonForLog(QStringLiteral("s3"),
                                                     false,
                                                     QStringLiteral("S3 endpoint secret should not leak"),

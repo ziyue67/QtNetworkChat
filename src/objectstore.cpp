@@ -881,6 +881,22 @@ QString objectStoreOpenFailureReasonForLog(const QString& storeType,
     return QStringLiteral("object-open-failed");
 }
 
+QString objectStoreRemoveFailureReasonForLog(const QString& storeType,
+                                             const QString& removeError) {
+    const QString normalizedStoreType = normalizeObjectStoreType(storeType);
+    const QString error = removeError.trimmed();
+    if (normalizedStoreType == QStringLiteral("s3")) {
+        const QString s3Reason = s3ReasonFromText(error);
+        if (!s3Reason.isEmpty()) {
+            return s3Reason;
+        }
+    }
+    if (!error.isEmpty()) {
+        return QStringLiteral("object-delete-failed");
+    }
+    return QStringLiteral("object-delete-failed");
+}
+
 QString objectStoreWriteFailureReasonForLog(const QString& storeType,
                                             bool storeAvailable,
                                             const QString& writeError,
