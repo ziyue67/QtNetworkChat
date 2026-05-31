@@ -136,6 +136,7 @@ private:
     QMap<QString, QStringList> m_serverGroupMembers;
     QMap<QString, QString> m_serverGroupMemberNames;
     QMap<QString, QString> m_serverGroupMemberRoles;
+    QMap<QString, QJsonArray> m_serverGroupAuditEvents;
     bool m_hasServerGroupSnapshot;
     bool m_wasInPublicServerGroup;
     QMap<QString, ChatUser> m_knownUsers;

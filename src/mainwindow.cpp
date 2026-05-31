@@ -40,6 +40,7 @@
 #include <QSqlQuery>
 #include <QVariant>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
 #include <QProgressDialog>
@@ -133,6 +134,33 @@ QString extractSavePathFromChatText(const QString& text) {
     if (savePath.isEmpty()) savePath = text.section("自动保存：", 1).section(" · ", 0, 0).trimmed();
     if (savePath.isEmpty()) savePath = text.section("已保存到：", 1, 1).section('\n', 0, 0).section(" · ", 0, 0).trimmed();
     return savePath;
+}
+
+QString serverGroupAuditActionText(const QString& action) {
+    const QString normalized = action.trimmed().toLower();
+    if (normalized == QLatin1String("announcement_update")) return QStringLiteral("更新公告");
+    if (normalized == QLatin1String("add")) return QStringLiteral("加入成员");
+    if (normalized == QLatin1String("remove")) return QStringLiteral("移出成员");
+    if (normalized == QLatin1String("promote_admin")) return QStringLiteral("设为管理员");
+    if (normalized == QLatin1String("demote_admin")) return QStringLiteral("取消管理员");
+    return normalized.isEmpty() ? QStringLiteral("群操作") : normalized;
+}
+
+QString serverGroupAuditSummary(const QJsonObject& event) {
+    const QString action = serverGroupAuditActionText(event.value("action").toString());
+    const QString actorName = event.value("actorName").toString().trimmed();
+    const QString actorId = event.value("actorId").toString().trimmed();
+    const QString targetName = event.value("targetUserName").toString().trimmed();
+    const QString targetId = event.value("targetUserId").toString().trimmed();
+    const QString createdAt = event.value("createdAt").toString().trimmed();
+    const QString actor = actorName.isEmpty() ? actorId : QString("%1(%2)").arg(actorName, actorId);
+    const QString target = targetId.isEmpty()
+        ? QString()
+        : (targetName.isEmpty() ? targetId : QString("%1(%2)").arg(targetName, targetId));
+    const QString timePart = createdAt.isEmpty() ? QString() : QString(" · %1").arg(createdAt);
+    return target.isEmpty()
+        ? QString("%1 · %2%3").arg(action, actor, timePart)
+        : QString("%1 · %2 -> %3%4").arg(action, actor, target, timePart);
 }
 
 QString transferIntegritySummary(const Message& msg) {
@@ -2826,6 +2854,7 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
     m_serverGroupMembers.clear();
     m_serverGroupMemberNames.clear();
     m_serverGroupMemberRoles.clear();
+    m_serverGroupAuditEvents.clear();
 
     for (const QJsonValue& value : groups) {
         const QJsonObject groupObj = value.toObject();
@@ -2848,6 +2877,7 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
             m_serverGroupMemberRoles[groupId + "|" + memberId] = memberObj["role"].toString("member");
         }
         m_serverGroupMembers[groupId] = memberIds;
+        m_serverGroupAuditEvents[groupId] = groupObj["auditEvents"].toArray();
     }
 
     const bool isInPublicGroup = m_serverGroupMembers.value("public").contains(m_currentUserId);
@@ -7750,20 +7780,42 @@ void MainWindow::refreshGroupMemberPanel() {
         }
 
         QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
+        int auditVisibleCount = 0;
+        const QJsonArray auditEvents = m_serverGroupAuditEvents.value("public");
+        if (!auditEvents.isEmpty() && (filter.isEmpty() || QStringLiteral("审计").contains(filter, Qt::CaseInsensitive))) {
+            QStandardItem* auditHeader = new QStandardItem(QString("最近群审计 · %1 条\n服务端同步公告、成员和管理员变更").arg(auditEvents.size()));
+            auditHeader->setEditable(false);
+            auditHeader->setEnabled(false);
+            auditHeader->setForeground(QColor(92, 107, 120));
+            m_groupMemberModel->appendRow(auditHeader);
+            const int start = qMax(0, auditEvents.size() - 3);
+            for (int i = start; i < auditEvents.size(); ++i) {
+                const QJsonObject event = auditEvents.at(i).toObject();
+                QStandardItem* auditItem = new QStandardItem(QString("审计 · %1").arg(serverGroupAuditSummary(event)));
+                auditItem->setEditable(false);
+                auditItem->setEnabled(false);
+                auditItem->setForeground(QColor(92, 107, 120));
+                auditItem->setToolTip(QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact)));
+                m_groupMemberModel->appendRow(auditItem);
+                ++auditVisibleCount;
+            }
+        }
         ui->memberTitleLabel->setText(filter.isEmpty()
-            ? QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5")
+            ? QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5%6")
                 .arg(memberCount)
                 .arg(ownerName.isEmpty() ? "未指定" : ownerName)
                 .arg(onlineMembers)
                 .arg(friendMembers)
                 .arg(pendingPart)
-            : QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · 匹配%6")
+                .arg(auditEvents.isEmpty() ? QString() : QString(" · 审计%1").arg(auditEvents.size()))
+            : QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · 匹配%6%7")
                 .arg(memberCount)
                 .arg(ownerName.isEmpty() ? "未指定" : ownerName)
                 .arg(onlineMembers)
                 .arg(friendMembers)
                 .arg(pendingPart)
-                .arg(visibleMembers));
+                .arg(visibleMembers)
+                .arg(auditVisibleCount > 0 ? QString(" · 审计%1").arg(auditVisibleCount) : QString()));
         return;
     }
 
