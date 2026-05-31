@@ -21,6 +21,7 @@ add_executable(QtNetworkChat
     src/message.cpp
     src/objectstore.cpp
     src/heartbeatmonitor.cpp
+    src/logincredentialstore.cpp
     include/mainwindow.h
     include/server.h
     include/client.h
@@ -29,6 +30,7 @@ add_executable(QtNetworkChat
     include/objectstore.h
     include/chatuser.h
     include/heartbeatmonitor.h
+    include/logincredentialstore.h
     ui/mainwindow.ui
 )
 
@@ -82,6 +84,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(account_password_kdf_test PRIVATE include)
     target_link_libraries(account_password_kdf_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
+    add_executable(login_credential_store_test
+        tests/login_credential_store_test.cpp
+        src/logincredentialstore.cpp
+        include/logincredentialstore.h
+    )
+    target_include_directories(login_credential_store_test PRIVATE include)
+    target_link_libraries(login_credential_store_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
@@ -245,6 +255,13 @@ if(BUILD_TESTING)
         NAME AccountPasswordKdfMigration
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:account_password_kdf_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME LoginCredentialStoreSafety
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:login_credential_store_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

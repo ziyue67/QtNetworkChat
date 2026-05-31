@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QStyleFactory>
+#include "logincredentialstore.h"
 #include "mainwindow.h"
 #include "server.h"
 #include "client.h"
@@ -20,8 +21,6 @@
 #include <QStyle>
 #include <QStandardPaths>
 #include <QDir>
-#include <QSqlDatabase>
-#include <QSqlQuery>
 
 class LoginDialog : public QDialog {
 public:
@@ -45,7 +44,8 @@ public:
     bool serverMode() const { return m_isServer; }
     bool rememberPassword() const { return m_rememberCheck && m_rememberCheck->isChecked(); }
     bool saveResolvedLoginToSqlite(const QString& account, const QString& userName, const QString& password, bool rememberPassword) const {
-        return saveLoginToSqlite(account, userName, password, rememberPassword);
+        Q_UNUSED(password);
+        return m_loginCredentialStore.save(account, userName, rememberPassword);
     }
 
 private:
@@ -114,7 +114,7 @@ private:
         m_passwordEdit->setEchoMode(QLineEdit::Password);
         m_passwordEdit->setClearButtonEnabled(true);
         m_passwordEdit->setMaxLength(32);
-        m_passwordEdit->setToolTip("密码至少 6 位；勾选记住密码后才会保存到本地");
+        m_passwordEdit->setToolTip("密码至少 6 位；本地不会持久化保存明文密码");
         formLayout->addWidget(m_passwordEdit);
 
         m_confirmPasswordEdit = new QLineEdit(formCard);
@@ -130,7 +130,7 @@ private:
         m_autoLoginCheck = new QCheckBox("自动登录", formCard);
         m_autoLoginCheck->setVisible(false);
         m_rememberCheck = new QCheckBox("记住密码", formCard);
-        m_rememberCheck->setToolTip("仅在勾选时保存密码；取消勾选后会清除已保存的密码");
+        m_rememberCheck->setToolTip("仅记住账号和昵称；不会保存明文密码");
         optionLayout->addWidget(m_autoLoginCheck);
         optionLayout->addWidget(m_rememberCheck);
         optionLayout->addStretch();
@@ -342,7 +342,7 @@ private:
                 ? QString("资料完整，点击立即注册创建本地 QQ 账号")
                 : QString("准备登录 QQ:%1%2")
                     .arg(account,
-                         m_rememberCheck && m_rememberCheck->isChecked() ? "，密码会保存到本地" : "，本次不会保存密码");
+                         m_rememberCheck && m_rememberCheck->isChecked() ? "，仅记住账号信息" : "，本次不记住账号");
         }
 
         m_okBtn->setEnabled(ready);
@@ -396,14 +396,12 @@ private:
         if (m_isServer) return;
         if (loadLoginFromSqlite()) return;
 
-        QSettings settings("QtNetworkChat", "QtNetworkChat");
-        const bool rememberPassword = settings.value("login/remember", false).toBool();
-        m_accountEdit->setText(settings.value("login/account").toString());
-        m_passwordEdit->setText(rememberPassword ? settings.value("login/password").toString() : QString());
-        m_nameEdit->setText(settings.value("login/name").toString());
-        m_rememberCheck->setChecked(rememberPassword);
-        if (saveLoginToSqlite()) {
-            settings.remove("login/password");
+        SavedLoginCredential credential;
+        if (m_loginCredentialStore.migrateLegacySettings(&credential) && !credential.account.isEmpty()) {
+            m_accountEdit->setText(credential.account);
+            m_nameEdit->setText(credential.userName);
+            m_passwordEdit->clear();
+            m_rememberCheck->setChecked(credential.rememberPassword);
         }
     }
 
@@ -414,11 +412,7 @@ private:
             fallback.setValue("login/account", m_accountEdit->text().trimmed());
             fallback.setValue("login/name", m_nameEdit->text().trimmed());
             fallback.setValue("login/remember", m_rememberCheck->isChecked());
-            if (m_rememberCheck->isChecked()) {
-                fallback.setValue("login/password", m_passwordEdit->text());
-            } else {
-                fallback.remove("login/password");
-            }
+            fallback.remove("login/password");
             return;
         }
 
@@ -429,101 +423,27 @@ private:
         settings.remove("login/password");
     }
 
-    QString loginDbPath() const {
-        QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-        if (dir.isEmpty()) dir = ".";
-        QDir().mkpath(dir);
-        return dir + "/login_accounts.sqlite3";
-    }
-
-    bool ensureLoginDatabase() const {
-        const QString connectionName = "login_accounts_init_" + QString::number(reinterpret_cast<quintptr>(this));
-        bool ok = false;
-        {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(loginDbPath());
-            if (db.open()) {
-                QSqlQuery query(db);
-                ok = query.exec("CREATE TABLE IF NOT EXISTS login_accounts ("
-                                "account TEXT PRIMARY KEY, "
-                                "user_name TEXT, "
-                                "password TEXT, "
-                                "remember_password INTEGER DEFAULT 0, "
-                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-                db.close();
-            }
-        }
-        QSqlDatabase::removeDatabase(connectionName);
-        return ok;
-    }
-
     bool loadLoginFromSqlite() {
-        if (!ensureLoginDatabase()) return false;
-
-        const QString connectionName = "login_accounts_read_" + QString::number(reinterpret_cast<quintptr>(this));
-        bool loaded = false;
-        {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(loginDbPath());
-            if (db.open()) {
-                QSqlQuery query(db);
-                if (query.exec("SELECT account, user_name, password, remember_password FROM login_accounts ORDER BY updated_at DESC LIMIT 1")
-                    && query.next()) {
-                    const bool rememberPassword = query.value(3).toInt() != 0;
-                    m_accountEdit->setText(query.value(0).toString());
-                    m_nameEdit->setText(query.value(1).toString());
-                    m_passwordEdit->setText(rememberPassword ? query.value(2).toString() : QString());
-                    m_rememberCheck->setChecked(rememberPassword);
-                    loaded = true;
-                }
-                db.close();
-            }
-        }
-        QSqlDatabase::removeDatabase(connectionName);
-        return loaded;
+        SavedLoginCredential credential;
+        if (!m_loginCredentialStore.load(&credential)) return false;
+        m_accountEdit->setText(credential.account);
+        m_nameEdit->setText(credential.userName);
+        m_passwordEdit->clear();
+        m_rememberCheck->setChecked(credential.rememberPassword);
+        return true;
     }
 
     bool saveLoginToSqlite() const {
-        if (!ensureLoginDatabase()) return false;
-
-        return saveLoginToSqlite(m_accountEdit->text().trimmed(),
-                                 m_nameEdit->text().trimmed(),
-                                 m_passwordEdit->text(),
-                                 m_rememberCheck && m_rememberCheck->isChecked());
-    }
-
-    bool saveLoginToSqlite(const QString& account, const QString& userName, const QString& password, bool rememberPassword) const {
-        if (!ensureLoginDatabase()) return false;
-
-        const QString normalizedAccount = account.trimmed();
-        const QString normalizedUserName = userName.trimmed();
-        if (normalizedAccount.isEmpty()) return true;
-
-        const QString connectionName = "login_accounts_write_" + QString::number(reinterpret_cast<quintptr>(this));
-        bool ok = false;
-        {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(loginDbPath());
-            if (db.open()) {
-                QSqlQuery query(db);
-                query.prepare("INSERT OR REPLACE INTO login_accounts(account, user_name, password, remember_password, updated_at) "
-                              "VALUES(?, ?, ?, ?, datetime('now'))");
-                query.addBindValue(normalizedAccount);
-                query.addBindValue(normalizedUserName);
-                query.addBindValue(rememberPassword ? password : QString());
-                query.addBindValue(rememberPassword ? 1 : 0);
-                ok = query.exec();
-                db.close();
-            }
-        }
-        QSqlDatabase::removeDatabase(connectionName);
-        return ok;
+        return m_loginCredentialStore.save(m_accountEdit->text().trimmed(),
+                                           m_nameEdit->text().trimmed(),
+                                           m_rememberCheck && m_rememberCheck->isChecked());
     }
 
     bool m_isServer;
     QString& m_userName;
     QString& m_host;
     quint16& m_port;
+    LoginCredentialStore m_loginCredentialStore;
     QString m_account;
     QString m_password;
     bool m_registerMode = false;
