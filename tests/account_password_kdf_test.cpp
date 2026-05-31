@@ -44,6 +44,21 @@ bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
     return predicate();
 }
 
+void drainEvents(int rounds = 5) {
+    for (int i = 0; i < rounds; ++i) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(10);
+    }
+}
+
+void disconnectClient(Client& client) {
+    client.disconnectFromServer();
+    waitFor([&] {
+        return !client.isConnected();
+    }, 2000);
+    drainEvents();
+}
+
 quint16 freeLocalPort() {
     QTcpServer probe;
     if (!probe.listen(QHostAddress::LocalHost, 0)) return 0;
@@ -136,6 +151,7 @@ int main(int argc, char** argv) {
         Server bootstrapServer;
         ok = expect(bootstrapServer.start(port), "bootstrap server should create the account database") && ok;
         bootstrapServer.stop();
+        drainEvents();
     }
     ok = expect(ok && insertLegacyAccount(dbPath, "910002", "legacy-secret", "LegacyUser"),
                 "legacy SHA-256 account should be inserted before server startup") && ok;
@@ -158,12 +174,12 @@ int main(int argc, char** argv) {
                 "new account should store versioned PBKDF2-SHA256 hash") && ok;
     ok = expect(!newHash.contains("secret"),
                 "stored KDF hash should not contain the raw password") && ok;
-    registered.disconnectFromServer();
+    disconnectClient(registered);
 
     Client wrongPassword;
     ok = expect(!loginClient(wrongPassword, "910002", "LegacyUser", "wrong-secret", port, false),
                 "legacy account should reject wrong password") && ok;
-    wrongPassword.disconnectFromServer();
+    disconnectClient(wrongPassword);
     ok = expect(readPasswordHash(dbPath, "910002") == legacyHash,
                 "wrong password should not upgrade legacy hash") && ok;
 
@@ -175,14 +191,15 @@ int main(int argc, char** argv) {
     const QString upgradedHash = readPasswordHash(dbPath, "910002");
     ok = expect(upgradedHash != legacyHash,
                 "upgraded KDF hash should replace legacy SHA-256 hash") && ok;
-    migrated.disconnectFromServer();
+    disconnectClient(migrated);
 
     Client relogin;
     ok = expect(loginClient(relogin, "910002", "LegacyUser", "legacy-secret", port, false),
                 "upgraded KDF account should log in again") && ok;
-    relogin.disconnectFromServer();
+    disconnectClient(relogin);
 
     server.stop();
+    drainEvents();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
     }
