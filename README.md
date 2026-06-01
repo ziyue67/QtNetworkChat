@@ -385,7 +385,7 @@ powershell -ExecutionPolicy Bypass -File scripts/check-database-health.ps1 `
   -JsonPath "build-qt6-mingw\database-health.json"
 ```
 
-`-PlanOnly` 只校验 QPSQL 插件、`psql.exe` 和 `libpq.dll` 等本地运行时，不连接真实数据库；去掉 `-PlanOnly` 后会用 `psql` 检查 10 张服务端必需表。追加 `-FailOnUnhealthy` 可让计划任务在缺少运行时、密码或表结构不完整时非零退出。默认 CTest 覆盖 SQLite 健康快照和脚本 plan，不读取真实 PostgreSQL 密码。
+`-PlanOnly` 只校验 QPSQL 插件、`psql.exe` 和 `libpq.dll` 等本地运行时，不连接真实数据库；去掉 `-PlanOnly` 后会用 `psql` 检查 10 张服务端必需表。健康 JSON 会同时输出 `reconnectPolicy`，包含连接池开关、退避毫秒数、熔断行为和固定失败 reason 桶；PostgreSQL 默认启用 `QTNETWORKCHAT_DB_POOL=1`，可用 `-DisableConnectionPool` 或 `QTNETWORKCHAT_DB_POOL=0` 关闭，并可用 `-ReconnectBackoffMs` 或 `QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS` 调整失败后的短退避。追加 `-FailOnUnhealthy` 可让计划任务在缺少运行时、密码或表结构不完整时非零退出。默认 CTest 覆盖 SQLite 健康快照和脚本 plan，不读取真实 PostgreSQL 密码。
 
 需要让服务端在启动本地托管服务后落盘健康快照，可启用启动导出：
 
@@ -394,7 +394,7 @@ $env:QTNETWORKCHAT_DB_HEALTH_EXPORT = "1"
 $env:QTNETWORKCHAT_DB_HEALTH_JSON = "build-qt6-mingw\database-health-startup.json"
 ```
 
-未设置 `QTNETWORKCHAT_DB_HEALTH_JSON` 时会写入应用数据目录下的 `database-health.json`。导出内容包含 `source=server-startup`、数据库驱动、脱敏配置、open/ping/required-tables 检查结果和整体状态，不写入真实 PostgreSQL 密码。
+未设置 `QTNETWORKCHAT_DB_HEALTH_JSON` 时会写入应用数据目录下的 `database-health.json`。导出内容包含 `source=server-startup`、数据库驱动、脱敏配置、open/ping/required-tables/connection-pool 检查结果、连接复用计数、打开失败数、退避跳过数和整体状态，不写入真实 PostgreSQL 密码。
 
 已有健康快照可再转成只读运维状态 JSON/Markdown：
 
@@ -463,7 +463,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run-pgsql-protocol-smoke.ps1 `
   -PostgresPassword "<本机 PostgreSQL 密码>"
 ```
 
-该脚本会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、好友搜索/申请/同意、公共群公告与审计、公共群成员管理员升降级与审计、文件元数据、离线私聊回放、服务端重启后重登和 KDF hash 查询；公共群 smoke 会先捕获真实 `public` 群 owner/公告，再临时授予本轮 smoke 账号权限，结束时恢复原状态并清理本轮生成的账号、消息、会话和队列。默认 CTest 只验证 smoke 计划与脚本输出及 `coverageSurfaces` 覆盖声明，不连接真实 PostgreSQL，也不会读取本机密码。
+该脚本会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、好友搜索/申请/同意、好友边界事件、公共群公告与审计、公共群成员管理员升降级与审计、群成员移出/重新加入/移出历史 marker、文件分片元数据、离线私聊与离线附件回放、服务端重启后重登和 KDF hash 查询；公共群 smoke 会先捕获真实 `public` 群 owner/公告，再临时授予本轮 smoke 账号权限，结束时恢复原状态并清理本轮生成的账号、消息、会话和队列。默认 CTest 只验证 smoke 计划与脚本输出及 `coverageSurfaces` 覆盖声明，不连接真实 PostgreSQL，也不会读取本机密码。
 
 已有 SQLite 账号库迁移到 PostgreSQL 时，先跑 plan 模式生成脱敏迁移计划：
 
@@ -478,7 +478,7 @@ powershell -ExecutionPolicy Bypass -File scripts/migrate-sqlite-to-postgres.ps1 
   -JsonPath "build-qt6-mingw\sqlite-pg-migration-plan.json"
 ```
 
-确认计划中的表和行数符合预期后，把 `-Mode plan` 改为 `-Mode execute` 执行导入。迁移器覆盖 `accounts`、`user_sessions`、`messages`、`offline_messages`、`friend_events`、公共群成员/移出标记、公告和审计表；写入 PostgreSQL 时使用主键或复合主键 upsert，重复执行会更新同一逻辑行。脚本只在 execute 模式要求真实密码，JSON 输出始终把密码写成 `<redacted>`。建议先备份 `accounts.sqlite3`，迁移完成并验证 PostgreSQL 服务端登录、群组和离线消息后，再把生产服务端切到 `QTNETWORKCHAT_DB_DRIVER=QPSQL`；SQLite 文件可继续保留作为回滚输入。
+确认计划中的表和行数符合预期后，把 `-Mode plan` 改为 `-Mode execute` 执行导入。迁移器覆盖 `accounts`、`user_sessions`、`messages`、`offline_messages`、`friend_events`、公共群成员/移出标记、公告和审计表；写入 PostgreSQL 时使用主键或复合主键 upsert，重复执行会更新同一逻辑行。导入后可用 `-Mode validate` 校验 SQLite 主键行是否都已进入 PostgreSQL，用 `-Mode diff` 生成差异报告但不修改数据库，用 `-Mode rollback` 按 SQLite 源中的主键/复合主键删除本轮可识别的 PostgreSQL 行。脚本在除 plan 外的模式都要求真实密码，JSON 输出始终把密码写成 `<redacted>`，并逐表给出 `postgresRows`、`validatedRows`、`missingRows`、`rolledBackRows` 和 `diffStatus`。建议先备份 `accounts.sqlite3`，迁移完成并验证 PostgreSQL 服务端登录、群组和离线消息后，再把生产服务端切到 `QTNETWORKCHAT_DB_DRIVER=QPSQL`；SQLite 文件可继续保留作为回滚输入。
 
 启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；服务端也会订阅该通道，跳过本实例事件，并把远端群聊/私聊转发给本实例在线用户。文件和图片只在编码后的 Redis 事件体不超过 1 MB 时通过 Pub/Sub 路由；超过该限制的 payload 会留在源实例离线附件队列，后续应按 [Redis 跨实例大文件路由计划](docs/redis-large-file-routing-plan.md) 通过控制面事件加对象存储式数据面承载。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。
 

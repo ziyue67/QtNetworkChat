@@ -29,6 +29,8 @@
 #include <QPointer>
 #include <QPair>
 #include <QUuid>
+#include <QMutex>
+#include <QMutexLocker>
 #include <algorithm>
 #include <memory>
 
@@ -124,6 +126,18 @@ bool accountDatabaseIsPostgres() {
     return accountDatabaseDriver() == QLatin1String("QPSQL");
 }
 
+bool accountDatabasePoolEnabled() {
+    const QByteArray value = qgetenv("QTNETWORKCHAT_DB_POOL").trimmed().toLower();
+    if (value == "0" || value == "false" || value == "no" || value == "off") {
+        return false;
+    }
+    return accountDatabaseIsPostgres();
+}
+
+qint64 accountDatabaseBackoffMs() {
+    return positiveIntegerEnvOrDefault("QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS", 2000, 60000);
+}
+
 QString accountDatabasePath() {
     QString dir = appDataDir();
     if (dir.isEmpty()) dir = ".";
@@ -131,9 +145,92 @@ QString accountDatabasePath() {
     return dir + "/accounts.sqlite3";
 }
 
+struct AccountDatabasePoolMetrics {
+    qint64 createdConnections = 0;
+    qint64 reusedConnections = 0;
+    qint64 openAttempts = 0;
+    qint64 openFailures = 0;
+    qint64 backoffSkips = 0;
+    qint64 lastFailureAtMs = 0;
+    QString lastFailureReason = QStringLiteral("ok");
+    QString lastFailureScope;
+};
+
+QMutex& accountDatabasePoolMutex() {
+    static QMutex mutex;
+    return mutex;
+}
+
+AccountDatabasePoolMetrics& accountDatabasePoolMetrics() {
+    static AccountDatabasePoolMetrics metrics;
+    return metrics;
+}
+
+QString accountDatabaseErrorReason(const QSqlError& error) {
+    const QString errorText = (error.driverText() + QLatin1Char(' ') + error.databaseText() + QLatin1Char(' ') + error.nativeErrorCode()).toLower();
+    if (errorText.contains(QStringLiteral("driver not loaded"))
+        || errorText.contains(QStringLiteral("not loaded"))
+        || errorText.contains(QStringLiteral("not available"))) {
+        return QStringLiteral("runtime");
+    }
+    if (errorText.contains(QStringLiteral("password"))
+        || errorText.contains(QStringLiteral("authentication"))
+        || errorText.contains(QStringLiteral("permission denied"))
+        || errorText.contains(QStringLiteral("role"))) {
+        return QStringLiteral("auth");
+    }
+    if (errorText.contains(QStringLiteral("ssl"))
+        || errorText.contains(QStringLiteral("tls"))
+        || errorText.contains(QStringLiteral("certificate"))) {
+        return QStringLiteral("tls");
+    }
+    if (errorText.contains(QStringLiteral("connection refused"))
+        || errorText.contains(QStringLiteral("timeout"))
+        || errorText.contains(QStringLiteral("timed out"))
+        || errorText.contains(QStringLiteral("host"))
+        || errorText.contains(QStringLiteral("network"))
+        || errorText.contains(QStringLiteral("socket"))) {
+        return QStringLiteral("network");
+    }
+    return QStringLiteral("query");
+}
+
+bool accountDatabaseInBackoffLocked(qint64 nowMs, qint64 backoffMs) {
+    const AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+    return metrics.lastFailureAtMs > 0
+        && nowMs >= metrics.lastFailureAtMs
+        && nowMs - metrics.lastFailureAtMs < backoffMs;
+}
+
+void recordAccountDatabaseOpenFailure(const QString& scope, const QSqlError& error) {
+    QMutexLocker locker(&accountDatabasePoolMutex());
+    AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+    ++metrics.openFailures;
+    metrics.lastFailureAtMs = QDateTime::currentMSecsSinceEpoch();
+    metrics.lastFailureReason = accountDatabaseErrorReason(error);
+    metrics.lastFailureScope = scope;
+}
+
+void recordAccountDatabaseBackoffSkip(const QString& scope) {
+    QMutexLocker locker(&accountDatabasePoolMutex());
+    AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+    ++metrics.backoffSkips;
+    metrics.lastFailureScope = scope;
+}
+
 QSqlDatabase openAccountDatabase(const QString& connectionName) {
     const QString driver = accountDatabaseDriver();
+    if (QSqlDatabase::contains(connectionName)) {
+        QMutexLocker locker(&accountDatabasePoolMutex());
+        ++accountDatabasePoolMetrics().reusedConnections;
+        return QSqlDatabase::database(connectionName, false);
+    }
+
     QSqlDatabase db = QSqlDatabase::addDatabase(driver, connectionName);
+    {
+        QMutexLocker locker(&accountDatabasePoolMutex());
+        ++accountDatabasePoolMetrics().createdConnections;
+    }
     if (driver == QLatin1String("QPSQL")) {
         db.setHostName(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGHOST")).trimmed().isEmpty()
             ? QStringLiteral("127.0.0.1")
@@ -152,6 +249,68 @@ QSqlDatabase openAccountDatabase(const QString& connectionName) {
         db.setDatabaseName(accountDatabasePath());
     }
     return db;
+}
+
+bool openAccountDatabaseConnection(QSqlDatabase& db, const QString& scope) {
+    {
+        QMutexLocker locker(&accountDatabasePoolMutex());
+        ++accountDatabasePoolMetrics().openAttempts;
+        if (accountDatabasePoolEnabled()
+            && accountDatabaseInBackoffLocked(QDateTime::currentMSecsSinceEpoch(), accountDatabaseBackoffMs())) {
+            ++accountDatabasePoolMetrics().backoffSkips;
+            accountDatabasePoolMetrics().lastFailureScope = scope;
+            return false;
+        }
+    }
+
+    if (db.isOpen()) {
+        return true;
+    }
+    const bool opened = db.open();
+    if (!opened) {
+        recordAccountDatabaseOpenFailure(scope, db.lastError());
+    }
+    return opened;
+}
+
+void releaseAccountDatabase(const QString& connectionName) {
+    if (!QSqlDatabase::contains(connectionName)) {
+        return;
+    }
+    if (accountDatabasePoolEnabled()) {
+        return;
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+}
+
+QJsonObject accountDatabasePoolSnapshot() {
+    QMutexLocker locker(&accountDatabasePoolMutex());
+    const AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const qint64 backoffMs = accountDatabaseBackoffMs();
+    QJsonObject obj;
+    obj["enabled"] = accountDatabasePoolEnabled();
+    obj["driver"] = accountDatabaseDriver();
+    obj["createdConnections"] = QString::number(metrics.createdConnections);
+    obj["reusedConnections"] = QString::number(metrics.reusedConnections);
+    obj["openAttempts"] = QString::number(metrics.openAttempts);
+    obj["openFailures"] = QString::number(metrics.openFailures);
+    obj["backoffSkips"] = QString::number(metrics.backoffSkips);
+    obj["backoffMs"] = QString::number(backoffMs);
+    obj["inBackoff"] = accountDatabasePoolEnabled() && accountDatabaseInBackoffLocked(nowMs, backoffMs);
+    obj["lastFailureReason"] = metrics.lastFailureReason.isEmpty() ? QStringLiteral("ok") : metrics.lastFailureReason;
+    obj["lastFailureScope"] = metrics.lastFailureScope;
+    obj["reasonBuckets"] = QJsonArray{
+        QStringLiteral("ok"),
+        QStringLiteral("runtime"),
+        QStringLiteral("auth"),
+        QStringLiteral("network"),
+        QStringLiteral("tls"),
+        QStringLiteral("schema"),
+        QStringLiteral("path"),
+        QStringLiteral("query")
+    };
+    return obj;
 }
 
 QJsonObject redactedAccountDatabaseConfig() {
@@ -781,13 +940,14 @@ QJsonObject Server::databaseHealthSnapshot() const {
     snapshot["generatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     snapshot["ok"] = false;
     snapshot["config"] = redactedAccountDatabaseConfig();
+    snapshot["pool"] = accountDatabasePoolSnapshot();
 
     const QString connectionName = "database_health_" + QString::number(reinterpret_cast<quintptr>(this));
     QJsonArray checks;
     bool healthy = true;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        const bool opened = db.open();
+        const bool opened = openAccountDatabaseConnection(db, connectionName);
         QJsonObject openCheck;
         openCheck["name"] = QStringLiteral("open");
         openCheck["ok"] = opened;
@@ -858,9 +1018,24 @@ QJsonObject Server::databaseHealthSnapshot() const {
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
+
+    QJsonObject poolCheck;
+    const QJsonObject pool = accountDatabasePoolSnapshot();
+    poolCheck["name"] = QStringLiteral("connection-pool");
+    poolCheck["ok"] = !pool.value("inBackoff").toBool(false);
+    poolCheck["reason"] = poolCheck.value("ok").toBool(false)
+        ? QStringLiteral("ok")
+        : pool.value("lastFailureReason").toString(QStringLiteral("runtime"));
+    poolCheck["detail"] = QStringLiteral("created=%1 reused=%2 failures=%3 skips=%4")
+        .arg(pool.value("createdConnections").toString(),
+             pool.value("reusedConnections").toString(),
+             pool.value("openFailures").toString(),
+             pool.value("backoffSkips").toString());
+    checks.append(poolCheck);
 
     snapshot["checks"] = checks;
+    snapshot["pool"] = pool;
     snapshot["ok"] = healthy;
     snapshot["status"] = healthy ? QStringLiteral("healthy") : QStringLiteral("unhealthy");
     QString reason = QStringLiteral("ok");
@@ -1228,7 +1403,7 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
     const QString connectionName = "server_group_announcement_update_" + QString::number(reinterpret_cast<quintptr>(socket));
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (!db.open()) {
+        if (!openAccountDatabaseConnection(db, connectionName)) {
             errorText = "群公告更新失败：无法打开群组数据库";
         } else {
             QSqlQuery permissionQuery(db);
@@ -1292,7 +1467,7 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
 
     if (!saved) {
         sendSystemNotice(socket, errorText.isEmpty() ? "群公告更新失败" : errorText);
@@ -1345,7 +1520,7 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
     const QString connectionName = "server_group_member_update_" + QString::number(reinterpret_cast<quintptr>(socket));
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (!db.open()) {
+        if (!openAccountDatabaseConnection(db, connectionName)) {
             errorText = "群成员变更失败：无法打开群组数据库";
         } else {
             QString ownerId;
@@ -1516,7 +1691,7 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
 
     if (!changed) {
         sendSystemNotice(socket, errorText.isEmpty() ? "群成员变更未生效" : errorText);
@@ -2496,7 +2671,7 @@ QJsonObject Server::loadAccountsFromSqlite() const {
     QString connectionName = "accounts_read_" + QString::number(reinterpret_cast<quintptr>(this));
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (!db.open()) return accounts;
+        if (!openAccountDatabaseConnection(db, connectionName)) return accounts;
 
         QSqlQuery query(db);
         if (query.exec("SELECT account, password_hash, user_name FROM accounts")) {
@@ -2510,7 +2685,7 @@ QJsonObject Server::loadAccountsFromSqlite() const {
         }
         db.close();
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
 
     if (accounts.isEmpty()) {
         QJsonObject legacyAccounts = loadAccounts();
@@ -2541,7 +2716,7 @@ bool Server::insertAccountToSqlite(const QString& account, const QString& passwo
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare(insertReplaceSql(
                 QStringLiteral("accounts"),
@@ -2558,7 +2733,7 @@ bool Server::insertAccountToSqlite(const QString& account, const QString& passwo
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -2569,7 +2744,7 @@ bool Server::updateAccountPasswordHashInSqlite(const QString& account, const QSt
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare("UPDATE accounts SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE account = ?");
             query.addBindValue(passwordHash);
@@ -2578,7 +2753,7 @@ bool Server::updateAccountPasswordHashInSqlite(const QString& account, const QSt
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -2589,7 +2764,7 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO user_sessions(user_id, user_name, event_name, peer_address, peer_port, created_at) "
                           "VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
@@ -2616,7 +2791,7 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -2627,7 +2802,7 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery groupQuery(db);
             ok = groupQuery.exec(insertIgnoreSql(
                 QStringLiteral("server_groups"),
@@ -2702,7 +2877,7 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -2715,7 +2890,7 @@ bool Server::isServerGroupMember(const QString& groupId, const QString& userId) 
     bool exists = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = ? AND user_id = ?");
             query.addBindValue(groupId);
@@ -2726,7 +2901,7 @@ bool Server::isServerGroupMember(const QString& groupId, const QString& userId) 
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return exists;
 }
 
@@ -2748,7 +2923,7 @@ bool Server::recordServerGroupAuditEvent(const QString& groupId,
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO server_group_audit_events("
                           "group_id, action, actor_id, actor_name, target_user_id, target_user_name, details, created_at) "
@@ -2777,7 +2952,7 @@ bool Server::recordServerGroupAuditEvent(const QString& groupId,
                        << actorId.trimmed();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -2788,7 +2963,7 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO messages(message_type, sender_id, sender_name, receiver_id, content, file_name, file_size, file_hash, file_chunk_size, file_chunk_count, delivery_state, created_at) "
                           "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
@@ -2808,7 +2983,7 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -2825,7 +3000,7 @@ bool Server::saveFriendEventToSqlite(const QString& eventType,
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO friend_events(event_type, sender_id, sender_name, receiver_id, query_account, accepted, event_state, created_at) "
                           "VALUES(?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
@@ -2840,7 +3015,7 @@ bool Server::saveFriendEventToSqlite(const QString& eventType,
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -2849,7 +3024,7 @@ bool Server::ensureAccountDatabase() const {
     bool ok = false;
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             const QString idColumn = autoIdColumnSql();
             ok = query.exec("CREATE TABLE IF NOT EXISTS accounts ("
@@ -2983,7 +3158,7 @@ bool Server::ensureAccountDatabase() const {
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return ok;
 }
 
@@ -3143,7 +3318,7 @@ LargeFileDeliveredReceiptDecision Server::evaluateRedisLargeFileDeliveredReceipt
         const QString connectionName = "offline_reconcile_" + QString::number(reinterpret_cast<quintptr>(this));
         {
             QSqlDatabase db = openAccountDatabase(connectionName);
-            if (db.open()) {
+            if (openAccountDatabaseConnection(db, connectionName)) {
                 QSqlQuery query(db);
                 query.prepare("SELECT payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
                 query.addBindValue(receipt.receiverId);
@@ -3158,7 +3333,7 @@ LargeFileDeliveredReceiptDecision Server::evaluateRedisLargeFileDeliveredReceipt
                 db.close();
             }
         }
-        QSqlDatabase::removeDatabase(connectionName);
+        releaseAccountDatabase(connectionName);
     }
 
     if (decision.shouldCleanup) {
@@ -3271,7 +3446,7 @@ Server::LargeFileCleanupResult Server::cleanupDeliveredRedisLargeFile(const QJso
         QVector<qint64> deliveredIds;
         {
             QSqlDatabase db = openAccountDatabase(connectionName);
-            if (db.open()) {
+            if (openAccountDatabaseConnection(db, connectionName)) {
                 QSqlQuery query(db);
                 query.prepare("SELECT id, payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
                 query.addBindValue(receiverId);
@@ -3299,7 +3474,7 @@ Server::LargeFileCleanupResult Server::cleanupDeliveredRedisLargeFile(const QJso
                 db.close();
             }
         }
-        QSqlDatabase::removeDatabase(connectionName);
+        releaseAccountDatabase(connectionName);
     }
 
     QFile jsonlFile(offlineFilePath(receiverId));
@@ -3406,7 +3581,7 @@ QSet<QString> Server::collectReferencedOfflineAttachments() const {
         QString connectionName = "offline_refs_" + QString::number(reinterpret_cast<quintptr>(this));
         {
             QSqlDatabase db = openAccountDatabase(connectionName);
-            if (db.open()) {
+            if (openAccountDatabaseConnection(db, connectionName)) {
                 QSqlQuery query(db);
                 if (query.exec("SELECT payload FROM offline_messages ORDER BY id ASC")) {
                     while (query.next()) {
@@ -3416,7 +3591,7 @@ QSet<QString> Server::collectReferencedOfflineAttachments() const {
                 db.close();
             }
         }
-        QSqlDatabase::removeDatabase(connectionName);
+        releaseAccountDatabase(connectionName);
     }
 
     QString baseDir = appDataDir();
@@ -3597,7 +3772,7 @@ void Server::saveOfflineMessage(const Message& msg) const {
         QString connectionName = "offline_write_" + QString::number(reinterpret_cast<quintptr>(this));
         {
             QSqlDatabase db = openAccountDatabase(connectionName);
-            if (db.open()) {
+            if (openAccountDatabaseConnection(db, connectionName)) {
                 QSqlQuery query(db);
                 query.prepare("INSERT INTO offline_messages(receiver_id, payload, created_at) VALUES(?, ?, CURRENT_TIMESTAMP)");
                 query.addBindValue(msg.receiverId);
@@ -3606,7 +3781,7 @@ void Server::saveOfflineMessage(const Message& msg) const {
                 db.close();
             }
         }
-        QSqlDatabase::removeDatabase(connectionName);
+        releaseAccountDatabase(connectionName);
     }
     if (savedToSqlite) {
         if (shouldPublishObjectOffer && !publishRedisLargeFileOffer(obj)) {
@@ -3643,7 +3818,7 @@ bool Server::updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObj
         + "_" + QString::number(QRandomGenerator::global()->generate());
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QJsonObject updated = obj;
             QSqlQuery selectQuery(db);
             selectQuery.prepare("SELECT payload FROM offline_messages WHERE id = ?");
@@ -3679,7 +3854,7 @@ bool Server::updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObj
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
     return saved;
 }
 
@@ -3840,7 +4015,7 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
         QVector<QPair<qint64, QByteArray>> pendingRows;
         {
             QSqlDatabase db = openAccountDatabase(connectionName);
-            if (db.open()) {
+            if (openAccountDatabaseConnection(db, connectionName)) {
                 QSqlQuery query(db);
                 query.prepare("SELECT id, payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
                 query.addBindValue(userId);
@@ -3869,7 +4044,7 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
                 db.close();
             }
         }
-        QSqlDatabase::removeDatabase(connectionName);
+        releaseAccountDatabase(connectionName);
     }
 
     QFile file(offlineFilePath(userId));
@@ -4163,7 +4338,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
     QString connectionName = "server_group_snapshot_" + QString::number(reinterpret_cast<quintptr>(this));
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (db.open()) {
+        if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery groupQuery(db);
             groupQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, '') "
                                "FROM server_groups g "
@@ -4255,7 +4430,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
             db.close();
         }
     }
-    QSqlDatabase::removeDatabase(connectionName);
+    releaseAccountDatabase(connectionName);
 
     QJsonObject obj;
     obj["type"] = "server_group_snapshot";

@@ -61,10 +61,13 @@ $coverageSurfaces = @(
     "register-login",
     "private-message-persistence",
     "friend-search-request-accept",
+    "friend-boundary-events",
     "public-group-announcement-audit",
     "public-group-member-role-audit",
-    "file-metadata-persistence",
+    "public-group-remove-readd-marker",
+    "file-chunk-metadata-persistence",
     "offline-private-queue-replay",
+    "offline-attachment-queue-replay",
     "restart-login-kdf-session"
 )
 

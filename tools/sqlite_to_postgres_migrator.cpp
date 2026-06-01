@@ -23,6 +23,8 @@ struct Options {
     QString pgUser = "postgres";
     QString pgPassword;
     bool createSample = false;
+    QString sampleOwnerId = "910001";
+    QString samplePeerId = "910002";
 };
 
 struct TableSpec {
@@ -127,6 +129,10 @@ bool parseArgs(const QStringList& args, Options* options, QString* error) {
             if (!takeValue(&options->pgPassword)) return false;
         } else if (arg == "--create-sample") {
             options->createSample = true;
+        } else if (arg == "--sample-owner-id") {
+            if (!takeValue(&options->sampleOwnerId)) return false;
+        } else if (arg == "--sample-peer-id") {
+            if (!takeValue(&options->samplePeerId)) return false;
         } else {
             if (error) *error = "Unknown argument: " + arg;
             return false;
@@ -137,14 +143,26 @@ bool parseArgs(const QStringList& args, Options* options, QString* error) {
         if (error) *error = "--sqlite is required";
         return false;
     }
-    if (options->mode != "plan" && options->mode != "execute") {
-        if (error) *error = "--mode must be plan or execute";
+    const QStringList modes{
+        QStringLiteral("plan"),
+        QStringLiteral("execute"),
+        QStringLiteral("validate"),
+        QStringLiteral("diff"),
+        QStringLiteral("rollback")
+    };
+    if (!modes.contains(options->mode)) {
+        if (error) *error = "--mode must be plan, execute, validate, diff, or rollback";
         return false;
     }
     return true;
 }
 
-bool createSampleSqlite(const QString& path, QString* error) {
+QString sqlStringLiteral(QString value) {
+    value.replace("'", "''");
+    return "'" + value + "'";
+}
+
+bool createSampleSqlite(const QString& path, const QString& ownerId, const QString& peerId, QString* error) {
     QFile::remove(path);
     QDir().mkpath(QFileInfo(path).absolutePath());
     const QString name = "sample_sqlite_migration";
@@ -160,11 +178,16 @@ bool createSampleSqlite(const QString& path, QString* error) {
             sqliteSql.replace("BIGSERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT");
             ok = ok && q.exec(sqliteSql);
         }
-        ok = ok && q.exec("INSERT INTO accounts(account,password_hash,user_name,created_at,updated_at,login_count) VALUES('910001','kdf$pbkdf2-sha256$120000$salt$hash','MigratedUser',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,3)");
-        ok = ok && q.exec("INSERT INTO messages(message_type,sender_id,sender_name,receiver_id,content,delivery_state,created_at) VALUES(3,'910001','MigratedUser','910002','hello pg','offline',CURRENT_TIMESTAMP)");
-        ok = ok && q.exec("INSERT INTO server_groups(group_id,group_name,owner_id,announcement,created_at,updated_at) VALUES('public','公共聊天室','910001','欢迎来到公共聊天室。',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
-        ok = ok && q.exec("INSERT INTO server_group_members(group_id,user_id,user_name,role,joined_at,updated_at) VALUES('public','910001','MigratedUser','owner',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
-        ok = ok && q.exec("INSERT INTO server_group_audit_events(group_id,action,actor_id,actor_name,details,created_at) VALUES('public','migration_sample','910001','MigratedUser','{}',CURRENT_TIMESTAMP)");
+        ok = ok && q.exec(QString("INSERT INTO accounts(account,password_hash,user_name,created_at,updated_at,login_count) VALUES(%1,'kdf$pbkdf2-sha256$120000$salt$hash','MigratedUser',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,3)")
+            .arg(sqlStringLiteral(ownerId)));
+        ok = ok && q.exec(QString("INSERT INTO messages(message_type,sender_id,sender_name,receiver_id,content,delivery_state,created_at) VALUES(3,%1,'MigratedUser',%2,'hello pg','offline',CURRENT_TIMESTAMP)")
+            .arg(sqlStringLiteral(ownerId), sqlStringLiteral(peerId)));
+        ok = ok && q.exec(QString("INSERT INTO server_groups(group_id,group_name,owner_id,announcement,created_at,updated_at) VALUES('public','公共聊天室',%1,'欢迎来到公共聊天室。',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+            .arg(sqlStringLiteral(ownerId)));
+        ok = ok && q.exec(QString("INSERT INTO server_group_members(group_id,user_id,user_name,role,joined_at,updated_at) VALUES('public',%1,'MigratedUser','owner',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+            .arg(sqlStringLiteral(ownerId)));
+        ok = ok && q.exec(QString("INSERT INTO server_group_audit_events(group_id,action,actor_id,actor_name,details,created_at) VALUES('public','migration_sample',%1,'MigratedUser','{}',CURRENT_TIMESTAMP)")
+            .arg(sqlStringLiteral(ownerId)));
         if (!ok && error) *error = q.lastError().text();
         db.close();
     }
@@ -179,6 +202,32 @@ QSet<QString> tableColumns(QSqlDatabase& db, const QString& table) {
     return columns;
 }
 
+QString countSql(const QString& table) {
+    return QStringLiteral("SELECT COUNT(*) FROM %1").arg(table);
+}
+
+bool queryCount(QSqlDatabase& db, const QString& sql, qint64* out, QString* error) {
+    QSqlQuery query(db);
+    if (!query.exec(sql) || !query.next()) {
+        if (error) *error = query.lastError().text();
+        return false;
+    }
+    if (out) *out = query.value(0).toLongLong();
+    return true;
+}
+
+QString whereSql(const QStringList& columns) {
+    QStringList parts;
+    for (const QString& column : columns) {
+        parts << QStringLiteral("%1 = ?").arg(column);
+    }
+    return parts.join(QStringLiteral(" AND "));
+}
+
+bool tableExists(QSqlDatabase& db, const QString& table) {
+    return db.tables().contains(table, Qt::CaseInsensitive);
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     Options options;
@@ -188,7 +237,7 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    if (options.createSample && !createSampleSqlite(options.sqlitePath, &error)) {
+    if (options.createSample && !createSampleSqlite(options.sqlitePath, options.sampleOwnerId, options.samplePeerId, &error)) {
         qWarning().noquote() << "Failed to create sample SQLite:" << error;
         return 2;
     }
@@ -214,7 +263,8 @@ int main(int argc, char** argv) {
         result["error"] = sqlite.lastError().text();
     } else {
         QSqlDatabase pg;
-        if (options.mode == "execute") {
+        const bool needsPostgres = options.mode != "plan";
+        if (needsPostgres) {
             pg = QSqlDatabase::addDatabase("QPSQL", "sqlite_migration_pg_target");
             pg.setHostName(options.pgHost);
             pg.setPort(options.pgPort);
@@ -245,6 +295,10 @@ int main(int argc, char** argv) {
             item["rows"] = count;
 
             qint64 copied = 0;
+            qint64 pgRows = 0;
+            qint64 validated = 0;
+            qint64 missing = 0;
+            qint64 rolledBack = 0;
             if (ok && options.mode == "execute" && !columns.isEmpty()) {
                 QSqlQuery ddl(pg);
                 ok = ddl.exec(spec.createSql);
@@ -258,8 +312,76 @@ int main(int argc, char** argv) {
                     if (!ok) item["error"] = target.lastError().text();
                     else ++copied;
                 }
+            } else if (ok
+                       && (options.mode == "validate" || options.mode == "diff" || options.mode == "rollback")
+                       && !columns.isEmpty()) {
+                const bool targetExists = tableExists(pg, spec.name);
+                item["postgresExists"] = targetExists;
+                if (targetExists) {
+                    QString countError;
+                    if (!queryCount(pg, countSql(spec.name), &pgRows, &countError)) {
+                        item["error"] = countError;
+                        ok = false;
+                    }
+                }
+
+                QStringList keyColumns;
+                for (const QString& column : spec.conflictColumns) {
+                    if (columns.contains(column)) keyColumns << column;
+                }
+                item["keyColumns"] = QJsonArray::fromStringList(keyColumns);
+                if (ok && targetExists && !keyColumns.isEmpty()) {
+                    QSqlQuery source(sqlite);
+                    ok = source.exec("SELECT " + keyColumns.join(", ") + " FROM " + spec.name);
+                    if (!ok) item["error"] = source.lastError().text();
+
+                    const QString existsSql = QStringLiteral("SELECT COUNT(*) FROM %1 WHERE %2")
+                        .arg(spec.name, whereSql(keyColumns));
+                    const QString deleteSql = QStringLiteral("DELETE FROM %1 WHERE %2")
+                        .arg(spec.name, whereSql(keyColumns));
+
+                    while (ok && source.next()) {
+                        QList<QVariant> keys;
+                        for (int i = 0; i < keyColumns.size(); ++i) keys << source.value(i);
+                        if (options.mode == "rollback") {
+                            QSqlQuery deleteQuery(pg);
+                            ok = deleteQuery.prepare(deleteSql);
+                            for (const QVariant& value : keys) deleteQuery.addBindValue(value);
+                            if (!ok || !deleteQuery.exec()) {
+                                item["error"] = deleteQuery.lastError().text();
+                                ok = false;
+                            } else {
+                                rolledBack += deleteQuery.numRowsAffected();
+                            }
+                        } else {
+                            QSqlQuery existsQuery(pg);
+                            ok = existsQuery.prepare(existsSql);
+                            for (const QVariant& value : keys) existsQuery.addBindValue(value);
+                            if (!ok || !existsQuery.exec() || !existsQuery.next()) {
+                                item["error"] = existsQuery.lastError().text();
+                                ok = false;
+                            } else if (existsQuery.value(0).toLongLong() > 0) {
+                                ++validated;
+                            } else {
+                                ++missing;
+                            }
+                        }
+                    }
+                } else if (ok && count > 0) {
+                    missing = count;
+                }
+
+                if (ok && options.mode == "validate" && missing > 0) {
+                    ok = false;
+                    item["error"] = QStringLiteral("missing rows in PostgreSQL");
+                }
             }
             item["copiedRows"] = copied;
+            item["postgresRows"] = pgRows;
+            item["validatedRows"] = validated;
+            item["missingRows"] = missing;
+            item["rolledBackRows"] = rolledBack;
+            item["diffStatus"] = missing == 0 ? QStringLiteral("clean") : QStringLiteral("drift");
             tables.append(item);
         }
         if (pg.isValid()) pg.close();

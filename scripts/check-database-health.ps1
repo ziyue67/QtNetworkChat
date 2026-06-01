@@ -9,6 +9,8 @@ param(
     [string]$PostgresUser = "postgres",
     [string]$PostgresPassword = $env:QTNETWORKCHAT_PGPASSWORD,
     [string]$SQLitePath = "accounts.sqlite3",
+    [int]$ReconnectBackoffMs = 2000,
+    [switch]$DisableConnectionPool,
     [switch]$PlanOnly,
     [switch]$FailOnUnhealthy,
     [string]$JsonPath
@@ -83,12 +85,16 @@ if ($normalizedDriver -eq "postgres") {
         QTNETWORKCHAT_PGDATABASE = $PostgresDatabase
         QTNETWORKCHAT_PGUSER = $PostgresUser
         QTNETWORKCHAT_PGPASSWORD = "<redacted>"
+        QTNETWORKCHAT_DB_POOL = if ($DisableConnectionPool) { "0" } else { "1" }
+        QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS = "$ReconnectBackoffMs"
     }
 } else {
     $checks.Add((New-Check "sqlite-parent" (Test-Path -LiteralPath (Split-Path -Parent $resolvedSqlitePath) -PathType Container) (Split-Path -Parent $resolvedSqlitePath) "path"))
     $environment = [ordered]@{
         QTNETWORKCHAT_DB_DRIVER = "QSQLITE"
         QTNETWORKCHAT_DB_PATH = $resolvedSqlitePath
+        QTNETWORKCHAT_DB_POOL = "0"
+        QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS = "$ReconnectBackoffMs"
     }
 }
 
@@ -139,6 +145,12 @@ $resultObject = [ordered]@{
     driver = $normalizedDriver
     ok = [bool]$ok
     status = $status
+    reconnectPolicy = [ordered]@{
+        poolEnabled = [bool]($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool)
+        backoffMs = $ReconnectBackoffMs
+        circuitBreaker = "skip-open-during-backoff"
+        reasonBuckets = @("ok", "runtime", "auth", "network", "tls", "schema", "path", "query")
+    }
     checks = $checks
     environment = $environment
 }

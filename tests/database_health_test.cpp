@@ -31,6 +31,13 @@ bool hasPassingCheck(const QJsonArray& checks, const QString& name) {
     }
     return false;
 }
+
+bool hasReasonBucket(const QJsonArray& buckets, const QString& reason) {
+    for (const QJsonValue& value : buckets) {
+        if (value.toString() == reason) return true;
+    }
+    return false;
+}
 }
 
 int main(int argc, char** argv) {
@@ -53,6 +60,7 @@ int main(int argc, char** argv) {
 
     const QJsonObject health = server.databaseHealthSnapshot();
     const QJsonObject config = health.value("config").toObject();
+    const QJsonObject pool = health.value("pool").toObject();
     const QJsonArray checks = health.value("checks").toArray();
     ok = expect(health.value("format").toString() == "qtnetworkchat-database-health-v1",
                 "database health format should be stable") && ok;
@@ -66,12 +74,24 @@ int main(int argc, char** argv) {
                 "default database health should report SQLite") && ok;
     ok = expect(!config.contains("password"),
                 "SQLite database health should not include a password field") && ok;
+    ok = expect(pool.value("driver").toString() == "QSQLITE",
+                "database health should expose pool driver") && ok;
+    ok = expect(!pool.value("enabled").toBool(true),
+                "SQLite database pool should be disabled by default") && ok;
+    ok = expect(pool.contains("createdConnections") && pool.contains("openAttempts") && pool.contains("backoffMs"),
+                "database health pool metrics should include connection and backoff counters") && ok;
+    ok = expect(hasReasonBucket(pool.value("reasonBuckets").toArray(), "network")
+                    && hasReasonBucket(pool.value("reasonBuckets").toArray(), "auth")
+                    && hasReasonBucket(pool.value("reasonBuckets").toArray(), "runtime"),
+                "database health pool metrics should expose fixed reason buckets") && ok;
     ok = expect(hasPassingCheck(checks, "open"),
                 "database health should include passing open check") && ok;
     ok = expect(hasPassingCheck(checks, "ping"),
                 "database health should include passing ping check") && ok;
     ok = expect(hasPassingCheck(checks, "required-tables"),
                 "database health should include passing required table check") && ok;
+    ok = expect(hasPassingCheck(checks, "connection-pool"),
+                "database health should include passing connection pool check") && ok;
 
     const QString exportPath = QDir(appDataDir).filePath("database-health-export.json");
     QFile exportFile(exportPath);

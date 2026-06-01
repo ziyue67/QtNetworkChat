@@ -371,7 +371,9 @@ int main(int argc, char** argv) {
         QStringList ownerFriendSearchReasons;
         QStringList peerFriendRequests;
         QStringList ownerFriendResponses;
+        QStringList ownerFriendRequestSentResults;
         QStringList peerGroupNotices;
+        QJsonArray peerRemovedGroups;
         QObject::connect(&peer, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::Private) {
                 peerPrivateMessages << msg.content;
@@ -393,10 +395,16 @@ int main(int argc, char** argv) {
         QObject::connect(&owner, &Client::friendResponseReceived, &app, [&](const QString& senderId, const QString&, bool accepted) {
             ownerFriendResponses << QString("%1:%2").arg(senderId, accepted ? "accepted" : "rejected");
         });
+        QObject::connect(&owner, &Client::friendRequestSent, &app, [&](const QString& receiverId, bool delivered) {
+            ownerFriendRequestSentResults << QString("%1:%2").arg(receiverId, delivered ? "delivered" : "queued");
+        });
         QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::System) {
                 ownerSystemMessages << msg.content;
             }
+        });
+        QObject::connect(&peer, &Client::serverGroupSnapshotReceived, &app, [&](const QJsonArray&) {
+            peerRemovedGroups = peer.removedServerGroups();
         });
 
         setSmokeStep(QStringLiteral("register owner"));
@@ -444,6 +452,26 @@ int main(int argc, char** argv) {
                                   &friendEvents)
                 && friendEvents >= 3;
         }), "friend search/request/response events should be persisted in PostgreSQL") && ok;
+
+        setSmokeStep(QStringLiteral("friend boundary event persistence"));
+        ok = expect(owner.searchFriendByAccount("00" + suffix),
+                    "owner should be able to search a missing PostgreSQL account") && ok;
+        ok = expect(waitFor([&] { return ownerFriendSearchReasons.contains(QStringLiteral("未找到匹配资料")); }),
+                    "missing friend search should return not-found boundary reason") && ok;
+        const int friendRequestResultsBeforeDuplicate = ownerFriendRequestSentResults.size();
+        ok = expect(owner.sendFriendRequest(peerId),
+                    "duplicate friend request should still be recorded as a boundary event") && ok;
+        ok = expect(waitFor([&] { return ownerFriendRequestSentResults.size() > friendRequestResultsBeforeDuplicate; }),
+                    "duplicate friend request should produce a sent/queued result") && ok;
+        ok = expect(peer.sendFriendResponse(ownerId, false),
+                    "peer should be able to reject an already-known requester as a boundary event") && ok;
+        qint64 boundaryEvents = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM friend_events WHERE (event_type = 'friend_search' AND query_account = ?) OR (event_type IN ('friend_request','friend_response') AND sender_id IN (?, ?) AND receiver_id IN (?, ?))",
+                                  {"00" + suffix, ownerId, peerId, ownerId, peerId},
+                                  &boundaryEvents)
+                && boundaryEvents >= 3;
+        }), "friend boundary search/request/reject events should be persisted in PostgreSQL") && ok;
 
         setSmokeStep(QStringLiteral("public group announcement and audit persistence"));
         const QString announcement = "PostgreSQL group announcement smoke";
@@ -500,6 +528,38 @@ int main(int argc, char** argv) {
                 && roleAuditEvents >= 1;
         }), "public group admin demotion audit should be persisted in PostgreSQL") && ok;
 
+        setSmokeStep(QStringLiteral("public group remove re-add marker persistence"));
+        ok = expect(owner.sendServerGroupMemberUpdate("public", peerId, "remove"),
+                    "owner should remove peer from public group through PostgreSQL") && ok;
+        qint64 removedMarkers = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM server_group_removed_members WHERE group_id = 'public' AND user_id = ? AND removed_by = ?",
+                                  {peerId, ownerId},
+                                  &removedMarkers)
+                && removedMarkers == 1;
+        }), "public group removed marker should be persisted in PostgreSQL") && ok;
+        ok = expect(waitFor([&] {
+            for (const QJsonValue& value : peerRemovedGroups) {
+                const QJsonObject obj = value.toObject();
+                if (obj.value("groupId").toString() == QStringLiteral("public")) return true;
+            }
+            return false;
+        }, 8000), "removed peer should receive a public group history marker") && ok;
+        ok = expect(owner.sendServerGroupMemberUpdate("public", peerId, "add"),
+                    "owner should re-add peer to public group through PostgreSQL") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM server_group_removed_members WHERE group_id = 'public' AND user_id = ?",
+                                  {peerId},
+                                  &removedMarkers)
+                && removedMarkers == 0;
+        }), "public group re-add should clear removed marker in PostgreSQL") && ok;
+        ok = expect(waitFor([&] {
+            return scalarString("SELECT role FROM server_group_members WHERE group_id = 'public' AND user_id = ?",
+                                {peerId},
+                                &persistedRole)
+                && persistedRole == QStringLiteral("member");
+        }), "public group re-add should restore member row in PostgreSQL") && ok;
+
         setSmokeStep(QStringLiteral("file metadata persistence"));
         const QString testFilePath = QDir(appDataDir).filePath("pgsql-smoke-file.txt");
         QFile testFile(testFilePath);
@@ -514,37 +574,58 @@ int main(int argc, char** argv) {
                     "peer should receive file metadata") && ok;
         qint64 fileRows = 0;
         ok = expect(waitFor([&] {
-            return scalarLongLong("SELECT COUNT(*) FROM messages WHERE sender_id = ? AND receiver_id = ? AND file_name = 'pgsql-smoke-file.txt' AND file_size > 0 AND file_hash IS NOT NULL",
+            return scalarLongLong("SELECT COUNT(*) FROM messages WHERE sender_id = ? AND receiver_id = ? AND file_name = 'pgsql-smoke-file.txt' AND file_size > 0 AND file_hash IS NOT NULL AND file_chunk_size > 0 AND file_chunk_count > 0",
                                   {ownerId, peerId},
                                   &fileRows)
                 && fileRows >= 1;
-        }), "file transfer metadata should be persisted in PostgreSQL") && ok;
+        }), "file transfer chunk metadata should be persisted in PostgreSQL") && ok;
 
-        setSmokeStep(QStringLiteral("offline private message queue and replay"));
+        setSmokeStep(QStringLiteral("offline private message and attachment queue replay"));
         disconnectClient(peer);
         const QString offlineMessage = "PostgreSQL QPSQL offline private smoke";
         ok = expect(waitFor([&] { return !peer.isConnected(); }, 2000),
                     "peer should be offline before offline message smoke") && ok;
         ok = expect(owner.sendPrivateMessage(peerId, offlineMessage),
                     "owner should send offline private message") && ok;
+        const QString offlineFilePath = QDir(appDataDir).filePath("pgsql-smoke-offline-file.txt");
+        QFile offlineFile(offlineFilePath);
+        ok = expect(offlineFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL offline attachment smoke file should be writable") && ok;
+        if (offlineFile.isOpen()) {
+            offlineFile.write("PostgreSQL QPSQL offline attachment smoke");
+            offlineFile.close();
+        }
+        ok = expect(owner.sendFile(offlineFilePath, peerId),
+                    "owner should queue an offline attachment through PostgreSQL") && ok;
         qint64 offlineRows = 0;
         ok = expect(waitFor([&] {
             return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
                                   {peerId},
                                   &offlineRows)
-                && offlineRows >= 1;
-        }), "offline private message should be queued in PostgreSQL") && ok;
+                && offlineRows >= 2;
+        }), "offline private message and attachment should be queued in PostgreSQL") && ok;
+        qint64 offlineAttachmentRows = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE '%pgsql-smoke-offline-file.txt%' AND payload LIKE '%chunkSize%' AND payload LIKE '%chunkCount%'",
+                                  {peerId},
+                                  &offlineAttachmentRows)
+                && offlineAttachmentRows >= 1;
+        }), "offline attachment payload should keep chunk metadata in PostgreSQL") && ok;
 
         QObject::disconnect(&peer, nullptr, &app, nullptr);
         QObject::connect(&peer, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::Private) {
                 peerOfflineMessages << msg.content;
+            } else if (msg.type == MessageType::File) {
+                peerFiles << msg.fileName;
             }
         });
         ok = expect(loginClient(peer, peerId, "PgPeer", port, false),
                     "peer should re-login to replay PostgreSQL offline message") && ok;
         ok = expect(waitFor([&] { return peerOfflineMessages.contains(offlineMessage); }, 8000),
                     "peer should receive PostgreSQL offline private message") && ok;
+        ok = expect(waitFor([&] { return peerFiles.contains(QStringLiteral("pgsql-smoke-offline-file.txt")); }, 8000),
+                    "peer should receive PostgreSQL offline attachment replay") && ok;
         ok = expect(waitFor([&] {
             return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
                                   {peerId},

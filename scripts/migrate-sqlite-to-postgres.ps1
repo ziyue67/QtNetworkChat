@@ -8,9 +8,11 @@ param(
     [string]$PostgresDatabase = "qtnetworkchat",
     [string]$PostgresUser = "postgres",
     [string]$PostgresPassword = $env:QTNETWORKCHAT_PGPASSWORD,
-    [ValidateSet("plan", "execute")]
+    [ValidateSet("plan", "execute", "validate", "diff", "rollback")]
     [string]$Mode = "plan",
     [switch]$CreateSample,
+    [string]$SampleOwnerId = "910001",
+    [string]$SamplePeerId = "910002",
     [string]$JsonPath
 )
 
@@ -36,7 +38,7 @@ $checks = @(
     [pscustomobject]@{ name = "qt-bin"; ok = (Test-Path -LiteralPath $qtBinDir -PathType Container); detail = $qtBinDir },
     [pscustomobject]@{ name = "qt-sqlite-plugin"; ok = (Test-Path -LiteralPath (Join-Path $qtPluginDir "sqldrivers\qsqlite.dll") -PathType Leaf); detail = (Join-Path $qtPluginDir "sqldrivers\qsqlite.dll") }
 )
-if ($Mode -eq "execute") {
+if ($Mode -ne "plan") {
     $checks += @(
         [pscustomobject]@{ name = "qt-qpsql-plugin"; ok = (Test-Path -LiteralPath $qpsqlPlugin -PathType Leaf); detail = $qpsqlPlugin },
         [pscustomobject]@{ name = "postgres-libpq"; ok = (Test-Path -LiteralPath $libpq -PathType Leaf); detail = $libpq }
@@ -46,8 +48,8 @@ $missing = @($checks | Where-Object { -not $_.ok } | ForEach-Object { $_.name })
 if ($missing.Count -gt 0) {
     throw ("SQLite to PostgreSQL migration prerequisites missing: {0}" -f ($missing -join ", "))
 }
-if ($Mode -eq "execute" -and [string]::IsNullOrWhiteSpace($PostgresPassword)) {
-    throw "PostgresPassword is required when -Mode execute"
+if ($Mode -ne "plan" -and [string]::IsNullOrWhiteSpace($PostgresPassword)) {
+    throw "PostgresPassword is required when -Mode $Mode"
 }
 
 $jsonTarget = if ([string]::IsNullOrWhiteSpace($JsonPath)) { "" } else { Resolve-RepoPath $JsonPath }
@@ -61,7 +63,7 @@ $args = @(
     "--pg-password", $PostgresPassword
 )
 if ($CreateSample) {
-    $args += "--create-sample"
+    $args += @("--create-sample", "--sample-owner-id", $SampleOwnerId, "--sample-peer-id", $SamplePeerId)
 }
 if (-not [string]::IsNullOrWhiteSpace($jsonTarget)) {
     $args += @("--json", $jsonTarget)
@@ -71,7 +73,7 @@ $oldPath = $env:PATH
 $oldPluginPath = $env:QT_PLUGIN_PATH
 try {
     $pathPrefix = $qtBinDir
-    if ($Mode -eq "execute") {
+    if ($Mode -ne "plan") {
         $pathPrefix = "$qtBinDir;$PostgresBinDir"
     }
     $env:PATH = "$pathPrefix;$oldPath"
