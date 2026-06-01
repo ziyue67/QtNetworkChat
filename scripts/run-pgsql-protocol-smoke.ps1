@@ -9,7 +9,8 @@ param(
     [string]$PostgresPassword = $env:QTNETWORKCHAT_PGPASSWORD,
     [string]$AppDataDir,
     [switch]$PlanOnly,
-    [string]$JsonPath
+    [string]$JsonPath,
+    [string]$MarkdownPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,6 +72,39 @@ $coverageSurfaces = @(
     "restart-login-kdf-session"
 )
 
+$boundaryScenarios = @(
+    [pscustomobject]@{
+        name = "offline-private-queue-replay"
+        category = "offline-message"
+        persistence = "offline_messages"
+        expectedEvidence = "offline queue row is inserted while the peer is offline and removed after replay"
+    },
+    [pscustomobject]@{
+        name = "offline-attachment-chunk-metadata"
+        category = "offline-attachment"
+        persistence = "offline_messages.payload"
+        expectedEvidence = "offline attachment payload keeps fileName, fileSize, fileHash, chunkSize and chunkCount"
+    },
+    [pscustomobject]@{
+        name = "offline-attachment-replay-cleanup"
+        category = "offline-attachment"
+        persistence = "offline_messages"
+        expectedEvidence = "offline attachment is replayed to the relogged peer and queue rows are cleared"
+    },
+    [pscustomobject]@{
+        name = "file-chunk-metadata-persistence"
+        category = "file-chunk"
+        persistence = "messages"
+        expectedEvidence = "online file transfer persists file hash, chunk size and chunk count in PostgreSQL"
+    },
+    [pscustomobject]@{
+        name = "restart-login-kdf-session"
+        category = "restart-boundary"
+        persistence = "accounts,user_sessions"
+        expectedEvidence = "server restart keeps PBKDF2 account hash and records a new login session"
+    }
+)
+
 $result = [ordered]@{
     format = "qtnetworkchat-pgsql-protocol-smoke-v1"
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -78,6 +112,7 @@ $result = [ordered]@{
     ok = @($checks | Where-Object { -not $_.ok }).Count -eq 0
     checks = $checks
     coverageSurfaces = $coverageSurfaces
+    boundaryScenarios = $boundaryScenarios
     testExecutable = $testExePath
     qtRoot = $QtRoot
     postgresBinDir = $PostgresBinDir
@@ -152,6 +187,55 @@ if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
         New-Item -ItemType Directory -Force -Path $parent | Out-Null
     }
     $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jsonTarget -Encoding UTF8
+}
+
+if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
+    $markdownTarget = Resolve-RepoPath $MarkdownPath
+    $parent = Split-Path -Parent $markdownTarget
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+
+    $failedChecks = @($checks | Where-Object { -not $_.ok })
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("# PostgreSQL QPSQL Protocol Smoke Evidence")
+    $lines.Add("")
+    $lines.Add(("- Generated at: {0}" -f $result.generatedAt))
+    $lines.Add(("- Plan only: {0}" -f $result.planOnly))
+    $lines.Add(("- OK: {0}" -f $result.ok))
+    $lines.Add(("- Exit code: {0}" -f ($(if ($null -eq $result.exitCode) { "not-run" } else { $result.exitCode }))))
+    $lines.Add(("- PostgreSQL target: {0}:{1}/{2} as {3}" -f $PostgresHost, $PostgresPort, $PostgresDatabase, $PostgresUser))
+    $lines.Add("- PostgreSQL password: <redacted>")
+    $lines.Add(("- Failed prerequisite checks: {0}" -f $failedChecks.Count))
+    $lines.Add("")
+    $lines.Add("## Runtime Checks")
+    $lines.Add("")
+    $lines.Add("| Check | OK | Detail |")
+    $lines.Add("|---|---:|---|")
+    foreach ($check in $checks) {
+        $detail = [string]$check.detail
+        $detail = $detail.Replace("|", "\|")
+        $lines.Add(("| {0} | {1} | {2} |" -f $check.name, $check.ok, $detail))
+    }
+    $lines.Add("")
+    $lines.Add("## Coverage Surfaces")
+    $lines.Add("")
+    foreach ($surface in $coverageSurfaces) {
+        $lines.Add(("- {0}" -f $surface))
+    }
+    $lines.Add("")
+    $lines.Add("## Boundary Scenarios")
+    $lines.Add("")
+    $lines.Add("| Scenario | Category | Persistence | Expected evidence |")
+    $lines.Add("|---|---|---|---|")
+    foreach ($scenario in $boundaryScenarios) {
+        $lines.Add(("| {0} | {1} | {2} | {3} |" -f
+            $scenario.name,
+            $scenario.category,
+            $scenario.persistence,
+            $scenario.expectedEvidence))
+    }
+    Set-Content -LiteralPath $markdownTarget -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
 }
 
 $result | ConvertTo-Json -Depth 8
