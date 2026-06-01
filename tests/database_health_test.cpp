@@ -4,8 +4,11 @@
 #include <QDebug>
 #include <QDir>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QFile>
+#include <QFileInfo>
 #include <QStandardPaths>
 
 namespace {
@@ -65,6 +68,27 @@ int main(int argc, char** argv) {
                 "database health should include passing ping check") && ok;
     ok = expect(hasPassingCheck(checks, "required-tables"),
                 "database health should include passing required table check") && ok;
+
+    const QString exportPath = QDir(appDataDir).filePath("database-health-export.json");
+    QFile exportFile(exportPath);
+    ok = expect(exportFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+                "database health export file should be writable") && ok;
+    if (exportFile.isOpen()) {
+        exportFile.write(QJsonDocument(health).toJson(QJsonDocument::Indented));
+        exportFile.close();
+    }
+    ok = expect(QFileInfo::exists(exportPath),
+                "database health export JSON should be written") && ok;
+    QFile readBack(exportPath);
+    ok = expect(readBack.open(QIODevice::ReadOnly),
+                "database health export JSON should be readable") && ok;
+    if (readBack.isOpen()) {
+        const QJsonObject exported = QJsonDocument::fromJson(readBack.readAll()).object();
+        ok = expect(exported.value("status").toString() == "healthy",
+                    "database health export JSON should preserve healthy status") && ok;
+        ok = expect(exported.value("config").toObject().value("driver").toString() == "QSQLITE",
+                    "database health export JSON should preserve redacted config") && ok;
+    }
 
     server.stop();
     if (!appDataDir.isEmpty()) {

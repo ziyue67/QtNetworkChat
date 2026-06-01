@@ -387,6 +387,27 @@ powershell -ExecutionPolicy Bypass -File scripts/check-database-health.ps1 `
 
 `-PlanOnly` 只校验 QPSQL 插件、`psql.exe` 和 `libpq.dll` 等本地运行时，不连接真实数据库；去掉 `-PlanOnly` 后会用 `psql` 检查 10 张服务端必需表。追加 `-FailOnUnhealthy` 可让计划任务在缺少运行时、密码或表结构不完整时非零退出。默认 CTest 覆盖 SQLite 健康快照和脚本 plan，不读取真实 PostgreSQL 密码。
 
+需要让服务端在启动本地托管服务后落盘健康快照，可启用启动导出：
+
+```powershell
+$env:QTNETWORKCHAT_DB_HEALTH_EXPORT = "1"
+$env:QTNETWORKCHAT_DB_HEALTH_JSON = "build-qt6-mingw\database-health-startup.json"
+```
+
+未设置 `QTNETWORKCHAT_DB_HEALTH_JSON` 时会写入应用数据目录下的 `database-health.json`。导出内容包含 `source=server-startup`、数据库驱动、脱敏配置、open/ping/required-tables 检查结果和整体状态，不写入真实 PostgreSQL 密码。
+
+已有健康快照可再转成只读运维状态 JSON/Markdown：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/show-database-health-status.ps1 `
+  -HealthPath "build-qt6-mingw\database-health-startup.json" `
+  -JsonPath "build-qt6-mingw\database-health-status.json" `
+  -MarkdownPath "build-qt6-mingw\database-health-status.md" `
+  -FailOnUnhealthy
+```
+
+状态脚本会汇总 `status`、`driver`、检查数量、失败检查和敏感字段扫描结果；发现未脱敏的 `password`、access key、signature 等内容时会把状态降为 unhealthy，并在 `-FailOnUnhealthy` 下非零退出。
+
 需要用真实 Qt QPSQL 插件跑服务端协议 smoke 时，先完成构建，再运行：
 
 ```powershell

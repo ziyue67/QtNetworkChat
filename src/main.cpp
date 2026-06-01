@@ -21,6 +21,43 @@
 #include <QStyle>
 #include <QStandardPaths>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+
+namespace {
+bool envEnabled(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+void maybeWriteDatabaseHealthSnapshot(const Server* server) {
+    if (!server || !envEnabled("QTNETWORKCHAT_DB_HEALTH_EXPORT")) return;
+
+    const QString configuredPath = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_HEALTH_JSON")).trimmed();
+    const QString defaultPath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+        .filePath("database-health.json");
+    const QString outputPath = configuredPath.isEmpty() ? defaultPath : configuredPath;
+    if (outputPath.trimmed().isEmpty()) return;
+
+    const QFileInfo info(outputPath);
+    if (!info.absoluteDir().exists()) {
+        QDir().mkpath(info.absolutePath());
+    }
+
+    QJsonObject snapshot = server->databaseHealthSnapshot();
+    snapshot["source"] = QStringLiteral("server-startup");
+    QFile file(outputPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qWarning() << "Failed to write database health snapshot:" << outputPath << file.errorString();
+        return;
+    }
+    file.write(QJsonDocument(snapshot).toJson(QJsonDocument::Indented));
+    file.close();
+    qInfo() << "Database health snapshot written:" << outputPath << snapshot.value("status").toString();
+}
+}
 
 class LoginDialog : public QDialog {
 public:
@@ -653,6 +690,7 @@ int main(int argc, char *argv[])
         serviceBadgeLabel->setText("托管本地服务");
         serviceBadgeLabel->setToolTip("本窗口已启动端口 8888，本机其他客户端会自动连接");
         modeStatusLabel->setText("本窗口正在托管本地服务，可再打开一个客户端测试互发消息。");
+        maybeWriteDatabaseHealthSnapshot(server);
     }
     Client* client = nullptr;
 
