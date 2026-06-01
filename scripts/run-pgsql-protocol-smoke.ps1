@@ -98,6 +98,12 @@ $boundaryScenarios = @(
         expectedEvidence = "queued attachment file is deleted before replay, peer receives a missing-file notice, and the bad PostgreSQL queue row is cleared"
     },
     [pscustomobject]@{
+        name = "offline-attachment-size-hash-chunk-cleanup"
+        category = "offline-attachment-failure"
+        persistence = "offline_messages"
+        expectedEvidence = "queued attachment size, hash and chunk metadata are corrupted before replay, peer receives fixed failure notices, and bad PostgreSQL queue rows are cleared"
+    },
+    [pscustomobject]@{
         name = "file-chunk-metadata-persistence"
         category = "file-chunk"
         persistence = "messages"

@@ -632,12 +632,45 @@ int main(int argc, char** argv) {
         }
         ok = expect(owner.sendFile(missingOfflineFilePath, peerId),
                     "owner should queue a second offline attachment for missing-file cleanup") && ok;
+        const QString sizeMismatchFileName = "pgsql-smoke-size-mismatch-offline-file.txt";
+        const QString sizeMismatchFilePath = QDir(appDataDir).filePath(sizeMismatchFileName);
+        QFile sizeMismatchFile(sizeMismatchFilePath);
+        ok = expect(sizeMismatchFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL size-mismatch offline attachment smoke file should be writable") && ok;
+        if (sizeMismatchFile.isOpen()) {
+            sizeMismatchFile.write("PostgreSQL QPSQL size mismatch offline attachment smoke");
+            sizeMismatchFile.close();
+        }
+        ok = expect(owner.sendFile(sizeMismatchFilePath, peerId),
+                    "owner should queue an offline attachment for size mismatch cleanup") && ok;
+        const QString hashMismatchFileName = "pgsql-smoke-hash-mismatch-offline-file.txt";
+        const QString hashMismatchFilePath = QDir(appDataDir).filePath(hashMismatchFileName);
+        QFile hashMismatchFile(hashMismatchFilePath);
+        ok = expect(hashMismatchFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL hash-mismatch offline attachment smoke file should be writable") && ok;
+        if (hashMismatchFile.isOpen()) {
+            hashMismatchFile.write("PostgreSQL QPSQL hash mismatch offline attachment smoke");
+            hashMismatchFile.close();
+        }
+        ok = expect(owner.sendFile(hashMismatchFilePath, peerId),
+                    "owner should queue an offline attachment for hash mismatch cleanup") && ok;
+        const QString chunkMismatchFileName = "pgsql-smoke-chunk-mismatch-offline-file.txt";
+        const QString chunkMismatchFilePath = QDir(appDataDir).filePath(chunkMismatchFileName);
+        QFile chunkMismatchFile(chunkMismatchFilePath);
+        ok = expect(chunkMismatchFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL chunk-mismatch offline attachment smoke file should be writable") && ok;
+        if (chunkMismatchFile.isOpen()) {
+            chunkMismatchFile.write("PostgreSQL QPSQL chunk mismatch offline attachment smoke");
+            chunkMismatchFile.close();
+        }
+        ok = expect(owner.sendFile(chunkMismatchFilePath, peerId),
+                    "owner should queue an offline attachment for chunk metadata cleanup") && ok;
         qint64 offlineRows = 0;
         ok = expect(waitFor([&] {
             return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
                                   {peerId},
                                   &offlineRows)
-                && offlineRows >= 3;
+                && offlineRows >= 6;
         }), "offline private message and attachments should be queued in PostgreSQL") && ok;
         qint64 offlineAttachmentRows = 0;
         ok = expect(waitFor([&] {
@@ -661,6 +694,68 @@ int main(int argc, char** argv) {
                     "missing-file offline attachment payload should include an offline file path") && ok;
         ok = expect(QFile::remove(storedMissingAttachmentPath),
                     "smoke should be able to delete the queued offline attachment file before replay") && ok;
+        auto loadOfflineAttachmentPayload = [&](const QString& fileName, QString* payload, QString* offlinePath) {
+            QString loadedPayload;
+            if (!waitFor([&] {
+                    return scalarString("SELECT payload FROM offline_messages WHERE receiver_id = ? AND payload LIKE ? ORDER BY id DESC LIMIT 1",
+                                        {peerId, "%" + fileName + "%"},
+                                        &loadedPayload)
+                        && loadedPayload.contains(fileName);
+                })) {
+                return false;
+            }
+            const QJsonDocument doc = QJsonDocument::fromJson(loadedPayload.toUtf8());
+            if (!doc.isObject()) return false;
+            const QString path = doc.object().value("offlineFilePath").toString();
+            if (path.isEmpty()) return false;
+            if (payload) *payload = loadedPayload;
+            if (offlinePath) *offlinePath = path;
+            return true;
+        };
+        QString sizeMismatchPayload;
+        QString storedSizeMismatchPath;
+        ok = expect(loadOfflineAttachmentPayload(sizeMismatchFileName, &sizeMismatchPayload, &storedSizeMismatchPath),
+                    "size-mismatch offline attachment payload should be persisted in PostgreSQL") && ok;
+        QFile storedSizeMismatchFile(storedSizeMismatchPath);
+        ok = expect(storedSizeMismatchFile.open(QIODevice::Append),
+                    "smoke should open the queued offline attachment file for size mutation") && ok;
+        if (storedSizeMismatchFile.isOpen()) {
+            storedSizeMismatchFile.write("x");
+            storedSizeMismatchFile.close();
+        }
+        QString hashMismatchPayload;
+        QString storedHashMismatchPath;
+        ok = expect(loadOfflineAttachmentPayload(hashMismatchFileName, &hashMismatchPayload, &storedHashMismatchPath),
+                    "hash-mismatch offline attachment payload should be persisted in PostgreSQL") && ok;
+        QFile storedHashMismatchFile(storedHashMismatchPath);
+        ok = expect(storedHashMismatchFile.open(QIODevice::ReadWrite),
+                    "smoke should open the queued offline attachment file for hash mutation") && ok;
+        if (storedHashMismatchFile.isOpen()) {
+            ok = expect(storedHashMismatchFile.seek(0) && storedHashMismatchFile.write("X") == 1,
+                        "smoke should mutate queued offline attachment content without changing metadata") && ok;
+            storedHashMismatchFile.close();
+        }
+        QString chunkMismatchPayload;
+        QString storedChunkMismatchPath;
+        ok = expect(loadOfflineAttachmentPayload(chunkMismatchFileName, &chunkMismatchPayload, &storedChunkMismatchPath),
+                    "chunk-mismatch offline attachment payload should be persisted in PostgreSQL") && ok;
+        QJsonObject chunkMismatchPayloadObject = QJsonDocument::fromJson(chunkMismatchPayload.toUtf8()).object();
+        chunkMismatchPayloadObject["chunkCount"] = QString::number(999999);
+        const QString mutatedChunkMismatchPayload = QString::fromUtf8(QJsonDocument(chunkMismatchPayloadObject).toJson(QJsonDocument::Compact));
+        const QString mutateChunkConnectionName = "postgres_qpsql_mutate_chunk_payload";
+        bool mutatedChunkPayload = false;
+        {
+            QSqlDatabase db = openPostgres(mutateChunkConnectionName);
+            if (db.open()) {
+                mutatedChunkPayload = execSql(db,
+                                              "UPDATE offline_messages SET payload = ? WHERE receiver_id = ? AND payload LIKE ?",
+                                              {mutatedChunkMismatchPayload, peerId, "%" + chunkMismatchFileName + "%"});
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(mutateChunkConnectionName);
+        ok = expect(mutatedChunkPayload,
+                    "smoke should mutate queued offline attachment chunk metadata in PostgreSQL") && ok;
 
         QObject::disconnect(&peer, nullptr, &app, nullptr);
         QObject::connect(&peer, &Client::newMessage, &app, [&](const Message& msg) {
@@ -687,6 +782,20 @@ int main(int argc, char** argv) {
             }
             return false;
         }, 8000), "peer should receive a missing offline attachment notice from PostgreSQL replay") && ok;
+        ok = expect(waitFor([&] {
+            bool sawSizeMismatch = false;
+            bool sawHashMismatch = false;
+            bool sawChunkMismatch = false;
+            for (const QString& message : peerSystemMessages) {
+                sawSizeMismatch = sawSizeMismatch
+                    || (message.contains(QString::fromUtf8("离线文件大小异常")) && message.contains(sizeMismatchFileName));
+                sawHashMismatch = sawHashMismatch
+                    || (message.contains(QString::fromUtf8("离线文件校验失败")) && message.contains(hashMismatchFileName));
+                sawChunkMismatch = sawChunkMismatch
+                    || (message.contains(QString::fromUtf8("离线文件分片元数据异常")) && message.contains(chunkMismatchFileName));
+            }
+            return sawSizeMismatch && sawHashMismatch && sawChunkMismatch;
+        }, 8000), "peer should receive size/hash/chunk metadata offline attachment notices from PostgreSQL replay") && ok;
         ok = expect(waitFor([&] {
             return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
                                   {peerId},
