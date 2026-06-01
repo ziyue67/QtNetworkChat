@@ -560,4 +560,10 @@ if(BUILD_TESTING)
             -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_windows_package_manifest.cmake
     )
+    add_test(
+        NAME LocalInfraConfig
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-local-infra.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_infra_config.cmake
+    )
 endif()

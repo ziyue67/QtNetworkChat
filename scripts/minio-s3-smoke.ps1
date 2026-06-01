@@ -7,6 +7,7 @@ param(
     [string]$Prefix = "qtchat/manual-smoke",
     [string]$ContainerName = "qtchat-minio-smoke",
     [switch]$SkipContainer,
+    [Alias("MinioServerPath")]
     [string]$MinioExePath,
     [string]$DataDir,
     [int]$ConsolePort = 9001,
@@ -183,10 +184,27 @@ function Add-SmokeRouteLine([System.Collections.Generic.List[string]]$Lines,
     $Lines.Add(("redis_large_file_route {0}" -f ($fields -join " ")))
 }
 
+function Start-MinioProcess {
+    param(
+        [string]$ExecutablePath,
+        [string[]]$Arguments
+    )
+
+    $startArgs = @{
+        FilePath = $ExecutablePath
+        ArgumentList = $Arguments
+        PassThru = $true
+    }
+    if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        $startArgs["WindowStyle"] = "Hidden"
+    }
+    Start-Process @startArgs
+}
+
 $localMinioProcess = $null
 if (-not [string]::IsNullOrWhiteSpace($MinioExePath)) {
     if (-not (Test-Path -LiteralPath $MinioExePath -PathType Leaf)) {
-        throw "MinioExePath not found: $MinioExePath"
+        throw "MinioServerPath/MinioExePath not found: $MinioExePath"
     }
     if ([string]::IsNullOrWhiteSpace($DataDir)) {
         $DataDir = Join-Path ([System.IO.Path]::GetTempPath()) "qtnetworkchat-minio-smoke-data"
@@ -197,10 +215,9 @@ if (-not [string]::IsNullOrWhiteSpace($MinioExePath)) {
     $endpointUri = [Uri]$Endpoint
     $listenAddress = "{0}:{1}" -f $endpointUri.Host, $endpointUri.Port
     $consoleAddress = "127.0.0.1:{0}" -f $ConsolePort
-    $localMinioProcess = Start-Process -FilePath $MinioExePath `
-        -ArgumentList @("server", $DataDir, "--address", $listenAddress, "--console-address", $consoleAddress) `
-        -WindowStyle Hidden `
-        -PassThru
+    $localMinioProcess = Start-MinioProcess `
+        -ExecutablePath $MinioExePath `
+        -Arguments @("server", $DataDir, "--address", $listenAddress, "--console-address", $consoleAddress)
 } elseif (-not $SkipContainer) {
     $docker = Get-Command docker -ErrorAction SilentlyContinue
     if (-not $docker) {
@@ -209,8 +226,9 @@ if (-not [string]::IsNullOrWhiteSpace($MinioExePath)) {
 
     $existing = docker ps -a --filter "name=^/$ContainerName$" --format "{{.Names}}"
     if (-not $existing) {
+        $endpointUri = [Uri]$Endpoint
         docker run -d --name $ContainerName `
-            -p 9000:9000 -p 9001:9001 `
+            -p "$($endpointUri.Port):9000" -p "$($ConsolePort):9001" `
             -e "MINIO_ROOT_USER=$AccessKey" `
             -e "MINIO_ROOT_PASSWORD=$SecretKey" `
             minio/minio server /data --console-address ":9001" | Out-Null
@@ -287,7 +305,7 @@ try {
             generatedAt = (Get-Date).ToUniversalTime().ToString("o")
             ok = $smokeOk
             readOnlyEvidence = $false
-            serverMode = if ($localMinioProcess) { "local-exe" } elseif ($SkipContainer) { "external" } else { "docker" }
+            serverMode = if ($localMinioProcess) { "local-binary" } elseif ($SkipContainer) { "external" } else { "docker" }
             operations = [pscustomobject]$operations
             sanitizedRouteLogPath = if ([string]::IsNullOrWhiteSpace($SanitizedRouteLogPath)) { "" } else { $SanitizedRouteLogPath }
             notes = "Summary is sanitized: no endpoint, bucket, object URL, credentials, Authorization, Credential, or Signature values are written."
@@ -295,7 +313,7 @@ try {
     }
     if (-not [string]::IsNullOrWhiteSpace($SanitizedSmokeLogPath)) {
         Write-ParentDirectory $SanitizedSmokeLogPath
-        $serverMode = if ($localMinioProcess) { "local-exe" } elseif ($SkipContainer) { "external" } else { "docker" }
+        $serverMode = if ($localMinioProcess) { "local-binary" } elseif ($SkipContainer) { "external" } else { "docker" }
         @(
             "MinIO S3 smoke passed.",
             "serverMode={0}" -f $serverMode,
@@ -310,13 +328,23 @@ try {
     Write-Host "ObjectKey: $objectKey"
     Write-Host ""
     Write-Host "QtNetworkChat environment example:"
-    Write-Host "  set QTNETWORKCHAT_OBJECT_STORE=s3"
-    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ENDPOINT=$Endpoint"
-    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_BUCKET=$Bucket"
-    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_REGION=$Region"
-    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY=$AccessKey"
-    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_SECRET_KEY=<redacted>"
-    Write-Host "  set QTNETWORKCHAT_OBJECT_S3_PREFIX=$safePrefix"
+    if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        Write-Host "  set QTNETWORKCHAT_OBJECT_STORE=s3"
+        Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ENDPOINT=$Endpoint"
+        Write-Host "  set QTNETWORKCHAT_OBJECT_S3_BUCKET=$Bucket"
+        Write-Host "  set QTNETWORKCHAT_OBJECT_S3_REGION=$Region"
+        Write-Host "  set QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY=$AccessKey"
+        Write-Host "  set QTNETWORKCHAT_OBJECT_S3_SECRET_KEY=<redacted>"
+        Write-Host "  set QTNETWORKCHAT_OBJECT_S3_PREFIX=$safePrefix"
+    } else {
+        Write-Host "  export QTNETWORKCHAT_OBJECT_STORE=s3"
+        Write-Host "  export QTNETWORKCHAT_OBJECT_S3_ENDPOINT='$Endpoint'"
+        Write-Host "  export QTNETWORKCHAT_OBJECT_S3_BUCKET='$Bucket'"
+        Write-Host "  export QTNETWORKCHAT_OBJECT_S3_REGION='$Region'"
+        Write-Host "  export QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY='$AccessKey'"
+        Write-Host "  export QTNETWORKCHAT_OBJECT_S3_SECRET_KEY='<redacted>'"
+        Write-Host "  export QTNETWORKCHAT_OBJECT_S3_PREFIX='$safePrefix'"
+    }
 } finally {
     if ($localMinioProcess -and -not $KeepLocalServer) {
         Stop-Process -Id $localMinioProcess.Id -Force -ErrorAction SilentlyContinue

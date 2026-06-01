@@ -155,7 +155,17 @@ S3/MinIO 后端默认仍保持关闭；需要验证当前 SigV4 签名和 path-s
 powershell -ExecutionPolicy Bypass -File scripts/minio-s3-smoke.ps1
 ```
 
-脚本会尝试通过 Docker 启动本地 MinIO，并用 SigV4 完成 bucket 创建和对象 PUT/HEAD/GET/DELETE smoke。若已自行启动 MinIO，可追加 `-SkipContainer` 并传入 `-Endpoint`、`-Bucket`、`-AccessKey`、`-SecretKey`、`-Region`、`-Prefix`。若本机已经下载 Windows 版 MinIO，也可以直接传 `-MinioExePath` 和 `-DataDir`，脚本会隐藏启动本地 MinIO，完成 smoke 后自动停止。该脚本不属于默认 CTest 或 CI 前置条件。
+脚本会尝试通过 Docker 启动本地 MinIO，并用 SigV4 完成 bucket 创建和对象 PUT/HEAD/GET/DELETE smoke。若已自行启动 MinIO，可追加 `-SkipContainer` 并传入 `-Endpoint`、`-Bucket`、`-AccessKey`、`-SecretKey`、`-Region`、`-Prefix`。若本机已经下载 MinIO，也可以直接传 `-MinioServerPath`（兼容旧参数 `-MinioExePath`）和 `-DataDir`；Windows 下会隐藏启动本地 MinIO，Linux/macOS 下会按普通后台进程启动，完成 smoke 后自动停止。Docker 模式会按 `-Endpoint` 和 `-ConsolePort` 映射端口，便于 Linux 服务器使用非 9000 端口。该脚本不属于默认 CTest 或 CI 前置条件。
+
+Linux MinIO 示例：
+
+```bash
+pwsh ./scripts/minio-s3-smoke.ps1 \
+  -MinioServerPath /usr/local/bin/minio \
+  -DataDir /var/tmp/qtnetworkchat-minio \
+  -Endpoint http://127.0.0.1:19000 \
+  -ConsolePort 19001
+```
 
 需要把真实 smoke 纳入脱敏证据包时，可额外指定 `-SanitizedRouteLogPath`、`-SanitizedSummaryPath` 和 `-SanitizedSmokeLogPath`。这些产物只记录 `storeType=s3`、固定 `operation/reason/result`、字节数和 smoke 结果，不写 endpoint、bucket、object URL、access key、secret key、Authorization、Credential 或 Signature，可继续交给 `scripts/analyze-s3-request-results.ps1`、`scripts/verify-s3-real-backend-evidence.ps1` 和 `scripts/package-large-file-acceptance.ps1` 生成真实后端 evidence JSON/Markdown/alert 和验收 zip。
 
@@ -171,6 +181,20 @@ $env:QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY = "qtchat-dev"
 $env:QTNETWORKCHAT_OBJECT_S3_SECRET_KEY = "qtchat-dev-secret"
 $env:QTNETWORKCHAT_OBJECT_S3_PREFIX = "qtchat/manual-smoke"
 $env:QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS = "30000"
+```
+
+Linux 环境变量示例：
+
+```bash
+export QTNETWORKCHAT_OBJECT_STORE=s3
+export QTNETWORKCHAT_OBJECT_S3_ENABLE=1
+export QTNETWORKCHAT_OBJECT_S3_ENDPOINT='http://127.0.0.1:9000'
+export QTNETWORKCHAT_OBJECT_S3_BUCKET='qtchat-large-files'
+export QTNETWORKCHAT_OBJECT_S3_REGION='us-east-1'
+export QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY='qtchat-dev'
+export QTNETWORKCHAT_OBJECT_S3_SECRET_KEY='qtchat-dev-secret'
+export QTNETWORKCHAT_OBJECT_S3_PREFIX='qtchat/manual-smoke'
+export QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS=30000
 ```
 
 `QTNETWORKCHAT_OBJECT_S3_ENABLE` 未显式设为 `1/true/yes/on` 时，`s3` 工厂会继续 fail-closed。真实后端失败时仍保留源实例离线附件兜底；日志、Redis 事件和离线队列只允许记录固定 reason 桶和逻辑 `objectKey`，不得写入 endpoint、bucket、object URL、access key、secret key、session token、Authorization、Credential 或 Signature。
@@ -290,6 +314,50 @@ powershell -ExecutionPolicy Bypass -File scripts/start-with-redis.ps1
 ```bash
 set QTNETWORKCHAT_REDIS_PASSWORD=your_password
 set QTNETWORKCHAT_REDIS_PREFIX=qtchat
+```
+
+### PostgreSQL / SQLite 并存
+
+服务端账号、离线消息、群组和审计默认继续使用 SQLite：不设置 `QTNETWORKCHAT_DB_DRIVER` 时会读写本地 `accounts.sqlite3`。需要切换到 PostgreSQL 时设置 `QTNETWORKCHAT_DB_DRIVER=QPSQL`，SQLite 文件仍可保留，二者不会互相覆盖。
+
+本机 PostgreSQL 17、Redis 8.6.2 和 MinIO 路径可先用只读检查脚本生成连接计划：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify-local-infra.ps1 `
+  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
+  -PostgresPassword "<本机 PostgreSQL 密码>" `
+  -RedisBinDir "D:\Program Files\Redis-8.6.2" `
+  -MinioServerPath "D:\Dminio-server\minio.windows-amd64.RELEASE.2025-09-07T16-13-09Z.exe" `
+  -MinioClientPath "D:\Dminio-server\mc.windows-amd64.RELEASE.2025-08-13T08-35-41Z.exe" `
+  -PlanOnly
+```
+
+确认 PostgreSQL 服务和 `qtnetworkchat` 数据库已创建后，去掉 `-PlanOnly` 可执行 `psql select 1` 与 `redis-cli PING` 连接检查。启动服务端前可设置：
+
+```powershell
+$env:QTNETWORKCHAT_DB_DRIVER = "QPSQL"
+$env:QTNETWORKCHAT_PGHOST = "127.0.0.1"
+$env:QTNETWORKCHAT_PGPORT = "5432"
+$env:QTNETWORKCHAT_PGDATABASE = "qtnetworkchat"
+$env:QTNETWORKCHAT_PGUSER = "postgres"
+$env:QTNETWORKCHAT_PGPASSWORD = "<本机 PostgreSQL 密码>"
+$env:QTNETWORKCHAT_REDIS = "1"
+$env:QTNETWORKCHAT_REDIS_HOST = "127.0.0.1"
+$env:QTNETWORKCHAT_REDIS_PORT = "6379"
+```
+
+Linux 启动示例：
+
+```bash
+export QTNETWORKCHAT_DB_DRIVER=QPSQL
+export QTNETWORKCHAT_PGHOST='127.0.0.1'
+export QTNETWORKCHAT_PGPORT='5432'
+export QTNETWORKCHAT_PGDATABASE='qtnetworkchat'
+export QTNETWORKCHAT_PGUSER='postgres'
+export QTNETWORKCHAT_PGPASSWORD='<本机 PostgreSQL 密码>'
+export QTNETWORKCHAT_REDIS=1
+export QTNETWORKCHAT_REDIS_HOST='127.0.0.1'
+export QTNETWORKCHAT_REDIS_PORT='6379'
 ```
 
 启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；服务端也会订阅该通道，跳过本实例事件，并把远端群聊/私聊转发给本实例在线用户。文件和图片只在编码后的 Redis 事件体不超过 1 MB 时通过 Pub/Sub 路由；超过该限制的 payload 会留在源实例离线附件队列，后续应按 [Redis 跨实例大文件路由计划](docs/redis-large-file-routing-plan.md) 通过控制面事件加对象存储式数据面承载。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。

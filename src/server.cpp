@@ -107,6 +107,85 @@ QString appDataDir() {
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 }
 
+QString accountDatabaseDriver() {
+    const QString configured = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_DRIVER")).trimmed().toUpper();
+    if (configured == QLatin1String("QPSQL") || configured == QLatin1String("POSTGRES") || configured == QLatin1String("POSTGRESQL")) {
+        return QStringLiteral("QPSQL");
+    }
+    return QStringLiteral("QSQLITE");
+}
+
+bool accountDatabaseIsPostgres() {
+    return accountDatabaseDriver() == QLatin1String("QPSQL");
+}
+
+QString accountDatabasePath() {
+    QString dir = appDataDir();
+    if (dir.isEmpty()) dir = ".";
+    QDir().mkpath(dir);
+    return dir + "/accounts.sqlite3";
+}
+
+QSqlDatabase openAccountDatabase(const QString& connectionName) {
+    const QString driver = accountDatabaseDriver();
+    QSqlDatabase db = QSqlDatabase::addDatabase(driver, connectionName);
+    if (driver == QLatin1String("QPSQL")) {
+        db.setHostName(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGHOST")).trimmed().isEmpty()
+            ? QStringLiteral("127.0.0.1")
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGHOST")).trimmed());
+        db.setPort(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGPORT")).trimmed().isEmpty()
+            ? 5432
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGPORT")).trimmed().toInt());
+        db.setDatabaseName(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGDATABASE")).trimmed().isEmpty()
+            ? QStringLiteral("qtnetworkchat")
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGDATABASE")).trimmed());
+        db.setUserName(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGUSER")).trimmed().isEmpty()
+            ? QStringLiteral("postgres")
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGUSER")).trimmed());
+        db.setPassword(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGPASSWORD")));
+    } else {
+        db.setDatabaseName(accountDatabasePath());
+    }
+    return db;
+}
+
+QString insertIgnoreSql(const QString& table,
+                        const QStringList& columns,
+                        const QStringList& values,
+                        const QStringList& conflictColumns) {
+    const QString columnList = columns.join(QStringLiteral(", "));
+    const QString valueList = values.join(QStringLiteral(", "));
+    if (accountDatabaseIsPostgres()) {
+        return QStringLiteral("INSERT INTO %1(%2) VALUES(%3) ON CONFLICT(%4) DO NOTHING")
+            .arg(table, columnList, valueList, conflictColumns.join(QStringLiteral(", ")));
+    }
+    return QStringLiteral("INSERT OR IGNORE INTO %1(%2) VALUES(%3)").arg(table, columnList, valueList);
+}
+
+QString insertReplaceSql(const QString& table,
+                         const QStringList& columns,
+                         const QStringList& values,
+                         const QStringList& conflictColumns,
+                         const QStringList& updateAssignments) {
+    const QString columnList = columns.join(QStringLiteral(", "));
+    const QString valueList = values.join(QStringLiteral(", "));
+    if (accountDatabaseIsPostgres()) {
+        return QStringLiteral("INSERT INTO %1(%2) VALUES(%3) ON CONFLICT(%4) DO UPDATE SET %5")
+            .arg(table,
+                 columnList,
+                 valueList,
+                 conflictColumns.join(QStringLiteral(", ")),
+                 updateAssignments.join(QStringLiteral(", ")));
+    }
+    return QStringLiteral("INSERT OR REPLACE INTO %1(%2) VALUES(%3)").arg(table, columnList, valueList);
+}
+
+QString autoIdColumnSql() {
+    return accountDatabaseIsPostgres()
+        ? QStringLiteral("id BIGSERIAL PRIMARY KEY, ")
+        : QStringLiteral("id INTEGER PRIMARY KEY AUTOINCREMENT, ");
+}
+
 QString safePathPart(const QString& value) {
     QString safe;
     safe.reserve(value.size());
@@ -985,8 +1064,7 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
     QString errorText;
     const QString connectionName = "server_group_announcement_update_" + QString::number(reinterpret_cast<quintptr>(socket));
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (!db.open()) {
             errorText = "群公告更新失败：无法打开群组数据库";
         } else {
@@ -1012,7 +1090,7 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
 
             if (allowed) {
                 QSqlQuery updateQuery(db);
-                updateQuery.prepare("UPDATE server_groups SET announcement = ?, updated_at = datetime('now') "
+                updateQuery.prepare("UPDATE server_groups SET announcement = ?, updated_at = CURRENT_TIMESTAMP "
                                     "WHERE group_id = ?");
                 updateQuery.addBindValue(announcement);
                 updateQuery.addBindValue(groupId);
@@ -1025,7 +1103,7 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
             if (saved) {
                 QSqlQuery insertQuery(db);
                 insertQuery.prepare("INSERT INTO server_group_announcements(group_id, author_id, author_name, content, created_at) "
-                                    "VALUES(?, ?, ?, ?, datetime('now'))");
+                                    "VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)");
                 insertQuery.addBindValue(groupId);
                 insertQuery.addBindValue(requester->id);
                 insertQuery.addBindValue(requester->name);
@@ -1103,8 +1181,7 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
     QString errorText;
     const QString connectionName = "server_group_member_update_" + QString::number(reinterpret_cast<quintptr>(socket));
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (!db.open()) {
             errorText = "群成员变更失败：无法打开群组数据库";
         } else {
@@ -1169,7 +1246,7 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                 } else {
                     QSqlQuery insertQuery(db);
                     insertQuery.prepare("INSERT INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
-                                        "VALUES(?, ?, ?, 'member', datetime('now'), datetime('now'))");
+                                        "VALUES(?, ?, ?, 'member', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
                     insertQuery.addBindValue(groupId);
                     insertQuery.addBindValue(memberId);
                     insertQuery.addBindValue(memberName);
@@ -1204,8 +1281,14 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                         errorText = "群成员变更失败：移出成员失败";
                     } else {
                         QSqlQuery removedQuery(db);
-                        removedQuery.prepare("INSERT OR REPLACE INTO server_group_removed_members(group_id, user_id, removed_by, removed_by_name, removed_at) "
-                                             "VALUES(?, ?, ?, ?, datetime('now'))");
+                        removedQuery.prepare(insertReplaceSql(
+                            QStringLiteral("server_group_removed_members"),
+                            {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("removed_by"), QStringLiteral("removed_by_name"), QStringLiteral("removed_at")},
+                            {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                            {QStringLiteral("group_id"), QStringLiteral("user_id")},
+                            {QStringLiteral("removed_by = EXCLUDED.removed_by"),
+                             QStringLiteral("removed_by_name = EXCLUDED.removed_by_name"),
+                             QStringLiteral("removed_at = EXCLUDED.removed_at")}));
                         removedQuery.addBindValue(groupId);
                         removedQuery.addBindValue(memberId);
                         removedQuery.addBindValue(requester->id);
@@ -1234,7 +1317,7 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
                     } else {
                         QSqlQuery updateRoleQuery(db);
                         updateRoleQuery.prepare("UPDATE server_group_members "
-                                                "SET role = ?, updated_at = datetime('now') "
+                                                "SET role = ?, updated_at = CURRENT_TIMESTAMP "
                                                 "WHERE group_id = ? AND user_id = ?");
                         updateRoleQuery.addBindValue(desiredRole);
                         updateRoleQuery.addBindValue(groupId);
@@ -2249,8 +2332,7 @@ QJsonObject Server::loadAccountsFromSqlite() const {
     QJsonObject accounts;
     QString connectionName = "accounts_read_" + QString::number(reinterpret_cast<quintptr>(this));
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (!db.open()) return accounts;
 
         QSqlQuery query(db);
@@ -2295,11 +2377,17 @@ bool Server::insertAccountToSqlite(const QString& account, const QString& passwo
     QString connectionName = "accounts_write_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
-            query.prepare("INSERT OR REPLACE INTO accounts(account, password_hash, user_name, updated_at) VALUES(?, ?, ?, datetime('now'))");
+            query.prepare(insertReplaceSql(
+                QStringLiteral("accounts"),
+                {QStringLiteral("account"), QStringLiteral("password_hash"), QStringLiteral("user_name"), QStringLiteral("updated_at")},
+                {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                {QStringLiteral("account")},
+                {QStringLiteral("password_hash = EXCLUDED.password_hash"),
+                 QStringLiteral("user_name = EXCLUDED.user_name"),
+                 QStringLiteral("updated_at = EXCLUDED.updated_at")}));
             query.addBindValue(account);
             query.addBindValue(passwordHash);
             query.addBindValue(userName);
@@ -2317,11 +2405,10 @@ bool Server::updateAccountPasswordHashInSqlite(const QString& account, const QSt
     QString connectionName = "accounts_password_update_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
-            query.prepare("UPDATE accounts SET password_hash = ?, updated_at = datetime('now') WHERE account = ?");
+            query.prepare("UPDATE accounts SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE account = ?");
             query.addBindValue(passwordHash);
             query.addBindValue(account);
             ok = query.exec();
@@ -2338,12 +2425,11 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
     QString connectionName = "sessions_write_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO user_sessions(user_id, user_name, event_name, peer_address, peer_port, created_at) "
-                          "VALUES(?, ?, ?, ?, ?, datetime('now'))");
+                          "VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
             query.addBindValue(user.id);
             query.addBindValue(user.name);
             query.addBindValue(eventName);
@@ -2354,10 +2440,10 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
                 QSqlQuery accountQuery(db);
                 accountQuery.prepare("UPDATE accounts SET "
                                      "user_name = ?, "
-                                     "last_login_at = datetime('now'), "
+                                     "last_login_at = CURRENT_TIMESTAMP, "
                                      "last_login_address = ?, "
                                      "login_count = COALESCE(login_count, 0) + 1, "
-                                     "updated_at = datetime('now') "
+                                     "updated_at = CURRENT_TIMESTAMP "
                                      "WHERE account = ?");
                 accountQuery.addBindValue(user.name);
                 accountQuery.addBindValue(user.address.toString());
@@ -2377,12 +2463,14 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
     QString connectionName = "default_group_member_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery groupQuery(db);
-            ok = groupQuery.exec("INSERT OR IGNORE INTO server_groups(group_id, group_name, announcement, created_at, updated_at) "
-                                 "VALUES('public', '公共聊天室', '欢迎来到公共聊天室。', datetime('now'), datetime('now'))");
+            ok = groupQuery.exec(insertIgnoreSql(
+                QStringLiteral("server_groups"),
+                {QStringLiteral("group_id"), QStringLiteral("group_name"), QStringLiteral("announcement"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
+                {QStringLiteral("'public'"), QStringLiteral("'公共聊天室'"), QStringLiteral("'欢迎来到公共聊天室。'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                {QStringLiteral("group_id")}));
             if (ok) {
                 QSqlQuery removedQuery(db);
                 removedQuery.prepare("SELECT COUNT(*) FROM server_group_removed_members WHERE group_id = 'public' AND user_id = ?");
@@ -2394,8 +2482,11 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
                 }
                 if (ok && !wasRemoved) {
                     QSqlQuery insertMemberQuery(db);
-                    insertMemberQuery.prepare("INSERT OR IGNORE INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
-                                              "VALUES('public', ?, ?, 'member', datetime('now'), datetime('now'))");
+                    insertMemberQuery.prepare(insertIgnoreSql(
+                        QStringLiteral("server_group_members"),
+                        {QStringLiteral("group_id"), QStringLiteral("user_id"), QStringLiteral("user_name"), QStringLiteral("role"), QStringLiteral("joined_at"), QStringLiteral("updated_at")},
+                        {QStringLiteral("'public'"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("'member'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                        {QStringLiteral("group_id"), QStringLiteral("user_id")}));
                     insertMemberQuery.addBindValue(user.id);
                     insertMemberQuery.addBindValue(user.name);
                     ok = insertMemberQuery.exec();
@@ -2403,7 +2494,7 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
             }
             if (ok) {
                 QSqlQuery updateMemberQuery(db);
-                updateMemberQuery.prepare("UPDATE server_group_members SET user_name = ?, updated_at = datetime('now') "
+                updateMemberQuery.prepare("UPDATE server_group_members SET user_name = ?, updated_at = CURRENT_TIMESTAMP "
                                           "WHERE group_id = 'public' AND user_id = ?");
                 updateMemberQuery.addBindValue(user.name);
                 updateMemberQuery.addBindValue(user.id);
@@ -2430,7 +2521,7 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
             if (ok && ownerId.isEmpty()) {
                 ownerId = user.id;
                 QSqlQuery updateOwnerQuery(db);
-                updateOwnerQuery.prepare("UPDATE server_groups SET owner_id = ?, updated_at = datetime('now') "
+                updateOwnerQuery.prepare("UPDATE server_groups SET owner_id = ?, updated_at = CURRENT_TIMESTAMP "
                                          "WHERE group_id = 'public'");
                 updateOwnerQuery.addBindValue(ownerId);
                 ok = updateOwnerQuery.exec();
@@ -2440,7 +2531,7 @@ bool Server::recordDefaultGroupMembership(const ChatUser& user) const {
                 updateRoleQuery.prepare("UPDATE server_group_members "
                                         "SET role = CASE WHEN user_id = ? THEN 'owner' "
                                         "WHEN role = 'owner' THEN 'member' ELSE role END, "
-                                        "updated_at = datetime('now') "
+                                        "updated_at = CURRENT_TIMESTAMP "
                                         "WHERE group_id = 'public'");
                 updateRoleQuery.addBindValue(ownerId);
                 ok = updateRoleQuery.exec();
@@ -2460,8 +2551,7 @@ bool Server::isServerGroupMember(const QString& groupId, const QString& userId) 
         + QString::number(qHash(groupId + "|" + userId));
     bool exists = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
             query.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = ? AND user_id = ?");
@@ -2494,13 +2584,12 @@ bool Server::recordServerGroupAuditEvent(const QString& groupId,
     QString connectionName = "server_group_audit_write_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO server_group_audit_events("
                           "group_id, action, actor_id, actor_name, target_user_id, target_user_name, details, created_at) "
-                          "VALUES(?, ?, ?, ?, ?, ?, ?, datetime('now'))");
+                          "VALUES(?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
             query.addBindValue(groupId.trimmed());
             query.addBindValue(action.trimmed().toLower());
             query.addBindValue(actorId.trimmed());
@@ -2522,8 +2611,7 @@ bool Server::saveMessageToSqlite(const Message& msg, const QString& deliveryStat
     QString connectionName = "messages_write_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO messages(message_type, sender_id, sender_name, receiver_id, content, file_name, file_size, file_hash, file_chunk_size, file_chunk_count, delivery_state, created_at) "
@@ -2560,12 +2648,11 @@ bool Server::saveFriendEventToSqlite(const QString& eventType,
     QString connectionName = "friend_events_write_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
             query.prepare("INSERT INTO friend_events(event_type, sender_id, sender_name, receiver_id, query_account, accepted, event_state, created_at) "
-                          "VALUES(?, ?, ?, ?, ?, ?, ?, datetime('now'))");
+                          "VALUES(?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
             query.addBindValue(eventType);
             query.addBindValue(senderId);
             query.addBindValue(senderName);
@@ -2585,10 +2672,10 @@ bool Server::ensureAccountDatabase() const {
     QString connectionName = "accounts_init_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery query(db);
+            const QString idColumn = autoIdColumnSql();
             ok = query.exec("CREATE TABLE IF NOT EXISTS accounts ("
                             "account TEXT PRIMARY KEY, "
                             "password_hash TEXT NOT NULL, "
@@ -2601,30 +2688,30 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("ALTER TABLE accounts ADD COLUMN login_count INTEGER DEFAULT 0");
             }
             if (ok) {
-                ok = query.exec("CREATE TABLE IF NOT EXISTS user_sessions ("
-                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                                "user_id TEXT NOT NULL, "
-                                "user_name TEXT NOT NULL, "
-                                "event_name TEXT NOT NULL, "
-                                "peer_address TEXT, "
-                                "peer_port INTEGER, "
-                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS user_sessions (")
+                                + idColumn
+                                + QStringLiteral("user_id TEXT NOT NULL, "
+                                                 "user_name TEXT NOT NULL, "
+                                                 "event_name TEXT NOT NULL, "
+                                                 "peer_address TEXT, "
+                                                 "peer_port INTEGER, "
+                                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
-                ok = query.exec("CREATE TABLE IF NOT EXISTS messages ("
-                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                                "message_type INTEGER NOT NULL, "
-                                "sender_id TEXT, "
-                                "sender_name TEXT, "
-                                "receiver_id TEXT, "
-                                "content TEXT, "
-                                "file_name TEXT, "
-                                "file_size INTEGER DEFAULT 0, "
-                                "file_hash TEXT, "
-                                "file_chunk_size INTEGER DEFAULT 0, "
-                                "file_chunk_count INTEGER DEFAULT 0, "
-                                "delivery_state TEXT NOT NULL, "
-                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS messages (")
+                                + idColumn
+                                + QStringLiteral("message_type INTEGER NOT NULL, "
+                                                 "sender_id TEXT, "
+                                                 "sender_name TEXT, "
+                                                 "receiver_id TEXT, "
+                                                 "content TEXT, "
+                                                 "file_name TEXT, "
+                                                 "file_size INTEGER DEFAULT 0, "
+                                                 "file_hash TEXT, "
+                                                 "file_chunk_size INTEGER DEFAULT 0, "
+                                                 "file_chunk_count INTEGER DEFAULT 0, "
+                                                 "delivery_state TEXT NOT NULL, "
+                                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
                 query.exec("ALTER TABLE messages ADD COLUMN file_hash TEXT");
@@ -2632,23 +2719,23 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("ALTER TABLE messages ADD COLUMN file_chunk_count INTEGER DEFAULT 0");
             }
             if (ok) {
-                ok = query.exec("CREATE TABLE IF NOT EXISTS offline_messages ("
-                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                                "receiver_id TEXT NOT NULL, "
-                                "payload TEXT NOT NULL, "
-                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS offline_messages (")
+                                + idColumn
+                                + QStringLiteral("receiver_id TEXT NOT NULL, "
+                                                 "payload TEXT NOT NULL, "
+                                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
-                ok = query.exec("CREATE TABLE IF NOT EXISTS friend_events ("
-                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                                "event_type TEXT NOT NULL, "
-                                "sender_id TEXT, "
-                                "sender_name TEXT, "
-                                "receiver_id TEXT, "
-                                "query_account TEXT, "
-                                "accepted INTEGER DEFAULT 0, "
-                                "event_state TEXT NOT NULL, "
-                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS friend_events (")
+                                + idColumn
+                                + QStringLiteral("event_type TEXT NOT NULL, "
+                                                 "sender_id TEXT, "
+                                                 "sender_name TEXT, "
+                                                 "receiver_id TEXT, "
+                                                 "query_account TEXT, "
+                                                 "accepted INTEGER DEFAULT 0, "
+                                                 "event_state TEXT NOT NULL, "
+                                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS server_groups ("
@@ -2679,29 +2766,32 @@ bool Server::ensureAccountDatabase() const {
                                 "PRIMARY KEY(group_id, user_id))");
             }
             if (ok) {
-                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_announcements ("
-                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                                "group_id TEXT NOT NULL, "
-                                "author_id TEXT, "
-                                "author_name TEXT, "
-                                "content TEXT NOT NULL, "
-                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS server_group_announcements (")
+                                + idColumn
+                                + QStringLiteral("group_id TEXT NOT NULL, "
+                                                 "author_id TEXT, "
+                                                 "author_name TEXT, "
+                                                 "content TEXT NOT NULL, "
+                                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
-                ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_audit_events ("
-                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                                "group_id TEXT NOT NULL, "
-                                "action TEXT NOT NULL, "
-                                "actor_id TEXT NOT NULL, "
-                                "actor_name TEXT, "
-                                "target_user_id TEXT, "
-                                "target_user_name TEXT, "
-                                "details TEXT, "
-                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                ok = query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS server_group_audit_events (")
+                                + idColumn
+                                + QStringLiteral("group_id TEXT NOT NULL, "
+                                                 "action TEXT NOT NULL, "
+                                                 "actor_id TEXT NOT NULL, "
+                                                 "actor_name TEXT, "
+                                                 "target_user_id TEXT, "
+                                                 "target_user_name TEXT, "
+                                                 "details TEXT, "
+                                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
-                query.exec("INSERT OR IGNORE INTO server_groups(group_id, group_name, announcement, created_at, updated_at) "
-                           "VALUES('public', '公共聊天室', '欢迎来到公共聊天室。', datetime('now'), datetime('now'))");
+                query.exec(insertIgnoreSql(
+                    QStringLiteral("server_groups"),
+                    {QStringLiteral("group_id"), QStringLiteral("group_name"), QStringLiteral("announcement"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
+                    {QStringLiteral("'public'"), QStringLiteral("'公共聊天室'"), QStringLiteral("'欢迎来到公共聊天室。'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("group_id")}));
             }
             if (ok) {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)");
@@ -2722,10 +2812,7 @@ bool Server::ensureAccountDatabase() const {
 }
 
 QString Server::accountDbPath() const {
-    QString dir = appDataDir();
-    if (dir.isEmpty()) dir = ".";
-    QDir().mkpath(dir);
-    return dir + "/accounts.sqlite3";
+    return accountDatabasePath();
 }
 
 QJsonObject Server::loadAccounts() const {
@@ -2879,8 +2966,7 @@ LargeFileDeliveredReceiptDecision Server::evaluateRedisLargeFileDeliveredReceipt
     if (ensureAccountDatabase()) {
         const QString connectionName = "offline_reconcile_" + QString::number(reinterpret_cast<quintptr>(this));
         {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(accountDbPath());
+            QSqlDatabase db = openAccountDatabase(connectionName);
             if (db.open()) {
                 QSqlQuery query(db);
                 query.prepare("SELECT payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
@@ -3008,8 +3094,7 @@ Server::LargeFileCleanupResult Server::cleanupDeliveredRedisLargeFile(const QJso
         const QString connectionName = "offline_delivered_" + QString::number(reinterpret_cast<quintptr>(this));
         QVector<qint64> deliveredIds;
         {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(accountDbPath());
+            QSqlDatabase db = openAccountDatabase(connectionName);
             if (db.open()) {
                 QSqlQuery query(db);
                 query.prepare("SELECT id, payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
@@ -3144,8 +3229,7 @@ QSet<QString> Server::collectReferencedOfflineAttachments() const {
     if (ensureAccountDatabase()) {
         QString connectionName = "offline_refs_" + QString::number(reinterpret_cast<quintptr>(this));
         {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(accountDbPath());
+            QSqlDatabase db = openAccountDatabase(connectionName);
             if (db.open()) {
                 QSqlQuery query(db);
                 if (query.exec("SELECT payload FROM offline_messages ORDER BY id ASC")) {
@@ -3336,11 +3420,10 @@ void Server::saveOfflineMessage(const Message& msg) const {
     if (ensureAccountDatabase()) {
         QString connectionName = "offline_write_" + QString::number(reinterpret_cast<quintptr>(this));
         {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(accountDbPath());
+            QSqlDatabase db = openAccountDatabase(connectionName);
             if (db.open()) {
                 QSqlQuery query(db);
-                query.prepare("INSERT INTO offline_messages(receiver_id, payload, created_at) VALUES(?, ?, datetime('now'))");
+                query.prepare("INSERT INTO offline_messages(receiver_id, payload, created_at) VALUES(?, ?, CURRENT_TIMESTAMP)");
                 query.addBindValue(msg.receiverId);
                 query.addBindValue(QString::fromUtf8(payload));
                 savedToSqlite = query.exec();
@@ -3383,8 +3466,7 @@ bool Server::updateOfflineMessageProgress(qint64 sqliteMessageId, const QJsonObj
     const QString connectionName = "offline_progress_" + QString::number(QCoreApplication::applicationPid())
         + "_" + QString::number(QRandomGenerator::global()->generate());
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QJsonObject updated = obj;
             QSqlQuery selectQuery(db);
@@ -3581,8 +3663,7 @@ void Server::sendOfflineMessages(const QString& userId, QTcpSocket* socket) {
         QVector<qint64> deliveredIds;
         QVector<QPair<qint64, QByteArray>> pendingRows;
         {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(accountDbPath());
+            QSqlDatabase db = openAccountDatabase(connectionName);
             if (db.open()) {
                 QSqlQuery query(db);
                 query.prepare("SELECT id, payload FROM offline_messages WHERE receiver_id = ? ORDER BY id ASC");
@@ -3905,8 +3986,7 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
     QJsonArray removedGroups;
     QString connectionName = "server_group_snapshot_" + QString::number(reinterpret_cast<quintptr>(this));
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(accountDbPath());
+        QSqlDatabase db = openAccountDatabase(connectionName);
         if (db.open()) {
             QSqlQuery groupQuery(db);
             groupQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, '') "
