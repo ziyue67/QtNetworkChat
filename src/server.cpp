@@ -115,6 +115,11 @@ QString accountDatabaseDriver() {
     return QStringLiteral("QSQLITE");
 }
 
+QString accountDatabaseDriverAlias() {
+    const QString configured = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_DRIVER")).trimmed();
+    return configured.isEmpty() ? QStringLiteral("QSQLITE") : configured;
+}
+
 bool accountDatabaseIsPostgres() {
     return accountDatabaseDriver() == QLatin1String("QPSQL");
 }
@@ -147,6 +152,40 @@ QSqlDatabase openAccountDatabase(const QString& connectionName) {
         db.setDatabaseName(accountDatabasePath());
     }
     return db;
+}
+
+QJsonObject redactedAccountDatabaseConfig() {
+    QJsonObject config;
+    const QString driver = accountDatabaseDriver();
+    config["driver"] = driver;
+    config["configuredDriver"] = accountDatabaseDriverAlias();
+    if (driver == QLatin1String("QPSQL")) {
+        config["host"] = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGHOST")).trimmed().isEmpty()
+            ? QStringLiteral("127.0.0.1")
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGHOST")).trimmed();
+        config["port"] = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGPORT")).trimmed().isEmpty()
+            ? 5432
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGPORT")).trimmed().toInt();
+        config["database"] = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGDATABASE")).trimmed().isEmpty()
+            ? QStringLiteral("qtnetworkchat")
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGDATABASE")).trimmed();
+        config["user"] = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGUSER")).trimmed().isEmpty()
+            ? QStringLiteral("postgres")
+            : QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGUSER")).trimmed();
+        config["password"] = QStringLiteral("<redacted>");
+    } else {
+        config["path"] = accountDatabasePath();
+    }
+    return config;
+}
+
+QJsonObject databaseErrorJson(const QString& scope, const QSqlError& error) {
+    QJsonObject obj;
+    obj["scope"] = scope;
+    obj["driverText"] = error.driverText();
+    obj["databaseText"] = error.databaseText();
+    obj["nativeErrorCode"] = error.nativeErrorCode();
+    return obj;
 }
 
 QString insertIgnoreSql(const QString& table,
@@ -710,6 +749,89 @@ QString Server::transportSecurityDescription() const {
         return "TLS 已请求，但证书未配置，已回退 TCP";
     }
     return "普通 TCP 服务";
+}
+
+QJsonObject Server::databaseHealthSnapshot() const {
+    QJsonObject snapshot;
+    snapshot["format"] = QStringLiteral("qtnetworkchat-database-health-v1");
+    snapshot["generatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    snapshot["ok"] = false;
+    snapshot["config"] = redactedAccountDatabaseConfig();
+
+    const QString connectionName = "database_health_" + QString::number(reinterpret_cast<quintptr>(this));
+    QJsonArray checks;
+    bool healthy = true;
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        const bool opened = db.open();
+        QJsonObject openCheck;
+        openCheck["name"] = QStringLiteral("open");
+        openCheck["ok"] = opened;
+        if (!opened) {
+            openCheck["error"] = databaseErrorJson(QStringLiteral("open"), db.lastError());
+            healthy = false;
+            qWarning() << "Database health open failed:"
+                       << db.lastError().text()
+                       << accountDatabaseDriver();
+        }
+        checks.append(openCheck);
+
+        if (opened) {
+            QSqlQuery pingQuery(db);
+            const bool pingOk = pingQuery.exec(QStringLiteral("SELECT 1"));
+            QJsonObject pingCheck;
+            pingCheck["name"] = QStringLiteral("ping");
+            pingCheck["ok"] = pingOk;
+            if (!pingOk) {
+                pingCheck["error"] = databaseErrorJson(QStringLiteral("ping"), pingQuery.lastError());
+                healthy = false;
+                qWarning() << "Database health ping failed:"
+                           << pingQuery.lastError().text()
+                           << accountDatabaseDriver();
+            }
+            checks.append(pingCheck);
+
+            const QStringList requiredTables{
+                QStringLiteral("accounts"),
+                QStringLiteral("user_sessions"),
+                QStringLiteral("messages"),
+                QStringLiteral("offline_messages"),
+                QStringLiteral("friend_events"),
+                QStringLiteral("server_groups"),
+                QStringLiteral("server_group_members"),
+                QStringLiteral("server_group_removed_members"),
+                QStringLiteral("server_group_announcements"),
+                QStringLiteral("server_group_audit_events")
+            };
+            const QStringList tables = db.tables();
+            QJsonArray missingTables;
+            for (const QString& table : requiredTables) {
+                if (!tables.contains(table, Qt::CaseInsensitive)) {
+                    missingTables.append(table);
+                }
+            }
+            QJsonObject schemaCheck;
+            schemaCheck["name"] = QStringLiteral("required-tables");
+            schemaCheck["ok"] = missingTables.isEmpty();
+            schemaCheck["requiredCount"] = requiredTables.size();
+            schemaCheck["missingTables"] = missingTables;
+            if (!missingTables.isEmpty()) {
+                healthy = false;
+                qWarning() << "Database health missing required tables:"
+                           << missingTables
+                           << accountDatabaseDriver();
+            }
+            checks.append(schemaCheck);
+
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    snapshot["checks"] = checks;
+    snapshot["ok"] = healthy;
+    snapshot["status"] = healthy ? QStringLiteral("healthy") : QStringLiteral("unhealthy");
+    return snapshot;
 }
 
 void Server::stop() {

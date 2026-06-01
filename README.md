@@ -374,6 +374,19 @@ export QTNETWORKCHAT_REDIS_HOST='127.0.0.1'
 export QTNETWORKCHAT_REDIS_PORT='6379'
 ```
 
+服务端内部提供数据库健康快照，覆盖连接打开、`SELECT 1` ping 和账号/消息/离线队列/好友事件/公共群/审计所需表检查；PostgreSQL 配置输出只包含 host、port、database、user 和 `<redacted>` 密码。运维侧可用脚本生成 SQLite 或 PostgreSQL 健康计划/检查 JSON：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-database-health.ps1 `
+  -Driver postgres `
+  -QtRoot "D:\Qt\6.8.3\mingw_64" `
+  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
+  -PostgresPassword "<本机 PostgreSQL 密码>" `
+  -JsonPath "build-qt6-mingw\database-health.json"
+```
+
+`-PlanOnly` 只校验 QPSQL 插件、`psql.exe` 和 `libpq.dll` 等本地运行时，不连接真实数据库；去掉 `-PlanOnly` 后会用 `psql` 检查 10 张服务端必需表。追加 `-FailOnUnhealthy` 可让计划任务在缺少运行时、密码或表结构不完整时非零退出。默认 CTest 覆盖 SQLite 健康快照和脚本 plan，不读取真实 PostgreSQL 密码。
+
 需要用真实 Qt QPSQL 插件跑服务端协议 smoke 时，先完成构建，再运行：
 
 ```powershell

@@ -270,6 +270,26 @@ if(BUILD_TESTING)
     target_include_directories(redis_unavailable_fallback_test PRIVATE include)
     target_link_libraries(redis_unavailable_fallback_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
+    add_executable(database_health_test
+        tests/database_health_test.cpp
+        src/server.cpp
+        src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
+        src/redisclient.cpp
+        src/message.cpp
+        src/objectstore.cpp
+        src/heartbeatmonitor.cpp
+        include/server.h
+        include/client.h
+        include/redisclient.h
+        include/message.h
+        include/objectstore.h
+        include/chatuser.h
+        include/heartbeatmonitor.h
+    )
+    target_include_directories(database_health_test PRIVATE include)
+    target_link_libraries(database_health_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
     add_executable(postgres_qpsql_protocol_smoke_test
         tests/postgres_qpsql_protocol_smoke_test.cpp
         src/server.cpp
@@ -438,6 +458,13 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
     add_test(
+        NAME DatabaseHealthSnapshot
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:database_health_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
         NAME PostgresQpsqlProtocolSmoke
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:postgres_qpsql_protocol_smoke_test>
@@ -597,6 +624,12 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-local-infra.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_infra_config.cmake
+    )
+    add_test(
+        NAME DatabaseHealthCheckPlan
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-database-health.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_database_health_check.cmake
     )
     add_test(
         NAME PostgresProtocolSmokePlan

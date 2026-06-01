@@ -33,6 +33,7 @@ public:
     void stop();
     quint16 serverPort() const { return m_serverPort; }
     QString transportSecurityDescription() const;
+    QJsonObject databaseHealthSnapshot() const;
     void setObjectStoreFactoryForTesting(ObjectStoreFactory factory);
 
 signals:
