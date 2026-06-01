@@ -440,6 +440,19 @@ powershell -ExecutionPolicy Bypass -File scripts/write-database-health-dashboard
 
 该仪表盘只读取本地脱敏产物，不连接 PostgreSQL/Redis/S3/MinIO，也不修改数据库；它会汇总健康状态、驱动、检查数量、失败检查、计划任务配置、密码来源和敏感字段扫描结果，发现未脱敏密码或签名字段时会标记 unhealthy。
 
+仪表盘结果可继续转成告警摘要或通知入口：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/notify-database-health-unhealthy.ps1 `
+  -DashboardPath "build-qt6-mingw\database-health-scheduled\database-health-dashboard.json" `
+  -AlertPath "build-qt6-mingw\database-health-scheduled\database-health-alert.json" `
+  -MarkdownPath "build-qt6-mingw\database-health-scheduled\database-health-alert.md" `
+  -DryRun `
+  -FailOnUnhealthy
+```
+
+健康状态会生成 `severity=info` 且不通知；`unhealthy`、`unknown` 或敏感字段命中会生成可机读 alert JSON，`-DryRun` 下只打印将写入 EventLog/webhook 的内容。实际接入时可配置 `-EventLogSource` 或 `-WebhookUrl`，脚本会拒绝包含未脱敏密码、access key、签名字段的消息和输入。
+
 需要用真实 Qt QPSQL 插件跑服务端协议 smoke 时，先完成构建，再运行：
 
 ```powershell
