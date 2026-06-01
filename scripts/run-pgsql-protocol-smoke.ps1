@@ -57,12 +57,24 @@ $checks = @(
     (New-Check "postgres-libpq-runtime" (Test-Path -LiteralPath $libpqPath -PathType Leaf) $libpqPath)
 )
 
+$coverageSurfaces = @(
+    "register-login",
+    "private-message-persistence",
+    "friend-search-request-accept",
+    "public-group-announcement-audit",
+    "public-group-member-role-audit",
+    "file-metadata-persistence",
+    "offline-private-queue-replay",
+    "restart-login-kdf-session"
+)
+
 $result = [ordered]@{
     format = "qtnetworkchat-pgsql-protocol-smoke-v1"
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
     planOnly = [bool]$PlanOnly
     ok = @($checks | Where-Object { -not $_.ok }).Count -eq 0
     checks = $checks
+    coverageSurfaces = $coverageSurfaces
     testExecutable = $testExePath
     qtRoot = $QtRoot
     postgresBinDir = $PostgresBinDir

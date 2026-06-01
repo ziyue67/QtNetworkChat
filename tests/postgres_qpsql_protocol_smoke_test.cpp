@@ -468,6 +468,38 @@ int main(int argc, char** argv) {
                 && auditEvents >= 1;
         }), "public group audit event should be persisted in PostgreSQL") && ok;
 
+        setSmokeStep(QStringLiteral("public group member role persistence"));
+        ok = expect(owner.sendServerGroupMemberUpdate("public", peerId, "promote_admin"),
+                    "owner should promote peer to public group admin through PostgreSQL") && ok;
+        QString persistedRole;
+        ok = expect(waitFor([&] {
+            return scalarString("SELECT role FROM server_group_members WHERE group_id = 'public' AND user_id = ?",
+                                {peerId},
+                                &persistedRole)
+                && persistedRole == QStringLiteral("admin");
+        }), "public group admin promotion should be persisted in PostgreSQL") && ok;
+        qint64 roleAuditEvents = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM server_group_audit_events WHERE group_id = 'public' AND actor_id = ? AND target_user_id = ? AND action = 'promote_admin'",
+                                  {ownerId, peerId},
+                                  &roleAuditEvents)
+                && roleAuditEvents >= 1;
+        }), "public group admin promotion audit should be persisted in PostgreSQL") && ok;
+        ok = expect(owner.sendServerGroupMemberUpdate("public", peerId, "demote_admin"),
+                    "owner should demote peer back to member through PostgreSQL") && ok;
+        ok = expect(waitFor([&] {
+            return scalarString("SELECT role FROM server_group_members WHERE group_id = 'public' AND user_id = ?",
+                                {peerId},
+                                &persistedRole)
+                && persistedRole == QStringLiteral("member");
+        }), "public group admin demotion should be persisted in PostgreSQL") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM server_group_audit_events WHERE group_id = 'public' AND actor_id = ? AND target_user_id = ? AND action = 'demote_admin'",
+                                  {ownerId, peerId},
+                                  &roleAuditEvents)
+                && roleAuditEvents >= 1;
+        }), "public group admin demotion audit should be persisted in PostgreSQL") && ok;
+
         setSmokeStep(QStringLiteral("file metadata persistence"));
         const QString testFilePath = QDir(appDataDir).filePath("pgsql-smoke-file.txt");
         QFile testFile(testFilePath);
