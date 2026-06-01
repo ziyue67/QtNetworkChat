@@ -638,6 +638,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_database_health_status.cmake
     )
     add_test(
+        NAME DatabaseHealthTask
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/register-database-health-task.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_database_health_task.cmake
+    )
+    add_test(
         NAME PostgresProtocolSmokePlan
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-pgsql-protocol-smoke.ps1

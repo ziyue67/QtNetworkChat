@@ -408,6 +408,24 @@ powershell -ExecutionPolicy Bypass -File scripts/show-database-health-status.ps1
 
 状态脚本会汇总 `status`、`driver`、检查数量、失败检查和敏感字段扫描结果；发现未脱敏的 `password`、access key、signature 等内容时会把状态降为 unhealthy，并在 `-FailOnUnhealthy` 下非零退出。
 
+需要交给 Windows 计划任务周期执行时，先生成 preview 和启动脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/register-database-health-task.ps1 `
+  -TaskName "QtNetworkChatDatabaseHealth" `
+  -Schedule Hourly `
+  -EveryHours 4 `
+  -Driver postgres `
+  -QtRoot "D:\Qt\6.8.3\mingw_64" `
+  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
+  -OutputDir "build-qt6-mingw\database-health-scheduled" `
+  -PlanOnly `
+  -FailOnUnhealthy `
+  -WriteMarkdown
+```
+
+默认只写 `database-health-task-preview.json` 和 `run-database-health-task.ps1`，不会创建系统计划任务；确认 preview 后再追加 `-Register`。启动脚本运行时从 `QTNETWORKCHAT_PGPASSWORD` 读取 PostgreSQL 密码，仓库、preview 和 launcher 都只记录密码来源，不写入真实密码。去掉 `-PlanOnly` 后，计划任务会真实检查 PostgreSQL 必需表并生成 `database-health.json`、`database-health-status.json`，开启 `-WriteMarkdown` 时还会生成 Markdown 值班摘要。
+
 需要用真实 Qt QPSQL 插件跑服务端协议 smoke 时，先完成构建，再运行：
 
 ```powershell
