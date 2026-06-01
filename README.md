@@ -426,6 +426,20 @@ powershell -ExecutionPolicy Bypass -File scripts/register-database-health-task.p
 
 默认只写 `database-health-task-preview.json` 和 `run-database-health-task.ps1`，不会创建系统计划任务；确认 preview 后再追加 `-Register`。启动脚本运行时从 `QTNETWORKCHAT_PGPASSWORD` 读取 PostgreSQL 密码，仓库、preview 和 launcher 都只记录密码来源，不写入真实密码。去掉 `-PlanOnly` 后，计划任务会真实检查 PostgreSQL 必需表并生成 `database-health.json`、`database-health-status.json`，开启 `-WriteMarkdown` 时还会生成 Markdown 值班摘要。
 
+计划任务或手工检查产生的健康 JSON、状态 JSON 和 preview 可以聚合成一个本地仪表盘：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/write-database-health-dashboard.ps1 `
+  -HealthPath "build-qt6-mingw\database-health-scheduled\database-health.json" `
+  -StatusPath "build-qt6-mingw\database-health-scheduled\database-health-status.json" `
+  -TaskPreviewPath "build-qt6-mingw\database-health-scheduled\database-health-task\database-health-task-preview.json" `
+  -DashboardPath "build-qt6-mingw\database-health-scheduled\database-health-dashboard.json" `
+  -MarkdownPath "build-qt6-mingw\database-health-scheduled\database-health-dashboard.md" `
+  -FailOnUnhealthy
+```
+
+该仪表盘只读取本地脱敏产物，不连接 PostgreSQL/Redis/S3/MinIO，也不修改数据库；它会汇总健康状态、驱动、检查数量、失败检查、计划任务配置、密码来源和敏感字段扫描结果，发现未脱敏密码或签名字段时会标记 unhealthy。
+
 需要用真实 Qt QPSQL 插件跑服务端协议 smoke 时，先完成构建，再运行：
 
 ```powershell
