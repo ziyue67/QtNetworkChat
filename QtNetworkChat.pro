@@ -25,7 +25,8 @@ HEADERS += \
     include/redisclient.h \
     include/objectstore.h \
     include/chatuser.h \
-    include/message.h
+    include/message.h \
+    include/qtnetworkchat_version.h
 
 FORMS += \
     ui/mainwindow.ui

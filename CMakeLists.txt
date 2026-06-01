@@ -9,6 +9,12 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
 
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/qtnetworkchat_version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/qtnetworkchat_version.h
+    @ONLY
+)
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Test)
 
@@ -44,7 +50,7 @@ add_executable(QtNetworkChat
     ui/mainwindow.ui
 )
 
-target_include_directories(QtNetworkChat PRIVATE include)
+target_include_directories(QtNetworkChat PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
 target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
 include(CTest)
@@ -546,5 +552,12 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/show-large-file-governance-status.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_large_file_governance_status.cmake
+    )
+    add_test(
+        NAME WindowsPackageManifest
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-windows.ps1
+            -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_windows_package_manifest.cmake
     )
 endif()

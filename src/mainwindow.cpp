@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "filetransferstatus.h"
+#include "qtnetworkchat_version.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -290,6 +291,11 @@ QPixmap squareAvatarPixmap(const QPixmap& source, int side) {
     const int y = qMax(0, (scaled.height() - side) / 2);
     return scaled.copy(x, y, side, side);
 }
+
+QString appWindowTitle(const QString& suffix = QString()) {
+    const QString base = QStringLiteral("QtNetworkChat %1").arg(QString::fromLatin1(QTNETWORKCHAT_VERSION_STRING));
+    return suffix.isEmpty() ? base : QStringLiteral("%1 - %2").arg(base, suffix);
+}
 }
 
 MainWindow::MainWindow(Client* client, const QString& userId, const QString& userName, QWidget* parent)
@@ -325,7 +331,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
         return;
     }
 
-    setWindowTitle("QtNetworkChat - " + userName);
+    setWindowTitle(appWindowTitle(userName));
     ui->avatarLabel->setText(userName.left(1).toUpper());
     ui->profileNameLabel->setText("QQ: " + userId);
     ui->profileIdLabel->setText("昵称: " + userName);
@@ -2969,7 +2975,7 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     loadHistory(targetId);
     QString onlineText = isContactOnline(targetId) ? "在线" : "离线";
-    setWindowTitle(QString("QtNetworkChat - 私聊: %1").arg(userName));
+    setWindowTitle(appWindowTitle(QString("私聊: %1").arg(userName)));
     ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(userName));
     ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, onlineText));
     refreshComposerState();
@@ -4171,7 +4177,7 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     m_chatModel->clear();
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     loadHistory(groupId);
-    setWindowTitle(QString("QtNetworkChat - 群聊: %1").arg(groupName));
+    setWindowTitle(appWindowTitle(QString("群聊: %1").arg(groupName)));
     ui->chatTitleLabel->setText(groupName);
     const QString ownerId = groupOwnerId(groupId);
     const bool isOwner = isCurrentUserGroupOwner(groupId);
@@ -5444,7 +5450,7 @@ void MainWindow::onBackToGroupChat() {
     m_chatModel->clear();
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     loadHistory("group");
-    setWindowTitle("QtNetworkChat - " + m_currentUserName);
+    setWindowTitle(appWindowTitle(m_currentUserName));
     ui->chatTitleLabel->setText("公共聊天室");
     if (isCurrentUserRemovedFromPublicGroup()) {
         const QJsonObject removedInfo = m_removedServerGroups.value("public");
@@ -8135,16 +8141,16 @@ void MainWindow::saveLocalGroups() const {
 }
 
 void MainWindow::updateUnreadState() {
-    setWindowTitle(QString("QtNetworkChat - %1 条新消息").arg(m_unreadCount));
-    m_trayIcon->setToolTip(QString("QtNetworkChat - %1 条新消息").arg(m_unreadCount));
+    setWindowTitle(appWindowTitle(QString("%1 条新消息").arg(m_unreadCount)));
+    m_trayIcon->setToolTip(appWindowTitle(QString("%1 条新消息").arg(m_unreadCount)));
 }
 
 void MainWindow::clearUnreadState() {
     m_unreadCount = 0;
     setWindowTitle(m_privateChatTarget.isEmpty()
-        ? "QtNetworkChat - " + m_currentUserName
+        ? appWindowTitle(m_currentUserName)
         : ui->chatTitleLabel->text());
-    m_trayIcon->setToolTip("QtNetworkChat");
+    m_trayIcon->setToolTip(appWindowTitle());
 }
 
 void MainWindow::changeEvent(QEvent* event) {
