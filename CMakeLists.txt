@@ -53,6 +53,11 @@ add_executable(QtNetworkChat
 target_include_directories(QtNetworkChat PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
 target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
+add_executable(sqlite_to_postgres_migrator
+    tools/sqlite_to_postgres_migrator.cpp
+)
+target_link_libraries(sqlite_to_postgres_migrator PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(message_serialization_test
@@ -598,5 +603,13 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-pgsql-protocol-smoke.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_protocol_smoke.cmake
+    )
+    add_test(
+        NAME SQLiteToPostgresMigrationPlan
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/migrate-sqlite-to-postgres.ps1
+            -DMIGRATOR_EXE=$<TARGET_FILE:sqlite_to_postgres_migrator>
+            -DQT_ROOT=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/..
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_sqlite_pg_migration.cmake
     )
 endif()
