@@ -456,14 +456,20 @@ powershell -ExecutionPolicy Bypass -File scripts/notify-database-health-unhealth
 需要用真实 Qt QPSQL 插件跑服务端协议 smoke 时，先完成构建，再运行：
 
 ```powershell
+$env:QTNETWORKCHAT_PGPASSWORD = "<本机 PostgreSQL 密码>"
+powershell -ExecutionPolicy Bypass -File scripts/start-local-postgres.ps1 `
+  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
+  -Password $env:QTNETWORKCHAT_PGPASSWORD `
+  -JsonPath "build-qt6-mingw\local-postgres.json"
+
 powershell -ExecutionPolicy Bypass -File scripts/run-pgsql-protocol-smoke.ps1 `
   -TestExe "build-qt6-mingw\postgres_qpsql_protocol_smoke_test.exe" `
   -QtRoot "D:\Qt\6.8.3\mingw_64" `
   -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
-  -PostgresPassword "<本机 PostgreSQL 密码>"
+  -PostgresPassword $env:QTNETWORKCHAT_PGPASSWORD
 ```
 
-该脚本会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、好友搜索/申请/同意、好友边界事件、公共群公告与审计、公共群成员管理员升降级与审计、群成员移出/重新加入/移出历史 marker、文件分片元数据、离线私聊与离线附件回放、服务端重启后重登和 KDF hash 查询；公共群 smoke 会先捕获真实 `public` 群 owner/公告，再临时授予本轮 smoke 账号权限，结束时恢复原状态并清理本轮生成的账号、消息、会话和队列。默认 CTest 只验证 smoke 计划与脚本输出及 `coverageSurfaces` 覆盖声明，不连接真实 PostgreSQL，也不会读取本机密码。
+`start-local-postgres.ps1` 可在 `build-qt6-mingw\pg-real-data` 初始化并启动一个临时 PostgreSQL 实例，创建 `qtnetworkchat` 数据库，JSON 只写 `<redacted>` 密码；若本机服务已在 5432 监听，它会复用现有服务。`run-pgsql-protocol-smoke.ps1` 会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、好友搜索/申请/同意、好友边界事件、公共群公告与审计、公共群成员管理员升降级与审计、群成员移出/重新加入/移出历史 marker、文件分片元数据、离线私聊与离线附件回放、服务端重启后重登和 KDF hash 查询；公共群 smoke 会先捕获真实 `public` 群 owner/公告，fresh database 缺表时视为无旧状态，再临时授予本轮 smoke 账号权限，结束时恢复原状态并清理本轮生成的账号、消息、会话和队列。默认 CTest 只验证 smoke 计划与脚本输出及 `coverageSurfaces` 覆盖声明，不连接真实 PostgreSQL，也不会读取本机密码。
 
 已有 SQLite 账号库迁移到 PostgreSQL 时，先跑 plan 模式生成脱敏迁移计划：
 

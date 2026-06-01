@@ -662,6 +662,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_protocol_smoke.cmake
     )
     add_test(
+        NAME LocalPostgresStartPlan
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/start-local-postgres.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_postgres_start.cmake
+    )
+    add_test(
         NAME SQLiteToPostgresMigrationPlan
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/migrate-sqlite-to-postgres.ps1

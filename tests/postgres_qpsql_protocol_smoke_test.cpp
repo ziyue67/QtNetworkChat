@@ -109,11 +109,16 @@ QSqlDatabase openPostgres(const QString& connectionName) {
 
 bool execSql(QSqlDatabase& db, const QString& sql, const QList<QVariant>& values = {}) {
     QSqlQuery query(db);
-    query.prepare(sql);
-    for (const QVariant& value : values) {
-        query.addBindValue(value);
+    bool ok = false;
+    if (values.isEmpty()) {
+        ok = query.exec(sql);
+    } else {
+        query.prepare(sql);
+        for (const QVariant& value : values) {
+            query.addBindValue(value);
+        }
+        ok = query.exec();
     }
-    const bool ok = query.exec();
     if (!ok) {
         std::fprintf(stderr, "[pgsql-smoke] SQL failed at %s: %s | %s\n",
                      gSmokeStep.toLocal8Bit().constData(),
@@ -122,6 +127,20 @@ bool execSql(QSqlDatabase& db, const QString& sql, const QList<QVariant>& values
         qWarning() << "PostgreSQL smoke SQL failed:" << query.lastError().text() << sql;
     }
     return ok;
+}
+
+QString sqlStringLiteral(QString value) {
+    value.replace(QLatin1Char('\''), QStringLiteral("''"));
+    return QStringLiteral("'%1'").arg(value);
+}
+
+QString sqlInList(const QStringList& values) {
+    QStringList quoted;
+    quoted.reserve(values.size());
+    for (const QString& value : values) {
+        quoted.append(sqlStringLiteral(value));
+    }
+    return quoted.join(QStringLiteral(", "));
 }
 
 bool cleanupSmokeRows(const QString& ownerId, const QString& peerId) {
@@ -135,16 +154,14 @@ bool cleanupSmokeRows(const QString& ownerId, const QString& peerId) {
             qWarning() << "PostgreSQL cleanup connection failed:" << db.lastError().text();
             ok = false;
         } else {
-            const QList<QVariant> ids{ownerId, peerId};
-            ok = execSql(db, "DELETE FROM offline_messages WHERE receiver_id IN (?, ?)", ids) && ok;
-            ok = execSql(db, "DELETE FROM friend_events WHERE sender_id IN (?, ?) OR receiver_id IN (?, ?) OR query_account IN (?, ?)",
-                         {ownerId, peerId, ownerId, peerId, ownerId, peerId}) && ok;
-            ok = execSql(db, "DELETE FROM messages WHERE sender_id IN (?, ?) OR receiver_id IN (?, ?)",
-                         {ownerId, peerId, ownerId, peerId}) && ok;
-            ok = execSql(db, "DELETE FROM user_sessions WHERE user_id IN (?, ?)", ids) && ok;
-            ok = execSql(db, "DELETE FROM server_group_removed_members WHERE user_id IN (?, ?)", ids) && ok;
-            ok = execSql(db, "DELETE FROM server_group_members WHERE user_id IN (?, ?)", ids) && ok;
-            ok = execSql(db, "DELETE FROM accounts WHERE account IN (?, ?)", ids) && ok;
+            const QString ids = sqlInList({ownerId, peerId});
+            ok = execSql(db, QStringLiteral("DELETE FROM offline_messages WHERE receiver_id IN (%1)").arg(ids)) && ok;
+            ok = execSql(db, QStringLiteral("DELETE FROM friend_events WHERE sender_id IN (%1) OR receiver_id IN (%1) OR query_account IN (%1)").arg(ids)) && ok;
+            ok = execSql(db, QStringLiteral("DELETE FROM messages WHERE sender_id IN (%1) OR receiver_id IN (%1)").arg(ids)) && ok;
+            ok = execSql(db, QStringLiteral("DELETE FROM user_sessions WHERE user_id IN (%1)").arg(ids)) && ok;
+            ok = execSql(db, QStringLiteral("DELETE FROM server_group_removed_members WHERE user_id IN (%1)").arg(ids)) && ok;
+            ok = execSql(db, QStringLiteral("DELETE FROM server_group_members WHERE user_id IN (%1)").arg(ids)) && ok;
+            ok = execSql(db, QStringLiteral("DELETE FROM accounts WHERE account IN (%1)").arg(ids)) && ok;
         }
         db.close();
     }
@@ -210,18 +227,22 @@ bool capturePublicGroupState(PublicGroupState* state) {
     {
         QSqlDatabase db = openPostgres(connectionName);
         if (db.open()) {
-            QSqlQuery groupQuery(db);
-            groupQuery.prepare("SELECT COALESCE(owner_id, ''), COALESCE(announcement, '') FROM server_groups WHERE group_id = 'public'");
-            if (groupQuery.exec() && groupQuery.next()) {
-                state->hasGroup = true;
-                state->ownerId = groupQuery.value(0).toString();
-                state->announcement = groupQuery.value(1).toString();
-                ok = true;
-            } else if (groupQuery.lastError().type() == QSqlError::NoError) {
+            if (!db.tables().contains(QStringLiteral("server_groups"), Qt::CaseInsensitive)) {
                 ok = true;
             } else {
-                std::fprintf(stderr, "[pgsql-smoke] capture public group failed: %s\n",
-                             groupQuery.lastError().text().toLocal8Bit().constData());
+                QSqlQuery groupQuery(db);
+                if (groupQuery.exec("SELECT COALESCE(owner_id, ''), COALESCE(announcement, '') FROM server_groups WHERE group_id = 'public'")
+                    && groupQuery.next()) {
+                    state->hasGroup = true;
+                    state->ownerId = groupQuery.value(0).toString();
+                    state->announcement = groupQuery.value(1).toString();
+                    ok = true;
+                } else if (groupQuery.lastError().type() == QSqlError::NoError) {
+                    ok = true;
+                } else {
+                    std::fprintf(stderr, "[pgsql-smoke] capture public group failed: %s\n",
+                                 groupQuery.lastError().text().toLocal8Bit().constData());
+                }
             }
 
             if (ok && !state->ownerId.isEmpty()) {
