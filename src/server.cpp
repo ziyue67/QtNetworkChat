@@ -2598,7 +2598,20 @@ bool Server::recordServerGroupAuditEvent(const QString& groupId,
             query.addBindValue(targetUserName.trimmed());
             query.addBindValue(QString::fromUtf8(QJsonDocument(details).toJson(QJsonDocument::Compact)));
             ok = query.exec();
+            if (!ok) {
+                qWarning() << "Failed to record server group audit event:"
+                           << query.lastError().text()
+                           << groupId.trimmed()
+                           << action.trimmed().toLower()
+                           << actorId.trimmed();
+            }
             db.close();
+        } else {
+            qWarning() << "Failed to open server group audit database:"
+                       << db.lastError().text()
+                       << groupId.trimmed()
+                       << action.trimmed().toLower()
+                       << actorId.trimmed();
         }
     }
     QSqlDatabase::removeDatabase(connectionName);

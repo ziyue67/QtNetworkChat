@@ -15,9 +15,17 @@
 #include <QTcpServer>
 #include <QThread>
 
+#include <cstdio>
 #include <functional>
 
 namespace {
+QString gSmokeStep;
+
+void setSmokeStep(const QString& step) {
+    gSmokeStep = step;
+    std::fprintf(stderr, "[pgsql-smoke] %s\n", step.toLocal8Bit().constData());
+}
+
 bool envEnabled(const char* name) {
     const QString value = QString::fromLocal8Bit(qgetenv(name)).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
@@ -33,6 +41,13 @@ QString testAppDataDir() {
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
+        if (!gSmokeStep.isEmpty()) {
+            std::fprintf(stderr, "[pgsql-smoke] failed at %s: %s\n",
+                         gSmokeStep.toLocal8Bit().constData(),
+                         message);
+        } else {
+            std::fprintf(stderr, "[pgsql-smoke] failed: %s\n", message);
+        }
         qWarning() << message;
         return false;
     }
@@ -100,6 +115,10 @@ bool execSql(QSqlDatabase& db, const QString& sql, const QList<QVariant>& values
     }
     const bool ok = query.exec();
     if (!ok) {
+        std::fprintf(stderr, "[pgsql-smoke] SQL failed at %s: %s | %s\n",
+                     gSmokeStep.toLocal8Bit().constData(),
+                     query.lastError().text().toLocal8Bit().constData(),
+                     sql.toLocal8Bit().constData());
         qWarning() << "PostgreSQL smoke SQL failed:" << query.lastError().text() << sql;
     }
     return ok;
@@ -111,6 +130,8 @@ bool cleanupSmokeRows(const QString& ownerId, const QString& peerId) {
     {
         QSqlDatabase db = openPostgres(connectionName);
         if (!db.open()) {
+            std::fprintf(stderr, "[pgsql-smoke] cleanup connection failed: %s\n",
+                         db.lastError().text().toLocal8Bit().constData());
             qWarning() << "PostgreSQL cleanup connection failed:" << db.lastError().text();
             ok = false;
         } else {
@@ -131,6 +152,14 @@ bool cleanupSmokeRows(const QString& ownerId, const QString& peerId) {
     return ok;
 }
 
+struct PublicGroupState {
+    QString ownerId;
+    QString ownerRole;
+    QString announcement;
+    bool hasGroup = false;
+    bool hasOwnerMember = false;
+};
+
 bool scalarString(const QString& sql, const QList<QVariant>& values, QString* out) {
     const QString connectionName = "postgres_qpsql_scalar";
     bool ok = false;
@@ -146,11 +175,122 @@ bool scalarString(const QString& sql, const QList<QVariant>& values, QString* ou
                 if (out) *out = query.value(0).toString();
                 ok = true;
             } else {
+                std::fprintf(stderr, "[pgsql-smoke] scalar query failed at %s: %s | %s\n",
+                             gSmokeStep.toLocal8Bit().constData(),
+                             query.lastError().text().toLocal8Bit().constData(),
+                             sql.toLocal8Bit().constData());
                 qWarning() << "PostgreSQL scalar query failed:" << query.lastError().text() << sql;
             }
             db.close();
         } else {
+            std::fprintf(stderr, "[pgsql-smoke] scalar connection failed at %s: %s\n",
+                         gSmokeStep.toLocal8Bit().constData(),
+                         db.lastError().text().toLocal8Bit().constData());
             qWarning() << "PostgreSQL scalar connection failed:" << db.lastError().text();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool scalarLongLong(const QString& sql, const QList<QVariant>& values, qint64* out) {
+    QString value;
+    if (!scalarString(sql, values, &value)) return false;
+    bool converted = false;
+    const qint64 number = value.toLongLong(&converted);
+    if (out) *out = number;
+    return converted;
+}
+
+bool capturePublicGroupState(PublicGroupState* state) {
+    if (!state) return false;
+
+    const QString connectionName = "postgres_qpsql_capture_public_group";
+    bool ok = false;
+    {
+        QSqlDatabase db = openPostgres(connectionName);
+        if (db.open()) {
+            QSqlQuery groupQuery(db);
+            groupQuery.prepare("SELECT COALESCE(owner_id, ''), COALESCE(announcement, '') FROM server_groups WHERE group_id = 'public'");
+            if (groupQuery.exec() && groupQuery.next()) {
+                state->hasGroup = true;
+                state->ownerId = groupQuery.value(0).toString();
+                state->announcement = groupQuery.value(1).toString();
+                ok = true;
+            } else if (groupQuery.lastError().type() == QSqlError::NoError) {
+                ok = true;
+            } else {
+                std::fprintf(stderr, "[pgsql-smoke] capture public group failed: %s\n",
+                             groupQuery.lastError().text().toLocal8Bit().constData());
+            }
+
+            if (ok && !state->ownerId.isEmpty()) {
+                QSqlQuery roleQuery(db);
+                roleQuery.prepare("SELECT COALESCE(role, '') FROM server_group_members WHERE group_id = 'public' AND user_id = ?");
+                roleQuery.addBindValue(state->ownerId);
+                if (roleQuery.exec() && roleQuery.next()) {
+                    state->hasOwnerMember = true;
+                    state->ownerRole = roleQuery.value(0).toString();
+                } else if (roleQuery.lastError().type() != QSqlError::NoError) {
+                    ok = false;
+                    std::fprintf(stderr, "[pgsql-smoke] capture public owner role failed: %s\n",
+                                 roleQuery.lastError().text().toLocal8Bit().constData());
+                }
+            }
+            db.close();
+        } else {
+            std::fprintf(stderr, "[pgsql-smoke] capture public group connection failed: %s\n",
+                         db.lastError().text().toLocal8Bit().constData());
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool grantSmokePublicGroupOwner(const QString& ownerId) {
+    const QString connectionName = "postgres_qpsql_grant_public_owner";
+    bool ok = true;
+    {
+        QSqlDatabase db = openPostgres(connectionName);
+        if (!db.open()) {
+            std::fprintf(stderr, "[pgsql-smoke] grant public owner connection failed: %s\n",
+                         db.lastError().text().toLocal8Bit().constData());
+            ok = false;
+        } else {
+            ok = execSql(db,
+                         "UPDATE server_groups SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = 'public'",
+                         {ownerId}) && ok;
+            ok = execSql(db,
+                         "UPDATE server_group_members SET role = CASE WHEN user_id = ? THEN 'owner' WHEN role = 'owner' THEN 'member' ELSE role END, updated_at = CURRENT_TIMESTAMP WHERE group_id = 'public'",
+                         {ownerId}) && ok;
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool restorePublicGroupState(const PublicGroupState& state) {
+    if (!state.hasGroup) return true;
+
+    const QString connectionName = "postgres_qpsql_restore_public_group";
+    bool ok = true;
+    {
+        QSqlDatabase db = openPostgres(connectionName);
+        if (!db.open()) {
+            std::fprintf(stderr, "[pgsql-smoke] restore public group connection failed: %s\n",
+                         db.lastError().text().toLocal8Bit().constData());
+            ok = false;
+        } else {
+            ok = execSql(db,
+                         "UPDATE server_groups SET owner_id = ?, announcement = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = 'public'",
+                         {state.ownerId, state.announcement}) && ok;
+            if (!state.ownerId.isEmpty() && state.hasOwnerMember) {
+                ok = execSql(db,
+                             "UPDATE server_group_members SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = 'public' AND user_id = ?",
+                             {state.ownerRole.isEmpty() ? QStringLiteral("owner") : state.ownerRole, state.ownerId}) && ok;
+            }
+            db.close();
         }
     }
     QSqlDatabase::removeDatabase(connectionName);
@@ -199,13 +339,22 @@ int main(int argc, char** argv) {
     const QString suffix = QString::number(QDateTime::currentMSecsSinceEpoch() % 100000000LL).rightJustified(8, '0');
     const QString ownerId = "94" + suffix.left(6);
     const QString peerId = "95" + suffix.right(6);
+    PublicGroupState publicGroupState;
+    setSmokeStep(QStringLiteral("capture public group state"));
+    ok = expect(capturePublicGroupState(&publicGroupState),
+                "public group state should be captured before smoke overrides") && ok;
+    if (!ok) return 1;
+
+    setSmokeStep(QStringLiteral("cleanup previous smoke rows"));
     cleanupSmokeRows(ownerId, peerId);
 
+    setSmokeStep(QStringLiteral("allocate local port"));
     const quint16 port = freeLocalPort();
     ok = expect(port != 0, "a local PostgreSQL smoke test port should be available") && ok;
     if (!ok) return 1;
 
     {
+        setSmokeStep(QStringLiteral("start QPSQL-backed server"));
         Server server;
         ok = expect(server.start(port), "server should start with QPSQL account database") && ok;
         if (!ok) {
@@ -216,17 +365,51 @@ int main(int argc, char** argv) {
         Client owner;
         Client peer;
         QStringList peerPrivateMessages;
+        QStringList peerOfflineMessages;
+        QStringList peerFiles;
+        QStringList ownerSystemMessages;
+        QStringList ownerFriendSearchReasons;
+        QStringList peerFriendRequests;
+        QStringList ownerFriendResponses;
+        QStringList peerGroupNotices;
         QObject::connect(&peer, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::Private) {
                 peerPrivateMessages << msg.content;
+            } else if (msg.type == MessageType::File) {
+                peerFiles << msg.fileName;
+            }
+        });
+        QObject::connect(&peer, &Client::friendRequestReceived, &app, [&](const QString& senderId, const QString&) {
+            peerFriendRequests << senderId;
+        });
+        QObject::connect(&peer, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::System) {
+                peerGroupNotices << msg.content;
+            }
+        });
+        QObject::connect(&owner, &Client::friendSearchResult, &app, [&](const QString&, const QString&, const QString&, bool, bool, bool, int, const QString& reason) {
+            ownerFriendSearchReasons << reason;
+        });
+        QObject::connect(&owner, &Client::friendResponseReceived, &app, [&](const QString& senderId, const QString&, bool accepted) {
+            ownerFriendResponses << QString("%1:%2").arg(senderId, accepted ? "accepted" : "rejected");
+        });
+        QObject::connect(&owner, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::System) {
+                ownerSystemMessages << msg.content;
             }
         });
 
+        setSmokeStep(QStringLiteral("register owner"));
         ok = expect(loginClient(owner, ownerId, "PgOwner", port, true),
                     "owner should register through PostgreSQL") && ok;
+        setSmokeStep(QStringLiteral("register peer"));
         ok = expect(loginClient(peer, peerId, "PgPeer", port, true),
                     "peer should register through PostgreSQL") && ok;
+        setSmokeStep(QStringLiteral("grant smoke public group owner"));
+        ok = expect(grantSmokePublicGroupOwner(ownerId),
+                    "smoke owner should temporarily own public group") && ok;
 
+        setSmokeStep(QStringLiteral("private message persistence"));
         const QString privateMessage = "PostgreSQL QPSQL direct message smoke";
         ok = expect(owner.sendPrivateMessage(peerId, privateMessage),
                     "owner should send a private message through the QPSQL-backed server") && ok;
@@ -241,6 +424,102 @@ int main(int argc, char** argv) {
                 && persistedContent == privateMessage;
         }), "private message should be persisted in PostgreSQL") && ok;
 
+        setSmokeStep(QStringLiteral("friend search/request/response persistence"));
+        ok = expect(owner.searchFriendByAccount(peerId),
+                    "owner should search peer through PostgreSQL account data") && ok;
+        ok = expect(waitFor([&] { return ownerFriendSearchReasons.contains(QStringLiteral("QQ号精确匹配")); }),
+                    "friend search should find peer by exact account") && ok;
+        ok = expect(owner.sendFriendRequest(peerId),
+                    "owner should send friend request through PostgreSQL-backed server") && ok;
+        ok = expect(waitFor([&] { return peerFriendRequests.contains(ownerId); }),
+                    "peer should receive friend request") && ok;
+        ok = expect(peer.sendFriendResponse(ownerId, true),
+                    "peer should accept friend request") && ok;
+        ok = expect(waitFor([&] { return ownerFriendResponses.contains(peerId + ":accepted"); }),
+                    "owner should receive friend response") && ok;
+        qint64 friendEvents = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM friend_events WHERE sender_id IN (?, ?) OR receiver_id IN (?, ?) OR query_account IN (?, ?)",
+                                  {ownerId, peerId, ownerId, peerId, ownerId, peerId},
+                                  &friendEvents)
+                && friendEvents >= 3;
+        }), "friend search/request/response events should be persisted in PostgreSQL") && ok;
+
+        setSmokeStep(QStringLiteral("public group announcement and audit persistence"));
+        const QString announcement = "PostgreSQL group announcement smoke";
+        ok = expect(owner.sendServerGroupAnnouncementUpdate("public", announcement),
+                    "owner should update public group announcement through PostgreSQL") && ok;
+        ok = expect(waitFor([&] {
+            for (const QString& notice : peerGroupNotices) {
+                if (notice.contains(QString::fromUtf8("更新了群公告"))) return true;
+            }
+            return false;
+        }), "peer should receive public group announcement notice") && ok;
+        QString persistedAnnouncement;
+        ok = expect(waitFor([&] {
+            return scalarString("SELECT announcement FROM server_groups WHERE group_id = 'public'", {}, &persistedAnnouncement)
+                && persistedAnnouncement == announcement;
+        }), "public group announcement should be persisted in PostgreSQL") && ok;
+        qint64 auditEvents = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM server_group_audit_events WHERE group_id = 'public' AND actor_id = ? AND action = 'announcement_update'",
+                                  {ownerId},
+                                  &auditEvents)
+                && auditEvents >= 1;
+        }), "public group audit event should be persisted in PostgreSQL") && ok;
+
+        setSmokeStep(QStringLiteral("file metadata persistence"));
+        const QString testFilePath = QDir(appDataDir).filePath("pgsql-smoke-file.txt");
+        QFile testFile(testFilePath);
+        ok = expect(testFile.open(QIODevice::WriteOnly), "PostgreSQL smoke file should be writable") && ok;
+        if (testFile.isOpen()) {
+            testFile.write("PostgreSQL QPSQL file metadata smoke");
+            testFile.close();
+        }
+        ok = expect(owner.sendFile(testFilePath, peerId),
+                    "owner should send file through PostgreSQL-backed server") && ok;
+        ok = expect(waitFor([&] { return peerFiles.contains(QStringLiteral("pgsql-smoke-file.txt")); }, 8000),
+                    "peer should receive file metadata") && ok;
+        qint64 fileRows = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM messages WHERE sender_id = ? AND receiver_id = ? AND file_name = 'pgsql-smoke-file.txt' AND file_size > 0 AND file_hash IS NOT NULL",
+                                  {ownerId, peerId},
+                                  &fileRows)
+                && fileRows >= 1;
+        }), "file transfer metadata should be persisted in PostgreSQL") && ok;
+
+        setSmokeStep(QStringLiteral("offline private message queue and replay"));
+        disconnectClient(peer);
+        const QString offlineMessage = "PostgreSQL QPSQL offline private smoke";
+        ok = expect(waitFor([&] { return !peer.isConnected(); }, 2000),
+                    "peer should be offline before offline message smoke") && ok;
+        ok = expect(owner.sendPrivateMessage(peerId, offlineMessage),
+                    "owner should send offline private message") && ok;
+        qint64 offlineRows = 0;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
+                                  {peerId},
+                                  &offlineRows)
+                && offlineRows >= 1;
+        }), "offline private message should be queued in PostgreSQL") && ok;
+
+        QObject::disconnect(&peer, nullptr, &app, nullptr);
+        QObject::connect(&peer, &Client::newMessage, &app, [&](const Message& msg) {
+            if (msg.type == MessageType::Private) {
+                peerOfflineMessages << msg.content;
+            }
+        });
+        ok = expect(loginClient(peer, peerId, "PgPeer", port, false),
+                    "peer should re-login to replay PostgreSQL offline message") && ok;
+        ok = expect(waitFor([&] { return peerOfflineMessages.contains(offlineMessage); }, 8000),
+                    "peer should receive PostgreSQL offline private message") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
+                                  {peerId},
+                                  &offlineRows)
+                && offlineRows == 0;
+        }), "PostgreSQL offline queue should be cleared after replay") && ok;
+
         disconnectClient(owner);
         disconnectClient(peer);
         server.stop();
@@ -248,6 +527,7 @@ int main(int argc, char** argv) {
     }
 
     {
+        setSmokeStep(QStringLiteral("restart QPSQL-backed server"));
         Server server;
         ok = expect(server.start(port), "server should restart with the same QPSQL database") && ok;
         Client relogin;
@@ -260,11 +540,20 @@ int main(int argc, char** argv) {
         ok = expect(passwordHash.startsWith("kdf$pbkdf2-sha256$"),
                     "PostgreSQL account should store the PBKDF2 KDF hash format") && ok;
 
+        qint64 loginSessions = 0;
+        ok = expect(scalarLongLong("SELECT COUNT(*) FROM user_sessions WHERE user_id = ? AND event_name = 'login'",
+                                   {ownerId},
+                                   &loginSessions)
+                        && loginSessions >= 2,
+                    "PostgreSQL user_sessions should record login and restart login") && ok;
+
         disconnectClient(relogin);
         server.stop();
         drainEvents();
     }
 
+    setSmokeStep(QStringLiteral("cleanup current smoke rows"));
+    ok = restorePublicGroupState(publicGroupState) && ok;
     ok = cleanupSmokeRows(ownerId, peerId) && ok;
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();

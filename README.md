@@ -384,7 +384,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run-pgsql-protocol-smoke.ps1 `
   -PostgresPassword "<本机 PostgreSQL 密码>"
 ```
 
-该脚本会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、服务端重启后重登和 KDF hash 查询；测试结束会清理本轮生成的 smoke 账号、消息和会话。默认 CTest 只验证 smoke 计划与脚本输出，不连接真实 PostgreSQL，也不会读取本机密码。
+该脚本会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、好友搜索/申请/同意、公共群公告与审计、文件元数据、离线私聊回放、服务端重启后重登和 KDF hash 查询；公共群公告 smoke 会先捕获真实 `public` 群 owner/公告，再临时授予本轮 smoke 账号权限，结束时恢复原状态并清理本轮生成的账号、消息、会话和队列。默认 CTest 只验证 smoke 计划与脚本输出，不连接真实 PostgreSQL，也不会读取本机密码。
 
 已有 SQLite 账号库迁移到 PostgreSQL 时，先跑 plan 模式生成脱敏迁移计划：
 
