@@ -358,6 +358,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
     connect(m_client, &Client::serverGroupSnapshotReceived, this, &MainWindow::onServerGroupSnapshotReceived);
     connect(m_client, &Client::e2eSessionStateChanged, this, &MainWindow::onE2ESessionStateChanged);
+    connect(m_client, &Client::e2eIdentityStateChanged, this, &MainWindow::onE2EIdentityStateChanged);
     connect(m_client, &Client::e2eSessionRotationRequested, this, &MainWindow::onE2ESessionRotationRequested);
     connect(m_client, &Client::e2eSessionRotationResponded, this, &MainWindow::onE2ESessionRotationResponded);
     connect(m_client, &Client::fileTransferStatusChanged, this, &MainWindow::onFileTransferStatusChanged);
@@ -2982,6 +2983,22 @@ void MainWindow::onE2ESessionStateChanged(const QString& peerId, const QJsonObje
         ui->chatHintLabel->setText(QString("端到端加密需要轮换 · %1").arg(contactDisplayName(peerId)));
     } else if (state == QLatin1String("missing-session")) {
         ui->chatHintLabel->setText(QString("端到端加密未就绪 · %1").arg(contactDisplayName(peerId)));
+    }
+}
+
+void MainWindow::onE2EIdentityStateChanged(const QString& peerId, const QJsonObject& status) {
+    const QString trustState = status.value("trustState").toString();
+    const QString fingerprint = status.value("publicKeyFingerprintSha256").toString().left(16);
+    if (trustState == QLatin1String("mismatch")) {
+        appendSystemMessage(QString("%1 的端到端加密身份指纹发生变化 · 指纹:%2")
+            .arg(contactDisplayName(peerId), fingerprint));
+        ui->statusbar->showMessage("端到端加密身份指纹变化，请核对", 4200);
+    } else if (trustState == QLatin1String("trusted")) {
+        appendSystemMessage(QString("已信任 %1 的端到端加密身份 · 指纹:%2")
+            .arg(contactDisplayName(peerId), fingerprint));
+    } else if (peerId == m_privateChatTarget) {
+        ui->chatHintLabel->setText(QString("端到端加密身份待核对 · %1 · 指纹:%2")
+            .arg(contactDisplayName(peerId), fingerprint));
     }
 }
 
@@ -5920,6 +5937,8 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* copyOnlineCardAction = menu.addAction("复制在线名片");
     QAction* copyChatStarterAction = menu.addAction("复制开聊话术");
     QAction* copyE2EStatusAction = menu.addAction("复制加密状态");
+    QAction* copyE2EIdentityAction = menu.addAction("复制加密身份指纹");
+    QAction* trustE2EIdentityAction = menu.addAction("信任加密身份");
     QAction* requestE2ERotationAction = menu.addAction("请求加密轮换");
     QAction* clearE2ESessionAction = m_client && m_client->hasE2ESession(userId) ? menu.addAction("关闭本机会话密钥") : nullptr;
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
@@ -5943,6 +5962,8 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     describeUserAction(copyOnlineCardAction, "复制当前联系人的在线名片和状态");
     describeUserAction(copyChatStarterAction, "复制一段可直接发送的开聊话术");
     describeUserAction(copyE2EStatusAction, "复制当前联系人端到端加密会话状态");
+    describeUserAction(copyE2EIdentityAction, "复制本机记录的联系人端到端加密身份指纹");
+    describeUserAction(trustE2EIdentityAction, "将当前记录的联系人端到端加密身份指纹固定为本机信任");
     describeUserAction(requestE2ERotationAction, "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥");
     describeUserAction(clearE2ESessionAction, "清除本机为该联系人保存的端到端会话密钥");
     describeUserAction(inviteCurrentGroupAction, "邀请当前联系人加入正在查看的本地群聊");
@@ -5988,6 +6009,27 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         ui->statusbar->showMessage("开聊话术已复制", 2200);
     } else if (selected == copyE2EStatusAction) {
         copyE2ESessionStatus(userId);
+    } else if (selected == copyE2EIdentityAction) {
+        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
+        const QString text = identity.value("configured").toBool(false)
+            ? QString("端到端加密身份\n对端QQ：%1\n信任状态：%2\n公钥指纹：%3\n首次看到：%4\n最近看到：%5")
+                .arg(userId,
+                     identity.value("trustState").toString(),
+                     identity.value("publicKeyFingerprintSha256").toString(),
+                     identity.value("firstSeenAt").toString(),
+                     identity.value("lastSeenAt").toString())
+            : QString("端到端加密身份\n对端QQ：%1\n信任状态：unknown\n说明：尚未收到该联系人的身份公告").arg(userId);
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("端到端加密身份指纹已复制", 2400);
+    } else if (selected == trustE2EIdentityAction) {
+        QString rejectReason;
+        if (m_client && m_client->pinE2EPeerIdentity(userId, QString(), &rejectReason)) {
+            appendSystemMessage(QString("已信任 %1 的端到端加密身份指纹").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage("端到端加密身份已信任", 2400);
+        } else {
+            appendSystemMessage(QString("信任端到端加密身份失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage("信任端到端加密身份失败", 3000);
+        }
     } else if (selected == requestE2ERotationAction) {
         QString rejectReason;
         if (m_client && m_client->requestE2ESessionRotation(userId, &rejectReason)) {
@@ -8122,25 +8164,33 @@ QString MainWindow::e2eSessionStatusText(const QString& peerId) const {
         return QStringLiteral("端到端加密状态：客户端未就绪");
     }
     const QJsonObject status = m_client->e2eSessionStatus(peerId);
+    const QJsonObject identity = m_client->e2ePeerIdentityStatus(peerId);
+    const QString identityLine = identity.value("configured").toBool(false)
+        ? QString("\n身份信任：%1\n身份指纹：%2")
+            .arg(identity.value("trustState").toString(),
+                 identity.value("publicKeyFingerprintSha256").toString().left(16))
+        : QStringLiteral("\n身份信任：unknown\n身份指纹：未收到");
     const QString state = status.value("state").toString();
     if (state == QLatin1String("ready")) {
-        return QString("端到端加密状态：已就绪\n对端QQ：%1\nkeyId：%2\n指纹：%3\n已加密发送：%4\n已解密接收：%5\n轮换阈值：%6")
+        return QString("端到端加密状态：已就绪\n对端QQ：%1%7\nkeyId：%2\n指纹：%3\n已加密发送：%4\n已解密接收：%5\n轮换阈值：%6")
             .arg(peerId,
                  status.value("keyId").toString(),
                  status.value("keyFingerprintSha256").toString().left(16),
                  status.value("encryptedMessages").toString(),
                  status.value("decryptedMessages").toString(),
-                 QString::number(status.value("messageLimit").toInt()));
+                 QString::number(status.value("messageLimit").toInt()),
+                 identityLine);
     }
     if (state == QLatin1String("rotation-required")) {
-        return QString("端到端加密状态：需要轮换\n对端QQ：%1\nkeyId：%2\n指纹：%3\n已加密发送：%4\n轮换阈值：%5")
+        return QString("端到端加密状态：需要轮换\n对端QQ：%1%6\nkeyId：%2\n指纹：%3\n已加密发送：%4\n轮换阈值：%5")
             .arg(peerId,
                  status.value("keyId").toString(),
                  status.value("keyFingerprintSha256").toString().left(16),
                  status.value("encryptedMessages").toString(),
-                 QString::number(status.value("messageLimit").toInt()));
+                 QString::number(status.value("messageLimit").toInt()),
+                 identityLine);
     }
-    return QString("端到端加密状态：未就绪\n对端QQ：%1\n说明：当前本机没有可用于该联系人的会话密钥").arg(peerId);
+    return QString("端到端加密状态：未就绪\n对端QQ：%1%2\n说明：当前本机没有可用于该联系人的会话密钥").arg(peerId, identityLine);
 }
 
 void MainWindow::copyE2ESessionStatus(const QString& peerId) {

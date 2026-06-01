@@ -53,6 +53,7 @@ private slots:
     void onFriendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
     void onServerGroupSnapshotReceived(const QJsonArray& groups);
     void onE2ESessionStateChanged(const QString& peerId, const QJsonObject& status);
+    void onE2EIdentityStateChanged(const QString& peerId, const QJsonObject& status);
     void onE2ESessionRotationRequested(const QString& peerId, const QJsonObject& agreement);
     void onE2ESessionRotationResponded(const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason);
     void onUserContextMenu(const QPoint& pos);

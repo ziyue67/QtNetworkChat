@@ -109,6 +109,8 @@ int main(int argc, char** argv) {
         QJsonObject bobE2EStatus;
         QJsonObject bobRotationRequest;
         QJsonObject aliceRotationResponse;
+        QJsonObject aliceSawBobIdentity;
+        QJsonObject bobSawAliceIdentity;
         bool aliceRotationAccepted = false;
         QString aliceRotationResponseReason;
         const QString aliceId = "920001";
@@ -148,13 +150,51 @@ int main(int argc, char** argv) {
                 aliceRotationResponseReason = reason;
             }
         });
+        QObject::connect(&alice, &Client::e2eIdentityStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
+            if (peerId == bobId) {
+                aliceSawBobIdentity = status;
+            }
+        });
+        QObject::connect(&bob, &Client::e2eIdentityStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
+            if (peerId == aliceId) {
+                bobSawAliceIdentity = status;
+            }
+        });
 
         const QByteArray sessionKey = generateE2ESessionKey();
         const QString keyId = "alice-bob-session-1";
+        QString rejectReason;
 
         ok = expect(registerClient(alice, aliceId, "Alice", port), "alice should register and log in") && ok;
         ok = expect(registerClient(bob, bobId, "Bob", port), "bob should register and log in") && ok;
         ok = expect(registerClient(mallory, malloryId, "Mallory", port), "mallory should register and log in") && ok;
+        ok = expect(waitFor([&] {
+            return aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString().size() == 64;
+        }), "alice should receive bob's online e2e identity announcement") && ok;
+        ok = expect(alice.announceE2EIdentity(bobId, &rejectReason),
+                    "alice should send a targeted e2e identity announcement to bob") && ok;
+        ok = expect(waitFor([&] {
+            return bobSawAliceIdentity.value("publicKeyFingerprintSha256").toString().size() == 64;
+        }), "bob should receive alice's targeted e2e identity announcement") && ok;
+        ok = expect(alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
+                        && !alice.e2eLocalIdentityStatus().contains("privateKey")
+                        && !aliceSawBobIdentity.contains("privateKey")
+                        && !bobSawAliceIdentity.contains("sessionKey"),
+                    "e2e identity status should expose fingerprints but no private or session keys") && ok;
+        ok = expect(alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("unverified"),
+                    "newly observed peer e2e identity should start unverified") && ok;
+        ok = expect(!alice.pinE2EPeerIdentity(bobId, QStringLiteral("bad-fingerprint"), &rejectReason)
+                        && rejectReason == QStringLiteral("fingerprint-mismatch")
+                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("mismatch"),
+                    "pinning with an unexpected fingerprint should fail closed and mark mismatch") && ok;
+        ok = expect(alice.pinE2EPeerIdentity(bobId,
+                                             aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString(),
+                                             &rejectReason)
+                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("trusted"),
+                    "pinning the observed e2e identity fingerprint should mark the peer trusted") && ok;
+        ok = expect(!alice.announceE2EIdentity(aliceId, &rejectReason)
+                        && rejectReason == QStringLiteral("invalid-peer"),
+                    "clients should reject self-targeted e2e identity announcements") && ok;
 
         alice.setE2ESessionMessageLimitForTesting(2);
         alice.setE2ESessionKey(bobId, keyId, sessionKey);
@@ -164,7 +204,6 @@ int main(int argc, char** argv) {
                         && alice.e2eSessionStatus(bobId).value("keyFingerprintSha256").toString().size() == 64,
                     "alice should expose ready e2e session status without the raw key") && ok;
 
-        QString rejectReason;
         ok = expect(!alice.sendEncryptedPrivateMessage(malloryId, "missing session should fail", &rejectReason)
                         && rejectReason == "missing-session",
                     "encrypted private send should fail closed without a session") && ok;

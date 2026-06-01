@@ -30,6 +30,7 @@ constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 constexpr qint64 kOutgoingTransferStateMaxAgeMs = 24LL * 60 * 60 * 1000;
 const char kOutgoingTransferStateFileName[] = "outgoing_transfer_state.json";
+constexpr qsizetype kMaxE2EIdentityPublicKeyBytes = 4096;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -190,6 +191,52 @@ QString outgoingTransferStateFilePath() {
     QDir().mkpath(dir);
     return QDir(dir).filePath(QString::fromLatin1(kOutgoingTransferStateFileName));
 }
+
+QString base64Url(const QByteArray& value) {
+    return QString::fromLatin1(value.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+}
+
+QByteArray fromBase64Url(const QString& value) {
+    return QByteArray::fromBase64(value.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+}
+
+QJsonObject e2eIdentityJson(const QString& userId, const QByteArray& publicKey) {
+    QJsonObject obj;
+    obj["protocol"] = QStringLiteral("qtnetworkchat-e2e-v1");
+    obj["suite"] = QStringLiteral("draft-placeholder");
+    obj["userId"] = userId.trimmed();
+    obj["publicKey"] = base64Url(publicKey);
+    obj["publicKeyFingerprintSha256"] = e2eFingerprint(publicKey);
+    obj["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    return obj;
+}
+
+bool validateE2EIdentityJson(const QJsonObject& identity, QString* reason = nullptr) {
+    if (!isSupportedE2EProtocol(identity.value("protocol").toString())) {
+        if (reason) *reason = QStringLiteral("unsupported-protocol");
+        return false;
+    }
+    if (!isSupportedE2ESuite(identity.value("suite").toString())) {
+        if (reason) *reason = QStringLiteral("unsupported-suite");
+        return false;
+    }
+    if (identity.value("userId").toString().trimmed().isEmpty()) {
+        if (reason) *reason = QStringLiteral("invalid-peer");
+        return false;
+    }
+    const QByteArray publicKey = fromBase64Url(identity.value("publicKey").toString());
+    if (publicKey.isEmpty() || publicKey.size() > kMaxE2EIdentityPublicKeyBytes) {
+        if (reason) *reason = QStringLiteral("invalid-public-key");
+        return false;
+    }
+    const QString expectedFingerprint = e2eFingerprint(publicKey);
+    if (identity.value("publicKeyFingerprintSha256").toString().trimmed().toLower() != expectedFingerprint) {
+        if (reason) *reason = QStringLiteral("fingerprint-mismatch");
+        return false;
+    }
+    if (reason) reason->clear();
+    return true;
+}
 }
 
 Client::Client(QObject* parent)
@@ -204,6 +251,7 @@ Client::Client(QObject* parent)
     , m_reconnectAttempts(0)
     , m_hasServerGroupSnapshot(false)
     , m_cancelOutgoingTransfer(false)
+    , m_e2eIdentityPublicKey(generateE2ESessionKey())
     , m_e2eSessionMessageLimit(kDefaultE2ESessionMessageLimit)
 {
     connect(m_socket, &QTcpSocket::readyRead, this, &Client::onReadyRead);
@@ -369,8 +417,96 @@ QJsonObject Client::e2eSessionStatus(const QString& peerId) const {
     return status;
 }
 
+QJsonObject Client::e2eLocalIdentityStatus() const {
+    QJsonObject status = e2eIdentityJson(m_userId, m_e2eIdentityPublicKey);
+    status["configured"] = !m_userId.trimmed().isEmpty() && !m_e2eIdentityPublicKey.isEmpty();
+    status["trusted"] = true;
+    status["trustState"] = QStringLiteral("local");
+    return status;
+}
+
+QJsonObject Client::e2ePeerIdentityStatus(const QString& peerId) const {
+    const QString normalizedPeerId = peerId.trimmed();
+    QJsonObject status;
+    status["peerId"] = normalizedPeerId;
+    status["configured"] = false;
+    status["trusted"] = false;
+    status["pinned"] = false;
+    status["fingerprintMismatch"] = false;
+    status["trustState"] = QStringLiteral("unknown");
+    const auto it = m_e2ePeerIdentities.constFind(normalizedPeerId);
+    if (it == m_e2ePeerIdentities.constEnd()) {
+        return status;
+    }
+
+    status["configured"] = true;
+    status["publicKeyFingerprintSha256"] = it->fingerprint;
+    status["pinned"] = it->pinned;
+    status["pinnedFingerprintSha256"] = it->pinnedFingerprint;
+    status["fingerprintMismatch"] = it->fingerprintMismatch;
+    status["trusted"] = it->pinned && !it->fingerprintMismatch;
+    status["trustState"] = it->fingerprintMismatch
+        ? QStringLiteral("mismatch")
+        : (it->pinned ? QStringLiteral("trusted") : QStringLiteral("unverified"));
+    status["firstSeenAt"] = QDateTime::fromMSecsSinceEpoch(it->firstSeenAtMs).toUTC().toString(Qt::ISODateWithMs);
+    status["lastSeenAt"] = QDateTime::fromMSecsSinceEpoch(it->lastSeenAtMs).toUTC().toString(Qt::ISODateWithMs);
+    return status;
+}
+
 void Client::setE2ESessionMessageLimitForTesting(int limit) {
     m_e2eSessionMessageLimit = qBound(1, limit, 1000000);
+}
+
+bool Client::announceE2EIdentity(const QString& peerId, QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    if (!isConnected()) {
+        if (rejectReason) *rejectReason = QStringLiteral("not-connected");
+        return false;
+    }
+    if (m_userId.trimmed().isEmpty() || m_e2eIdentityPublicKey.isEmpty()) {
+        if (rejectReason) *rejectReason = QStringLiteral("identity-not-ready");
+        return false;
+    }
+
+    const QString normalizedPeerId = peerId.trimmed();
+    if (normalizedPeerId == m_userId) {
+        if (rejectReason) *rejectReason = QStringLiteral("invalid-peer");
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["type"] = QStringLiteral("e2e_identity_announce");
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    if (!normalizedPeerId.isEmpty()) {
+        obj["receiverId"] = normalizedPeerId;
+    }
+    obj["e2eIdentity"] = e2eIdentityJson(m_userId, m_e2eIdentityPublicKey);
+    return sendJson(obj);
+}
+
+bool Client::pinE2EPeerIdentity(const QString& peerId, const QString& expectedFingerprint, QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    const QString normalizedPeerId = peerId.trimmed();
+    auto it = m_e2ePeerIdentities.find(normalizedPeerId);
+    if (normalizedPeerId.isEmpty() || it == m_e2ePeerIdentities.end()) {
+        if (rejectReason) *rejectReason = QStringLiteral("missing-identity");
+        return false;
+    }
+
+    const QString expected = expectedFingerprint.trimmed().toLower();
+    if (!expected.isEmpty() && expected != it->fingerprint) {
+        if (rejectReason) *rejectReason = QStringLiteral("fingerprint-mismatch");
+        it->fingerprintMismatch = true;
+        emit e2eIdentityStateChanged(normalizedPeerId, e2ePeerIdentityStatus(normalizedPeerId));
+        return false;
+    }
+
+    it->pinned = true;
+    it->pinnedFingerprint = it->fingerprint;
+    it->fingerprintMismatch = false;
+    emit e2eIdentityStateChanged(normalizedPeerId, e2ePeerIdentityStatus(normalizedPeerId));
+    return true;
 }
 
 bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectReason) {
@@ -1323,6 +1459,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         m_loginWasRegister = obj["registered"].toBool(false);
         qDebug() << "Login success, userId:" << m_userId;
         emit loginSucceeded();
+        announceE2EIdentity();
         return;
     }
 
@@ -1348,6 +1485,41 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             m_onlineUsers.append(user);
         }
         emit userListUpdated(m_onlineUsers);
+        return;
+    }
+
+    if (type == "e2e_identity_announce") {
+        const QString senderId = obj.value("senderId").toString().trimmed();
+        const QString receiverId = obj.value("receiverId").toString().trimmed();
+        const QJsonObject identity = obj.value("e2eIdentity").toObject();
+        QString reason;
+        if (senderId.isEmpty()
+            || senderId == m_userId
+            || (!receiverId.isEmpty() && receiverId != m_userId)
+            || identity.value("userId").toString().trimmed() != senderId
+            || !validateE2EIdentityJson(identity, &reason)) {
+            emit connectionError(QStringLiteral("端到端加密身份公告无效：%1")
+                .arg(reason.isEmpty() ? QStringLiteral("identity-mismatch") : reason));
+            return;
+        }
+
+        const QByteArray publicKey = fromBase64Url(identity.value("publicKey").toString());
+        const QString fingerprint = e2eFingerprint(publicKey);
+        E2EPeerIdentity& peerIdentity = m_e2ePeerIdentities[senderId];
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (peerIdentity.firstSeenAtMs <= 0) {
+            peerIdentity.firstSeenAtMs = nowMs;
+        }
+        peerIdentity.lastSeenAtMs = nowMs;
+        peerIdentity.publicKey = publicKey;
+        peerIdentity.fingerprint = fingerprint;
+        peerIdentity.fingerprintMismatch = peerIdentity.pinned
+            && !peerIdentity.pinnedFingerprint.isEmpty()
+            && peerIdentity.pinnedFingerprint != fingerprint;
+        emit e2eIdentityStateChanged(senderId, e2ePeerIdentityStatus(senderId));
+        if (peerIdentity.fingerprintMismatch) {
+            emit connectionError(QStringLiteral("端到端加密身份指纹变化：%1").arg(senderId));
+        }
         return;
     }
 

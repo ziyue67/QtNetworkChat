@@ -28,7 +28,11 @@ public:
     bool hasE2ESession(const QString& peerId) const;
     bool e2eSessionNeedsRotation(const QString& peerId) const;
     QJsonObject e2eSessionStatus(const QString& peerId) const;
+    QJsonObject e2eLocalIdentityStatus() const;
+    QJsonObject e2ePeerIdentityStatus(const QString& peerId) const;
     void setE2ESessionMessageLimitForTesting(int limit);
+    bool announceE2EIdentity(const QString& peerId = QString(), QString* rejectReason = nullptr);
+    bool pinE2EPeerIdentity(const QString& peerId, const QString& expectedFingerprint = QString(), QString* rejectReason = nullptr);
     bool requestE2ESessionRotation(const QString& peerId, QString* rejectReason = nullptr);
     bool respondE2ESessionRotation(const QString& peerId,
                                    const QString& keyId,
@@ -122,6 +126,7 @@ signals:
                                          const QString& reason);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
     void e2eSessionStateChanged(const QString& peerId, const QJsonObject& status);
+    void e2eIdentityStateChanged(const QString& peerId, const QJsonObject& status);
     void e2eSessionRotationRequested(const QString& peerId, const QJsonObject& agreement);
     void e2eSessionRotationResponded(const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason);
     void connectionError(const QString& error);
@@ -170,6 +175,16 @@ private:
         bool rotationRequired = false;
     };
 
+    struct E2EPeerIdentity {
+        QByteArray publicKey;
+        QString fingerprint;
+        qint64 firstSeenAtMs = 0;
+        qint64 lastSeenAtMs = 0;
+        bool pinned = false;
+        QString pinnedFingerprint;
+        bool fingerprintMismatch = false;
+    };
+
     struct PendingIncomingFileTransfer {
         QJsonObject envelope;
         QString fileName;
@@ -208,6 +223,8 @@ private:
     QJsonArray m_serverGroups;
     QJsonArray m_removedServerGroups;
     QMap<QString, E2ESession> m_e2eSessions;
+    QByteArray m_e2eIdentityPublicKey;
+    QMap<QString, E2EPeerIdentity> m_e2ePeerIdentities;
     int m_e2eSessionMessageLimit;
 };
 

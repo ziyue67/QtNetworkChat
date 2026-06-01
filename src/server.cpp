@@ -55,6 +55,7 @@ constexpr qint64 kMaxObjectStoreTtlHours = 24LL * 365;
 constexpr int kPasswordKdfIterations = 120000;
 constexpr int kPasswordKdfSaltBytes = 16;
 constexpr int kPasswordKdfOutputBytes = 32;
+constexpr qsizetype kMaxE2EIdentityPublicKeyBytes = 4096;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -71,6 +72,36 @@ void appendE2EFields(QJsonObject* obj, const Message& msg) {
     if (msg.e2eKeyAgreement.isValid(&reason)) {
         (*obj)["e2eKeyAgreement"] = msg.e2eKeyAgreement.toJson();
     }
+}
+
+QByteArray fromBase64Url(const QString& value) {
+    return QByteArray::fromBase64(value.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+}
+
+bool validateE2EIdentityJson(const QJsonObject& identity, QString* reason = nullptr) {
+    if (!isSupportedE2EProtocol(identity.value("protocol").toString())) {
+        if (reason) *reason = QStringLiteral("unsupported-protocol");
+        return false;
+    }
+    if (!isSupportedE2ESuite(identity.value("suite").toString())) {
+        if (reason) *reason = QStringLiteral("unsupported-suite");
+        return false;
+    }
+    if (identity.value("userId").toString().trimmed().isEmpty()) {
+        if (reason) *reason = QStringLiteral("invalid-peer");
+        return false;
+    }
+    const QByteArray publicKey = fromBase64Url(identity.value("publicKey").toString());
+    if (publicKey.isEmpty() || publicKey.size() > kMaxE2EIdentityPublicKeyBytes) {
+        if (reason) *reason = QStringLiteral("invalid-public-key");
+        return false;
+    }
+    if (identity.value("publicKeyFingerprintSha256").toString().trimmed().toLower() != e2eFingerprint(publicKey)) {
+        if (reason) *reason = QStringLiteral("fingerprint-mismatch");
+        return false;
+    }
+    if (reason) reason->clear();
+    return true;
 }
 
 qint64 positiveIntegerEnvOrDefault(const char* name, qint64 defaultValue, qint64 maxValue = 0) {
@@ -1123,6 +1154,8 @@ void Server::onClientReadyRead() {
                 obj["receivedBytes"].toVariant().toLongLong());
         } else if (type == "private") {
             handleMessage(obj, socket);
+        } else if (type == "e2e_identity_announce") {
+            handleE2EIdentityAnnouncement(obj, socket);
         } else if (type == "e2e_key_rotation_request" || type == "e2e_key_rotation_response") {
             handleE2EKeyRotation(obj, socket);
         } else if (type == "server_group_announcement_update") {
@@ -1374,6 +1407,54 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     }
 
     emit newMessage(msg);
+}
+
+void Server::handleE2EIdentityAnnouncement(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* sender = findUserBySocket(socket);
+    if (!sender) {
+        sendSystemNotice(socket, QStringLiteral("端到端加密身份公告失败：请先登录"));
+        return;
+    }
+
+    const QString receiverId = obj.value("receiverId").toString().trimmed();
+    const QJsonObject identity = obj.value("e2eIdentity").toObject();
+    QString reason;
+    if (!receiverId.isEmpty() && receiverId == sender->id) {
+        sendSystemNotice(socket, QStringLiteral("端到端加密身份公告失败：请求无效"));
+        return;
+    }
+    if (identity.value("userId").toString().trimmed() != sender->id
+        || !validateE2EIdentityJson(identity, &reason)) {
+        sendSystemNotice(socket, QStringLiteral("端到端加密身份公告失败：身份材料无效"));
+        return;
+    }
+
+    QJsonObject forwarded;
+    forwarded["type"] = QStringLiteral("e2e_identity_announce");
+    forwarded["senderId"] = sender->id;
+    forwarded["senderName"] = sender->name;
+    forwarded["e2eIdentity"] = identity;
+    if (!receiverId.isEmpty()) {
+        forwarded["receiverId"] = receiverId;
+        QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+        if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+            sendSystemNotice(socket, QStringLiteral("端到端加密身份公告失败：对方不在线，未缓存身份材料"));
+            return;
+        }
+        targetSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
+        targetSocket->write("\n");
+        targetSocket->flush();
+        return;
+    }
+
+    for (QTcpSocket* targetSocket : m_clients.keys()) {
+        if (targetSocket == socket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+            continue;
+        }
+        targetSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
+        targetSocket->write("\n");
+        targetSocket->flush();
+    }
 }
 
 void Server::handleE2EKeyRotation(const QJsonObject& obj, QTcpSocket* socket) {
