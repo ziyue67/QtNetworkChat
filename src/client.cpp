@@ -373,6 +373,85 @@ void Client::setE2ESessionMessageLimitForTesting(int limit) {
     m_e2eSessionMessageLimit = qBound(1, limit, 1000000);
 }
 
+bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    if (!isConnected()) {
+        if (rejectReason) *rejectReason = QStringLiteral("not-connected");
+        return false;
+    }
+
+    const QString normalizedPeerId = peerId.trimmed();
+    if (normalizedPeerId.isEmpty() || normalizedPeerId == m_userId) {
+        if (rejectReason) *rejectReason = QStringLiteral("invalid-peer");
+        return false;
+    }
+
+    E2EKeyAgreement agreement;
+    agreement.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
+    agreement.suite = QStringLiteral("draft-placeholder");
+    agreement.senderId = m_userId;
+    agreement.receiverId = normalizedPeerId;
+    agreement.keyId = QStringLiteral("rotate-%1-%2")
+        .arg(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddhhmmsszzz")),
+             e2eFingerprint(generateE2ESessionKey()).left(12));
+    agreement.publicKey = generateE2ESessionKey();
+
+    QString validationReason;
+    if (!agreement.isValid(&validationReason)) {
+        if (rejectReason) *rejectReason = validationReason;
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["type"] = QStringLiteral("e2e_key_rotation_request");
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    obj["receiverId"] = normalizedPeerId;
+    obj["reason"] = e2eSessionNeedsRotation(normalizedPeerId)
+        ? QStringLiteral("rotation-required")
+        : QStringLiteral("manual-request");
+    obj["e2eKeyAgreement"] = agreement.toJson();
+    return sendJson(obj);
+}
+
+bool Client::respondE2ESessionRotation(const QString& peerId,
+                                       const QString& keyId,
+                                       const QByteArray& publicKey,
+                                       bool accepted,
+                                       const QString& reason,
+                                       QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    if (!isConnected()) {
+        if (rejectReason) *rejectReason = QStringLiteral("not-connected");
+        return false;
+    }
+
+    const QString normalizedPeerId = peerId.trimmed();
+    E2EKeyAgreement agreement;
+    agreement.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
+    agreement.suite = QStringLiteral("draft-placeholder");
+    agreement.senderId = m_userId;
+    agreement.receiverId = normalizedPeerId;
+    agreement.keyId = keyId.trimmed();
+    agreement.publicKey = publicKey;
+
+    QString validationReason;
+    if (!agreement.isValid(&validationReason)) {
+        if (rejectReason) *rejectReason = validationReason;
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["type"] = QStringLiteral("e2e_key_rotation_response");
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    obj["receiverId"] = normalizedPeerId;
+    obj["accepted"] = accepted;
+    obj["reason"] = accepted ? QStringLiteral("accepted") : (reason.trimmed().isEmpty() ? QStringLiteral("rejected") : reason.trimmed());
+    obj["e2eKeyAgreement"] = agreement.toJson();
+    return sendJson(obj);
+}
+
 QString Client::transportSecurityDescription() const {
     if (const QSslSocket* sslSocket = qobject_cast<const QSslSocket*>(m_socket)) {
         return sslSocket->isEncrypted()
@@ -1269,6 +1348,31 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             m_onlineUsers.append(user);
         }
         emit userListUpdated(m_onlineUsers);
+        return;
+    }
+
+    if (type == "e2e_key_rotation_request" || type == "e2e_key_rotation_response") {
+        const E2EKeyAgreement agreement = E2EKeyAgreement::fromJson(obj.value("e2eKeyAgreement").toObject());
+        QString reason;
+        const QString senderId = obj.value("senderId").toString();
+        const QString receiverId = obj.value("receiverId").toString();
+        if (!agreement.isValid(&reason)
+            || senderId != agreement.senderId
+            || receiverId != agreement.receiverId
+            || receiverId != m_userId) {
+            emit connectionError(QStringLiteral("端到端加密轮换消息无效：%1")
+                .arg(reason.isEmpty() ? QStringLiteral("identity-mismatch") : reason));
+            return;
+        }
+
+        if (type == "e2e_key_rotation_request") {
+            emit e2eSessionRotationRequested(senderId, agreement.toJson());
+        } else {
+            emit e2eSessionRotationResponded(senderId,
+                                             agreement.toJson(),
+                                             obj.value("accepted").toBool(false),
+                                             obj.value("reason").toString());
+        }
         return;
     }
 

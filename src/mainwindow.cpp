@@ -358,6 +358,8 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
     connect(m_client, &Client::serverGroupSnapshotReceived, this, &MainWindow::onServerGroupSnapshotReceived);
     connect(m_client, &Client::e2eSessionStateChanged, this, &MainWindow::onE2ESessionStateChanged);
+    connect(m_client, &Client::e2eSessionRotationRequested, this, &MainWindow::onE2ESessionRotationRequested);
+    connect(m_client, &Client::e2eSessionRotationResponded, this, &MainWindow::onE2ESessionRotationResponded);
     connect(m_client, &Client::fileTransferStatusChanged, this, &MainWindow::onFileTransferStatusChanged);
     connect(m_client, &Client::fileReceiveProgress, this, [this](const QString& fileName, qint64 bytesReceived, qint64 totalBytes) {
         const int percent = totalBytes > 0
@@ -2980,6 +2982,30 @@ void MainWindow::onE2ESessionStateChanged(const QString& peerId, const QJsonObje
         ui->chatHintLabel->setText(QString("端到端加密需要轮换 · %1").arg(contactDisplayName(peerId)));
     } else if (state == QLatin1String("missing-session")) {
         ui->chatHintLabel->setText(QString("端到端加密未就绪 · %1").arg(contactDisplayName(peerId)));
+    }
+}
+
+void MainWindow::onE2ESessionRotationRequested(const QString& peerId, const QJsonObject& agreement) {
+    const QString keyId = agreement.value("keyId").toString();
+    const QString fingerprint = agreement.value("publicKeyFingerprintSha256").toString().left(16);
+    appendSystemMessage(QString("%1 请求轮换端到端加密会话 · keyId:%2 · 指纹:%3")
+        .arg(contactDisplayName(peerId), keyId, fingerprint));
+    if (peerId == m_privateChatTarget) {
+        ui->chatHintLabel->setText(QString("收到端到端加密轮换请求 · %1").arg(contactDisplayName(peerId)));
+    }
+}
+
+void MainWindow::onE2ESessionRotationResponded(const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason) {
+    const QString keyId = agreement.value("keyId").toString();
+    appendSystemMessage(QString("%1 %2端到端加密轮换 · keyId:%3%4")
+        .arg(contactDisplayName(peerId),
+             accepted ? QStringLiteral("已接受") : QStringLiteral("已拒绝"),
+             keyId,
+             reason.trimmed().isEmpty() ? QString() : QStringLiteral(" · %1").arg(reason)));
+    if (peerId == m_privateChatTarget) {
+        ui->chatHintLabel->setText(accepted
+            ? QString("端到端加密轮换已被接受 · %1").arg(contactDisplayName(peerId))
+            : QString("端到端加密轮换被拒绝 · %1").arg(contactDisplayName(peerId)));
     }
 }
 
@@ -5894,6 +5920,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* copyOnlineCardAction = menu.addAction("复制在线名片");
     QAction* copyChatStarterAction = menu.addAction("复制开聊话术");
     QAction* copyE2EStatusAction = menu.addAction("复制加密状态");
+    QAction* requestE2ERotationAction = menu.addAction("请求加密轮换");
     QAction* clearE2ESessionAction = m_client && m_client->hasE2ESession(userId) ? menu.addAction("关闭本机会话密钥") : nullptr;
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
     QAction* renameAction = nullptr;
@@ -5916,6 +5943,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     describeUserAction(copyOnlineCardAction, "复制当前联系人的在线名片和状态");
     describeUserAction(copyChatStarterAction, "复制一段可直接发送的开聊话术");
     describeUserAction(copyE2EStatusAction, "复制当前联系人端到端加密会话状态");
+    describeUserAction(requestE2ERotationAction, "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥");
     describeUserAction(clearE2ESessionAction, "清除本机为该联系人保存的端到端会话密钥");
     describeUserAction(inviteCurrentGroupAction, "邀请当前联系人加入正在查看的本地群聊");
     describeUserAction(renameAction, "修改当前好友在本地显示的备注名");
@@ -5960,6 +5988,15 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         ui->statusbar->showMessage("开聊话术已复制", 2200);
     } else if (selected == copyE2EStatusAction) {
         copyE2ESessionStatus(userId);
+    } else if (selected == requestE2ERotationAction) {
+        QString rejectReason;
+        if (m_client && m_client->requestE2ESessionRotation(userId, &rejectReason)) {
+            appendSystemMessage(QString("已向 %1 发送端到端加密轮换请求").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage("端到端加密轮换请求已发送", 2400);
+        } else {
+            appendSystemMessage(QString("端到端加密轮换请求发送失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage("端到端加密轮换请求发送失败", 3000);
+        }
     } else if (selected == clearE2ESessionAction) {
         if (m_client) {
             m_client->clearE2ESessionKey(userId);

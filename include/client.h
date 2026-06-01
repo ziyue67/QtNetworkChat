@@ -29,6 +29,13 @@ public:
     bool e2eSessionNeedsRotation(const QString& peerId) const;
     QJsonObject e2eSessionStatus(const QString& peerId) const;
     void setE2ESessionMessageLimitForTesting(int limit);
+    bool requestE2ESessionRotation(const QString& peerId, QString* rejectReason = nullptr);
+    bool respondE2ESessionRotation(const QString& peerId,
+                                   const QString& keyId,
+                                   const QByteArray& publicKey,
+                                   bool accepted,
+                                   const QString& reason = QString(),
+                                   QString* rejectReason = nullptr);
     bool sendMessage(const QString& content);
     bool sendPrivateMessage(const QString& receiverId, const QString& content);
     bool sendEncryptedPrivateMessage(const QString& receiverId, const QString& content, QString* rejectReason = nullptr);
@@ -115,6 +122,8 @@ signals:
                                          const QString& reason);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
     void e2eSessionStateChanged(const QString& peerId, const QJsonObject& status);
+    void e2eSessionRotationRequested(const QString& peerId, const QJsonObject& agreement);
+    void e2eSessionRotationResponded(const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason);
     void connectionError(const QString& error);
     void outgoingTransferCancelRequested();
 

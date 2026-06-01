@@ -107,6 +107,10 @@ int main(int argc, char** argv) {
         QString malloryError;
         QJsonObject aliceE2EStatus;
         QJsonObject bobE2EStatus;
+        QJsonObject bobRotationRequest;
+        QJsonObject aliceRotationResponse;
+        bool aliceRotationAccepted = false;
+        QString aliceRotationResponseReason;
         const QString aliceId = "920001";
         const QString bobId = "920002";
         const QString malloryId = "920003";
@@ -130,6 +134,18 @@ int main(int argc, char** argv) {
         QObject::connect(&bob, &Client::e2eSessionStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
             if (peerId == aliceId) {
                 bobE2EStatus = status;
+            }
+        });
+        QObject::connect(&bob, &Client::e2eSessionRotationRequested, &app, [&](const QString& peerId, const QJsonObject& agreement) {
+            if (peerId == aliceId) {
+                bobRotationRequest = agreement;
+            }
+        });
+        QObject::connect(&alice, &Client::e2eSessionRotationResponded, &app, [&](const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason) {
+            if (peerId == bobId) {
+                aliceRotationResponse = agreement;
+                aliceRotationAccepted = accepted;
+                aliceRotationResponseReason = reason;
             }
         });
 
@@ -179,6 +195,49 @@ int main(int argc, char** argv) {
         ok = expect(!alice.sendEncryptedPrivateMessage(bobId, "third encrypted message should be blocked", &rejectReason)
                         && rejectReason == QStringLiteral("rotation-required"),
                     "sender should fail closed once e2e session rotation is required") && ok;
+        ok = expect(alice.requestE2ESessionRotation(bobId, &rejectReason),
+                    "sender should send an e2e rotation request after the local rotation gate closes") && ok;
+        ok = expect(waitFor([&] {
+            return bobRotationRequest.value("senderId").toString() == aliceId
+                && bobRotationRequest.value("receiverId").toString() == bobId;
+        }), "receiver should observe the e2e rotation request control-plane message") && ok;
+        ok = expect(bobRotationRequest.value("keyId").toString().startsWith(QStringLiteral("rotate-"))
+                        && bobRotationRequest.value("publicKey").toString().size() > 20
+                        && bobRotationRequest.value("publicKeyFingerprintSha256").toString().size() == 64
+                        && !bobRotationRequest.contains("sessionKey"),
+                    "rotation request should expose only public agreement material and a fingerprint") && ok;
+        const QByteArray responsePublicKey = generateE2ESessionKey();
+        ok = expect(bob.respondE2ESessionRotation(aliceId,
+                                                  bobRotationRequest.value("keyId").toString() + QStringLiteral("-response"),
+                                                  responsePublicKey,
+                                                  true,
+                                                  QStringLiteral("accepted"),
+                                                  &rejectReason),
+                    "receiver should send an e2e rotation response") && ok;
+        ok = expect(waitFor([&] {
+            return aliceRotationAccepted
+                && aliceRotationResponseReason == QStringLiteral("accepted")
+                && aliceRotationResponse.value("senderId").toString() == bobId
+                && aliceRotationResponse.value("receiverId").toString() == aliceId;
+        }), "sender should observe the e2e rotation response control-plane message") && ok;
+        ok = expect(!aliceRotationResponse.contains("sessionKey")
+                        && aliceRotationResponse.value("publicKeyFingerprintSha256").toString() == e2eFingerprint(responsePublicKey),
+                    "rotation response should not leak a raw session key") && ok;
+        ok = expect(alice.e2eSessionNeedsRotation(bobId),
+                    "rotation response should not auto-install a remote session key") && ok;
+        ok = expect(!alice.sendEncryptedPrivateMessage(bobId, "control plane alone should not reopen encryption", &rejectReason)
+                        && rejectReason == QStringLiteral("rotation-required"),
+                    "rotation control plane should keep fail-closed behavior until local keys are installed") && ok;
+
+        const QByteArray rotatedSessionKey = generateE2ESessionKey();
+        alice.setE2ESessionKey(bobId, keyId + "-manual-rotation", rotatedSessionKey);
+        bob.setE2ESessionKey(aliceId, keyId + "-manual-rotation", rotatedSessionKey);
+        bobMessage = Message();
+        ok = expect(alice.sendEncryptedPrivateMessage(bobId, "encrypted again after manual rotation", &rejectReason),
+                    "encrypted send should resume after both clients install a local rotated session") && ok;
+        ok = expect(waitFor([&] {
+            return bobMessage.content == QStringLiteral("encrypted again after manual rotation");
+        }), "receiver should decrypt after manual rotation installs matching local keys") && ok;
 
         alice.clearE2ESessionKey(bobId);
         ok = expect(!alice.hasE2ESession(bobId)

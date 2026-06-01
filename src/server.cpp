@@ -1123,6 +1123,8 @@ void Server::onClientReadyRead() {
                 obj["receivedBytes"].toVariant().toLongLong());
         } else if (type == "private") {
             handleMessage(obj, socket);
+        } else if (type == "e2e_key_rotation_request" || type == "e2e_key_rotation_response") {
+            handleE2EKeyRotation(obj, socket);
         } else if (type == "server_group_announcement_update") {
             handleServerGroupAnnouncementUpdate(obj, socket);
         } else if (type == "server_group_member_update") {
@@ -1372,6 +1374,50 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     }
 
     emit newMessage(msg);
+}
+
+void Server::handleE2EKeyRotation(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* sender = findUserBySocket(socket);
+    if (!sender) {
+        sendSystemNotice(socket, QStringLiteral("端到端加密轮换失败：请先登录"));
+        return;
+    }
+
+    const QString type = obj.value("type").toString();
+    const QString receiverId = obj.value("receiverId").toString().trimmed();
+    const E2EKeyAgreement agreement = E2EKeyAgreement::fromJson(obj.value("e2eKeyAgreement").toObject());
+    QString reason;
+    if ((type != QLatin1String("e2e_key_rotation_request") && type != QLatin1String("e2e_key_rotation_response"))
+        || receiverId.isEmpty()
+        || !agreement.isValid(&reason)
+        || agreement.senderId != sender->id
+        || agreement.receiverId != receiverId) {
+        sendSystemNotice(socket, QStringLiteral("端到端加密轮换失败：请求无效"));
+        return;
+    }
+
+    QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+    if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+        sendSystemNotice(socket, QStringLiteral("端到端加密轮换失败：对方不在线，未缓存轮换材料"));
+        return;
+    }
+
+    QJsonObject forwarded;
+    forwarded["type"] = type;
+    forwarded["senderId"] = sender->id;
+    forwarded["senderName"] = sender->name;
+    forwarded["receiverId"] = receiverId;
+    forwarded["e2eKeyAgreement"] = agreement.toJson();
+    forwarded["reason"] = obj.value("reason").toString(type == QLatin1String("e2e_key_rotation_request")
+        ? QStringLiteral("manual-request")
+        : QStringLiteral("accepted"));
+    if (type == QLatin1String("e2e_key_rotation_response")) {
+        forwarded["accepted"] = obj.value("accepted").toBool(false);
+    }
+
+    targetSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
+    targetSocket->write("\n");
+    targetSocket->flush();
 }
 
 void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSocket* socket) {
