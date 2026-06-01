@@ -243,8 +243,12 @@ int main(int argc, char** argv) {
         ok = expect(bobRotationRequest.value("keyId").toString().startsWith(QStringLiteral("rotate-"))
                         && bobRotationRequest.value("publicKey").toString().size() > 20
                         && bobRotationRequest.value("publicKeyFingerprintSha256").toString().size() == 64
+                        && bobRotationRequest.value("senderIdentityFingerprintSha256").toString()
+                            == bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString()
+                        && bobRotationRequest.value("receiverIdentityFingerprintSha256").toString()
+                            == bob.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
                         && !bobRotationRequest.contains("sessionKey"),
-                    "rotation request should expose only public agreement material and a fingerprint") && ok;
+                    "rotation request should expose only public agreement material bound to identity fingerprints") && ok;
         const QByteArray responsePublicKey = generateE2ESessionKey();
         ok = expect(bob.respondE2ESessionRotation(aliceId,
                                                   bobRotationRequest.value("keyId").toString() + QStringLiteral("-response"),
@@ -262,6 +266,11 @@ int main(int argc, char** argv) {
         ok = expect(!aliceRotationResponse.contains("sessionKey")
                         && aliceRotationResponse.value("publicKeyFingerprintSha256").toString() == e2eFingerprint(responsePublicKey),
                     "rotation response should not leak a raw session key") && ok;
+        ok = expect(aliceRotationResponse.value("senderIdentityFingerprintSha256").toString()
+                        == alice.e2ePeerIdentityStatus(bobId).value("publicKeyFingerprintSha256").toString()
+                        && aliceRotationResponse.value("receiverIdentityFingerprintSha256").toString()
+                            == alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString(),
+                    "rotation response should be bound to the observed peer identity fingerprints") && ok;
         ok = expect(alice.e2eSessionNeedsRotation(bobId),
                     "rotation response should not auto-install a remote session key") && ok;
         ok = expect(!alice.sendEncryptedPrivateMessage(bobId, "control plane alone should not reopen encryption", &rejectReason)
@@ -285,6 +294,9 @@ int main(int argc, char** argv) {
         alice.setE2ESessionKey(bobId, keyId + "-rotated", generateE2ESessionKey());
         ok = expect(alice.hasE2ESession(bobId) && !alice.e2eSessionNeedsRotation(bobId),
                     "setting a new e2e session should clear the rotation gate") && ok;
+        ok = expect(!mallory.requestE2ESessionRotation(aliceId, &rejectReason)
+                        && rejectReason == QStringLiteral("missing-identity"),
+                    "rotation requests should fail closed until the peer identity has been observed") && ok;
 
         bob.clearE2ESessionKey(aliceId);
         bobMessage = Message();

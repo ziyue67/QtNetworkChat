@@ -165,6 +165,11 @@ private:
                                         qint64* chunkCount = nullptr,
                                         QString* fileHash = nullptr);
     void cleanupExpiredIncomingFileTransfers();
+    bool populateE2EAgreementIdentityFingerprints(const QString& peerId,
+                                                  E2EKeyAgreement* agreement,
+                                                  QString* rejectReason) const;
+    bool validateIncomingE2EAgreementIdentity(const E2EKeyAgreement& agreement,
+                                              QString* rejectReason) const;
 
     struct E2ESession {
         QString keyId;

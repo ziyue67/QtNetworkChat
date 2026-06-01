@@ -23,6 +23,8 @@ int main() {
     agreement.receiverId = "10002";
     agreement.keyId = "alice-bob-1";
     agreement.publicKey = QByteArray::fromHex("00112233445566778899aabbccddeeff");
+    agreement.senderIdentityFingerprint = QString(64, QLatin1Char('a'));
+    agreement.receiverIdentityFingerprint = QString(64, QLatin1Char('b'));
     agreement.signature = QByteArray::fromHex("aabbccdd");
 
     QString reason;
@@ -34,10 +36,16 @@ int main() {
                 "key agreement protocol should normalize") && ok;
     ok = expect(!agreementJson.value("publicKeyFingerprintSha256").toString().isEmpty(),
                 "key agreement should expose public key fingerprint") && ok;
+    ok = expect(agreementJson.value("senderIdentityFingerprintSha256").toString() == agreement.senderIdentityFingerprint
+                    && agreementJson.value("receiverIdentityFingerprintSha256").toString() == agreement.receiverIdentityFingerprint,
+                "key agreement should bind both identity fingerprints") && ok;
 
     const E2EKeyAgreement restoredAgreement = E2EKeyAgreement::fromJson(agreementJson);
     ok = expect(restoredAgreement.publicKey == agreement.publicKey,
                 "key agreement public key should round-trip") && ok;
+    ok = expect(restoredAgreement.senderIdentityFingerprint == agreement.senderIdentityFingerprint
+                    && restoredAgreement.receiverIdentityFingerprint == agreement.receiverIdentityFingerprint,
+                "key agreement identity fingerprints should round-trip") && ok;
     ok = expect(restoredAgreement.signature == agreement.signature,
                 "key agreement signature should round-trip") && ok;
 
@@ -89,6 +97,10 @@ int main() {
     invalidAgreement.publicKey.clear();
     ok = expect(!invalidAgreement.isValid(&reason) && reason == "invalid-public-key",
                 "missing public key should fail closed") && ok;
+    invalidAgreement = agreement;
+    invalidAgreement.senderIdentityFingerprint = "not-a-fingerprint";
+    ok = expect(!invalidAgreement.isValid(&reason) && reason == "invalid-identity-fingerprint",
+                "malformed identity fingerprints should fail closed") && ok;
 
     const QByteArray sessionKey = generateE2ESessionKey();
     ok = expect(sessionKey.size() == 32,

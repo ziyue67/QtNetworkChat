@@ -12,6 +12,8 @@ struct E2EKeyAgreement {
     QString receiverId;
     QString keyId;
     QByteArray publicKey;
+    QString senderIdentityFingerprint;
+    QString receiverIdentityFingerprint;
     QByteArray signature;
 
     bool isValid(QString* reason = nullptr) const;

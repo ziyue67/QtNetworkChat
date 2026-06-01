@@ -13,6 +13,7 @@ constexpr qsizetype MaxNonceBytes = 24;
 constexpr qsizetype MinTagBytes = 16;
 constexpr qsizetype MaxTagBytes = 32;
 constexpr qsizetype MaxPublicKeyBytes = 4096;
+constexpr qsizetype FingerprintHexLength = 64;
 constexpr qsizetype MaxSignatureBytes = 4096;
 constexpr qsizetype SessionKeyBytes = 32;
 constexpr qsizetype MinSessionKeyBytes = 16;
@@ -39,6 +40,19 @@ bool fail(QString* reason, const QString& value) {
 
 bool validIdentity(const QString& value) {
     return !value.trimmed().isEmpty() && value.size() <= 128;
+}
+
+bool validOptionalFingerprint(const QString& value) {
+    const QString normalized = value.trimmed().toLower();
+    if (normalized.isEmpty()) return true;
+    if (normalized.size() != FingerprintHexLength) return false;
+    for (const QChar ch : normalized) {
+        const ushort code = ch.unicode();
+        const bool digit = code >= '0' && code <= '9';
+        const bool lowerHex = code >= 'a' && code <= 'f';
+        if (!digit && !lowerHex) return false;
+    }
+    return true;
 }
 
 QByteArray randomBytes(qsizetype size) {
@@ -140,6 +154,10 @@ bool E2EKeyAgreement::isValid(QString* reason) const {
     if (publicKey.isEmpty() || publicKey.size() > MaxPublicKeyBytes) {
         return fail(reason, QStringLiteral("invalid-public-key"));
     }
+    if (!validOptionalFingerprint(senderIdentityFingerprint)
+        || !validOptionalFingerprint(receiverIdentityFingerprint)) {
+        return fail(reason, QStringLiteral("invalid-identity-fingerprint"));
+    }
     if (signature.size() > MaxSignatureBytes) {
         return fail(reason, QStringLiteral("invalid-signature"));
     }
@@ -157,6 +175,12 @@ QJsonObject E2EKeyAgreement::toJson() const {
     obj["receiverId"] = trimmed(receiverId);
     obj["keyId"] = trimmed(keyId);
     obj["publicKey"] = toBase64Url(publicKey);
+    if (!senderIdentityFingerprint.trimmed().isEmpty()) {
+        obj["senderIdentityFingerprintSha256"] = senderIdentityFingerprint.trimmed().toLower();
+    }
+    if (!receiverIdentityFingerprint.trimmed().isEmpty()) {
+        obj["receiverIdentityFingerprintSha256"] = receiverIdentityFingerprint.trimmed().toLower();
+    }
     if (!signature.isEmpty()) {
         obj["signature"] = toBase64Url(signature);
     }
@@ -172,6 +196,8 @@ E2EKeyAgreement E2EKeyAgreement::fromJson(const QJsonObject& obj) {
     agreement.receiverId = trimmed(obj.value("receiverId").toString());
     agreement.keyId = trimmed(obj.value("keyId").toString());
     agreement.publicKey = base64Field(obj, "publicKey");
+    agreement.senderIdentityFingerprint = trimmed(obj.value("senderIdentityFingerprintSha256").toString()).toLower();
+    agreement.receiverIdentityFingerprint = trimmed(obj.value("receiverIdentityFingerprintSha256").toString()).toLower();
     agreement.signature = base64Field(obj, "signature");
     return agreement;
 }

@@ -509,6 +509,65 @@ bool Client::pinE2EPeerIdentity(const QString& peerId, const QString& expectedFi
     return true;
 }
 
+bool Client::populateE2EAgreementIdentityFingerprints(const QString& peerId,
+                                                      E2EKeyAgreement* agreement,
+                                                      QString* rejectReason) const {
+    if (rejectReason) rejectReason->clear();
+    if (!agreement) {
+        if (rejectReason) *rejectReason = QStringLiteral("invalid-agreement");
+        return false;
+    }
+    if (m_userId.trimmed().isEmpty() || m_e2eIdentityPublicKey.isEmpty()) {
+        if (rejectReason) *rejectReason = QStringLiteral("identity-not-ready");
+        return false;
+    }
+
+    const QString normalizedPeerId = peerId.trimmed();
+    const auto peerIdentity = m_e2ePeerIdentities.constFind(normalizedPeerId);
+    if (normalizedPeerId.isEmpty() || peerIdentity == m_e2ePeerIdentities.constEnd()) {
+        if (rejectReason) *rejectReason = QStringLiteral("missing-identity");
+        return false;
+    }
+    if (peerIdentity->fingerprintMismatch) {
+        if (rejectReason) *rejectReason = QStringLiteral("fingerprint-mismatch");
+        return false;
+    }
+
+    agreement->senderIdentityFingerprint = e2eFingerprint(m_e2eIdentityPublicKey);
+    agreement->receiverIdentityFingerprint = peerIdentity->fingerprint;
+    return true;
+}
+
+bool Client::validateIncomingE2EAgreementIdentity(const E2EKeyAgreement& agreement,
+                                                  QString* rejectReason) const {
+    if (rejectReason) rejectReason->clear();
+    const QString senderId = agreement.senderId.trimmed();
+    if (senderId.isEmpty() || senderId == m_userId) {
+        if (rejectReason) *rejectReason = QStringLiteral("invalid-peer");
+        return false;
+    }
+    const QString localFingerprint = e2eFingerprint(m_e2eIdentityPublicKey);
+    if (agreement.receiverIdentityFingerprint.trimmed().toLower() != localFingerprint) {
+        if (rejectReason) *rejectReason = QStringLiteral("receiver-fingerprint-mismatch");
+        return false;
+    }
+
+    const auto peerIdentity = m_e2ePeerIdentities.constFind(senderId);
+    if (peerIdentity == m_e2ePeerIdentities.constEnd()) {
+        if (rejectReason) *rejectReason = QStringLiteral("missing-identity");
+        return false;
+    }
+    if (peerIdentity->fingerprintMismatch) {
+        if (rejectReason) *rejectReason = QStringLiteral("fingerprint-mismatch");
+        return false;
+    }
+    if (agreement.senderIdentityFingerprint.trimmed().toLower() != peerIdentity->fingerprint) {
+        if (rejectReason) *rejectReason = QStringLiteral("sender-fingerprint-mismatch");
+        return false;
+    }
+    return true;
+}
+
 bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectReason) {
     if (rejectReason) rejectReason->clear();
     if (!isConnected()) {
@@ -531,6 +590,9 @@ bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectRea
         .arg(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddhhmmsszzz")),
              e2eFingerprint(generateE2ESessionKey()).left(12));
     agreement.publicKey = generateE2ESessionKey();
+    if (!populateE2EAgreementIdentityFingerprints(normalizedPeerId, &agreement, rejectReason)) {
+        return false;
+    }
 
     QString validationReason;
     if (!agreement.isValid(&validationReason)) {
@@ -570,6 +632,9 @@ bool Client::respondE2ESessionRotation(const QString& peerId,
     agreement.receiverId = normalizedPeerId;
     agreement.keyId = keyId.trimmed();
     agreement.publicKey = publicKey;
+    if (!populateE2EAgreementIdentityFingerprints(normalizedPeerId, &agreement, rejectReason)) {
+        return false;
+    }
 
     QString validationReason;
     if (!agreement.isValid(&validationReason)) {
@@ -1531,7 +1596,8 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         if (!agreement.isValid(&reason)
             || senderId != agreement.senderId
             || receiverId != agreement.receiverId
-            || receiverId != m_userId) {
+            || receiverId != m_userId
+            || !validateIncomingE2EAgreementIdentity(agreement, &reason)) {
             emit connectionError(QStringLiteral("端到端加密轮换消息无效：%1")
                 .arg(reason.isEmpty() ? QStringLiteral("identity-mismatch") : reason));
             return;
