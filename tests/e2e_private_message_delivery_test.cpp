@@ -105,6 +105,11 @@ int main(int argc, char** argv) {
         Message bobMessage;
         QString bobError;
         QString malloryError;
+        QJsonObject aliceE2EStatus;
+        QJsonObject bobE2EStatus;
+        const QString aliceId = "920001";
+        const QString bobId = "920002";
+        const QString malloryId = "920003";
 
         QObject::connect(&bob, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::Private) {
@@ -117,10 +122,17 @@ int main(int argc, char** argv) {
         QObject::connect(&mallory, &Client::connectionError, &app, [&](const QString& error) {
             malloryError = error;
         });
+        QObject::connect(&alice, &Client::e2eSessionStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
+            if (peerId == bobId) {
+                aliceE2EStatus = status;
+            }
+        });
+        QObject::connect(&bob, &Client::e2eSessionStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
+            if (peerId == aliceId) {
+                bobE2EStatus = status;
+            }
+        });
 
-        const QString aliceId = "920001";
-        const QString bobId = "920002";
-        const QString malloryId = "920003";
         const QByteArray sessionKey = generateE2ESessionKey();
         const QString keyId = "alice-bob-session-1";
 
@@ -128,8 +140,13 @@ int main(int argc, char** argv) {
         ok = expect(registerClient(bob, bobId, "Bob", port), "bob should register and log in") && ok;
         ok = expect(registerClient(mallory, malloryId, "Mallory", port), "mallory should register and log in") && ok;
 
+        alice.setE2ESessionMessageLimitForTesting(2);
         alice.setE2ESessionKey(bobId, keyId, sessionKey);
         bob.setE2ESessionKey(aliceId, keyId, sessionKey);
+        ok = expect(alice.hasE2ESession(bobId)
+                        && alice.e2eSessionStatus(bobId).value("state").toString() == "ready"
+                        && alice.e2eSessionStatus(bobId).value("keyFingerprintSha256").toString().size() == 64,
+                    "alice should expose ready e2e session status without the raw key") && ok;
 
         QString rejectReason;
         ok = expect(!alice.sendEncryptedPrivateMessage(malloryId, "missing session should fail", &rejectReason)
@@ -148,6 +165,28 @@ int main(int argc, char** argv) {
                     "wire ciphertext should not equal plaintext") && ok;
         ok = expect(bobError.isEmpty(),
                     "bob should not report decrypt errors when the session key matches") && ok;
+        ok = expect(aliceE2EStatus.value("encryptedMessages").toString() == "1",
+                    "sender e2e status should count encrypted messages") && ok;
+        ok = expect(bobE2EStatus.value("decryptedMessages").toString() == "1",
+                    "receiver e2e status should count decrypted messages") && ok;
+
+        ok = expect(alice.sendEncryptedPrivateMessage(bobId, "second encrypted message reaches rotation threshold", &rejectReason),
+                    "second encrypted message should still send before rotation gate closes") && ok;
+        ok = expect(waitFor([&] {
+            return alice.e2eSessionNeedsRotation(bobId)
+                && aliceE2EStatus.value("state").toString() == QStringLiteral("rotation-required");
+        }), "sender should require rotation after the configured message limit") && ok;
+        ok = expect(!alice.sendEncryptedPrivateMessage(bobId, "third encrypted message should be blocked", &rejectReason)
+                        && rejectReason == QStringLiteral("rotation-required"),
+                    "sender should fail closed once e2e session rotation is required") && ok;
+
+        alice.clearE2ESessionKey(bobId);
+        ok = expect(!alice.hasE2ESession(bobId)
+                        && alice.e2eSessionStatus(bobId).value("state").toString() == QStringLiteral("missing-session"),
+                    "clearing an e2e session should expose missing-session status") && ok;
+        alice.setE2ESessionKey(bobId, keyId + "-rotated", generateE2ESessionKey());
+        ok = expect(alice.hasE2ESession(bobId) && !alice.e2eSessionNeedsRotation(bobId),
+                    "setting a new e2e session should clear the rotation gate") && ok;
 
         bob.clearE2ESessionKey(aliceId);
         bobMessage = Message();

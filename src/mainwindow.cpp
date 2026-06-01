@@ -357,6 +357,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     connect(m_client, &Client::friendRequestSent, this, &MainWindow::onFriendRequestSent);
     connect(m_client, &Client::friendResponseReceived, this, &MainWindow::onFriendResponseReceived);
     connect(m_client, &Client::serverGroupSnapshotReceived, this, &MainWindow::onServerGroupSnapshotReceived);
+    connect(m_client, &Client::e2eSessionStateChanged, this, &MainWindow::onE2ESessionStateChanged);
     connect(m_client, &Client::fileTransferStatusChanged, this, &MainWindow::onFileTransferStatusChanged);
     connect(m_client, &Client::fileReceiveProgress, this, [this](const QString& fileName, qint64 bytesReceived, qint64 totalBytes) {
         const int percent = totalBytes > 0
@@ -2122,7 +2123,13 @@ void MainWindow::refreshComposerState() {
     const bool removedFromPublicGroup = m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup();
     const bool canReachTarget = !removedFromPublicGroup && (isLocalGroup || (m_client && m_client->isConnected()));
     const bool canSend = hasText && canReachTarget;
-    const QString composerHint = QString("发往 %1... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)").arg(targetName);
+    const bool encryptedReady = !m_privateChatTarget.isEmpty()
+        && !isLocalGroup
+        && m_client
+        && m_client->hasE2ESession(m_privateChatTarget)
+        && !m_client->e2eSessionNeedsRotation(m_privateChatTarget);
+    const QString composerHint = QString("发往 %1%2... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)")
+        .arg(targetName, encryptedReady ? QStringLiteral(" · 端到端加密") : QString());
 
     ui->sendBtn->setEnabled(canSend);
     ui->sendBtn->setToolTip(removedFromPublicGroup
@@ -2130,7 +2137,7 @@ void MainWindow::refreshComposerState() {
         : (!canReachTarget
         ? QString("当前已断开，无法发送到 %1").arg(targetName)
         : (hasText
-        ? QString("发送到 %1 · %2 字 (Enter)").arg(targetName).arg(draftText.size())
+        ? QString("发送到 %1 · %2 字%3 (Enter)").arg(targetName).arg(draftText.size()).arg(encryptedReady ? QStringLiteral(" · 端到端加密") : QString())
         : QString("请输入消息后发送到 %1").arg(targetName))));
     ui->messageEdit->setPlaceholderText(removedFromPublicGroup
         ? "当前账号已不在公共群，等待群主或管理员重新邀请"
@@ -2358,15 +2365,31 @@ void MainWindow::onSendMessage() {
     }
 
     bool ok = false;
+    bool sentEncrypted = false;
+    QString encryptedRejectReason;
     if (!m_privateChatTarget.isEmpty()) {
-        ok = m_client->sendPrivateMessage(m_privateChatTarget, text);
+        if (m_client->hasE2ESession(m_privateChatTarget) && !m_client->e2eSessionNeedsRotation(m_privateChatTarget)) {
+            ok = m_client->sendEncryptedPrivateMessage(m_privateChatTarget, text, &encryptedRejectReason);
+            sentEncrypted = ok;
+            if (!ok && encryptedRejectReason == QLatin1String("rotation-required")) {
+                ui->chatHintLabel->setText(QString("发送暂停 · %1 的端到端会话需要轮换").arg(targetName));
+                ui->statusbar->showMessage("端到端加密会话需要轮换，消息已保留在输入框", 3600);
+                appendSystemMessage(QString("%1 的端到端加密会话需要轮换，未发送明文").arg(targetName));
+                return;
+            }
+        } else {
+            ok = m_client->sendPrivateMessage(m_privateChatTarget, text);
+        }
     } else {
         ok = m_client->sendMessage(text);
     }
 
     if (ok) {
         QString peerId = m_privateChatTarget.isEmpty() ? "group" : m_privateChatTarget;
-        QString line = QString("[%1] <%2> %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, text);
+        QString line = QString("[%1] <%2> %3%4").arg(QDateTime::currentDateTime().toString("hh:mm:ss"),
+                                                     m_currentUserName,
+                                                     sentEncrypted ? QStringLiteral("[端到端加密] ") : QString(),
+                                                     text);
         saveHistory(peerId, line);
 
         QStandardItem* item = new QStandardItem(line);
@@ -2380,8 +2403,13 @@ void MainWindow::onSendMessage() {
             m_chatModel->removeRows(0, rowCount - MAX_HISTORY_LINES);
         }
         ui->chatListView->scrollToBottom();
-        ui->chatHintLabel->setText(QString("已发送到 %1 · %2 字 · %3%4").arg(targetName).arg(text.size()).arg(QDateTime::currentDateTime().toString("hh:mm:ss"), originalText == text ? QString() : " · 快捷指令已展开"));
-        ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(targetName).arg(text.size()), 1800);
+        ui->chatHintLabel->setText(QString("已发送到 %1 · %2 字 · %3%4%5")
+            .arg(targetName)
+            .arg(text.size())
+            .arg(QDateTime::currentDateTime().toString("hh:mm:ss"),
+                 originalText == text ? QString() : " · 快捷指令已展开",
+                 sentEncrypted ? QStringLiteral(" · 端到端加密") : QString()));
+        ui->statusbar->showMessage(QString("已发送到 %1 · %2 字%3").arg(targetName).arg(text.size()).arg(sentEncrypted ? QStringLiteral(" · 端到端加密") : QString()), 1800);
 
         ui->messageEdit->clear();
     } else {
@@ -2941,6 +2969,20 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
     }
 }
 
+void MainWindow::onE2ESessionStateChanged(const QString& peerId, const QJsonObject& status) {
+    if (peerId != m_privateChatTarget) {
+        return;
+    }
+    const QString state = status.value("state").toString();
+    if (state == QLatin1String("ready")) {
+        ui->chatHintLabel->setText(QString("端到端加密已就绪 · %1").arg(contactDisplayName(peerId)));
+    } else if (state == QLatin1String("rotation-required")) {
+        ui->chatHintLabel->setText(QString("端到端加密需要轮换 · %1").arg(contactDisplayName(peerId)));
+    } else if (state == QLatin1String("missing-session")) {
+        ui->chatHintLabel->setText(QString("端到端加密未就绪 · %1").arg(contactDisplayName(peerId)));
+    }
+}
+
 void MainWindow::onPrivateChat(const QModelIndex& index) {
     if (!index.isValid()) return;
     QString targetId = index.data(Qt::UserRole + 1).toString();
@@ -2977,7 +3019,10 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     QString onlineText = isContactOnline(targetId) ? "在线" : "离线";
     setWindowTitle(appWindowTitle(QString("私聊: %1").arg(userName)));
     ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(userName));
-    ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, onlineText));
+    const QString e2eState = m_client && m_client->hasE2ESession(targetId)
+        ? (m_client->e2eSessionNeedsRotation(targetId) ? QStringLiteral("端到端加密需轮换") : QStringLiteral("端到端加密就绪"))
+        : QStringLiteral("端到端加密未就绪");
+    ui->chatHintLabel->setText(QString("QQ: %1 · %2 · %3 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, onlineText, e2eState));
     refreshComposerState();
 }
 
@@ -5848,6 +5893,8 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* copyAddTextAction = menu.addAction("复制申请话术");
     QAction* copyOnlineCardAction = menu.addAction("复制在线名片");
     QAction* copyChatStarterAction = menu.addAction("复制开聊话术");
+    QAction* copyE2EStatusAction = menu.addAction("复制加密状态");
+    QAction* clearE2ESessionAction = m_client && m_client->hasE2ESession(userId) ? menu.addAction("关闭本机会话密钥") : nullptr;
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
     QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
@@ -5868,6 +5915,8 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     describeUserAction(copyAddTextAction, "复制适合当前联系人的好友申请话术");
     describeUserAction(copyOnlineCardAction, "复制当前联系人的在线名片和状态");
     describeUserAction(copyChatStarterAction, "复制一段可直接发送的开聊话术");
+    describeUserAction(copyE2EStatusAction, "复制当前联系人端到端加密会话状态");
+    describeUserAction(clearE2ESessionAction, "清除本机为该联系人保存的端到端会话密钥");
     describeUserAction(inviteCurrentGroupAction, "邀请当前联系人加入正在查看的本地群聊");
     describeUserAction(renameAction, "修改当前好友在本地显示的备注名");
     describeUserAction(removeAction, "从本地好友列表删除当前好友");
@@ -5909,6 +5958,14 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
                 .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId);
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("开聊话术已复制", 2200);
+    } else if (selected == copyE2EStatusAction) {
+        copyE2ESessionStatus(userId);
+    } else if (selected == clearE2ESessionAction) {
+        if (m_client) {
+            m_client->clearE2ESessionKey(userId);
+            appendSystemMessage(QString("已关闭 %1 的本机端到端加密会话").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage("本机端到端加密会话已关闭", 2400);
+        }
     } else if (selected == inviteCurrentGroupAction) {
         QString requestNote;
         if (!m_friendIds.contains(userId)) {
@@ -8021,6 +8078,38 @@ bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const Q
     appendSystemMessage(QString("已提交公共群%1成员请求：%2（QQ:%3），等待服务端同步").arg(actionText, displayName, targetId));
     ui->statusbar->showMessage(QString("公共群%1请求已提交，等待服务端同步").arg(actionText), 2400);
     return true;
+}
+
+QString MainWindow::e2eSessionStatusText(const QString& peerId) const {
+    if (!m_client) {
+        return QStringLiteral("端到端加密状态：客户端未就绪");
+    }
+    const QJsonObject status = m_client->e2eSessionStatus(peerId);
+    const QString state = status.value("state").toString();
+    if (state == QLatin1String("ready")) {
+        return QString("端到端加密状态：已就绪\n对端QQ：%1\nkeyId：%2\n指纹：%3\n已加密发送：%4\n已解密接收：%5\n轮换阈值：%6")
+            .arg(peerId,
+                 status.value("keyId").toString(),
+                 status.value("keyFingerprintSha256").toString().left(16),
+                 status.value("encryptedMessages").toString(),
+                 status.value("decryptedMessages").toString(),
+                 QString::number(status.value("messageLimit").toInt()));
+    }
+    if (state == QLatin1String("rotation-required")) {
+        return QString("端到端加密状态：需要轮换\n对端QQ：%1\nkeyId：%2\n指纹：%3\n已加密发送：%4\n轮换阈值：%5")
+            .arg(peerId,
+                 status.value("keyId").toString(),
+                 status.value("keyFingerprintSha256").toString().left(16),
+                 status.value("encryptedMessages").toString(),
+                 QString::number(status.value("messageLimit").toInt()));
+    }
+    return QString("端到端加密状态：未就绪\n对端QQ：%1\n说明：当前本机没有可用于该联系人的会话密钥").arg(peerId);
+}
+
+void MainWindow::copyE2ESessionStatus(const QString& peerId) {
+    const QString text = e2eSessionStatusText(peerId);
+    QApplication::clipboard()->setText(text);
+    ui->statusbar->showMessage("端到端加密状态已复制", 2200);
 }
 
 QString MainWindow::getFriendFilePath() const {

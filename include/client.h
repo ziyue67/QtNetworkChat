@@ -25,6 +25,10 @@ public:
     void setAccountInfo(const QString& account, const QString& password, bool registerMode);
     void setE2ESessionKey(const QString& peerId, const QString& keyId, const QByteArray& sessionKey);
     void clearE2ESessionKey(const QString& peerId);
+    bool hasE2ESession(const QString& peerId) const;
+    bool e2eSessionNeedsRotation(const QString& peerId) const;
+    QJsonObject e2eSessionStatus(const QString& peerId) const;
+    void setE2ESessionMessageLimitForTesting(int limit);
     bool sendMessage(const QString& content);
     bool sendPrivateMessage(const QString& receiverId, const QString& content);
     bool sendEncryptedPrivateMessage(const QString& receiverId, const QString& content, QString* rejectReason = nullptr);
@@ -110,6 +114,7 @@ signals:
                                          const QVector<qint64>& receivedChunks,
                                          const QString& reason);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
+    void e2eSessionStateChanged(const QString& peerId, const QJsonObject& status);
     void connectionError(const QString& error);
     void outgoingTransferCancelRequested();
 
@@ -150,6 +155,10 @@ private:
     struct E2ESession {
         QString keyId;
         QByteArray sessionKey;
+        qint64 createdAtMs = 0;
+        qint64 encryptedMessages = 0;
+        qint64 decryptedMessages = 0;
+        bool rotationRequired = false;
     };
 
     struct PendingIncomingFileTransfer {
@@ -190,6 +199,7 @@ private:
     QJsonArray m_serverGroups;
     QJsonArray m_removedServerGroups;
     QMap<QString, E2ESession> m_e2eSessions;
+    int m_e2eSessionMessageLimit;
 };
 
 #endif // CLIENT_H

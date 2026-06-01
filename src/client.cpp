@@ -25,6 +25,7 @@ constexpr qint64 kTransferChunkBytes = 256LL * 1024;
 constexpr qint64 kMaxIncomingChunks = 4096;
 constexpr int kChunkAckTimeoutMs = 4000;
 constexpr int kChunkSendMaxAttempts = 3;
+constexpr int kDefaultE2ESessionMessageLimit = 100;
 constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 constexpr qint64 kOutgoingTransferStateMaxAgeMs = 24LL * 60 * 60 * 1000;
@@ -203,6 +204,7 @@ Client::Client(QObject* parent)
     , m_reconnectAttempts(0)
     , m_hasServerGroupSnapshot(false)
     , m_cancelOutgoingTransfer(false)
+    , m_e2eSessionMessageLimit(kDefaultE2ESessionMessageLimit)
 {
     connect(m_socket, &QTcpSocket::readyRead, this, &Client::onReadyRead);
     if (QSslSocket* sslSocket = qobject_cast<QSslSocket*>(m_socket)) {
@@ -321,11 +323,54 @@ void Client::setE2ESessionKey(const QString& peerId, const QString& keyId, const
     E2ESession session;
     session.keyId = normalizedKeyId;
     session.sessionKey = sessionKey;
+    session.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     m_e2eSessions[normalizedPeerId] = session;
+    emit e2eSessionStateChanged(normalizedPeerId, e2eSessionStatus(normalizedPeerId));
 }
 
 void Client::clearE2ESessionKey(const QString& peerId) {
-    m_e2eSessions.remove(peerId.trimmed());
+    const QString normalizedPeerId = peerId.trimmed();
+    m_e2eSessions.remove(normalizedPeerId);
+    emit e2eSessionStateChanged(normalizedPeerId, e2eSessionStatus(normalizedPeerId));
+}
+
+bool Client::hasE2ESession(const QString& peerId) const {
+    return m_e2eSessions.contains(peerId.trimmed());
+}
+
+bool Client::e2eSessionNeedsRotation(const QString& peerId) const {
+    const auto it = m_e2eSessions.constFind(peerId.trimmed());
+    return it != m_e2eSessions.constEnd() && it->rotationRequired;
+}
+
+QJsonObject Client::e2eSessionStatus(const QString& peerId) const {
+    const QString normalizedPeerId = peerId.trimmed();
+    QJsonObject status;
+    status["peerId"] = normalizedPeerId;
+    status["configured"] = false;
+    status["ready"] = false;
+    status["rotationRequired"] = false;
+    status["messageLimit"] = m_e2eSessionMessageLimit;
+    const auto it = m_e2eSessions.constFind(normalizedPeerId);
+    if (it == m_e2eSessions.constEnd()) {
+        status["state"] = QStringLiteral("missing-session");
+        return status;
+    }
+
+    status["configured"] = true;
+    status["ready"] = !it->rotationRequired;
+    status["state"] = it->rotationRequired ? QStringLiteral("rotation-required") : QStringLiteral("ready");
+    status["keyId"] = it->keyId;
+    status["keyFingerprintSha256"] = e2eFingerprint(it->sessionKey);
+    status["createdAt"] = QDateTime::fromMSecsSinceEpoch(it->createdAtMs).toUTC().toString(Qt::ISODateWithMs);
+    status["encryptedMessages"] = QString::number(it->encryptedMessages);
+    status["decryptedMessages"] = QString::number(it->decryptedMessages);
+    status["rotationRequired"] = it->rotationRequired;
+    return status;
+}
+
+void Client::setE2ESessionMessageLimitForTesting(int limit) {
+    m_e2eSessionMessageLimit = qBound(1, limit, 1000000);
 }
 
 QString Client::transportSecurityDescription() const {
@@ -375,9 +420,15 @@ bool Client::sendEncryptedPrivateMessage(const QString& receiverId, const QStrin
     }
 
     const QString normalizedReceiverId = receiverId.trimmed();
-    const auto sessionIt = m_e2eSessions.constFind(normalizedReceiverId);
+    auto sessionIt = m_e2eSessions.find(normalizedReceiverId);
     if (normalizedReceiverId.isEmpty() || sessionIt == m_e2eSessions.constEnd()) {
         if (rejectReason) *rejectReason = QStringLiteral("missing-session");
+        return false;
+    }
+    if (sessionIt->rotationRequired || sessionIt->encryptedMessages >= m_e2eSessionMessageLimit) {
+        sessionIt->rotationRequired = true;
+        if (rejectReason) *rejectReason = QStringLiteral("rotation-required");
+        emit e2eSessionStateChanged(normalizedReceiverId, e2eSessionStatus(normalizedReceiverId));
         return false;
     }
 
@@ -403,7 +454,15 @@ bool Client::sendEncryptedPrivateMessage(const QString& receiverId, const QStrin
     obj["e2eEnvelope"] = envelope.toJson();
     obj["isEncrypted"] = true;
 
-    return sendJson(obj);
+    const bool sent = sendJson(obj);
+    if (sent) {
+        ++sessionIt->encryptedMessages;
+        if (sessionIt->encryptedMessages >= m_e2eSessionMessageLimit) {
+            sessionIt->rotationRequired = true;
+        }
+        emit e2eSessionStateChanged(normalizedReceiverId, e2eSessionStatus(normalizedReceiverId));
+    }
+    return sent;
 }
 
 bool Client::sendFriendRequest(const QString& receiverId) {
@@ -1226,12 +1285,14 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             QString reason;
             if (envelope.isValid(&reason)) {
                 msg.e2eEnvelope = envelope;
-                const auto sessionIt = m_e2eSessions.constFind(msg.senderId);
+                auto sessionIt = m_e2eSessions.find(msg.senderId);
                 QString plaintext;
                 if (sessionIt != m_e2eSessions.constEnd()
                     && sessionIt->keyId == envelope.keyId
                     && decryptE2EText(envelope, sessionIt->sessionKey, &plaintext, &reason)) {
                     msg.content = plaintext;
+                    ++sessionIt->decryptedMessages;
+                    emit e2eSessionStateChanged(msg.senderId, e2eSessionStatus(msg.senderId));
                 } else {
                     msg.content = QStringLiteral("加密消息无法解密");
                     emit connectionError(QStringLiteral("端到端加密消息无法解密：%1")

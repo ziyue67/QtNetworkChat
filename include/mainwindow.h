@@ -52,6 +52,7 @@ private slots:
     void onFriendRequestSent(const QString& receiverId, bool delivered);
     void onFriendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
     void onServerGroupSnapshotReceived(const QJsonArray& groups);
+    void onE2ESessionStateChanged(const QString& peerId, const QJsonObject& status);
     void onUserContextMenu(const QPoint& pos);
     void onContactSearchChanged(const QString& text);
     void onCopyAccount();
@@ -105,6 +106,8 @@ private:
     bool isCurrentUserGroupOwner(const QString& groupId) const;
     bool canCurrentUserManageServerGroup(const QString& groupId) const;
     bool requestServerGroupMemberUpdate(const QString& memberId, const QString& action);
+    QString e2eSessionStatusText(const QString& peerId) const;
+    void copyE2ESessionStatus(const QString& peerId);
     QString getFriendFilePath() const;
     QString getGroupFilePath() const;
     QString getAvatarFilePath() const;

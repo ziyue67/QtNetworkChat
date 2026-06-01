@@ -14,7 +14,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 创建服务器和加入服务器
 - TCP Socket 局域网通信
 - JSON 消息协议
-- 私聊端到端加密执行路径已具备最小闭环：客户端可为指定对端配置会话密钥并发送加密私聊，服务端只校验 envelope 身份后透明转发，接收端用本地会话密钥解密；缺少密钥、认证失败或信封不匹配时 fail-closed 并显示不可解密提示。当前仍作为显式 API 能力，不默认加密所有聊天 UI 内容
+- 私聊端到端加密执行路径已具备最小闭环：客户端可为指定对端配置会话密钥并发送加密私聊，服务端只校验 envelope 身份后透明转发，接收端用本地会话密钥解密；缺少密钥、认证失败或信封不匹配时 fail-closed 并显示不可解密提示。客户端现在会跟踪本机会话状态、消息计数、轮换门禁和指纹摘要，私聊 UI 在已有会话且未要求轮换时会自动使用加密发送，并可复制加密状态或关闭本机会话；当前仍未实现真实密钥交换和身份认证，也不会默认给所有聊天生成会话
 - 可选 Redis 在线状态服务，为高并发和多服务实例部署提供 presence 与在线列表共享基础
 - 服务端可向 Redis Pub/Sub 发布本实例聊天事件，为跨实例消息路由打基础
 - Redis Pub/Sub 已接入服务端远端聊天事件消费，按实例 ID 去重后转发给本实例在线用户
@@ -51,7 +51,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 自动重连和心跳保活
 - CTest 覆盖消息序列化、账号密码 PBKDF2-SHA256 KDF 新注册入库、旧 SHA-256 派生账号兼容登录与成功后升级、错误密码不升级、文件分片 ACK 接收进度、重复分片 ACK 去重、空分片、越界分片、分片数量不一致、非末尾分片大小和同传输元数据变更拒绝、fileHash 变更拒绝并清理 pending 续传状态、伪造 senderId 分片拒绝、跨账号续传查询不泄露 pending 元数据、乱序缺片保持未完成状态、服务端/客户端断点续传状态查询、查询续传状态后校验元数据并按最早缺失分片续传、跨连接恢复持久化发送状态并只发送下一缺失分片、跳过已确认分片并按实际 received chunks 汇总进度、服务端组包后 hash 不一致拒绝、在线接收端拒绝转发分片后回落离线附件队列、发送端续传元数据持久化与恢复 helper、完整续传状态清理持久化发送状态、过期恢复状态清理、离线附件配额拒绝、离线附件成功回放后的队列和附件清理、离线附件缺失/大小/hash/chunkSize/chunkCount 异常提示和队列清理、离线附件队列持久化失败回滚、离线附件下发中断后队列和附件保留及重试成功清理、离线附件拒绝 ACK、非法确认进度和部分 ACK 后重试成功清理、部分 ACK 后记录 confirmedBytes/confirmedChunks/resumeUpdatedAt 并按 confirmedBytes 续发、confirmedChunks 为空时按有效 confirmedBytes 续发、过期或超过自定义 TTL 的 resumeUpdatedAt 回退完整回放、无效 confirmedBytes 回退完整回放、非法 confirmedBytes 回退 confirmedBytes 续发、confirmedBytes 与 confirmedChunks 冲突时按 confirmedChunks 最早缺口续发、confirmedChunks 非连续缺口从最早缺失分片续发、重复 confirmedChunks 去重后仍从最早缺口续发、confirmedChunks 覆盖全部分片时不再发送分片并直接清理、孤儿离线附件启动清理、仍被队列引用的离线附件启动保留、自定义 TTL 过期离线附件启动清理和后续缺失提示、ACK 超时后自动查询续传状态、分片 ACK 丢失、临时拒绝和非法确认进度后的发送端/服务端转发重试、硬拒绝不重试、文件取消清理、服务端群成员变更、群审计快照、拒绝操作不落审计、重复成员添加拒绝、群主自移除保护、公告权限、管理员升降级、管理员越权拒绝、被移出成员公共群文件拒绝协议和被移出后只读历史标记
 - CTest 覆盖客户端登录凭据本地存储安全：记住登录只保存账号、昵称和记住标志，不保存明文密码；旧 SQLite/QSettings 明文密码会在加载或迁移时清理
-- CTest 覆盖 TLS 证书 SHA-256 指纹固定配置、端到端加密最小协议 envelope/key agreement 序列化、文本加解密、篡改认证失败、缺少会话密钥 fail-closed、服务端透明转发和接收端解密链路、文件传输失败 reason 到用户可读状态/诊断文本的映射，以及 S3 稳定化证据 JSON/Markdown/alert 输出
+- CTest 覆盖 TLS 证书 SHA-256 指纹固定配置、端到端加密最小协议 envelope/key agreement 序列化、文本加解密、篡改认证失败、缺少会话密钥 fail-closed、会话状态/消息计数/轮换门禁、服务端透明转发和接收端解密链路、文件传输失败 reason 到用户可读状态/诊断文本的映射，以及 S3 稳定化证据 JSON/Markdown/alert 输出
 - CTest 覆盖 Redis RESP 命令编码、响应解析、presence 命令流、Pub/Sub 发布/订阅基础、断线重订阅、跨实例群聊/私聊/小文件/小图片路由、订阅侧超大文件/图片事件拒收、编码后超限的 Redis file/image 事件拒收、缺少 senderId、非聊天 eventType、空消息或未知类型的 Redis 事件拒收、大文件和编码后超限文件不经 Pub/Sub 并离线兜底、源实例写入 ObjectStore 后发布带 `storeType` 的 `large_file_offer` 元数据、远端实例仅在本地 ObjectStore 类型与 offer 匹配时认领 offer 并校验对象后分片下发、完整 ACK 后发布 `large_file_delivered` 并清理源实例兜底状态、源实例只读输出 `delivered_reconcile` cleaned/retained 日志、远端对象下发阶段以 `offer_delivery operation=deliver` 输出固定 reason 失败日志、对象缺失等失败路径发布 `large_file_failed` 且源实例保留离线兜底、非法 objectKey/分片元数据不下发、offer storeType 不支持或与本地配置不匹配时固定 reason 拒绝且不 claim、非 filesystem store 不消费、过期未 delivered 对象可由 ObjectStore TTL 清理且离线兜底仍可回放、私聊文本和小文件发布失败离线兜底、Redis 不可用降级登录
 - CTest 覆盖 Windows 打包 manifest：验证版本号命名目录/ZIP、manifest 格式、运行时依赖检查字段，以及 exe/README/manifest 均进入压缩包
 - CTest 覆盖 filesystem ObjectStore 的安全 objectKey 生成、路径穿越拒绝、hash/size 校验、TTL 清理、S3 配置/URL/Signature V4 纯函数、不联网 Qt Network 请求构造、S3 对象方法白名单、HTTP 状态分类、请求超时配置、transfer timeout 写入、可选 session token 签名头、显式启用开关、请求结果归一化、失败 reason 聚合、错误脱敏、注入式 PUT/GET/HEAD/DELETE 执行边界、GET 响应体 size/hash 校验、GET/open 与 DELETE/remove 失败 reason 接线、Qt Network 执行器非法请求 fail-closed，以及跨实例大文件 offer 指向对象的 size/hash 校验和 delivered 回执清理判定纯函数
@@ -298,7 +298,7 @@ set QTNETWORKCHAT_TLS_PINNED_SHA256=ab12cd34...
 
 ### 端到端加密协议边界
 
-当前版本只落地端到端加密的最小可测试协议骨架，还没有在聊天 UI 中默认加密消息内容。`E2EKeyAgreement` 与 `E2EEnvelope` 使用 `qtnetworkchat-e2e-v1` 协议名，支持 `x25519-hkdf-sha256-aes-256-gcm` 套件标识，消息 JSON 可携带 key agreement、nonce、ciphertext、tag、AAD 和 SHA-256 指纹。CTest 会验证这些字段的 base64url 序列化、Message 往返、unsupported protocol/suite、无效 peer、nonce、tag、空 ciphertext、缺 public key 等 fail-closed 边界。后续接入真实加密时仍需补密钥生成/认证、会话轮换、历史迁移、文件分片加密和 UI 开关。
+当前版本只落地端到端加密的最小可测试协议骨架，还没有实现真实密钥交换或身份认证。`E2EKeyAgreement` 与 `E2EEnvelope` 使用 `qtnetworkchat-e2e-v1` 协议名，支持 `x25519-hkdf-sha256-aes-256-gcm` 套件标识，消息 JSON 可携带 key agreement、nonce、ciphertext、tag、AAD 和 SHA-256 指纹。客户端会为本机已配置的会话维护 `ready`、`rotation-required`、`missing-session` 状态、发送/解密计数、轮换阈值和密钥指纹摘要；私聊 UI 在已有会话且未达到轮换门禁时会自动发送加密私聊，右键联系人可复制加密状态或关闭本机会话。CTest 会验证这些字段的 base64url 序列化、Message 往返、unsupported protocol/suite、无效 peer、nonce、tag、空 ciphertext、缺 public key、缺会话密钥和轮换门禁等 fail-closed 边界。后续接入真实加密时仍需补密钥生成/认证、跨端安全交换、历史迁移和文件分片加密。
 
 ### 文件传输状态时间线
 
@@ -513,7 +513,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
    S3 稳定化覆盖已从对象层推进到服务端路由层：写入、HEAD/GET 校验、GET/open 读取、DELETE/remove 清理失败都会收敛到 timeout、network、tls、auth、retryable、client、server、not_found、hash、size、unknown 等固定桶，route log、Redis 事件、离线队列、报告和诊断包不携带 endpoint、bucket、object URL、凭据、session token、Authorization/Credential/Signature 或底层错误文本；delivered cleanup 仍以离线兜底匹配结果为准，不会因为 S3 删除失败误删或误报。跨实例测试已覆盖源端写入失败不发布 offer、远端 validate/read fail-closed、源端 delete retained、下发失败 fallback retained，以及收件人回源实例后的离线回放。
 
    运维闭环已经接入一键治理入口、真实后端 evidence 汇总、S3 批量失败演练、S3 稳定化 runbook、统一 alert summary、健康检查、JSON/Markdown dashboard、只读 status CLI、Markdown/HTML 运维报告和治理诊断 zip。`stabilizationCoverage` 会在 runbook、dashboard、status、report 和 diagnostics manifest 中展示默认测试已覆盖的稳定化边界、固定 reason 桶和观测缺口，便于人工验收和计划任务消费。真实本地 MinIO/S3 smoke/evidence 已可通过 `scripts/minio-s3-smoke.ps1` 生成脱敏证据包，后续只在需要故障注入增强时继续扩展。
-2. **安全增强**：账号密码已升级为带盐 PBKDF2-SHA256 KDF，并兼容旧 SHA-256 派生账号的登录后迁移；客户端本地登录记忆已改为不保存明文密码并清理旧明文；TLS 已支持证书链校验和证书 SHA-256 指纹固定；端到端加密已具备最小 envelope/key agreement 协议骨架、私聊文本加解密执行路径和 fail-closed 测试，后续重点是真实密钥协商、会话轮换、文件内容加密和 UI 开关。
+2. **安全增强**：账号密码已升级为带盐 PBKDF2-SHA256 KDF，并兼容旧 SHA-256 派生账号的登录后迁移；客户端本地登录记忆已改为不保存明文密码并清理旧明文；TLS 已支持证书链校验和证书 SHA-256 指纹固定；端到端加密已具备最小 envelope/key agreement 协议骨架、私聊文本加解密执行路径、会话状态/轮换门禁和 UI 状态入口，后续重点是真实密钥协商、身份认证、文件内容加密和历史迁移。
 3. **群组和权限边界**：服务端群组模型已覆盖核心成员变更、重复成员添加拒绝、公告权限、群主自移除保护、管理员升降级、管理员越权拒绝、被移出成员公共群文件拒绝、被移出后只读历史标记和公共群审计闭环。后续更值得补的是私有群和群文件权限细分。
 4. **结构拆分**：`mainwindow.cpp` 已承载聊天、好友、群组、文件、历史和恢复入口，后续应小步抽出 TransferManager、FriendManager、GroupManager、HistoryService、Storage，降低 UI 层复杂度。
 5. **发布与运维体验**：CMake 版本号已注入窗口标题，Windows 打包脚本已生成带版本目录/ZIP、manifest 和运行时依赖检查。后续可继续补 Release 自动上传、安装包、崩溃日志和可选诊断日志，方便非开发环境使用。
