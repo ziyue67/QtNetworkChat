@@ -48,6 +48,9 @@ int main(int argc, char** argv) {
 
     qunsetenv("QTNETWORKCHAT_DB_DRIVER");
     qunsetenv("QTNETWORKCHAT_PGPASSWORD");
+    qunsetenv("QTNETWORKCHAT_DB_POOL_MAX");
+    qunsetenv("QTNETWORKCHAT_DB_POOL_IDLE_MS");
+    qunsetenv("QTNETWORKCHAT_DB_SLOW_QUERY_MS");
     const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
@@ -80,6 +83,22 @@ int main(int argc, char** argv) {
                 "SQLite database pool should be disabled by default") && ok;
     ok = expect(pool.contains("createdConnections") && pool.contains("openAttempts") && pool.contains("backoffMs"),
                 "database health pool metrics should include connection and backoff counters") && ok;
+    ok = expect(pool.value("maxConnections").toString() == "16"
+                    && pool.value("idleMs").toString() == "300000"
+                    && pool.value("slowQueryMs").toString() == "1000",
+                "database health pool metrics should expose default pool and slow-query policy") && ok;
+    ok = expect(pool.contains("idleConnectionsClosed")
+                    && pool.contains("overflowConnectionsClosed")
+                    && pool.contains("pooledConnections"),
+                "database health pool metrics should expose idle and overflow cleanup counters") && ok;
+    ok = expect(pool.value("queryAttempts").toString().toLongLong() >= 1
+                    && pool.value("queryFailures").toString() == "0"
+                    && pool.value("lastQueryFailureReason").toString() == "ok",
+                "database health pool metrics should count ping query attempts without failures") && ok;
+    ok = expect(pool.contains("slowQueries")
+                    && pool.contains("lastQueryDurationMs")
+                    && pool.value("lastQueryScope").toString() == "database_health_ping",
+                "database health pool metrics should expose slow-query counters and last query scope") && ok;
     ok = expect(hasReasonBucket(pool.value("reasonBuckets").toArray(), "network")
                     && hasReasonBucket(pool.value("reasonBuckets").toArray(), "auth")
                     && hasReasonBucket(pool.value("reasonBuckets").toArray(), "runtime"),

@@ -10,6 +10,9 @@ param(
     [string]$PostgresPassword = $env:QTNETWORKCHAT_PGPASSWORD,
     [string]$SQLitePath = "accounts.sqlite3",
     [int]$ReconnectBackoffMs = 2000,
+    [int]$PoolMaxConnections = 16,
+    [int]$PoolIdleMs = 300000,
+    [int]$SlowQueryMs = 1000,
     [switch]$DisableConnectionPool,
     [switch]$PlanOnly,
     [switch]$FailOnUnhealthy,
@@ -86,7 +89,10 @@ if ($normalizedDriver -eq "postgres") {
         QTNETWORKCHAT_PGUSER = $PostgresUser
         QTNETWORKCHAT_PGPASSWORD = "<redacted>"
         QTNETWORKCHAT_DB_POOL = if ($DisableConnectionPool) { "0" } else { "1" }
+        QTNETWORKCHAT_DB_POOL_MAX = "$PoolMaxConnections"
+        QTNETWORKCHAT_DB_POOL_IDLE_MS = "$PoolIdleMs"
         QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS = "$ReconnectBackoffMs"
+        QTNETWORKCHAT_DB_SLOW_QUERY_MS = "$SlowQueryMs"
     }
 } else {
     $checks.Add((New-Check "sqlite-parent" (Test-Path -LiteralPath (Split-Path -Parent $resolvedSqlitePath) -PathType Container) (Split-Path -Parent $resolvedSqlitePath) "path"))
@@ -94,7 +100,10 @@ if ($normalizedDriver -eq "postgres") {
         QTNETWORKCHAT_DB_DRIVER = "QSQLITE"
         QTNETWORKCHAT_DB_PATH = $resolvedSqlitePath
         QTNETWORKCHAT_DB_POOL = "0"
+        QTNETWORKCHAT_DB_POOL_MAX = "$PoolMaxConnections"
+        QTNETWORKCHAT_DB_POOL_IDLE_MS = "$PoolIdleMs"
         QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS = "$ReconnectBackoffMs"
+        QTNETWORKCHAT_DB_SLOW_QUERY_MS = "$SlowQueryMs"
     }
 }
 
@@ -147,7 +156,10 @@ $resultObject = [ordered]@{
     status = $status
     reconnectPolicy = [ordered]@{
         poolEnabled = [bool]($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool)
+        maxConnections = $PoolMaxConnections
+        idleMs = $PoolIdleMs
         backoffMs = $ReconnectBackoffMs
+        slowQueryMs = $SlowQueryMs
         circuitBreaker = "skip-open-during-backoff"
         reasonBuckets = @("ok", "runtime", "auth", "network", "tls", "schema", "path", "query")
     }

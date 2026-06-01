@@ -385,7 +385,7 @@ powershell -ExecutionPolicy Bypass -File scripts/check-database-health.ps1 `
   -JsonPath "build-qt6-mingw\database-health.json"
 ```
 
-`-PlanOnly` 只校验 QPSQL 插件、`psql.exe` 和 `libpq.dll` 等本地运行时，不连接真实数据库；去掉 `-PlanOnly` 后会用 `psql` 检查 10 张服务端必需表。健康 JSON 会同时输出 `reconnectPolicy`，包含连接池开关、退避毫秒数、熔断行为和固定失败 reason 桶；PostgreSQL 默认启用 `QTNETWORKCHAT_DB_POOL=1`，可用 `-DisableConnectionPool` 或 `QTNETWORKCHAT_DB_POOL=0` 关闭，并可用 `-ReconnectBackoffMs` 或 `QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS` 调整失败后的短退避。追加 `-FailOnUnhealthy` 可让计划任务在缺少运行时、密码或表结构不完整时非零退出。默认 CTest 覆盖 SQLite 健康快照和脚本 plan，不读取真实 PostgreSQL 密码。
+`-PlanOnly` 只校验 QPSQL 插件、`psql.exe` 和 `libpq.dll` 等本地运行时，不连接真实数据库；去掉 `-PlanOnly` 后会用 `psql` 检查 10 张服务端必需表。健康 JSON 会同时输出 `reconnectPolicy`，包含连接池开关、连接池上限、空闲回收毫秒数、退避毫秒数、慢查询阈值、熔断行为和固定失败 reason 桶；PostgreSQL 默认启用 `QTNETWORKCHAT_DB_POOL=1`，可用 `-DisableConnectionPool` 或 `QTNETWORKCHAT_DB_POOL=0` 关闭，并可用 `-PoolMaxConnections`/`QTNETWORKCHAT_DB_POOL_MAX`、`-PoolIdleMs`/`QTNETWORKCHAT_DB_POOL_IDLE_MS`、`-ReconnectBackoffMs`/`QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS`、`-SlowQueryMs`/`QTNETWORKCHAT_DB_SLOW_QUERY_MS` 调整池治理和慢查询计数。追加 `-FailOnUnhealthy` 可让计划任务在缺少运行时、密码或表结构不完整时非零退出。默认 CTest 覆盖 SQLite 健康快照和脚本 plan，不读取真实 PostgreSQL 密码。
 
 需要让服务端在启动本地托管服务后落盘健康快照，可启用启动导出：
 
@@ -394,7 +394,7 @@ $env:QTNETWORKCHAT_DB_HEALTH_EXPORT = "1"
 $env:QTNETWORKCHAT_DB_HEALTH_JSON = "build-qt6-mingw\database-health-startup.json"
 ```
 
-未设置 `QTNETWORKCHAT_DB_HEALTH_JSON` 时会写入应用数据目录下的 `database-health.json`。导出内容包含 `source=server-startup`、数据库驱动、脱敏配置、open/ping/required-tables/connection-pool 检查结果、连接复用计数、打开失败数、退避跳过数和整体状态，不写入真实 PostgreSQL 密码。
+未设置 `QTNETWORKCHAT_DB_HEALTH_JSON` 时会写入应用数据目录下的 `database-health.json`。导出内容包含 `source=server-startup`、数据库驱动、脱敏配置、open/ping/required-tables/connection-pool 检查结果、连接复用计数、打开失败数、退避跳过数、连接池空闲/溢出回收计数、查询失败数、慢查询计数和整体状态，不写入真实 PostgreSQL 密码。
 
 已有健康快照可再转成只读运维状态 JSON/Markdown：
 

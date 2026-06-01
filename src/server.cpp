@@ -24,6 +24,7 @@
 #include <QSslSocket>
 #include <QSslCertificate>
 #include <QSslKey>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QTimer>
 #include <QPointer>
@@ -32,6 +33,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <algorithm>
+#include <limits>
 #include <memory>
 
 namespace {
@@ -165,8 +167,20 @@ bool accountDatabasePoolEnabled() {
     return accountDatabaseIsPostgres();
 }
 
+qint64 accountDatabasePoolMaxConnections() {
+    return positiveIntegerEnvOrDefault("QTNETWORKCHAT_DB_POOL_MAX", 16, 256);
+}
+
+qint64 accountDatabasePoolIdleMs() {
+    return positiveIntegerEnvOrDefault("QTNETWORKCHAT_DB_POOL_IDLE_MS", 5LL * 60 * 1000, 24LL * 60 * 60 * 1000);
+}
+
 qint64 accountDatabaseBackoffMs() {
     return positiveIntegerEnvOrDefault("QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS", 2000, 60000);
+}
+
+qint64 accountDatabaseSlowQueryMs() {
+    return positiveIntegerEnvOrDefault("QTNETWORKCHAT_DB_SLOW_QUERY_MS", 1000, 10LL * 60 * 1000);
 }
 
 QString accountDatabasePath() {
@@ -182,9 +196,19 @@ struct AccountDatabasePoolMetrics {
     qint64 openAttempts = 0;
     qint64 openFailures = 0;
     qint64 backoffSkips = 0;
+    qint64 idleConnectionsClosed = 0;
+    qint64 overflowConnectionsClosed = 0;
+    qint64 queryAttempts = 0;
+    qint64 queryFailures = 0;
+    qint64 slowQueries = 0;
+    qint64 lastQueryDurationMs = 0;
     qint64 lastFailureAtMs = 0;
     QString lastFailureReason = QStringLiteral("ok");
     QString lastFailureScope;
+    QString lastQueryScope;
+    QString lastQueryFailureReason = QStringLiteral("ok");
+    QString lastSlowQueryScope;
+    QMap<QString, qint64> pooledConnectionLastReleasedAtMs;
 };
 
 QMutex& accountDatabasePoolMutex() {
@@ -249,11 +273,79 @@ void recordAccountDatabaseBackoffSkip(const QString& scope) {
     metrics.lastFailureScope = scope;
 }
 
+void recordAccountDatabaseQueryResult(const QString& scope, qint64 elapsedMs, bool ok, const QSqlError& error = QSqlError()) {
+    QMutexLocker locker(&accountDatabasePoolMutex());
+    AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+    ++metrics.queryAttempts;
+    metrics.lastQueryDurationMs = elapsedMs;
+    metrics.lastQueryScope = scope;
+    if (!ok) {
+        ++metrics.queryFailures;
+        metrics.lastQueryFailureReason = accountDatabaseErrorReason(error);
+        metrics.lastFailureReason = metrics.lastQueryFailureReason;
+        metrics.lastFailureScope = scope;
+    } else {
+        metrics.lastQueryFailureReason = QStringLiteral("ok");
+    }
+
+    if (elapsedMs >= accountDatabaseSlowQueryMs()) {
+        ++metrics.slowQueries;
+        metrics.lastSlowQueryScope = scope;
+        qWarning() << "Slow account database query"
+                   << scope
+                   << elapsedMs
+                   << "ms"
+                   << accountDatabaseDriver();
+    }
+}
+
+bool execAccountDatabaseQuery(QSqlQuery& query, const QString& scope, const QString& sql = QString()) {
+    QElapsedTimer timer;
+    timer.start();
+    const bool ok = sql.isNull() ? query.exec() : query.exec(sql);
+    recordAccountDatabaseQueryResult(scope, timer.elapsed(), ok, ok ? QSqlError() : query.lastError());
+    return ok;
+}
+
+QStringList pruneReleasedAccountDatabaseConnectionsLocked(qint64 nowMs, const QString& preserveConnectionName) {
+    AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+    QStringList removeNames;
+    const qint64 idleMs = accountDatabasePoolIdleMs();
+    for (auto it = metrics.pooledConnectionLastReleasedAtMs.begin(); it != metrics.pooledConnectionLastReleasedAtMs.end();) {
+        if (it.key() != preserveConnectionName && nowMs >= it.value() && nowMs - it.value() >= idleMs) {
+            removeNames.append(it.key());
+            it = metrics.pooledConnectionLastReleasedAtMs.erase(it);
+            ++metrics.idleConnectionsClosed;
+        } else {
+            ++it;
+        }
+    }
+
+    while (metrics.pooledConnectionLastReleasedAtMs.size() > accountDatabasePoolMaxConnections()) {
+        QString oldestName;
+        qint64 oldestReleasedAt = std::numeric_limits<qint64>::max();
+        for (auto it = metrics.pooledConnectionLastReleasedAtMs.constBegin(); it != metrics.pooledConnectionLastReleasedAtMs.constEnd(); ++it) {
+            if (it.key() != preserveConnectionName && it.value() < oldestReleasedAt) {
+                oldestName = it.key();
+                oldestReleasedAt = it.value();
+            }
+        }
+        if (oldestName.isEmpty()) {
+            break;
+        }
+        metrics.pooledConnectionLastReleasedAtMs.remove(oldestName);
+        removeNames.append(oldestName);
+        ++metrics.overflowConnectionsClosed;
+    }
+    return removeNames;
+}
+
 QSqlDatabase openAccountDatabase(const QString& connectionName) {
     const QString driver = accountDatabaseDriver();
     if (QSqlDatabase::contains(connectionName)) {
         QMutexLocker locker(&accountDatabasePoolMutex());
         ++accountDatabasePoolMetrics().reusedConnections;
+        accountDatabasePoolMetrics().pooledConnectionLastReleasedAtMs.remove(connectionName);
         return QSqlDatabase::database(connectionName, false);
     }
 
@@ -309,6 +401,17 @@ void releaseAccountDatabase(const QString& connectionName) {
         return;
     }
     if (accountDatabasePoolEnabled()) {
+        QStringList removeNames;
+        {
+            QMutexLocker locker(&accountDatabasePoolMutex());
+            accountDatabasePoolMetrics().pooledConnectionLastReleasedAtMs[connectionName] = QDateTime::currentMSecsSinceEpoch();
+            removeNames = pruneReleasedAccountDatabaseConnectionsLocked(QDateTime::currentMSecsSinceEpoch(), connectionName);
+        }
+        for (const QString& name : removeNames) {
+            if (QSqlDatabase::contains(name)) {
+                QSqlDatabase::removeDatabase(name);
+            }
+        }
         return;
     }
     QSqlDatabase::removeDatabase(connectionName);
@@ -327,7 +430,20 @@ QJsonObject accountDatabasePoolSnapshot() {
     obj["openAttempts"] = QString::number(metrics.openAttempts);
     obj["openFailures"] = QString::number(metrics.openFailures);
     obj["backoffSkips"] = QString::number(metrics.backoffSkips);
+    obj["idleConnectionsClosed"] = QString::number(metrics.idleConnectionsClosed);
+    obj["overflowConnectionsClosed"] = QString::number(metrics.overflowConnectionsClosed);
+    obj["queryAttempts"] = QString::number(metrics.queryAttempts);
+    obj["queryFailures"] = QString::number(metrics.queryFailures);
+    obj["slowQueries"] = QString::number(metrics.slowQueries);
+    obj["lastQueryDurationMs"] = QString::number(metrics.lastQueryDurationMs);
+    obj["lastQueryScope"] = metrics.lastQueryScope;
+    obj["lastQueryFailureReason"] = metrics.lastQueryFailureReason.isEmpty() ? QStringLiteral("ok") : metrics.lastQueryFailureReason;
+    obj["lastSlowQueryScope"] = metrics.lastSlowQueryScope;
+    obj["pooledConnections"] = QString::number(metrics.pooledConnectionLastReleasedAtMs.size());
+    obj["maxConnections"] = QString::number(accountDatabasePoolMaxConnections());
+    obj["idleMs"] = QString::number(accountDatabasePoolIdleMs());
     obj["backoffMs"] = QString::number(backoffMs);
+    obj["slowQueryMs"] = QString::number(accountDatabaseSlowQueryMs());
     obj["inBackoff"] = accountDatabasePoolEnabled() && accountDatabaseInBackoffLocked(nowMs, backoffMs);
     obj["lastFailureReason"] = metrics.lastFailureReason.isEmpty() ? QStringLiteral("ok") : metrics.lastFailureReason;
     obj["lastFailureScope"] = metrics.lastFailureScope;
@@ -996,7 +1112,9 @@ QJsonObject Server::databaseHealthSnapshot() const {
 
         if (opened) {
             QSqlQuery pingQuery(db);
-            const bool pingOk = pingQuery.exec(QStringLiteral("SELECT 1"));
+            const bool pingOk = execAccountDatabaseQuery(pingQuery,
+                                                         QStringLiteral("database_health_ping"),
+                                                         QStringLiteral("SELECT 1"));
             QJsonObject pingCheck;
             pingCheck["name"] = QStringLiteral("ping");
             pingCheck["ok"] = pingOk;
