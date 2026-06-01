@@ -8,6 +8,7 @@ param(
     [string]$RedisBinDir = "D:\Program Files\Redis-8.6.2",
     [string]$RedisHost = "127.0.0.1",
     [int]$RedisPort = 6379,
+    [string]$QtRoot = "D:\Qt\6.8.3\mingw_64",
     [string]$MinioServerPath = "D:\Dminio-server\minio.windows-amd64.RELEASE.2025-09-07T16-13-09Z.exe",
     [string]$MinioClientPath = "D:\Dminio-server\mc.windows-amd64.RELEASE.2025-08-13T08-35-41Z.exe",
     [string]$MinioEndpoint = "http://127.0.0.1:19000",
@@ -57,11 +58,17 @@ function New-CheckResult {
 
 $psqlPath = Resolve-ToolPath -Directory $PostgresBinDir -Names @("psql.exe", "psql")
 $redisCliPath = Resolve-ToolPath -Directory $RedisBinDir -Names @("redis-cli.exe", "redis-cli")
+$qpsqlPluginPath = if ([string]::IsNullOrWhiteSpace($QtRoot)) { "" } else { Join-Path $QtRoot "plugins\sqldrivers\qsqlpsql.dll" }
+$qpsqlPluginExists = -not [string]::IsNullOrWhiteSpace($qpsqlPluginPath) -and (Test-Path -LiteralPath $qpsqlPluginPath -PathType Leaf)
+$libpqPath = if ([string]::IsNullOrWhiteSpace($PostgresBinDir)) { "" } else { Join-Path $PostgresBinDir "libpq.dll" }
+$libpqExists = -not [string]::IsNullOrWhiteSpace($libpqPath) -and (Test-Path -LiteralPath $libpqPath -PathType Leaf)
 $minioServerExists = -not [string]::IsNullOrWhiteSpace($MinioServerPath) -and (Test-Path -LiteralPath $MinioServerPath -PathType Leaf)
 $minioClientExists = -not [string]::IsNullOrWhiteSpace($MinioClientPath) -and (Test-Path -LiteralPath $MinioClientPath -PathType Leaf)
 
 $checks = [System.Collections.Generic.List[object]]::new()
 $checks.Add((New-CheckResult "postgres-client" (-not [string]::IsNullOrWhiteSpace($psqlPath)) "path" $psqlPath))
+$checks.Add((New-CheckResult "qt-qpsql-plugin" $qpsqlPluginExists "path" $qpsqlPluginPath))
+$checks.Add((New-CheckResult "postgres-libpq-runtime" $libpqExists "path" $libpqPath))
 $checks.Add((New-CheckResult "redis-client" (-not [string]::IsNullOrWhiteSpace($redisCliPath)) "path" $redisCliPath))
 $checks.Add((New-CheckResult "minio-server" $minioServerExists "path" $MinioServerPath))
 $checks.Add((New-CheckResult "minio-client" $minioClientExists "path" $MinioClientPath))

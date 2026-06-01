@@ -2,8 +2,12 @@ param(
     [string]$BuildDir = "build-qt6-mingw",
     [string]$Configuration = "Release",
     [string]$PackageDir = "dist",
+    [string]$QtRoot,
+    [string]$PostgresBinDir = "D:\Program Files\PostgreSQL\17\bin",
     [switch]$SkipBuild,
     [switch]$NoDeploy,
+    [switch]$IncludePostgresSql,
+    [switch]$FailOnMissingPostgresSql,
     [switch]$FailOnMissingRuntime
 )
 
@@ -73,6 +77,120 @@ function Test-RuntimeFiles {
         deployAttempted = $DeployAttempted
         missing = $missing
         files = $items
+    }
+}
+
+function Resolve-QtRuntimeRoot {
+    param(
+        [string]$ExplicitQtRoot,
+        [string]$BuildPath,
+        [string]$DeployToolPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitQtRoot) -and (Test-Path -LiteralPath $ExplicitQtRoot -PathType Container)) {
+        return (Resolve-Path -LiteralPath $ExplicitQtRoot).Path
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($DeployToolPath)) {
+        $candidate = Split-Path -Parent $DeployToolPath
+        if (Test-Path -LiteralPath (Join-Path $candidate "plugins\sqldrivers")) {
+            return $candidate
+        }
+    }
+
+    $cachePath = Join-Path $BuildPath "CMakeCache.txt"
+    if (Test-Path -LiteralPath $cachePath) {
+        $cacheContent = Get-Content -LiteralPath $cachePath
+        foreach ($line in $cacheContent) {
+            if ($line -match '^(?:CMAKE_PREFIX_PATH|QT_DIR|Qt6_DIR)(?::[^=]+)?=(.+)$') {
+                $value = $Matches[1].Trim()
+                if ($value -match '[\\/]lib[\\/]cmake[\\/]Qt6$') {
+                    $value = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $value))
+                }
+                if (Test-Path -LiteralPath (Join-Path $value "plugins\sqldrivers")) {
+                    return (Resolve-Path -LiteralPath $value).Path
+                }
+            }
+        }
+    }
+
+    $qmake = Get-Command "qmake.exe" -ErrorAction SilentlyContinue
+    if ($qmake) {
+        $candidate = Split-Path -Parent $qmake.Source
+        if (Test-Path -LiteralPath (Join-Path $candidate "plugins\sqldrivers")) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    return $null
+}
+
+function Copy-PostgresSqlRuntime {
+    param(
+        [string]$StagePath,
+        [string]$QtRuntimeRoot,
+        [string]$PostgresBinDir
+    )
+
+    $copied = @()
+    $missing = @()
+    $pluginSource = $null
+    $pluginTarget = $null
+
+    if ([string]::IsNullOrWhiteSpace($QtRuntimeRoot)) {
+        $missing += "Qt runtime root"
+    } else {
+        $candidate = Join-Path $QtRuntimeRoot "plugins\sqldrivers\qsqlpsql.dll"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $pluginSource = (Resolve-Path -LiteralPath $candidate).Path
+            $targetDir = Join-Path $StagePath "sqldrivers"
+            New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+            $pluginTarget = Join-Path $targetDir "qsqlpsql.dll"
+            Copy-Item -LiteralPath $pluginSource -Destination $pluginTarget -Force
+            $copied += [pscustomobject]@{
+                name = "qsqlpsql.dll"
+                source = $pluginSource
+                path = "sqldrivers/qsqlpsql.dll"
+                size = (Get-Item -LiteralPath $pluginTarget).Length
+            }
+        } else {
+            $missing += "qsqlpsql.dll"
+        }
+    }
+
+    $postgresDeps = @(
+        "libpq.dll",
+        "libssl-3-x64.dll",
+        "libcrypto-3-x64.dll",
+        "libintl-9.dll",
+        "libiconv-2.dll",
+        "zlib1.dll"
+    )
+    foreach ($name in $postgresDeps) {
+        $source = if ([string]::IsNullOrWhiteSpace($PostgresBinDir)) { $null } else { Join-Path $PostgresBinDir $name }
+        if (-not [string]::IsNullOrWhiteSpace($source) -and (Test-Path -LiteralPath $source -PathType Leaf)) {
+            $target = Join-Path $StagePath $name
+            Copy-Item -LiteralPath $source -Destination $target -Force
+            $copied += [pscustomobject]@{
+                name = $name
+                source = (Resolve-Path -LiteralPath $source).Path
+                path = $name
+                size = (Get-Item -LiteralPath $target).Length
+            }
+        } else {
+            $missing += $name
+        }
+    }
+
+    return [pscustomobject]@{
+        requested = $true
+        ok = $missing.Count -eq 0
+        qtRoot = $QtRuntimeRoot
+        postgresBinDir = if ([string]::IsNullOrWhiteSpace($PostgresBinDir) -or -not (Test-Path -LiteralPath $PostgresBinDir -PathType Container)) { $PostgresBinDir } else { (Resolve-Path -LiteralPath $PostgresBinDir).Path }
+        pluginSource = $pluginSource
+        pluginTarget = if ($pluginTarget) { $pluginTarget.Substring($StagePath.Length).TrimStart('\', '/') } else { $null }
+        copiedFiles = $copied
+        missing = $missing
     }
 }
 
@@ -148,6 +266,25 @@ if (-not $NoDeploy) {
     Write-Host "Skipping windeployqt because -NoDeploy was specified"
 }
 
+$postgresSqlRuntime = [pscustomobject]@{
+    requested = [bool]$IncludePostgresSql
+    ok = -not [bool]$IncludePostgresSql
+    qtRoot = $null
+    postgresBinDir = $PostgresBinDir
+    pluginSource = $null
+    pluginTarget = $null
+    copiedFiles = @()
+    missing = @()
+}
+if ($IncludePostgresSql) {
+    $resolvedQtRoot = Resolve-QtRuntimeRoot -ExplicitQtRoot $QtRoot -BuildPath $buildPath -DeployToolPath $deployToolPath
+    Write-Host "Collecting PostgreSQL Qt SQL runtime"
+    $postgresSqlRuntime = Copy-PostgresSqlRuntime -StagePath $stagePath -QtRuntimeRoot $resolvedQtRoot -PostgresBinDir $PostgresBinDir
+    if ($FailOnMissingPostgresSql -and -not $postgresSqlRuntime.ok) {
+        throw ("PostgreSQL SQL runtime check failed. Missing: {0}" -f ($postgresSqlRuntime.missing -join ", "))
+    }
+}
+
 $runtimeCheck = Test-RuntimeFiles -StagePath $stagePath -DeployAttempted $deployAttempted
 if ($FailOnMissingRuntime -and -not $runtimeCheck.ok) {
     throw ("Runtime dependency check failed. Missing: {0}" -f ($runtimeCheck.missing -join ", "))
@@ -166,6 +303,7 @@ $manifest = [ordered]@{
     executableSize = $exe.Length
     deployTool = if ($deployToolPath) { $deployToolPath } else { $null }
     runtimeCheck = $runtimeCheck
+    postgresSqlRuntime = $postgresSqlRuntime
     files = @(Get-ChildItem -LiteralPath $stagePath -File -Recurse | ForEach-Object {
         [pscustomobject]@{
             path = $_.FullName.Substring($stagePath.Length).TrimStart('\', '/')

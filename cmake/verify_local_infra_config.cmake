@@ -5,12 +5,15 @@ endif()
 set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/local_infra_config_sample")
 set(PG_BIN "${TEMP_DIR}/postgres/bin")
 set(REDIS_BIN "${TEMP_DIR}/redis")
+set(QT_ROOT "${TEMP_DIR}/qt")
 set(MINIO_DIR "${TEMP_DIR}/minio")
 set(JSON_PATH "${TEMP_DIR}/local-infra.json")
 file(REMOVE_RECURSE "${TEMP_DIR}")
-file(MAKE_DIRECTORY "${PG_BIN}" "${REDIS_BIN}" "${MINIO_DIR}")
+file(MAKE_DIRECTORY "${PG_BIN}" "${REDIS_BIN}" "${QT_ROOT}/plugins/sqldrivers" "${MINIO_DIR}")
 file(WRITE "${PG_BIN}/psql.exe" "fake psql")
+file(WRITE "${PG_BIN}/libpq.dll" "fake libpq")
 file(WRITE "${REDIS_BIN}/redis-cli.exe" "fake redis cli")
+file(WRITE "${QT_ROOT}/plugins/sqldrivers/qsqlpsql.dll" "fake qpsql plugin")
 file(WRITE "${MINIO_DIR}/minio" "fake minio")
 file(WRITE "${MINIO_DIR}/mc" "fake mc")
 
@@ -18,6 +21,7 @@ execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
         -PostgresBinDir "${PG_BIN}"
         -RedisBinDir "${REDIS_BIN}"
+        -QtRoot "${QT_ROOT}"
         -MinioServerPath "${MINIO_DIR}/minio"
         -MinioClientPath "${MINIO_DIR}/mc"
         -MinioEndpoint "http://127.0.0.1:19000"

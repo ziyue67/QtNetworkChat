@@ -147,6 +147,19 @@ powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -BuildDir b
 
 脚本会先构建项目，再把 `QtNetworkChat.exe`、`README.md` 和 `manifest.json` 收集到 `dist/QtNetworkChat-<版本号>-win-x64`。如果系统能找到 `windeployqt.exe`，会自动复制 Qt 运行库，并把 Qt Core/GUI/Network/SQL/Widgets DLL 纳入运行时依赖检查，最后生成 `dist/QtNetworkChat-<版本号>-win-x64.zip`。`manifest.json` 会记录版本号、提交哈希、配置、可执行文件大小、windeployqt 路径和依赖检查结果；需要在 CI 或脚本测试中跳过构建/部署时，可使用 `-SkipBuild -NoDeploy`，需要把缺失运行库作为失败处理时使用 `-FailOnMissingRuntime`。
 
+如果发布包需要直接支持 PostgreSQL，把 Qt 的 QPSQL SQL driver 和 PostgreSQL `libpq` 运行库一起收集进包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1 `
+  -BuildDir build-qt6-mingw `
+  -QtRoot "D:\Qt\6.8.3\mingw_64" `
+  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
+  -IncludePostgresSql `
+  -FailOnMissingPostgresSql
+```
+
+该模式会把 `qsqlpsql.dll` 放入 `sqldrivers/`，并复制 `libpq.dll`、OpenSSL、iconv、intl 和 zlib 依赖到发布包根目录；`manifest.json` 的 `postgresSqlRuntime` 会记录插件来源、已复制文件和缺失项。SQLite 与 PostgreSQL 仍可并存：不设置 `QTNETWORKCHAT_DB_DRIVER` 时继续走 SQLite，设置为 `QPSQL` 时才连接 PostgreSQL。
+
 ### 可选 MinIO S3 手动验证
 
 S3/MinIO 后端默认仍保持关闭；需要验证当前 SigV4 签名和 path-style 请求边界时，可手动运行：
@@ -327,6 +340,7 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-local-infra.ps1 `
   -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
   -PostgresPassword "<本机 PostgreSQL 密码>" `
   -RedisBinDir "D:\Program Files\Redis-8.6.2" `
+  -QtRoot "D:\Qt\6.8.3\mingw_64" `
   -MinioServerPath "D:\Dminio-server\minio.windows-amd64.RELEASE.2025-09-07T16-13-09Z.exe" `
   -MinioClientPath "D:\Dminio-server\mc.windows-amd64.RELEASE.2025-08-13T08-35-41Z.exe" `
   -PlanOnly
