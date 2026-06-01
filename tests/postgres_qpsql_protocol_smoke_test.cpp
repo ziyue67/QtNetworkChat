@@ -8,6 +8,8 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -388,6 +390,7 @@ int main(int argc, char** argv) {
         QStringList peerPrivateMessages;
         QStringList peerOfflineMessages;
         QStringList peerFiles;
+        QStringList peerSystemMessages;
         QStringList ownerSystemMessages;
         QStringList ownerFriendSearchReasons;
         QStringList peerFriendRequests;
@@ -618,13 +621,24 @@ int main(int argc, char** argv) {
         }
         ok = expect(owner.sendFile(offlineFilePath, peerId),
                     "owner should queue an offline attachment through PostgreSQL") && ok;
+        const QString missingOfflineFileName = "pgsql-smoke-missing-offline-file.txt";
+        const QString missingOfflineFilePath = QDir(appDataDir).filePath(missingOfflineFileName);
+        QFile missingOfflineFile(missingOfflineFilePath);
+        ok = expect(missingOfflineFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL missing offline attachment smoke file should be writable") && ok;
+        if (missingOfflineFile.isOpen()) {
+            missingOfflineFile.write("PostgreSQL QPSQL missing offline attachment smoke");
+            missingOfflineFile.close();
+        }
+        ok = expect(owner.sendFile(missingOfflineFilePath, peerId),
+                    "owner should queue a second offline attachment for missing-file cleanup") && ok;
         qint64 offlineRows = 0;
         ok = expect(waitFor([&] {
             return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
                                   {peerId},
                                   &offlineRows)
-                && offlineRows >= 2;
-        }), "offline private message and attachment should be queued in PostgreSQL") && ok;
+                && offlineRows >= 3;
+        }), "offline private message and attachments should be queued in PostgreSQL") && ok;
         qint64 offlineAttachmentRows = 0;
         ok = expect(waitFor([&] {
             return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE '%pgsql-smoke-offline-file.txt%' AND payload LIKE '%chunkSize%' AND payload LIKE '%chunkCount%'",
@@ -632,6 +646,21 @@ int main(int argc, char** argv) {
                                   &offlineAttachmentRows)
                 && offlineAttachmentRows >= 1;
         }), "offline attachment payload should keep chunk metadata in PostgreSQL") && ok;
+        QString missingAttachmentPayload;
+        ok = expect(waitFor([&] {
+            return scalarString("SELECT payload FROM offline_messages WHERE receiver_id = ? AND payload LIKE ? ORDER BY id DESC LIMIT 1",
+                                {peerId, "%" + missingOfflineFileName + "%"},
+                                &missingAttachmentPayload)
+                && missingAttachmentPayload.contains(missingOfflineFileName);
+        }), "missing-file offline attachment payload should be persisted in PostgreSQL") && ok;
+        const QJsonDocument missingAttachmentDoc = QJsonDocument::fromJson(missingAttachmentPayload.toUtf8());
+        ok = expect(missingAttachmentDoc.isObject(),
+                    "missing-file offline attachment payload should be valid JSON") && ok;
+        const QString storedMissingAttachmentPath = missingAttachmentDoc.object().value("offlineFilePath").toString();
+        ok = expect(!storedMissingAttachmentPath.isEmpty(),
+                    "missing-file offline attachment payload should include an offline file path") && ok;
+        ok = expect(QFile::remove(storedMissingAttachmentPath),
+                    "smoke should be able to delete the queued offline attachment file before replay") && ok;
 
         QObject::disconnect(&peer, nullptr, &app, nullptr);
         QObject::connect(&peer, &Client::newMessage, &app, [&](const Message& msg) {
@@ -639,6 +668,8 @@ int main(int argc, char** argv) {
                 peerOfflineMessages << msg.content;
             } else if (msg.type == MessageType::File) {
                 peerFiles << msg.fileName;
+            } else if (msg.type == MessageType::System) {
+                peerSystemMessages << msg.content;
             }
         });
         ok = expect(loginClient(peer, peerId, "PgPeer", port, false),
@@ -647,6 +678,15 @@ int main(int argc, char** argv) {
                     "peer should receive PostgreSQL offline private message") && ok;
         ok = expect(waitFor([&] { return peerFiles.contains(QStringLiteral("pgsql-smoke-offline-file.txt")); }, 8000),
                     "peer should receive PostgreSQL offline attachment replay") && ok;
+        ok = expect(waitFor([&] {
+            for (const QString& message : peerSystemMessages) {
+                if (message.contains(QString::fromUtf8("离线文件已丢失"))
+                    && message.contains(missingOfflineFileName)) {
+                    return true;
+                }
+            }
+            return false;
+        }, 8000), "peer should receive a missing offline attachment notice from PostgreSQL replay") && ok;
         ok = expect(waitFor([&] {
             return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ?",
                                   {peerId},
