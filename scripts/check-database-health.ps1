@@ -37,8 +37,28 @@ function New-Check {
         name = $Name
         ok = $Ok
         detail = $Detail
-        reason = $Reason
+        reason = if ($Ok) { "ok" } elseif ([string]::IsNullOrWhiteSpace($Reason)) { "unknown" } else { $Reason }
     }
+}
+
+function Get-PostgresErrorReason([string]$Text) {
+    $value = ([string]$Text).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return "query"
+    }
+    if ($value -match "password|authentication|permission denied|role") {
+        return "auth"
+    }
+    if ($value -match "ssl|tls|certificate") {
+        return "tls"
+    }
+    if ($value -match "connection refused|timeout|timed out|could not connect|host|network|socket") {
+        return "network"
+    }
+    if ($value -match "relation .* does not exist|table|schema|requiredtables=([0-9]+)/10") {
+        return "schema"
+    }
+    return "query"
 }
 
 $normalizedDriver = $Driver.ToLowerInvariant()
@@ -52,9 +72,9 @@ $checks = [System.Collections.Generic.List[object]]::new()
 $environment = [ordered]@{}
 
 if ($normalizedDriver -eq "postgres") {
-    $checks.Add((New-Check "qt-qpsql-plugin" (Test-Path -LiteralPath $qpsqlPluginPath -PathType Leaf) $qpsqlPluginPath))
-    $checks.Add((New-Check "postgres-psql" (Test-Path -LiteralPath $psqlPath -PathType Leaf) $psqlPath))
-    $checks.Add((New-Check "postgres-libpq-runtime" (Test-Path -LiteralPath $libpqPath -PathType Leaf) $libpqPath))
+    $checks.Add((New-Check "qt-qpsql-plugin" (Test-Path -LiteralPath $qpsqlPluginPath -PathType Leaf) $qpsqlPluginPath "runtime"))
+    $checks.Add((New-Check "postgres-psql" (Test-Path -LiteralPath $psqlPath -PathType Leaf) $psqlPath "runtime"))
+    $checks.Add((New-Check "postgres-libpq-runtime" (Test-Path -LiteralPath $libpqPath -PathType Leaf) $libpqPath "runtime"))
     $environment = [ordered]@{
         QT_PLUGIN_PATH = $qtPluginDir
         QTNETWORKCHAT_DB_DRIVER = "QPSQL"
@@ -65,7 +85,7 @@ if ($normalizedDriver -eq "postgres") {
         QTNETWORKCHAT_PGPASSWORD = "<redacted>"
     }
 } else {
-    $checks.Add((New-Check "sqlite-parent" (Test-Path -LiteralPath (Split-Path -Parent $resolvedSqlitePath) -PathType Container) (Split-Path -Parent $resolvedSqlitePath)))
+    $checks.Add((New-Check "sqlite-parent" (Test-Path -LiteralPath (Split-Path -Parent $resolvedSqlitePath) -PathType Container) (Split-Path -Parent $resolvedSqlitePath) "path"))
     $environment = [ordered]@{
         QTNETWORKCHAT_DB_DRIVER = "QSQLITE"
         QTNETWORKCHAT_DB_PATH = $resolvedSqlitePath
@@ -97,8 +117,10 @@ if (-not $PlanOnly -and $ok) {
                 $psqlExitCode = $LASTEXITCODE
                 $tableCount = 0
                 [void][int]::TryParse((([string]$psqlOutput).Trim()), [ref]$tableCount)
-                $reason = if ($psqlExitCode -eq 0) { "" } else { ([string]$psqlOutput).Trim() }
-                $checks.Add((New-Check "postgres-required-tables" ($psqlExitCode -eq 0 -and $tableCount -eq 10) "requiredTables=$tableCount/10" $reason))
+                $checkOk = $psqlExitCode -eq 0 -and $tableCount -eq 10
+                $reason = if ($checkOk) { "ok" } elseif ($psqlExitCode -eq 0) { "schema" } else { Get-PostgresErrorReason ([string]$psqlOutput) }
+                $detail = if ($psqlExitCode -eq 0) { "requiredTables=$tableCount/10" } else { "requiredTables=unknown/10" }
+                $checks.Add((New-Check "postgres-required-tables" $checkOk $detail $reason))
                 $ok = $ok -and $psqlExitCode -eq 0 -and $tableCount -eq 10
             } finally {
                 $env:PGPASSWORD = $oldPassword

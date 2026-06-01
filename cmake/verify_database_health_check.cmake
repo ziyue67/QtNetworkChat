@@ -8,6 +8,8 @@ set(PG_BIN "${TEMP_DIR}/postgres/bin")
 set(SQLITE_DIR "${TEMP_DIR}/sqlite")
 set(PG_JSON "${TEMP_DIR}/postgres-health-plan.json")
 set(SQLITE_JSON "${TEMP_DIR}/sqlite-health-plan.json")
+set(PG_BAD_JSON "${TEMP_DIR}/postgres-health-runtime-missing.json")
+set(SQLITE_BAD_JSON "${TEMP_DIR}/sqlite-health-path-missing.json")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY "${QT_ROOT}/plugins/sqldrivers" "${PG_BIN}" "${SQLITE_DIR}")
 file(WRITE "${QT_ROOT}/plugins/sqldrivers/qsqlpsql.dll" "fake qpsql plugin")
@@ -97,12 +99,77 @@ if(NOT pg_password STREQUAL "<redacted>")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL database health should redact password")
 endif()
+string(JSON pg_plugin_reason GET "${pg_json}" "checks" 0 "reason")
+string(JSON pg_psql_reason GET "${pg_json}" "checks" 1 "reason")
+string(JSON pg_libpq_reason GET "${pg_json}" "checks" 2 "reason")
+if(NOT pg_plugin_reason STREQUAL "ok" OR NOT pg_psql_reason STREQUAL "ok" OR NOT pg_libpq_reason STREQUAL "ok")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL healthy plan checks should expose reason=ok")
+endif()
 
 file(READ "${SQLITE_JSON}" sqlite_json)
 string(JSON sqlite_driver GET "${sqlite_json}" "environment" "QTNETWORKCHAT_DB_DRIVER")
 if(NOT sqlite_driver STREQUAL "QSQLITE")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "SQLite database health should expose QSQLITE environment")
+endif()
+string(JSON sqlite_parent_reason GET "${sqlite_json}" "checks" 0 "reason")
+if(NOT sqlite_parent_reason STREQUAL "ok")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite healthy plan check should expose reason=ok")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Driver postgres
+        -QtRoot "${TEMP_DIR}/missing-qt"
+        -PostgresBinDir "${TEMP_DIR}/missing-pg-bin"
+        -PlanOnly
+        -JsonPath "${PG_BAD_JSON}"
+    RESULT_VARIABLE pg_bad_result
+    OUTPUT_VARIABLE pg_bad_output
+    ERROR_VARIABLE pg_bad_error
+)
+if(NOT pg_bad_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL missing runtime plan should not fail without -FailOnUnhealthy")
+endif()
+file(READ "${PG_BAD_JSON}" pg_bad_json)
+string(JSON pg_bad_ok GET "${pg_bad_json}" "ok")
+string(JSON pg_bad_status GET "${pg_bad_json}" "status")
+string(JSON pg_bad_reason0 GET "${pg_bad_json}" "checks" 0 "reason")
+string(JSON pg_bad_reason1 GET "${pg_bad_json}" "checks" 1 "reason")
+string(JSON pg_bad_reason2 GET "${pg_bad_json}" "checks" 2 "reason")
+if(pg_bad_ok OR NOT pg_bad_status STREQUAL "unhealthy")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL missing runtime plan should be unhealthy")
+endif()
+if(NOT pg_bad_reason0 STREQUAL "runtime" OR NOT pg_bad_reason1 STREQUAL "runtime" OR NOT pg_bad_reason2 STREQUAL "runtime")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL missing runtime checks should expose reason=runtime")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -Driver sqlite
+        -SQLitePath "${TEMP_DIR}/missing-sqlite-parent/accounts.sqlite3"
+        -PlanOnly
+        -JsonPath "${SQLITE_BAD_JSON}"
+    RESULT_VARIABLE sqlite_bad_result
+    OUTPUT_VARIABLE sqlite_bad_output
+    ERROR_VARIABLE sqlite_bad_error
+)
+if(NOT sqlite_bad_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite missing path plan should not fail without -FailOnUnhealthy")
+endif()
+file(READ "${SQLITE_BAD_JSON}" sqlite_bad_json)
+string(JSON sqlite_bad_ok GET "${sqlite_bad_json}" "ok")
+string(JSON sqlite_bad_status GET "${sqlite_bad_json}" "status")
+string(JSON sqlite_bad_reason GET "${sqlite_bad_json}" "checks" 0 "reason")
+if(sqlite_bad_ok OR NOT sqlite_bad_status STREQUAL "unhealthy" OR NOT sqlite_bad_reason STREQUAL "path")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "SQLite missing parent should be unhealthy with reason=path")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

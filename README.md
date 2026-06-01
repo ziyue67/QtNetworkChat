@@ -374,7 +374,7 @@ export QTNETWORKCHAT_REDIS_HOST='127.0.0.1'
 export QTNETWORKCHAT_REDIS_PORT='6379'
 ```
 
-服务端内部提供数据库健康快照，覆盖连接打开、`SELECT 1` ping 和账号/消息/离线队列/好友事件/公共群/审计所需表检查；PostgreSQL 配置输出只包含 host、port、database、user 和 `<redacted>` 密码。运维侧可用脚本生成 SQLite 或 PostgreSQL 健康计划/检查 JSON：
+服务端内部提供数据库健康快照，覆盖连接打开、`SELECT 1` ping 和账号/消息/离线队列/好友事件/公共群/审计所需表检查；PostgreSQL 配置输出只包含 host、port、database、user 和 `<redacted>` 密码。健康 JSON 中每个 check 都会输出固定 `reason`，成功为 `ok`，失败会收敛到 `runtime`、`auth`、`network`、`tls`、`schema`、`path` 或 `query`，方便仪表盘、告警和计划任务按原因分派。运维侧可用脚本生成 SQLite 或 PostgreSQL 健康计划/检查 JSON：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/check-database-health.ps1 `

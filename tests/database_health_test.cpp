@@ -23,7 +23,9 @@ bool expect(bool condition, const char* message) {
 bool hasPassingCheck(const QJsonArray& checks, const QString& name) {
     for (const QJsonValue& value : checks) {
         const QJsonObject obj = value.toObject();
-        if (obj.value("name").toString() == name && obj.value("ok").toBool(false)) {
+        if (obj.value("name").toString() == name
+            && obj.value("ok").toBool(false)
+            && obj.value("reason").toString() == "ok") {
             return true;
         }
     }
@@ -58,6 +60,8 @@ int main(int argc, char** argv) {
                 "SQLite database health should be healthy after initialization") && ok;
     ok = expect(health.value("status").toString() == "healthy",
                 "SQLite database status should be healthy") && ok;
+    ok = expect(health.value("reason").toString() == "ok",
+                "SQLite database health should expose ok reason") && ok;
     ok = expect(config.value("driver").toString() == "QSQLITE",
                 "default database health should report SQLite") && ok;
     ok = expect(!config.contains("password"),
@@ -86,6 +90,8 @@ int main(int argc, char** argv) {
         const QJsonObject exported = QJsonDocument::fromJson(readBack.readAll()).object();
         ok = expect(exported.value("status").toString() == "healthy",
                     "database health export JSON should preserve healthy status") && ok;
+        ok = expect(exported.value("reason").toString() == "ok",
+                    "database health export JSON should preserve ok reason") && ok;
         ok = expect(exported.value("config").toObject().value("driver").toString() == "QSQLITE",
                     "database health export JSON should preserve redacted config") && ok;
     }

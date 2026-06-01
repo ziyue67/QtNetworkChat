@@ -182,6 +182,30 @@ QJsonObject redactedAccountDatabaseConfig() {
 QJsonObject databaseErrorJson(const QString& scope, const QSqlError& error) {
     QJsonObject obj;
     obj["scope"] = scope;
+    const QString errorText = (error.driverText() + QLatin1Char(' ') + error.databaseText() + QLatin1Char(' ') + error.nativeErrorCode()).toLower();
+    QString reason = QStringLiteral("query");
+    if (errorText.contains(QStringLiteral("driver not loaded"))
+        || errorText.contains(QStringLiteral("not loaded"))
+        || errorText.contains(QStringLiteral("not available"))) {
+        reason = QStringLiteral("runtime");
+    } else if (errorText.contains(QStringLiteral("password"))
+               || errorText.contains(QStringLiteral("authentication"))
+               || errorText.contains(QStringLiteral("permission denied"))
+               || errorText.contains(QStringLiteral("role"))) {
+        reason = QStringLiteral("auth");
+    } else if (errorText.contains(QStringLiteral("ssl"))
+               || errorText.contains(QStringLiteral("tls"))
+               || errorText.contains(QStringLiteral("certificate"))) {
+        reason = QStringLiteral("tls");
+    } else if (errorText.contains(QStringLiteral("connection refused"))
+               || errorText.contains(QStringLiteral("timeout"))
+               || errorText.contains(QStringLiteral("timed out"))
+               || errorText.contains(QStringLiteral("host"))
+               || errorText.contains(QStringLiteral("network"))
+               || errorText.contains(QStringLiteral("socket"))) {
+        reason = QStringLiteral("network");
+    }
+    obj["reason"] = reason;
     obj["driverText"] = error.driverText();
     obj["databaseText"] = error.databaseText();
     obj["nativeErrorCode"] = error.nativeErrorCode();
@@ -767,8 +791,11 @@ QJsonObject Server::databaseHealthSnapshot() const {
         QJsonObject openCheck;
         openCheck["name"] = QStringLiteral("open");
         openCheck["ok"] = opened;
+        openCheck["reason"] = QStringLiteral("ok");
         if (!opened) {
-            openCheck["error"] = databaseErrorJson(QStringLiteral("open"), db.lastError());
+            const QJsonObject error = databaseErrorJson(QStringLiteral("open"), db.lastError());
+            openCheck["error"] = error;
+            openCheck["reason"] = error.value("reason").toString(QStringLiteral("query"));
             healthy = false;
             qWarning() << "Database health open failed:"
                        << db.lastError().text()
@@ -782,8 +809,11 @@ QJsonObject Server::databaseHealthSnapshot() const {
             QJsonObject pingCheck;
             pingCheck["name"] = QStringLiteral("ping");
             pingCheck["ok"] = pingOk;
+            pingCheck["reason"] = QStringLiteral("ok");
             if (!pingOk) {
-                pingCheck["error"] = databaseErrorJson(QStringLiteral("ping"), pingQuery.lastError());
+                const QJsonObject error = databaseErrorJson(QStringLiteral("ping"), pingQuery.lastError());
+                pingCheck["error"] = error;
+                pingCheck["reason"] = error.value("reason").toString(QStringLiteral("query"));
                 healthy = false;
                 qWarning() << "Database health ping failed:"
                            << pingQuery.lastError().text()
@@ -813,7 +843,9 @@ QJsonObject Server::databaseHealthSnapshot() const {
             QJsonObject schemaCheck;
             schemaCheck["name"] = QStringLiteral("required-tables");
             schemaCheck["ok"] = missingTables.isEmpty();
+            schemaCheck["reason"] = missingTables.isEmpty() ? QStringLiteral("ok") : QStringLiteral("schema");
             schemaCheck["requiredCount"] = requiredTables.size();
+            schemaCheck["missingCount"] = missingTables.size();
             schemaCheck["missingTables"] = missingTables;
             if (!missingTables.isEmpty()) {
                 healthy = false;
@@ -831,6 +863,15 @@ QJsonObject Server::databaseHealthSnapshot() const {
     snapshot["checks"] = checks;
     snapshot["ok"] = healthy;
     snapshot["status"] = healthy ? QStringLiteral("healthy") : QStringLiteral("unhealthy");
+    QString reason = QStringLiteral("ok");
+    for (const QJsonValue& checkValue : checks) {
+        const QJsonObject check = checkValue.toObject();
+        if (!check.value("ok").toBool(false)) {
+            reason = check.value("reason").toString(QStringLiteral("query"));
+            break;
+        }
+    }
+    snapshot["reason"] = reason;
     return snapshot;
 }
 
