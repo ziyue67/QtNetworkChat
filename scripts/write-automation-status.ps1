@@ -265,12 +265,13 @@ if ($null -ne $largeFileGovernanceLastRun) {
 }
 if ($null -ne $automationTaskHistory) {
     $historyLatestRun = Get-JsonValue $automationTaskHistory "latestRun" $null
-    $lines.Add(('- Task history: runs=`{0}`, failed=`{1}`, latestAt=`{2}`, latestExitCode=`{3}`, acknowledged=`{4}`' -f
+    $lines.Add(('- Task history: runs=`{0}`, failed=`{1}`, latestAt=`{2}`, latestExitCode=`{3}`, acknowledged=`{4}`, ackExpired=`{5}`' -f
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "runCount" "unknown")),
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "failedRunCount" "unknown")),
             (Format-StatusValue (Get-JsonValue $historyLatestRun "timestamp" "unknown")),
             (Format-StatusValue (Get-JsonValue $historyLatestRun "exitCode" "unknown")),
-            (Format-StatusValue (Get-JsonValue $automationTaskHistory "acknowledged" $null))))
+            (Format-StatusValue (Get-JsonValue $automationTaskHistory "acknowledged" $null)),
+            (Format-StatusValue (Get-JsonValue $automationTaskHistory "ackExpired" $null))))
 }
 $lines.Add("")
 $lines.Add("## Priority Backlog")

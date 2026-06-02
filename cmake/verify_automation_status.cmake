@@ -56,7 +56,8 @@ file(WRITE "${TASK_HISTORY_PATH}"
   \"runCount\":3,
   \"failedRunCount\":1,
   \"latestRun\":{\"timestamp\":\"2026-06-03T03:02:03.0000000Z\",\"exitCode\":0},
-  \"acknowledged\":true
+  \"acknowledged\":true,
+  \"ackExpired\":false
 }
 ")
 
@@ -109,7 +110,7 @@ foreach(expected_text
         "Database health last run: at=`2026-06-03T01:02:03.0000000Z`, exitCode=`0`"
         "Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`"
         "Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`"
-        "Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`"
+        "Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`"
         "Priority Backlog"
         "QTNETWORKCHAT_PGPASSWORD"
         "generated evidence must remain redacted")

@@ -29,6 +29,8 @@ execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
         -LastRunPath "${LAST_RUN_A},${LAST_RUN_B}"
         -AckPath "${ACK_PATH}"
+        -AckExpiryHours 48
+        -RetentionCount 2
         -JsonPath "${JSON_PATH}"
         -MarkdownPath "${MD_PATH}"
         -FailOnSensitive
@@ -58,12 +60,13 @@ string(JSON failed_run_count GET "${json_content}" "failedRunCount")
 string(JSON latest_timestamp GET "${json_content}" "latestRun" "timestamp")
 string(JSON latest_exit_code GET "${json_content}" "latestRun" "exitCode")
 string(JSON acknowledged GET "${json_content}" "acknowledged")
+string(JSON ack_expired GET "${json_content}" "ackExpired")
 string(JSON acknowledged_by GET "${json_content}" "acknowledgedBy")
 if(NOT format STREQUAL "qtnetworkchat-automation-task-history-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected history format: ${format}")
 endif()
-if(NOT run_count EQUAL 3 OR NOT failed_run_count EQUAL 1)
+if(NOT run_count EQUAL 2 OR NOT failed_run_count EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected history run counters: ${run_count}/${failed_run_count}")
 endif()
@@ -71,7 +74,7 @@ if(NOT latest_timestamp STREQUAL "2026-06-03T03:02:03.0000000Z" OR NOT latest_ex
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected latest run summary: ${latest_timestamp}/${latest_exit_code}")
 endif()
-if(NOT acknowledged OR NOT acknowledged_by STREQUAL "operator-ci")
+if(NOT acknowledged OR ack_expired OR NOT acknowledged_by STREQUAL "operator-ci")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected acknowledged operator-ci state")
 endif()
@@ -79,9 +82,10 @@ endif()
 file(READ "${MD_PATH}" markdown_content)
 foreach(expected_text
         "QtNetworkChat Automation Task History"
-        "Run count: `3`"
+        "Run count: `2`"
         "Failed runs: `1`"
         "Acknowledged: `true`"
+        "Ack expired: `false`"
         "operator-ci")
     string(FIND "${markdown_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
@@ -102,6 +106,37 @@ execute_process(
 if(NOT bad_result EQUAL 2)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Sensitive last-run history should fail with exit 2, got ${bad_result}")
+endif()
+
+file(WRITE "${ACK_PATH}"
+"{
+  \"acknowledged\": true,
+  \"acknowledgedBy\": \"operator-old\",
+  \"acknowledgedAt\": \"2026-05-01T04:00:00Z\",
+  \"reason\": \"stale\"
+}
+")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -LastRunPath "${LAST_RUN_A}"
+        -AckPath "${ACK_PATH}"
+        -AckExpiryHours 1
+        -JsonPath "${JSON_PATH}"
+    RESULT_VARIABLE expired_result
+    OUTPUT_VARIABLE expired_output
+    ERROR_VARIABLE expired_error
+)
+if(NOT expired_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expired ack run should still succeed")
+endif()
+file(READ "${JSON_PATH}" expired_json_content)
+string(JSON expired_ack GET "${expired_json_content}" "acknowledged")
+string(JSON expired_flag GET "${expired_json_content}" "ackExpired")
+string(JSON expired_reason GET "${expired_json_content}" "ackReason")
+if(expired_ack OR NOT expired_flag OR expired_reason EQUAL "")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expired ack should be downgraded and marked expired")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

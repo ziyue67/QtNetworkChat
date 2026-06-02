@@ -4,6 +4,10 @@ param(
 
     [string]$AckPath,
 
+    [int]$AckExpiryHours = 0,
+
+    [int]$RetentionCount = 0,
+
     [string]$JsonPath,
 
     [string]$MarkdownPath,
@@ -89,6 +93,17 @@ function Parse-LastRunLine([string]$LineValue, [string]$SourceName) {
     }
 }
 
+function Parse-UtcDate([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse($Value, [ref]$parsed)) {
+        return $parsed.ToUniversalTime()
+    }
+    $null
+}
+
 $normalizedLastRunPaths = @()
 foreach ($path in $LastRunPath) {
     foreach ($part in ([string]$path -split ",")) {
@@ -123,6 +138,31 @@ $acknowledged = [bool](Get-JsonValue $ack "acknowledged" $false)
 $acknowledgedBy = [string](Get-JsonValue $ack "acknowledgedBy" "")
 $acknowledgedAt = [string](Get-JsonValue $ack "acknowledgedAt" "")
 $ackReason = [string](Get-JsonValue $ack "reason" "")
+$ackExpired = $false
+
+if ($RetentionCount -gt 0 -and $runs.Count -gt $RetentionCount) {
+    $runs = @($runs | Sort-Object timestamp -Descending | Select-Object -First $RetentionCount)
+}
+
+if ($AckExpiryHours -gt 0 -and $acknowledged) {
+    $ackTime = Parse-UtcDate $acknowledgedAt
+    if ($null -eq $ackTime) {
+        $ackExpired = $true
+    } else {
+        $expiryAge = ((Get-Date).ToUniversalTime() - $ackTime.UtcDateTime).TotalHours
+        if ($expiryAge -gt $AckExpiryHours) {
+            $ackExpired = $true
+        }
+    }
+    if ($ackExpired) {
+        $acknowledged = $false
+        if ($ackReason -eq "") {
+            $ackReason = "expired"
+        } else {
+            $ackReason = "$ackReason;expired"
+        }
+    }
+}
 
 $latestRun = $null
 if ($runs.Count -gt 0) {
@@ -142,6 +182,7 @@ $summary = [ordered]@{
     failedRunCount = $failedRuns.Count
     latestRun = $latestRun
     acknowledged = $acknowledged
+    ackExpired = $ackExpired
     acknowledgedBy = $safeAcknowledgedBy
     acknowledgedAt = $safeAcknowledgedAt
     ackReason = $safeAckReason
@@ -170,6 +211,7 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(('- Run count: `{0}`' -f $summary.runCount))
     $lines.Add(('- Failed runs: `{0}`' -f $summary.failedRunCount))
     $lines.Add(('- Acknowledged: `{0}`' -f $summary.acknowledged.ToString().ToLowerInvariant()))
+    $lines.Add(('- Ack expired: `{0}`' -f $summary.ackExpired.ToString().ToLowerInvariant()))
     $lines.Add(('- Acknowledged by: `{0}`' -f $summary.acknowledgedBy))
     $lines.Add(('- Acknowledged at: `{0}`' -f $summary.acknowledgedAt))
     $lines.Add("")
