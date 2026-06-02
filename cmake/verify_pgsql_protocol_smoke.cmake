@@ -8,6 +8,7 @@ set(FAKE_QT_ROOT "${TEMP_DIR}/qt")
 set(FAKE_PG_BIN "${TEMP_DIR}/postgres/bin")
 set(JSON_PATH "${TEMP_DIR}/pgsql-smoke-plan.json")
 set(MARKDOWN_PATH "${TEMP_DIR}/pgsql-smoke-plan.md")
+set(BOOTSTRAP_JSON_PATH "${TEMP_DIR}/local-postgres-bootstrap.json")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY
     "${FAKE_BUILD_DIR}"
@@ -58,6 +59,9 @@ file(READ "${MARKDOWN_PATH}" markdown_content)
 string(JSON format GET "${json_content}" "format")
 string(JSON plan_only GET "${json_content}" "planOnly")
 string(JSON ok GET "${json_content}" "ok")
+string(JSON ensure_database GET "${json_content}" "ensureDatabase")
+string(JSON bootstrap_json_path GET "${json_content}" "bootstrapJsonPath")
+string(JSON bootstrap_exit_code ERROR_VARIABLE bootstrap_exit_error GET "${json_content}" "bootstrapExitCode")
 string(JSON password GET "${json_content}" "environment" "QTNETWORKCHAT_PGPASSWORD")
 string(JSON driver GET "${json_content}" "environment" "QTNETWORKCHAT_DB_DRIVER")
 string(JSON coverage0 GET "${json_content}" "coverageSurfaces" 0)
@@ -78,6 +82,8 @@ string(FIND "${json_content}" "file-chunk-metadata-persistence" has_file_chunk_b
 string(FIND "${json_content}" "online-file-chunk-invalid-ack-retry" has_online_file_retry)
 string(FIND "${markdown_content}" "PostgreSQL QPSQL Protocol Smoke Evidence" has_markdown_title)
 string(FIND "${markdown_content}" "Boundary Scenarios" has_markdown_boundaries)
+string(FIND "${markdown_content}" "Ensure database: False" has_markdown_ensure_database)
+string(FIND "${markdown_content}" "Bootstrap JSON: n/a" has_markdown_bootstrap_json)
 string(FIND "${markdown_content}" "<redacted>" has_markdown_redacted)
 string(FIND "${markdown_content}" "not-used-in-plan" has_markdown_secret)
 if(NOT format STREQUAL "qtnetworkchat-pgsql-protocol-smoke-v1")
@@ -91,6 +97,14 @@ endif()
 if(NOT ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke plan should pass with fake runtime files")
+endif()
+if(ensure_database)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PlanOnly should leave EnsureDatabase disabled by default")
+endif()
+if(NOT bootstrap_json_path STREQUAL "")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PlanOnly without BootstrapJsonPath should not produce a bootstrap path")
 endif()
 if(NOT password STREQUAL "<redacted>")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -132,13 +146,52 @@ if(has_offline_attachment_metadata EQUAL -1
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke plan should expose offline attachment metadata, corruption cleanup, resume fallback, confirmedChunks cleanup and online file chunk retry boundaries")
 endif()
-if(has_markdown_title EQUAL -1 OR has_markdown_boundaries EQUAL -1 OR has_markdown_redacted EQUAL -1)
+if(has_markdown_title EQUAL -1 OR has_markdown_boundaries EQUAL -1 OR has_markdown_redacted EQUAL -1 OR has_markdown_ensure_database EQUAL -1 OR has_markdown_bootstrap_json EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "PostgreSQL smoke Markdown should include title, boundary section and redacted password")
+    message(FATAL_ERROR "PostgreSQL smoke Markdown should include title, boundary section, bootstrap fields and redacted password")
 endif()
 if(NOT has_markdown_secret EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke Markdown leaked the provided password")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -TestExe "${FAKE_BUILD_DIR}/postgres_qpsql_protocol_smoke_test.exe"
+        -QtRoot "${FAKE_QT_ROOT}"
+        -PostgresBinDir "${FAKE_PG_BIN}"
+        -PostgresPassword "not-used-in-plan"
+        -PlanOnly
+        -EnsureDatabase
+        -BootstrapJsonPath "${BOOTSTRAP_JSON_PATH}"
+        -JsonPath "${JSON_PATH}.ensure.json"
+        -MarkdownPath "${MARKDOWN_PATH}.ensure.md"
+    RESULT_VARIABLE ensure_result
+    OUTPUT_VARIABLE ensure_output
+    ERROR_VARIABLE ensure_error_output
+)
+if(NOT ensure_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "run-pgsql-protocol-smoke.ps1 EnsureDatabase plan exited with code ${ensure_result}")
+endif()
+file(READ "${JSON_PATH}.ensure.json" ensure_json_content)
+file(READ "${MARKDOWN_PATH}.ensure.md" ensure_markdown_content)
+string(JSON ensure_plan_only GET "${ensure_json_content}" "planOnly")
+string(JSON ensure_database_enabled GET "${ensure_json_content}" "ensureDatabase")
+string(JSON ensure_bootstrap_path GET "${ensure_json_content}" "bootstrapJsonPath")
+string(FIND "${ensure_markdown_content}" "Ensure database: True" has_ensure_markdown_enabled)
+string(FIND "${ensure_markdown_content}" "not-used-in-plan" has_ensure_markdown_secret)
+if(NOT ensure_plan_only OR NOT ensure_database_enabled)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "EnsureDatabase plan should expose enabled bootstrap mode")
+endif()
+if(NOT ensure_bootstrap_path MATCHES "local-postgres-bootstrap.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "EnsureDatabase plan should expose the requested bootstrap JSON path")
+endif()
+if(has_ensure_markdown_enabled EQUAL -1 OR NOT has_ensure_markdown_secret EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "EnsureDatabase plan Markdown should show bootstrap mode without leaking password")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

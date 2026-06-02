@@ -9,6 +9,8 @@ param(
     [string]$PostgresPassword = $env:QTNETWORKCHAT_PGPASSWORD,
     [string]$AppDataDir,
     [switch]$PlanOnly,
+    [switch]$EnsureDatabase,
+    [string]$BootstrapJsonPath,
     [string]$JsonPath,
     [string]$MarkdownPath
 )
@@ -44,6 +46,7 @@ $qtBinDir = Join-Path $QtRoot "bin"
 $qtPluginDir = Join-Path $QtRoot "plugins"
 $qpsqlPluginPath = Join-Path $qtPluginDir "sqldrivers\qsqlpsql.dll"
 $libpqPath = Join-Path $PostgresBinDir "libpq.dll"
+$bootstrapScript = Join-Path $PSScriptRoot "start-local-postgres.ps1"
 $runtimeAppData = if ([string]::IsNullOrWhiteSpace($AppDataDir)) {
     Join-Path $repoRoot "build-qt6-mingw\pgsql-protocol-smoke-runtime"
 } else {
@@ -55,7 +58,8 @@ $checks = @(
     (New-Check "qt-bin" (Test-Path -LiteralPath $qtBinDir -PathType Container) $qtBinDir),
     (New-Check "qt-qpsql-plugin" (Test-Path -LiteralPath $qpsqlPluginPath -PathType Leaf) $qpsqlPluginPath),
     (New-Check "postgres-bin" (Test-Path -LiteralPath $PostgresBinDir -PathType Container) $PostgresBinDir),
-    (New-Check "postgres-libpq-runtime" (Test-Path -LiteralPath $libpqPath -PathType Leaf) $libpqPath)
+    (New-Check "postgres-libpq-runtime" (Test-Path -LiteralPath $libpqPath -PathType Leaf) $libpqPath),
+    (New-Check "bootstrap-script" (Test-Path -LiteralPath $bootstrapScript -PathType Leaf) $bootstrapScript)
 )
 
 $coverageSurfaces = @(
@@ -164,6 +168,9 @@ $result = [ordered]@{
     qtRoot = $QtRoot
     postgresBinDir = $PostgresBinDir
     appDataDir = $runtimeAppData
+    ensureDatabase = [bool]$EnsureDatabase
+    bootstrapJsonPath = ""
+    bootstrapExitCode = $null
     environment = [ordered]@{
         QT_PLUGIN_PATH = $qtPluginDir
         QTNETWORKCHAT_RUN_REAL_QPSQL_TEST = "1"
@@ -177,6 +184,10 @@ $result = [ordered]@{
     exitCode = $null
 }
 
+if (-not [string]::IsNullOrWhiteSpace($BootstrapJsonPath)) {
+    $result.bootstrapJsonPath = Resolve-RepoPath $BootstrapJsonPath
+}
+
 if (-not $PlanOnly) {
     if (-not $result.ok) {
         $missing = @($checks | Where-Object { -not $_.ok } | ForEach-Object { $_.name })
@@ -187,6 +198,32 @@ if (-not $PlanOnly) {
     }
 
     New-Item -ItemType Directory -Force -Path $runtimeAppData | Out-Null
+
+    if ($EnsureDatabase) {
+        $bootstrapJsonTarget = if ([string]::IsNullOrWhiteSpace($BootstrapJsonPath)) {
+            Join-Path $runtimeAppData "local-postgres-bootstrap.json"
+        } else {
+            Resolve-RepoPath $BootstrapJsonPath
+        }
+        $bootstrapParent = Split-Path -Parent $bootstrapJsonTarget
+        if (-not [string]::IsNullOrWhiteSpace($bootstrapParent)) {
+            New-Item -ItemType Directory -Force -Path $bootstrapParent | Out-Null
+        }
+        & powershell -ExecutionPolicy Bypass -File $bootstrapScript `
+            -PostgresBinDir $PostgresBinDir `
+            -Database $PostgresDatabase `
+            -User $PostgresUser `
+            -Password $PostgresPassword `
+            -HostAddress $PostgresHost `
+            -Port $PostgresPort `
+            -JsonPath $bootstrapJsonTarget
+        $result.bootstrapJsonPath = $bootstrapJsonTarget
+        $result.bootstrapExitCode = $LASTEXITCODE
+        if ($LASTEXITCODE -ne 0) {
+            $result.ok = $false
+            throw ("PostgreSQL database bootstrap failed with exit code {0}. See redacted bootstrap JSON: {1}" -f $LASTEXITCODE, $bootstrapJsonTarget)
+        }
+    }
 
     $oldPath = $env:PATH
     $oldPluginPath = $env:QT_PLUGIN_PATH
@@ -251,6 +288,9 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("- Plan only: {0}" -f $result.planOnly))
     $lines.Add(("- OK: {0}" -f $result.ok))
     $lines.Add(("- Exit code: {0}" -f ($(if ($null -eq $result.exitCode) { "not-run" } else { $result.exitCode }))))
+    $lines.Add(("- Ensure database: {0}" -f $result.ensureDatabase))
+    $lines.Add(("- Bootstrap exit code: {0}" -f ($(if ($null -eq $result.bootstrapExitCode) { "not-run" } else { $result.bootstrapExitCode }))))
+    $lines.Add(("- Bootstrap JSON: {0}" -f ($(if ([string]::IsNullOrWhiteSpace($result.bootstrapJsonPath)) { "n/a" } else { $result.bootstrapJsonPath }))))
     $lines.Add(("- PostgreSQL target: {0}:{1}/{2} as {3}" -f $PostgresHost, $PostgresPort, $PostgresDatabase, $PostgresUser))
     $lines.Add("- PostgreSQL password: <redacted>")
     $lines.Add(("- Failed prerequisite checks: {0}" -f $failedChecks.Count))

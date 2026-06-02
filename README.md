@@ -458,21 +458,18 @@ powershell -ExecutionPolicy Bypass -File scripts/notify-database-health-unhealth
 
 ```powershell
 $env:QTNETWORKCHAT_PGPASSWORD = "<本机 PostgreSQL 密码>"
-powershell -ExecutionPolicy Bypass -File scripts/start-local-postgres.ps1 `
-  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
-  -Password $env:QTNETWORKCHAT_PGPASSWORD `
-  -JsonPath "build-qt6-mingw\local-postgres.json"
-
 powershell -ExecutionPolicy Bypass -File scripts/run-pgsql-protocol-smoke.ps1 `
   -TestExe "build-qt6-mingw\postgres_qpsql_protocol_smoke_test.exe" `
   -QtRoot "D:\Qt\6.8.3\mingw_64" `
   -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
   -PostgresPassword $env:QTNETWORKCHAT_PGPASSWORD `
+  -EnsureDatabase `
+  -BootstrapJsonPath "build-qt6-mingw\local-postgres.json" `
   -JsonPath "build-qt6-mingw\pgsql-protocol-smoke.json" `
   -MarkdownPath "build-qt6-mingw\pgsql-protocol-smoke.md"
 ```
 
-`start-local-postgres.ps1` 可在 `build-qt6-mingw\pg-real-data` 初始化并启动一个临时 PostgreSQL 实例，创建 `qtnetworkchat` 数据库，JSON 只写 `<redacted>` 密码；若本机服务已在 5432 监听，它会复用现有服务。`run-pgsql-protocol-smoke.ps1` 会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、好友搜索/申请/同意、好友边界事件、公共群公告与审计、公共群成员管理员升降级与审计、群成员移出/重新加入/移出历史 marker、文件分片元数据、在线文件首个分片非法 ACK 后重试、离线私聊与离线附件回放、缺失/大小/hash/chunk 元数据异常离线附件清理、离线附件 partial ACK 后续传、过期离线附件续传进度回退完整回放、confirmedChunks 非连续缺口续传/重复去重/全确认清理、服务端重启后重登和 KDF hash 查询；公共群 smoke 会先捕获真实 `public` 群 owner/公告，fresh database 缺表时视为无旧状态，再临时授予本轮 smoke 账号权限，结束时恢复原状态并清理本轮生成的账号、消息、会话和队列。传入 `-JsonPath`/`-MarkdownPath` 时会生成脱敏 evidence，除 `coverageSurfaces` 外还列出 `boundaryScenarios`，覆盖离线消息队列回放、离线附件 payload 中的 `chunkSize`/`chunkCount`/hash 元数据、回放后队列清理、离线附件缺失文件/大小异常/hash 校验失败/chunk 元数据异常提示与坏队列清理、partial ACK 后 `confirmedBytes`/`confirmedChunks`/`resumeUpdatedAt` 持久化和从首个未确认分片续传、过期 `resumeUpdatedAt` 忽略陈旧 confirmed 进度并从 chunk 0 完整回放、重复 confirmedChunks 去重后按最早缺口续传、confirmedChunks 覆盖全部分片时不再重发并清理队列、在线文件分片元数据持久化、非法 ACK 进度触发 chunk 0 重发和重启后 KDF/login session 边界。默认 CTest 只验证 smoke 计划、脚本输出、Markdown 脱敏和覆盖声明，不连接真实 PostgreSQL，也不会读取本机密码。
+`start-local-postgres.ps1` 可在 `build-qt6-mingw\pg-real-data` 初始化并启动一个临时 PostgreSQL 实例，创建 `qtnetworkchat` 数据库，JSON 只写 `<redacted>` 密码；若本机服务已在 5432 监听，它会复用现有服务。`run-pgsql-protocol-smoke.ps1 -EnsureDatabase` 会先复用该 bootstrap 边界确认服务和数据库存在，并把脱敏结果写入 `-BootstrapJsonPath`；未显式传入 `-EnsureDatabase` 时不会创建或启动数据库，只直接连接指定目标运行真实 smoke。随后脚本会临时设置 `PATH`、`QT_PLUGIN_PATH`、`QTNETWORKCHAT_DB_DRIVER=QPSQL` 和脱敏 PostgreSQL 环境，启动真实 Server/Client 完成注册、私聊入库、好友搜索/申请/同意、好友边界事件、公共群公告与审计、公共群成员管理员升降级与审计、群成员移出/重新加入/移出历史 marker、文件分片元数据、在线文件首个分片非法 ACK 后重试、离线私聊与离线附件回放、缺失/大小/hash/chunk 元数据异常离线附件清理、离线附件 partial ACK 后续传、过期离线附件续传进度回退完整回放、confirmedChunks 非连续缺口续传/重复去重/全确认清理、服务端重启后重登和 KDF hash 查询；公共群 smoke 会先捕获真实 `public` 群 owner/公告，fresh database 缺表时视为无旧状态，再临时授予本轮 smoke 账号权限，结束时恢复原状态并清理本轮生成的账号、消息、会话和队列。传入 `-JsonPath`/`-MarkdownPath` 时会生成脱敏 evidence，除 `coverageSurfaces` 外还列出 `boundaryScenarios`、bootstrap 是否启用、bootstrap exit code 和 bootstrap JSON 路径，覆盖离线消息队列回放、离线附件 payload 中的 `chunkSize`/`chunkCount`/hash 元数据、回放后队列清理、离线附件缺失文件/大小异常/hash 校验失败/chunk 元数据异常提示与坏队列清理、partial ACK 后 `confirmedBytes`/`confirmedChunks`/`resumeUpdatedAt` 持久化和从首个未确认分片续传、过期 `resumeUpdatedAt` 忽略陈旧 confirmed 进度并从 chunk 0 完整回放、重复 confirmedChunks 去重后按最早缺口续传、confirmedChunks 覆盖全部分片时不再重发并清理队列、在线文件分片元数据持久化、非法 ACK 进度触发 chunk 0 重发和重启后 KDF/login session 边界。默认 CTest 只验证 smoke 计划、脚本输出、Markdown 脱敏和覆盖声明，不连接真实 PostgreSQL，也不会读取本机密码。
 
 已有 SQLite 账号库迁移到 PostgreSQL 时，先跑 plan 模式生成脱敏迁移计划：
 
