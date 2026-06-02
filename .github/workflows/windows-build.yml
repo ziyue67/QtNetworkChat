@@ -32,10 +32,39 @@ jobs:
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DQt6_DIR="${{ env.Qt6_DIR }}"
 
       - name: Build
-        run: cmake --build build --config Release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
+          $log = "build/ci-logs/build-release.log"
+          $process = Start-Process -FilePath cmake -ArgumentList @("--build", "build", "--config", "Release") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError "build/ci-logs/build-release.err.log" -PassThru
+          if (-not $process.WaitForExit(600000)) {
+            Stop-Process -Id $process.Id -Force
+            throw "cmake build timed out after 600 seconds"
+          }
+          Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
+          Get-Content -LiteralPath "build/ci-logs/build-release.err.log" -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) {
+            throw "cmake build failed with exit code $($process.ExitCode)"
+          }
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path build/ci-logs | Out-Null
+          $log = "build/ci-logs/ctest-release.log"
+          $err = "build/ci-logs/ctest-release.err.log"
+          $process = Start-Process -FilePath ctest -ArgumentList @("--test-dir", "build", "-C", "Release", "--output-on-failure") -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
+          if (-not $process.WaitForExit(900000)) {
+            Stop-Process -Id $process.Id -Force
+            throw "ctest timed out after 900 seconds"
+          }
+          Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
+          Get-Content -LiteralPath $err -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) {
+            throw "ctest failed with exit code $($process.ExitCode)"
+          }
 
       - name: Package
         if: github.event_name == 'workflow_dispatch'
@@ -49,3 +78,34 @@ jobs:
           name: QtNetworkChat-win-x64
           path: dist/QtNetworkChat-win-x64.zip
           if-no-files-found: error
+
+      - name: Upload CI diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-diagnostics
+          path: |
+            build/ci-logs/
+            build/Testing/
+            build/CMakeFiles/CMakeOutput.log
+            build/CMakeFiles/CMakeError.log
+          if-no-files-found: ignore
+
+      - name: Write workflow summary
+        if: always()
+        shell: pwsh
+        run: |
+          $summary = @()
+          $summary += "## QtNetworkChat Windows Build"
+          $summary += ""
+          $summary += "| Field | Value |"
+          $summary += "|---|---|"
+          $summary += "| Commit | `${{ github.sha }}` |"
+          $summary += "| Event | `${{ github.event_name }}` |"
+          $summary += "| Ref | `${{ github.ref }}` |"
+          $summary += "| Qt | `6.8.3 MSVC 2022 x64` |"
+          $summary += "| Build timeout | `600s` |"
+          $summary += "| CTest timeout | `900s` |"
+          $summary += ""
+          $summary += "Diagnostics are uploaded as `windows-build-diagnostics` when the job fails or is cancelled."
+          $summary -join "`n" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY

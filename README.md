@@ -222,7 +222,7 @@ export QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS=30000
 
 ### GitHub Actions
 
-仓库包含 `.github/workflows/windows-build.yml`。推送到 `main` 或提交 PR 时会自动安装 Qt、构建项目并运行 CTest。手动触发该工作流时，还会运行 Windows 打包脚本并上传 `QtNetworkChat-win-x64.zip`。
+仓库包含 `.github/workflows/windows-build.yml`。推送到 `main` 或提交 PR 时会自动安装 Qt 6.8.3 MSVC 2022 x64、构建项目并运行 CTest；CI 构建步骤超时为 600 秒，CTest 超时为 900 秒，避免挂起的构建或测试长期占用 runner。失败或取消时会上传 `windows-build-diagnostics` artifact，包含 `build/ci-logs/`、CTest `Testing/` 目录和 CMake 输出日志；每次运行还会写入 GitHub Step Summary，记录提交、事件、Qt 配置和超时策略。手动触发该工作流时，还会运行 Windows 打包脚本并上传 `QtNetworkChat-win-x64.zip`。本地自动化仍以 Qt MinGW `build-qt6-mingw` 和 PowerShell timeout wrapper 作为提交前验证，CI 的 MSVC job 用于补充 Windows 编译器覆盖。
 
 ## 运行方式
 

@@ -209,7 +209,7 @@ Invalid values (empty, non-numeric, out-of-range) silently fall back to defaults
 - `GovernanceSamplePipeline` — full governance sample pipeline integration test.
 - `NotifyGovernanceUnhealthy` — unhealthy notification script validation.
 
-GitHub Actions (`.github/workflows/windows-build.yml`) builds on `main` pushes and PRs using Qt 6.8.3 / MSVC 2022, then runs CTest. Manual workflow dispatch also runs the Windows package script and uploads the zip artifact.
+GitHub Actions (`.github/workflows/windows-build.yml`) builds on `main` pushes and PRs using Qt 6.8.3 / MSVC 2022, then runs CTest. CI wraps the Release build in a 600-second timeout and CTest in a 900-second timeout, uploads `windows-build-diagnostics` with `build/ci-logs/`, CTest `Testing/`, and CMake logs when the job fails or is cancelled, and writes a short GitHub Step Summary for each run. Manual workflow dispatch also runs the Windows package script and uploads the zip artifact. Local automation still uses the MinGW `build-qt6-mingw` tree plus the PowerShell timeout wrappers before committing.
 
 ## Helper scripts
 
