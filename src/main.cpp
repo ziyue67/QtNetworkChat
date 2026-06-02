@@ -32,12 +32,19 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
+QString appDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
+
 void maybeWriteDatabaseHealthSnapshot(const Server* server) {
     if (!server || !envEnabled("QTNETWORKCHAT_DB_HEALTH_EXPORT")) return;
 
     const QString configuredPath = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_DB_HEALTH_JSON")).trimmed();
-    const QString defaultPath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
-        .filePath("database-health.json");
+    const QString defaultPath = QDir(appDataDir()).filePath("database-health.json");
     const QString outputPath = configuredPath.isEmpty() ? defaultPath : configuredPath;
     if (outputPath.trimmed().isEmpty()) return;
 

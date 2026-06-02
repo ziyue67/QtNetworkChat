@@ -38,6 +38,12 @@ bool hasReasonBucket(const QJsonArray& buckets, const QString& reason) {
     }
     return false;
 }
+
+QString appDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) return QDir::cleanPath(overrideDir);
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
 }
 
 int main(int argc, char** argv) {
@@ -51,7 +57,7 @@ int main(int argc, char** argv) {
     qunsetenv("QTNETWORKCHAT_DB_POOL_MAX");
     qunsetenv("QTNETWORKCHAT_DB_POOL_IDLE_MS");
     qunsetenv("QTNETWORKCHAT_DB_SLOW_QUERY_MS");
-    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString appDataDir = ::appDataDir();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
         QDir().mkpath(appDataDir);

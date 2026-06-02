@@ -83,6 +83,8 @@ int main(int argc, char** argv) {
 
     LoginCredentialStore store;
     bool ok = true;
+    ok = expect(QDir::cleanPath(store.databasePath()).startsWith(QDir::cleanPath(dir)),
+                "login credential database should use isolated app data override") && ok;
 
     ok = expect(store.save("910100", "SafeUser", true), "saving remembered login should succeed") && ok;
     SavedLoginCredential saved;

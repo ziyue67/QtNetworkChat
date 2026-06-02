@@ -10,10 +10,18 @@ namespace {
 QString connectionName(const char* purpose, const void* owner) {
     return QString::fromLatin1(purpose) + "_" + QString::number(reinterpret_cast<quintptr>(owner));
 }
+
+QString appDataDir() {
+    const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
+    if (!overrideDir.isEmpty()) {
+        return QDir::cleanPath(overrideDir);
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
 }
 
 QString LoginCredentialStore::databasePath() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString dir = appDataDir();
     if (dir.isEmpty()) dir = ".";
     QDir().mkpath(dir);
     return dir + "/login_accounts.sqlite3";
