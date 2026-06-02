@@ -8,6 +8,7 @@ set(DB_STATUS_PATH "${TEMP_DIR}/database-health-status.json")
 set(DB_LAST_RUN_PATH "${TEMP_DIR}/database-health-last-run.log")
 set(GOV_STATUS_PATH "${TEMP_DIR}/large-file-governance-status.json")
 set(GOV_LAST_RUN_PATH "${TEMP_DIR}/large-file-governance-last-run.log")
+set(TASK_HISTORY_PATH "${TEMP_DIR}/automation-task-history.json")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY "${TEMP_DIR}")
 
@@ -34,6 +35,15 @@ file(WRITE "${GOV_STATUS_PATH}"
 }
 ")
 file(WRITE "${GOV_LAST_RUN_PATH}" "2026-06-03T02:03:04.0000000Z exitCode=2\n")
+file(WRITE "${TASK_HISTORY_PATH}"
+"{
+  \"format\":\"qtnetworkchat-automation-task-history-v1\",
+  \"runCount\":3,
+  \"failedRunCount\":1,
+  \"latestRun\":{\"timestamp\":\"2026-06-03T03:02:03.0000000Z\",\"exitCode\":0},
+  \"acknowledged\":true
+}
+")
 
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
@@ -50,6 +60,7 @@ execute_process(
         -DatabaseHealthLastRunPath "${DB_LAST_RUN_PATH}"
         -LargeFileGovernanceStatusPath "${GOV_STATUS_PATH}"
         -LargeFileGovernanceLastRunPath "${GOV_LAST_RUN_PATH}"
+        -AutomationTaskHistoryPath "${TASK_HISTORY_PATH}"
         -ProtectedUntracked ".polaris/,AGENTS.md"
         -FailOnSensitive
     RESULT_VARIABLE result
@@ -85,6 +96,7 @@ foreach(expected_text
         "Database health last run: at=`2026-06-03T01:02:03.0000000Z`, exitCode=`0`"
         "Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`"
         "Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`"
+        "Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`"
         "Priority Backlog"
         "QTNETWORKCHAT_PGPASSWORD"
         "generated evidence must remain redacted")
@@ -119,6 +131,7 @@ execute_process(
         -DatabaseHealthLastRunPath "${TEMP_DIR}/missing-database-health-last-run.log"
         -LargeFileGovernanceStatusPath "${TEMP_DIR}/missing-large-file-governance-status.json"
         -LargeFileGovernanceLastRunPath "${TEMP_DIR}/missing-large-file-governance-last-run.log"
+        -AutomationTaskHistoryPath "${TEMP_DIR}/missing-automation-task-history.json"
         -FailOnSensitive
     RESULT_VARIABLE plan_result
     OUTPUT_VARIABLE plan_output

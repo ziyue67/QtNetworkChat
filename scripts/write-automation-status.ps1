@@ -12,6 +12,7 @@ param(
     [string]$DatabaseHealthLastRunPath,
     [string]$LargeFileGovernanceStatusPath,
     [string]$LargeFileGovernanceLastRunPath,
+    [string]$AutomationTaskHistoryPath,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
     [switch]$PlanOnly,
     [switch]$FailOnSensitive
@@ -162,6 +163,7 @@ $databaseHealthStatus = Read-JsonSummary $DatabaseHealthStatusPath
 $databaseHealthLastRun = Read-LastRunSummary $DatabaseHealthLastRunPath
 $largeFileGovernanceStatus = Read-JsonSummary $LargeFileGovernanceStatusPath
 $largeFileGovernanceLastRun = Read-LastRunSummary $LargeFileGovernanceLastRunPath
+$automationTaskHistory = Read-JsonSummary $AutomationTaskHistoryPath
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add("# QtNetworkChat Automation Status")
@@ -227,11 +229,20 @@ if ($null -ne $largeFileGovernanceLastRun) {
             (Format-StatusValue $largeFileGovernanceLastRun.timestamp),
             (Format-StatusValue $largeFileGovernanceLastRun.exitCode)))
 }
+if ($null -ne $automationTaskHistory) {
+    $historyLatestRun = Get-JsonValue $automationTaskHistory "latestRun" $null
+    $lines.Add(('- Task history: runs=`{0}`, failed=`{1}`, latestAt=`{2}`, latestExitCode=`{3}`, acknowledged=`{4}`' -f
+            (Format-StatusValue (Get-JsonValue $automationTaskHistory "runCount" "unknown")),
+            (Format-StatusValue (Get-JsonValue $automationTaskHistory "failedRunCount" "unknown")),
+            (Format-StatusValue (Get-JsonValue $historyLatestRun "timestamp" "unknown")),
+            (Format-StatusValue (Get-JsonValue $historyLatestRun "exitCode" "unknown")),
+            (Format-StatusValue (Get-JsonValue $automationTaskHistory "acknowledged" $null))))
+}
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")
 $lines.Add("1. Split heavy README sections into focused docs for testing coverage, PostgreSQL operations, large-file governance, and E2E hardening status.")
-$lines.Add("2. Extend scheduled-task status readback with persisted task history and operator acknowledgement state.")
+$lines.Add("2. Extend scheduled-task status readback with automatic history retention and acknowledgement expiry policy.")
 $lines.Add("3. Continue real PostgreSQL/QPSQL boundary coverage for file chunk recovery, rollback audit, slow-query/error metrics, and connection-pool threading policy.")
 $lines.Add("4. Productize E2E encryption with authenticated key agreement, real rotation, default policy, history migration, and file/chunk encryption.")
 $lines.Add("5. Extend release automation with MinGW CI or release artifact path/version governance.")
