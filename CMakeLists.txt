@@ -638,6 +638,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_automation_task_history.cmake
     )
     add_test(
+        NAME AutomationTaskAck
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-automation-task-ack.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_automation_task_ack.cmake
+    )
+    add_test(
         NAME DatabaseHealthCheckPlan
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-database-health.ps1

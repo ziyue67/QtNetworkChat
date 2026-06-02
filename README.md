@@ -224,7 +224,7 @@ export QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS=30000
 
 仓库包含 `.github/workflows/windows-build.yml`。推送到 `main` 或提交 PR 时会自动安装 Qt 6.8.3 MSVC 2022 x64、构建项目并运行 CTest；CI 构建步骤使用 GitHub step timeout 30 分钟，CTest step timeout 20 分钟，避免挂起的构建或测试长期占用 runner，同时给干净 MSVC Release 构建留足时间。失败或取消时会上传 `windows-build-diagnostics` artifact，包含 `build/ci-logs/`、CTest `Testing/` 目录和 CMake 输出日志；每次运行还会写入 GitHub Step Summary，记录提交、事件、Qt 配置和超时策略。手动触发该工作流时，还会运行 Windows 打包脚本并上传 `QtNetworkChat-win-x64.zip`。本地自动化仍以 Qt MinGW `build-qt6-mingw` 和 PowerShell timeout wrapper 作为提交前验证，CI 的 MSVC job 用于补充 Windows 编译器覆盖。
 
-自动化闭环状态可用 `scripts/write-automation-status.ps1` 生成或更新 `docs/automation-status.md`。该状态板只记录 HEAD、远端哈希、CI/本地验证摘要、受保护未跟踪项和优先待办；脚本会拒绝未脱敏密码、GPG 口令、GitHub token、S3 凭据和签名字段，便于对话 heartbeat 或人工值班先读状态再选择下一块工作。若计划任务 preview 已提供 `statusPath`、`logPath`、`historyPath` 或 `ackPath`，状态板会自动发现这些产物，并在 Markdown 中区分 `not configured`、`configured but status artifact missing`、`configured but history artifact missing`、`configured but ack artifact missing`，减少值班时对“任务没接上”与“任务接上但没产物”的误判。
+自动化闭环状态可用 `scripts/write-automation-status.ps1` 生成或更新 `docs/automation-status.md`。该状态板只记录 HEAD、远端哈希、CI/本地验证摘要、受保护未跟踪项和优先待办；脚本会拒绝未脱敏密码、GPG 口令、GitHub token、S3 凭据和签名字段，便于对话 heartbeat 或人工值班先读状态再选择下一块工作。若计划任务 preview 已提供 `statusPath`、`logPath`、`historyPath` 或 `ackPath`，状态板会自动发现这些产物，并在 Markdown 中区分 `not configured`、`configured but status artifact missing`、`configured but history artifact missing`、`configured but ack artifact missing`，减少值班时对“任务没接上”与“任务接上但没产物”的误判。需要人工确认或清除已处理状态时，可用 `scripts/write-automation-task-ack.ps1 -AckPath <path> -AcknowledgedBy <operator> -Reason <note>` 写入标准化 ack JSON，或用 `-Clear` 生成已清除状态，供 `write-automation-task-history.ps1` 和状态板统一读取。
 
 ## 运行方式
 
