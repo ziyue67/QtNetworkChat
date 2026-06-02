@@ -72,6 +72,8 @@ $coverageSurfaces = @(
     "offline-attachment-queue-replay",
     "offline-attachment-partial-ack-resume",
     "offline-attachment-expired-resume-fallback",
+    "offline-attachment-confirmed-chunks-gap-resume",
+    "offline-attachment-all-confirmed-cleanup",
     "restart-login-kdf-session"
 )
 
@@ -117,6 +119,18 @@ $boundaryScenarios = @(
         category = "offline-attachment-resume"
         persistence = "offline_messages.payload"
         expectedEvidence = "expired resumeUpdatedAt makes PostgreSQL ignore stale confirmedBytes/confirmedChunks, replay from chunk 0, and clear the queue after delivery"
+    },
+    [pscustomobject]@{
+        name = "offline-attachment-confirmed-chunks-gap-resume"
+        category = "offline-attachment-resume"
+        persistence = "offline_messages.payload"
+        expectedEvidence = "duplicate confirmedChunks are deduplicated, non-contiguous gaps resume from the first missing chunk, and the PostgreSQL queue is cleared after delivery"
+    },
+    [pscustomobject]@{
+        name = "offline-attachment-all-confirmed-cleanup"
+        category = "offline-attachment-resume"
+        persistence = "offline_messages.payload"
+        expectedEvidence = "confirmedChunks covering every chunk skip replay and clear the PostgreSQL queue without resending the attachment"
     },
     [pscustomobject]@{
         name = "file-chunk-metadata-persistence"

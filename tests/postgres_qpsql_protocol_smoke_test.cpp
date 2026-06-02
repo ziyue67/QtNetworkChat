@@ -1210,6 +1210,122 @@ int main(int argc, char** argv) {
                 && offlineRows == 0;
         }), "expired-resume offline attachment replay should clear the PostgreSQL queue row") && ok;
 
+        setSmokeStep(QStringLiteral("offline attachment confirmed chunks gap resume"));
+        const QString gapResumeFileName = "pgsql-smoke-gap-resume-offline-file.bin";
+        const QString gapResumeFilePath = QDir(appDataDir).filePath(gapResumeFileName);
+        QByteArray gapResumePayload(700 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < gapResumePayload.size(); ++i) {
+            gapResumePayload[i] = static_cast<char>('g' + (i % 13));
+        }
+        QFile gapResumeFile(gapResumeFilePath);
+        ok = expect(gapResumeFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL gap-resume offline attachment smoke file should be writable") && ok;
+        if (gapResumeFile.isOpen()) {
+            ok = expect(gapResumeFile.write(gapResumePayload) == gapResumePayload.size(),
+                        "PostgreSQL gap-resume offline attachment smoke file should contain the test payload") && ok;
+            gapResumeFile.close();
+        }
+        ok = expect(owner.sendFile(gapResumeFilePath, peerId),
+                    "owner should queue an offline attachment for confirmedChunks gap resume") && ok;
+        QString gapResumePayloadJson;
+        ok = expect(loadOfflineAttachmentPayload(gapResumeFileName, &gapResumePayloadJson, nullptr),
+                    "gap-resume offline attachment payload should be persisted in PostgreSQL") && ok;
+        QJsonObject gapResumePayloadObject = QJsonDocument::fromJson(gapResumePayloadJson.toUtf8()).object();
+        QJsonArray gapConfirmedChunks;
+        gapConfirmedChunks.append(QString::number(0));
+        gapConfirmedChunks.append(QString::number(0));
+        gapConfirmedChunks.append(QString::number(2));
+        gapResumePayloadObject["confirmedBytes"] = QString::number(256 * 1024);
+        gapResumePayloadObject["confirmedChunks"] = gapConfirmedChunks;
+        gapResumePayloadObject["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        const QString mutatedGapResumePayload = QString::fromUtf8(QJsonDocument(gapResumePayloadObject).toJson(QJsonDocument::Compact));
+        const QString mutateGapResumeConnectionName = "postgres_qpsql_mutate_gap_resume_payload";
+        bool mutatedGapResumePayloadOk = false;
+        {
+            QSqlDatabase db = openPostgres(mutateGapResumeConnectionName);
+            if (db.open()) {
+                mutatedGapResumePayloadOk = execSql(db,
+                                                    "UPDATE offline_messages SET payload = ? WHERE receiver_id = ? AND payload LIKE ?",
+                                                    {mutatedGapResumePayload, peerId, "%" + gapResumeFileName + "%"});
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(mutateGapResumeConnectionName);
+        ok = expect(mutatedGapResumePayloadOk,
+                    "smoke should mutate queued offline attachment confirmedChunks to a duplicate gap") && ok;
+
+        QVector<qint64> gapResumeReplayChunks;
+        qint64 gapResumeReplayReceivedBytes = 0;
+        ok = expect(loginRawAckChunksThenDisconnect(peerId,
+                                                    "PgPeer",
+                                                    port,
+                                                    1,
+                                                    &gapResumeReplayReceivedBytes,
+                                                    &gapResumeReplayChunks),
+                    "raw peer should ack the first missing PostgreSQL offline attachment chunk") && ok;
+        ok = expect(gapResumeReplayChunks.size() == 1 && gapResumeReplayChunks.first() == 1,
+                    "duplicate confirmedChunks with a gap should resume from chunk 1 only") && ok;
+        ok = expect(gapResumeReplayReceivedBytes == 512 * 1024,
+                    "gap-resume replay should report progress through the first missing chunk") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + gapResumeFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 0;
+        }), "gap-resume offline attachment replay should clear the PostgreSQL queue row") && ok;
+
+        setSmokeStep(QStringLiteral("offline attachment all chunks already confirmed cleanup"));
+        const QString allConfirmedFileName = "pgsql-smoke-all-confirmed-offline-file.bin";
+        const QString allConfirmedFilePath = QDir(appDataDir).filePath(allConfirmedFileName);
+        QByteArray allConfirmedPayload(300 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < allConfirmedPayload.size(); ++i) {
+            allConfirmedPayload[i] = static_cast<char>('C' + (i % 17));
+        }
+        QFile allConfirmedFile(allConfirmedFilePath);
+        ok = expect(allConfirmedFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL all-confirmed offline attachment smoke file should be writable") && ok;
+        if (allConfirmedFile.isOpen()) {
+            ok = expect(allConfirmedFile.write(allConfirmedPayload) == allConfirmedPayload.size(),
+                        "PostgreSQL all-confirmed offline attachment smoke file should contain the test payload") && ok;
+            allConfirmedFile.close();
+        }
+        ok = expect(owner.sendFile(allConfirmedFilePath, peerId),
+                    "owner should queue an offline attachment for all-confirmed cleanup") && ok;
+        QString allConfirmedPayloadJson;
+        ok = expect(loadOfflineAttachmentPayload(allConfirmedFileName, &allConfirmedPayloadJson, nullptr),
+                    "all-confirmed offline attachment payload should be persisted in PostgreSQL") && ok;
+        QJsonObject allConfirmedPayloadObject = QJsonDocument::fromJson(allConfirmedPayloadJson.toUtf8()).object();
+        QJsonArray allConfirmedChunks;
+        allConfirmedChunks.append(QString::number(0));
+        allConfirmedChunks.append(QString::number(1));
+        allConfirmedPayloadObject["confirmedBytes"] = QString::number(allConfirmedPayload.size());
+        allConfirmedPayloadObject["confirmedChunks"] = allConfirmedChunks;
+        allConfirmedPayloadObject["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        const QString mutatedAllConfirmedPayload = QString::fromUtf8(QJsonDocument(allConfirmedPayloadObject).toJson(QJsonDocument::Compact));
+        const QString mutateAllConfirmedConnectionName = "postgres_qpsql_mutate_all_confirmed_payload";
+        bool mutatedAllConfirmedPayloadOk = false;
+        {
+            QSqlDatabase db = openPostgres(mutateAllConfirmedConnectionName);
+            if (db.open()) {
+                mutatedAllConfirmedPayloadOk = execSql(db,
+                                                       "UPDATE offline_messages SET payload = ? WHERE receiver_id = ? AND payload LIKE ?",
+                                                       {mutatedAllConfirmedPayload, peerId, "%" + allConfirmedFileName + "%"});
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(mutateAllConfirmedConnectionName);
+        ok = expect(mutatedAllConfirmedPayloadOk,
+                    "smoke should mutate queued offline attachment to all confirmed chunks") && ok;
+        ok = expect(loginClient(peer, peerId, "PgPeer", port, false),
+                    "peer should log in to trigger all-confirmed PostgreSQL offline cleanup") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + allConfirmedFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 0;
+        }), "all-confirmed offline attachment replay should clear the PostgreSQL queue row without resending chunks") && ok;
+        disconnectClient(peer);
+
         disconnectClient(owner);
         disconnectClient(peer);
         server.stop();
