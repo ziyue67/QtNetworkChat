@@ -1147,6 +1147,69 @@ int main(int argc, char** argv) {
                 && offlineRows == 0;
         }), "partial-ack offline attachment retry should clear the PostgreSQL queue row") && ok;
 
+        setSmokeStep(QStringLiteral("offline attachment expired resume fallback"));
+        const QString expiredResumeFileName = "pgsql-smoke-expired-resume-offline-file.bin";
+        const QString expiredResumeFilePath = QDir(appDataDir).filePath(expiredResumeFileName);
+        QByteArray expiredResumePayload(300 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < expiredResumePayload.size(); ++i) {
+            expiredResumePayload[i] = static_cast<char>('0' + (i % 10));
+        }
+        QFile expiredResumeFile(expiredResumeFilePath);
+        ok = expect(expiredResumeFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL expired-resume offline attachment smoke file should be writable") && ok;
+        if (expiredResumeFile.isOpen()) {
+            ok = expect(expiredResumeFile.write(expiredResumePayload) == expiredResumePayload.size(),
+                        "PostgreSQL expired-resume offline attachment smoke file should contain the test payload") && ok;
+            expiredResumeFile.close();
+        }
+        ok = expect(owner.sendFile(expiredResumeFilePath, peerId),
+                    "owner should queue an offline attachment for expired resume fallback") && ok;
+        QString expiredResumePayloadJson;
+        ok = expect(loadOfflineAttachmentPayload(expiredResumeFileName, &expiredResumePayloadJson, nullptr),
+                    "expired-resume offline attachment payload should be persisted in PostgreSQL") && ok;
+        QJsonObject expiredResumePayloadObject = QJsonDocument::fromJson(expiredResumePayloadJson.toUtf8()).object();
+        QJsonArray expiredConfirmedChunks;
+        expiredConfirmedChunks.append(QString::number(0));
+        expiredResumePayloadObject["confirmedBytes"] = QString::number(256 * 1024);
+        expiredResumePayloadObject["confirmedChunks"] = expiredConfirmedChunks;
+        expiredResumePayloadObject["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().addDays(-2).toString(Qt::ISODate);
+        const QString mutatedExpiredResumePayload = QString::fromUtf8(QJsonDocument(expiredResumePayloadObject).toJson(QJsonDocument::Compact));
+        const QString mutateExpiredResumeConnectionName = "postgres_qpsql_mutate_expired_resume_payload";
+        bool mutatedExpiredResumePayloadOk = false;
+        {
+            QSqlDatabase db = openPostgres(mutateExpiredResumeConnectionName);
+            if (db.open()) {
+                mutatedExpiredResumePayloadOk = execSql(db,
+                                                        "UPDATE offline_messages SET payload = ? WHERE receiver_id = ? AND payload LIKE ?",
+                                                        {mutatedExpiredResumePayload, peerId, "%" + expiredResumeFileName + "%"});
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(mutateExpiredResumeConnectionName);
+        ok = expect(mutatedExpiredResumePayloadOk,
+                    "smoke should mutate queued offline attachment resume progress to an expired timestamp") && ok;
+
+        QVector<qint64> expiredResumeReplayChunks;
+        qint64 expiredResumeReplayReceivedBytes = 0;
+        ok = expect(loginRawAckFileReplay(peerId,
+                                          "PgPeer",
+                                          port,
+                                          &expiredResumeReplayChunks,
+                                          &expiredResumeReplayReceivedBytes),
+                    "raw peer should finish expired-resume PostgreSQL offline attachment replay") && ok;
+        ok = expect(expiredResumeReplayChunks.size() == 2
+                        && expiredResumeReplayChunks[0] == 0
+                        && expiredResumeReplayChunks[1] == 1,
+                    "expired PostgreSQL offline attachment resume progress should fall back to a full replay") && ok;
+        ok = expect(expiredResumeReplayReceivedBytes == expiredResumePayload.size(),
+                    "expired-resume replay should confirm the full attachment size") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + expiredResumeFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 0;
+        }), "expired-resume offline attachment replay should clear the PostgreSQL queue row") && ok;
+
         disconnectClient(owner);
         disconnectClient(peer);
         server.stop();
