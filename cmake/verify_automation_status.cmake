@@ -29,7 +29,8 @@ file(WRITE "${DB_LAST_RUN_PATH}" "2026-06-03T01:02:03.0000000Z healthExitCode=0 
 file(WRITE "${DB_PREVIEW_PATH}"
 "{
   \"statusPath\":\"${DB_STATUS_PATH}\",
-  \"logPath\":\"${DB_LAST_RUN_PATH}\"
+  \"logPath\":\"${DB_LAST_RUN_PATH}\",
+  \"historyPath\":\"${TASK_HISTORY_PATH}\"
 }
 ")
 file(WRITE "${GOV_STATUS_PATH}"
@@ -47,6 +48,7 @@ file(WRITE "${GOV_PREVIEW_PATH}"
 "{
   \"dashboardPath\":\"${GOV_STATUS_PATH}\",
   \"logPath\":\"${GOV_LAST_RUN_PATH}\",
+  \"historyPath\":\"${TASK_HISTORY_PATH}\",
   \"launcherPath\":\"${TEMP_DIR}/task/run-large-file-governance-task.ps1\"
 }
 ")
@@ -74,7 +76,6 @@ execute_process(
         -CTestCount 51
         -DatabaseHealthTaskPreviewPath "${DB_PREVIEW_PATH}"
         -LargeFileGovernanceTaskPreviewPath "${GOV_PREVIEW_PATH}"
-        -AutomationTaskHistoryPath "${TASK_HISTORY_PATH}"
         -ProtectedUntracked ".polaris/,AGENTS.md"
         -FailOnSensitive
     RESULT_VARIABLE result

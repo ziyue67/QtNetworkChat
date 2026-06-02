@@ -203,6 +203,8 @@ if (-not (Test-Path -LiteralPath $governanceScript -PathType Leaf)) {
 $launcherPath = Join-Path $resolvedTaskDir "run-large-file-governance-task.ps1"
 $previewPath = Join-Path $resolvedTaskDir "scheduled-task-preview.json"
 $logPath = Join-Path $resolvedTaskDir "last-run.log"
+$historyPath = Join-Path $resolvedTaskDir "automation-task-history.json"
+$ackPath = Join-Path $resolvedTaskDir "automation-task-ack.json"
 
 $lines = New-Object System.Collections.ArrayList
 [void]$lines.Add('$ErrorActionPreference = "Stop"')
@@ -326,6 +328,8 @@ $preview = [pscustomobject]@{
     warnS3CoverageGaps = $WarnS3CoverageGaps.IsPresent
     s3FailureBatchSummaryPath = $s3FailureBatchPreviewPath
     s3FailureBatchCountPerReason = if ($RunS3FailureBatchSample) { $S3FailureBatchCountPerReason } else { $null }
+    historyPath = $historyPath
+    ackPath = $ackPath
     readOnly = $true
     notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, dashboardPath for machine-readable local status, reportPath for an operator-readable summary, and diagnosticsPackagePath for a sanitized zip."
 }

@@ -181,6 +181,12 @@ if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
         }
     }
 }
+if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
+    $AutomationTaskHistoryPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "historyPath"
+    if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
+        $AutomationTaskHistoryPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "historyPath"
+    }
+}
 
 $normalizedProtectedUntracked = @()
 foreach ($entry in $ProtectedUntracked) {

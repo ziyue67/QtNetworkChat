@@ -148,6 +148,8 @@ New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 $launcherPath = Join-Path $resolvedTaskDir "run-database-health-task.ps1"
 $previewPath = Join-Path $resolvedTaskDir "database-health-task-preview.json"
 $logPath = Join-Path $resolvedTaskDir "last-run.log"
+$historyPath = Join-Path $resolvedTaskDir "automation-task-history.json"
+$ackPath = Join-Path $resolvedTaskDir "automation-task-ack.json"
 $healthPath = Join-Path $resolvedOutputDir "database-health.json"
 $statusPath = Join-Path $resolvedOutputDir "database-health-status.json"
 $markdownPath = if ($WriteMarkdown) { Join-Path $resolvedOutputDir "database-health-status.md" } else { "" }
@@ -264,6 +266,8 @@ $preview = [pscustomobject]@{
     dashboardPath = $dashboardPath
     dashboardMarkdownPath = $dashboardMarkdownPath
     logPath = $logPath
+    historyPath = $historyPath
+    ackPath = $ackPath
     driver = $Driver
     planOnly = $PlanOnly.IsPresent
     failOnUnhealthy = $FailOnUnhealthy.IsPresent
