@@ -26,6 +26,7 @@ execute_process(
         -PlanOnly
         -FailOnUnhealthy
         -WriteMarkdown
+        -WriteDashboard
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error_output
@@ -58,13 +59,19 @@ file(READ "${LAUNCHER}" launcher_content)
 foreach(expected_text
         "check-database-health.ps1"
         "show-database-health-status.ps1"
+        "write-database-health-dashboard.ps1"
         "-Driver 'postgres'"
-        "-PostgresPassword '$env:QTNETWORKCHAT_PGPASSWORD'"
+        "-PostgresPassword $env:QTNETWORKCHAT_PGPASSWORD"
         "-PlanOnly"
         "-FailOnUnhealthy"
         "-MarkdownPath"
+        "dashboardExitCode"
+        "healthPath="
+        "dashboardPath="
         "database-health.json"
-        "database-health-status.json")
+        "database-health-status.json"
+        "database-health-dashboard.json"
+        "database-health-dashboard.md")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -93,6 +100,11 @@ string(JSON password_source GET "${preview_content}" "passwordSource")
 string(JSON health_path GET "${preview_content}" "healthPath")
 string(JSON status_path GET "${preview_content}" "statusPath")
 string(JSON markdown_path GET "${preview_content}" "markdownPath")
+string(JSON dashboard_script GET "${preview_content}" "dashboardScript")
+string(JSON write_dashboard GET "${preview_content}" "writeDashboard")
+string(JSON dashboard_path GET "${preview_content}" "dashboardPath")
+string(JSON dashboard_markdown_path GET "${preview_content}" "dashboardMarkdownPath")
+string(JSON log_path GET "${preview_content}" "logPath")
 string(JSON read_only GET "${preview_content}" "readOnly")
 
 if(NOT format STREQUAL "qtnetworkchat-database-health-task-preview-v1")
@@ -126,6 +138,22 @@ endif()
 if(NOT markdown_path MATCHES "database-health-status.md")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview markdown path missing expected name: ${markdown_path}")
+endif()
+if(NOT dashboard_script MATCHES "write-database-health-dashboard.ps1")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview dashboard script missing expected name: ${dashboard_script}")
+endif()
+if(NOT write_dashboard)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview should show dashboard generation enabled")
+endif()
+if(NOT dashboard_path MATCHES "database-health-dashboard.json" OR NOT dashboard_markdown_path MATCHES "database-health-dashboard.md")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview dashboard paths missing expected names: ${dashboard_path}/${dashboard_markdown_path}")
+endif()
+if(NOT log_path MATCHES "last-run.log")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview log path missing expected name: ${log_path}")
 endif()
 foreach(forbidden_text "forbidden-password-sample" "super-secret")
     string(FIND "${preview_content}" "${forbidden_text}" leaked_at)
