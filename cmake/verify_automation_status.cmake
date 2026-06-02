@@ -4,8 +4,32 @@ endif()
 
 set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/automation_status_sample")
 set(MARKDOWN_PATH "${TEMP_DIR}/automation-status.md")
+set(DB_STATUS_PATH "${TEMP_DIR}/database-health-status.json")
+set(GOV_STATUS_PATH "${TEMP_DIR}/large-file-governance-status.json")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY "${TEMP_DIR}")
+
+file(WRITE "${DB_STATUS_PATH}"
+"{
+  \"format\":\"qtnetworkchat-database-health-status-v1\",
+  \"status\":\"healthy\",
+  \"ok\":true,
+  \"driver\":\"QPSQL\",
+  \"checkCount\":4,
+  \"failedChecks\":[],
+  \"queryMetrics\":{\"slowQueryCount\":2,\"queryFailureCount\":1}
+}
+")
+file(WRITE "${GOV_STATUS_PATH}"
+"{
+  \"format\":\"qtnetworkchat-large-file-governance-status-v1\",
+  \"status\":\"unhealthy\",
+  \"ok\":false,
+  \"totalWarnings\":3,
+  \"alertCount\":2,
+  \"s3CoverageActionableGapAreas\":[\"remote-validation-fail-closed\"]
+}
+")
 
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
@@ -18,6 +42,8 @@ execute_process(
         -BuildStatus "passed"
         -CTestStatus "passed"
         -CTestCount 51
+        -DatabaseHealthStatusPath "${DB_STATUS_PATH}"
+        -LargeFileGovernanceStatusPath "${GOV_STATUS_PATH}"
         -ProtectedUntracked ".polaris/,AGENTS.md"
         -FailOnSensitive
     RESULT_VARIABLE result
@@ -48,6 +74,9 @@ foreach(expected_text
         "Local CTest count: `51`"
         "Protected untracked entries: `.polaris/, AGENTS.md`"
         "Automation Guardrails"
+        "Scheduled Task Readback"
+        "Database health: status=`healthy`, ok=`true`, driver=`QPSQL`, checks=`4`, failedChecks=`0`, slowQueries=`2`, queryFailures=`1`"
+        "Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`"
         "Priority Backlog"
         "QTNETWORKCHAT_PGPASSWORD"
         "generated evidence must remain redacted")
@@ -78,6 +107,8 @@ execute_process(
         -PlanOnly
         -Head "def5678"
         -CiStatus "success"
+        -DatabaseHealthStatusPath "${TEMP_DIR}/missing-database-health-status.json"
+        -LargeFileGovernanceStatusPath "${TEMP_DIR}/missing-large-file-governance-status.json"
         -FailOnSensitive
     RESULT_VARIABLE plan_result
     OUTPUT_VARIABLE plan_output
@@ -107,6 +138,16 @@ string(FIND "${plan_output}" "origin/codex/qt: `unknown`" plan_origin_codex_qt)
 if(plan_origin_codex_qt EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Automation status plan output missing origin/codex/qt fallback")
+endif()
+string(FIND "${plan_output}" "Database health: `not configured`" plan_db_missing)
+if(plan_db_missing EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Automation status plan output missing database health readback fallback")
+endif()
+string(FIND "${plan_output}" "Large-file governance: `not configured`" plan_governance_missing)
+if(plan_governance_missing EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Automation status plan output missing large-file governance readback fallback")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

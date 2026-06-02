@@ -8,6 +8,8 @@ param(
     [string]$BuildStatus = "unknown",
     [string]$CTestStatus = "unknown",
     [int]$CTestCount = 0,
+    [string]$DatabaseHealthStatusPath,
+    [string]$LargeFileGovernanceStatusPath,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
     [switch]$PlanOnly,
     [switch]$FailOnSensitive
@@ -68,6 +70,45 @@ function Find-SensitiveHits([string[]]$Lines) {
     $hits
 }
 
+function Read-JsonSummary([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $null
+    }
+    $resolvedPath = Resolve-RepoPath $PathValue
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+        return $null
+    }
+    $raw = Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $null
+    }
+    $raw | ConvertFrom-Json
+}
+
+function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
+    if ($null -eq $ObjectValue) {
+        return $DefaultValue
+    }
+    if ($ObjectValue.PSObject.Properties.Name -contains $Name) {
+        return $ObjectValue.$Name
+    }
+    $DefaultValue
+}
+
+function Format-StatusValue([object]$Value) {
+    if ($null -eq $Value) {
+        return "unknown"
+    }
+    if ($Value -is [bool]) {
+        return $Value.ToString().ToLowerInvariant()
+    }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return "unknown"
+    }
+    $text
+}
+
 if ([string]::IsNullOrWhiteSpace($Head)) {
     $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
 }
@@ -89,6 +130,8 @@ foreach ($entry in $ProtectedUntracked) {
 }
 $protectedText = if ($normalizedProtectedUntracked.Count -gt 0) { $normalizedProtectedUntracked -join ", " } else { "none" }
 $generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+$databaseHealthStatus = Read-JsonSummary $DatabaseHealthStatusPath
+$largeFileGovernanceStatus = Read-JsonSummary $LargeFileGovernanceStatusPath
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add("# QtNetworkChat Automation Status")
@@ -117,10 +160,38 @@ $lines.Add("- Keep PostgreSQL passwords, GPG passphrases, GitHub tokens, S3 cred
 $lines.Add("- Verify with the PowerShell timeout wrappers: build 600 seconds, CTest 900 seconds.")
 $lines.Add('- Use signed Conventional Commits and push `main`, then fast-forward `codex/qt`.')
 $lines.Add("")
+$lines.Add("## Scheduled Task Readback")
+$lines.Add("")
+if ($null -eq $databaseHealthStatus) {
+    $lines.Add('- Database health: `not configured`')
+} else {
+    $dbQueryMetrics = Get-JsonValue $databaseHealthStatus "queryMetrics" $null
+    $dbFailedChecks = @((Get-JsonValue $databaseHealthStatus "failedChecks" @()))
+    $lines.Add(('- Database health: status=`{0}`, ok=`{1}`, driver=`{2}`, checks=`{3}`, failedChecks=`{4}`, slowQueries=`{5}`, queryFailures=`{6}`' -f
+            (Format-StatusValue (Get-JsonValue $databaseHealthStatus "status" "unknown")),
+            (Format-StatusValue (Get-JsonValue $databaseHealthStatus "ok" $null)),
+            (Format-StatusValue (Get-JsonValue $databaseHealthStatus "driver" "unknown")),
+            (Format-StatusValue (Get-JsonValue $databaseHealthStatus "checkCount" "unknown")),
+            $dbFailedChecks.Count,
+            (Format-StatusValue (Get-JsonValue $dbQueryMetrics "slowQueryCount" "unknown")),
+            (Format-StatusValue (Get-JsonValue $dbQueryMetrics "queryFailureCount" "unknown"))))
+}
+if ($null -eq $largeFileGovernanceStatus) {
+    $lines.Add('- Large-file governance: `not configured`')
+} else {
+    $governanceGapAreas = @((Get-JsonValue $largeFileGovernanceStatus "s3CoverageActionableGapAreas" @()))
+    $lines.Add(('- Large-file governance: status=`{0}`, ok=`{1}`, warnings=`{2}`, alerts=`{3}`, actionableS3Gaps=`{4}`' -f
+            (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "status" "unknown")),
+            (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "ok" $null)),
+            (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "totalWarnings" "unknown")),
+            (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "alertCount" "unknown")),
+            $governanceGapAreas.Count))
+}
+$lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")
 $lines.Add("1. Split heavy README sections into focused docs for testing coverage, PostgreSQL operations, large-file governance, and E2E hardening status.")
-$lines.Add("2. Add scheduled-task status readback for database health and large-file governance tasks.")
+$lines.Add("2. Extend scheduled-task status readback with persisted task history, last-run timestamps, and operator acknowledgement state.")
 $lines.Add("3. Continue real PostgreSQL/QPSQL boundary coverage for file chunk recovery, rollback audit, slow-query/error metrics, and connection-pool threading policy.")
 $lines.Add("4. Productize E2E encryption with authenticated key agreement, real rotation, default policy, history migration, and file/chunk encryption.")
 $lines.Add("5. Extend release automation with MinGW CI or release artifact path/version governance.")
