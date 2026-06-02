@@ -38,13 +38,22 @@ function Resolve-RepoPath([string]$PathValue) {
 }
 
 function Invoke-GitText([string[]]$Arguments) {
-    $output = & git @Arguments 2>$null
-    if ($LASTEXITCODE -ne 0) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & git @Arguments 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            $global:LASTEXITCODE = 0
+            return ""
+        }
+        $global:LASTEXITCODE = 0
+        return ((@($output) -join "`n").Trim())
+    } catch {
         $global:LASTEXITCODE = 0
         return ""
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
-    $global:LASTEXITCODE = 0
-    ([string]$output).Trim()
 }
 
 function Find-SensitiveHits([string[]]$Lines) {
@@ -60,13 +69,13 @@ function Find-SensitiveHits([string[]]$Lines) {
 }
 
 if ([string]::IsNullOrWhiteSpace($Head)) {
-    $Head = Invoke-GitText @("rev-parse", "--short=12", "HEAD")
+    $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
 }
 if ([string]::IsNullOrWhiteSpace($OriginMain)) {
-    $OriginMain = Invoke-GitText @("rev-parse", "--short=12", "origin/main")
+    $OriginMain = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/main") }
 }
 if ([string]::IsNullOrWhiteSpace($OriginCodexQt)) {
-    $OriginCodexQt = Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt")
+    $OriginCodexQt = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt") }
 }
 
 $normalizedProtectedUntracked = @()
@@ -142,7 +151,7 @@ if (-not $PlanOnly) {
     Set-Content -LiteralPath $target -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
     Write-Host ("automation status: {0}" -f $target)
 } else {
-    $lines -join [Environment]::NewLine
+    Write-Output ($lines -join [Environment]::NewLine)
 }
 
 exit 0
