@@ -72,6 +72,7 @@ string(FIND "${json_content}" "offline-attachment-missing-file-cleanup" has_offl
 string(FIND "${json_content}" "offline-attachment-size-hash-chunk-cleanup" has_offline_attachment_corruptions)
 string(FIND "${json_content}" "offline-attachment-partial-ack-resume" has_offline_attachment_resume)
 string(FIND "${json_content}" "file-chunk-metadata-persistence" has_file_chunk_boundary)
+string(FIND "${json_content}" "online-file-chunk-invalid-ack-retry" has_online_file_retry)
 string(FIND "${markdown_content}" "PostgreSQL QPSQL Protocol Smoke Evidence" has_markdown_title)
 string(FIND "${markdown_content}" "Boundary Scenarios" has_markdown_boundaries)
 string(FIND "${markdown_content}" "<redacted>" has_markdown_redacted)
@@ -120,9 +121,10 @@ if(has_offline_attachment_metadata EQUAL -1
     OR has_offline_attachment_missing EQUAL -1
     OR has_offline_attachment_corruptions EQUAL -1
     OR has_offline_attachment_resume EQUAL -1
-    OR has_file_chunk_boundary EQUAL -1)
+    OR has_file_chunk_boundary EQUAL -1
+    OR has_online_file_retry EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "PostgreSQL smoke plan should expose offline attachment metadata, corruption cleanup, resume and file chunk boundaries")
+    message(FATAL_ERROR "PostgreSQL smoke plan should expose offline attachment metadata, corruption cleanup, resume and online file chunk retry boundaries")
 endif()
 if(has_markdown_title EQUAL -1 OR has_markdown_boundaries EQUAL -1 OR has_markdown_redacted EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")

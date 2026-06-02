@@ -771,6 +771,107 @@ int main(int argc, char** argv) {
                 && fileRows >= 1;
         }), "file transfer chunk metadata should be persisted in PostgreSQL") && ok;
 
+        setSmokeStep(QStringLiteral("online file chunk retry boundary"));
+        disconnectClient(peer);
+        ok = expect(waitFor([&] { return !peer.isConnected(); }, 2000),
+                    "peer should be disconnected before raw online file retry smoke") && ok;
+        QTcpSocket rawPeerSocket;
+        QByteArray rawPeerBuffer;
+        bool rawPeerLoginOk = false;
+        bool rawPeerCompletedFile = false;
+        int rawPeerChunkAttempts = 0;
+        QVector<qint64> rawPeerChunkIndexes;
+        auto drainRawPeerSocket = [&]() {
+            rawPeerBuffer.append(rawPeerSocket.readAll());
+            while (rawPeerBuffer.contains('\n')) {
+                const int newlineIndex = rawPeerBuffer.indexOf('\n');
+                const QByteArray line = rawPeerBuffer.left(newlineIndex);
+                rawPeerBuffer = rawPeerBuffer.mid(newlineIndex + 1);
+                if (line.trimmed().isEmpty()) continue;
+
+                const QJsonDocument doc = QJsonDocument::fromJson(line);
+                if (!doc.isObject()) continue;
+                const QJsonObject obj = doc.object();
+                const QString type = obj["type"].toString();
+                if (type == "login_success") {
+                    rawPeerLoginOk = true;
+                } else if (type == "file_chunk") {
+                    ++rawPeerChunkAttempts;
+                    const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+                    const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+                    const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+                    const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+                    const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+                    rawPeerChunkIndexes.append(chunkIndex);
+
+                    QJsonObject ack;
+                    ack["type"] = "file_chunk_ack";
+                    ack["transferId"] = obj["transferId"].toString();
+                    ack["chunkIndex"] = obj["chunkIndex"].toString();
+                    ack["accepted"] = true;
+                    ack["reason"] = "";
+                    ack["receivedBytes"] = QString::number(rawPeerChunkAttempts == 1 ? 1 : receivedBytes);
+                    rawPeerSocket.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                    rawPeerSocket.write("\n");
+                    rawPeerSocket.flush();
+                    rawPeerSocket.waitForBytesWritten(1000);
+                    if (rawPeerChunkAttempts > 1 && receivedBytes >= fileSize) {
+                        rawPeerCompletedFile = true;
+                    }
+                }
+            }
+        };
+        QObject::connect(&rawPeerSocket, &QTcpSocket::readyRead, &app, drainRawPeerSocket);
+        rawPeerSocket.connectToHost("127.0.0.1", port);
+        ok = expect(rawPeerSocket.waitForConnected(5000),
+                    "raw peer should connect before online file retry smoke") && ok;
+        QJsonObject rawPeerLogin;
+        rawPeerLogin["type"] = "login";
+        rawPeerLogin["mode"] = "login";
+        rawPeerLogin["account"] = peerId;
+        rawPeerLogin["password"] = "pg-smoke-secret";
+        rawPeerLogin["userName"] = "PgPeer";
+        rawPeerSocket.write(QJsonDocument(rawPeerLogin).toJson(QJsonDocument::Compact));
+        rawPeerSocket.write("\n");
+        rawPeerSocket.flush();
+        ok = expect(waitFor([&] {
+            drainRawPeerSocket();
+            return rawPeerLoginOk;
+        }, 5000), "raw peer should log in for online file retry smoke") && ok;
+
+        const QString retryFilePath = QDir(appDataDir).filePath("pgsql-smoke-online-retry-file.bin");
+        QFile retryFile(retryFilePath);
+        ok = expect(retryFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL online retry file should be writable") && ok;
+        if (retryFile.isOpen()) {
+            QByteArray retryPayload(300 * 1024, Qt::Uninitialized);
+            for (int i = 0; i < retryPayload.size(); ++i) {
+                retryPayload[i] = static_cast<char>('a' + (i % 26));
+            }
+            ok = expect(retryFile.write(retryPayload) == retryPayload.size(),
+                        "PostgreSQL online retry file should contain the test payload") && ok;
+            retryFile.close();
+        }
+        ok = expect(owner.sendFile(retryFilePath, peerId),
+                    "owner should complete online file retry through PostgreSQL-backed server") && ok;
+        ok = expect(waitFor([&] {
+            drainRawPeerSocket();
+            return rawPeerCompletedFile;
+        }, 5000), "raw peer should complete online file retry after invalid first ACK") && ok;
+        ok = expect(rawPeerChunkAttempts >= 3
+                        && rawPeerChunkIndexes.size() >= 3
+                        && rawPeerChunkIndexes[0] == 0
+                        && rawPeerChunkIndexes[1] == 0,
+                    "online retry should resend the first chunk after invalid ACK progress") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM messages WHERE sender_id = ? AND receiver_id = ? AND file_name = 'pgsql-smoke-online-retry-file.bin' AND file_size > 0 AND file_hash IS NOT NULL AND file_chunk_size > 0 AND file_chunk_count > 0",
+                                  {ownerId, peerId},
+                                  &fileRows)
+                && fileRows >= 1;
+        }), "online retry file metadata should be persisted in PostgreSQL") && ok;
+        rawPeerSocket.disconnectFromHost();
+        rawPeerSocket.waitForDisconnected(1000);
+
         setSmokeStep(QStringLiteral("offline private message and attachment queue replay"));
         disconnectClient(peer);
         const QString offlineMessage = "PostgreSQL QPSQL offline private smoke";

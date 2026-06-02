@@ -67,6 +67,7 @@ $coverageSurfaces = @(
     "public-group-member-role-audit",
     "public-group-remove-readd-marker",
     "file-chunk-metadata-persistence",
+    "online-file-chunk-invalid-ack-retry",
     "offline-private-queue-replay",
     "offline-attachment-queue-replay",
     "offline-attachment-partial-ack-resume",
@@ -115,6 +116,12 @@ $boundaryScenarios = @(
         category = "file-chunk"
         persistence = "messages"
         expectedEvidence = "online file transfer persists file hash, chunk size and chunk count in PostgreSQL"
+    },
+    [pscustomobject]@{
+        name = "online-file-chunk-invalid-ack-retry"
+        category = "file-chunk-retry"
+        persistence = "messages"
+        expectedEvidence = "raw receiver sends an invalid first ACK progress, sender retries chunk 0, transfer completes, and PostgreSQL keeps file chunk metadata"
     },
     [pscustomobject]@{
         name = "restart-login-kdf-session"
