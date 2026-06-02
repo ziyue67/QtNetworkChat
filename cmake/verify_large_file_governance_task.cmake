@@ -99,7 +99,9 @@ foreach(expected_text
         "-S3CoveragePolicyPath"
         "-WarnS3CoverageGaps"
         "-RunS3FailureBatchSample"
-        "-S3FailureBatchCountPerReason")
+        "-S3FailureBatchCountPerReason"
+        "exitCode=$exitCode"
+        "last-run.log")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")

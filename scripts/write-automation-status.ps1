@@ -9,7 +9,9 @@ param(
     [string]$CTestStatus = "unknown",
     [int]$CTestCount = 0,
     [string]$DatabaseHealthStatusPath,
+    [string]$DatabaseHealthLastRunPath,
     [string]$LargeFileGovernanceStatusPath,
+    [string]$LargeFileGovernanceLastRunPath,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
     [switch]$PlanOnly,
     [switch]$FailOnSensitive
@@ -109,6 +111,32 @@ function Format-StatusValue([object]$Value) {
     $text
 }
 
+function Read-LastRunSummary([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $null
+    }
+    $resolvedPath = Resolve-RepoPath $PathValue
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+        return $null
+    }
+    $text = (Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+    $timestamp = "unknown"
+    $exitCode = "unknown"
+    if ($text -match '^([0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+)') {
+        $timestamp = $Matches[1]
+    }
+    if ($text -match '(?:^|\s)exitCode=([0-9]+)') {
+        $exitCode = $Matches[1]
+    }
+    [pscustomobject]@{
+        timestamp = $timestamp
+        exitCode = $exitCode
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($Head)) {
     $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
 }
@@ -131,7 +159,9 @@ foreach ($entry in $ProtectedUntracked) {
 $protectedText = if ($normalizedProtectedUntracked.Count -gt 0) { $normalizedProtectedUntracked -join ", " } else { "none" }
 $generatedAt = (Get-Date).ToUniversalTime().ToString("o")
 $databaseHealthStatus = Read-JsonSummary $DatabaseHealthStatusPath
+$databaseHealthLastRun = Read-LastRunSummary $DatabaseHealthLastRunPath
 $largeFileGovernanceStatus = Read-JsonSummary $LargeFileGovernanceStatusPath
+$largeFileGovernanceLastRun = Read-LastRunSummary $LargeFileGovernanceLastRunPath
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add("# QtNetworkChat Automation Status")
@@ -176,6 +206,11 @@ if ($null -eq $databaseHealthStatus) {
             (Format-StatusValue (Get-JsonValue $dbQueryMetrics "slowQueryCount" "unknown")),
             (Format-StatusValue (Get-JsonValue $dbQueryMetrics "queryFailureCount" "unknown"))))
 }
+if ($null -ne $databaseHealthLastRun) {
+    $lines.Add(('- Database health last run: at=`{0}`, exitCode=`{1}`' -f
+            (Format-StatusValue $databaseHealthLastRun.timestamp),
+            (Format-StatusValue $databaseHealthLastRun.exitCode)))
+}
 if ($null -eq $largeFileGovernanceStatus) {
     $lines.Add('- Large-file governance: `not configured`')
 } else {
@@ -187,11 +222,16 @@ if ($null -eq $largeFileGovernanceStatus) {
             (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "alertCount" "unknown")),
             $governanceGapAreas.Count))
 }
+if ($null -ne $largeFileGovernanceLastRun) {
+    $lines.Add(('- Large-file governance last run: at=`{0}`, exitCode=`{1}`' -f
+            (Format-StatusValue $largeFileGovernanceLastRun.timestamp),
+            (Format-StatusValue $largeFileGovernanceLastRun.exitCode)))
+}
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")
 $lines.Add("1. Split heavy README sections into focused docs for testing coverage, PostgreSQL operations, large-file governance, and E2E hardening status.")
-$lines.Add("2. Extend scheduled-task status readback with persisted task history, last-run timestamps, and operator acknowledgement state.")
+$lines.Add("2. Extend scheduled-task status readback with persisted task history and operator acknowledgement state.")
 $lines.Add("3. Continue real PostgreSQL/QPSQL boundary coverage for file chunk recovery, rollback audit, slow-query/error metrics, and connection-pool threading policy.")
 $lines.Add("4. Productize E2E encryption with authenticated key agreement, real rotation, default policy, history migration, and file/chunk encryption.")
 $lines.Add("5. Extend release automation with MinGW CI or release artifact path/version governance.")

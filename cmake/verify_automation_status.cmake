@@ -5,7 +5,9 @@ endif()
 set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/automation_status_sample")
 set(MARKDOWN_PATH "${TEMP_DIR}/automation-status.md")
 set(DB_STATUS_PATH "${TEMP_DIR}/database-health-status.json")
+set(DB_LAST_RUN_PATH "${TEMP_DIR}/database-health-last-run.log")
 set(GOV_STATUS_PATH "${TEMP_DIR}/large-file-governance-status.json")
+set(GOV_LAST_RUN_PATH "${TEMP_DIR}/large-file-governance-last-run.log")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY "${TEMP_DIR}")
 
@@ -20,6 +22,7 @@ file(WRITE "${DB_STATUS_PATH}"
   \"queryMetrics\":{\"slowQueryCount\":2,\"queryFailureCount\":1}
 }
 ")
+file(WRITE "${DB_LAST_RUN_PATH}" "2026-06-03T01:02:03.0000000Z healthExitCode=0 statusExitCode=0 dashboardExitCode=0 exitCode=0 healthPath=redacted statusPath=redacted dashboardPath=redacted markdownPath=redacted\n")
 file(WRITE "${GOV_STATUS_PATH}"
 "{
   \"format\":\"qtnetworkchat-large-file-governance-status-v1\",
@@ -30,6 +33,7 @@ file(WRITE "${GOV_STATUS_PATH}"
   \"s3CoverageActionableGapAreas\":[\"remote-validation-fail-closed\"]
 }
 ")
+file(WRITE "${GOV_LAST_RUN_PATH}" "2026-06-03T02:03:04.0000000Z exitCode=2\n")
 
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
@@ -43,7 +47,9 @@ execute_process(
         -CTestStatus "passed"
         -CTestCount 51
         -DatabaseHealthStatusPath "${DB_STATUS_PATH}"
+        -DatabaseHealthLastRunPath "${DB_LAST_RUN_PATH}"
         -LargeFileGovernanceStatusPath "${GOV_STATUS_PATH}"
+        -LargeFileGovernanceLastRunPath "${GOV_LAST_RUN_PATH}"
         -ProtectedUntracked ".polaris/,AGENTS.md"
         -FailOnSensitive
     RESULT_VARIABLE result
@@ -76,7 +82,9 @@ foreach(expected_text
         "Automation Guardrails"
         "Scheduled Task Readback"
         "Database health: status=`healthy`, ok=`true`, driver=`QPSQL`, checks=`4`, failedChecks=`0`, slowQueries=`2`, queryFailures=`1`"
+        "Database health last run: at=`2026-06-03T01:02:03.0000000Z`, exitCode=`0`"
         "Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`"
+        "Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`"
         "Priority Backlog"
         "QTNETWORKCHAT_PGPASSWORD"
         "generated evidence must remain redacted")
@@ -108,7 +116,9 @@ execute_process(
         -Head "def5678"
         -CiStatus "success"
         -DatabaseHealthStatusPath "${TEMP_DIR}/missing-database-health-status.json"
+        -DatabaseHealthLastRunPath "${TEMP_DIR}/missing-database-health-last-run.log"
         -LargeFileGovernanceStatusPath "${TEMP_DIR}/missing-large-file-governance-status.json"
+        -LargeFileGovernanceLastRunPath "${TEMP_DIR}/missing-large-file-governance-last-run.log"
         -FailOnSensitive
     RESULT_VARIABLE plan_result
     OUTPUT_VARIABLE plan_output
