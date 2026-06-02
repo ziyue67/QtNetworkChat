@@ -16,7 +16,8 @@ param(
     [string]$JsonPath,
     [string]$MarkdownPath,
     [string]$HtmlPath,
-    [string]$RollbackPreviewPath
+    [string]$RollbackPreviewPath,
+    [string]$RollbackPreviewMarkdownPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +28,24 @@ function Resolve-RepoPath {
         return $Path
     }
     return Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $Path
+}
+
+function Get-RollbackKeyColumns {
+    param(
+        [string]$TableName,
+        [object[]]$ReportedKeyColumns
+    )
+    $reported = @($ReportedKeyColumns | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if ($reported.Count -gt 0) {
+        return $reported
+    }
+    switch ($TableName) {
+        "accounts" { return @("account") }
+        "server_groups" { return @("group_id") }
+        "server_group_members" { return @("group_id", "user_id") }
+        "server_group_removed_members" { return @("group_id", "user_id") }
+        default { return @("id") }
+    }
 }
 
 $migratorPath = Resolve-RepoPath $MigratorExe
@@ -59,7 +78,8 @@ $jsonTarget = if ([string]::IsNullOrWhiteSpace($JsonPath)) { "" } else { Resolve
 $markdownTarget = if ([string]::IsNullOrWhiteSpace($MarkdownPath)) { "" } else { Resolve-RepoPath $MarkdownPath }
 $htmlTarget = if ([string]::IsNullOrWhiteSpace($HtmlPath)) { "" } else { Resolve-RepoPath $HtmlPath }
 $rollbackPreviewTarget = if ([string]::IsNullOrWhiteSpace($RollbackPreviewPath)) { "" } else { Resolve-RepoPath $RollbackPreviewPath }
-if ([string]::IsNullOrWhiteSpace($jsonTarget) -and (-not [string]::IsNullOrWhiteSpace($markdownTarget) -or -not [string]::IsNullOrWhiteSpace($htmlTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget))) {
+$rollbackPreviewMarkdownTarget = if ([string]::IsNullOrWhiteSpace($RollbackPreviewMarkdownPath)) { "" } else { Resolve-RepoPath $RollbackPreviewMarkdownPath }
+if ([string]::IsNullOrWhiteSpace($jsonTarget) -and (-not [string]::IsNullOrWhiteSpace($markdownTarget) -or -not [string]::IsNullOrWhiteSpace($htmlTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget))) {
     $jsonTarget = Resolve-RepoPath "build-qt6-mingw\sqlite-pg-migration.json"
 }
 $args = @(
@@ -146,27 +166,90 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         Set-Content -LiteralPath $htmlTarget -Value $html -Encoding UTF8
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget)) {
-        $parent = Split-Path -Parent $rollbackPreviewTarget
-        if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-        $previewTables = foreach ($table in $tables) {
-            [pscustomobject]@{
+    if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget)) {
+        $previewTables = @()
+        $previewOperations = @()
+        foreach ($table in $tables) {
+            $keyColumns = @(Get-RollbackKeyColumns -TableName $table.name -ReportedKeyColumns @($table.keyColumns))
+            $wouldDeleteRows = if ($migration.mode -eq "rollback") { $table.rolledBackRows } else { $table.rows }
+            $requiresReview = ([int64]$wouldDeleteRows) -gt 0
+            $whereShape = if ($keyColumns.Count -gt 0) {
+                (($keyColumns | ForEach-Object { "$_ = ?" }) -join " AND ")
+            } else {
+                "<no key columns>"
+            }
+            $previewTables += [pscustomobject]@{
                 name = $table.name
                 sourceRows = $table.rows
-                keyColumns = @($table.keyColumns)
-                wouldDeleteRows = if ($migration.mode -eq "rollback") { $table.rolledBackRows } else { $table.rows }
+                keyColumns = $keyColumns
+                wouldDeleteRows = $wouldDeleteRows
+                dryRun = $true
+            }
+            $previewOperations += [pscustomobject]@{
+                table = $table.name
+                operation = "delete-by-source-keys"
+                keyColumns = $keyColumns
+                whereShape = $whereShape
+                wouldDeleteRows = $wouldDeleteRows
+                requiresReview = $requiresReview
                 dryRun = $true
             }
         }
-        [ordered]@{
+        $totalSourceRows = [int64](($previewTables | Measure-Object -Property sourceRows -Sum).Sum)
+        $totalWouldDeleteRows = [int64](($previewTables | Measure-Object -Property wouldDeleteRows -Sum).Sum)
+        $tablesWithDeletes = @($previewTables | Where-Object { ([int64]$_.wouldDeleteRows) -gt 0 }).Count
+        $riskLevel = if ($totalWouldDeleteRows -eq 0) { "none" } elseif ($Mode -eq "rollback") { "high" } else { "review" }
+        $summary = [ordered]@{
+            sourceMode = $migration.mode
+            dryRun = $true
+            tableCount = @($previewTables).Count
+            totalSourceRows = $totalSourceRows
+            totalWouldDeleteRows = $totalWouldDeleteRows
+            tablesWithDeletes = $tablesWithDeletes
+        }
+        $preview = [ordered]@{
             format = "qtnetworkchat-sqlite-pg-rollback-preview-v1"
             generatedAt = (Get-Date).ToUniversalTime().ToString("o")
             sourceMode = $migration.mode
             dryRun = $true
             ok = $true
+            riskLevel = $riskLevel
+            summary = $summary
             postgresPassword = "<redacted>"
+            operations = @($previewOperations)
             tables = @($previewTables)
-        } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $rollbackPreviewTarget -Encoding UTF8
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget)) {
+            $parent = Split-Path -Parent $rollbackPreviewTarget
+            if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            $preview | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $rollbackPreviewTarget -Encoding UTF8
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget)) {
+            $parent = Split-Path -Parent $rollbackPreviewMarkdownTarget
+            if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            $lines = [System.Collections.Generic.List[string]]::new()
+            $lines.Add("# SQLite to PostgreSQL Rollback Dry-run Preview")
+            $lines.Add("")
+            $lines.Add(("- Source mode: {0}" -f $migration.mode))
+            $lines.Add(("- Dry-run: {0}" -f $true))
+            $lines.Add(("- Risk level: {0}" -f $riskLevel))
+            $lines.Add(("- PostgreSQL password: {0}" -f $preview.postgresPassword))
+            $lines.Add(("- Tables: {0}" -f $summary.tableCount))
+            $lines.Add(("- Total source rows: {0}" -f $summary.totalSourceRows))
+            $lines.Add(("- Total rows that would be deleted: {0}" -f $summary.totalWouldDeleteRows))
+            $lines.Add(("- Tables with deletes: {0}" -f $summary.tablesWithDeletes))
+            $lines.Add("")
+            $lines.Add("| Table | Operation | Key columns | Delete predicate shape | Would delete | Requires review |")
+            $lines.Add("|---|---|---|---|---:|---|")
+            foreach ($operation in $previewOperations) {
+                $keyColumnText = if (@($operation.keyColumns).Count -gt 0) { (@($operation.keyColumns) -join ", ") } else { "(none)" }
+                $lines.Add(("| {0} | {1} | {2} | {3} | {4} | {5} |" -f
+                    $operation.table, $operation.operation, $keyColumnText, $operation.whereShape, $operation.wouldDeleteRows, $operation.requiresReview))
+            }
+            Set-Content -LiteralPath $rollbackPreviewMarkdownTarget -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+        }
     }
 }
 

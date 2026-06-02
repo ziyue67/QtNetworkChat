@@ -486,10 +486,11 @@ powershell -ExecutionPolicy Bypass -File scripts/migrate-sqlite-to-postgres.ps1 
   -JsonPath "build-qt6-mingw\sqlite-pg-migration-plan.json" `
   -MarkdownPath "build-qt6-mingw\sqlite-pg-migration-plan.md" `
   -HtmlPath "build-qt6-mingw\sqlite-pg-migration-plan.html" `
-  -RollbackPreviewPath "build-qt6-mingw\sqlite-pg-rollback-preview.json"
+  -RollbackPreviewPath "build-qt6-mingw\sqlite-pg-rollback-preview.json" `
+  -RollbackPreviewMarkdownPath "build-qt6-mingw\sqlite-pg-rollback-preview.md"
 ```
 
-确认计划中的表和行数符合预期后，把 `-Mode plan` 改为 `-Mode execute` 执行导入。迁移器覆盖 `accounts`、`user_sessions`、`messages`、`offline_messages`、`friend_events`、公共群成员/移出标记、公告和审计表；写入 PostgreSQL 时使用主键或复合主键 upsert，重复执行会更新同一逻辑行。导入后可用 `-Mode validate` 校验 SQLite 主键行是否都已进入 PostgreSQL，用 `-Mode diff` 生成差异报告但不修改数据库，用 `-Mode rollback` 按 SQLite 源中的主键/复合主键删除本轮可识别的 PostgreSQL 行。脚本在除 plan 外的模式都要求真实密码，JSON/Markdown/HTML/rollback preview 输出始终把密码写成 `<redacted>`，并逐表给出 `postgresRows`、`validatedRows`、`missingRows`、`rolledBackRows` 和 `diffStatus`；`-RollbackPreviewPath` 只生成 dry-run JSON，说明各表会按哪些 key 列删除多少 SQLite 源行，不执行 PostgreSQL 删除。建议先备份 `accounts.sqlite3`，迁移完成并验证 PostgreSQL 服务端登录、群组和离线消息后，再把生产服务端切到 `QTNETWORKCHAT_DB_DRIVER=QPSQL`；SQLite 文件可继续保留作为回滚输入。
+确认计划中的表和行数符合预期后，把 `-Mode plan` 改为 `-Mode execute` 执行导入。迁移器覆盖 `accounts`、`user_sessions`、`messages`、`offline_messages`、`friend_events`、公共群成员/移出标记、公告和审计表；写入 PostgreSQL 时使用主键或复合主键 upsert，重复执行会更新同一逻辑行。导入后可用 `-Mode validate` 校验 SQLite 主键行是否都已进入 PostgreSQL，用 `-Mode diff` 生成差异报告但不修改数据库，用 `-Mode rollback` 按 SQLite 源中的主键/复合主键删除本轮可识别的 PostgreSQL 行。脚本在除 plan 外的模式都要求真实密码，JSON/Markdown/HTML/rollback preview 输出始终把密码写成 `<redacted>`，并逐表给出 `postgresRows`、`validatedRows`、`missingRows`、`rolledBackRows` 和 `diffStatus`；`-RollbackPreviewPath`/`-RollbackPreviewMarkdownPath` 只生成 dry-run 回滚预览，不执行 PostgreSQL 删除，预览中包含总表数、总源行数、预计删除行数、需要人工复核的风险等级，以及每张表将按哪些 key 列组成 delete predicate。建议先备份 `accounts.sqlite3`，迁移完成并验证 PostgreSQL 服务端登录、群组和离线消息后，再把生产服务端切到 `QTNETWORKCHAT_DB_DRIVER=QPSQL`；SQLite 文件可继续保留作为回滚输入。
 
 启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；服务端也会订阅该通道，跳过本实例事件，并把远端群聊/私聊转发给本实例在线用户。文件和图片只在编码后的 Redis 事件体不超过 1 MB 时通过 Pub/Sub 路由；超过该限制的 payload 会留在源实例离线附件队列，后续应按 [Redis 跨实例大文件路由计划](docs/redis-large-file-routing-plan.md) 通过控制面事件加对象存储式数据面承载。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。
 
