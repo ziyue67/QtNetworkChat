@@ -10,8 +10,10 @@ param(
     [int]$CTestCount = 0,
     [string]$DatabaseHealthStatusPath,
     [string]$DatabaseHealthLastRunPath,
+    [string]$DatabaseHealthTaskPreviewPath,
     [string]$LargeFileGovernanceStatusPath,
     [string]$LargeFileGovernanceLastRunPath,
+    [string]$LargeFileGovernanceTaskPreviewPath,
     [string]$AutomationTaskHistoryPath,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
     [switch]$PlanOnly,
@@ -88,6 +90,18 @@ function Read-JsonSummary([string]$PathValue) {
     $raw | ConvertFrom-Json
 }
 
+function Resolve-PreviewValue([string]$PreviewPath, [string]$PropertyName) {
+    $preview = Read-JsonSummary $PreviewPath
+    if ($null -eq $preview) {
+        return ""
+    }
+    $value = Get-JsonValue $preview $PropertyName ""
+    if ([string]::IsNullOrWhiteSpace([string]$value)) {
+        return ""
+    }
+    [string]$value
+}
+
 function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
     if ($null -eq $ObjectValue) {
         return $DefaultValue
@@ -146,6 +160,26 @@ if ([string]::IsNullOrWhiteSpace($OriginMain)) {
 }
 if ([string]::IsNullOrWhiteSpace($OriginCodexQt)) {
     $OriginCodexQt = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt") }
+}
+if ([string]::IsNullOrWhiteSpace($DatabaseHealthStatusPath)) {
+    $DatabaseHealthStatusPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "statusPath"
+}
+if ([string]::IsNullOrWhiteSpace($DatabaseHealthLastRunPath)) {
+    $DatabaseHealthLastRunPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "logPath"
+}
+if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceStatusPath)) {
+    $LargeFileGovernanceStatusPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "dashboardPath"
+}
+if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
+    $previewLogPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "logPath"
+    if (-not [string]::IsNullOrWhiteSpace($previewLogPath)) {
+        $LargeFileGovernanceLastRunPath = $previewLogPath
+    } else {
+        $LargeFileGovernanceLastRunPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "launcherPath"
+        if (-not [string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
+            $LargeFileGovernanceLastRunPath = Join-Path (Split-Path -Parent (Resolve-RepoPath $LargeFileGovernanceLastRunPath)) "last-run.log"
+        }
+    }
 }
 
 $normalizedProtectedUntracked = @()

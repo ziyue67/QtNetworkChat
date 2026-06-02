@@ -6,8 +6,10 @@ set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/automation_status_sample")
 set(MARKDOWN_PATH "${TEMP_DIR}/automation-status.md")
 set(DB_STATUS_PATH "${TEMP_DIR}/database-health-status.json")
 set(DB_LAST_RUN_PATH "${TEMP_DIR}/database-health-last-run.log")
+set(DB_PREVIEW_PATH "${TEMP_DIR}/database-health-task-preview.json")
 set(GOV_STATUS_PATH "${TEMP_DIR}/large-file-governance-status.json")
 set(GOV_LAST_RUN_PATH "${TEMP_DIR}/large-file-governance-last-run.log")
+set(GOV_PREVIEW_PATH "${TEMP_DIR}/large-file-governance-task-preview.json")
 set(TASK_HISTORY_PATH "${TEMP_DIR}/automation-task-history.json")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY "${TEMP_DIR}")
@@ -24,6 +26,12 @@ file(WRITE "${DB_STATUS_PATH}"
 }
 ")
 file(WRITE "${DB_LAST_RUN_PATH}" "2026-06-03T01:02:03.0000000Z healthExitCode=0 statusExitCode=0 dashboardExitCode=0 exitCode=0 healthPath=redacted statusPath=redacted dashboardPath=redacted markdownPath=redacted\n")
+file(WRITE "${DB_PREVIEW_PATH}"
+"{
+  \"statusPath\":\"${DB_STATUS_PATH}\",
+  \"logPath\":\"${DB_LAST_RUN_PATH}\"
+}
+")
 file(WRITE "${GOV_STATUS_PATH}"
 "{
   \"format\":\"qtnetworkchat-large-file-governance-status-v1\",
@@ -35,6 +43,13 @@ file(WRITE "${GOV_STATUS_PATH}"
 }
 ")
 file(WRITE "${GOV_LAST_RUN_PATH}" "2026-06-03T02:03:04.0000000Z exitCode=2\n")
+file(WRITE "${GOV_PREVIEW_PATH}"
+"{
+  \"dashboardPath\":\"${GOV_STATUS_PATH}\",
+  \"logPath\":\"${GOV_LAST_RUN_PATH}\",
+  \"launcherPath\":\"${TEMP_DIR}/task/run-large-file-governance-task.ps1\"
+}
+")
 file(WRITE "${TASK_HISTORY_PATH}"
 "{
   \"format\":\"qtnetworkchat-automation-task-history-v1\",
@@ -56,10 +71,8 @@ execute_process(
         -BuildStatus "passed"
         -CTestStatus "passed"
         -CTestCount 51
-        -DatabaseHealthStatusPath "${DB_STATUS_PATH}"
-        -DatabaseHealthLastRunPath "${DB_LAST_RUN_PATH}"
-        -LargeFileGovernanceStatusPath "${GOV_STATUS_PATH}"
-        -LargeFileGovernanceLastRunPath "${GOV_LAST_RUN_PATH}"
+        -DatabaseHealthTaskPreviewPath "${DB_PREVIEW_PATH}"
+        -LargeFileGovernanceTaskPreviewPath "${GOV_PREVIEW_PATH}"
         -AutomationTaskHistoryPath "${TASK_HISTORY_PATH}"
         -ProtectedUntracked ".polaris/,AGENTS.md"
         -FailOnSensitive
