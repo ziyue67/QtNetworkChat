@@ -69,6 +69,7 @@ $coverageSurfaces = @(
     "file-chunk-metadata-persistence",
     "offline-private-queue-replay",
     "offline-attachment-queue-replay",
+    "offline-attachment-partial-ack-resume",
     "restart-login-kdf-session"
 )
 
@@ -102,6 +103,12 @@ $boundaryScenarios = @(
         category = "offline-attachment-failure"
         persistence = "offline_messages"
         expectedEvidence = "queued attachment size, hash and chunk metadata are corrupted before replay, peer receives fixed failure notices, and bad PostgreSQL queue rows are cleared"
+    },
+    [pscustomobject]@{
+        name = "offline-attachment-partial-ack-resume"
+        category = "offline-attachment-resume"
+        persistence = "offline_messages.payload"
+        expectedEvidence = "raw receiver confirms the first chunk then disconnects, PostgreSQL stores confirmedBytes/confirmedChunks/resumeUpdatedAt, and retry resumes from the first unconfirmed chunk"
     },
     [pscustomobject]@{
         name = "file-chunk-metadata-persistence"

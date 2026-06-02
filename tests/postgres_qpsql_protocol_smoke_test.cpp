@@ -15,6 +15,7 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QTcpServer>
+#include <QTcpSocket>
 #include <QThread>
 
 #include <cstdio>
@@ -329,6 +330,172 @@ bool loginClient(Client& client,
     client.setAccountInfo(account, "pg-smoke-secret", registerMode);
     if (!client.connectToServer("127.0.0.1", port)) return false;
     return client.waitForLoginResult(5000);
+}
+
+bool loginRawAckChunksThenDisconnect(const QString& account,
+                                     const QString& userName,
+                                     quint16 port,
+                                     int chunksToAck,
+                                     qint64* lastReceivedBytes = nullptr,
+                                     QVector<qint64>* receivedChunkIndexes = nullptr,
+                                     int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    int ackedChunks = 0;
+    qint64 receivedBytes = 0;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk" && ackedChunks < chunksToAck) {
+                const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+                const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+                const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+                const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+                receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+                if (receivedChunkIndexes) {
+                    receivedChunkIndexes->append(chunkIndex);
+                }
+
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = true;
+                ack["reason"] = "";
+                ack["receivedBytes"] = QString::number(receivedBytes);
+                socket.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                socket.write("\n");
+                socket.flush();
+                socket.waitForBytesWritten(1000);
+                ++ackedChunks;
+                if (ackedChunks >= chunksToAck) {
+                    socket.disconnectFromHost();
+                    return;
+                }
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "pg-smoke-secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool ackedRequestedChunks = waitFor([&] {
+        drainSocket();
+        return ackedChunks >= chunksToAck;
+    }, timeoutMs);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    if (lastReceivedBytes) *lastReceivedBytes = receivedBytes;
+    return sawLoginSuccess && ackedRequestedChunks;
+}
+
+bool loginRawAckFileReplay(const QString& account,
+                           const QString& userName,
+                           quint16 port,
+                           QVector<qint64>* receivedChunkIndexes = nullptr,
+                           qint64* lastReceivedBytes = nullptr,
+                           int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    bool completedReplay = false;
+    qint64 receivedBytes = 0;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk") {
+                const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+                const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
+                const qint64 fileSize = obj["fileSize"].toVariant().toLongLong();
+                const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+                receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+                if (receivedChunkIndexes) {
+                    receivedChunkIndexes->append(chunkIndex);
+                }
+
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = true;
+                ack["reason"] = "";
+                ack["receivedBytes"] = QString::number(receivedBytes);
+                socket.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                socket.write("\n");
+                socket.flush();
+                socket.waitForBytesWritten(1000);
+
+                if (receivedBytes >= fileSize) {
+                    completedReplay = true;
+                    socket.disconnectFromHost();
+                    return;
+                }
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "pg-smoke-secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool ackedReplay = waitFor([&] {
+        drainSocket();
+        return completedReplay;
+    }, timeoutMs);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    if (lastReceivedBytes) *lastReceivedBytes = receivedBytes;
+    return sawLoginSuccess && ackedReplay;
 }
 }
 
@@ -802,6 +969,82 @@ int main(int argc, char** argv) {
                                   &offlineRows)
                 && offlineRows == 0;
         }), "PostgreSQL offline queue should be cleared after replay") && ok;
+
+        setSmokeStep(QStringLiteral("offline attachment partial ack resume"));
+        disconnectClient(peer);
+        ok = expect(waitFor([&] { return !peer.isConnected(); }, 2000),
+                    "peer should be offline before partial-ack resume smoke") && ok;
+        const QString partialAckFileName = "pgsql-smoke-partial-ack-offline-file.bin";
+        const QString partialAckFilePath = QDir(appDataDir).filePath(partialAckFileName);
+        QByteArray partialAckPayload(300 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < partialAckPayload.size(); ++i) {
+            partialAckPayload[i] = static_cast<char>('A' + (i % 26));
+        }
+        QFile partialAckFile(partialAckFilePath);
+        ok = expect(partialAckFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL partial-ack offline attachment smoke file should be writable") && ok;
+        if (partialAckFile.isOpen()) {
+            ok = expect(partialAckFile.write(partialAckPayload) == partialAckPayload.size(),
+                        "PostgreSQL partial-ack offline attachment smoke file should contain the test payload") && ok;
+            partialAckFile.close();
+        }
+        ok = expect(owner.sendFile(partialAckFilePath, peerId),
+                    "owner should queue an offline attachment for partial-ack resume") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + partialAckFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 1;
+        }), "partial-ack offline attachment should be queued in PostgreSQL") && ok;
+
+        qint64 partialAckReceivedBytes = 0;
+        QVector<qint64> partialAckFirstChunks;
+        ok = expect(loginRawAckChunksThenDisconnect(peerId,
+                                                    "PgPeer",
+                                                    port,
+                                                    1,
+                                                    &partialAckReceivedBytes,
+                                                    &partialAckFirstChunks),
+                    "raw peer should ack the first PostgreSQL offline attachment chunk before disconnecting") && ok;
+        ok = expect(partialAckFirstChunks.size() == 1 && partialAckFirstChunks.first() == 0,
+                    "raw partial-ack peer should confirm chunk 0 first") && ok;
+        ok = expect(partialAckReceivedBytes == 256 * 1024,
+                    "raw partial-ack peer should report the first confirmed chunk bytes") && ok;
+        QString partialAckPayloadJson;
+        ok = expect(waitFor([&] {
+            return scalarString("SELECT payload FROM offline_messages WHERE receiver_id = ? AND payload LIKE ? ORDER BY id DESC LIMIT 1",
+                                {peerId, "%" + partialAckFileName + "%"},
+                                &partialAckPayloadJson)
+                && partialAckPayloadJson.contains(partialAckFileName);
+        }), "partial-ack offline attachment queue row should be retained in PostgreSQL") && ok;
+        const QJsonObject partialAckQueuedPayload = QJsonDocument::fromJson(partialAckPayloadJson.toUtf8()).object();
+        const QJsonArray partialAckConfirmedChunks = partialAckQueuedPayload["confirmedChunks"].toArray();
+        ok = expect(partialAckQueuedPayload["confirmedBytes"].toVariant().toLongLong() == partialAckReceivedBytes,
+                    "partial-ack offline attachment should persist confirmedBytes in PostgreSQL") && ok;
+        ok = expect(partialAckConfirmedChunks.size() == 1
+                        && partialAckConfirmedChunks.first().toVariant().toLongLong() == 0,
+                    "partial-ack offline attachment should persist confirmed chunk 0 in PostgreSQL") && ok;
+        ok = expect(!partialAckQueuedPayload["resumeUpdatedAt"].toString().isEmpty(),
+                    "partial-ack offline attachment should persist resumeUpdatedAt in PostgreSQL") && ok;
+
+        QVector<qint64> partialAckRetryChunks;
+        qint64 partialAckRetryReceivedBytes = 0;
+        ok = expect(loginRawAckFileReplay(peerId,
+                                          "PgPeer",
+                                          port,
+                                          &partialAckRetryChunks,
+                                          &partialAckRetryReceivedBytes),
+                    "raw peer should resume and finish the PostgreSQL offline attachment replay") && ok;
+        ok = expect(partialAckRetryChunks.size() == 1 && partialAckRetryChunks.first() == 1,
+                    "PostgreSQL offline attachment retry should resume from the first unconfirmed chunk") && ok;
+        ok = expect(partialAckRetryReceivedBytes == partialAckPayload.size(),
+                    "PostgreSQL offline attachment retry should confirm the full attachment size") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + partialAckFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 0;
+        }), "partial-ack offline attachment retry should clear the PostgreSQL queue row") && ok;
 
         disconnectClient(owner);
         disconnectClient(peer);
