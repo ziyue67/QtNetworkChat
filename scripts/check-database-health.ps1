@@ -7,6 +7,7 @@ param(
     [int]$PostgresPort = 5432,
     [string]$PostgresDatabase = "qtnetworkchat",
     [string]$PostgresUser = "postgres",
+    [AllowEmptyString()]
     [string]$PostgresPassword = $env:QTNETWORKCHAT_PGPASSWORD,
     [string]$SQLitePath = "accounts.sqlite3",
     [int]$ReconnectBackoffMs = 2000,
@@ -66,6 +67,21 @@ function Get-PostgresErrorReason([string]$Text) {
     return "query"
 }
 
+function Add-QueryFailure {
+    param(
+        [System.Collections.IDictionary]$Metrics,
+        [string]$Reason
+    )
+
+    $fixedReason = if ([string]::IsNullOrWhiteSpace($Reason)) { "query" } else { $Reason }
+    if (-not $Metrics.errorReasons.Contains($fixedReason)) {
+        $fixedReason = "query"
+    }
+    $Metrics.queryFailureCount += 1
+    $Metrics.lastErrorReason = $fixedReason
+    $Metrics.errorReasons[$fixedReason] += 1
+}
+
 $normalizedDriver = $Driver.ToLowerInvariant()
 $qtPluginDir = Join-Path $QtRoot "plugins"
 $qpsqlPluginPath = Join-Path $qtPluginDir "sqldrivers\qsqlpsql.dll"
@@ -109,17 +125,35 @@ if ($normalizedDriver -eq "postgres") {
 
 $ok = @($checks | Where-Object { -not $_.ok }).Count -eq 0
 $status = if ($ok) { "healthy" } else { "unhealthy" }
+$queryMetrics = [ordered]@{
+    slowQueryThresholdMs = $SlowQueryMs
+    slowQueryCount = 0
+    queryFailureCount = 0
+    lastSlowQueryMs = 0
+    lastErrorReason = ""
+    errorReasons = [ordered]@{
+        runtime = 0
+        auth = 0
+        network = 0
+        tls = 0
+        schema = 0
+        path = 0
+        query = 0
+    }
+}
 
 if (-not $PlanOnly -and $ok) {
     if ($normalizedDriver -eq "postgres") {
         if ([string]::IsNullOrWhiteSpace($PostgresPassword)) {
-            $checks.Add((New-Check "postgres-password" $false "QTNETWORKCHAT_PGPASSWORD" "PostgresPassword is required outside PlanOnly"))
+            $checks.Add((New-Check "postgres-password" $false "QTNETWORKCHAT_PGPASSWORD is required outside PlanOnly" "auth"))
+            Add-QueryFailure $queryMetrics "auth"
             $ok = $false
         } else {
             $oldPassword = $env:PGPASSWORD
             try {
                 $env:PGPASSWORD = $PostgresPassword
                 $query = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('accounts','user_sessions','messages','offline_messages','friend_events','server_groups','server_group_members','server_group_removed_members','server_group_announcements','server_group_audit_events');"
+                $queryTimer = [System.Diagnostics.Stopwatch]::StartNew()
                 $psqlOutput = & $psqlPath @(
                     "-h", $PostgresHost,
                     "-p", "$PostgresPort",
@@ -129,6 +163,12 @@ if (-not $PlanOnly -and $ok) {
                     "-A",
                     "-c", $query
                 ) 2>&1
+                $queryTimer.Stop()
+                $elapsedMs = [int][Math]::Min([int]::MaxValue, $queryTimer.ElapsedMilliseconds)
+                if ($elapsedMs -gt $SlowQueryMs) {
+                    $queryMetrics.slowQueryCount += 1
+                    $queryMetrics.lastSlowQueryMs = $elapsedMs
+                }
                 $psqlExitCode = $LASTEXITCODE
                 $tableCount = 0
                 [void][int]::TryParse((([string]$psqlOutput).Trim()), [ref]$tableCount)
@@ -137,6 +177,9 @@ if (-not $PlanOnly -and $ok) {
                 $detail = if ($psqlExitCode -eq 0) { "requiredTables=$tableCount/10" } else { "requiredTables=unknown/10" }
                 $checks.Add((New-Check "postgres-required-tables" $checkOk $detail $reason))
                 $ok = $ok -and $psqlExitCode -eq 0 -and $tableCount -eq 10
+                if (-not $checkOk) {
+                    Add-QueryFailure $queryMetrics $reason
+                }
             } finally {
                 $env:PGPASSWORD = $oldPassword
             }
@@ -163,6 +206,7 @@ $resultObject = [ordered]@{
         circuitBreaker = "skip-open-during-backoff"
         reasonBuckets = @("ok", "runtime", "auth", "network", "tls", "schema", "path", "query")
     }
+    queryMetrics = $queryMetrics
     checks = $checks
     environment = $environment
 }

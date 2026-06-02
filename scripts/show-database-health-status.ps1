@@ -93,6 +93,12 @@ $environment = Get-JsonValue $health "environment" $null
 $driver = [string](Get-JsonValue $health "driver" (Get-JsonValue $config "driver" (Get-JsonValue $environment "QTNETWORKCHAT_DB_DRIVER" "unknown")))
 $status = [string](Get-JsonValue $health "status" "unknown")
 $ok = [bool](Get-JsonValue $health "ok" $false)
+$queryMetrics = Get-JsonValue $health "queryMetrics" $null
+$slowQueryThresholdMs = [int](Get-JsonValue $queryMetrics "slowQueryThresholdMs" 0)
+$slowQueryCount = [int](Get-JsonValue $queryMetrics "slowQueryCount" 0)
+$queryFailureCount = [int](Get-JsonValue $queryMetrics "queryFailureCount" 0)
+$lastSlowQueryMs = [int](Get-JsonValue $queryMetrics "lastSlowQueryMs" 0)
+$lastErrorReason = [string](Get-JsonValue $queryMetrics "lastErrorReason" "")
 if ($sensitiveHits.Count -gt 0) {
     $status = "unhealthy"
     $ok = $false
@@ -108,6 +114,13 @@ $summary = [ordered]@{
     driver = $driver
     checkCount = $checks.Count
     failedChecks = @($checks | Where-Object { -not $_.ok } | ForEach-Object { $_.name })
+    queryMetrics = [ordered]@{
+        slowQueryThresholdMs = $slowQueryThresholdMs
+        slowQueryCount = $slowQueryCount
+        queryFailureCount = $queryFailureCount
+        lastSlowQueryMs = $lastSlowQueryMs
+        lastErrorReason = $lastErrorReason
+    }
     sensitiveHits = @($sensitiveHits)
     checks = $checks
 }
@@ -134,6 +147,10 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("| ok | {0} |" -f (Format-Value $summary.ok)))
     $lines.Add(("| driver | {0} |" -f (Format-Value $summary.driver)))
     $lines.Add(("| checkCount | {0} |" -f (Format-Value $summary.checkCount)))
+    $lines.Add(("| slowQueryThresholdMs | {0} |" -f (Format-Value $summary.queryMetrics.slowQueryThresholdMs)))
+    $lines.Add(("| slowQueryCount | {0} |" -f (Format-Value $summary.queryMetrics.slowQueryCount)))
+    $lines.Add(("| queryFailureCount | {0} |" -f (Format-Value $summary.queryMetrics.queryFailureCount)))
+    $lines.Add(("| lastErrorReason | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorReason)))
     $lines.Add(("| sensitiveHits | {0} |" -f $summary.sensitiveHits.Count))
     $lines.Add("")
     $lines.Add("| check | ok | detail | reason |")

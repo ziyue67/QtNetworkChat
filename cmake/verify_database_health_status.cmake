@@ -20,7 +20,8 @@ file(WRITE "${HEALTH_JSON}"
     {\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"},
     {\"name\":\"ping\",\"ok\":true,\"detail\":\"SELECT 1\"},
     {\"name\":\"required-tables\",\"ok\":true,\"detail\":\"requiredTables=10/10\"}
-  ]
+  ],
+  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":1,\"queryFailureCount\":2,\"lastSlowQueryMs\":1800,\"lastErrorReason\":\"network\"}
 }
 ")
 
@@ -55,6 +56,9 @@ string(JSON status GET "${status_content}" "status")
 string(JSON ok GET "${status_content}" "ok")
 string(JSON driver GET "${status_content}" "driver")
 string(JSON check_count GET "${status_content}" "checkCount")
+string(JSON slow_query_count GET "${status_content}" "queryMetrics" "slowQueryCount")
+string(JSON query_failure_count GET "${status_content}" "queryMetrics" "queryFailureCount")
+string(JSON last_error_reason GET "${status_content}" "queryMetrics" "lastErrorReason")
 if(NOT format STREQUAL "qtnetworkchat-database-health-status-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected status format: ${format}")
@@ -71,6 +75,10 @@ if(NOT "${check_count}" STREQUAL "3")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected checkCount=3, got ${check_count}")
 endif()
+if((NOT slow_query_count EQUAL 1) OR (NOT query_failure_count EQUAL 2) OR (NOT last_error_reason STREQUAL "network"))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Status JSON should carry database query metrics")
+endif()
 string(FIND "${status_content}" "super-secret" leaked_secret)
 if(NOT leaked_secret EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -79,9 +87,10 @@ endif()
 file(READ "${STATUS_MD}" markdown_content)
 string(FIND "${markdown_content}" "Database Health" md_title)
 string(FIND "${markdown_content}" "required-tables" md_check)
-if(md_title EQUAL -1 OR md_check EQUAL -1)
+string(FIND "${markdown_content}" "queryFailureCount" md_query_failures)
+if(md_title EQUAL -1 OR md_check EQUAL -1 OR md_query_failures EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Markdown status is missing expected content")
+    message(FATAL_ERROR "Markdown status is missing expected content or query metrics")
 endif()
 
 file(WRITE "${BAD_HEALTH_JSON}"

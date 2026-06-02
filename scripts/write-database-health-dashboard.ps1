@@ -125,6 +125,13 @@ $statusOk = Normalize-Bool (Get-JsonValue $statusSummary "ok" $false)
 $healthStatus = [string](Get-JsonValue $health "status" "")
 $statusStatus = [string](Get-JsonValue $statusSummary "status" "")
 $driver = [string](Get-JsonValue $statusSummary "driver" (Get-JsonValue $health "driver" (Get-JsonValue (Get-JsonValue $health "config" $null) "driver" "unknown")))
+$healthQueryMetrics = Get-JsonValue $health "queryMetrics" $null
+$statusQueryMetrics = Get-JsonValue $statusSummary "queryMetrics" $null
+$slowQueryThresholdMs = [int](Get-JsonValue $statusQueryMetrics "slowQueryThresholdMs" (Get-JsonValue $healthQueryMetrics "slowQueryThresholdMs" 0))
+$slowQueryCount = [int](Get-JsonValue $statusQueryMetrics "slowQueryCount" (Get-JsonValue $healthQueryMetrics "slowQueryCount" 0))
+$queryFailureCount = [int](Get-JsonValue $statusQueryMetrics "queryFailureCount" (Get-JsonValue $healthQueryMetrics "queryFailureCount" 0))
+$lastSlowQueryMs = [int](Get-JsonValue $statusQueryMetrics "lastSlowQueryMs" (Get-JsonValue $healthQueryMetrics "lastSlowQueryMs" 0))
+$lastErrorReason = [string](Get-JsonValue $statusQueryMetrics "lastErrorReason" (Get-JsonValue $healthQueryMetrics "lastErrorReason" ""))
 $checks = @((Get-JsonValue $health "checks" (Get-JsonValue $statusSummary "checks" @())))
 $failedChecks = @()
 foreach ($check in $checks) {
@@ -139,6 +146,12 @@ foreach ($failedCheck in @((Get-JsonValue $statusSummary "failedChecks" @()))) {
 }
 if ($failedChecks.Count -gt 0) {
     [void]$warnings.Add("database-checks-failed")
+}
+if ($queryFailureCount -gt 0) {
+    [void]$warnings.Add("database-query-failures")
+}
+if ($slowQueryCount -gt 0) {
+    [void]$warnings.Add("database-slow-queries")
 }
 
 $hasHealthSignal = $null -ne $health -or $null -ne $statusSummary
@@ -162,6 +175,13 @@ $dashboard = [ordered]@{
     statusSummaryStatus = $statusStatus
     checkCount = $checks.Count
     failedChecks = @($failedChecks)
+    queryMetrics = [ordered]@{
+        slowQueryThresholdMs = $slowQueryThresholdMs
+        slowQueryCount = $slowQueryCount
+        queryFailureCount = $queryFailureCount
+        lastSlowQueryMs = $lastSlowQueryMs
+        lastErrorReason = $lastErrorReason
+    }
     warningCount = $warnings.Count
     warnings = @($warnings)
     sensitiveHits = @($sensitiveHits)
@@ -197,6 +217,10 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add(('- Driver: `{0}`' -f (Format-Value $dashboard.driver)))
     $lines.Add(('- Checks: `{0}`' -f $dashboard.checkCount))
     $lines.Add(('- Failed checks: `{0}`' -f (@($dashboard.failedChecks) -join ", ")))
+    $lines.Add(('- Slow query threshold ms: `{0}`' -f $dashboard.queryMetrics.slowQueryThresholdMs))
+    $lines.Add(('- Slow query count: `{0}`' -f $dashboard.queryMetrics.slowQueryCount))
+    $lines.Add(('- Query failure count: `{0}`' -f $dashboard.queryMetrics.queryFailureCount))
+    $lines.Add(('- Last error reason: `{0}`' -f (Format-Value $dashboard.queryMetrics.lastErrorReason)))
     $lines.Add(('- Warnings: `{0}`' -f $dashboard.warningCount))
     $lines.Add(('- Sensitive hits: `{0}`' -f @($dashboard.sensitiveHits).Count))
     $lines.Add(('- Task configured: `{0}`' -f (Format-Value $dashboard.taskConfigured)))

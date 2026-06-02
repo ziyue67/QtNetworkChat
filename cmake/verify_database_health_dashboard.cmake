@@ -10,6 +10,8 @@ set(DASHBOARD_JSON "${TEMP_DIR}/database-health-dashboard.json")
 set(DASHBOARD_MD "${TEMP_DIR}/database-health-dashboard.md")
 set(BAD_HEALTH_JSON "${TEMP_DIR}/database-health-sensitive.json")
 set(BAD_DASHBOARD_JSON "${TEMP_DIR}/bad-dashboard.json")
+set(METRICS_HEALTH_JSON "${TEMP_DIR}/database-health-query-metrics.json")
+set(METRICS_DASHBOARD_JSON "${TEMP_DIR}/metrics-dashboard.json")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY "${TEMP_DIR}")
 
@@ -23,7 +25,8 @@ file(WRITE "${HEALTH_JSON}"
     {\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"},
     {\"name\":\"ping\",\"ok\":true,\"detail\":\"SELECT 1\"},
     {\"name\":\"required-tables\",\"ok\":true,\"detail\":\"requiredTables=10/10\"}
-  ]
+  ],
+  \"queryMetrics\":{\"slowQueryThresholdMs\":1000,\"slowQueryCount\":0,\"queryFailureCount\":0,\"lastSlowQueryMs\":0,\"lastErrorReason\":\"\"}
 }
 ")
 file(WRITE "${STATUS_JSON}"
@@ -84,6 +87,8 @@ string(JSON check_count GET "${dashboard_content}" "checkCount")
 string(JSON warning_count GET "${dashboard_content}" "warningCount")
 string(JSON task_configured GET "${dashboard_content}" "taskConfigured")
 string(JSON password_source GET "${dashboard_content}" "passwordSource")
+string(JSON slow_query_count GET "${dashboard_content}" "queryMetrics" "slowQueryCount")
+string(JSON query_failure_count GET "${dashboard_content}" "queryMetrics" "queryFailureCount")
 if(NOT format STREQUAL "qtnetworkchat-database-health-dashboard-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected dashboard format: ${format}")
@@ -100,6 +105,10 @@ if(NOT "${warning_count}" STREQUAL "0")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected warningCount=0, got ${warning_count}")
 endif()
+if((NOT slow_query_count EQUAL 0) OR (NOT query_failure_count EQUAL 0))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Healthy dashboard should expose zero query metrics")
+endif()
 if(NOT task_configured OR NOT password_source STREQUAL "QTNETWORKCHAT_PGPASSWORD")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Dashboard should include task preview password source")
@@ -115,6 +124,46 @@ string(FIND "${markdown_content}" "QTNETWORKCHAT_PGPASSWORD" md_password_source)
 if(md_title EQUAL -1 OR md_password_source EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Dashboard Markdown is missing expected content")
+endif()
+
+file(WRITE "${METRICS_HEALTH_JSON}"
+"{
+  \"format\":\"qtnetworkchat-database-health-v1\",
+  \"status\":\"healthy\",
+  \"ok\":true,
+  \"config\":{\"driver\":\"QPSQL\",\"password\":\"<redacted>\"},
+  \"checks\":[{\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"}],
+  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":2,\"queryFailureCount\":1,\"lastSlowQueryMs\":2200,\"lastErrorReason\":\"query\"}
+}
+")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -HealthPath "${METRICS_HEALTH_JSON}"
+        -DashboardPath "${METRICS_DASHBOARD_JSON}"
+    RESULT_VARIABLE metrics_result
+    OUTPUT_VARIABLE metrics_output
+    ERROR_VARIABLE metrics_error
+)
+if(NOT metrics_result EQUAL 0 OR NOT EXISTS "${METRICS_DASHBOARD_JSON}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Query metrics dashboard run should write diagnostic JSON")
+endif()
+file(READ "${METRICS_DASHBOARD_JSON}" metrics_dashboard_content)
+string(JSON metrics_status GET "${metrics_dashboard_content}" "status")
+string(JSON metrics_ok GET "${metrics_dashboard_content}" "ok")
+string(JSON metrics_warning_count GET "${metrics_dashboard_content}" "warningCount")
+string(JSON metrics_slow_count GET "${metrics_dashboard_content}" "queryMetrics" "slowQueryCount")
+string(JSON metrics_failure_count GET "${metrics_dashboard_content}" "queryMetrics" "queryFailureCount")
+string(FIND "${metrics_dashboard_content}" "database-query-failures" metrics_failure_warning)
+string(FIND "${metrics_dashboard_content}" "database-slow-queries" metrics_slow_warning)
+if(NOT metrics_status STREQUAL "healthy" OR NOT metrics_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Query metrics alone should keep dashboard health status tied to checks")
+endif()
+if((NOT metrics_warning_count EQUAL 2) OR (NOT metrics_slow_count EQUAL 2) OR (NOT metrics_failure_count EQUAL 1)
+    OR metrics_failure_warning EQUAL -1 OR metrics_slow_warning EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Query metrics dashboard should surface slow query and query failure warnings")
 endif()
 
 file(WRITE "${BAD_HEALTH_JSON}"
