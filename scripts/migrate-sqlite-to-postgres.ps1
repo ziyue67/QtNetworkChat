@@ -48,6 +48,19 @@ function Get-RollbackKeyColumns {
     }
 }
 
+function Format-ReportValue {
+    param([object]$Value)
+    if ($null -eq $Value) {
+        return ""
+    }
+    return [string]$Value
+}
+
+function Escape-Html {
+    param([object]$Value)
+    return [System.Net.WebUtility]::HtmlEncode((Format-ReportValue $Value))
+}
+
 $migratorPath = Resolve-RepoPath $MigratorExe
 $sqliteFullPath = Resolve-RepoPath $SQLitePath
 $qtBinDir = Join-Path $QtRoot "bin"
@@ -120,6 +133,9 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
     $totalRows = [int64](($tables | Measure-Object -Property rows -Sum).Sum)
     $totalMissing = [int64](($tables | Measure-Object -Property missingRows -Sum).Sum)
     $totalRolledBack = [int64](($tables | Measure-Object -Property rolledBackRows -Sum).Sum)
+    $diffSummary = $migration.diffSummary
+    $severity = Format-ReportValue $diffSummary.severity
+    $recommendedAction = Format-ReportValue $diffSummary.recommendedAction
 
     if (-not [string]::IsNullOrWhiteSpace($markdownTarget)) {
         $parent = Split-Path -Parent $markdownTarget
@@ -134,6 +150,18 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         $lines.Add(("- Total source rows: {0}" -f $totalRows))
         $lines.Add(("- Missing rows: {0}" -f $totalMissing))
         $lines.Add(("- Rolled back rows: {0}" -f $totalRolledBack))
+        $lines.Add(("- Diff severity: {0}" -f $severity))
+        $lines.Add(("- Recommended action: {0}" -f $recommendedAction))
+        $lines.Add("")
+        $lines.Add("| Diff summary | Value |")
+        $lines.Add("|---|---:|")
+        $lines.Add(("| Tables | {0} |" -f $diffSummary.tableCount))
+        $lines.Add(("| Drift tables | {0} |" -f $diffSummary.driftTableCount))
+        $lines.Add(("| Missing tables | {0} |" -f $diffSummary.missingTableCount))
+        $lines.Add(("| Rollback tables | {0} |" -f $diffSummary.rollbackTableCount))
+        $lines.Add(("| Total PostgreSQL rows | {0} |" -f $diffSummary.totalPostgresRows))
+        $lines.Add(("| Total copied rows | {0} |" -f $diffSummary.totalCopiedRows))
+        $lines.Add(("| Total validated rows | {0} |" -f $diffSummary.totalValidatedRows))
         $lines.Add("")
         $lines.Add("| Table | Source rows | PostgreSQL rows | Copied | Validated | Missing | Rolled back | Diff |")
         $lines.Add("|---|---:|---:|---:|---:|---:|---:|---|")
@@ -148,16 +176,28 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         $parent = Split-Path -Parent $htmlTarget
         if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
         $rows = foreach ($table in $tables) {
-            "<tr><td>$($table.name)</td><td>$($table.rows)</td><td>$($table.postgresRows)</td><td>$($table.copiedRows)</td><td>$($table.validatedRows)</td><td>$($table.missingRows)</td><td>$($table.rolledBackRows)</td><td>$($table.diffStatus)</td></tr>"
+            "<tr><td>$(Escape-Html $table.name)</td><td>$(Escape-Html $table.rows)</td><td>$(Escape-Html $table.postgresRows)</td><td>$(Escape-Html $table.copiedRows)</td><td>$(Escape-Html $table.validatedRows)</td><td>$(Escape-Html $table.missingRows)</td><td>$(Escape-Html $table.rolledBackRows)</td><td>$(Escape-Html $table.diffStatus)</td></tr>"
         }
         $html = @(
             "<!doctype html>",
             "<html lang=""en""><head><meta charset=""utf-8""><title>SQLite to PostgreSQL Migration Report</title></head>",
             "<body>",
             "<h1>SQLite to PostgreSQL Migration Report</h1>",
-            "<p>Mode: <code>$($migration.mode)</code> Status: <code>$($migration.status)</code> OK: <code>$($migration.ok)</code></p>",
-            "<p>PostgreSQL password: <code>$($migration.postgresPassword)</code></p>",
-            "<p>Total source rows: <code>$totalRows</code> Missing rows: <code>$totalMissing</code> Rolled back rows: <code>$totalRolledBack</code></p>",
+            "<p>Mode: <code>$(Escape-Html $migration.mode)</code> Status: <code>$(Escape-Html $migration.status)</code> OK: <code>$(Escape-Html $migration.ok)</code></p>",
+            "<p>PostgreSQL password: <code>$(Escape-Html $migration.postgresPassword)</code></p>",
+            "<p>Total source rows: <code>$(Escape-Html $totalRows)</code> Missing rows: <code>$(Escape-Html $totalMissing)</code> Rolled back rows: <code>$(Escape-Html $totalRolledBack)</code></p>",
+            "<h2>Diff Summary</h2>",
+            "<p>Severity: <code>$(Escape-Html $severity)</code></p>",
+            "<p>Recommended action: <code>$(Escape-Html $recommendedAction)</code></p>",
+            "<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>",
+            "<tr><td>Tables</td><td>$(Escape-Html $diffSummary.tableCount)</td></tr>",
+            "<tr><td>Drift tables</td><td>$(Escape-Html $diffSummary.driftTableCount)</td></tr>",
+            "<tr><td>Missing tables</td><td>$(Escape-Html $diffSummary.missingTableCount)</td></tr>",
+            "<tr><td>Rollback tables</td><td>$(Escape-Html $diffSummary.rollbackTableCount)</td></tr>",
+            "<tr><td>Total PostgreSQL rows</td><td>$(Escape-Html $diffSummary.totalPostgresRows)</td></tr>",
+            "<tr><td>Total copied rows</td><td>$(Escape-Html $diffSummary.totalCopiedRows)</td></tr>",
+            "<tr><td>Total validated rows</td><td>$(Escape-Html $diffSummary.totalValidatedRows)</td></tr>",
+            "</tbody></table>",
             "<table><thead><tr><th>Table</th><th>Source rows</th><th>PostgreSQL rows</th><th>Copied</th><th>Validated</th><th>Missing</th><th>Rolled back</th><th>Diff</th></tr></thead><tbody>",
             ($rows -join [Environment]::NewLine),
             "</tbody></table>",

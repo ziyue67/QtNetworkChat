@@ -228,6 +228,74 @@ bool tableExists(QSqlDatabase& db, const QString& table) {
     return db.tables().contains(table, Qt::CaseInsensitive);
 }
 
+QJsonObject buildDiffSummary(const QJsonArray& tables, const QString& mode, bool migrationOk) {
+    qint64 totalSourceRows = 0;
+    qint64 totalPostgresRows = 0;
+    qint64 totalCopiedRows = 0;
+    qint64 totalValidatedRows = 0;
+    qint64 totalMissingRows = 0;
+    qint64 totalRolledBackRows = 0;
+    QStringList driftTables;
+    QStringList missingTables;
+    QStringList rollbackTables;
+
+    for (const QJsonValue& value : tables) {
+        const QJsonObject table = value.toObject();
+        const QString name = table.value("name").toString();
+        const qint64 sourceRows = table.value("rows").toVariant().toLongLong();
+        const qint64 postgresRows = table.value("postgresRows").toVariant().toLongLong();
+        const qint64 copiedRows = table.value("copiedRows").toVariant().toLongLong();
+        const qint64 validatedRows = table.value("validatedRows").toVariant().toLongLong();
+        const qint64 missingRows = table.value("missingRows").toVariant().toLongLong();
+        const qint64 rolledBackRows = table.value("rolledBackRows").toVariant().toLongLong();
+
+        totalSourceRows += sourceRows;
+        totalPostgresRows += postgresRows;
+        totalCopiedRows += copiedRows;
+        totalValidatedRows += validatedRows;
+        totalMissingRows += missingRows;
+        totalRolledBackRows += rolledBackRows;
+
+        if (table.value("diffStatus").toString() == QStringLiteral("drift")) driftTables << name;
+        if (missingRows > 0) missingTables << name;
+        if (rolledBackRows > 0) rollbackTables << name;
+    }
+
+    QString severity = QStringLiteral("ok");
+    QString recommendedAction = QStringLiteral("No migration drift detected.");
+    if (!migrationOk) {
+        severity = QStringLiteral("critical");
+        recommendedAction = QStringLiteral("Stop cutover and inspect table errors before retrying.");
+    } else if (totalMissingRows > 0) {
+        severity = QStringLiteral("critical");
+        recommendedAction = QStringLiteral("Keep SQLite as the source of truth, rerun execute or inspect missing keys before PostgreSQL cutover.");
+    } else if (mode == QStringLiteral("diff") && !driftTables.isEmpty()) {
+        severity = QStringLiteral("warning");
+        recommendedAction = QStringLiteral("Review drift tables before promoting PostgreSQL.");
+    } else if (totalRolledBackRows > 0) {
+        severity = QStringLiteral("review");
+        recommendedAction = QStringLiteral("Verify rollback scope against the dry-run preview and rerun validate after rollback.");
+    }
+
+    QJsonObject summary;
+    summary["tableCount"] = tables.size();
+    summary["totalSourceRows"] = QString::number(totalSourceRows);
+    summary["totalPostgresRows"] = QString::number(totalPostgresRows);
+    summary["totalCopiedRows"] = QString::number(totalCopiedRows);
+    summary["totalValidatedRows"] = QString::number(totalValidatedRows);
+    summary["totalMissingRows"] = QString::number(totalMissingRows);
+    summary["totalRolledBackRows"] = QString::number(totalRolledBackRows);
+    summary["driftTableCount"] = driftTables.size();
+    summary["missingTableCount"] = missingTables.size();
+    summary["rollbackTableCount"] = rollbackTables.size();
+    summary["driftTables"] = QJsonArray::fromStringList(driftTables);
+    summary["missingTables"] = QJsonArray::fromStringList(missingTables);
+    summary["rollbackTables"] = QJsonArray::fromStringList(rollbackTables);
+    summary["severity"] = severity;
+    summary["recommendedAction"] = recommendedAction;
+    return summary;
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     Options options;
@@ -392,6 +460,7 @@ int main(int argc, char** argv) {
     QSqlDatabase::removeDatabase("sqlite_migration_pg_target");
 
     result["tables"] = tables;
+    result["diffSummary"] = buildDiffSummary(tables, options.mode, result["ok"].toBool(false));
     const QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Indented);
     if (!options.jsonPath.isEmpty()) {
         QDir().mkpath(QFileInfo(options.jsonPath).absolutePath());
