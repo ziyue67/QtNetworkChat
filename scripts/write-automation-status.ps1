@@ -40,8 +40,10 @@ function Resolve-RepoPath([string]$PathValue) {
 function Invoke-GitText([string[]]$Arguments) {
     $output = & git @Arguments 2>$null
     if ($LASTEXITCODE -ne 0) {
+        $global:LASTEXITCODE = 0
         return ""
     }
+    $global:LASTEXITCODE = 0
     ([string]$output).Trim()
 }
 
@@ -142,3 +144,5 @@ if (-not $PlanOnly) {
 } else {
     $lines -join [Environment]::NewLine
 }
+
+exit 0
