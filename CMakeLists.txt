@@ -627,9 +627,9 @@ if(BUILD_TESTING)
     )
     add_test(
         NAME AutomationStatus
-        COMMAND ${CMAKE_COMMAND}
-            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-automation-status.ps1
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_automation_status.cmake
+        COMMAND powershell -ExecutionPolicy Bypass -File
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-automation-status.ps1
+            -ScriptPath ${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-automation-status.ps1
     )
     add_test(
         NAME AutomationTaskHistory

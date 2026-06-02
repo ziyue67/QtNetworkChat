@@ -15,6 +15,7 @@ param(
     [string]$LargeFileGovernanceLastRunPath,
     [string]$LargeFileGovernanceTaskPreviewPath,
     [string]$AutomationTaskHistoryPath,
+    [string]$AutomationTaskAckPath,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
     [switch]$PlanOnly,
     [switch]$FailOnSensitive
@@ -79,15 +80,27 @@ function Read-JsonSummary([string]$PathValue) {
     if ([string]::IsNullOrWhiteSpace($PathValue)) {
         return $null
     }
-    $resolvedPath = Resolve-RepoPath $PathValue
+    try {
+        $resolvedPath = Resolve-RepoPath $PathValue
+    } catch {
+        return $null
+    }
     if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
         return $null
     }
-    $raw = Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8
+    try {
+        $raw = Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        return $null
+    }
     if ([string]::IsNullOrWhiteSpace($raw)) {
         return $null
     }
-    $raw | ConvertFrom-Json
+    try {
+        $raw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        $null
+    }
 }
 
 function Resolve-PreviewValue([string]$PreviewPath, [string]$PropertyName) {
@@ -126,15 +139,32 @@ function Format-StatusValue([object]$Value) {
     $text
 }
 
+function Has-ConfigurationHint([string[]]$Values) {
+    foreach ($value in $Values) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            return $true
+        }
+    }
+    $false
+}
+
 function Read-LastRunSummary([string]$PathValue) {
     if ([string]::IsNullOrWhiteSpace($PathValue)) {
         return $null
     }
-    $resolvedPath = Resolve-RepoPath $PathValue
+    try {
+        $resolvedPath = Resolve-RepoPath $PathValue
+    } catch {
+        return $null
+    }
     if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
         return $null
     }
-    $text = (Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8).Trim()
+    try {
+        $text = (Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8 -ErrorAction Stop).Trim()
+    } catch {
+        return $null
+    }
     if ([string]::IsNullOrWhiteSpace($text)) {
         return $null
     }
@@ -187,6 +217,12 @@ if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
         $AutomationTaskHistoryPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "historyPath"
     }
 }
+if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
+    $AutomationTaskAckPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "ackPath"
+    if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
+        $AutomationTaskAckPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "ackPath"
+    }
+}
 
 $normalizedProtectedUntracked = @()
 foreach ($entry in $ProtectedUntracked) {
@@ -204,6 +240,7 @@ $databaseHealthLastRun = Read-LastRunSummary $DatabaseHealthLastRunPath
 $largeFileGovernanceStatus = Read-JsonSummary $LargeFileGovernanceStatusPath
 $largeFileGovernanceLastRun = Read-LastRunSummary $LargeFileGovernanceLastRunPath
 $automationTaskHistory = Read-JsonSummary $AutomationTaskHistoryPath
+$automationTaskAck = Read-JsonSummary $AutomationTaskAckPath
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add("# QtNetworkChat Automation Status")
@@ -235,7 +272,11 @@ $lines.Add("")
 $lines.Add("## Scheduled Task Readback")
 $lines.Add("")
 if ($null -eq $databaseHealthStatus) {
-    $lines.Add('- Database health: `not configured`')
+    if (Has-ConfigurationHint @($DatabaseHealthStatusPath, $DatabaseHealthLastRunPath, $DatabaseHealthTaskPreviewPath)) {
+        $lines.Add('- Database health: `configured but status artifact missing`')
+    } else {
+        $lines.Add('- Database health: `not configured`')
+    }
 } else {
     $dbQueryMetrics = Get-JsonValue $databaseHealthStatus "queryMetrics" $null
     $dbFailedChecks = @((Get-JsonValue $databaseHealthStatus "failedChecks" @()))
@@ -254,7 +295,11 @@ if ($null -ne $databaseHealthLastRun) {
             (Format-StatusValue $databaseHealthLastRun.exitCode)))
 }
 if ($null -eq $largeFileGovernanceStatus) {
-    $lines.Add('- Large-file governance: `not configured`')
+    if (Has-ConfigurationHint @($LargeFileGovernanceStatusPath, $LargeFileGovernanceLastRunPath, $LargeFileGovernanceTaskPreviewPath)) {
+        $lines.Add('- Large-file governance: `configured but status artifact missing`')
+    } else {
+        $lines.Add('- Large-file governance: `not configured`')
+    }
 } else {
     $governanceGapAreas = @((Get-JsonValue $largeFileGovernanceStatus "s3CoverageActionableGapAreas" @()))
     $lines.Add(('- Large-file governance: status=`{0}`, ok=`{1}`, warnings=`{2}`, alerts=`{3}`, actionableS3Gaps=`{4}`' -f
@@ -269,7 +314,13 @@ if ($null -ne $largeFileGovernanceLastRun) {
             (Format-StatusValue $largeFileGovernanceLastRun.timestamp),
             (Format-StatusValue $largeFileGovernanceLastRun.exitCode)))
 }
-if ($null -ne $automationTaskHistory) {
+if ($null -eq $automationTaskHistory) {
+    if (Has-ConfigurationHint @($AutomationTaskHistoryPath, $AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath)) {
+        $lines.Add('- Task history: `configured but history artifact missing`')
+    } else {
+        $lines.Add('- Task history: `not configured`')
+    }
+} else {
     $historyLatestRun = Get-JsonValue $automationTaskHistory "latestRun" $null
     $lines.Add(('- Task history: runs=`{0}`, failed=`{1}`, latestAt=`{2}`, latestExitCode=`{3}`, acknowledged=`{4}`, ackExpired=`{5}`' -f
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "runCount" "unknown")),
@@ -278,6 +329,17 @@ if ($null -ne $automationTaskHistory) {
             (Format-StatusValue (Get-JsonValue $historyLatestRun "exitCode" "unknown")),
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "acknowledged" $null)),
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "ackExpired" $null))))
+}
+if ($null -eq $automationTaskAck) {
+    if (Has-ConfigurationHint @($AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath)) {
+        $lines.Add('- Task acknowledgement: `configured but ack artifact missing`')
+    }
+} else {
+    $lines.Add(('- Task acknowledgement: acknowledged=`{0}`, by=`{1}`, at=`{2}`, reason=`{3}`' -f
+            (Format-StatusValue (Get-JsonValue $automationTaskAck "acknowledged" $null)),
+            (Format-StatusValue (Get-JsonValue $automationTaskAck "acknowledgedBy" "unknown")),
+            (Format-StatusValue (Get-JsonValue $automationTaskAck "acknowledgedAt" "unknown")),
+            (Format-StatusValue (Get-JsonValue $automationTaskAck "reason" "unknown"))))
 }
 $lines.Add("")
 $lines.Add("## Priority Backlog")
