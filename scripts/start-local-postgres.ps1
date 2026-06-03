@@ -30,6 +30,44 @@ function New-Check {
     }
 }
 
+function Get-BootstrapOperatorAction {
+    param(
+        [bool]$PlanOnly,
+        [bool]$Ok,
+        [bool]$Initialized,
+        [bool]$DatabaseReady
+    )
+
+    if (-not $Ok) {
+        return "Fix PostgreSQL bootstrap prerequisites before attempting local startup."
+    }
+    if ($PlanOnly) {
+        return "Local PostgreSQL bootstrap prerequisites look ready; next run can start or reuse the target instance."
+    }
+    if (-not $Initialized) {
+        return "Review initdb output and data directory permissions before retrying local PostgreSQL bootstrap."
+    }
+    if (-not $DatabaseReady) {
+        return "Review pg_ctl and psql output before trusting the local PostgreSQL bootstrap."
+    }
+    "Archive the redacted bootstrap evidence and use it for local PostgreSQL smoke readiness review."
+}
+
+function Get-BootstrapReleaseGate {
+    param(
+        [bool]$PlanOnly,
+        [string]$Readiness
+    )
+
+    if ($Readiness -eq "blocked") {
+        return "blocked"
+    }
+    if ($PlanOnly) {
+        return "await-local-bootstrap-run"
+    }
+    "can-run-pgsql-smoke"
+}
+
 $pgBin = Resolve-RepoPath $PostgresBinDir
 $dataPath = Resolve-RepoPath $DataDir
 $logFile = Resolve-RepoPath $LogPath
@@ -64,6 +102,20 @@ $result = [ordered]@{
     initialized = Test-Path -LiteralPath (Join-Path $dataPath "PG_VERSION") -PathType Leaf
     started = $false
     databaseReady = $false
+}
+$result.summary = [ordered]@{
+    readiness = if ($result.ok) { "ready" } else { "blocked" }
+    failedCheckCount = @($checks | Where-Object { -not $_.ok }).Count
+    operatorAction = Get-BootstrapOperatorAction -PlanOnly ([bool]$PlanOnly) -Ok ([bool]$result.ok) -Initialized ([bool]$result.initialized) -DatabaseReady ([bool]$result.databaseReady)
+}
+$result.auditSummary = [ordered]@{
+    releaseGate = Get-BootstrapReleaseGate -PlanOnly ([bool]$PlanOnly) -Readiness $result.summary.readiness
+    evidenceBundle = @("json", "bootstrap-checks")
+    bootstrapMode = if ($PlanOnly) { "plan" } else { "local-runtime" }
+    dataDirectoryExists = Test-Path -LiteralPath $dataPath -PathType Container
+    logDirectoryExists = Test-Path -LiteralPath (Split-Path -Parent $logFile) -PathType Container
+    requiresPassword = (-not [bool]$PlanOnly)
+    auditFocus = @("bootstrap-prerequisites", "local-runtime-paths")
 }
 
 if (-not $PlanOnly) {
@@ -105,6 +157,11 @@ if (-not $PlanOnly) {
             & $psqlPath -h $HostAddress -p $Port -U $User -d $Database -tAc "select 1" | Out-Null
             $result.databaseReady = $LASTEXITCODE -eq 0
             $result.ok = [bool]$result.databaseReady
+            $result.summary.readiness = if ($result.ok) { "verified" } else { "blocked" }
+            $result.summary.operatorAction = Get-BootstrapOperatorAction -PlanOnly $false -Ok ([bool]$result.ok) -Initialized ([bool]$result.initialized) -DatabaseReady ([bool]$result.databaseReady)
+            $result.auditSummary.releaseGate = Get-BootstrapReleaseGate -PlanOnly $false -Readiness $result.summary.readiness
+            $result.auditSummary.dataDirectoryExists = Test-Path -LiteralPath $dataPath -PathType Container
+            $result.auditSummary.logDirectoryExists = Test-Path -LiteralPath (Split-Path -Parent $logFile) -PathType Container
         } finally {
             $env:PGPASSWORD = $oldPassword
             $PSNativeCommandUseErrorActionPreference = $oldNativePreference
