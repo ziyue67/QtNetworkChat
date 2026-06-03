@@ -5939,6 +5939,10 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* copyE2EStatusAction = menu.addAction("复制加密状态");
     QAction* copyE2EIdentityAction = menu.addAction("复制加密身份指纹");
     QAction* trustE2EIdentityAction = menu.addAction("信任加密身份");
+    const QJsonObject currentE2EIdentity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
+    QAction* clearE2EIdentityTrustAction = currentE2EIdentity.value("pinned").toBool(false)
+        ? menu.addAction("清除加密身份信任")
+        : nullptr;
     QAction* requestE2ERotationAction = menu.addAction("请求加密轮换");
     QAction* clearE2ESessionAction = m_client && m_client->hasE2ESession(userId) ? menu.addAction("关闭本机会话密钥") : nullptr;
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
@@ -5964,6 +5968,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     describeUserAction(copyE2EStatusAction, "复制当前联系人端到端加密会话状态");
     describeUserAction(copyE2EIdentityAction, "复制本机记录的联系人端到端加密身份指纹");
     describeUserAction(trustE2EIdentityAction, "将当前记录的联系人端到端加密身份指纹固定为本机信任");
+    describeUserAction(clearE2EIdentityTrustAction, "清除当前联系人端到端加密身份固定信任并恢复为未验证");
     describeUserAction(requestE2ERotationAction, "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥");
     describeUserAction(clearE2ESessionAction, "清除本机为该联系人保存的端到端会话密钥");
     describeUserAction(inviteCurrentGroupAction, "邀请当前联系人加入正在查看的本地群聊");
@@ -6029,6 +6034,15 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         } else {
             appendSystemMessage(QString("信任端到端加密身份失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
             ui->statusbar->showMessage("信任端到端加密身份失败", 3000);
+        }
+    } else if (selected == clearE2EIdentityTrustAction) {
+        QString rejectReason;
+        if (m_client && m_client->clearE2EPeerIdentityPin(userId, &rejectReason)) {
+            appendSystemMessage(QString("已清除 %1 的端到端加密身份信任固定").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage("端到端加密身份信任已清除", 2400);
+        } else {
+            appendSystemMessage(QString("清除端到端加密身份信任失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage("清除端到端加密身份信任失败", 3000);
         }
     } else if (selected == requestE2ERotationAction) {
         QString rejectReason;
@@ -8166,9 +8180,10 @@ QString MainWindow::e2eSessionStatusText(const QString& peerId) const {
     const QJsonObject status = m_client->e2eSessionStatus(peerId);
     const QJsonObject identity = m_client->e2ePeerIdentityStatus(peerId);
     const QString identityLine = identity.value("configured").toBool(false)
-        ? QString("\n身份信任：%1\n身份指纹：%2")
+        ? QString("\n身份信任：%1\n身份指纹：%2\n信任持久化：%3")
             .arg(identity.value("trustState").toString(),
-                 identity.value("publicKeyFingerprintSha256").toString().left(16))
+                 identity.value("publicKeyFingerprintSha256").toString().left(16),
+                 identity.value("pinPersisted").toBool(false) ? QStringLiteral("yes") : QStringLiteral("no"))
         : QStringLiteral("\n身份信任：unknown\n身份指纹：未收到");
     const QString state = status.value("state").toString();
     if (state == QLatin1String("ready")) {

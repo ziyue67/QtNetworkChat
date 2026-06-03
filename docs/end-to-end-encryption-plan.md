@@ -12,11 +12,17 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 - The server validates shape and routing, then forwards only public agreement material. It does not cache identity keys, session keys, or private material.
 - This is still a draft productization step using Qt primitives for testable authenticated agreement semantics; it is not yet a signed, cross-device, audited production cryptographic suite.
 
+## Current Trust Persistence Boundary
+
+- Local E2E identity private material is persisted per local account under the app data directory, so a restart keeps the same advertised public-key fingerprint instead of breaking previously pinned peers.
+- Peer trust pins are persisted per local account as SHA-256 fingerprints only. The trust store does not contain peer public keys, local private agreement material, session keys, passwords, tokens, or server endpoints.
+- A newly observed peer identity is automatically marked `trusted` when it matches a persisted pin, and `mismatch` when it conflicts with the persisted pin.
+- The contact context menu can clear a persisted trust pin and recover the peer to `unverified` without deleting the latest observed identity.
+
 ## Remaining Work
 
 - Replace the draft agreement primitive with a reviewed production cryptographic backend and signed identity keys.
 - Add cross-device verification UX.
-- Persist trusted identity pins with migration and recovery controls.
-- Add a default-enable policy with operator/user recovery gates.
+- Add migration checks for older or corrupted identity/pin stores and an explicit default-enable policy with operator/user recovery gates.
 - Migrate existing private-message history into explicit encrypted/plaintext states.
 - Encrypt file content or chunks with the same fail-closed identity binding.

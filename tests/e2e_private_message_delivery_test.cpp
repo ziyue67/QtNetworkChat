@@ -75,6 +75,16 @@ bool registerClient(Client& client,
     if (!client.connectToServer("127.0.0.1", port)) return false;
     return client.waitForLoginResult(5000);
 }
+
+bool loginClient(Client& client,
+                 const QString& account,
+                 const QString& userName,
+                 quint16 port) {
+    client.setUserInfo(account, userName);
+    client.setAccountInfo(account, "secret", false);
+    if (!client.connectToServer("127.0.0.1", port)) return false;
+    return client.waitForLoginResult(5000);
+}
 }
 
 int main(int argc, char** argv) {
@@ -189,8 +199,9 @@ int main(int argc, char** argv) {
         ok = expect(alice.pinE2EPeerIdentity(bobId,
                                              aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString(),
                                              &rejectReason)
-                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("trusted"),
-                    "pinning the observed e2e identity fingerprint should mark the peer trusted") && ok;
+                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("trusted")
+                        && alice.e2ePeerIdentityStatus(bobId).value("pinPersisted").toBool(false),
+                    "pinning the observed e2e identity fingerprint should persist trusted state") && ok;
         ok = expect(!alice.announceE2EIdentity(aliceId, &rejectReason)
                         && rejectReason == QStringLiteral("invalid-peer"),
                     "clients should reject self-targeted e2e identity announcements") && ok;
@@ -353,6 +364,51 @@ int main(int argc, char** argv) {
         disconnectClient(alice);
         disconnectClient(bob);
         disconnectClient(mallory);
+
+        Client aliceRestarted;
+        Client bobRestarted;
+        QJsonObject restartedAliceSawBobIdentity;
+        QObject::connect(&aliceRestarted, &Client::e2eIdentityStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
+            if (peerId == bobId) {
+                restartedAliceSawBobIdentity = status;
+            }
+        });
+        ok = expect(loginClient(aliceRestarted, aliceId, "Alice", port),
+                    "restarted alice should log in with the same app data") && ok;
+        ok = expect(loginClient(bobRestarted, bobId, "Bob", port),
+                    "restarted bob should log in with the same app data") && ok;
+        ok = expect(waitFor([&] {
+            return restartedAliceSawBobIdentity.value("trustState").toString() == QStringLiteral("trusted")
+                && restartedAliceSawBobIdentity.value("pinPersisted").toBool(false)
+                && restartedAliceSawBobIdentity.value("publicKeyFingerprintSha256").toString()
+                    == aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString();
+        }), "restarted alice should restore the persisted e2e trust pin for bob") && ok;
+        ok = expect(aliceRestarted.clearE2EPeerIdentityPin(bobId, &rejectReason)
+                        && aliceRestarted.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("unverified")
+                        && !aliceRestarted.e2ePeerIdentityStatus(bobId).value("pinPersisted").toBool(true),
+                    "clearing an e2e trust pin should recover the peer to unverified state") && ok;
+        disconnectClient(aliceRestarted);
+        disconnectClient(bobRestarted);
+
+        Client aliceAfterClear;
+        Client bobAfterClear;
+        QJsonObject afterClearAliceSawBobIdentity;
+        QObject::connect(&aliceAfterClear, &Client::e2eIdentityStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
+            if (peerId == bobId) {
+                afterClearAliceSawBobIdentity = status;
+            }
+        });
+        ok = expect(loginClient(aliceAfterClear, aliceId, "Alice", port),
+                    "alice should log in after clearing persisted trust") && ok;
+        ok = expect(loginClient(bobAfterClear, bobId, "Bob", port),
+                    "bob should log in after clearing persisted trust") && ok;
+        ok = expect(waitFor([&] {
+            return afterClearAliceSawBobIdentity.value("publicKeyFingerprintSha256").toString().size() == 64
+                && afterClearAliceSawBobIdentity.value("trustState").toString() == QStringLiteral("unverified")
+                && !afterClearAliceSawBobIdentity.value("pinPersisted").toBool(false);
+        }), "cleared e2e trust pin should stay cleared across another restart") && ok;
+        disconnectClient(aliceAfterClear);
+        disconnectClient(bobAfterClear);
         server.stop();
         drainEvents();
     }

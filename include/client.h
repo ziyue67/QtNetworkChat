@@ -33,6 +33,7 @@ public:
     void setE2ESessionMessageLimitForTesting(int limit);
     bool announceE2EIdentity(const QString& peerId = QString(), QString* rejectReason = nullptr);
     bool pinE2EPeerIdentity(const QString& peerId, const QString& expectedFingerprint = QString(), QString* rejectReason = nullptr);
+    bool clearE2EPeerIdentityPin(const QString& peerId, QString* rejectReason = nullptr);
     bool requestE2ESessionRotation(const QString& peerId, QString* rejectReason = nullptr);
     bool respondE2ESessionRotation(const QString& peerId,
                                    const QString& keyId,
@@ -165,6 +166,10 @@ private:
                                         qint64* chunkCount = nullptr,
                                         QString* fileHash = nullptr);
     void cleanupExpiredIncomingFileTransfers();
+    void loadOrCreateE2ELocalIdentity();
+    bool saveE2ELocalIdentity(QString* rejectReason = nullptr) const;
+    void loadE2ETrustPins();
+    bool saveE2ETrustPins(QString* rejectReason = nullptr) const;
     bool populateE2EAgreementIdentityFingerprints(const QString& peerId,
                                                   E2EKeyAgreement* agreement,
                                                   QString* rejectReason) const;
@@ -192,6 +197,8 @@ private:
         QString pinnedFingerprint;
         bool fingerprintMismatch = false;
     };
+
+    void applyE2EStoredTrustPin(const QString& peerId, E2EPeerIdentity* peerIdentity) const;
 
     struct E2EPendingAgreement {
         E2EKeyAgreement agreement;
@@ -240,6 +247,7 @@ private:
     QByteArray m_e2eIdentityPrivateKey;
     QByteArray m_e2eIdentityPublicKey;
     QMap<QString, E2EPeerIdentity> m_e2ePeerIdentities;
+    QMap<QString, QString> m_e2eStoredTrustPins;
     QMap<QString, E2EPendingAgreement> m_e2ePendingOutgoingAgreements;
     QMap<QString, E2EPendingAgreement> m_e2ePendingIncomingAgreements;
     int m_e2eSessionMessageLimit;
