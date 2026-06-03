@@ -100,6 +100,9 @@ string(JSON pg_pool_enabled GET "${pg_json}" "reconnectPolicy" "poolEnabled")
 string(JSON pg_backoff_ms GET "${pg_json}" "reconnectPolicy" "backoffMs")
 string(JSON pg_thread_ownership GET "${pg_json}" "reconnectPolicy" "threadPolicy" "connectionOwnership")
 string(JSON pg_cross_thread_reuse GET "${pg_json}" "reconnectPolicy" "threadPolicy" "crossThreadReuse")
+string(JSON pg_checkout_scope GET "${pg_json}" "reconnectPolicy" "threadPolicy" "checkoutScope")
+string(JSON pg_release_scope GET "${pg_json}" "reconnectPolicy" "threadPolicy" "releaseScope")
+string(JSON pg_thread_governance GET "${pg_json}" "reconnectPolicy" "threadPolicy" "governance")
 string(JSON pg_reason_network GET "${pg_json}" "reconnectPolicy" "reasonBuckets" 3)
 string(JSON pg_slow_query_threshold GET "${pg_json}" "queryMetrics" "slowQueryThresholdMs")
 string(JSON pg_query_failures GET "${pg_json}" "queryMetrics" "queryFailureCount")
@@ -127,7 +130,10 @@ if((NOT "${pg_pool_env}" STREQUAL "1") OR (NOT pg_pool_enabled) OR (NOT pg_backo
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL database health should expose pool/backoff policy")
 endif()
-if(NOT pg_thread_ownership STREQUAL "thread-affine pooled connections" OR pg_cross_thread_reuse)
+if(NOT pg_thread_ownership STREQUAL "thread-affine pooled connections" OR pg_cross_thread_reuse
+    OR NOT pg_checkout_scope STREQUAL "connection-name plus owning thread"
+    OR NOT pg_release_scope STREQUAL "same thread that checked out or created the connection"
+    OR NOT pg_thread_governance MATCHES "cross-thread checkout")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL database health should expose thread-affine pooled connection policy")
 endif()

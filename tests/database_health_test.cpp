@@ -97,6 +97,16 @@ int main(int argc, char** argv) {
                     && pool.contains("overflowConnectionsClosed")
                     && pool.contains("pooledConnections"),
                 "database health pool metrics should expose idle and overflow cleanup counters") && ok;
+    ok = expect(pool.contains("crossThreadCheckoutPrevented")
+                    && pool.contains("crossThreadReleaseDetected")
+                    && pool.contains("peakPooledConnections")
+                    && pool.contains("pooledConnectionThreadCount"),
+                "database health pool metrics should expose cross-thread and peak pool counters") && ok;
+    const QJsonObject poolThreadPolicy = pool.value("threadPolicy").toObject();
+    ok = expect(poolThreadPolicy.value("crossThreadReuse").toBool(true) == false
+                    && poolThreadPolicy.value("checkoutScope").toString() == "not-applicable"
+                    && poolThreadPolicy.value("releaseScope").toString() == "not-applicable",
+                "SQLite database health should expose direct-open thread policy") && ok;
     ok = expect(pool.value("queryAttempts").toString().toLongLong() >= 1
                     && pool.value("queryFailures").toString() == "0"
                     && pool.value("lastQueryFailureReason").toString() == "ok",

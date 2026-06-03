@@ -102,7 +102,11 @@ $lastErrorReason = [string](Get-JsonValue $queryMetrics "lastErrorReason" "")
 $lastErrorCheck = [string](Get-JsonValue $queryMetrics "lastErrorCheck" "")
 $lastErrorSample = [string](Get-JsonValue $queryMetrics "lastErrorSample" "")
 $reconnectPolicy = Get-JsonValue $health "reconnectPolicy" $null
+$poolMetrics = Get-JsonValue $health "pool" $null
 $threadPolicy = Get-JsonValue $reconnectPolicy "threadPolicy" $null
+if ($null -eq $threadPolicy) {
+    $threadPolicy = Get-JsonValue $poolMetrics "threadPolicy" $null
+}
 if ($sensitiveHits.Count -gt 0) {
     $status = "unhealthy"
     $ok = $false
@@ -134,11 +138,20 @@ $summary = [ordered]@{
         idleMs = Get-JsonValue $reconnectPolicy "idleMs" $null
         backoffMs = Get-JsonValue $reconnectPolicy "backoffMs" $null
         slowQueryMs = Get-JsonValue $reconnectPolicy "slowQueryMs" $null
+        pooledConnections = Get-JsonValue $poolMetrics "pooledConnections" $null
+        pooledConnectionThreadCount = Get-JsonValue $poolMetrics "pooledConnectionThreadCount" $null
+        peakPooledConnections = Get-JsonValue $poolMetrics "peakPooledConnections" $null
+        idleConnectionsClosed = Get-JsonValue $poolMetrics "idleConnectionsClosed" $null
+        overflowConnectionsClosed = Get-JsonValue $poolMetrics "overflowConnectionsClosed" $null
+        crossThreadCheckoutPrevented = Get-JsonValue $poolMetrics "crossThreadCheckoutPrevented" $null
+        crossThreadReleaseDetected = Get-JsonValue $poolMetrics "crossThreadReleaseDetected" $null
         circuitBreaker = Get-JsonValue $reconnectPolicy "circuitBreaker" ""
         threadPolicy = [ordered]@{
             connectionOwnership = Get-JsonValue $threadPolicy "connectionOwnership" ""
             crossThreadReuse = Get-JsonValue $threadPolicy "crossThreadReuse" $null
             checkoutScope = Get-JsonValue $threadPolicy "checkoutScope" ""
+            releaseScope = Get-JsonValue $threadPolicy "releaseScope" ""
+            governance = Get-JsonValue $threadPolicy "governance" ""
             idleReclaim = Get-JsonValue $threadPolicy "idleReclaim" ""
             guidance = Get-JsonValue $threadPolicy "guidance" ""
         }
@@ -214,8 +227,17 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("| poolMaxConnections | {0} |" -f (Format-Value $summary.reconnectPolicy.maxConnections)))
     $lines.Add(("| poolIdleMs | {0} |" -f (Format-Value $summary.reconnectPolicy.idleMs)))
     $lines.Add(("| reconnectBackoffMs | {0} |" -f (Format-Value $summary.reconnectPolicy.backoffMs)))
+    $lines.Add(("| pooledConnections | {0} |" -f (Format-Value $summary.reconnectPolicy.pooledConnections)))
+    $lines.Add(("| pooledConnectionThreadCount | {0} |" -f (Format-Value $summary.reconnectPolicy.pooledConnectionThreadCount)))
+    $lines.Add(("| peakPooledConnections | {0} |" -f (Format-Value $summary.reconnectPolicy.peakPooledConnections)))
+    $lines.Add(("| idleConnectionsClosed | {0} |" -f (Format-Value $summary.reconnectPolicy.idleConnectionsClosed)))
+    $lines.Add(("| overflowConnectionsClosed | {0} |" -f (Format-Value $summary.reconnectPolicy.overflowConnectionsClosed)))
+    $lines.Add(("| crossThreadCheckoutPrevented | {0} |" -f (Format-Value $summary.reconnectPolicy.crossThreadCheckoutPrevented)))
+    $lines.Add(("| crossThreadReleaseDetected | {0} |" -f (Format-Value $summary.reconnectPolicy.crossThreadReleaseDetected)))
     $lines.Add(("| threadConnectionOwnership | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.connectionOwnership)))
     $lines.Add(("| threadCrossReuse | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.crossThreadReuse)))
+    $lines.Add(("| threadReleaseScope | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.releaseScope)))
+    $lines.Add(("| threadGovernance | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.governance)))
     $lines.Add(("| sensitiveHits | {0} |" -f $summary.sensitiveHits.Count))
     $lines.Add(("| auditFocus | {0} |" -f (@($summary.auditSummary.auditFocus) -join ", ")))
     $lines.Add("")

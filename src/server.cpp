@@ -29,6 +29,7 @@
 #include <QTimer>
 #include <QPointer>
 #include <QPair>
+#include <QThread>
 #include <QUuid>
 #include <QMutex>
 #include <QMutexLocker>
@@ -198,6 +199,9 @@ struct AccountDatabasePoolMetrics {
     qint64 backoffSkips = 0;
     qint64 idleConnectionsClosed = 0;
     qint64 overflowConnectionsClosed = 0;
+    qint64 crossThreadCheckoutPrevented = 0;
+    qint64 crossThreadReleaseDetected = 0;
+    qint64 peakPooledConnections = 0;
     qint64 queryAttempts = 0;
     qint64 queryFailures = 0;
     qint64 slowQueries = 0;
@@ -209,6 +213,7 @@ struct AccountDatabasePoolMetrics {
     QString lastQueryFailureReason = QStringLiteral("ok");
     QString lastSlowQueryScope;
     QMap<QString, qint64> pooledConnectionLastReleasedAtMs;
+    QMap<QString, quintptr> pooledConnectionThreadIds;
 };
 
 QMutex& accountDatabasePoolMutex() {
@@ -314,6 +319,7 @@ QStringList pruneReleasedAccountDatabaseConnectionsLocked(qint64 nowMs, const QS
     for (auto it = metrics.pooledConnectionLastReleasedAtMs.begin(); it != metrics.pooledConnectionLastReleasedAtMs.end();) {
         if (it.key() != preserveConnectionName && nowMs >= it.value() && nowMs - it.value() >= idleMs) {
             removeNames.append(it.key());
+            metrics.pooledConnectionThreadIds.remove(it.key());
             it = metrics.pooledConnectionLastReleasedAtMs.erase(it);
             ++metrics.idleConnectionsClosed;
         } else {
@@ -334,6 +340,7 @@ QStringList pruneReleasedAccountDatabaseConnectionsLocked(qint64 nowMs, const QS
             break;
         }
         metrics.pooledConnectionLastReleasedAtMs.remove(oldestName);
+        metrics.pooledConnectionThreadIds.remove(oldestName);
         removeNames.append(oldestName);
         ++metrics.overflowConnectionsClosed;
     }
@@ -342,17 +349,32 @@ QStringList pruneReleasedAccountDatabaseConnectionsLocked(qint64 nowMs, const QS
 
 QSqlDatabase openAccountDatabase(const QString& connectionName) {
     const QString driver = accountDatabaseDriver();
+    const quintptr currentThreadId = reinterpret_cast<quintptr>(QThread::currentThreadId());
     if (QSqlDatabase::contains(connectionName)) {
-        QMutexLocker locker(&accountDatabasePoolMutex());
-        ++accountDatabasePoolMetrics().reusedConnections;
-        accountDatabasePoolMetrics().pooledConnectionLastReleasedAtMs.remove(connectionName);
-        return QSqlDatabase::database(connectionName, false);
+        {
+            QMutexLocker locker(&accountDatabasePoolMutex());
+            AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+            const quintptr ownerThreadId = metrics.pooledConnectionThreadIds.value(connectionName, currentThreadId);
+            if (ownerThreadId != currentThreadId) {
+                ++metrics.crossThreadCheckoutPrevented;
+                metrics.pooledConnectionLastReleasedAtMs.remove(connectionName);
+                metrics.pooledConnectionThreadIds.remove(connectionName);
+            } else {
+                ++metrics.reusedConnections;
+                metrics.pooledConnectionLastReleasedAtMs.remove(connectionName);
+                metrics.pooledConnectionThreadIds[connectionName] = currentThreadId;
+                return QSqlDatabase::database(connectionName, false);
+            }
+        }
+        QSqlDatabase::removeDatabase(connectionName);
     }
 
     QSqlDatabase db = QSqlDatabase::addDatabase(driver, connectionName);
     {
         QMutexLocker locker(&accountDatabasePoolMutex());
-        ++accountDatabasePoolMetrics().createdConnections;
+        AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+        ++metrics.createdConnections;
+        metrics.pooledConnectionThreadIds[connectionName] = currentThreadId;
     }
     if (driver == QLatin1String("QPSQL")) {
         db.setHostName(QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_PGHOST")).trimmed().isEmpty()
@@ -400,12 +422,24 @@ void releaseAccountDatabase(const QString& connectionName) {
     if (!QSqlDatabase::contains(connectionName)) {
         return;
     }
+    const quintptr currentThreadId = reinterpret_cast<quintptr>(QThread::currentThreadId());
     if (accountDatabasePoolEnabled()) {
         QStringList removeNames;
         {
             QMutexLocker locker(&accountDatabasePoolMutex());
-            accountDatabasePoolMetrics().pooledConnectionLastReleasedAtMs[connectionName] = QDateTime::currentMSecsSinceEpoch();
-            removeNames = pruneReleasedAccountDatabaseConnectionsLocked(QDateTime::currentMSecsSinceEpoch(), connectionName);
+            AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
+            const quintptr ownerThreadId = metrics.pooledConnectionThreadIds.value(connectionName, currentThreadId);
+            if (ownerThreadId != currentThreadId) {
+                ++metrics.crossThreadReleaseDetected;
+                metrics.pooledConnectionLastReleasedAtMs.remove(connectionName);
+                metrics.pooledConnectionThreadIds.remove(connectionName);
+                removeNames.append(connectionName);
+            } else {
+                metrics.pooledConnectionLastReleasedAtMs[connectionName] = QDateTime::currentMSecsSinceEpoch();
+                metrics.pooledConnectionThreadIds[connectionName] = currentThreadId;
+                metrics.peakPooledConnections = qMax<qint64>(metrics.peakPooledConnections, metrics.pooledConnectionLastReleasedAtMs.size());
+            }
+            removeNames.append(pruneReleasedAccountDatabaseConnectionsLocked(QDateTime::currentMSecsSinceEpoch(), connectionName));
         }
         for (const QString& name : removeNames) {
             if (QSqlDatabase::contains(name)) {
@@ -432,6 +466,9 @@ QJsonObject accountDatabasePoolSnapshot() {
     obj["backoffSkips"] = QString::number(metrics.backoffSkips);
     obj["idleConnectionsClosed"] = QString::number(metrics.idleConnectionsClosed);
     obj["overflowConnectionsClosed"] = QString::number(metrics.overflowConnectionsClosed);
+    obj["crossThreadCheckoutPrevented"] = QString::number(metrics.crossThreadCheckoutPrevented);
+    obj["crossThreadReleaseDetected"] = QString::number(metrics.crossThreadReleaseDetected);
+    obj["peakPooledConnections"] = QString::number(metrics.peakPooledConnections);
     obj["queryAttempts"] = QString::number(metrics.queryAttempts);
     obj["queryFailures"] = QString::number(metrics.queryFailures);
     obj["slowQueries"] = QString::number(metrics.slowQueries);
@@ -440,6 +477,7 @@ QJsonObject accountDatabasePoolSnapshot() {
     obj["lastQueryFailureReason"] = metrics.lastQueryFailureReason.isEmpty() ? QStringLiteral("ok") : metrics.lastQueryFailureReason;
     obj["lastSlowQueryScope"] = metrics.lastSlowQueryScope;
     obj["pooledConnections"] = QString::number(metrics.pooledConnectionLastReleasedAtMs.size());
+    obj["pooledConnectionThreadCount"] = QString::number(metrics.pooledConnectionThreadIds.size());
     obj["maxConnections"] = QString::number(accountDatabasePoolMaxConnections());
     obj["idleMs"] = QString::number(accountDatabasePoolIdleMs());
     obj["backoffMs"] = QString::number(backoffMs);
@@ -456,6 +494,13 @@ QJsonObject accountDatabasePoolSnapshot() {
         QStringLiteral("schema"),
         QStringLiteral("path"),
         QStringLiteral("query")
+    };
+    obj["threadPolicy"] = QJsonObject{
+        {QStringLiteral("connectionOwnership"), accountDatabasePoolEnabled() ? QStringLiteral("thread-affine pooled connections") : QStringLiteral("direct-open per caller")},
+        {QStringLiteral("crossThreadReuse"), false},
+        {QStringLiteral("checkoutScope"), accountDatabasePoolEnabled() ? QStringLiteral("connection-name plus owning thread") : QStringLiteral("not-applicable")},
+        {QStringLiteral("releaseScope"), accountDatabasePoolEnabled() ? QStringLiteral("same thread that checked out or created the connection") : QStringLiteral("not-applicable")},
+        {QStringLiteral("governance"), QStringLiteral("cross-thread checkout is discarded and recreated; cross-thread release is closed instead of pooled")}
     };
     return obj;
 }

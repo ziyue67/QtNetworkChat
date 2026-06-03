@@ -137,7 +137,11 @@ $lastErrorSample = [string](Get-JsonValue $statusQueryMetrics "lastErrorSample" 
 $healthReconnectPolicy = Get-JsonValue $health "reconnectPolicy" $null
 $statusReconnectPolicy = Get-JsonValue $statusSummary "reconnectPolicy" $null
 $reconnectPolicy = if ($null -ne $statusReconnectPolicy) { $statusReconnectPolicy } else { $healthReconnectPolicy }
+$poolMetrics = Get-JsonValue $health "pool" $null
 $threadPolicy = Get-JsonValue $reconnectPolicy "threadPolicy" $null
+if ($null -eq $threadPolicy) {
+    $threadPolicy = Get-JsonValue $poolMetrics "threadPolicy" $null
+}
 $checks = @((Get-JsonValue $health "checks" (Get-JsonValue $statusSummary "checks" @())))
 $failedChecks = @()
 foreach ($check in $checks) {
@@ -197,11 +201,20 @@ $dashboard = [ordered]@{
         idleMs = Get-JsonValue $reconnectPolicy "idleMs" $null
         backoffMs = Get-JsonValue $reconnectPolicy "backoffMs" $null
         slowQueryMs = Get-JsonValue $reconnectPolicy "slowQueryMs" $null
+        pooledConnections = Get-JsonValue $poolMetrics "pooledConnections" $null
+        pooledConnectionThreadCount = Get-JsonValue $poolMetrics "pooledConnectionThreadCount" $null
+        peakPooledConnections = Get-JsonValue $poolMetrics "peakPooledConnections" $null
+        idleConnectionsClosed = Get-JsonValue $poolMetrics "idleConnectionsClosed" $null
+        overflowConnectionsClosed = Get-JsonValue $poolMetrics "overflowConnectionsClosed" $null
+        crossThreadCheckoutPrevented = Get-JsonValue $poolMetrics "crossThreadCheckoutPrevented" $null
+        crossThreadReleaseDetected = Get-JsonValue $poolMetrics "crossThreadReleaseDetected" $null
         circuitBreaker = [string](Get-JsonValue $reconnectPolicy "circuitBreaker" "")
         threadPolicy = [ordered]@{
             connectionOwnership = [string](Get-JsonValue $threadPolicy "connectionOwnership" "")
             crossThreadReuse = Get-JsonValue $threadPolicy "crossThreadReuse" $null
             checkoutScope = [string](Get-JsonValue $threadPolicy "checkoutScope" "")
+            releaseScope = [string](Get-JsonValue $threadPolicy "releaseScope" "")
+            governance = [string](Get-JsonValue $threadPolicy "governance" "")
             idleReclaim = [string](Get-JsonValue $threadPolicy "idleReclaim" "")
             guidance = [string](Get-JsonValue $threadPolicy "guidance" "")
         }
@@ -280,10 +293,18 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add(('- Release gate: `{0}`' -f (Format-Value $dashboard.auditSummary.releaseGate)))
     $lines.Add(('- Pool enabled: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.poolEnabled)))
     $lines.Add(('- Pool max connections: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.maxConnections)))
+    $lines.Add(('- Pooled connections: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.pooledConnections)))
+    $lines.Add(('- Pooled connection thread count: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.pooledConnectionThreadCount)))
+    $lines.Add(('- Peak pooled connections: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.peakPooledConnections)))
+    $lines.Add(('- Idle connections closed: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.idleConnectionsClosed)))
+    $lines.Add(('- Overflow connections closed: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.overflowConnectionsClosed)))
+    $lines.Add(('- Cross-thread checkout prevented: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.crossThreadCheckoutPrevented)))
+    $lines.Add(('- Cross-thread release detected: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.crossThreadReleaseDetected)))
     $lines.Add(('- Pool idle ms: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.idleMs)))
     $lines.Add(('- Reconnect backoff ms: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.backoffMs)))
     $lines.Add(('- Thread connection ownership: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.threadPolicy.connectionOwnership)))
     $lines.Add(('- Thread cross reuse: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.threadPolicy.crossThreadReuse)))
+    $lines.Add(('- Thread release scope: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.threadPolicy.releaseScope)))
     $lines.Add(('- Warnings: `{0}`' -f $dashboard.warningCount))
     $lines.Add(('- Sensitive hits: `{0}`' -f @($dashboard.sensitiveHits).Count))
     $lines.Add(('- Task configured: `{0}`' -f (Format-Value $dashboard.taskConfigured)))

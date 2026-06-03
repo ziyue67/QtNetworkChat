@@ -21,7 +21,8 @@ file(WRITE "${HEALTH_JSON}"
   \"status\":\"healthy\",
   \"ok\":true,
   \"config\":{\"driver\":\"QPSQL\",\"password\":\"<redacted>\"},
-  \"reconnectPolicy\":{\"poolEnabled\":true,\"maxConnections\":16,\"idleMs\":300000,\"backoffMs\":2000,\"threadPolicy\":{\"connectionOwnership\":\"thread-affine pooled connections\",\"crossThreadReuse\":false}},
+  \"reconnectPolicy\":{\"poolEnabled\":true,\"maxConnections\":16,\"idleMs\":300000,\"backoffMs\":2000},
+  \"pool\":{\"pooledConnections\":\"2\",\"pooledConnectionThreadCount\":\"2\",\"peakPooledConnections\":\"3\",\"idleConnectionsClosed\":\"4\",\"overflowConnectionsClosed\":\"1\",\"crossThreadCheckoutPrevented\":\"5\",\"crossThreadReleaseDetected\":\"6\",\"threadPolicy\":{\"connectionOwnership\":\"thread-affine pooled connections\",\"crossThreadReuse\":false,\"checkoutScope\":\"connection-name plus owning thread\",\"releaseScope\":\"same thread that checked out or created the connection\",\"governance\":\"cross-thread checkout is discarded and recreated; cross-thread release is closed instead of pooled\"}},
   \"checks\":[
     {\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"},
     {\"name\":\"ping\",\"ok\":true,\"detail\":\"SELECT 1\"},
@@ -96,7 +97,17 @@ string(JSON summary_operator_action GET "${dashboard_content}" "summary" "operat
 string(JSON audit_release_gate GET "${dashboard_content}" "auditSummary" "releaseGate")
 string(JSON audit_focus0 GET "${dashboard_content}" "auditSummary" "auditFocus" 0)
 string(JSON pool_enabled GET "${dashboard_content}" "reconnectPolicy" "poolEnabled")
+string(JSON pooled_connections GET "${dashboard_content}" "reconnectPolicy" "pooledConnections")
+string(JSON pooled_thread_count GET "${dashboard_content}" "reconnectPolicy" "pooledConnectionThreadCount")
+string(JSON peak_pooled_connections GET "${dashboard_content}" "reconnectPolicy" "peakPooledConnections")
+string(JSON idle_connections_closed GET "${dashboard_content}" "reconnectPolicy" "idleConnectionsClosed")
+string(JSON overflow_connections_closed GET "${dashboard_content}" "reconnectPolicy" "overflowConnectionsClosed")
+string(JSON cross_thread_checkout GET "${dashboard_content}" "reconnectPolicy" "crossThreadCheckoutPrevented")
+string(JSON cross_thread_release GET "${dashboard_content}" "reconnectPolicy" "crossThreadReleaseDetected")
 string(JSON thread_ownership GET "${dashboard_content}" "reconnectPolicy" "threadPolicy" "connectionOwnership")
+string(JSON thread_checkout_scope GET "${dashboard_content}" "reconnectPolicy" "threadPolicy" "checkoutScope")
+string(JSON thread_release_scope GET "${dashboard_content}" "reconnectPolicy" "threadPolicy" "releaseScope")
+string(JSON thread_governance GET "${dashboard_content}" "reconnectPolicy" "threadPolicy" "governance")
 if(NOT format STREQUAL "qtnetworkchat-database-health-dashboard-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected dashboard format: ${format}")
@@ -128,7 +139,14 @@ if(NOT task_configured OR NOT password_source STREQUAL "QTNETWORKCHAT_PGPASSWORD
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Dashboard should include task preview password source")
 endif()
-if(NOT pool_enabled OR NOT thread_ownership STREQUAL "thread-affine pooled connections")
+if(NOT pool_enabled OR NOT thread_ownership STREQUAL "thread-affine pooled connections"
+    OR (NOT "${pooled_connections}" STREQUAL "2") OR (NOT "${pooled_thread_count}" STREQUAL "2")
+    OR (NOT "${peak_pooled_connections}" STREQUAL "3") OR (NOT "${idle_connections_closed}" STREQUAL "4")
+    OR (NOT "${overflow_connections_closed}" STREQUAL "1") OR (NOT "${cross_thread_checkout}" STREQUAL "5")
+    OR (NOT "${cross_thread_release}" STREQUAL "6")
+    OR (NOT thread_checkout_scope STREQUAL "connection-name plus owning thread")
+    OR (NOT thread_release_scope STREQUAL "same thread that checked out or created the connection")
+    OR (NOT thread_governance MATCHES "cross-thread release"))
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Dashboard should surface pooled thread policy")
 endif()
@@ -141,8 +159,10 @@ file(READ "${DASHBOARD_MD}" markdown_content)
 string(FIND "${markdown_content}" "Database Health Dashboard" md_title)
 string(FIND "${markdown_content}" "QTNETWORKCHAT_PGPASSWORD" md_password_source)
 string(FIND "${markdown_content}" "Thread connection ownership" md_thread_ownership)
+string(FIND "${markdown_content}" "Cross-thread checkout prevented" md_cross_thread_checkout)
+string(FIND "${markdown_content}" "Thread release scope" md_thread_release)
 string(FIND "${markdown_content}" "Release gate" md_release_gate)
-if(md_title EQUAL -1 OR md_password_source EQUAL -1 OR md_thread_ownership EQUAL -1 OR md_release_gate EQUAL -1)
+if(md_title EQUAL -1 OR md_password_source EQUAL -1 OR md_thread_ownership EQUAL -1 OR md_cross_thread_checkout EQUAL -1 OR md_thread_release EQUAL -1 OR md_release_gate EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Dashboard Markdown is missing expected content")
 endif()

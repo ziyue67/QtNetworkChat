@@ -333,7 +333,9 @@ $resultObject = [ordered]@{
         threadPolicy = [ordered]@{
             connectionOwnership = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "thread-affine pooled connections" } else { "direct-open per caller" }
             crossThreadReuse = $false
-            checkoutScope = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "thread-local checkout" } else { "not-applicable" }
+            checkoutScope = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "connection-name plus owning thread" } else { "not-applicable" }
+            releaseScope = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "same thread that checked out or created the connection" } else { "not-applicable" }
+            governance = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "cross-thread checkout is discarded and recreated; cross-thread release is closed instead of pooled" } else { "direct connections are closed by the caller" }
             idleReclaim = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "idle pooled connections are reclaimed after PoolIdleMs" } else { "not-applicable" }
             guidance = "Qt SQL connections are thread-affine; never reuse one opened connection object across threads."
         }
