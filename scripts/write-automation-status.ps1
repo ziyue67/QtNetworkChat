@@ -393,9 +393,16 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
     $lastRunSummary = Read-LastRunSummary $lastRunState
 
     $statusSummary = "unavailable"
+    $readinessSummary = "unknown"
+    $releaseGateSummary = "unknown"
+    $operatorActionSummary = "unknown"
+    $auditFocusSummary = "unknown"
     if ($statusState.state -eq "ok") {
         $statusValue = Get-JsonValue $statusState.value "status" ""
         $okValue = Get-JsonValue $statusState.value "ok" $null
+        $statusSummaryNode = Get-JsonValue $statusState.value "summary" $null
+        $reportSummaryNode = Get-JsonValue $statusState.value "reportSummary" $null
+        $auditSummaryNode = Get-JsonValue $statusState.value "auditSummary" $null
         if (-not [string]::IsNullOrWhiteSpace([string]$statusValue)) {
             $statusSummary = [string]$statusValue
             if ($null -ne $okValue) {
@@ -406,8 +413,37 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
         } else {
             $statusSummary = "ok"
         }
+        $readinessValue = Get-JsonValue $statusSummaryNode "readiness" ""
+        if ([string]::IsNullOrWhiteSpace([string]$readinessValue)) {
+            $readinessValue = Get-JsonValue $reportSummaryNode "executionReadiness" ""
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$readinessValue)) {
+            $readinessSummary = [string]$readinessValue
+        }
+        $operatorActionValue = Get-JsonValue $statusSummaryNode "operatorAction" ""
+        if ([string]::IsNullOrWhiteSpace([string]$operatorActionValue)) {
+            $operatorActionValue = Get-JsonValue $reportSummaryNode "operatorAction" ""
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$operatorActionValue)) {
+            $operatorActionSummary = [string]$operatorActionValue
+        }
+        $releaseGateValue = Get-JsonValue $auditSummaryNode "releaseGate" ""
+        if (-not [string]::IsNullOrWhiteSpace([string]$releaseGateValue)) {
+            $releaseGateSummary = [string]$releaseGateValue
+        }
+        $auditFocusValues = @((Get-JsonValue $auditSummaryNode "auditFocus" @()))
+        if ($auditFocusValues.Count -gt 0) {
+            $auditFocusSummary = ($auditFocusValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join ", "
+            if ([string]::IsNullOrWhiteSpace($auditFocusSummary)) {
+                $auditFocusSummary = "unknown"
+            }
+        }
     } else {
         $statusSummary = $statusState.state
+        $readinessSummary = $statusState.state
+        $releaseGateSummary = $statusState.state
+        $operatorActionSummary = $statusState.state
+        $auditFocusSummary = $statusState.state
     }
 
     $lastRunExitCode = if ($null -ne $lastRunSummary) { Format-StatusValue $lastRunSummary.exitCode } else { Format-StatusValue $lastRunState.state }
@@ -429,6 +465,10 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
         historyState = $historyState
         ackState = $ackState
         statusSummary = $statusSummary
+        readinessSummary = $readinessSummary
+        releaseGateSummary = $releaseGateSummary
+        operatorActionSummary = $operatorActionSummary
+        auditFocusSummary = $auditFocusSummary
         lastRunExitCode = $lastRunExitCode
         historySummary = $historySummary
         ackSummary = $ackSummary
@@ -609,6 +649,13 @@ if ($genericPreviewCandidates.Count -eq 0) {
             (Format-StatusValue $genericReadback.historySummary), `
             (Format-StatusValue $genericReadback.ackSummary)
         $lines.Add($genericLine)
+        if ($genericReadback.readinessSummary -ne "unknown" -or $genericReadback.releaseGateSummary -ne "unknown" -or $genericReadback.operatorActionSummary -ne "unknown" -or $genericReadback.auditFocusSummary -ne "unknown") {
+            $lines.Add(('  Gate: readiness=`{0}`, releaseGate=`{1}`, action=`{2}`, auditFocus=`{3}`' -f `
+                    (Format-StatusValue $genericReadback.readinessSummary), `
+                    (Format-StatusValue $genericReadback.releaseGateSummary), `
+                    (Format-StatusValue $genericReadback.operatorActionSummary), `
+                    (Format-StatusValue $genericReadback.auditFocusSummary)))
+        }
         if ($genericPreview.taskSummary -ne "unknown") {
             $lines.Add('  Summary: `' + $genericPreview.taskSummary + '`')
         }

@@ -379,6 +379,16 @@ $customLastRunPath = Join-Path $configuredTempDir "custom-task-last-run.log"
 $customHistoryPath = Join-Path $configuredTempDir "custom-task-history.json"
 $customAckPath = Join-Path $configuredTempDir "custom-task-ack.json"
 $customMarkdownPath = Join-Path $configuredTempDir "automation-status-custom.md"
+$pgsqlSmokePreviewPath = Join-Path $configuredTempDir "pgsql-smoke-task-preview.json"
+$pgsqlSmokeStatusPath = Join-Path $configuredTempDir "pgsql-smoke-task-status.json"
+$pgsqlSmokeLastRunPath = Join-Path $configuredTempDir "pgsql-smoke-task-last-run.log"
+$pgsqlSmokeHistoryPath = Join-Path $configuredTempDir "pgsql-smoke-task-history.json"
+$pgsqlSmokeAckPath = Join-Path $configuredTempDir "pgsql-smoke-task-ack.json"
+$pgsqlMigrationPreviewPath = Join-Path $configuredTempDir "pgsql-migration-task-preview.json"
+$pgsqlMigrationStatusPath = Join-Path $configuredTempDir "pgsql-migration-task-status.json"
+$pgsqlMigrationLastRunPath = Join-Path $configuredTempDir "pgsql-migration-task-last-run.log"
+$pgsqlMigrationHistoryPath = Join-Path $configuredTempDir "pgsql-migration-task-history.json"
+$pgsqlMigrationAckPath = Join-Path $configuredTempDir "pgsql-migration-task-ack.json"
 Ensure-Directory -Path $configuredTempDir
 
 @'
@@ -419,6 +429,88 @@ Ensure-Directory -Path $configuredTempDir
         ack = "ackArtifactPath"
     }
 } | ConvertTo-Json) | Set-Content -LiteralPath $customPreviewPath -Encoding UTF8
+@'
+{
+  "status":"success",
+  "ok":true,
+  "summary":{"readiness":"verified","operatorAction":"Archive the evidence bundle before promoting PostgreSQL smoke coverage."},
+  "auditSummary":{"releaseGate":"can-review-smoke-evidence","auditFocus":["offline-attachments","resume-boundaries"]},
+  "recoverySummary":{"releaseHint":"review-recovery-summary"}
+}
+'@ | Set-Content -LiteralPath $pgsqlSmokeStatusPath -Encoding UTF8
+'2026-06-03T06:10:00.0000000Z exitCode=0' | Set-Content -LiteralPath $pgsqlSmokeLastRunPath -Encoding UTF8
+@'
+{
+  "runCount":3
+}
+'@ | Set-Content -LiteralPath $pgsqlSmokeHistoryPath -Encoding UTF8
+@'
+{
+  "acknowledged":true,
+  "acknowledgedBy":"oncall",
+  "reason":"reviewed"
+}
+'@ | Set-Content -LiteralPath $pgsqlSmokeAckPath -Encoding UTF8
+([ordered]@{
+    taskKind = "pgsql-smoke"
+    taskName = "PgsqlSmokeTask"
+    taskDisplayName = "PostgreSQL smoke"
+    format = "qtnetworkchat-pgsql-smoke-task-preview-v1"
+    taskSummary = "Real QPSQL smoke gate sample"
+    readOnly = $true
+    register = $true
+    schedule = "Hourly/6 h"
+    at = "04:20"
+    statusArtifactPath = $pgsqlSmokeStatusPath
+    lastRunPath = $pgsqlSmokeLastRunPath
+    historyArtifactPath = $pgsqlSmokeHistoryPath
+    ackArtifactPath = $pgsqlSmokeAckPath
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
+} | ConvertTo-Json) | Set-Content -LiteralPath $pgsqlSmokePreviewPath -Encoding UTF8
+@'
+{
+  "mode":"diff",
+  "reportSummary":{"executionReadiness":"review","operatorAction":"Inspect drift tables and rollback preview before cutover."},
+  "auditSummary":{"releaseGate":"can-cutover-after-smoke","auditFocus":["drift-report","rollback-preview"]}
+}
+'@ | Set-Content -LiteralPath $pgsqlMigrationStatusPath -Encoding UTF8
+'2026-06-03T06:20:00.0000000Z exitCode=2' | Set-Content -LiteralPath $pgsqlMigrationLastRunPath -Encoding UTF8
+@'
+{
+  "runCount":5
+}
+'@ | Set-Content -LiteralPath $pgsqlMigrationHistoryPath -Encoding UTF8
+@'
+{
+  "acknowledged":false
+}
+'@ | Set-Content -LiteralPath $pgsqlMigrationAckPath -Encoding UTF8
+([ordered]@{
+    taskKind = "pgsql-migration"
+    taskName = "PgsqlMigrationTask"
+    taskDisplayName = "PostgreSQL migration"
+    format = "qtnetworkchat-pgsql-migration-task-preview-v1"
+    taskSummary = "SQLite to PostgreSQL release gate sample"
+    readOnly = $true
+    register = $true
+    schedule = "Daily"
+    at = "06:40"
+    statusArtifactPath = $pgsqlMigrationStatusPath
+    lastRunPath = $pgsqlMigrationLastRunPath
+    historyArtifactPath = $pgsqlMigrationHistoryPath
+    ackArtifactPath = $pgsqlMigrationAckPath
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
+} | ConvertTo-Json) | Set-Content -LiteralPath $pgsqlMigrationPreviewPath -Encoding UTF8
 
 & $ScriptPath `
     -MarkdownPath $customMarkdownPath `
@@ -429,14 +521,22 @@ Ensure-Directory -Path $configuredTempDir
     -BuildStatus "passed" `
     -CTestStatus "passed" `
     -CTestCount 54 `
-    -TaskPreviewPath @($customPreviewPath) `
+    -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath, $pgsqlMigrationPreviewPath) `
     -FailOnSensitive
 
 $customMarkdown = Get-Content -LiteralPath $customMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'Preview task: label=`generic`, kind=`custom-ops`, name=`CustomOpsTask`, display=`Custom ops`, state=`ok`, format=`qtnetworkchat-custom-task-preview-v1`, readOnly=`false`, register=`true`, schedule=`Daily@05:45`, path=`',
+    'Preview task: label=`generic`, kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, display=`PostgreSQL smoke`, state=`ok`, format=`qtnetworkchat-pgsql-smoke-task-preview-v1`, readOnly=`true`, register=`true`, schedule=`Hourly/6 h@04:20`, path=`',
+    'Preview task: label=`generic`, kind=`pgsql-migration`, name=`PgsqlMigrationTask`, display=`PostgreSQL migration`, state=`ok`, format=`qtnetworkchat-pgsql-migration-task-preview-v1`, readOnly=`true`, register=`true`, schedule=`Daily@06:40`, path=`',
     'Summary: `Custom generic task sample`',
     'Generic task: kind=`custom-ops`, name=`CustomOpsTask`, display=`Custom ops`, status=`warning/ok=false`, lastRun=`5`, history=`runs=7`, ack=`ack=false`',
+    'Generic task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, display=`PostgreSQL smoke`, status=`success/ok=true`, lastRun=`0`, history=`runs=3`, ack=`ack=true`',
+    'Gate: readiness=`verified`, releaseGate=`can-review-smoke-evidence`, action=`Archive the evidence bundle before promoting PostgreSQL smoke coverage.`, auditFocus=`offline-attachments, resume-boundaries`',
+    'Summary: `Real QPSQL smoke gate sample`',
+    'Generic task: kind=`pgsql-migration`, name=`PgsqlMigrationTask`, display=`PostgreSQL migration`, status=`ok`, lastRun=`2`, history=`runs=5`, ack=`ack=false`',
+    'Gate: readiness=`review`, releaseGate=`can-cutover-after-smoke`, action=`Inspect drift tables and rollback preview before cutover.`, auditFocus=`drift-report, rollback-preview`',
+    'Summary: `SQLite to PostgreSQL release gate sample`',
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: runs=`7`',
