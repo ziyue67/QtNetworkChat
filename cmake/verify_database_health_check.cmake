@@ -23,6 +23,9 @@ execute_process(
         -QtRoot "${QT_ROOT}"
         -PostgresBinDir "${PG_BIN}"
         -PostgresPassword "not-used-in-plan"
+        -InjectSlowQueryProbe
+        -SlowQueryProbeSeconds 2
+        -InjectQueryFailureReason schema
         -PlanOnly
         -JsonPath "${PG_JSON}"
     RESULT_VARIABLE pg_result
@@ -103,6 +106,9 @@ string(JSON pg_query_failures GET "${pg_json}" "queryMetrics" "queryFailureCount
 string(JSON pg_network_errors GET "${pg_json}" "queryMetrics" "errorReasons" "network")
 string(JSON pg_last_error_check GET "${pg_json}" "queryMetrics" "lastErrorCheck")
 string(JSON pg_last_error_sample GET "${pg_json}" "queryMetrics" "lastErrorSample")
+string(JSON pg_slow_probe GET "${pg_json}" "reconnectPolicy" "slowQueryProbeEnabled")
+string(JSON pg_slow_probe_seconds GET "${pg_json}" "reconnectPolicy" "slowQueryProbeSeconds")
+string(JSON pg_failure_probe GET "${pg_json}" "reconnectPolicy" "queryFailureProbeReason")
 string(JSON pg_summary_readiness GET "${pg_json}" "summary" "readiness")
 string(JSON pg_summary_operator_action GET "${pg_json}" "summary" "operatorAction")
 string(JSON pg_audit_release_gate GET "${pg_json}" "auditSummary" "releaseGate")
@@ -133,6 +139,10 @@ if((NOT pg_slow_query_threshold EQUAL 1000) OR (NOT pg_query_failures EQUAL 0) O
     OR NOT pg_last_error_check STREQUAL "" OR NOT pg_last_error_sample STREQUAL "")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL database health should expose zeroed query metrics, last error fields, and the slow query threshold")
+endif()
+if(NOT pg_slow_probe OR NOT pg_slow_probe_seconds EQUAL 2 OR NOT pg_failure_probe STREQUAL "schema")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "PostgreSQL database health plan should expose slow-query and query-failure probe policy")
 endif()
 if(NOT pg_summary_readiness STREQUAL "ready"
     OR NOT pg_summary_operator_action STREQUAL "Runtime prerequisites look ready; next run can execute live database health checks."

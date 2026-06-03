@@ -14,6 +14,10 @@ param(
     [int]$PoolMaxConnections = 16,
     [int]$PoolIdleMs = 300000,
     [int]$SlowQueryMs = 1000,
+    [switch]$InjectSlowQueryProbe,
+    [int]$SlowQueryProbeSeconds = 1,
+    [ValidateSet("none", "query", "schema", "auth", "network", "tls")]
+    [string]$InjectQueryFailureReason = "none",
     [switch]$DisableConnectionPool,
     [switch]$PlanOnly,
     [switch]$FailOnUnhealthy,
@@ -81,6 +85,17 @@ function Sanitize-HealthDetail([string]$Text) {
         return $value.Substring(0, 160) + "..."
     }
     $value
+}
+
+function Get-InjectedQueryFailureDetail([string]$Reason) {
+    switch ($Reason) {
+        "schema" { return "Injected schema probe: relation does not exist" }
+        "auth" { return "Injected auth probe: permission denied" }
+        "network" { return "Injected network probe: connection refused" }
+        "tls" { return "Injected tls probe: certificate verify failed" }
+        "query" { return "Injected query probe: syntax error" }
+        default { return "" }
+    }
 }
 
 function Add-QueryFailure {
@@ -180,6 +195,8 @@ if ($normalizedDriver -eq "postgres") {
         QTNETWORKCHAT_DB_POOL_IDLE_MS = "$PoolIdleMs"
         QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS = "$ReconnectBackoffMs"
         QTNETWORKCHAT_DB_SLOW_QUERY_MS = "$SlowQueryMs"
+        QTNETWORKCHAT_DB_HEALTH_SLOW_PROBE = if ($InjectSlowQueryProbe) { "1" } else { "0" }
+        QTNETWORKCHAT_DB_HEALTH_FAILURE_PROBE = $InjectQueryFailureReason
     }
 } else {
     $checks.Add((New-Check "sqlite-parent" (Test-Path -LiteralPath (Split-Path -Parent $resolvedSqlitePath) -PathType Container) (Split-Path -Parent $resolvedSqlitePath) "path"))
@@ -191,6 +208,8 @@ if ($normalizedDriver -eq "postgres") {
         QTNETWORKCHAT_DB_POOL_IDLE_MS = "$PoolIdleMs"
         QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS = "$ReconnectBackoffMs"
         QTNETWORKCHAT_DB_SLOW_QUERY_MS = "$SlowQueryMs"
+        QTNETWORKCHAT_DB_HEALTH_SLOW_PROBE = "0"
+        QTNETWORKCHAT_DB_HEALTH_FAILURE_PROBE = "none"
     }
 }
 
@@ -253,6 +272,37 @@ if (-not $PlanOnly -and $ok) {
                 if (-not $checkOk) {
                     Add-QueryFailure $queryMetrics $reason "postgres-required-tables" ([string]$psqlOutput)
                 }
+                if ($InjectSlowQueryProbe) {
+                    $probeSeconds = [Math]::Max(0, $SlowQueryProbeSeconds)
+                    $slowQuery = "SELECT pg_sleep($probeSeconds);"
+                    $slowTimer = [System.Diagnostics.Stopwatch]::StartNew()
+                    $slowOutput = & $psqlPath @(
+                        "-h", $PostgresHost,
+                        "-p", "$PostgresPort",
+                        "-U", $PostgresUser,
+                        "-d", $PostgresDatabase,
+                        "-t",
+                        "-A",
+                        "-c", $slowQuery
+                    ) 2>&1
+                    $slowTimer.Stop()
+                    $slowElapsedMs = [int][Math]::Min([int]::MaxValue, $slowTimer.ElapsedMilliseconds)
+                    if ($slowElapsedMs -gt $SlowQueryMs) {
+                        $queryMetrics.slowQueryCount += 1
+                        $queryMetrics.lastSlowQueryMs = $slowElapsedMs
+                    }
+                    $slowExitCode = $LASTEXITCODE
+                    $slowOk = $slowExitCode -eq 0
+                    $checks.Add((New-Check "postgres-slow-query-probe" $slowOk ("elapsedMs=$slowElapsedMs thresholdMs=$SlowQueryMs") $(if ($slowOk) { "ok" } else { Get-PostgresErrorReason ([string]$slowOutput) })))
+                    if (-not $slowOk) {
+                        $ok = $false
+                        Add-QueryFailure $queryMetrics (Get-PostgresErrorReason ([string]$slowOutput)) "postgres-slow-query-probe" ([string]$slowOutput)
+                    }
+                }
+                if ($InjectQueryFailureReason -ne "none") {
+                    Add-QueryFailure $queryMetrics $InjectQueryFailureReason "postgres-query-failure-probe" (Get-InjectedQueryFailureDetail $InjectQueryFailureReason)
+                    $checks.Add((New-Check "postgres-query-failure-probe" $true ("injectedReason=$InjectQueryFailureReason") "ok"))
+                }
             } finally {
                 $env:PGPASSWORD = $oldPassword
             }
@@ -276,6 +326,9 @@ $resultObject = [ordered]@{
         idleMs = $PoolIdleMs
         backoffMs = $ReconnectBackoffMs
         slowQueryMs = $SlowQueryMs
+        slowQueryProbeEnabled = [bool]$InjectSlowQueryProbe
+        slowQueryProbeSeconds = $SlowQueryProbeSeconds
+        queryFailureProbeReason = $InjectQueryFailureReason
         circuitBreaker = "skip-open-during-backoff"
         threadPolicy = [ordered]@{
             connectionOwnership = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "thread-affine pooled connections" } else { "direct-open per caller" }
@@ -300,6 +353,8 @@ if ($normalizedDriver -eq "postgres") {
 }
 if ($queryMetrics.queryFailureCount -gt 0) { [void]$auditFocus.Add("query-failures") }
 if ($queryMetrics.slowQueryCount -gt 0) { [void]$auditFocus.Add("slow-queries") }
+if ($InjectSlowQueryProbe) { [void]$auditFocus.Add("slow-query-probe") }
+if ($InjectQueryFailureReason -ne "none") { [void]$auditFocus.Add("query-failure-probe") }
 if ($failedChecks.Count -gt 0) { [void]$auditFocus.Add("failed-checks") }
 if ($auditFocus.Count -eq 0) { [void]$auditFocus.Add("routine-health-review") }
 $resultObject.summary = [ordered]@{

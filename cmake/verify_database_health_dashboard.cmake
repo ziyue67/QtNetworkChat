@@ -155,7 +155,7 @@ file(WRITE "${METRICS_HEALTH_JSON}"
   \"config\":{\"driver\":\"QPSQL\",\"password\":\"<redacted>\"},
   \"reconnectPolicy\":{\"poolEnabled\":true,\"maxConnections\":16,\"idleMs\":300000,\"backoffMs\":2000,\"threadPolicy\":{\"connectionOwnership\":\"thread-affine pooled connections\",\"crossThreadReuse\":false}},
   \"checks\":[{\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"}],
-  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":2,\"queryFailureCount\":1,\"lastSlowQueryMs\":2200,\"lastErrorReason\":\"query\",\"lastErrorCheck\":\"postgres-required-tables\",\"lastErrorSample\":\"requiredTables=unknown/10\"}
+  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":2,\"queryFailureCount\":1,\"lastSlowQueryMs\":2200,\"lastErrorReason\":\"query\",\"lastErrorCheck\":\"postgres-required-tables\",\"lastErrorSample\":\"requiredTables=unknown/10\",\"errorReasons\":{\"runtime\":0,\"auth\":0,\"network\":0,\"tls\":0,\"schema\":0,\"path\":0,\"query\":1}}
 }
 ")
 execute_process(
@@ -177,6 +177,7 @@ string(JSON metrics_warning_count GET "${metrics_dashboard_content}" "warningCou
 string(JSON metrics_slow_count GET "${metrics_dashboard_content}" "queryMetrics" "slowQueryCount")
 string(JSON metrics_failure_count GET "${metrics_dashboard_content}" "queryMetrics" "queryFailureCount")
 string(JSON metrics_last_error_check GET "${metrics_dashboard_content}" "queryMetrics" "lastErrorCheck")
+string(JSON metrics_query_errors GET "${metrics_dashboard_content}" "queryMetrics" "errorReasons" "query")
 string(JSON metrics_release_gate GET "${metrics_dashboard_content}" "auditSummary" "releaseGate")
 string(FIND "${metrics_dashboard_content}" "database-query-failures" metrics_failure_warning)
 string(FIND "${metrics_dashboard_content}" "database-slow-queries" metrics_slow_warning)
@@ -186,6 +187,7 @@ if(NOT metrics_status STREQUAL "healthy" OR NOT metrics_ok)
 endif()
 if((NOT metrics_warning_count EQUAL 2) OR (NOT metrics_slow_count EQUAL 2) OR (NOT metrics_failure_count EQUAL 1)
     OR metrics_failure_warning EQUAL -1 OR metrics_slow_warning EQUAL -1 OR NOT metrics_last_error_check STREQUAL "postgres-required-tables"
+    OR (NOT metrics_query_errors EQUAL 1)
     OR NOT metrics_release_gate STREQUAL "review-query-failures")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Query metrics dashboard should surface slow query/query failure warnings and last error check")

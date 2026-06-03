@@ -16,9 +16,9 @@ file(WRITE "${DASHBOARD_PATH}" [=[
 {
   "status":"healthy",
   "ok":true,
-  "queryMetrics":{"slowQueryCount":1,"queryFailureCount":0},
-  "summary":{"readiness":"verified","operatorAction":"Archive the redacted dashboard for release readiness review."},
-  "auditSummary":{"releaseGate":"can-review-health-evidence","auditFocus":["routine-health-review"],"evidenceBundle":["dashboard-json","dashboard-markdown","query-metrics"]}
+  "queryMetrics":{"slowQueryCount":1,"queryFailureCount":1},
+  "summary":{"readiness":"verified","operatorAction":"Investigate query failures before promoting this database health snapshot."},
+  "auditSummary":{"releaseGate":"review-query-failures","auditFocus":["query-failures","slow-queries"],"evidenceBundle":["dashboard-json","dashboard-markdown","query-metrics"]}
 }
 ]=])
 
@@ -91,12 +91,14 @@ string(JSON release_detail0 GET "${json_content}" "releaseDetails" 0)
 string(JSON release_detail5 GET "${json_content}" "releaseDetails" 5)
 string(JSON metric_retry GET "${json_content}" "metrics" "smokeRetryOrResumeCount")
 string(JSON metric_cleanup GET "${json_content}" "metrics" "smokeCleanupProofCount")
+string(JSON metric_slow GET "${json_content}" "metrics" "slowQueryCount")
+string(JSON metric_query_failure GET "${json_content}" "metrics" "queryFailureCount")
 string(JSON metric_rollback_review GET "${json_content}" "metrics" "rollbackPreviewFallbackReviewTables")
 string(JSON evidence0 GET "${json_content}" "auditSummary" "evidenceBundle" 0)
 string(JSON evidence4 GET "${json_content}" "auditSummary" "evidenceBundle" 4)
 string(FIND "${markdown_content}" "QtNetworkChat PostgreSQL Release Acceptance" has_title)
-string(FIND "${markdown_content}" "Release gate: `review-pgsql-evidence`" has_gate)
-string(FIND "${markdown_content}" "Release details: `bootstrapRequired=true; smokeReleaseHint=Use real smoke evidence to confirm retry, cleanup, and restart recovery paths.; writeIntent=dry-run-plan; backupRequired=false; rollbackPreview=true; rollbackRisk=review; evidence=dashboard-json, dashboard-markdown, query-metrics, json, markdown, boundary-scenarios, html, rollback-preview-json, rollback-preview-markdown`" has_details)
+string(FIND "${markdown_content}" "Release gate: `review-query-failures`" has_gate)
+string(FIND "${markdown_content}" "Release details: `bootstrapRequired=true; smokeReleaseHint=Use real smoke evidence to confirm retry, cleanup, and restart recovery paths.; writeIntent=dry-run-plan; backupRequired=false; rollbackPreview=true; rollbackRisk=review; slowQueries=1; queryFailures=1; evidence=dashboard-json, dashboard-markdown, query-metrics, json, markdown, boundary-scenarios, html, rollback-preview-json, rollback-preview-markdown`" has_details)
 string(FIND "${markdown_content}" "| smokeRetryOrResumeCount | 3 |" has_retry_metric)
 string(FIND "${markdown_content}" "| rollbackPreviewFallbackReviewTables | 5 |" has_rollback_metric)
 
@@ -112,11 +114,11 @@ if(NOT readiness STREQUAL "review")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL release acceptance readiness should be review")
 endif()
-if(NOT operator_action STREQUAL "Review rollback preview risk and fallback-key delete predicates before cutover.")
+if(NOT operator_action STREQUAL "Investigate PostgreSQL query failures before promoting PostgreSQL release acceptance.")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected PostgreSQL release acceptance operator action")
 endif()
-if(NOT release_gate STREQUAL "review-pgsql-evidence")
+if(NOT release_gate STREQUAL "review-query-failures")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected PostgreSQL release acceptance release gate")
 endif()
@@ -128,7 +130,7 @@ if(NOT release_detail5 STREQUAL "rollbackRisk=review")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Release details should expose rollback risk")
 endif()
-if(NOT metric_retry EQUAL 3 OR NOT metric_cleanup EQUAL 6 OR NOT metric_rollback_review EQUAL 5)
+if(NOT metric_retry EQUAL 3 OR NOT metric_cleanup EQUAL 6 OR NOT metric_rollback_review EQUAL 5 OR NOT metric_slow EQUAL 1 OR NOT metric_query_failure EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Release acceptance metrics mismatch")
 endif()

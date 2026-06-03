@@ -389,6 +389,20 @@ powershell -ExecutionPolicy Bypass -File scripts/check-database-health.ps1 `
 
 `-PlanOnly` 只校验 QPSQL 插件、`psql.exe` 和 `libpq.dll` 等本地运行时，不连接真实数据库；去掉 `-PlanOnly` 后会用 `psql` 检查 10 张服务端必需表。健康 JSON 会同时输出 `reconnectPolicy` 和 `queryMetrics`，包含连接池开关、连接池上限、空闲回收毫秒数、退避毫秒数、慢查询阈值、熔断行为、固定失败 reason 桶，以及 `threadPolicy`（thread-affine pooled connections、是否允许跨线程复用、checkout 范围、空闲回收说明和操作指引）；`queryMetrics` 还会额外记录最近错误的检查名与脱敏样本，帮助值班时快速区分认证、网络、schema 或查询边界，而不暴露密码或连接串。现在 health JSON / status / dashboard 还会统一补 `summary.readiness`、`summary.operatorAction` 与 `auditSummary.releaseGate/poolMode/evidenceBundle/auditFocus`，把慢查询和 query failure 正式接进值班 gate：例如 `await-live-health-check`、`review-query-failures`、`review-slow-queries`、`can-review-health-evidence`。`show-database-health-status.ps1` 与 `write-database-health-dashboard.ps1` 会继续透传这些指标，dashboard 会把慢查询或查询失败转成只读 warning，并同步给出对应 release gate。PostgreSQL 默认启用 `QTNETWORKCHAT_DB_POOL=1`，可用 `-DisableConnectionPool` 或 `QTNETWORKCHAT_DB_POOL=0` 关闭，并可用 `-PoolMaxConnections`/`QTNETWORKCHAT_DB_POOL_MAX`、`-PoolIdleMs`/`QTNETWORKCHAT_DB_POOL_IDLE_MS`、`-ReconnectBackoffMs`/`QTNETWORKCHAT_DB_RECONNECT_BACKOFF_MS`、`-SlowQueryMs`/`QTNETWORKCHAT_DB_SLOW_QUERY_MS` 调整池治理和慢查询计数。追加 `-FailOnUnhealthy` 可让计划任务在缺少运行时、密码或表结构不完整时非零退出。默认 CTest 覆盖 SQLite 健康快照和脚本 plan，不读取真实 PostgreSQL 密码。
 
+需要在真实 PostgreSQL 上演练慢查询或固定失败 reason 时，可给健康检查追加只读探针参数：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-database-health.ps1 `
+  -Driver postgres `
+  -PostgresPassword $env:QTNETWORKCHAT_PGPASSWORD `
+  -InjectSlowQueryProbe `
+  -SlowQueryProbeSeconds 2 `
+  -InjectQueryFailureReason schema `
+  -JsonPath "build-qt6-mingw\database-health-probed.json"
+```
+
+`-InjectSlowQueryProbe` 会执行 `pg_sleep` 只读探针，并按 `-SlowQueryMs` 计入 `queryMetrics.slowQueryCount`；`-InjectQueryFailureReason` 只把固定 reason 桶写进脱敏 `queryMetrics.errorReasons`，用于演练 `query-failures` gate，不会写入或破坏业务表。状态、dashboard 和 PostgreSQL release acceptance 会透传这些指标：存在 query failure 时 release gate 降为 `review-query-failures`，只有慢查询时降为 `review-slow-queries`。
+
 需要让服务端在启动本地托管服务后落盘健康快照，可启用启动导出：
 
 ```powershell
@@ -521,6 +535,9 @@ powershell -ExecutionPolicy Bypass -File scripts/register-pgsql-release-acceptan
   -TestExe "build-qt6-mingw\postgres_qpsql_protocol_smoke_test.exe" `
   -MigratorExe "build-qt6-mingw\sqlite_to_postgres_migrator.exe" `
   -EnsureDatabase `
+  -InjectSlowQueryProbe `
+  -SlowQueryProbeSeconds 2 `
+  -InjectQueryFailureReason schema `
   -FailOnUnhealthy
 ```
 

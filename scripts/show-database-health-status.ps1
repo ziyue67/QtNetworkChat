@@ -126,6 +126,7 @@ $summary = [ordered]@{
         lastErrorReason = $lastErrorReason
         lastErrorCheck = $lastErrorCheck
         lastErrorSample = $lastErrorSample
+        errorReasons = Get-JsonValue $queryMetrics "errorReasons" $null
     }
     reconnectPolicy = [ordered]@{
         poolEnabled = Get-JsonValue $reconnectPolicy "poolEnabled" $null
@@ -205,6 +206,7 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("| lastErrorReason | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorReason)))
     $lines.Add(("| lastErrorCheck | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorCheck)))
     $lines.Add(("| lastErrorSample | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorSample)))
+    $lines.Add(("| errorReasons | {0} |" -f (Format-Value (($summary.queryMetrics.errorReasons | ConvertTo-Json -Compress -Depth 4)))))
     $lines.Add(("| readiness | {0} |" -f (Format-Value $summary.summary.readiness)))
     $lines.Add(("| operatorAction | {0} |" -f (Format-Value $summary.summary.operatorAction)))
     $lines.Add(("| releaseGate | {0} |" -f (Format-Value $summary.auditSummary.releaseGate)))

@@ -22,7 +22,7 @@ file(WRITE "${HEALTH_JSON}"
     {\"name\":\"ping\",\"ok\":true,\"detail\":\"SELECT 1\"},
     {\"name\":\"required-tables\",\"ok\":true,\"detail\":\"requiredTables=10/10\"}
   ],
-  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":1,\"queryFailureCount\":2,\"lastSlowQueryMs\":1800,\"lastErrorReason\":\"network\",\"lastErrorCheck\":\"postgres-required-tables\",\"lastErrorSample\":\"connection refused while reading required tables\"}
+  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":1,\"queryFailureCount\":2,\"lastSlowQueryMs\":1800,\"lastErrorReason\":\"network\",\"lastErrorCheck\":\"postgres-required-tables\",\"lastErrorSample\":\"connection refused while reading required tables\",\"errorReasons\":{\"runtime\":0,\"auth\":0,\"network\":2,\"tls\":0,\"schema\":0,\"path\":0,\"query\":0}}
 }
 ")
 
@@ -62,6 +62,7 @@ string(JSON query_failure_count GET "${status_content}" "queryMetrics" "queryFai
 string(JSON last_error_reason GET "${status_content}" "queryMetrics" "lastErrorReason")
 string(JSON last_error_check GET "${status_content}" "queryMetrics" "lastErrorCheck")
 string(JSON last_error_sample GET "${status_content}" "queryMetrics" "lastErrorSample")
+string(JSON network_errors GET "${status_content}" "queryMetrics" "errorReasons" "network")
 string(JSON summary_readiness GET "${status_content}" "summary" "readiness")
 string(JSON summary_operator_action GET "${status_content}" "summary" "operatorAction")
 string(JSON audit_release_gate GET "${status_content}" "auditSummary" "releaseGate")
@@ -86,6 +87,7 @@ if(NOT "${check_count}" STREQUAL "3")
 endif()
 if((NOT slow_query_count EQUAL 1) OR (NOT query_failure_count EQUAL 2) OR (NOT last_error_reason STREQUAL "network")
     OR (NOT last_error_check STREQUAL "postgres-required-tables") OR (NOT last_error_sample MATCHES "connection refused")
+    OR (NOT network_errors EQUAL 2)
     OR (NOT pool_enabled) OR (NOT thread_ownership STREQUAL "thread-affine pooled connections")
     OR (NOT summary_readiness STREQUAL "verified")
     OR (NOT summary_operator_action STREQUAL "Investigate query failures before promoting this database health snapshot.")
@@ -106,7 +108,8 @@ string(FIND "${markdown_content}" "queryFailureCount" md_query_failures)
 string(FIND "${markdown_content}" "lastErrorCheck" md_last_error_check)
 string(FIND "${markdown_content}" "threadConnectionOwnership" md_thread_policy)
 string(FIND "${markdown_content}" "releaseGate" md_release_gate)
-if(md_title EQUAL -1 OR md_check EQUAL -1 OR md_query_failures EQUAL -1 OR md_last_error_check EQUAL -1 OR md_thread_policy EQUAL -1 OR md_release_gate EQUAL -1)
+string(FIND "${markdown_content}" "errorReasons" md_error_reasons)
+if(md_title EQUAL -1 OR md_check EQUAL -1 OR md_query_failures EQUAL -1 OR md_last_error_check EQUAL -1 OR md_thread_policy EQUAL -1 OR md_release_gate EQUAL -1 OR md_error_reasons EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Markdown status is missing expected content, query metrics, or thread policy")
 endif()

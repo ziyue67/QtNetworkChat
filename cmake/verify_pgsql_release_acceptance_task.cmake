@@ -21,6 +21,9 @@ execute_process(
         -MigrationJsonPath "${OUTPUT_DIR}/sqlite-pg-migration-plan.json"
         -RollbackPreviewPath "${OUTPUT_DIR}/sqlite-pg-rollback-preview.json"
         -EnsureDatabase
+        -InjectSlowQueryProbe
+        -SlowQueryProbeSeconds 2
+        -InjectQueryFailureReason schema
         -FailOnUnhealthy
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
@@ -64,6 +67,9 @@ foreach(expected_text
         "-StatusPath"
         "-TestExe"
         "-EnsureDatabase"
+        "-InjectSlowQueryProbe"
+        "-SlowQueryProbeSeconds"
+        "-InjectQueryFailureReason"
         "-MigratorExe"
         "-RollbackPreviewMarkdownPath"
         "-DatabaseHealthDashboardPath"
@@ -141,6 +147,9 @@ string(JSON plan_only GET "${preview_content}" "planOnly")
 string(JSON package_evidence GET "${preview_content}" "packageEvidence")
 string(JSON password_source GET "${preview_content}" "passwordSource")
 string(JSON migration_mode GET "${preview_content}" "migrationMode")
+string(JSON inject_slow_probe GET "${preview_content}" "injectSlowQueryProbe")
+string(JSON slow_probe_seconds GET "${preview_content}" "slowQueryProbeSeconds")
+string(JSON inject_failure_reason GET "${preview_content}" "injectQueryFailureReason")
 
 if(NOT format STREQUAL "qtnetworkchat-pgsql-release-acceptance-task-preview-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -217,6 +226,10 @@ endif()
 if(plan_only OR NOT package_evidence OR NOT password_source STREQUAL "QTNETWORKCHAT_PGPASSWORD" OR NOT migration_mode STREQUAL "plan")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview should default to live password source, package evidence, and migration plan mode")
+endif()
+if(NOT inject_slow_probe OR NOT slow_probe_seconds EQUAL 2 OR NOT inject_failure_reason STREQUAL "schema")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview should expose slow-query and query-failure probe policy")
 endif()
 
 execute_process(

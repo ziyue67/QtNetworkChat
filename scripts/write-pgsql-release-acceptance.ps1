@@ -116,6 +116,9 @@ $dashboardOk = Normalize-Bool (Get-JsonValue $dashboard "ok" $false)
 $dashboardStatus = [string](Get-JsonValue $dashboard "status" "unknown")
 $dashboardSummary = Get-JsonValue $dashboard "summary" $null
 $dashboardAudit = Get-JsonValue $dashboard "auditSummary" $null
+$dashboardQueryMetrics = Get-JsonValue $dashboard "queryMetrics" $null
+$dashboardSlowQueryCount = [int](Get-JsonValue $dashboardQueryMetrics "slowQueryCount" 0)
+$dashboardQueryFailureCount = [int](Get-JsonValue $dashboardQueryMetrics "queryFailureCount" 0)
 
 $smokeOk = Normalize-Bool (Get-JsonValue $smoke "ok" $false)
 $smokeSummary = Get-JsonValue $smoke "summary" $null
@@ -143,6 +146,10 @@ $releaseGateSignals = @(
 
 $acceptanceStatus = if ($sensitiveHits.Count -gt 0) {
     "blocked"
+} elseif ($dashboardQueryFailureCount -gt 0) {
+    "review"
+} elseif ($dashboardSlowQueryCount -gt 0) {
+    "review"
 } elseif (-not $dashboardOk -or -not $smokeOk -or -not $migrationOk) {
     "review"
 } elseif ((Get-JsonValue $rollbackPreview "riskLevel" "unknown") -ne "review") {
@@ -156,6 +163,10 @@ $operatorAction = if ($sensitiveHits.Count -gt 0) {
     "Remove sensitive fields from PostgreSQL acceptance artifacts before using them for release review."
 } elseif (-not $dashboardOk) {
     "Resolve database health warnings before promoting PostgreSQL release acceptance."
+} elseif ($dashboardQueryFailureCount -gt 0) {
+    "Investigate PostgreSQL query failures before promoting PostgreSQL release acceptance."
+} elseif ($dashboardSlowQueryCount -gt 0) {
+    "Review PostgreSQL slow queries and pool thresholds before promoting PostgreSQL release acceptance."
 } elseif (-not $smokeOk) {
     "Run or repair real PostgreSQL smoke evidence before promoting PostgreSQL release acceptance."
 } elseif (-not $migrationOk) {
@@ -190,6 +201,12 @@ if ($null -ne $rollbackPreviewAvailable) {
 $rollbackRisk = [string](Get-JsonValue $rollbackPreview "riskLevel" "")
 if (-not [string]::IsNullOrWhiteSpace($rollbackRisk)) {
     $releaseDetails.Add('rollbackRisk=' + $rollbackRisk)
+}
+if ($dashboardSlowQueryCount -gt 0) {
+    $releaseDetails.Add('slowQueries=' + $dashboardSlowQueryCount)
+}
+if ($dashboardQueryFailureCount -gt 0) {
+    $releaseDetails.Add('queryFailures=' + $dashboardQueryFailureCount)
 }
 
 $evidenceBundle = New-Object System.Collections.Generic.List[string]
@@ -229,14 +246,14 @@ $summary = [ordered]@{
         releaseGateSignals = $releaseGateSignals
     }
     auditSummary = [ordered]@{
-        releaseGate = if ($acceptanceOk) { "can-review-cutover" } elseif ($acceptanceStatus -eq "review") { "review-pgsql-evidence" } else { "blocked" }
+        releaseGate = if ($acceptanceOk) { "can-review-cutover" } elseif ($dashboardQueryFailureCount -gt 0) { "review-query-failures" } elseif ($dashboardSlowQueryCount -gt 0) { "review-slow-queries" } elseif ($acceptanceStatus -eq "review") { "review-pgsql-evidence" } else { "blocked" }
         auditFocus = @($auditFocus)
         evidenceBundle = @($evidenceBundle)
     }
     releaseDetails = @($releaseDetails)
     metrics = [ordered]@{
-        slowQueryCount = [int](Get-JsonValue (Get-JsonValue $dashboard "queryMetrics" $null) "slowQueryCount" 0)
-        queryFailureCount = [int](Get-JsonValue (Get-JsonValue $dashboard "queryMetrics" $null) "queryFailureCount" 0)
+        slowQueryCount = $dashboardSlowQueryCount
+        queryFailureCount = $dashboardQueryFailureCount
         smokeRetryOrResumeCount = [int](Get-JsonValue $smokeRecovery "retryOrResumeCount" 0)
         smokeCleanupProofCount = [int](Get-JsonValue $smokeRecovery "cleanupProofCount" 0)
         migrationDriftTableCount = [int](Get-JsonValue $migrationDiffSummary "driftTableCount" 0)

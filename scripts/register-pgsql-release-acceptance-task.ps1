@@ -41,6 +41,13 @@ param(
 
     [switch]$EnsureDatabase,
 
+    [switch]$InjectSlowQueryProbe,
+
+    [int]$SlowQueryProbeSeconds = 1,
+
+    [ValidateSet("none", "query", "schema", "auth", "network", "tls")]
+    [string]$InjectQueryFailureReason = "none",
+
     [string]$DatabaseHealthDashboardPath,
 
     [string]$SmokeJsonPath,
@@ -232,6 +239,11 @@ if ($PlanOnly.IsPresent) {
 }
 Add-ScalarArg $lines "SQLitePath" $SQLitePath
 Add-SwitchArg $lines "FailOnUnhealthy" $FailOnUnhealthy.IsPresent
+Add-SwitchArg $lines "InjectSlowQueryProbe" $InjectSlowQueryProbe.IsPresent
+Add-IntArg $lines "SlowQueryProbeSeconds" $SlowQueryProbeSeconds
+if ($InjectQueryFailureReason -ne "none") {
+    Add-ScalarArg $lines "InjectQueryFailureReason" $InjectQueryFailureReason
+}
 Add-ScalarArg $lines "JsonPath" $healthPath
 $lastIndex = $lines.Count - 1
 if ($lastIndex -ge 0) {
@@ -485,6 +497,9 @@ $preview = [pscustomobject]@{
     planOnly = $PlanOnly.IsPresent
     ensureDatabase = $EnsureDatabase.IsPresent
     migrationMode = $MigrationMode
+    injectSlowQueryProbe = $InjectSlowQueryProbe.IsPresent
+    slowQueryProbeSeconds = $SlowQueryProbeSeconds
+    injectQueryFailureReason = $InjectQueryFailureReason
     packageEvidence = (-not $SkipEvidencePackage.IsPresent)
     passwordSource = "QTNETWORKCHAT_PGPASSWORD"
     failOnUnhealthy = $FailOnUnhealthy.IsPresent

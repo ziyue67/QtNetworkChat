@@ -189,6 +189,7 @@ $dashboard = [ordered]@{
         lastErrorReason = $lastErrorReason
         lastErrorCheck = $lastErrorCheck
         lastErrorSample = $lastErrorSample
+        errorReasons = Get-JsonValue $statusQueryMetrics "errorReasons" (Get-JsonValue $healthQueryMetrics "errorReasons" $null)
     }
     reconnectPolicy = [ordered]@{
         poolEnabled = Normalize-Bool (Get-JsonValue $reconnectPolicy "poolEnabled" $false)
