@@ -251,7 +251,8 @@ Client::Client(QObject* parent)
     , m_reconnectAttempts(0)
     , m_hasServerGroupSnapshot(false)
     , m_cancelOutgoingTransfer(false)
-    , m_e2eIdentityPublicKey(generateE2ESessionKey())
+    , m_e2eIdentityPrivateKey(generateE2EPrivateKey())
+    , m_e2eIdentityPublicKey(e2ePublicKeyFromPrivateKey(m_e2eIdentityPrivateKey))
     , m_e2eSessionMessageLimit(kDefaultE2ESessionMessageLimit)
 {
     connect(m_socket, &QTcpSocket::readyRead, this, &Client::onReadyRead);
@@ -568,6 +569,23 @@ bool Client::validateIncomingE2EAgreementIdentity(const E2EKeyAgreement& agreeme
     return true;
 }
 
+void Client::installE2EDerivedSession(const QString& peerId,
+                                      const QString& keyId,
+                                      const QByteArray& sessionKey) {
+    const QString normalizedPeerId = peerId.trimmed();
+    const QString normalizedKeyId = keyId.trimmed();
+    if (normalizedPeerId.isEmpty() || normalizedKeyId.isEmpty() || sessionKey.size() < 16) {
+        return;
+    }
+
+    E2ESession session;
+    session.keyId = normalizedKeyId;
+    session.sessionKey = sessionKey;
+    session.createdAtMs = QDateTime::currentMSecsSinceEpoch();
+    m_e2eSessions[normalizedPeerId] = session;
+    emit e2eSessionStateChanged(normalizedPeerId, e2eSessionStatus(normalizedPeerId));
+}
+
 bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectReason) {
     if (rejectReason) rejectReason->clear();
     if (!isConnected()) {
@@ -589,7 +607,9 @@ bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectRea
     agreement.keyId = QStringLiteral("rotate-%1-%2")
         .arg(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddhhmmsszzz")),
              e2eFingerprint(generateE2ESessionKey()).left(12));
-    agreement.publicKey = generateE2ESessionKey();
+    E2EPendingAgreement pending;
+    pending.privateKey = generateE2EPrivateKey();
+    agreement.publicKey = e2ePublicKeyFromPrivateKey(pending.privateKey);
     if (!populateE2EAgreementIdentityFingerprints(normalizedPeerId, &agreement, rejectReason)) {
         return false;
     }
@@ -609,6 +629,9 @@ bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectRea
         ? QStringLiteral("rotation-required")
         : QStringLiteral("manual-request");
     obj["e2eKeyAgreement"] = agreement.toJson();
+    pending.agreement = agreement;
+    pending.createdAtMs = QDateTime::currentMSecsSinceEpoch();
+    m_e2ePendingOutgoingAgreements[normalizedPeerId] = pending;
     return sendJson(obj);
 }
 
@@ -631,7 +654,9 @@ bool Client::respondE2ESessionRotation(const QString& peerId,
     agreement.senderId = m_userId;
     agreement.receiverId = normalizedPeerId;
     agreement.keyId = keyId.trimmed();
-    agreement.publicKey = publicKey;
+    E2EPendingAgreement pending;
+    pending.privateKey = generateE2EPrivateKey();
+    agreement.publicKey = e2ePublicKeyFromPrivateKey(pending.privateKey);
     if (!populateE2EAgreementIdentityFingerprints(normalizedPeerId, &agreement, rejectReason)) {
         return false;
     }
@@ -650,6 +675,26 @@ bool Client::respondE2ESessionRotation(const QString& peerId,
     obj["accepted"] = accepted;
     obj["reason"] = accepted ? QStringLiteral("accepted") : (reason.trimmed().isEmpty() ? QStringLiteral("rejected") : reason.trimmed());
     obj["e2eKeyAgreement"] = agreement.toJson();
+    if (accepted) {
+        const auto requestIt = m_e2ePendingIncomingAgreements.constFind(normalizedPeerId);
+        if (requestIt == m_e2ePendingIncomingAgreements.constEnd()) {
+            if (rejectReason) *rejectReason = QStringLiteral("missing-pending-agreement");
+            return false;
+        }
+        QString deriveReason;
+        const QByteArray sessionKey = deriveE2EAuthenticatedSessionKey(pending.privateKey,
+                                                                       agreement,
+                                                                       requestIt->agreement,
+                                                                       &deriveReason);
+        if (sessionKey.isEmpty()) {
+            if (rejectReason) *rejectReason = deriveReason;
+            return false;
+        }
+        installE2EDerivedSession(normalizedPeerId, agreement.keyId, sessionKey);
+        m_e2ePendingIncomingAgreements.remove(normalizedPeerId);
+    }
+    pending.agreement = agreement;
+    pending.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     return sendJson(obj);
 }
 
@@ -1604,11 +1649,34 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         }
 
         if (type == "e2e_key_rotation_request") {
+            E2EPendingAgreement pending;
+            pending.agreement = agreement;
+            pending.createdAtMs = QDateTime::currentMSecsSinceEpoch();
+            m_e2ePendingIncomingAgreements[senderId] = pending;
             emit e2eSessionRotationRequested(senderId, agreement.toJson());
         } else {
+            const bool accepted = obj.value("accepted").toBool(false);
+            if (accepted) {
+                const auto pendingIt = m_e2ePendingOutgoingAgreements.constFind(senderId);
+                if (pendingIt == m_e2ePendingOutgoingAgreements.constEnd()) {
+                    emit connectionError(QStringLiteral("端到端加密轮换消息无效：missing-pending-agreement"));
+                    return;
+                }
+                QString deriveReason;
+                const QByteArray sessionKey = deriveE2EAuthenticatedSessionKey(pendingIt->privateKey,
+                                                                               pendingIt->agreement,
+                                                                               agreement,
+                                                                               &deriveReason);
+                if (sessionKey.isEmpty()) {
+                    emit connectionError(QStringLiteral("端到端加密轮换消息无效：%1").arg(deriveReason));
+                    return;
+                }
+                installE2EDerivedSession(senderId, agreement.keyId, sessionKey);
+                m_e2ePendingOutgoingAgreements.remove(senderId);
+            }
             emit e2eSessionRotationResponded(senderId,
                                              agreement.toJson(),
-                                             obj.value("accepted").toBool(false),
+                                             accepted,
                                              obj.value("reason").toString());
         }
         return;

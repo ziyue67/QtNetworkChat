@@ -102,6 +102,48 @@ int main() {
     ok = expect(!invalidAgreement.isValid(&reason) && reason == "invalid-identity-fingerprint",
                 "malformed identity fingerprints should fail closed") && ok;
 
+    const QByteArray alicePrivateKey = generateE2EPrivateKey();
+    const QByteArray bobPrivateKey = generateE2EPrivateKey();
+    const QByteArray alicePublicKey = e2ePublicKeyFromPrivateKey(alicePrivateKey);
+    const QByteArray bobPublicKey = e2ePublicKeyFromPrivateKey(bobPrivateKey);
+    ok = expect(!alicePrivateKey.isEmpty() && !bobPrivateKey.isEmpty()
+                    && !alicePublicKey.isEmpty() && !bobPublicKey.isEmpty()
+                    && alicePrivateKey != alicePublicKey,
+                "draft key agreement should expose only derived public material") && ok;
+
+    E2EKeyAgreement aliceAgreement;
+    aliceAgreement.protocol = "qtnetworkchat-e2e-v1";
+    aliceAgreement.suite = "draft-placeholder";
+    aliceAgreement.senderId = "10001";
+    aliceAgreement.receiverId = "10002";
+    aliceAgreement.keyId = "alice-bob-auth-1";
+    aliceAgreement.publicKey = alicePublicKey;
+    aliceAgreement.senderIdentityFingerprint = QString(64, QLatin1Char('1'));
+    aliceAgreement.receiverIdentityFingerprint = QString(64, QLatin1Char('2'));
+    E2EKeyAgreement bobAgreement;
+    bobAgreement.protocol = "qtnetworkchat-e2e-v1";
+    bobAgreement.suite = "draft-placeholder";
+    bobAgreement.senderId = "10002";
+    bobAgreement.receiverId = "10001";
+    bobAgreement.keyId = "alice-bob-auth-1-response";
+    bobAgreement.publicKey = bobPublicKey;
+    bobAgreement.senderIdentityFingerprint = aliceAgreement.receiverIdentityFingerprint;
+    bobAgreement.receiverIdentityFingerprint = aliceAgreement.senderIdentityFingerprint;
+
+    const QByteArray aliceDerived = deriveE2EAuthenticatedSessionKey(alicePrivateKey, aliceAgreement, bobAgreement, &reason);
+    const QByteArray bobDerived = deriveE2EAuthenticatedSessionKey(bobPrivateKey, bobAgreement, aliceAgreement, &reason);
+    ok = expect(aliceDerived.size() == 32 && aliceDerived == bobDerived && reason.isEmpty(),
+                "authenticated key agreement should derive the same session without sending it") && ok;
+    E2EKeyAgreement tamperedAgreement = bobAgreement;
+    tamperedAgreement.receiverIdentityFingerprint = QString(64, QLatin1Char('3'));
+    ok = expect(deriveE2EAuthenticatedSessionKey(alicePrivateKey, aliceAgreement, tamperedAgreement, &reason).isEmpty()
+                    && reason == "transcript-identity-mismatch",
+                "identity-bound transcript mismatch should fail closed") && ok;
+    tamperedAgreement = bobAgreement;
+    tamperedAgreement.publicKey = e2ePublicKeyFromPrivateKey(generateE2EPrivateKey());
+    ok = expect(deriveE2EAuthenticatedSessionKey(alicePrivateKey, aliceAgreement, tamperedAgreement, &reason) != aliceDerived,
+                "changing public agreement material should change the derived session") && ok;
+
     const QByteArray sessionKey = generateE2ESessionKey();
     ok = expect(sessionKey.size() == 32,
                 "generated session key should use 32 bytes") && ok;

@@ -43,6 +43,12 @@ QString e2eFingerprint(const QByteArray& value);
 bool isSupportedE2EProtocol(const QString& protocol);
 bool isSupportedE2ESuite(const QString& suite);
 QByteArray generateE2ESessionKey();
+QByteArray generateE2EPrivateKey();
+QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey);
+QByteArray deriveE2EAuthenticatedSessionKey(const QByteArray& localPrivateKey,
+                                            const E2EKeyAgreement& localAgreement,
+                                            const E2EKeyAgreement& remoteAgreement,
+                                            QString* reason = nullptr);
 E2EEnvelope encryptE2EText(const QString& senderId,
                            const QString& receiverId,
                            const QString& keyId,

@@ -17,6 +17,10 @@ constexpr qsizetype FingerprintHexLength = 64;
 constexpr qsizetype MaxSignatureBytes = 4096;
 constexpr qsizetype SessionKeyBytes = 32;
 constexpr qsizetype MinSessionKeyBytes = 16;
+constexpr quint32 DraftDhPrime = 2147483647u;
+constexpr quint32 DraftDhGenerator = 5u;
+const char DraftDhPrivatePrefix[] = "qnc-dh1-private:";
+const char DraftDhPublicPrefix[] = "qnc-dh1-public:";
 
 QString trimmed(QString value) {
     return value.trimmed();
@@ -62,6 +66,45 @@ QByteArray randomBytes(qsizetype size) {
         value[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
     }
     return value;
+}
+
+quint32 readDhValue(const QByteArray& value, const char* prefix) {
+    const QByteArray marker(prefix);
+    if (!value.startsWith(marker) || value.size() != marker.size() + 4) {
+        return 0;
+    }
+    quint32 result = 0;
+    for (int i = marker.size(); i < value.size(); ++i) {
+        result = (result << 8) | static_cast<unsigned char>(value.at(i));
+    }
+    return result;
+}
+
+QByteArray writeDhValue(const char* prefix, quint32 value) {
+    QByteArray result(prefix);
+    result.append(static_cast<char>((value >> 24) & 0xff));
+    result.append(static_cast<char>((value >> 16) & 0xff));
+    result.append(static_cast<char>((value >> 8) & 0xff));
+    result.append(static_cast<char>(value & 0xff));
+    return result;
+}
+
+quint32 modMul(quint32 a, quint32 b) {
+    return static_cast<quint32>((static_cast<quint64>(a) * static_cast<quint64>(b)) % DraftDhPrime);
+}
+
+quint32 modPow(quint32 base, quint32 exponent) {
+    quint32 result = 1;
+    quint32 factor = base % DraftDhPrime;
+    quint32 power = exponent;
+    while (power > 0) {
+        if ((power & 1u) != 0u) {
+            result = modMul(result, factor);
+        }
+        factor = modMul(factor, factor);
+        power >>= 1;
+    }
+    return result;
 }
 
 QByteArray hmacSha256(const QByteArray& key, const QByteArray& data) {
@@ -112,6 +155,42 @@ QByteArray envelopeTagData(const E2EEnvelope& envelope) {
     data.append(envelope.nonce);
     data.append('|');
     data.append(envelope.ciphertext);
+    return data;
+}
+
+QByteArray agreementTranscriptData(const E2EKeyAgreement& left,
+                                   const E2EKeyAgreement& right,
+                                   const QByteArray& sharedSecret) {
+    const E2EKeyAgreement* first = &left;
+    const E2EKeyAgreement* second = &right;
+    if (left.senderId > right.senderId
+        || (left.senderId == right.senderId && left.keyId > right.keyId)) {
+        first = &right;
+        second = &left;
+    }
+
+    QByteArray data;
+    data.append("qtnetworkchat-e2e-authenticated-draft-v1|");
+    data.append(sharedSecret.toHex());
+    data.append('|');
+    for (const E2EKeyAgreement* agreement : {first, second}) {
+        data.append(normalizedE2EProtocol(agreement->protocol).toUtf8());
+        data.append('|');
+        data.append(normalizedE2ESuite(agreement->suite).toUtf8());
+        data.append('|');
+        data.append(agreement->senderId.trimmed().toUtf8());
+        data.append('|');
+        data.append(agreement->receiverId.trimmed().toUtf8());
+        data.append('|');
+        data.append(agreement->keyId.trimmed().toUtf8());
+        data.append('|');
+        data.append(agreement->senderIdentityFingerprint.trimmed().toLower().toUtf8());
+        data.append('|');
+        data.append(agreement->receiverIdentityFingerprint.trimmed().toLower().toUtf8());
+        data.append('|');
+        data.append(e2eFingerprint(agreement->publicKey).toUtf8());
+        data.append('|');
+    }
     return data;
 }
 }
@@ -266,6 +345,74 @@ E2EEnvelope E2EEnvelope::fromJson(const QJsonObject& obj) {
 
 QByteArray generateE2ESessionKey() {
     return randomBytes(SessionKeyBytes);
+}
+
+QByteArray generateE2EPrivateKey() {
+    quint32 scalar = 0;
+    while (scalar < 2 || scalar >= DraftDhPrime - 1) {
+        const QByteArray bytes = randomBytes(4);
+        scalar = 0;
+        for (const char byte : bytes) {
+            scalar = (scalar << 8) | static_cast<unsigned char>(byte);
+        }
+        scalar = 2 + (scalar % (DraftDhPrime - 3));
+    }
+    return writeDhValue(DraftDhPrivatePrefix, scalar);
+}
+
+QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey) {
+    const quint32 scalar = readDhValue(privateKey, DraftDhPrivatePrefix);
+    if (scalar < 2 || scalar >= DraftDhPrime - 1) {
+        return QByteArray();
+    }
+    return writeDhValue(DraftDhPublicPrefix, modPow(DraftDhGenerator, scalar));
+}
+
+QByteArray deriveE2EAuthenticatedSessionKey(const QByteArray& localPrivateKey,
+                                            const E2EKeyAgreement& localAgreement,
+                                            const E2EKeyAgreement& remoteAgreement,
+                                            QString* reason) {
+    QString validationReason;
+    if (!localAgreement.isValid(&validationReason) || !remoteAgreement.isValid(&validationReason)) {
+        fail(reason, validationReason);
+        return QByteArray();
+    }
+    if (localAgreement.senderId.trimmed() != remoteAgreement.receiverId.trimmed()
+        || localAgreement.receiverId.trimmed() != remoteAgreement.senderId.trimmed()) {
+        fail(reason, QStringLiteral("transcript-peer-mismatch"));
+        return QByteArray();
+    }
+    if (localAgreement.senderIdentityFingerprint.trimmed().toLower()
+            != remoteAgreement.receiverIdentityFingerprint.trimmed().toLower()
+        || localAgreement.receiverIdentityFingerprint.trimmed().toLower()
+            != remoteAgreement.senderIdentityFingerprint.trimmed().toLower()) {
+        fail(reason, QStringLiteral("transcript-identity-mismatch"));
+        return QByteArray();
+    }
+    const quint32 privateScalar = readDhValue(localPrivateKey, DraftDhPrivatePrefix);
+    const quint32 localPublic = readDhValue(localAgreement.publicKey, DraftDhPublicPrefix);
+    const quint32 expectedLocalPublic = privateScalar < 2 ? 0 : modPow(DraftDhGenerator, privateScalar);
+    if (privateScalar < 2 || privateScalar >= DraftDhPrime - 1 || localPublic != expectedLocalPublic) {
+        fail(reason, QStringLiteral("invalid-local-key"));
+        return QByteArray();
+    }
+    const quint32 remotePublic = readDhValue(remoteAgreement.publicKey, DraftDhPublicPrefix);
+    if (remotePublic < 2 || remotePublic >= DraftDhPrime) {
+        fail(reason, QStringLiteral("invalid-remote-public-key"));
+        return QByteArray();
+    }
+
+    const QByteArray sharedSecret = writeDhValue("qnc-dh1-shared:", modPow(remotePublic, privateScalar));
+    const QByteArray transcript = agreementTranscriptData(localAgreement, remoteAgreement, sharedSecret);
+    const QByteArray sessionKey = hmacSha256(QByteArray("qtnetworkchat-e2e-session-v1"), transcript);
+    if (sessionKey.size() < SessionKeyBytes) {
+        fail(reason, QStringLiteral("session-derivation-failed"));
+        return QByteArray();
+    }
+    if (reason) {
+        reason->clear();
+    }
+    return sessionKey.left(SessionKeyBytes);
 }
 
 E2EEnvelope encryptE2EText(const QString& senderId,

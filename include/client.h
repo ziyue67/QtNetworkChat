@@ -170,6 +170,9 @@ private:
                                                   QString* rejectReason) const;
     bool validateIncomingE2EAgreementIdentity(const E2EKeyAgreement& agreement,
                                               QString* rejectReason) const;
+    void installE2EDerivedSession(const QString& peerId,
+                                  const QString& keyId,
+                                  const QByteArray& sessionKey);
 
     struct E2ESession {
         QString keyId;
@@ -188,6 +191,12 @@ private:
         bool pinned = false;
         QString pinnedFingerprint;
         bool fingerprintMismatch = false;
+    };
+
+    struct E2EPendingAgreement {
+        E2EKeyAgreement agreement;
+        QByteArray privateKey;
+        qint64 createdAtMs = 0;
     };
 
     struct PendingIncomingFileTransfer {
@@ -228,8 +237,11 @@ private:
     QJsonArray m_serverGroups;
     QJsonArray m_removedServerGroups;
     QMap<QString, E2ESession> m_e2eSessions;
+    QByteArray m_e2eIdentityPrivateKey;
     QByteArray m_e2eIdentityPublicKey;
     QMap<QString, E2EPeerIdentity> m_e2ePeerIdentities;
+    QMap<QString, E2EPendingAgreement> m_e2ePendingOutgoingAgreements;
+    QMap<QString, E2EPendingAgreement> m_e2ePendingIncomingAgreements;
     int m_e2eSessionMessageLimit;
 };
 
