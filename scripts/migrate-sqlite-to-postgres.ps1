@@ -61,6 +61,43 @@ function Escape-Html {
     return [System.Net.WebUtility]::HtmlEncode((Format-ReportValue $Value))
 }
 
+function Get-ExecutionReadiness {
+    param(
+        [string]$Mode,
+        [string]$Severity,
+        [int64]$TotalMissingRows,
+        [int64]$TotalRolledBackRows,
+        [int]$DriftTableCount
+    )
+    if ($Mode -eq "rollback") {
+        return "review"
+    }
+    if ($Severity -eq "ok" -and $TotalMissingRows -eq 0 -and $TotalRolledBackRows -eq 0 -and $DriftTableCount -eq 0) {
+        return "ready"
+    }
+    if ($Severity -eq "warning") {
+        return "review"
+    }
+    "blocked"
+}
+
+function Get-ExecutionAction {
+    param(
+        [string]$Readiness,
+        [string]$Mode
+    )
+    switch ($Readiness) {
+        "ready" { return "Can proceed after a routine backup and smoke verification." }
+        "review" {
+            if ($Mode -eq "rollback") {
+                return "Review delete predicates and affected tables before executing rollback against PostgreSQL."
+            }
+            return "Review drift, missing rows, and rollback preview before execute or cutover."
+        }
+        default { return "Do not execute until drift or missing-row issues are resolved and rerun validation." }
+    }
+}
+
 $migratorPath = Resolve-RepoPath $MigratorExe
 $sqliteFullPath = Resolve-RepoPath $SQLitePath
 $qtBinDir = Join-Path $QtRoot "bin"
@@ -136,6 +173,25 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
     $diffSummary = $migration.diffSummary
     $severity = Format-ReportValue $diffSummary.severity
     $recommendedAction = Format-ReportValue $diffSummary.recommendedAction
+    $tablesRequiringReview = @($tables | Where-Object {
+            ([string]$_.diffStatus) -ne "clean" -or
+            ([int64]$_.missingRows) -gt 0 -or
+            ([int64]$_.rolledBackRows) -gt 0
+        })
+    $executionReadiness = Get-ExecutionReadiness -Mode $migration.mode -Severity $severity -TotalMissingRows $totalMissing -TotalRolledBackRows $totalRolledBack -DriftTableCount ([int]$diffSummary.driftTableCount)
+    $executionAction = Get-ExecutionAction -Readiness $executionReadiness -Mode $migration.mode
+    $auditFocus = New-Object System.Collections.Generic.List[string]
+    if ($tablesRequiringReview.Count -gt 0) { [void]$auditFocus.Add("review-drifted-tables") }
+    if ($totalMissing -gt 0) { [void]$auditFocus.Add("resolve-missing-rows") }
+    if ($totalRolledBack -gt 0 -or $migration.mode -eq "rollback") { [void]$auditFocus.Add("verify-rollback-scope") }
+    if ($auditFocus.Count -eq 0) { [void]$auditFocus.Add("routine-backup-and-smoke") }
+    $migration | Add-Member -NotePropertyName reportSummary -NotePropertyValue ([ordered]@{
+            executionReadiness = $executionReadiness
+            operatorAction = $executionAction
+            tablesRequiringReview = $tablesRequiringReview.Count
+            auditFocus = @($auditFocus)
+        }) -Force
+    $migration | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jsonTarget -Encoding UTF8
 
     if (-not [string]::IsNullOrWhiteSpace($markdownTarget)) {
         $parent = Split-Path -Parent $markdownTarget
@@ -150,8 +206,11 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         $lines.Add(("- Total source rows: {0}" -f $totalRows))
         $lines.Add(("- Missing rows: {0}" -f $totalMissing))
         $lines.Add(("- Rolled back rows: {0}" -f $totalRolledBack))
+        $lines.Add(("- Execution readiness: {0}" -f $executionReadiness))
+        $lines.Add(("- Tables requiring review: {0}" -f $tablesRequiringReview.Count))
         $lines.Add(("- Diff severity: {0}" -f $severity))
         $lines.Add(("- Recommended action: {0}" -f $recommendedAction))
+        $lines.Add(("- Operator action: {0}" -f $executionAction))
         $lines.Add("")
         $lines.Add("| Diff summary | Value |")
         $lines.Add("|---|---:|")
@@ -186,9 +245,11 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
             "<p>Mode: <code>$(Escape-Html $migration.mode)</code> Status: <code>$(Escape-Html $migration.status)</code> OK: <code>$(Escape-Html $migration.ok)</code></p>",
             "<p>PostgreSQL password: <code>$(Escape-Html $migration.postgresPassword)</code></p>",
             "<p>Total source rows: <code>$(Escape-Html $totalRows)</code> Missing rows: <code>$(Escape-Html $totalMissing)</code> Rolled back rows: <code>$(Escape-Html $totalRolledBack)</code></p>",
+            "<p>Execution readiness: <code>$(Escape-Html $executionReadiness)</code> Tables requiring review: <code>$(Escape-Html $tablesRequiringReview.Count)</code></p>",
             "<h2>Diff Summary</h2>",
             "<p>Severity: <code>$(Escape-Html $severity)</code></p>",
             "<p>Recommended action: <code>$(Escape-Html $recommendedAction)</code></p>",
+            "<p>Operator action: <code>$(Escape-Html $executionAction)</code></p>",
             "<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>",
             "<tr><td>Tables</td><td>$(Escape-Html $diffSummary.tableCount)</td></tr>",
             "<tr><td>Drift tables</td><td>$(Escape-Html $diffSummary.driftTableCount)</td></tr>",
@@ -209,19 +270,33 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
     if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget)) {
         $previewTables = @()
         $previewOperations = @()
+        $tablesUsingFallbackKeys = 0
         foreach ($table in $tables) {
-            $keyColumns = @(Get-RollbackKeyColumns -TableName $table.name -ReportedKeyColumns @($table.keyColumns))
+            $reportedKeyColumns = @($table.keyColumns)
+            $keyColumns = @(Get-RollbackKeyColumns -TableName $table.name -ReportedKeyColumns $reportedKeyColumns)
+            $keySource = if (@($reportedKeyColumns | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0) { "reported" } else { "fallback" }
             $wouldDeleteRows = if ($migration.mode -eq "rollback") { $table.rolledBackRows } else { $table.rows }
             $requiresReview = ([int64]$wouldDeleteRows) -gt 0
+            if ($keySource -eq "fallback") {
+                $tablesUsingFallbackKeys += 1
+            }
             $whereShape = if ($keyColumns.Count -gt 0) {
                 (($keyColumns | ForEach-Object { "$_ = ?" }) -join " AND ")
             } else {
                 "<no key columns>"
             }
+            $reviewReason = if (-not $requiresReview) {
+                "none"
+            } elseif ($keySource -eq "fallback") {
+                "fallback-key-columns"
+            } else {
+                "delete-preview"
+            }
             $previewTables += [pscustomobject]@{
                 name = $table.name
                 sourceRows = $table.rows
                 keyColumns = $keyColumns
+                keySource = $keySource
                 wouldDeleteRows = $wouldDeleteRows
                 dryRun = $true
             }
@@ -229,9 +304,11 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
                 table = $table.name
                 operation = "delete-by-source-keys"
                 keyColumns = $keyColumns
+                keySource = $keySource
                 whereShape = $whereShape
                 wouldDeleteRows = $wouldDeleteRows
                 requiresReview = $requiresReview
+                reviewReason = $reviewReason
                 dryRun = $true
             }
         }
@@ -239,6 +316,7 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         $totalWouldDeleteRows = [int64](($previewTables | Measure-Object -Property wouldDeleteRows -Sum).Sum)
         $tablesWithDeletes = @($previewTables | Where-Object { ([int64]$_.wouldDeleteRows) -gt 0 }).Count
         $riskLevel = if ($totalWouldDeleteRows -eq 0) { "none" } elseif ($Mode -eq "rollback") { "high" } else { "review" }
+        $previewOperatorAction = if ($riskLevel -eq "none") { "No rollback rows would be touched." } elseif ($tablesUsingFallbackKeys -gt 0) { "Review fallback key columns before executing rollback." } else { "Review affected tables and delete predicates before executing rollback." }
         $summary = [ordered]@{
             sourceMode = $migration.mode
             dryRun = $true
@@ -246,6 +324,9 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
             totalSourceRows = $totalSourceRows
             totalWouldDeleteRows = $totalWouldDeleteRows
             tablesWithDeletes = $tablesWithDeletes
+            reviewRequiredTableCount = $tablesWithDeletes
+            fallbackKeyTableCount = $tablesUsingFallbackKeys
+            operatorAction = $previewOperatorAction
         }
         $preview = [ordered]@{
             format = "qtnetworkchat-sqlite-pg-rollback-preview-v1"
@@ -280,13 +361,15 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
             $lines.Add(("- Total source rows: {0}" -f $summary.totalSourceRows))
             $lines.Add(("- Total rows that would be deleted: {0}" -f $summary.totalWouldDeleteRows))
             $lines.Add(("- Tables with deletes: {0}" -f $summary.tablesWithDeletes))
+            $lines.Add(("- Fallback-key tables: {0}" -f $summary.fallbackKeyTableCount))
+            $lines.Add(("- Operator action: {0}" -f $summary.operatorAction))
             $lines.Add("")
-            $lines.Add("| Table | Operation | Key columns | Delete predicate shape | Would delete | Requires review |")
-            $lines.Add("|---|---|---|---|---:|---|")
+            $lines.Add("| Table | Operation | Key columns | Key source | Delete predicate shape | Would delete | Requires review | Review reason |")
+            $lines.Add("|---|---|---|---|---|---:|---|---|")
             foreach ($operation in $previewOperations) {
                 $keyColumnText = if (@($operation.keyColumns).Count -gt 0) { (@($operation.keyColumns) -join ", ") } else { "(none)" }
-                $lines.Add(("| {0} | {1} | {2} | {3} | {4} | {5} |" -f
-                    $operation.table, $operation.operation, $keyColumnText, $operation.whereShape, $operation.wouldDeleteRows, $operation.requiresReview))
+                $lines.Add(("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} |" -f
+                    $operation.table, $operation.operation, $keyColumnText, $operation.keySource, $operation.whereShape, $operation.wouldDeleteRows, $operation.requiresReview, $operation.reviewReason))
             }
             Set-Content -LiteralPath $rollbackPreviewMarkdownTarget -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
         }
