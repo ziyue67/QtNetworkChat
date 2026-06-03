@@ -330,6 +330,7 @@ $s3StabilityRunbookMarkdownPreviewPath = if ([string]::IsNullOrWhiteSpace($S3Sta
 }
 $actionArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`""
 $preview = [pscustomobject]@{
+    taskKind = "large-file-governance"
     taskName = $TaskName
     register = $Register.IsPresent
     schedule = $Schedule
@@ -347,6 +348,7 @@ $preview = [pscustomobject]@{
     reportPath = $reportPreviewPath
     htmlReportPath = $htmlReportPreviewPath
     dashboardPath = $dashboardPreviewPath
+    statusArtifactPath = $dashboardPreviewPath
     dashboardMarkdownPath = $dashboardMarkdownPreviewPath
     s3StabilityRunbookPath = $s3StabilityRunbookPreviewPath
     s3StabilityRunbookMarkdownPath = $s3StabilityRunbookMarkdownPreviewPath
@@ -355,8 +357,11 @@ $preview = [pscustomobject]@{
     s3FailureBatchSummaryPath = $s3FailureBatchPreviewPath
     s3FailureBatchCountPerReason = if ($RunS3FailureBatchSample) { $S3FailureBatchCountPerReason } else { $null }
     historyPath = $historyPath
+    historyArtifactPath = $historyPath
     historyMarkdownPath = $historyMarkdownPath
     ackPath = $ackPath
+    ackArtifactPath = $ackPath
+    lastRunPath = $logPath
     readOnly = $true
     notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, dashboardPath for machine-readable local status, reportPath for an operator-readable summary, diagnosticsPackagePath for a sanitized zip, and automation task history JSON/Markdown derived from last-run.log plus same-directory ack state."
 }

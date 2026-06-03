@@ -88,17 +88,19 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
 '@ | Set-Content -LiteralPath $taskAckPath -Encoding UTF8
 
 ([ordered]@{
-    statusPath = $dbStatusPath
-    logPath = $dbLastRunPath
-    historyPath = $taskHistoryPath
-    ackPath = $taskAckPath
+    taskKind = "database-health"
+    statusArtifactPath = $dbStatusPath
+    lastRunPath = $dbLastRunPath
+    historyArtifactPath = $taskHistoryPath
+    ackArtifactPath = $taskAckPath
 } | ConvertTo-Json) | Set-Content -LiteralPath $dbPreviewPath -Encoding UTF8
 
 ([ordered]@{
-    dashboardPath = $govStatusPath
-    logPath = $govLastRunPath
-    historyPath = $taskHistoryPath
-    ackPath = $taskAckPath
+    taskKind = "large-file-governance"
+    statusArtifactPath = $govStatusPath
+    lastRunPath = $govLastRunPath
+    historyArtifactPath = $taskHistoryPath
+    ackArtifactPath = $taskAckPath
     launcherPath = (Join-Path $tempDir "task\run-large-file-governance-task.ps1")
 } | ConvertTo-Json) | Set-Content -LiteralPath $govPreviewPath -Encoding UTF8
 
@@ -188,17 +190,19 @@ $configuredDbPreviewPath = Join-Path $configuredTempDir "database-health-task-pr
 $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-task-preview.json"
 
 ([ordered]@{
-    statusPath = (Join-Path $configuredTempDir "missing-database-health-status.json")
-    logPath = (Join-Path $configuredTempDir "missing-database-health-last-run.log")
-    historyPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
-    ackPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
+    taskKind = "database-health"
+    statusArtifactPath = (Join-Path $configuredTempDir "missing-database-health-status.json")
+    lastRunPath = (Join-Path $configuredTempDir "missing-database-health-last-run.log")
+    historyArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
+    ackArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
 } | ConvertTo-Json) | Set-Content -LiteralPath $configuredDbPreviewPath -Encoding UTF8
 
 ([ordered]@{
-    dashboardPath = (Join-Path $configuredTempDir "missing-large-file-governance-status.json")
-    logPath = (Join-Path $configuredTempDir "missing-large-file-governance-last-run.log")
-    historyPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
-    ackPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
+    taskKind = "large-file-governance"
+    statusArtifactPath = (Join-Path $configuredTempDir "missing-large-file-governance-status.json")
+    lastRunPath = (Join-Path $configuredTempDir "missing-large-file-governance-last-run.log")
+    historyArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
+    ackArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
 } | ConvertTo-Json) | Set-Content -LiteralPath $configuredGovPreviewPath -Encoding UTF8
 
 & $ScriptPath `

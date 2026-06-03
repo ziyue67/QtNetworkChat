@@ -115,6 +115,16 @@ function Resolve-PreviewValue([string]$PreviewPath, [string]$PropertyName) {
     [string]$value
 }
 
+function Resolve-PreviewValueAny([string]$PreviewPath, [string[]]$PropertyNames) {
+    foreach ($propertyName in $PropertyNames) {
+        $value = Resolve-PreviewValue $PreviewPath $propertyName
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value
+        }
+    }
+    ""
+}
+
 function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
     if ($null -eq $ObjectValue) {
         return $DefaultValue
@@ -192,16 +202,16 @@ if ([string]::IsNullOrWhiteSpace($OriginCodexQt)) {
     $OriginCodexQt = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt") }
 }
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthStatusPath)) {
-    $DatabaseHealthStatusPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "statusPath"
+    $DatabaseHealthStatusPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("statusArtifactPath", "statusPath")
 }
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthLastRunPath)) {
-    $DatabaseHealthLastRunPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "logPath"
+    $DatabaseHealthLastRunPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("lastRunPath", "logPath")
 }
 if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceStatusPath)) {
-    $LargeFileGovernanceStatusPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "dashboardPath"
+    $LargeFileGovernanceStatusPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("statusArtifactPath", "dashboardPath")
 }
 if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
-    $previewLogPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "logPath"
+    $previewLogPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("lastRunPath", "logPath")
     if (-not [string]::IsNullOrWhiteSpace($previewLogPath)) {
         $LargeFileGovernanceLastRunPath = $previewLogPath
     } else {
@@ -212,15 +222,15 @@ if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
     }
 }
 if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
-    $AutomationTaskHistoryPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "historyPath"
+    $AutomationTaskHistoryPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("historyArtifactPath", "historyPath")
     if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
-        $AutomationTaskHistoryPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "historyPath"
+        $AutomationTaskHistoryPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("historyArtifactPath", "historyPath")
     }
 }
 if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
-    $AutomationTaskAckPath = Resolve-PreviewValue $DatabaseHealthTaskPreviewPath "ackPath"
+    $AutomationTaskAckPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("ackArtifactPath", "ackPath")
     if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
-        $AutomationTaskAckPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "ackPath"
+        $AutomationTaskAckPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("ackArtifactPath", "ackPath")
     }
 }
 
