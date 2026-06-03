@@ -314,12 +314,33 @@ function New-PreviewRecord([string]$Label, [string]$PathValue) {
     $state = Get-ArtifactState -PathValue $PathValue -ExpectJson
     $taskKind = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskKind" "unknown") } else { "unknown" }
     $taskName = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskName" "unknown") } else { "unknown" }
+    $taskDisplayName = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskDisplayName" "unknown") } else { "unknown" }
+    $previewFormat = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "format" "unknown") } else { "unknown" }
+    $taskSummary = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskSummary" "unknown") } else { "unknown" }
+    $readOnly = if ($state.state -eq "ok") { Get-JsonValue $state.value "readOnly" $null } else { $null }
+    $register = if ($state.state -eq "ok") { Get-JsonValue $state.value "register" $null } else { $null }
+    $schedule = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "schedule" "unknown") } else { "unknown" }
+    $at = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "at" "unknown") } else { "unknown" }
+    $everyHours = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "everyHours" "unknown") } else { "unknown" }
+    $scheduleSummary = if ($schedule -eq "Hourly" -and $everyHours -ne "unknown") {
+        "$schedule/$everyHours h@$at"
+    } elseif ($schedule -ne "unknown" -and $at -ne "unknown") {
+        "$schedule@$at"
+    } else {
+        $schedule
+    }
     [pscustomobject]@{
         label = $Label
         path = $PathValue
         state = $state
         taskKind = $taskKind
         taskName = $taskName
+        taskDisplayName = $taskDisplayName
+        previewFormat = $previewFormat
+        taskSummary = $taskSummary
+        readOnly = $readOnly
+        register = $register
+        scheduleSummary = $scheduleSummary
     }
 }
 
@@ -412,6 +433,21 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
         historySummary = $historySummary
         ackSummary = $ackSummary
     }
+}
+
+function Format-PreviewDescriptor([object]$PreviewRecord) {
+    $parts = New-Object System.Collections.Generic.List[string]
+    $parts.Add(('label=`{0}`' -f (Format-StatusValue $PreviewRecord.label)))
+    $parts.Add(('kind=`{0}`' -f (Format-StatusValue $PreviewRecord.taskKind)))
+    $parts.Add(('name=`{0}`' -f (Format-StatusValue $PreviewRecord.taskName)))
+    $parts.Add(('display=`{0}`' -f (Format-StatusValue $PreviewRecord.taskDisplayName)))
+    $parts.Add(('state=`{0}`' -f (Format-StatusValue $PreviewRecord.state.state)))
+    $parts.Add(('format=`{0}`' -f (Format-StatusValue $PreviewRecord.previewFormat)))
+    $parts.Add(('readOnly=`{0}`' -f (Format-StatusValue $PreviewRecord.readOnly)))
+    $parts.Add(('register=`{0}`' -f (Format-StatusValue $PreviewRecord.register)))
+    $parts.Add(('schedule=`{0}`' -f (Format-StatusValue $PreviewRecord.scheduleSummary)))
+    $parts.Add(('path=`{0}`' -f (Format-StatusValue $PreviewRecord.path)))
+    $parts -join ", "
 }
 
 if ([string]::IsNullOrWhiteSpace($Head)) {
@@ -550,17 +586,10 @@ if ($previewRecords.Count -eq 0) {
     $lines.Add('- Registered preview tasks: `none`')
 } else {
     foreach ($previewRecord in $previewRecords) {
-        $previewPathText = "unknown"
-        if (-not [string]::IsNullOrWhiteSpace([string]$previewRecord.path)) {
-            $previewPathText = [string]$previewRecord.path
+        $lines.Add('- Preview task: ' + (Format-PreviewDescriptor $previewRecord))
+        if ($previewRecord.taskSummary -ne "unknown") {
+            $lines.Add('  Summary: `' + $previewRecord.taskSummary + '`')
         }
-        $previewLine = '- Preview task: label=`{0}`, kind=`{1}`, name=`{2}`, state=`{3}`, path=`{4}`' -f `
-            (Format-StatusValue $previewRecord.label), `
-            (Format-StatusValue $previewRecord.taskKind), `
-            (Format-StatusValue $previewRecord.taskName), `
-            (Format-StatusValue $previewRecord.state.state), `
-            $previewPathText
-        $lines.Add($previewLine)
     }
 }
 $lines.Add("")
@@ -571,14 +600,18 @@ if ($genericPreviewCandidates.Count -eq 0) {
 } else {
     foreach ($genericPreview in $genericPreviewCandidates) {
         $genericReadback = Get-GenericTaskReadback $genericPreview
-        $genericLine = '- Generic task: kind=`{0}`, name=`{1}`, status=`{2}`, lastRun=`{3}`, history=`{4}`, ack=`{5}`' -f `
+        $genericLine = '- Generic task: kind=`{0}`, name=`{1}`, display=`{2}`, status=`{3}`, lastRun=`{4}`, history=`{5}`, ack=`{6}`' -f `
             (Format-StatusValue $genericPreview.taskKind), `
             (Format-StatusValue $genericPreview.taskName), `
+            (Format-StatusValue $genericPreview.taskDisplayName), `
             (Format-StatusValue $genericReadback.statusSummary), `
             (Format-StatusValue $genericReadback.lastRunExitCode), `
             (Format-StatusValue $genericReadback.historySummary), `
             (Format-StatusValue $genericReadback.ackSummary)
         $lines.Add($genericLine)
+        if ($genericPreview.taskSummary -ne "unknown") {
+            $lines.Add('  Summary: `' + $genericPreview.taskSummary + '`')
+        }
     }
 }
 $lines.Add("")

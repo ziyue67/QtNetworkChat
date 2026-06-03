@@ -29,10 +29,19 @@ function Assert-NotContains {
     }
 }
 
-$tempDir = Join-Path $PSScriptRoot "..\automation_status_sample"
-$configuredTempDir = Join-Path $PSScriptRoot "..\automation_status_configured_missing_sample"
+function Ensure-Directory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
+
+$tempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\automation_status_sample"))
+$configuredTempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\automation_status_configured_missing_sample"))
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $tempDir, $configuredTempDir | Out-Null
+Ensure-Directory -Path $tempDir
+Ensure-Directory -Path $configuredTempDir
 
 $markdownPath = Join-Path $tempDir "automation-status.md"
 $dbStatusPath = Join-Path $tempDir "database-health-status.json"
@@ -88,11 +97,18 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
 '@ | Set-Content -LiteralPath $taskAckPath -Encoding UTF8
 
 ([ordered]@{
+    format = "qtnetworkchat-database-health-task-preview-v1"
     taskKind = "database-health"
+    taskDisplayName = "Database health"
     statusArtifactPath = $dbStatusPath
     lastRunPath = $dbLastRunPath
     historyArtifactPath = $taskHistoryPath
     ackArtifactPath = $taskAckPath
+    taskSummary = "Read-only database health check that writes redacted health, status, optional dashboard, last-run, and task history artifacts."
+    readOnly = $true
+    register = $false
+    schedule = "Daily"
+    at = "03:15"
     artifactRoles = [ordered]@{
         status = "statusArtifactPath"
         lastRun = "lastRunPath"
@@ -102,11 +118,19 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
 } | ConvertTo-Json) | Set-Content -LiteralPath $dbPreviewPath -Encoding UTF8
 
 ([ordered]@{
+    format = "qtnetworkchat-large-file-governance-task-preview-v1"
     taskKind = "large-file-governance"
+    taskDisplayName = "Large-file governance"
     statusArtifactPath = $govStatusPath
     lastRunPath = $govLastRunPath
     historyArtifactPath = $taskHistoryPath
     ackArtifactPath = $taskAckPath
+    taskSummary = "Read-only governance sweep that writes redacted dashboard, reports, diagnostics, last-run, and task history artifacts."
+    readOnly = $true
+    register = $false
+    schedule = "Hourly"
+    at = "02:30"
+    everyHours = 2
     artifactRoles = [ordered]@{
         status = "statusArtifactPath"
         lastRun = "lastRunPath"
@@ -150,8 +174,10 @@ foreach ($expected in @(
     'Protected untracked entries: `.polaris/, AGENTS.md`',
     'Automation Guardrails',
     'Registered Preview Tasks',
-    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, state=`ok`, path=`',
-    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, state=`ok`, path=`',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
+    'Summary: `Read-only database health check that writes redacted health, status, optional dashboard, last-run, and task history artifacts.`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
+    'Summary: `Read-only governance sweep that writes redacted dashboard, reports, diagnostics, last-run, and task history artifacts.`',
     'Generic Task Readback',
     'Generic task readback: `none`',
     'Scheduled Task Readback',
@@ -212,13 +238,21 @@ foreach ($expected in @(
 $configuredMarkdownPath = Join-Path $configuredTempDir "automation-status.md"
 $configuredDbPreviewPath = Join-Path $configuredTempDir "database-health-task-preview.json"
 $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-task-preview.json"
+Ensure-Directory -Path $configuredTempDir
 
 ([ordered]@{
+    format = "qtnetworkchat-database-health-task-preview-v1"
     taskKind = "database-health"
+    taskDisplayName = "Database health"
     statusArtifactPath = (Join-Path $configuredTempDir "missing-database-health-status.json")
     lastRunPath = (Join-Path $configuredTempDir "missing-database-health-last-run.log")
     historyArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
     ackArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
+    taskSummary = "configured missing database health sample"
+    readOnly = $true
+    register = $false
+    schedule = "Daily"
+    at = "03:15"
     artifactRoles = [ordered]@{
         status = "statusArtifactPath"
         lastRun = "lastRunPath"
@@ -228,11 +262,18 @@ $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-
 } | ConvertTo-Json) | Set-Content -LiteralPath $configuredDbPreviewPath -Encoding UTF8
 
 ([ordered]@{
+    format = "qtnetworkchat-large-file-governance-task-preview-v1"
     taskKind = "large-file-governance"
+    taskDisplayName = "Large-file governance"
     statusArtifactPath = (Join-Path $configuredTempDir "missing-large-file-governance-status.json")
     lastRunPath = (Join-Path $configuredTempDir "missing-large-file-governance-last-run.log")
     historyArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
     ackArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
+    taskSummary = "configured missing large-file governance sample"
+    readOnly = $true
+    register = $false
+    schedule = "Daily"
+    at = "03:00"
     artifactRoles = [ordered]@{
         status = "statusArtifactPath"
         lastRun = "lastRunPath"
@@ -260,6 +301,8 @@ foreach ($expected in @(
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: `configured but history artifact unavailable`',
     'Task acknowledgement: `configured but ack artifact unavailable`',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`',
     'Database health artifacts: `preview=ok; status=missing',
     'Large-file governance artifacts: `preview=ok; status=missing',
     'Automation history artifacts: `history=missing'
@@ -270,6 +313,7 @@ foreach ($expected in @(
 $invalidMarkdownPath = Join-Path $configuredTempDir "automation-status-invalid.md"
 $invalidDbPreviewPath = Join-Path $configuredTempDir "database-health-invalid-preview.json"
 $invalidGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-invalid-preview.json"
+Ensure-Directory -Path $configuredTempDir
 
 '{"taskKind":"database-health","artifactRoles":{"status":"statusArtifactPath","lastRun":"lastRunPath"}}' |
     Set-Content -LiteralPath $invalidDbPreviewPath -Encoding UTF8
@@ -300,6 +344,7 @@ foreach ($expected in @(
 }
 
 $genericMarkdownPath = Join-Path $configuredTempDir "automation-status-generic.md"
+Ensure-Directory -Path $configuredTempDir
 & $ScriptPath `
     -MarkdownPath $genericMarkdownPath `
     -Head "5566778" `
@@ -314,8 +359,8 @@ $genericMarkdownPath = Join-Path $configuredTempDir "automation-status-generic.m
 
 $genericMarkdown = Get-Content -LiteralPath $genericMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Preview task: label=`generic`, kind=`database-health`, name=`unknown`, state=`ok`, path=`',
-    'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, state=`ok`, path=`',
+    'Preview task: label=`generic`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
+    'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
     'Generic task readback: `none`',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`',
     'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',
@@ -330,6 +375,7 @@ $customLastRunPath = Join-Path $configuredTempDir "custom-task-last-run.log"
 $customHistoryPath = Join-Path $configuredTempDir "custom-task-history.json"
 $customAckPath = Join-Path $configuredTempDir "custom-task-ack.json"
 $customMarkdownPath = Join-Path $configuredTempDir "automation-status-custom.md"
+Ensure-Directory -Path $configuredTempDir
 
 @'
 {
@@ -351,6 +397,13 @@ $customMarkdownPath = Join-Path $configuredTempDir "automation-status-custom.md"
 ([ordered]@{
     taskKind = "custom-ops"
     taskName = "CustomOpsTask"
+    taskDisplayName = "Custom ops"
+    format = "qtnetworkchat-custom-task-preview-v1"
+    taskSummary = "Custom generic task sample"
+    readOnly = $false
+    register = $true
+    schedule = "Daily"
+    at = "05:45"
     statusArtifactPath = $customStatusPath
     lastRunPath = $customLastRunPath
     historyArtifactPath = $customHistoryPath
@@ -377,8 +430,9 @@ $customMarkdownPath = Join-Path $configuredTempDir "automation-status-custom.md"
 
 $customMarkdown = Get-Content -LiteralPath $customMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Preview task: label=`generic`, kind=`custom-ops`, name=`CustomOpsTask`, state=`ok`, path=`',
-    'Generic task: kind=`custom-ops`, name=`CustomOpsTask`, status=`warning/ok=false`, lastRun=`5`, history=`runs=7`, ack=`ack=false`',
+    'Preview task: label=`generic`, kind=`custom-ops`, name=`CustomOpsTask`, display=`Custom ops`, state=`ok`, format=`qtnetworkchat-custom-task-preview-v1`, readOnly=`false`, register=`true`, schedule=`Daily@05:45`, path=`',
+    'Summary: `Custom generic task sample`',
+    'Generic task: kind=`custom-ops`, name=`CustomOpsTask`, display=`Custom ops`, status=`warning/ok=false`, lastRun=`5`, history=`runs=7`, ack=`ack=false`',
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: runs=`7`',

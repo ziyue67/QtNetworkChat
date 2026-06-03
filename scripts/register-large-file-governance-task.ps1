@@ -330,8 +330,11 @@ $s3StabilityRunbookMarkdownPreviewPath = if ([string]::IsNullOrWhiteSpace($S3Sta
 }
 $actionArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`""
 $preview = [pscustomobject]@{
+    format = "qtnetworkchat-large-file-governance-task-preview-v1"
     taskKind = "large-file-governance"
     taskName = $TaskName
+    taskDisplayName = "Large-file governance"
+    taskSummary = "Read-only governance sweep that writes redacted dashboard, reports, diagnostics, last-run, and task history artifacts."
     register = $Register.IsPresent
     schedule = $Schedule
     at = $At
