@@ -98,6 +98,33 @@ function Get-ExecutionAction {
     }
 }
 
+function Get-AuditWriteIntent {
+    param([string]$Mode)
+    switch ($Mode) {
+        "plan" { return "dry-run-plan" }
+        "execute" { return "upsert-postgres" }
+        "validate" { return "validate-postgres" }
+        "diff" { return "diff-postgres" }
+        "rollback" { return "delete-postgres" }
+        default { return "unknown" }
+    }
+}
+
+function Get-AuditReleaseGate {
+    param(
+        [string]$Readiness,
+        [string]$Mode
+    )
+    if ($Mode -eq "rollback") {
+        return "manual-rollback-review"
+    }
+    switch ($Readiness) {
+        "ready" { return "can-cutover-after-smoke" }
+        "review" { return "manual-review-required" }
+        default { return "blocked" }
+    }
+}
+
 $migratorPath = Resolve-RepoPath $MigratorExe
 $sqliteFullPath = Resolve-RepoPath $SQLitePath
 $qtBinDir = Join-Path $QtRoot "bin"
@@ -185,12 +212,31 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
     if ($totalMissing -gt 0) { [void]$auditFocus.Add("resolve-missing-rows") }
     if ($totalRolledBack -gt 0 -or $migration.mode -eq "rollback") { [void]$auditFocus.Add("verify-rollback-scope") }
     if ($auditFocus.Count -eq 0) { [void]$auditFocus.Add("routine-backup-and-smoke") }
+    $evidenceBundle = New-Object System.Collections.Generic.List[string]
+    [void]$evidenceBundle.Add("json")
+    if (-not [string]::IsNullOrWhiteSpace($markdownTarget)) { [void]$evidenceBundle.Add("markdown") }
+    if (-not [string]::IsNullOrWhiteSpace($htmlTarget)) { [void]$evidenceBundle.Add("html") }
+    if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget)) { [void]$evidenceBundle.Add("rollback-preview-json") }
+    if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget)) { [void]$evidenceBundle.Add("rollback-preview-markdown") }
+    $tablesInScope = @($tables | Where-Object { ([int64]$_.rows) -gt 0 }).Count
+    $auditSummary = [ordered]@{
+        mode = $migration.mode
+        writeIntent = Get-AuditWriteIntent -Mode $migration.mode
+        tablesInScope = $tablesInScope
+        rowsInScope = $totalRows
+        reviewTableCount = $tablesRequiringReview.Count
+        backupRequired = ($migration.mode -eq "execute" -or $migration.mode -eq "rollback")
+        rollbackPreviewAvailable = (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget))
+        releaseGate = Get-AuditReleaseGate -Readiness $executionReadiness -Mode $migration.mode
+        evidenceBundle = @($evidenceBundle)
+    }
     $migration | Add-Member -NotePropertyName reportSummary -NotePropertyValue ([ordered]@{
             executionReadiness = $executionReadiness
             operatorAction = $executionAction
             tablesRequiringReview = $tablesRequiringReview.Count
             auditFocus = @($auditFocus)
         }) -Force
+    $migration | Add-Member -NotePropertyName auditSummary -NotePropertyValue $auditSummary -Force
     $migration | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jsonTarget -Encoding UTF8
 
     if (-not [string]::IsNullOrWhiteSpace($markdownTarget)) {
@@ -211,6 +257,22 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         $lines.Add(("- Diff severity: {0}" -f $severity))
         $lines.Add(("- Recommended action: {0}" -f $recommendedAction))
         $lines.Add(("- Operator action: {0}" -f $executionAction))
+        $lines.Add(("- Audit write intent: {0}" -f $auditSummary.writeIntent))
+        $lines.Add(("- Audit release gate: {0}" -f $auditSummary.releaseGate))
+        $lines.Add(("- Audit backup required: {0}" -f $auditSummary.backupRequired))
+        $lines.Add(("- Audit rollback preview available: {0}" -f $auditSummary.rollbackPreviewAvailable))
+        $lines.Add(("- Audit evidence bundle: {0}" -f (@($auditSummary.evidenceBundle) -join ", ")))
+        $lines.Add("")
+        $lines.Add("| Audit summary | Value |")
+        $lines.Add("|---|---|")
+        $lines.Add(("| Mode | {0} |" -f $auditSummary.mode))
+        $lines.Add(("| Write intent | {0} |" -f $auditSummary.writeIntent))
+        $lines.Add(("| Tables in scope | {0} |" -f $auditSummary.tablesInScope))
+        $lines.Add(("| Rows in scope | {0} |" -f $auditSummary.rowsInScope))
+        $lines.Add(("| Review tables | {0} |" -f $auditSummary.reviewTableCount))
+        $lines.Add(("| Backup required | {0} |" -f $auditSummary.backupRequired))
+        $lines.Add(("| Rollback preview available | {0} |" -f $auditSummary.rollbackPreviewAvailable))
+        $lines.Add(("| Release gate | {0} |" -f $auditSummary.releaseGate))
         $lines.Add("")
         $lines.Add("| Diff summary | Value |")
         $lines.Add("|---|---:|")
@@ -250,6 +312,20 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
             "<p>Severity: <code>$(Escape-Html $severity)</code></p>",
             "<p>Recommended action: <code>$(Escape-Html $recommendedAction)</code></p>",
             "<p>Operator action: <code>$(Escape-Html $executionAction)</code></p>",
+            "<h2>Audit Summary</h2>",
+            "<p>Write intent: <code>$(Escape-Html $auditSummary.writeIntent)</code> Release gate: <code>$(Escape-Html $auditSummary.releaseGate)</code></p>",
+            "<p>Backup required: <code>$(Escape-Html $auditSummary.backupRequired)</code> Rollback preview available: <code>$(Escape-Html $auditSummary.rollbackPreviewAvailable)</code></p>",
+            "<p>Evidence bundle: <code>$(Escape-Html (@($auditSummary.evidenceBundle) -join ", "))</code></p>",
+            "<table><thead><tr><th>Audit metric</th><th>Value</th></tr></thead><tbody>",
+            "<tr><td>Mode</td><td>$(Escape-Html $auditSummary.mode)</td></tr>",
+            "<tr><td>Write intent</td><td>$(Escape-Html $auditSummary.writeIntent)</td></tr>",
+            "<tr><td>Tables in scope</td><td>$(Escape-Html $auditSummary.tablesInScope)</td></tr>",
+            "<tr><td>Rows in scope</td><td>$(Escape-Html $auditSummary.rowsInScope)</td></tr>",
+            "<tr><td>Review tables</td><td>$(Escape-Html $auditSummary.reviewTableCount)</td></tr>",
+            "<tr><td>Backup required</td><td>$(Escape-Html $auditSummary.backupRequired)</td></tr>",
+            "<tr><td>Rollback preview available</td><td>$(Escape-Html $auditSummary.rollbackPreviewAvailable)</td></tr>",
+            "<tr><td>Release gate</td><td>$(Escape-Html $auditSummary.releaseGate)</td></tr>",
+            "</tbody></table>",
             "<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>",
             "<tr><td>Tables</td><td>$(Escape-Html $diffSummary.tableCount)</td></tr>",
             "<tr><td>Drift tables</td><td>$(Escape-Html $diffSummary.driftTableCount)</td></tr>",
@@ -315,6 +391,12 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         $totalSourceRows = [int64](($previewTables | Measure-Object -Property sourceRows -Sum).Sum)
         $totalWouldDeleteRows = [int64](($previewTables | Measure-Object -Property wouldDeleteRows -Sum).Sum)
         $tablesWithDeletes = @($previewTables | Where-Object { ([int64]$_.wouldDeleteRows) -gt 0 }).Count
+        $fallbackReviewTables = @($previewOperations | Where-Object { $_.reviewReason -eq "fallback-key-columns" }).Count
+        $deletePreviewTables = @($previewOperations | Where-Object { $_.reviewReason -eq "delete-preview" }).Count
+        $reviewReasons = New-Object System.Collections.Generic.List[string]
+        if ($fallbackReviewTables -gt 0) { [void]$reviewReasons.Add("fallback-key-columns") }
+        if ($deletePreviewTables -gt 0) { [void]$reviewReasons.Add("delete-preview") }
+        if ($reviewReasons.Count -eq 0) { [void]$reviewReasons.Add("none") }
         $riskLevel = if ($totalWouldDeleteRows -eq 0) { "none" } elseif ($Mode -eq "rollback") { "high" } else { "review" }
         $previewOperatorAction = if ($riskLevel -eq "none") { "No rollback rows would be touched." } elseif ($tablesUsingFallbackKeys -gt 0) { "Review fallback key columns before executing rollback." } else { "Review affected tables and delete predicates before executing rollback." }
         $summary = [ordered]@{
@@ -326,7 +408,10 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
             tablesWithDeletes = $tablesWithDeletes
             reviewRequiredTableCount = $tablesWithDeletes
             fallbackKeyTableCount = $tablesUsingFallbackKeys
+            fallbackKeyReviewTableCount = $fallbackReviewTables
+            deletePreviewTableCount = $deletePreviewTables
             operatorAction = $previewOperatorAction
+            reviewReasons = @($reviewReasons)
         }
         $preview = [ordered]@{
             format = "qtnetworkchat-sqlite-pg-rollback-preview-v1"
@@ -362,6 +447,9 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
             $lines.Add(("- Total rows that would be deleted: {0}" -f $summary.totalWouldDeleteRows))
             $lines.Add(("- Tables with deletes: {0}" -f $summary.tablesWithDeletes))
             $lines.Add(("- Fallback-key tables: {0}" -f $summary.fallbackKeyTableCount))
+            $lines.Add(("- Fallback-key review tables: {0}" -f $summary.fallbackKeyReviewTableCount))
+            $lines.Add(("- Delete-preview tables: {0}" -f $summary.deletePreviewTableCount))
+            $lines.Add(("- Review reasons: {0}" -f (@($summary.reviewReasons) -join ", ")))
             $lines.Add(("- Operator action: {0}" -f $summary.operatorAction))
             $lines.Add("")
             $lines.Add("| Table | Operation | Key columns | Key source | Delete predicate shape | Would delete | Requires review | Review reason |")
