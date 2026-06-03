@@ -668,6 +668,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_release_acceptance_task.cmake
     )
     add_test(
+        NAME PostgresReleaseEvidencePackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-pgsql-release-evidence.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_release_evidence_package.cmake
+    )
+    add_test(
         NAME DatabaseHealthDashboard
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-database-health-dashboard.ps1

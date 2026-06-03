@@ -20,6 +20,7 @@ execute_process(
         -SmokeJsonPath "${OUTPUT_DIR}/pgsql-smoke.json"
         -MigrationJsonPath "${OUTPUT_DIR}/sqlite-pg-migration-plan.json"
         -RollbackPreviewPath "${OUTPUT_DIR}/sqlite-pg-rollback-preview.json"
+        -EnsureDatabase
         -FailOnUnhealthy
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
@@ -50,8 +51,21 @@ endif()
 
 file(READ "${LAUNCHER}" launcher_content)
 foreach(expected_text
+        "check-database-health.ps1"
+        "show-database-health-status.ps1"
+        "write-database-health-dashboard.ps1"
+        "run-pgsql-protocol-smoke.ps1"
+        "migrate-sqlite-to-postgres.ps1"
         "write-pgsql-release-acceptance.ps1"
+        "package-pgsql-release-evidence.ps1"
         "write-automation-task-history.ps1"
+        "-Driver"
+        "-HealthPath"
+        "-StatusPath"
+        "-TestExe"
+        "-EnsureDatabase"
+        "-MigratorExe"
+        "-RollbackPreviewMarkdownPath"
         "-DatabaseHealthDashboardPath"
         "-SmokeJsonPath"
         "-MigrationJsonPath"
@@ -59,8 +73,17 @@ foreach(expected_text
         "-JsonPath"
         "-MarkdownPath"
         "-FailOnUnhealthy"
+        "healthExitCode"
+        "healthStatusExitCode"
+        "dashboardExitCode"
+        "smokeExitCode"
+        "migrationExitCode"
         "acceptanceExitCode"
+        "packageExitCode"
+        "pipelineExitCode"
         "historyExitCode"
+        "evidencePackagePath"
+        "evidenceManifestPath"
         "historyPath="
         "historyMarkdownPath="
         "ackPath="
@@ -88,6 +111,12 @@ string(JSON json_path GET "${preview_content}" "jsonPath")
 string(JSON markdown_path GET "${preview_content}" "markdownPath")
 string(JSON history_script GET "${preview_content}" "historyScript")
 string(JSON acceptance_script GET "${preview_content}" "acceptanceScript")
+string(JSON package_script GET "${preview_content}" "packageScript")
+string(JSON health_script GET "${preview_content}" "healthScript")
+string(JSON smoke_script GET "${preview_content}" "smokeScript")
+string(JSON migration_script GET "${preview_content}" "migrationScript")
+string(JSON health_path GET "${preview_content}" "healthPath")
+string(JSON health_status_path GET "${preview_content}" "healthStatusPath")
 string(JSON history_path GET "${preview_content}" "historyPath")
 string(JSON history_artifact_path GET "${preview_content}" "historyArtifactPath")
 string(JSON history_markdown_path GET "${preview_content}" "historyMarkdownPath")
@@ -104,6 +133,14 @@ string(JSON artifact_status_path GET "${preview_content}" "artifacts" "status" "
 string(JSON artifact_last_run_path GET "${preview_content}" "artifacts" "lastRun" "path")
 string(JSON artifact_history_path GET "${preview_content}" "artifacts" "history" "path")
 string(JSON artifact_ack_path GET "${preview_content}" "artifacts" "ack" "path")
+string(JSON artifact_role_evidence GET "${preview_content}" "artifactRoles" "evidence")
+string(JSON artifact_evidence_path GET "${preview_content}" "artifacts" "evidence" "path")
+string(JSON evidence_package_path GET "${preview_content}" "evidencePackagePath")
+string(JSON evidence_manifest_path GET "${preview_content}" "evidenceManifestPath")
+string(JSON plan_only GET "${preview_content}" "planOnly")
+string(JSON package_evidence GET "${preview_content}" "packageEvidence")
+string(JSON password_source GET "${preview_content}" "passwordSource")
+string(JSON migration_mode GET "${preview_content}" "migrationMode")
 
 if(NOT format STREQUAL "qtnetworkchat-pgsql-release-acceptance-task-preview-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -137,9 +174,17 @@ if(NOT status_artifact_path STREQUAL json_path OR NOT json_path MATCHES "pgsql-r
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview JSON/Markdown paths missing expected names")
 endif()
-if(NOT acceptance_script MATCHES "write-pgsql-release-acceptance.ps1" OR NOT history_script MATCHES "write-automation-task-history.ps1")
+if(NOT acceptance_script MATCHES "write-pgsql-release-acceptance.ps1" OR NOT history_script MATCHES "write-automation-task-history.ps1" OR NOT package_script MATCHES "package-pgsql-release-evidence.ps1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview script references missing expected names")
+endif()
+if(NOT health_script MATCHES "check-database-health.ps1" OR NOT smoke_script MATCHES "run-pgsql-protocol-smoke.ps1" OR NOT migration_script MATCHES "migrate-sqlite-to-postgres.ps1")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview orchestration scripts missing expected names")
+endif()
+if(NOT health_path MATCHES "database-health.json" OR NOT health_status_path MATCHES "database-health-status.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview health/status paths missing expected names")
 endif()
 if(NOT history_path MATCHES "automation-task-history.json" OR NOT history_markdown_path MATCHES "automation-task-history.md" OR NOT ack_path MATCHES "automation-task-ack.json" OR NOT last_run_path MATCHES "last-run.log")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -157,9 +202,21 @@ if(NOT artifact_role_status STREQUAL "statusArtifactPath" OR NOT artifact_role_l
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview artifactRoles mapping missing expected aliases")
 endif()
+if(NOT artifact_role_evidence STREQUAL "evidencePackagePath")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview artifactRoles should expose evidence package alias")
+endif()
 if(NOT artifact_status_path STREQUAL json_path OR NOT artifact_last_run_path STREQUAL last_run_path OR NOT artifact_history_path STREQUAL history_path OR NOT artifact_ack_path STREQUAL ack_path)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview artifacts.*.path entries should match unified aliases")
+endif()
+if(NOT artifact_evidence_path STREQUAL evidence_package_path OR NOT evidence_package_path MATCHES "pgsql-release-evidence.zip" OR NOT evidence_manifest_path MATCHES "pgsql-release-evidence-manifest.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview evidence package aliases missing expected paths")
+endif()
+if(plan_only OR NOT package_evidence OR NOT password_source STREQUAL "QTNETWORKCHAT_PGPASSWORD" OR NOT migration_mode STREQUAL "plan")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview should default to live password source, package evidence, and migration plan mode")
 endif()
 
 execute_process(

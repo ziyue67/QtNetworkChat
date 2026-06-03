@@ -509,20 +509,36 @@ powershell -ExecutionPolicy Bypass -File scripts/write-pgsql-release-acceptance.
 若要把这份统一验收摘要接进 Windows 计划任务或自动化状态板，可先生成 preview 和 launcher：
 
 ```powershell
+$env:QTNETWORKCHAT_PGPASSWORD = "<本机 PostgreSQL 密码>"
 powershell -ExecutionPolicy Bypass -File scripts/register-pgsql-release-acceptance-task.ps1 `
   -TaskName "QtNetworkChatPgsqlReleaseAcceptance" `
   -Schedule Hourly `
   -EveryHours 6 `
   -At "04:45" `
   -OutputDir "build-qt6-mingw\pgsql-release-acceptance-task" `
-  -DatabaseHealthDashboardPath "build-qt6-mingw\database-health-scheduled\database-health-dashboard.json" `
-  -SmokeJsonPath "build-qt6-mingw\pgsql-smoke.json" `
-  -MigrationJsonPath "build-qt6-mingw\sqlite-pg-migration-plan.json" `
-  -RollbackPreviewPath "build-qt6-mingw\sqlite-pg-rollback-preview.json" `
+  -QtRoot "D:\Qt\6.8.3\mingw_64" `
+  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
+  -TestExe "build-qt6-mingw\postgres_qpsql_protocol_smoke_test.exe" `
+  -MigratorExe "build-qt6-mingw\sqlite_to_postgres_migrator.exe" `
+  -EnsureDatabase `
   -FailOnUnhealthy
 ```
 
-默认只写 `pgsql-release-acceptance-task-preview.json` 和 `run-pgsql-release-acceptance-task.ps1`，不会创建系统计划任务；确认 preview 后再追加 `-Register`。launcher 每次运行会生成 `pgsql-release-acceptance.json`、`pgsql-release-acceptance.md`、`last-run.log` 以及同目录下的 `automation-task-history.json/.md` 与 `automation-task-ack.json`，因此状态板可以像读取 database health / large-file governance 一样回读这组 PostgreSQL 发布验收产物。
+默认只写 `pgsql-release-acceptance-task-preview.json` 和 `run-pgsql-release-acceptance-task.ps1`，不会创建系统计划任务；确认 preview 后再追加 `-Register`。launcher 会在运行时从 `QTNETWORKCHAT_PGPASSWORD` 读取密码，串联真实数据库健康检查、health status/dashboard、QPSQL smoke、SQLite 到 PostgreSQL migration plan/diff 与 rollback dry-run preview，再生成 `pgsql-release-acceptance.json/.md`。同一次运行还会写 `last-run.log`、同目录 `automation-task-history.json/.md` 与 `automation-task-ack.json`，最后把 health、smoke、migration、rollback、acceptance、last-run、history/ack 统一打成脱敏 `evidence\pgsql-release-evidence.zip` 和 `evidence\pgsql-release-evidence-manifest.json`。状态板会把 `taskKind=pgsql-release-acceptance` 作为 PostgreSQL 发布验收任务专门回读，显示 release gate、operator action、history/ack 和 evidence 是否可用；也可继续通过 `-TaskPreviewPath` 把该 preview 交给 `scripts/write-automation-status.ps1`。若只想验证本机运行时和产物路径，不连接真实 PostgreSQL，可追加 `-PlanOnly`；若已有产物且不需要打包 evidence，可追加 `-SkipEvidencePackage`。
+
+如果只需要把已有脱敏产物统一归档，也可以直接调用 evidence 打包脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-pgsql-release-evidence.ps1 `
+  -OutputDir "build-qt6-mingw\pgsql-release-acceptance-task\evidence" `
+  -DatabaseHealthDashboardPath "build-qt6-mingw\pgsql-release-acceptance-task\database-health-dashboard.json" `
+  -SmokeJsonPath "build-qt6-mingw\pgsql-release-acceptance-task\pgsql-smoke.json" `
+  -MigrationJsonPath "build-qt6-mingw\pgsql-release-acceptance-task\sqlite-pg-migration-plan.json" `
+  -RollbackPreviewPath "build-qt6-mingw\pgsql-release-acceptance-task\sqlite-pg-rollback-preview.json" `
+  -AcceptanceJsonPath "build-qt6-mingw\pgsql-release-acceptance-task\pgsql-release-acceptance.json"
+```
+
+打包脚本只复制本地文件并扫描敏感字段；发现明文密码、PAT、Authorization、Credential 或 Signature 会失败，除非显式用于本地排障的 `-NoFailOnSensitive`。
 
 启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；服务端也会订阅该通道，跳过本实例事件，并把远端群聊/私聊转发给本实例在线用户。文件和图片只在编码后的 Redis 事件体不超过 1 MB 时通过 Pub/Sub 路由；超过该限制的 payload 会留在源实例离线附件队列，后续应按 [Redis 跨实例大文件路由计划](docs/redis-large-file-routing-plan.md) 通过控制面事件加对象存储式数据面承载。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。
 

@@ -553,7 +553,8 @@ foreach ($previewPath in $normalizedTaskPreviewPaths) {
 $previewRecords = $previewRecords.ToArray()
 $databaseHealthPreviewCandidates = @($previewRecords | Where-Object { $_.label -eq "database-health" -or $_.taskKind -eq "database-health" })
 $largeFileGovernancePreviewCandidates = @($previewRecords | Where-Object { $_.label -eq "large-file-governance" -or $_.taskKind -eq "large-file-governance" })
-$genericPreviewCandidates = @($previewRecords | Where-Object { $_.taskKind -ne "database-health" -and $_.taskKind -ne "large-file-governance" })
+$pgsqlReleaseAcceptancePreviewCandidates = @($previewRecords | Where-Object { $_.taskKind -eq "pgsql-release-acceptance" })
+$genericPreviewCandidates = @($previewRecords | Where-Object { $_.taskKind -ne "database-health" -and $_.taskKind -ne "large-file-governance" -and $_.taskKind -ne "pgsql-release-acceptance" })
 
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthStatusPath)) {
     $DatabaseHealthStatusPath = Resolve-PreviewCollectionValueAny $databaseHealthPreviewCandidates @("statusArtifactPath", "statusPath")
@@ -607,6 +608,7 @@ $largeFileGovernanceStatusPreviewState = if ($null -ne $largeFileGovernanceStatu
 $largeFileGovernanceLastRunConfigMatch = Find-PreviewRecordForArtifact $largeFileGovernancePreviewCandidates @("lastRunPath", "logPath") "lastRun"
 $largeFileGovernanceLastRunConfig = $largeFileGovernanceLastRunConfigMatch.configuration
 $largeFileGovernanceLastRunPreviewState = if ($null -ne $largeFileGovernanceLastRunConfigMatch.record) { $largeFileGovernanceLastRunConfigMatch.record.state } else { $null }
+$pgsqlReleaseAcceptanceReadbacks = @($pgsqlReleaseAcceptancePreviewCandidates | ForEach-Object { Get-GenericTaskReadback $_ })
 $automationTaskHistoryConfigMatch = Find-PreviewRecordForArtifact @($previewRecords) @("historyArtifactPath", "historyPath") "history"
 $automationTaskHistoryConfig = $automationTaskHistoryConfigMatch.configuration
 $automationTaskHistoryPreviewState = if ($null -ne $automationTaskHistoryConfigMatch.record) { $automationTaskHistoryConfigMatch.record.state } else { $null }
@@ -696,6 +698,34 @@ if ($genericPreviewCandidates.Count -eq 0) {
         }
         if ($genericPreview.taskSummary -ne "unknown") {
             $lines.Add('  Summary: `' + $genericPreview.taskSummary + '`')
+        }
+    }
+}
+$lines.Add("")
+$lines.Add("## PostgreSQL Release Acceptance Readback")
+$lines.Add("")
+if ($pgsqlReleaseAcceptancePreviewCandidates.Count -eq 0) {
+    $lines.Add('- PostgreSQL release acceptance: `not configured`')
+} else {
+    foreach ($readback in $pgsqlReleaseAcceptanceReadbacks) {
+        $preview = $readback.previewRecord
+        $evidenceConfig = Get-PreviewArtifactConfiguration $preview.state @("evidencePackagePath") "evidence"
+        $evidenceState = Get-ArtifactState -PathValue $evidenceConfig.path
+        $evidenceSummary = if ($evidenceState.state -eq "ok") { "ok" } else { $evidenceState.state }
+        $lines.Add(('- PostgreSQL release acceptance: name=`{0}`, status=`{1}`, lastRun=`{2}`, history=`{3}`, ack=`{4}`, evidence=`{5}`' -f `
+                (Format-StatusValue $preview.taskName), `
+                (Format-StatusValue $readback.statusSummary), `
+                (Format-StatusValue $readback.lastRunExitCode), `
+                (Format-StatusValue $readback.historySummary), `
+                (Format-StatusValue $readback.ackSummary), `
+                (Format-StatusValue $evidenceSummary)))
+        $lines.Add(('  Gate: readiness=`{0}`, releaseGate=`{1}`, action=`{2}`, auditFocus=`{3}`' -f `
+                (Format-StatusValue $readback.readinessSummary), `
+                (Format-StatusValue $readback.releaseGateSummary), `
+                (Format-StatusValue $readback.operatorActionSummary), `
+                (Format-StatusValue $readback.auditFocusSummary)))
+        if ($readback.releaseDetailsSummary -ne "unknown") {
+            $lines.Add('  Release details: `' + $readback.releaseDetailsSummary + '`')
         }
     }
 }
