@@ -16,12 +16,13 @@ file(WRITE "${HEALTH_JSON}"
   \"status\":\"healthy\",
   \"ok\":true,
   \"config\":{\"driver\":\"QPSQL\",\"host\":\"127.0.0.1\",\"port\":5432,\"database\":\"qtnetworkchat\",\"user\":\"postgres\",\"password\":\"<redacted>\"},
+  \"reconnectPolicy\":{\"poolEnabled\":true,\"maxConnections\":16,\"idleMs\":300000,\"backoffMs\":2000,\"threadPolicy\":{\"connectionOwnership\":\"thread-affine pooled connections\",\"crossThreadReuse\":false}},
   \"checks\":[
     {\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"},
     {\"name\":\"ping\",\"ok\":true,\"detail\":\"SELECT 1\"},
     {\"name\":\"required-tables\",\"ok\":true,\"detail\":\"requiredTables=10/10\"}
   ],
-  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":1,\"queryFailureCount\":2,\"lastSlowQueryMs\":1800,\"lastErrorReason\":\"network\"}
+  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":1,\"queryFailureCount\":2,\"lastSlowQueryMs\":1800,\"lastErrorReason\":\"network\",\"lastErrorCheck\":\"postgres-required-tables\",\"lastErrorSample\":\"connection refused while reading required tables\"}
 }
 ")
 
@@ -59,6 +60,10 @@ string(JSON check_count GET "${status_content}" "checkCount")
 string(JSON slow_query_count GET "${status_content}" "queryMetrics" "slowQueryCount")
 string(JSON query_failure_count GET "${status_content}" "queryMetrics" "queryFailureCount")
 string(JSON last_error_reason GET "${status_content}" "queryMetrics" "lastErrorReason")
+string(JSON last_error_check GET "${status_content}" "queryMetrics" "lastErrorCheck")
+string(JSON last_error_sample GET "${status_content}" "queryMetrics" "lastErrorSample")
+string(JSON pool_enabled GET "${status_content}" "reconnectPolicy" "poolEnabled")
+string(JSON thread_ownership GET "${status_content}" "reconnectPolicy" "threadPolicy" "connectionOwnership")
 if(NOT format STREQUAL "qtnetworkchat-database-health-status-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected status format: ${format}")
@@ -75,9 +80,11 @@ if(NOT "${check_count}" STREQUAL "3")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected checkCount=3, got ${check_count}")
 endif()
-if((NOT slow_query_count EQUAL 1) OR (NOT query_failure_count EQUAL 2) OR (NOT last_error_reason STREQUAL "network"))
+if((NOT slow_query_count EQUAL 1) OR (NOT query_failure_count EQUAL 2) OR (NOT last_error_reason STREQUAL "network")
+    OR (NOT last_error_check STREQUAL "postgres-required-tables") OR (NOT last_error_sample MATCHES "connection refused")
+    OR (NOT pool_enabled) OR (NOT thread_ownership STREQUAL "thread-affine pooled connections"))
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Status JSON should carry database query metrics")
+    message(FATAL_ERROR "Status JSON should carry database query metrics and reconnect thread policy")
 endif()
 string(FIND "${status_content}" "super-secret" leaked_secret)
 if(NOT leaked_secret EQUAL -1)
@@ -88,9 +95,11 @@ file(READ "${STATUS_MD}" markdown_content)
 string(FIND "${markdown_content}" "Database Health" md_title)
 string(FIND "${markdown_content}" "required-tables" md_check)
 string(FIND "${markdown_content}" "queryFailureCount" md_query_failures)
-if(md_title EQUAL -1 OR md_check EQUAL -1 OR md_query_failures EQUAL -1)
+string(FIND "${markdown_content}" "lastErrorCheck" md_last_error_check)
+string(FIND "${markdown_content}" "threadConnectionOwnership" md_thread_policy)
+if(md_title EQUAL -1 OR md_check EQUAL -1 OR md_query_failures EQUAL -1 OR md_last_error_check EQUAL -1 OR md_thread_policy EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Markdown status is missing expected content or query metrics")
+    message(FATAL_ERROR "Markdown status is missing expected content, query metrics, or thread policy")
 endif()
 
 file(WRITE "${BAD_HEALTH_JSON}"

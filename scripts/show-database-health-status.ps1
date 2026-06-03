@@ -99,6 +99,10 @@ $slowQueryCount = [int](Get-JsonValue $queryMetrics "slowQueryCount" 0)
 $queryFailureCount = [int](Get-JsonValue $queryMetrics "queryFailureCount" 0)
 $lastSlowQueryMs = [int](Get-JsonValue $queryMetrics "lastSlowQueryMs" 0)
 $lastErrorReason = [string](Get-JsonValue $queryMetrics "lastErrorReason" "")
+$lastErrorCheck = [string](Get-JsonValue $queryMetrics "lastErrorCheck" "")
+$lastErrorSample = [string](Get-JsonValue $queryMetrics "lastErrorSample" "")
+$reconnectPolicy = Get-JsonValue $health "reconnectPolicy" $null
+$threadPolicy = Get-JsonValue $reconnectPolicy "threadPolicy" $null
 if ($sensitiveHits.Count -gt 0) {
     $status = "unhealthy"
     $ok = $false
@@ -120,6 +124,23 @@ $summary = [ordered]@{
         queryFailureCount = $queryFailureCount
         lastSlowQueryMs = $lastSlowQueryMs
         lastErrorReason = $lastErrorReason
+        lastErrorCheck = $lastErrorCheck
+        lastErrorSample = $lastErrorSample
+    }
+    reconnectPolicy = [ordered]@{
+        poolEnabled = Get-JsonValue $reconnectPolicy "poolEnabled" $null
+        maxConnections = Get-JsonValue $reconnectPolicy "maxConnections" $null
+        idleMs = Get-JsonValue $reconnectPolicy "idleMs" $null
+        backoffMs = Get-JsonValue $reconnectPolicy "backoffMs" $null
+        slowQueryMs = Get-JsonValue $reconnectPolicy "slowQueryMs" $null
+        circuitBreaker = Get-JsonValue $reconnectPolicy "circuitBreaker" ""
+        threadPolicy = [ordered]@{
+            connectionOwnership = Get-JsonValue $threadPolicy "connectionOwnership" ""
+            crossThreadReuse = Get-JsonValue $threadPolicy "crossThreadReuse" $null
+            checkoutScope = Get-JsonValue $threadPolicy "checkoutScope" ""
+            idleReclaim = Get-JsonValue $threadPolicy "idleReclaim" ""
+            guidance = Get-JsonValue $threadPolicy "guidance" ""
+        }
     }
     sensitiveHits = @($sensitiveHits)
     checks = $checks
@@ -151,6 +172,14 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("| slowQueryCount | {0} |" -f (Format-Value $summary.queryMetrics.slowQueryCount)))
     $lines.Add(("| queryFailureCount | {0} |" -f (Format-Value $summary.queryMetrics.queryFailureCount)))
     $lines.Add(("| lastErrorReason | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorReason)))
+    $lines.Add(("| lastErrorCheck | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorCheck)))
+    $lines.Add(("| lastErrorSample | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorSample)))
+    $lines.Add(("| poolEnabled | {0} |" -f (Format-Value $summary.reconnectPolicy.poolEnabled)))
+    $lines.Add(("| poolMaxConnections | {0} |" -f (Format-Value $summary.reconnectPolicy.maxConnections)))
+    $lines.Add(("| poolIdleMs | {0} |" -f (Format-Value $summary.reconnectPolicy.idleMs)))
+    $lines.Add(("| reconnectBackoffMs | {0} |" -f (Format-Value $summary.reconnectPolicy.backoffMs)))
+    $lines.Add(("| threadConnectionOwnership | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.connectionOwnership)))
+    $lines.Add(("| threadCrossReuse | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.crossThreadReuse)))
     $lines.Add(("| sensitiveHits | {0} |" -f $summary.sensitiveHits.Count))
     $lines.Add("")
     $lines.Add("| check | ok | detail | reason |")

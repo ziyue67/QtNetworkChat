@@ -21,12 +21,13 @@ file(WRITE "${HEALTH_JSON}"
   \"status\":\"healthy\",
   \"ok\":true,
   \"config\":{\"driver\":\"QPSQL\",\"password\":\"<redacted>\"},
+  \"reconnectPolicy\":{\"poolEnabled\":true,\"maxConnections\":16,\"idleMs\":300000,\"backoffMs\":2000,\"threadPolicy\":{\"connectionOwnership\":\"thread-affine pooled connections\",\"crossThreadReuse\":false}},
   \"checks\":[
     {\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"},
     {\"name\":\"ping\",\"ok\":true,\"detail\":\"SELECT 1\"},
     {\"name\":\"required-tables\",\"ok\":true,\"detail\":\"requiredTables=10/10\"}
   ],
-  \"queryMetrics\":{\"slowQueryThresholdMs\":1000,\"slowQueryCount\":0,\"queryFailureCount\":0,\"lastSlowQueryMs\":0,\"lastErrorReason\":\"\"}
+  \"queryMetrics\":{\"slowQueryThresholdMs\":1000,\"slowQueryCount\":0,\"queryFailureCount\":0,\"lastSlowQueryMs\":0,\"lastErrorReason\":\"\",\"lastErrorCheck\":\"\",\"lastErrorSample\":\"\"}
 }
 ")
 file(WRITE "${STATUS_JSON}"
@@ -89,6 +90,9 @@ string(JSON task_configured GET "${dashboard_content}" "taskConfigured")
 string(JSON password_source GET "${dashboard_content}" "passwordSource")
 string(JSON slow_query_count GET "${dashboard_content}" "queryMetrics" "slowQueryCount")
 string(JSON query_failure_count GET "${dashboard_content}" "queryMetrics" "queryFailureCount")
+string(JSON last_error_check GET "${dashboard_content}" "queryMetrics" "lastErrorCheck")
+string(JSON pool_enabled GET "${dashboard_content}" "reconnectPolicy" "poolEnabled")
+string(JSON thread_ownership GET "${dashboard_content}" "reconnectPolicy" "threadPolicy" "connectionOwnership")
 if(NOT format STREQUAL "qtnetworkchat-database-health-dashboard-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected dashboard format: ${format}")
@@ -105,13 +109,17 @@ if(NOT "${warning_count}" STREQUAL "0")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected warningCount=0, got ${warning_count}")
 endif()
-if((NOT slow_query_count EQUAL 0) OR (NOT query_failure_count EQUAL 0))
+if((NOT slow_query_count EQUAL 0) OR (NOT query_failure_count EQUAL 0) OR NOT last_error_check STREQUAL "")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Healthy dashboard should expose zero query metrics")
+    message(FATAL_ERROR "Healthy dashboard should expose zero query metrics and empty last error fields")
 endif()
 if(NOT task_configured OR NOT password_source STREQUAL "QTNETWORKCHAT_PGPASSWORD")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Dashboard should include task preview password source")
+endif()
+if(NOT pool_enabled OR NOT thread_ownership STREQUAL "thread-affine pooled connections")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Dashboard should surface pooled thread policy")
 endif()
 string(FIND "${dashboard_content}" "super-secret" leaked_secret)
 if(NOT leaked_secret EQUAL -1)
@@ -121,7 +129,8 @@ endif()
 file(READ "${DASHBOARD_MD}" markdown_content)
 string(FIND "${markdown_content}" "Database Health Dashboard" md_title)
 string(FIND "${markdown_content}" "QTNETWORKCHAT_PGPASSWORD" md_password_source)
-if(md_title EQUAL -1 OR md_password_source EQUAL -1)
+string(FIND "${markdown_content}" "Thread connection ownership" md_thread_ownership)
+if(md_title EQUAL -1 OR md_password_source EQUAL -1 OR md_thread_ownership EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Dashboard Markdown is missing expected content")
 endif()
@@ -132,8 +141,9 @@ file(WRITE "${METRICS_HEALTH_JSON}"
   \"status\":\"healthy\",
   \"ok\":true,
   \"config\":{\"driver\":\"QPSQL\",\"password\":\"<redacted>\"},
+  \"reconnectPolicy\":{\"poolEnabled\":true,\"maxConnections\":16,\"idleMs\":300000,\"backoffMs\":2000,\"threadPolicy\":{\"connectionOwnership\":\"thread-affine pooled connections\",\"crossThreadReuse\":false}},
   \"checks\":[{\"name\":\"open\",\"ok\":true,\"detail\":\"connected\"}],
-  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":2,\"queryFailureCount\":1,\"lastSlowQueryMs\":2200,\"lastErrorReason\":\"query\"}
+  \"queryMetrics\":{\"slowQueryThresholdMs\":750,\"slowQueryCount\":2,\"queryFailureCount\":1,\"lastSlowQueryMs\":2200,\"lastErrorReason\":\"query\",\"lastErrorCheck\":\"postgres-required-tables\",\"lastErrorSample\":\"requiredTables=unknown/10\"}
 }
 ")
 execute_process(
@@ -154,6 +164,7 @@ string(JSON metrics_ok GET "${metrics_dashboard_content}" "ok")
 string(JSON metrics_warning_count GET "${metrics_dashboard_content}" "warningCount")
 string(JSON metrics_slow_count GET "${metrics_dashboard_content}" "queryMetrics" "slowQueryCount")
 string(JSON metrics_failure_count GET "${metrics_dashboard_content}" "queryMetrics" "queryFailureCount")
+string(JSON metrics_last_error_check GET "${metrics_dashboard_content}" "queryMetrics" "lastErrorCheck")
 string(FIND "${metrics_dashboard_content}" "database-query-failures" metrics_failure_warning)
 string(FIND "${metrics_dashboard_content}" "database-slow-queries" metrics_slow_warning)
 if(NOT metrics_status STREQUAL "healthy" OR NOT metrics_ok)
@@ -161,9 +172,9 @@ if(NOT metrics_status STREQUAL "healthy" OR NOT metrics_ok)
     message(FATAL_ERROR "Query metrics alone should keep dashboard health status tied to checks")
 endif()
 if((NOT metrics_warning_count EQUAL 2) OR (NOT metrics_slow_count EQUAL 2) OR (NOT metrics_failure_count EQUAL 1)
-    OR metrics_failure_warning EQUAL -1 OR metrics_slow_warning EQUAL -1)
+    OR metrics_failure_warning EQUAL -1 OR metrics_slow_warning EQUAL -1 OR NOT metrics_last_error_check STREQUAL "postgres-required-tables")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Query metrics dashboard should surface slow query and query failure warnings")
+    message(FATAL_ERROR "Query metrics dashboard should surface slow query/query failure warnings and last error check")
 endif()
 
 file(WRITE "${BAD_HEALTH_JSON}"

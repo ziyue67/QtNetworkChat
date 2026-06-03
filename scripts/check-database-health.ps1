@@ -67,10 +67,28 @@ function Get-PostgresErrorReason([string]$Text) {
     return "query"
 }
 
+function Sanitize-HealthDetail([string]$Text) {
+    $value = [string]$Text
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return ""
+    }
+    $value = $value -replace '(?i)(password|passphrase)\s*[:=]\s*[^;\s]+', '$1=<redacted>'
+    $value = $value -replace '(?i)qtnetworkchat_pgpassword\s*[:=]\s*[^;\s]+', 'QTNETWORKCHAT_PGPASSWORD=<redacted>'
+    $value = $value -replace '(?i)authorization\s*[:=]\s*[^;\r\n]+', 'Authorization=<redacted>'
+    $value = $value -replace '\s+', ' '
+    $value = $value.Trim()
+    if ($value.Length -gt 160) {
+        return $value.Substring(0, 160) + "..."
+    }
+    $value
+}
+
 function Add-QueryFailure {
     param(
         [System.Collections.IDictionary]$Metrics,
-        [string]$Reason
+        [string]$Reason,
+        [string]$CheckName = "",
+        [string]$Detail = ""
     )
 
     $fixedReason = if ([string]::IsNullOrWhiteSpace($Reason)) { "query" } else { $Reason }
@@ -79,6 +97,8 @@ function Add-QueryFailure {
     }
     $Metrics.queryFailureCount += 1
     $Metrics.lastErrorReason = $fixedReason
+    $Metrics.lastErrorCheck = if ([string]::IsNullOrWhiteSpace($CheckName)) { "unknown" } else { $CheckName }
+    $Metrics.lastErrorSample = Sanitize-HealthDetail $Detail
     $Metrics.errorReasons[$fixedReason] += 1
 }
 
@@ -131,6 +151,8 @@ $queryMetrics = [ordered]@{
     queryFailureCount = 0
     lastSlowQueryMs = 0
     lastErrorReason = ""
+    lastErrorCheck = ""
+    lastErrorSample = ""
     errorReasons = [ordered]@{
         runtime = 0
         auth = 0
@@ -146,7 +168,7 @@ if (-not $PlanOnly -and $ok) {
     if ($normalizedDriver -eq "postgres") {
         if ([string]::IsNullOrWhiteSpace($PostgresPassword)) {
             $checks.Add((New-Check "postgres-password" $false "QTNETWORKCHAT_PGPASSWORD is required outside PlanOnly" "auth"))
-            Add-QueryFailure $queryMetrics "auth"
+            Add-QueryFailure $queryMetrics "auth" "postgres-password" "QTNETWORKCHAT_PGPASSWORD is required outside PlanOnly"
             $ok = $false
         } else {
             $oldPassword = $env:PGPASSWORD
@@ -178,7 +200,7 @@ if (-not $PlanOnly -and $ok) {
                 $checks.Add((New-Check "postgres-required-tables" $checkOk $detail $reason))
                 $ok = $ok -and $psqlExitCode -eq 0 -and $tableCount -eq 10
                 if (-not $checkOk) {
-                    Add-QueryFailure $queryMetrics $reason
+                    Add-QueryFailure $queryMetrics $reason "postgres-required-tables" ([string]$psqlOutput)
                 }
             } finally {
                 $env:PGPASSWORD = $oldPassword
@@ -204,6 +226,13 @@ $resultObject = [ordered]@{
         backoffMs = $ReconnectBackoffMs
         slowQueryMs = $SlowQueryMs
         circuitBreaker = "skip-open-during-backoff"
+        threadPolicy = [ordered]@{
+            connectionOwnership = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "thread-affine pooled connections" } else { "direct-open per caller" }
+            crossThreadReuse = $false
+            checkoutScope = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "thread-local checkout" } else { "not-applicable" }
+            idleReclaim = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "idle pooled connections are reclaimed after PoolIdleMs" } else { "not-applicable" }
+            guidance = "Qt SQL connections are thread-affine; never reuse one opened connection object across threads."
+        }
         reasonBuckets = @("ok", "runtime", "auth", "network", "tls", "schema", "path", "query")
     }
     queryMetrics = $queryMetrics

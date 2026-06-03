@@ -132,6 +132,12 @@ $slowQueryCount = [int](Get-JsonValue $statusQueryMetrics "slowQueryCount" (Get-
 $queryFailureCount = [int](Get-JsonValue $statusQueryMetrics "queryFailureCount" (Get-JsonValue $healthQueryMetrics "queryFailureCount" 0))
 $lastSlowQueryMs = [int](Get-JsonValue $statusQueryMetrics "lastSlowQueryMs" (Get-JsonValue $healthQueryMetrics "lastSlowQueryMs" 0))
 $lastErrorReason = [string](Get-JsonValue $statusQueryMetrics "lastErrorReason" (Get-JsonValue $healthQueryMetrics "lastErrorReason" ""))
+$lastErrorCheck = [string](Get-JsonValue $statusQueryMetrics "lastErrorCheck" (Get-JsonValue $healthQueryMetrics "lastErrorCheck" ""))
+$lastErrorSample = [string](Get-JsonValue $statusQueryMetrics "lastErrorSample" (Get-JsonValue $healthQueryMetrics "lastErrorSample" ""))
+$healthReconnectPolicy = Get-JsonValue $health "reconnectPolicy" $null
+$statusReconnectPolicy = Get-JsonValue $statusSummary "reconnectPolicy" $null
+$reconnectPolicy = if ($null -ne $statusReconnectPolicy) { $statusReconnectPolicy } else { $healthReconnectPolicy }
+$threadPolicy = Get-JsonValue $reconnectPolicy "threadPolicy" $null
 $checks = @((Get-JsonValue $health "checks" (Get-JsonValue $statusSummary "checks" @())))
 $failedChecks = @()
 foreach ($check in $checks) {
@@ -181,6 +187,23 @@ $dashboard = [ordered]@{
         queryFailureCount = $queryFailureCount
         lastSlowQueryMs = $lastSlowQueryMs
         lastErrorReason = $lastErrorReason
+        lastErrorCheck = $lastErrorCheck
+        lastErrorSample = $lastErrorSample
+    }
+    reconnectPolicy = [ordered]@{
+        poolEnabled = Normalize-Bool (Get-JsonValue $reconnectPolicy "poolEnabled" $false)
+        maxConnections = Get-JsonValue $reconnectPolicy "maxConnections" $null
+        idleMs = Get-JsonValue $reconnectPolicy "idleMs" $null
+        backoffMs = Get-JsonValue $reconnectPolicy "backoffMs" $null
+        slowQueryMs = Get-JsonValue $reconnectPolicy "slowQueryMs" $null
+        circuitBreaker = [string](Get-JsonValue $reconnectPolicy "circuitBreaker" "")
+        threadPolicy = [ordered]@{
+            connectionOwnership = [string](Get-JsonValue $threadPolicy "connectionOwnership" "")
+            crossThreadReuse = Get-JsonValue $threadPolicy "crossThreadReuse" $null
+            checkoutScope = [string](Get-JsonValue $threadPolicy "checkoutScope" "")
+            idleReclaim = [string](Get-JsonValue $threadPolicy "idleReclaim" "")
+            guidance = [string](Get-JsonValue $threadPolicy "guidance" "")
+        }
     }
     warningCount = $warnings.Count
     warnings = @($warnings)
@@ -221,6 +244,14 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add(('- Slow query count: `{0}`' -f $dashboard.queryMetrics.slowQueryCount))
     $lines.Add(('- Query failure count: `{0}`' -f $dashboard.queryMetrics.queryFailureCount))
     $lines.Add(('- Last error reason: `{0}`' -f (Format-Value $dashboard.queryMetrics.lastErrorReason)))
+    $lines.Add(('- Last error check: `{0}`' -f (Format-Value $dashboard.queryMetrics.lastErrorCheck)))
+    $lines.Add(('- Last error sample: `{0}`' -f (Format-Value $dashboard.queryMetrics.lastErrorSample)))
+    $lines.Add(('- Pool enabled: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.poolEnabled)))
+    $lines.Add(('- Pool max connections: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.maxConnections)))
+    $lines.Add(('- Pool idle ms: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.idleMs)))
+    $lines.Add(('- Reconnect backoff ms: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.backoffMs)))
+    $lines.Add(('- Thread connection ownership: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.threadPolicy.connectionOwnership)))
+    $lines.Add(('- Thread cross reuse: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.threadPolicy.crossThreadReuse)))
     $lines.Add(('- Warnings: `{0}`' -f $dashboard.warningCount))
     $lines.Add(('- Sensitive hits: `{0}`' -f @($dashboard.sensitiveHits).Count))
     $lines.Add(('- Task configured: `{0}`' -f (Format-Value $dashboard.taskConfigured)))
