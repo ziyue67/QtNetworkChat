@@ -711,4 +711,10 @@ if(BUILD_TESTING)
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-pgsql-release-acceptance.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_release_acceptance.cmake
     )
+    add_test(
+        NAME PostgresRollbackLiveEvidence
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-pgsql-rollback-live-evidence.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_rollback_live_evidence.cmake
+    )
 endif()

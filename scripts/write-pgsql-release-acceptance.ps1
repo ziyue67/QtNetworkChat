@@ -13,8 +13,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $sensitivePatterns = @(
-    'QTNETWORKCHAT_PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
-    'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])QTNETWORKCHAT_PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
     'secret[-_\s]?key',
     'access[-_\s]?key',
     'Authorization',
@@ -82,7 +82,7 @@ function Add-SensitiveHits([string]$PathValue, [System.Collections.ArrayList]$Hi
         $lineNumber += 1
         $line = [string]$_
         foreach ($pattern in $sensitivePatterns) {
-            if ($line -match $pattern -and $line -notmatch "<redacted>") {
+            if ($line -match $pattern -and $line -notmatch "(<redacted>|\\u003credacted\\u003e|&lt;redacted&gt;)") {
                 [void]$Hits.Add(("{0}:{1}:{2}" -f (Split-Path -Leaf $PathValue), $lineNumber, $pattern))
             }
         }
@@ -294,7 +294,7 @@ $summary = [ordered]@{
         rollbackAuditPath = $resolvedRollbackAuditPath
     }
     warnings = @($warnings)
-    sensitiveHits = @($sensitiveHits)
+    sensitiveHits = @($sensitiveHits.ToArray())
 }
 
 if (-not [string]::IsNullOrWhiteSpace($resolvedJsonPath)) {

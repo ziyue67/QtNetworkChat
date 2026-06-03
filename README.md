@@ -545,6 +545,20 @@ powershell -ExecutionPolicy Bypass -File scripts/register-pgsql-release-acceptan
 
 默认只写 `pgsql-release-acceptance-task-preview.json` 和 `run-pgsql-release-acceptance-task.ps1`，不会创建系统计划任务；确认 preview 后再追加 `-Register`。launcher 会在运行时从 `QTNETWORKCHAT_PGPASSWORD` 读取密码，串联真实数据库健康检查、health status/dashboard、QPSQL smoke、SQLite 到 PostgreSQL migration plan/diff、rollback dry-run preview 与 rollback audit，再生成 `pgsql-release-acceptance.json/.md`。同一次运行还会写 `last-run.log`、同目录 `automation-task-history.json/.md` 与 `automation-task-ack.json`，最后把 health、smoke、migration、rollback preview/audit、acceptance、last-run、history/ack 统一打成脱敏 `evidence\pgsql-release-evidence.zip` 和 `evidence\pgsql-release-evidence-manifest.json`。状态板会把 `taskKind=pgsql-release-acceptance` 作为 PostgreSQL 发布验收任务专门回读，显示 release gate、operator action、history/ack 和 evidence 是否可用；也可继续通过 `-TaskPreviewPath` 把该 preview 交给 `scripts/write-automation-status.ps1`。若只想验证本机运行时和产物路径，不连接真实 PostgreSQL，可追加 `-PlanOnly`；若已有产物且不需要打包 evidence，可追加 `-SkipEvidencePackage`。
 
+需要把 rollback audit 跑成一次真实 PostgreSQL live evidence 时，可使用受控样例编排脚本。它会生成临时 SQLite 样例，先执行 execute/diff/rollback preview，再真实执行 rollback 并生成 after audit，同时串联数据库健康、真实 QPSQL smoke、release acceptance、history/ack 和 evidence zip；所有密码字段仍只写 `<redacted>`：
+
+```powershell
+$env:QTNETWORKCHAT_PGPASSWORD = "<本机 PostgreSQL 密码>"
+powershell -ExecutionPolicy Bypass -File scripts/run-pgsql-rollback-live-evidence.ps1 `
+  -OutputDir "build-qt6-mingw\pgsql-rollback-live-evidence" `
+  -QtRoot "D:\Qt\6.8.3\mingw_64" `
+  -PostgresBinDir "D:\Program Files\PostgreSQL\17\bin" `
+  -PostgresPassword $env:QTNETWORKCHAT_PGPASSWORD `
+  -EnsureDatabase
+```
+
+完成后总览产物为 `pgsql-rollback-live-evidence.json/.md`，其中 `summary.releaseGate=can-close-pgsql-rollback-live-evidence` 表示 before preview、rollback execute、after audit、release acceptance 与 evidence package 都已生成并通过脱敏扫描。默认 CTest 只跑该脚本的 `-PlanOnly` 验证，不连接真实 PostgreSQL、不读取密码。
+
 如果只需要把已有脱敏产物统一归档，也可以直接调用 evidence 打包脚本：
 
 ```powershell
