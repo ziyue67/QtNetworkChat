@@ -83,6 +83,7 @@ endif()
 file(READ "${LAUNCHER}" launcher_content)
 foreach(expected_text
         "run-large-file-governance.ps1"
+        "write-automation-task-history.ps1"
         "-RouteLogPath"
         "-QueuePath"
         "-SourceInstanceId"
@@ -101,6 +102,10 @@ foreach(expected_text
         "-RunS3FailureBatchSample"
         "-S3FailureBatchCountPerReason"
         "exitCode=$exitCode"
+        "historyExitCode"
+        "historyPath="
+        "historyMarkdownPath="
+        "ackPath="
         "last-run.log")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
@@ -126,7 +131,9 @@ string(JSON s3_policy_path GET "${preview_content}" "s3CoveragePolicyPath")
 string(JSON warn_s3_coverage_gaps GET "${preview_content}" "warnS3CoverageGaps")
 string(JSON s3_batch_path GET "${preview_content}" "s3FailureBatchSummaryPath")
 string(JSON s3_batch_count GET "${preview_content}" "s3FailureBatchCountPerReason")
+string(JSON history_script GET "${preview_content}" "historyScript")
 string(JSON history_path GET "${preview_content}" "historyPath")
+string(JSON history_markdown_path GET "${preview_content}" "historyMarkdownPath")
 string(JSON ack_path GET "${preview_content}" "ackPath")
 if(should_register)
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -172,9 +179,13 @@ if(NOT s3_batch_count EQUAL 3)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview S3 failure batch count should be 3, got ${s3_batch_count}")
 endif()
-if(NOT history_path MATCHES "automation-task-history.json" OR NOT ack_path MATCHES "automation-task-ack.json")
+if(NOT history_script MATCHES "write-automation-task-history.ps1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Preview history/ack paths missing expected names: ${history_path}/${ack_path}")
+    message(FATAL_ERROR "Preview history script missing expected name: ${history_script}")
+endif()
+if(NOT history_path MATCHES "automation-task-history.json" OR NOT history_markdown_path MATCHES "automation-task-history.md" OR NOT ack_path MATCHES "automation-task-ack.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview history/ack paths missing expected names: ${history_path}/${history_markdown_path}/${ack_path}")
 endif()
 
 execute_process(

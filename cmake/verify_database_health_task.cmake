@@ -60,20 +60,28 @@ foreach(expected_text
         "check-database-health.ps1"
         "show-database-health-status.ps1"
         "write-database-health-dashboard.ps1"
+        "write-automation-task-history.ps1"
         "-Driver 'postgres'"
         "-PostgresPassword $env:QTNETWORKCHAT_PGPASSWORD"
         "-PlanOnly"
         "-FailOnUnhealthy"
         "-MarkdownPath"
         "dashboardExitCode"
+        "historyExitCode"
         "exitCode=$exitCode"
+        "historyPath="
+        "historyMarkdownPath="
+        "ackPath="
         "healthPath="
         "dashboardPath="
         "last-run.log"
         "database-health.json"
         "database-health-status.json"
         "database-health-dashboard.json"
-        "database-health-dashboard.md")
+        "database-health-dashboard.md"
+        "automation-task-history.json"
+        "automation-task-history.md"
+        "automation-task-ack.json")
     string(FIND "${launcher_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -107,7 +115,9 @@ string(JSON write_dashboard GET "${preview_content}" "writeDashboard")
 string(JSON dashboard_path GET "${preview_content}" "dashboardPath")
 string(JSON dashboard_markdown_path GET "${preview_content}" "dashboardMarkdownPath")
 string(JSON log_path GET "${preview_content}" "logPath")
+string(JSON history_script GET "${preview_content}" "historyScript")
 string(JSON history_path GET "${preview_content}" "historyPath")
+string(JSON history_markdown_path GET "${preview_content}" "historyMarkdownPath")
 string(JSON ack_path GET "${preview_content}" "ackPath")
 string(JSON read_only GET "${preview_content}" "readOnly")
 
@@ -147,6 +157,10 @@ if(NOT dashboard_script MATCHES "write-database-health-dashboard.ps1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview dashboard script missing expected name: ${dashboard_script}")
 endif()
+if(NOT history_script MATCHES "write-automation-task-history.ps1")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview history script missing expected name: ${history_script}")
+endif()
 if(NOT write_dashboard)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview should show dashboard generation enabled")
@@ -159,9 +173,9 @@ if(NOT log_path MATCHES "last-run.log")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview log path missing expected name: ${log_path}")
 endif()
-if(NOT history_path MATCHES "automation-task-history.json" OR NOT ack_path MATCHES "automation-task-ack.json")
+if(NOT history_path MATCHES "automation-task-history.json" OR NOT history_markdown_path MATCHES "automation-task-history.md" OR NOT ack_path MATCHES "automation-task-ack.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Preview history/ack paths missing expected names: ${history_path}/${ack_path}")
+    message(FATAL_ERROR "Preview history/ack paths missing expected names: ${history_path}/${history_markdown_path}/${ack_path}")
 endif()
 foreach(forbidden_text "forbidden-password-sample" "super-secret")
     string(FIND "${preview_content}" "${forbidden_text}" leaked_at)

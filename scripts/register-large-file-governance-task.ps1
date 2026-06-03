@@ -196,20 +196,29 @@ $resolvedTaskDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPath
 New-Item -ItemType Directory -Path $resolvedTaskDir -Force | Out-Null
 
 $governanceScript = Join-Path $PSScriptRoot "run-large-file-governance.ps1"
+$historyScript = Join-Path $PSScriptRoot "write-automation-task-history.ps1"
 if (-not (Test-Path -LiteralPath $governanceScript -PathType Leaf)) {
     throw "Governance runner not found: $governanceScript"
+}
+if (-not (Test-Path -LiteralPath $historyScript -PathType Leaf)) {
+    throw "Automation task history writer not found: $historyScript"
 }
 
 $launcherPath = Join-Path $resolvedTaskDir "run-large-file-governance-task.ps1"
 $previewPath = Join-Path $resolvedTaskDir "scheduled-task-preview.json"
 $logPath = Join-Path $resolvedTaskDir "last-run.log"
 $historyPath = Join-Path $resolvedTaskDir "automation-task-history.json"
+$historyMarkdownPath = Join-Path $resolvedTaskDir "automation-task-history.md"
 $ackPath = Join-Path $resolvedTaskDir "automation-task-ack.json"
 
 $lines = New-Object System.Collections.ArrayList
 [void]$lines.Add('$ErrorActionPreference = "Stop"')
 [void]$lines.Add('$runner = ' + (Quote-PSString $governanceScript))
+[void]$lines.Add('$historyScript = ' + (Quote-PSString $historyScript))
 [void]$lines.Add('$logPath = ' + (Quote-PSString $logPath))
+[void]$lines.Add('$historyPath = ' + (Quote-PSString $historyPath))
+[void]$lines.Add('$historyMarkdownPath = ' + (Quote-PSString $historyMarkdownPath))
+[void]$lines.Add('$ackPath = ' + (Quote-PSString $ackPath))
 [void]$lines.Add('$logDir = Split-Path -Parent $logPath')
 [void]$lines.Add('if (-not [string]::IsNullOrWhiteSpace($logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }')
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $runner `')
@@ -256,8 +265,24 @@ if ($lastIndex -ge 0) {
     $lines[$lastIndex] = $lastLine
 }
 [void]$lines.Add('$exitCode = $LASTEXITCODE')
-[void]$lines.Add(('"{0} exitCode=$exitCode" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o")))
-[void]$lines.Add('exit $exitCode')
+[void]$lines.Add(('"{0} exitCode=$exitCode historyPath={1} historyMarkdownPath={2} ackPath={3}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $historyPath, $historyMarkdownPath, $ackPath))
+[void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $historyScript `')
+Add-ScalarArg $lines "LastRunPath" $logPath
+Add-ScalarArg $lines "AckPath" $ackPath
+Add-ScalarArg $lines "JsonPath" $historyPath
+Add-ScalarArg $lines "MarkdownPath" $historyMarkdownPath
+Add-SwitchArg $lines "FailOnSensitive" $true
+$lastIndex = $lines.Count - 1
+if ($lastIndex -ge 0) {
+    $lastLine = ([string]$lines[$lastIndex]).TrimEnd()
+    if ($lastLine.EndsWith([string][char]0x60)) {
+        $lastLine = $lastLine.Substring(0, $lastLine.Length - 1).TrimEnd()
+    }
+    $lines[$lastIndex] = $lastLine
+}
+[void]$lines.Add('$historyExitCode = $LASTEXITCODE')
+[void]$lines.Add('$finalExitCode = if ($exitCode -ne 0) { $exitCode } else { $historyExitCode }')
+[void]$lines.Add('exit $finalExitCode')
 
 $lines | Set-Content -LiteralPath $launcherPath -Encoding UTF8
 
@@ -314,6 +339,7 @@ $preview = [pscustomobject]@{
     action = "powershell.exe $actionArgument"
     launcherPath = $launcherPath
     governanceScript = $governanceScript
+    historyScript = $historyScript
     outputDir = $OutputDir
     alertOverviewPath = $alertOverviewPath
     healthCheckPath = $healthCheckOutputPath
@@ -329,9 +355,10 @@ $preview = [pscustomobject]@{
     s3FailureBatchSummaryPath = $s3FailureBatchPreviewPath
     s3FailureBatchCountPerReason = if ($RunS3FailureBatchSample) { $S3FailureBatchCountPerReason } else { $null }
     historyPath = $historyPath
+    historyMarkdownPath = $historyMarkdownPath
     ackPath = $ackPath
     readOnly = $true
-    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, dashboardPath for machine-readable local status, reportPath for an operator-readable summary, and diagnosticsPackagePath for a sanitized zip."
+    notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, dashboardPath for machine-readable local status, reportPath for an operator-readable summary, diagnosticsPackagePath for a sanitized zip, and automation task history JSON/Markdown derived from last-run.log plus same-directory ack state."
 }
 $preview | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $previewPath -Encoding UTF8
 

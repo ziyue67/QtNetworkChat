@@ -132,6 +132,7 @@ New-Item -ItemType Directory -Path $resolvedTaskDir -Force | Out-Null
 $healthScript = Join-Path $PSScriptRoot "check-database-health.ps1"
 $statusScript = Join-Path $PSScriptRoot "show-database-health-status.ps1"
 $dashboardScript = Join-Path $PSScriptRoot "write-database-health-dashboard.ps1"
+$historyScript = Join-Path $PSScriptRoot "write-automation-task-history.ps1"
 if (-not (Test-Path -LiteralPath $healthScript -PathType Leaf)) {
     throw "Database health checker not found: $healthScript"
 }
@@ -141,6 +142,9 @@ if (-not (Test-Path -LiteralPath $statusScript -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $dashboardScript -PathType Leaf)) {
     throw "Database health dashboard script not found: $dashboardScript"
 }
+if (-not (Test-Path -LiteralPath $historyScript -PathType Leaf)) {
+    throw "Automation task history writer not found: $historyScript"
+}
 
 $resolvedOutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDir)
 New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
@@ -149,6 +153,7 @@ $launcherPath = Join-Path $resolvedTaskDir "run-database-health-task.ps1"
 $previewPath = Join-Path $resolvedTaskDir "database-health-task-preview.json"
 $logPath = Join-Path $resolvedTaskDir "last-run.log"
 $historyPath = Join-Path $resolvedTaskDir "automation-task-history.json"
+$historyMarkdownPath = Join-Path $resolvedTaskDir "automation-task-history.md"
 $ackPath = Join-Path $resolvedTaskDir "automation-task-ack.json"
 $healthPath = Join-Path $resolvedOutputDir "database-health.json"
 $statusPath = Join-Path $resolvedOutputDir "database-health-status.json"
@@ -178,7 +183,11 @@ $lines = New-Object System.Collections.ArrayList
 [void]$lines.Add('$healthScript = ' + (Quote-PSString $healthScript))
 [void]$lines.Add('$statusScript = ' + (Quote-PSString $statusScript))
 [void]$lines.Add('$dashboardScript = ' + (Quote-PSString $dashboardScript))
+[void]$lines.Add('$historyScript = ' + (Quote-PSString $historyScript))
 [void]$lines.Add('$logPath = ' + (Quote-PSString $logPath))
+[void]$lines.Add('$historyPath = ' + (Quote-PSString $historyPath))
+[void]$lines.Add('$historyMarkdownPath = ' + (Quote-PSString $historyMarkdownPath))
+[void]$lines.Add('$ackPath = ' + (Quote-PSString $ackPath))
 [void]$lines.Add('$logDir = Split-Path -Parent $logPath')
 [void]$lines.Add('if (-not [string]::IsNullOrWhiteSpace($logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }')
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $healthScript `')
@@ -239,8 +248,24 @@ if ($dashboardEnabled) {
     [void]$lines.Add('$dashboardExitCode = 0')
 }
 [void]$lines.Add('$exitCode = if ($healthExitCode -ne 0) { $healthExitCode } elseif ($statusExitCode -ne 0) { $statusExitCode } else { $dashboardExitCode }')
-[void]$lines.Add(('"{0} healthExitCode=$healthExitCode statusExitCode=$statusExitCode dashboardExitCode=$dashboardExitCode exitCode=$exitCode healthPath={1} statusPath={2} dashboardPath={3} markdownPath={4}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $healthPath, $statusPath, $dashboardPath, $markdownPath))
-[void]$lines.Add('exit $exitCode')
+[void]$lines.Add(('"{0} healthExitCode=$healthExitCode statusExitCode=$statusExitCode dashboardExitCode=$dashboardExitCode exitCode=$exitCode healthPath={1} statusPath={2} dashboardPath={3} markdownPath={4} historyPath={5} historyMarkdownPath={6} ackPath={7}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $healthPath, $statusPath, $dashboardPath, $markdownPath, $historyPath, $historyMarkdownPath, $ackPath))
+[void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $historyScript `')
+Add-ScalarArg $lines "LastRunPath" $logPath
+Add-ScalarArg $lines "AckPath" $ackPath
+Add-ScalarArg $lines "JsonPath" $historyPath
+Add-ScalarArg $lines "MarkdownPath" $historyMarkdownPath
+Add-SwitchArg $lines "FailOnSensitive" $true
+$lastIndex = $lines.Count - 1
+if ($lastIndex -ge 0) {
+    $lastLine = ([string]$lines[$lastIndex]).TrimEnd()
+    if ($lastLine.EndsWith([string][char]0x60)) {
+        $lastLine = $lastLine.Substring(0, $lastLine.Length - 1).TrimEnd()
+    }
+    $lines[$lastIndex] = $lastLine
+}
+[void]$lines.Add('$historyExitCode = $LASTEXITCODE')
+[void]$lines.Add('$finalExitCode = if ($exitCode -ne 0) { $exitCode } else { $historyExitCode }')
+[void]$lines.Add('exit $finalExitCode')
 
 $lines | Set-Content -LiteralPath $launcherPath -Encoding UTF8
 
@@ -258,6 +283,7 @@ $preview = [pscustomobject]@{
     healthScript = $healthScript
     statusScript = $statusScript
     dashboardScript = $dashboardScript
+    historyScript = $historyScript
     outputDir = $resolvedOutputDir
     healthPath = $healthPath
     statusPath = $statusPath
@@ -267,13 +293,14 @@ $preview = [pscustomobject]@{
     dashboardMarkdownPath = $dashboardMarkdownPath
     logPath = $logPath
     historyPath = $historyPath
+    historyMarkdownPath = $historyMarkdownPath
     ackPath = $ackPath
     driver = $Driver
     planOnly = $PlanOnly.IsPresent
     failOnUnhealthy = $FailOnUnhealthy.IsPresent
     passwordSource = if ($Driver -eq "postgres") { "QTNETWORKCHAT_PGPASSWORD" } else { "" }
     readOnly = $true
-    notes = "Default mode writes this preview and launcher script only. The launcher reads PostgreSQL password from QTNETWORKCHAT_PGPASSWORD at run time and writes redacted database health JSON, status JSON/Markdown, optional dashboard JSON/Markdown, and a last-run log with exit codes and artifact paths."
+    notes = "Default mode writes this preview and launcher script only. The launcher reads PostgreSQL password from QTNETWORKCHAT_PGPASSWORD at run time and writes redacted database health JSON, status JSON/Markdown, optional dashboard JSON/Markdown, a last-run log with exit codes and artifact paths, and automation task history JSON/Markdown derived from last-run.log plus same-directory ack state."
 }
 $preview | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $previewPath -Encoding UTF8
 

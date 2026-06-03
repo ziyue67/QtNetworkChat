@@ -427,7 +427,7 @@ powershell -ExecutionPolicy Bypass -File scripts/register-database-health-task.p
   -WriteDashboard
 ```
 
-默认只写 `database-health-task-preview.json` 和 `run-database-health-task.ps1`，不会创建系统计划任务；确认 preview 后再追加 `-Register`。启动脚本运行时从 `QTNETWORKCHAT_PGPASSWORD` 读取 PostgreSQL 密码，仓库、preview、launcher 和 `last-run.log` 都只记录密码来源，不写入真实密码。去掉 `-PlanOnly` 后，计划任务会真实检查 PostgreSQL 必需表并生成 `database-health.json`、`database-health-status.json`；开启 `-WriteMarkdown` 时生成 Markdown 值班摘要，开启 `-WriteDashboard` 或显式传入 `-DashboardPath` / `-DashboardMarkdownPath` 时会继续生成 `database-health-dashboard.json`、`database-health-dashboard.md`，并在 `last-run.log` 记录 health/status/dashboard exit code 与产物路径。
+默认只写 `database-health-task-preview.json` 和 `run-database-health-task.ps1`，不会创建系统计划任务；确认 preview 后再追加 `-Register`。启动脚本运行时从 `QTNETWORKCHAT_PGPASSWORD` 读取 PostgreSQL 密码，仓库、preview、launcher 和 `last-run.log` 都只记录密码来源，不写入真实密码。去掉 `-PlanOnly` 后，计划任务会真实检查 PostgreSQL 必需表并生成 `database-health.json`、`database-health-status.json`；开启 `-WriteMarkdown` 时生成 Markdown 值班摘要，开启 `-WriteDashboard` 或显式传入 `-DashboardPath` / `-DashboardMarkdownPath` 时会继续生成 `database-health-dashboard.json`、`database-health-dashboard.md`。同一次运行结束后，launcher 还会根据 `last-run.log` 与同目录 `automation-task-ack.json` 自动生成 `automation-task-history.json`、`automation-task-history.md`，供状态板和人工值班统一回读。
 
 计划任务或手工检查产生的健康 JSON、状态 JSON 和 preview 可以聚合成一个本地仪表盘：
 
