@@ -93,6 +93,12 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
     lastRunPath = $dbLastRunPath
     historyArtifactPath = $taskHistoryPath
     ackArtifactPath = $taskAckPath
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
 } | ConvertTo-Json) | Set-Content -LiteralPath $dbPreviewPath -Encoding UTF8
 
 ([ordered]@{
@@ -101,6 +107,12 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
     lastRunPath = $govLastRunPath
     historyArtifactPath = $taskHistoryPath
     ackArtifactPath = $taskAckPath
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
     launcherPath = (Join-Path $tempDir "task\run-large-file-governance-task.ps1")
 } | ConvertTo-Json) | Set-Content -LiteralPath $govPreviewPath -Encoding UTF8
 
@@ -144,6 +156,10 @@ foreach ($expected in @(
     'Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`',
     'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
+    'Artifact Diagnostics',
+    'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
+    'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
+    'Automation history artifacts: `history=ok; ack=ok`',
     'Priority Backlog',
     'QTNETWORKCHAT_PGPASSWORD',
     'generated evidence must remain redacted'
@@ -178,9 +194,12 @@ foreach ($expected in @(
     'HEAD: `def5678`',
     'origin/main: `unknown`',
     'origin/codex/qt: `unknown`',
-    'Database health: `configured but status artifact missing`',
-    'Large-file governance: `configured but status artifact missing`',
-    'Task history: `configured but history artifact missing`'
+    'Database health: `configured but status artifact unavailable`',
+    'Large-file governance: `configured but status artifact unavailable`',
+    'Task history: `configured but history artifact unavailable`',
+    'Database health artifacts: `preview=not-configured; status=missing',
+    'Large-file governance artifacts: `preview=not-configured; status=missing',
+    'Automation history artifacts: `history=missing'
 )) {
     Assert-Contains -Text $planOutput -Expected $expected
 }
@@ -195,6 +214,12 @@ $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-
     lastRunPath = (Join-Path $configuredTempDir "missing-database-health-last-run.log")
     historyArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
     ackArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
 } | ConvertTo-Json) | Set-Content -LiteralPath $configuredDbPreviewPath -Encoding UTF8
 
 ([ordered]@{
@@ -203,6 +228,12 @@ $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-
     lastRunPath = (Join-Path $configuredTempDir "missing-large-file-governance-last-run.log")
     historyArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-history.json")
     ackArtifactPath = (Join-Path $configuredTempDir "missing-automation-task-ack.json")
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
 } | ConvertTo-Json) | Set-Content -LiteralPath $configuredGovPreviewPath -Encoding UTF8
 
 & $ScriptPath `
@@ -220,12 +251,47 @@ $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-
 
 $configuredMarkdown = Get-Content -LiteralPath $configuredMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Database health: `configured but status artifact missing`',
-    'Large-file governance: `configured but status artifact missing`',
-    'Task history: `configured but history artifact missing`',
-    'Task acknowledgement: `configured but ack artifact missing`'
+    'Database health: `configured but status artifact unavailable`',
+    'Large-file governance: `configured but status artifact unavailable`',
+    'Task history: `configured but history artifact unavailable`',
+    'Task acknowledgement: `configured but ack artifact unavailable`',
+    'Database health artifacts: `preview=ok; status=missing',
+    'Large-file governance artifacts: `preview=ok; status=missing',
+    'Automation history artifacts: `history=missing'
 )) {
     Assert-Contains -Text $configuredMarkdown -Expected $expected
+}
+
+$invalidMarkdownPath = Join-Path $configuredTempDir "automation-status-invalid.md"
+$invalidDbPreviewPath = Join-Path $configuredTempDir "database-health-invalid-preview.json"
+$invalidGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-invalid-preview.json"
+
+'{"taskKind":"database-health","artifactRoles":{"status":"statusArtifactPath","lastRun":"lastRunPath"}}' |
+    Set-Content -LiteralPath $invalidDbPreviewPath -Encoding UTF8
+'not-json' | Set-Content -LiteralPath $invalidGovPreviewPath -Encoding UTF8
+'{"broken":' | Set-Content -LiteralPath (Join-Path $configuredTempDir "broken-history.json") -Encoding UTF8
+
+& $ScriptPath `
+    -MarkdownPath $invalidMarkdownPath `
+    -Head "1122334" `
+    -OriginMain "1122334" `
+    -OriginCodexQt "1122334" `
+    -CiStatus "queued" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -DatabaseHealthTaskPreviewPath $invalidDbPreviewPath `
+    -LargeFileGovernanceTaskPreviewPath $invalidGovPreviewPath `
+    -AutomationTaskHistoryPath (Join-Path $configuredTempDir "broken-history.json") `
+    -FailOnSensitive
+
+$invalidMarkdown = Get-Content -LiteralPath $invalidMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Database health artifacts: `preview=ok; status=preview-role-without-path; lastRun=preview-role-without-path`',
+    'Large-file governance artifacts: `preview=invalid-json; status=preview-invalid-json; lastRun=preview-invalid-json`',
+    'Automation history artifacts: `history=invalid-json; ack=preview-invalid-json`'
+)) {
+    Assert-Contains -Text $invalidMarkdown -Expected $expected
 }
 
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue

@@ -76,55 +76,6 @@ function Find-SensitiveHits([string[]]$Lines) {
     $hits
 }
 
-function Read-JsonSummary([string]$PathValue) {
-    if ([string]::IsNullOrWhiteSpace($PathValue)) {
-        return $null
-    }
-    try {
-        $resolvedPath = Resolve-RepoPath $PathValue
-    } catch {
-        return $null
-    }
-    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
-        return $null
-    }
-    try {
-        $raw = Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8 -ErrorAction Stop
-    } catch {
-        return $null
-    }
-    if ([string]::IsNullOrWhiteSpace($raw)) {
-        return $null
-    }
-    try {
-        $raw | ConvertFrom-Json -ErrorAction Stop
-    } catch {
-        $null
-    }
-}
-
-function Resolve-PreviewValue([string]$PreviewPath, [string]$PropertyName) {
-    $preview = Read-JsonSummary $PreviewPath
-    if ($null -eq $preview) {
-        return ""
-    }
-    $value = Get-JsonValue $preview $PropertyName ""
-    if ([string]::IsNullOrWhiteSpace([string]$value)) {
-        return ""
-    }
-    [string]$value
-}
-
-function Resolve-PreviewValueAny([string]$PreviewPath, [string[]]$PropertyNames) {
-    foreach ($propertyName in $PropertyNames) {
-        $value = Resolve-PreviewValue $PreviewPath $propertyName
-        if (-not [string]::IsNullOrWhiteSpace($value)) {
-            return $value
-        }
-    }
-    ""
-}
-
 function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
     if ($null -eq $ObjectValue) {
         return $DefaultValue
@@ -158,23 +109,136 @@ function Has-ConfigurationHint([string[]]$Values) {
     $false
 }
 
-function Read-LastRunSummary([string]$PathValue) {
-    if ([string]::IsNullOrWhiteSpace($PathValue)) {
-        return $null
+function Get-ArtifactState(
+    [string]$PathValue,
+    [switch]$ExpectJson
+) {
+    $result = [ordered]@{
+        configured = $false
+        resolvedPath = ""
+        exists = $false
+        readable = $false
+        nonEmpty = $false
+        jsonValid = $false
+        state = "not-configured"
+        value = $null
     }
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
     try {
         $resolvedPath = Resolve-RepoPath $PathValue
+        $result.resolvedPath = $resolvedPath
     } catch {
-        return $null
+        $result.state = "invalid-path"
+        return [pscustomobject]$result
     }
     if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
-        return $null
+        $result.state = "missing"
+        return [pscustomobject]$result
     }
+    $result.exists = $true
     try {
-        $text = (Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8 -ErrorAction Stop).Trim()
+        $raw = Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8 -ErrorAction Stop
+        $result.readable = $true
     } catch {
+        $result.state = "unreadable"
+        return [pscustomobject]$result
+    }
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        $result.state = "empty"
+        return [pscustomobject]$result
+    }
+    $result.nonEmpty = $true
+    if ($ExpectJson) {
+        try {
+            $result.value = $raw | ConvertFrom-Json -ErrorAction Stop
+            $result.jsonValid = $true
+            $result.state = "ok"
+        } catch {
+            $result.state = "invalid-json"
+        }
+        return [pscustomobject]$result
+    }
+    $result.value = $raw.Trim()
+    $result.state = "ok"
+    [pscustomobject]$result
+}
+
+function Resolve-PreviewValue([object]$PreviewState, [string]$PropertyName) {
+    if ($null -eq $PreviewState -or $PreviewState.state -ne "ok") {
+        return ""
+    }
+    $value = Get-JsonValue $PreviewState.value $PropertyName ""
+    if ([string]::IsNullOrWhiteSpace([string]$value)) {
+        return ""
+    }
+    [string]$value
+}
+
+function Resolve-PreviewValueAny([object]$PreviewState, [string[]]$PropertyNames) {
+    foreach ($propertyName in $PropertyNames) {
+        $value = Resolve-PreviewValue $PreviewState $propertyName
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value
+        }
+    }
+    ""
+}
+
+function Get-PreviewArtifactConfiguration(
+    [object]$PreviewState,
+    [string[]]$PreferredPropertyNames,
+    [string]$ArtifactLabel
+) {
+    if ($null -eq $PreviewState -or -not $PreviewState.configured) {
+        return [pscustomobject]@{
+            configured = $false
+            path = ""
+            source = "preview-not-configured"
+        }
+    }
+    if ($PreviewState.state -ne "ok") {
+        return [pscustomobject]@{
+            configured = $false
+            path = ""
+            source = "preview-" + $PreviewState.state
+        }
+    }
+    $roleHints = Get-JsonValue $PreviewState.value "artifactRoles" $null
+    foreach ($propertyName in $PreferredPropertyNames) {
+        $value = Resolve-PreviewValue $PreviewState $propertyName
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return [pscustomobject]@{
+                configured = $true
+                path = $value
+                source = $propertyName
+            }
+        }
+    }
+    if ($null -ne $roleHints) {
+        $rolePropertyName = Get-JsonValue $roleHints $ArtifactLabel ""
+        if (-not [string]::IsNullOrWhiteSpace($rolePropertyName)) {
+            return [pscustomobject]@{
+                configured = $false
+                path = ""
+                source = "artifactRoles." + $ArtifactLabel
+            }
+        }
+    }
+    [pscustomobject]@{
+        configured = $false
+        path = ""
+        source = "preview-missing-property"
+    }
+}
+
+function Read-LastRunSummary([object]$ArtifactState) {
+    if ($null -eq $ArtifactState -or $ArtifactState.state -ne "ok") {
         return $null
     }
+    $text = [string]$ArtifactState.value
     if ([string]::IsNullOrWhiteSpace($text)) {
         return $null
     }
@@ -192,6 +256,36 @@ function Read-LastRunSummary([string]$PathValue) {
     }
 }
 
+function Get-ArtifactIssueText(
+    [string]$ArtifactLabel,
+    [object]$ArtifactState,
+    [object]$PreviewState,
+    [object]$PreviewConfiguration
+) {
+    if ($null -ne $ArtifactState -and $ArtifactState.state -eq "ok") {
+        return $ArtifactLabel + '=ok'
+    }
+    if ($null -ne $ArtifactState -and $ArtifactState.configured -and $ArtifactState.state -ne "not-configured") {
+        return ('{0}={1}' -f $ArtifactLabel, $ArtifactState.state)
+    }
+    if ($null -eq $PreviewConfiguration -or -not $PreviewConfiguration.configured) {
+        if ($null -eq $PreviewState -or -not $PreviewState.configured) {
+            return $ArtifactLabel + '=not-configured'
+        }
+        if ($PreviewState.state -ne "ok") {
+            return ('{0}=preview-{1}' -f $ArtifactLabel, $PreviewState.state)
+        }
+        if ($null -ne $PreviewConfiguration -and $PreviewConfiguration.source -eq "preview-missing-property") {
+            return ('{0}=preview-missing-property' -f $ArtifactLabel)
+        }
+        if ($null -ne $PreviewConfiguration -and $PreviewConfiguration.source -like "artifactRoles.*") {
+            return ('{0}=preview-role-without-path' -f $ArtifactLabel)
+        }
+        return ('{0}=not-configured' -f $ArtifactLabel)
+    }
+    $ArtifactLabel + '=not-configured'
+}
+
 if ([string]::IsNullOrWhiteSpace($Head)) {
     $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
 }
@@ -201,36 +295,40 @@ if ([string]::IsNullOrWhiteSpace($OriginMain)) {
 if ([string]::IsNullOrWhiteSpace($OriginCodexQt)) {
     $OriginCodexQt = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt") }
 }
+
+$databaseHealthPreview = Get-ArtifactState -PathValue $DatabaseHealthTaskPreviewPath -ExpectJson
+$largeFileGovernancePreview = Get-ArtifactState -PathValue $LargeFileGovernanceTaskPreviewPath -ExpectJson
+
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthStatusPath)) {
-    $DatabaseHealthStatusPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("statusArtifactPath", "statusPath")
+    $DatabaseHealthStatusPath = Resolve-PreviewValueAny $databaseHealthPreview @("statusArtifactPath", "statusPath")
 }
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthLastRunPath)) {
-    $DatabaseHealthLastRunPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("lastRunPath", "logPath")
+    $DatabaseHealthLastRunPath = Resolve-PreviewValueAny $databaseHealthPreview @("lastRunPath", "logPath")
 }
 if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceStatusPath)) {
-    $LargeFileGovernanceStatusPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("statusArtifactPath", "dashboardPath")
+    $LargeFileGovernanceStatusPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("statusArtifactPath", "dashboardPath")
 }
 if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
-    $previewLogPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("lastRunPath", "logPath")
+    $previewLogPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("lastRunPath", "logPath")
     if (-not [string]::IsNullOrWhiteSpace($previewLogPath)) {
         $LargeFileGovernanceLastRunPath = $previewLogPath
     } else {
-        $LargeFileGovernanceLastRunPath = Resolve-PreviewValue $LargeFileGovernanceTaskPreviewPath "launcherPath"
+        $LargeFileGovernanceLastRunPath = Resolve-PreviewValue $largeFileGovernancePreview "launcherPath"
         if (-not [string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
             $LargeFileGovernanceLastRunPath = Join-Path (Split-Path -Parent (Resolve-RepoPath $LargeFileGovernanceLastRunPath)) "last-run.log"
         }
     }
 }
 if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
-    $AutomationTaskHistoryPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("historyArtifactPath", "historyPath")
+    $AutomationTaskHistoryPath = Resolve-PreviewValueAny $databaseHealthPreview @("historyArtifactPath", "historyPath")
     if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
-        $AutomationTaskHistoryPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("historyArtifactPath", "historyPath")
+        $AutomationTaskHistoryPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("historyArtifactPath", "historyPath")
     }
 }
 if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
-    $AutomationTaskAckPath = Resolve-PreviewValueAny $DatabaseHealthTaskPreviewPath @("ackArtifactPath", "ackPath")
+    $AutomationTaskAckPath = Resolve-PreviewValueAny $databaseHealthPreview @("ackArtifactPath", "ackPath")
     if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
-        $AutomationTaskAckPath = Resolve-PreviewValueAny $LargeFileGovernanceTaskPreviewPath @("ackArtifactPath", "ackPath")
+        $AutomationTaskAckPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("ackArtifactPath", "ackPath")
     }
 }
 
@@ -245,12 +343,36 @@ foreach ($entry in $ProtectedUntracked) {
 }
 $protectedText = if ($normalizedProtectedUntracked.Count -gt 0) { $normalizedProtectedUntracked -join ", " } else { "none" }
 $generatedAt = (Get-Date).ToUniversalTime().ToString("o")
-$databaseHealthStatus = Read-JsonSummary $DatabaseHealthStatusPath
-$databaseHealthLastRun = Read-LastRunSummary $DatabaseHealthLastRunPath
-$largeFileGovernanceStatus = Read-JsonSummary $LargeFileGovernanceStatusPath
-$largeFileGovernanceLastRun = Read-LastRunSummary $LargeFileGovernanceLastRunPath
-$automationTaskHistory = Read-JsonSummary $AutomationTaskHistoryPath
-$automationTaskAck = Read-JsonSummary $AutomationTaskAckPath
+$databaseHealthStatusConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("statusArtifactPath", "statusPath") "status"
+$databaseHealthLastRunConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("lastRunPath", "logPath") "lastRun"
+$largeFileGovernanceStatusConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("statusArtifactPath", "dashboardPath") "status"
+$largeFileGovernanceLastRunConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("lastRunPath", "logPath") "lastRun"
+$automationTaskHistoryConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("historyArtifactPath", "historyPath") "history"
+$automationTaskHistoryPreviewState = $databaseHealthPreview
+if (-not $automationTaskHistoryConfig.configured) {
+    $automationTaskHistoryConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("historyArtifactPath", "historyPath") "history"
+    $automationTaskHistoryPreviewState = $largeFileGovernancePreview
+}
+$automationTaskAckConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("ackArtifactPath", "ackPath") "ack"
+$automationTaskAckPreviewState = $databaseHealthPreview
+if (-not $automationTaskAckConfig.configured) {
+    $automationTaskAckConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("ackArtifactPath", "ackPath") "ack"
+    $automationTaskAckPreviewState = $largeFileGovernancePreview
+}
+
+$databaseHealthStatusState = Get-ArtifactState -PathValue $DatabaseHealthStatusPath -ExpectJson
+$databaseHealthLastRunState = Get-ArtifactState -PathValue $DatabaseHealthLastRunPath
+$largeFileGovernanceStatusState = Get-ArtifactState -PathValue $LargeFileGovernanceStatusPath -ExpectJson
+$largeFileGovernanceLastRunState = Get-ArtifactState -PathValue $LargeFileGovernanceLastRunPath
+$automationTaskHistoryState = Get-ArtifactState -PathValue $AutomationTaskHistoryPath -ExpectJson
+$automationTaskAckState = Get-ArtifactState -PathValue $AutomationTaskAckPath -ExpectJson
+
+$databaseHealthStatus = $databaseHealthStatusState.value
+$databaseHealthLastRun = Read-LastRunSummary $databaseHealthLastRunState
+$largeFileGovernanceStatus = $largeFileGovernanceStatusState.value
+$largeFileGovernanceLastRun = Read-LastRunSummary $largeFileGovernanceLastRunState
+$automationTaskHistory = $automationTaskHistoryState.value
+$automationTaskAck = $automationTaskAckState.value
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add("# QtNetworkChat Automation Status")
@@ -281,9 +403,9 @@ $lines.Add('- Use signed Conventional Commits and push `main`, then fast-forward
 $lines.Add("")
 $lines.Add("## Scheduled Task Readback")
 $lines.Add("")
-if ($null -eq $databaseHealthStatus) {
+if ($databaseHealthStatusState.state -ne "ok") {
     if (Has-ConfigurationHint @($DatabaseHealthStatusPath, $DatabaseHealthLastRunPath, $DatabaseHealthTaskPreviewPath)) {
-        $lines.Add('- Database health: `configured but status artifact missing`')
+        $lines.Add('- Database health: `configured but status artifact unavailable`')
     } else {
         $lines.Add('- Database health: `not configured`')
     }
@@ -304,9 +426,9 @@ if ($null -ne $databaseHealthLastRun) {
             (Format-StatusValue $databaseHealthLastRun.timestamp),
             (Format-StatusValue $databaseHealthLastRun.exitCode)))
 }
-if ($null -eq $largeFileGovernanceStatus) {
+if ($largeFileGovernanceStatusState.state -ne "ok") {
     if (Has-ConfigurationHint @($LargeFileGovernanceStatusPath, $LargeFileGovernanceLastRunPath, $LargeFileGovernanceTaskPreviewPath)) {
-        $lines.Add('- Large-file governance: `configured but status artifact missing`')
+        $lines.Add('- Large-file governance: `configured but status artifact unavailable`')
     } else {
         $lines.Add('- Large-file governance: `not configured`')
     }
@@ -324,9 +446,9 @@ if ($null -ne $largeFileGovernanceLastRun) {
             (Format-StatusValue $largeFileGovernanceLastRun.timestamp),
             (Format-StatusValue $largeFileGovernanceLastRun.exitCode)))
 }
-if ($null -eq $automationTaskHistory) {
+if ($automationTaskHistoryState.state -ne "ok") {
     if (Has-ConfigurationHint @($AutomationTaskHistoryPath, $AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath)) {
-        $lines.Add('- Task history: `configured but history artifact missing`')
+        $lines.Add('- Task history: `configured but history artifact unavailable`')
     } else {
         $lines.Add('- Task history: `not configured`')
     }
@@ -340,9 +462,9 @@ if ($null -eq $automationTaskHistory) {
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "acknowledged" $null)),
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "ackExpired" $null))))
 }
-if ($null -eq $automationTaskAck) {
+if ($automationTaskAckState.state -ne "ok") {
     if (Has-ConfigurationHint @($AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath)) {
-        $lines.Add('- Task acknowledgement: `configured but ack artifact missing`')
+        $lines.Add('- Task acknowledgement: `configured but ack artifact unavailable`')
     }
 } else {
     $lines.Add(('- Task acknowledgement: acknowledged=`{0}`, by=`{1}`, at=`{2}`, reason=`{3}`' -f
@@ -351,6 +473,23 @@ if ($null -eq $automationTaskAck) {
             (Format-StatusValue (Get-JsonValue $automationTaskAck "acknowledgedAt" "unknown")),
             (Format-StatusValue (Get-JsonValue $automationTaskAck "reason" "unknown"))))
 }
+$lines.Add("")
+$lines.Add("## Artifact Diagnostics")
+$lines.Add("")
+$lines.Add('- Database health artifacts: `' + ((@(
+        (Get-ArtifactIssueText "preview" $databaseHealthPreview $null $null),
+        (Get-ArtifactIssueText "status" $databaseHealthStatusState $databaseHealthPreview $databaseHealthStatusConfig),
+        (Get-ArtifactIssueText "lastRun" $databaseHealthLastRunState $databaseHealthPreview $databaseHealthLastRunConfig)
+    ) -join "; ")) + '`')
+$lines.Add('- Large-file governance artifacts: `' + ((@(
+        (Get-ArtifactIssueText "preview" $largeFileGovernancePreview $null $null),
+        (Get-ArtifactIssueText "status" $largeFileGovernanceStatusState $largeFileGovernancePreview $largeFileGovernanceStatusConfig),
+        (Get-ArtifactIssueText "lastRun" $largeFileGovernanceLastRunState $largeFileGovernancePreview $largeFileGovernanceLastRunConfig)
+    ) -join "; ")) + '`')
+$lines.Add('- Automation history artifacts: `' + ((@(
+        (Get-ArtifactIssueText "history" $automationTaskHistoryState $automationTaskHistoryPreviewState $automationTaskHistoryConfig),
+        (Get-ArtifactIssueText "ack" $automationTaskAckState $automationTaskAckPreviewState $automationTaskAckConfig)
+    ) -join "; ")) + '`')
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")
