@@ -63,6 +63,28 @@ function Get-SmokeOperatorAction {
     "Archive the redacted evidence and use it for PostgreSQL release readiness review."
 }
 
+function Get-SmokeReleaseGate {
+    param(
+        [bool]$PlanOnly,
+        [bool]$EnsureDatabase,
+        [string]$Readiness
+    )
+
+    if ($Readiness -eq "blocked") {
+        return "blocked"
+    }
+    if ($PlanOnly) {
+        if ($EnsureDatabase) {
+            return "await-real-smoke-with-bootstrap"
+        }
+        return "await-real-smoke"
+    }
+    if ($EnsureDatabase) {
+        return "can-review-real-smoke-evidence"
+    }
+    "can-review-direct-smoke-evidence"
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $testExePath = Resolve-RepoPath $TestExe
 $qtBinDir = Join-Path $QtRoot "bin"
@@ -212,6 +234,16 @@ if (-not [string]::IsNullOrWhiteSpace($BootstrapJsonPath)) {
 }
 
 $failedChecks = @($checks | Where-Object { -not $_.ok })
+$offlineAttachmentScenarios = @($boundaryScenarios | Where-Object { [string]$_.category -like "offline-attachment*" })
+$resumeScenarios = @($boundaryScenarios | Where-Object { [string]$_.category -eq "offline-attachment-resume" })
+$failureScenarios = @($boundaryScenarios | Where-Object { [string]$_.category -eq "offline-attachment-failure" })
+$auditFocus = New-Object System.Collections.Generic.List[string]
+if ($EnsureDatabase) { [void]$auditFocus.Add("verify-bootstrap-readiness") }
+if ($offlineAttachmentScenarios.Count -gt 0) { [void]$auditFocus.Add("offline-attachment-recovery") }
+if ($resumeScenarios.Count -gt 0) { [void]$auditFocus.Add("resume-gap-and-expiry") }
+if ($failureScenarios.Count -gt 0) { [void]$auditFocus.Add("attachment-corruption-cleanup") }
+if (@($boundaryScenarios | Where-Object { [string]$_.category -eq "file-chunk-retry" }).Count -gt 0) { [void]$auditFocus.Add("online-chunk-retry") }
+if (@($boundaryScenarios | Where-Object { [string]$_.category -eq "restart-boundary" }).Count -gt 0) { [void]$auditFocus.Add("restart-kdf-session") }
 $result.summary = [ordered]@{
     readiness = if ($result.ok) { "ready" } else { "blocked" }
     failedCheckCount = $failedChecks.Count
@@ -219,6 +251,16 @@ $result.summary = [ordered]@{
     boundaryScenarioCount = $boundaryScenarios.Count
     bootstrapMode = if ($EnsureDatabase) { "ensure-database" } else { "direct-connect" }
     operatorAction = Get-SmokeOperatorAction -PlanOnly ([bool]$PlanOnly) -EnsureDatabase ([bool]$EnsureDatabase) -Ok ([bool]$result.ok) -FailedChecks $failedChecks.Count
+}
+$result.auditSummary = [ordered]@{
+    releaseGate = Get-SmokeReleaseGate -PlanOnly ([bool]$PlanOnly) -EnsureDatabase ([bool]$EnsureDatabase) -Readiness $result.summary.readiness
+    evidenceBundle = @("json", "markdown", "boundary-scenarios")
+    boundaryCategories = @(@($boundaryScenarios | ForEach-Object { [string]$_.category } | Sort-Object -Unique))
+    bootstrapRequired = [bool]$EnsureDatabase
+    offlineAttachmentScenarioCount = $offlineAttachmentScenarios.Count
+    resumeScenarioCount = $resumeScenarios.Count
+    failureScenarioCount = $failureScenarios.Count
+    auditFocus = @($auditFocus)
 }
 
 if (-not $PlanOnly) {
@@ -285,6 +327,7 @@ if (-not $PlanOnly) {
         $result.ok = $result.ok -and ($LASTEXITCODE -eq 0)
         $result.summary.readiness = if ($result.ok) { "verified" } else { "blocked" }
         $result.summary.operatorAction = Get-SmokeOperatorAction -PlanOnly $false -EnsureDatabase ([bool]$EnsureDatabase) -Ok ([bool]$result.ok) -FailedChecks (@($checks | Where-Object { -not $_.ok }).Count)
+        $result.auditSummary.releaseGate = Get-SmokeReleaseGate -PlanOnly $false -EnsureDatabase ([bool]$EnsureDatabase) -Readiness $result.summary.readiness
     } finally {
         $env:PATH = $oldPath
         $env:QT_PLUGIN_PATH = $oldPluginPath
@@ -334,6 +377,13 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("- Boundary scenarios: {0}" -f $result.summary.boundaryScenarioCount))
     $lines.Add(("- Bootstrap mode: {0}" -f $result.summary.bootstrapMode))
     $lines.Add(("- Operator action: {0}" -f $result.summary.operatorAction))
+    $lines.Add(("- Audit release gate: {0}" -f $result.auditSummary.releaseGate))
+    $lines.Add(("- Audit bootstrap required: {0}" -f $result.auditSummary.bootstrapRequired))
+    $lines.Add(("- Audit offline-attachment scenarios: {0}" -f $result.auditSummary.offlineAttachmentScenarioCount))
+    $lines.Add(("- Audit resume scenarios: {0}" -f $result.auditSummary.resumeScenarioCount))
+    $lines.Add(("- Audit failure scenarios: {0}" -f $result.auditSummary.failureScenarioCount))
+    $lines.Add(("- Audit evidence bundle: {0}" -f (@($result.auditSummary.evidenceBundle) -join ", ")))
+    $lines.Add(("- Audit focus: {0}" -f (@($result.auditSummary.auditFocus) -join ", ")))
     $lines.Add("")
     $lines.Add("## Runtime Checks")
     $lines.Add("")
@@ -350,6 +400,19 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     foreach ($surface in $coverageSurfaces) {
         $lines.Add(("- {0}" -f $surface))
     }
+    $lines.Add("")
+    $lines.Add("## Audit Summary")
+    $lines.Add("")
+    $lines.Add("| Audit metric | Value |")
+    $lines.Add("|---|---|")
+    $lines.Add(("| Release gate | {0} |" -f $result.auditSummary.releaseGate))
+    $lines.Add(("| Bootstrap required | {0} |" -f $result.auditSummary.bootstrapRequired))
+    $lines.Add(("| Offline attachment scenarios | {0} |" -f $result.auditSummary.offlineAttachmentScenarioCount))
+    $lines.Add(("| Resume scenarios | {0} |" -f $result.auditSummary.resumeScenarioCount))
+    $lines.Add(("| Failure scenarios | {0} |" -f $result.auditSummary.failureScenarioCount))
+    $lines.Add(("| Boundary categories | {0} |" -f (@($result.auditSummary.boundaryCategories) -join ", ")))
+    $lines.Add(("| Evidence bundle | {0} |" -f (@($result.auditSummary.evidenceBundle) -join ", ")))
+    $lines.Add(("| Audit focus | {0} |" -f (@($result.auditSummary.auditFocus) -join ", ")))
     $lines.Add("")
     $lines.Add("## Boundary Scenarios")
     $lines.Add("")
