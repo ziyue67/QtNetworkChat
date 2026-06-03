@@ -4,6 +4,7 @@ param(
     [string]$SmokeJsonPath,
     [string]$MigrationJsonPath,
     [string]$RollbackPreviewPath,
+    [string]$RollbackAuditPath,
     [string]$JsonPath,
     [string]$MarkdownPath,
     [switch]$FailOnUnhealthy
@@ -92,6 +93,7 @@ $resolvedDashboardPath = Resolve-OptionalPath $DatabaseHealthDashboardPath
 $resolvedSmokePath = Resolve-OptionalPath $SmokeJsonPath
 $resolvedMigrationPath = Resolve-OptionalPath $MigrationJsonPath
 $resolvedRollbackPreviewPath = Resolve-OptionalPath $RollbackPreviewPath
+$resolvedRollbackAuditPath = Resolve-OptionalPath $RollbackAuditPath
 $resolvedJsonPath = Resolve-OptionalPath $JsonPath
 $resolvedMarkdownPath = Resolve-OptionalPath $MarkdownPath
 
@@ -99,9 +101,10 @@ $dashboard = Read-OptionalJson $resolvedDashboardPath
 $smoke = Read-OptionalJson $resolvedSmokePath
 $migration = Read-OptionalJson $resolvedMigrationPath
 $rollbackPreview = Read-OptionalJson $resolvedRollbackPreviewPath
+$rollbackAudit = Read-OptionalJson $resolvedRollbackAuditPath
 
 $sensitiveHits = New-Object System.Collections.ArrayList
-foreach ($path in @($resolvedDashboardPath, $resolvedSmokePath, $resolvedMigrationPath, $resolvedRollbackPreviewPath)) {
+foreach ($path in @($resolvedDashboardPath, $resolvedSmokePath, $resolvedMigrationPath, $resolvedRollbackPreviewPath, $resolvedRollbackAuditPath)) {
     Add-SensitiveHits $path $sensitiveHits
 }
 
@@ -110,6 +113,7 @@ if ($null -eq $dashboard) { [void]$warnings.Add("database-health-dashboard-missi
 if ($null -eq $smoke) { [void]$warnings.Add("pgsql-smoke-evidence-missing") }
 if ($null -eq $migration) { [void]$warnings.Add("migration-report-missing") }
 if ($null -eq $rollbackPreview) { [void]$warnings.Add("rollback-preview-missing") }
+if ($null -eq $rollbackAudit) { [void]$warnings.Add("rollback-audit-missing") }
 if ($sensitiveHits.Count -gt 0) { [void]$warnings.Add("sensitive-fields-detected") }
 
 $dashboardOk = Normalize-Bool (Get-JsonValue $dashboard "ok" $false)
@@ -131,6 +135,9 @@ $migrationAudit = Get-JsonValue $migration "auditSummary" $null
 $migrationDiffSummary = Get-JsonValue $migration "diffSummary" $null
 
 $rollbackSummary = Get-JsonValue $rollbackPreview "summary" $null
+$rollbackAuditSummary = Get-JsonValue $rollbackAudit "auditSummary" $null
+$rollbackAuditBefore = Get-JsonValue $rollbackAudit "before" $null
+$rollbackAuditAfter = Get-JsonValue $rollbackAudit "after" $null
 
 $readinessSignals = @(
     [string](Get-JsonValue $dashboardSummary "readiness" "unknown"),
@@ -173,6 +180,8 @@ $operatorAction = if ($sensitiveHits.Count -gt 0) {
     "Repair migration report generation before promoting PostgreSQL release acceptance."
 } elseif ((Get-JsonValue $rollbackPreview "riskLevel" "unknown") -eq "review") {
     "Review rollback preview risk and fallback-key delete predicates before cutover."
+} elseif ((Get-JsonValue $rollbackAuditSummary "releaseGate" "") -eq "rollback-count-mismatch-review") {
+    "Review rollback audit mismatch before closing rollback evidence."
 } else {
     "Archive PostgreSQL health, smoke, migration, and rollback evidence for cutover review."
 }
@@ -202,6 +211,14 @@ $rollbackRisk = [string](Get-JsonValue $rollbackPreview "riskLevel" "")
 if (-not [string]::IsNullOrWhiteSpace($rollbackRisk)) {
     $releaseDetails.Add('rollbackRisk=' + $rollbackRisk)
 }
+$rollbackAuditGate = [string](Get-JsonValue $rollbackAuditSummary "releaseGate" "")
+if (-not [string]::IsNullOrWhiteSpace($rollbackAuditGate)) {
+    $releaseDetails.Add('rollbackAuditGate=' + $rollbackAuditGate)
+}
+$rollbackAuditApplied = Get-JsonValue $rollbackAudit "executionApplied" $null
+if ($null -ne $rollbackAuditApplied) {
+    $releaseDetails.Add('rollbackExecuted=' + (Format-Value $rollbackAuditApplied))
+}
 if ($dashboardSlowQueryCount -gt 0) {
     $releaseDetails.Add('slowQueries=' + $dashboardSlowQueryCount)
 }
@@ -219,6 +236,9 @@ foreach ($item in @((Get-JsonValue $smokeAudit "evidenceBundle" @()))) {
 foreach ($item in @((Get-JsonValue $migrationAudit "evidenceBundle" @()))) {
     if (-not [string]::IsNullOrWhiteSpace([string]$item) -and $evidenceBundle -notcontains [string]$item) { [void]$evidenceBundle.Add([string]$item) }
 }
+foreach ($item in @((Get-JsonValue $rollbackAuditSummary "evidenceBundle" @()))) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$item) -and $evidenceBundle -notcontains [string]$item) { [void]$evidenceBundle.Add([string]$item) }
+}
 if ($evidenceBundle.Count -gt 0) {
     $releaseDetails.Add('evidence=' + ($evidenceBundle -join ", "))
 }
@@ -231,6 +251,9 @@ foreach ($item in @((Get-JsonValue $smokeAudit "auditFocus" @()))) {
     if (-not [string]::IsNullOrWhiteSpace([string]$item) -and $auditFocus -notcontains [string]$item) { [void]$auditFocus.Add([string]$item) }
 }
 foreach ($item in @((Get-JsonValue $migrationAudit "auditFocus" @()))) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$item) -and $auditFocus -notcontains [string]$item) { [void]$auditFocus.Add([string]$item) }
+}
+foreach ($item in @((Get-JsonValue $rollbackAuditSummary "auditFocus" @()))) {
     if (-not [string]::IsNullOrWhiteSpace([string]$item) -and $auditFocus -notcontains [string]$item) { [void]$auditFocus.Add([string]$item) }
 }
 
@@ -259,12 +282,16 @@ $summary = [ordered]@{
         migrationDriftTableCount = [int](Get-JsonValue $migrationDiffSummary "driftTableCount" 0)
         rollbackPreviewDeleteTables = [int](Get-JsonValue $rollbackSummary "tablesWithDeletes" 0)
         rollbackPreviewFallbackReviewTables = [int](Get-JsonValue $rollbackSummary "fallbackKeyReviewTableCount" 0)
+        rollbackAuditBeforeRows = [int](Get-JsonValue $rollbackAuditBefore "totalWouldDeleteRows" 0)
+        rollbackAuditAfterRows = [int](Get-JsonValue $rollbackAuditAfter "actualRolledBackRows" 0)
+        rollbackAuditCountMatchesPreview = Normalize-Bool (Get-JsonValue $rollbackAuditSummary "countMatchesPreview" $false)
     }
     inputs = [ordered]@{
         databaseHealthDashboardPath = $resolvedDashboardPath
         smokeJsonPath = $resolvedSmokePath
         migrationJsonPath = $resolvedMigrationPath
         rollbackPreviewPath = $resolvedRollbackPreviewPath
+        rollbackAuditPath = $resolvedRollbackAuditPath
     }
     warnings = @($warnings)
     sensitiveHits = @($sensitiveHits)
@@ -308,6 +335,9 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add(("| migrationDriftTableCount | {0} |" -f $summary.metrics.migrationDriftTableCount))
     $lines.Add(("| rollbackPreviewDeleteTables | {0} |" -f $summary.metrics.rollbackPreviewDeleteTables))
     $lines.Add(("| rollbackPreviewFallbackReviewTables | {0} |" -f $summary.metrics.rollbackPreviewFallbackReviewTables))
+    $lines.Add(("| rollbackAuditBeforeRows | {0} |" -f $summary.metrics.rollbackAuditBeforeRows))
+    $lines.Add(("| rollbackAuditAfterRows | {0} |" -f $summary.metrics.rollbackAuditAfterRows))
+    $lines.Add(("| rollbackAuditCountMatchesPreview | {0} |" -f (Format-Value $summary.metrics.rollbackAuditCountMatchesPreview)))
     $lines.Add("")
     $lines.Add("This release acceptance summary is generated from local redacted PostgreSQL artifacts only. It does not connect to PostgreSQL, Redis, S3, or MinIO, and it does not modify application data.")
     $lines | Set-Content -LiteralPath $resolvedMarkdownPath -Encoding UTF8

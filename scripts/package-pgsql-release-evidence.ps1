@@ -17,6 +17,8 @@ param(
     [string]$MigrationHtmlPath,
     [string]$RollbackPreviewPath,
     [string]$RollbackPreviewMarkdownPath,
+    [string]$RollbackAuditPath,
+    [string]$RollbackAuditMarkdownPath,
     [string]$AcceptanceJsonPath,
     [string]$AcceptanceMarkdownPath,
     [string]$LastRunPath,
@@ -129,6 +131,8 @@ Copy-EvidenceFile $MigrationMarkdownPath $stagingDir "migration-markdown" $manif
 Copy-EvidenceFile $MigrationHtmlPath $stagingDir "migration-html" $manifestInputs $scanPaths
 Copy-EvidenceFile $RollbackPreviewPath $stagingDir "rollback-preview-json" $manifestInputs $scanPaths
 Copy-EvidenceFile $RollbackPreviewMarkdownPath $stagingDir "rollback-preview-markdown" $manifestInputs $scanPaths
+Copy-EvidenceFile $RollbackAuditPath $stagingDir "rollback-audit-json" $manifestInputs $scanPaths
+Copy-EvidenceFile $RollbackAuditMarkdownPath $stagingDir "rollback-audit-markdown" $manifestInputs $scanPaths
 Copy-EvidenceFile $AcceptanceJsonPath $stagingDir "acceptance-json" $manifestInputs $scanPaths
 Copy-EvidenceFile $AcceptanceMarkdownPath $stagingDir "acceptance-markdown" $manifestInputs $scanPaths
 Copy-EvidenceFile $LastRunPath $stagingDir "last-run" $manifestInputs $scanPaths
@@ -173,4 +177,3 @@ Write-Host "pgsql release evidence package"
 Write-Host ("  package: {0}" -f $resolvedPackagePath)
 Write-Host ("  manifest: {0}" -f $resolvedManifestPath)
 Write-Host ("  inputs: {0}" -f $manifestInputs.Count)
-

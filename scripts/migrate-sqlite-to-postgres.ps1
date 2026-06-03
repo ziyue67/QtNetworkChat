@@ -17,7 +17,9 @@ param(
     [string]$MarkdownPath,
     [string]$HtmlPath,
     [string]$RollbackPreviewPath,
-    [string]$RollbackPreviewMarkdownPath
+    [string]$RollbackPreviewMarkdownPath,
+    [string]$RollbackAuditPath,
+    [string]$RollbackAuditMarkdownPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -156,7 +158,9 @@ $markdownTarget = if ([string]::IsNullOrWhiteSpace($MarkdownPath)) { "" } else {
 $htmlTarget = if ([string]::IsNullOrWhiteSpace($HtmlPath)) { "" } else { Resolve-RepoPath $HtmlPath }
 $rollbackPreviewTarget = if ([string]::IsNullOrWhiteSpace($RollbackPreviewPath)) { "" } else { Resolve-RepoPath $RollbackPreviewPath }
 $rollbackPreviewMarkdownTarget = if ([string]::IsNullOrWhiteSpace($RollbackPreviewMarkdownPath)) { "" } else { Resolve-RepoPath $RollbackPreviewMarkdownPath }
-if ([string]::IsNullOrWhiteSpace($jsonTarget) -and (-not [string]::IsNullOrWhiteSpace($markdownTarget) -or -not [string]::IsNullOrWhiteSpace($htmlTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget))) {
+$rollbackAuditTarget = if ([string]::IsNullOrWhiteSpace($RollbackAuditPath)) { "" } else { Resolve-RepoPath $RollbackAuditPath }
+$rollbackAuditMarkdownTarget = if ([string]::IsNullOrWhiteSpace($RollbackAuditMarkdownPath)) { "" } else { Resolve-RepoPath $RollbackAuditMarkdownPath }
+if ([string]::IsNullOrWhiteSpace($jsonTarget) -and (-not [string]::IsNullOrWhiteSpace($markdownTarget) -or -not [string]::IsNullOrWhiteSpace($htmlTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackAuditTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackAuditMarkdownTarget))) {
     $jsonTarget = Resolve-RepoPath "build-qt6-mingw\sqlite-pg-migration.json"
 }
 $args = @(
@@ -218,6 +222,8 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
     if (-not [string]::IsNullOrWhiteSpace($htmlTarget)) { [void]$evidenceBundle.Add("html") }
     if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget)) { [void]$evidenceBundle.Add("rollback-preview-json") }
     if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget)) { [void]$evidenceBundle.Add("rollback-preview-markdown") }
+    if (-not [string]::IsNullOrWhiteSpace($rollbackAuditTarget)) { [void]$evidenceBundle.Add("rollback-audit-json") }
+    if (-not [string]::IsNullOrWhiteSpace($rollbackAuditMarkdownTarget)) { [void]$evidenceBundle.Add("rollback-audit-markdown") }
     $tablesInScope = @($tables | Where-Object { ([int64]$_.rows) -gt 0 }).Count
     $auditSummary = [ordered]@{
         mode = $migration.mode
@@ -343,7 +349,8 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
         Set-Content -LiteralPath $htmlTarget -Value $html -Encoding UTF8
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget)) {
+    $rollbackPreviewForAudit = $null
+    if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackPreviewMarkdownTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackAuditTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackAuditMarkdownTarget)) {
         $previewTables = @()
         $previewOperations = @()
         $tablesUsingFallbackKeys = 0
@@ -425,6 +432,7 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
             operations = @($previewOperations)
             tables = @($previewTables)
         }
+        $rollbackPreviewForAudit = $preview
 
         if (-not [string]::IsNullOrWhiteSpace($rollbackPreviewTarget)) {
             $parent = Split-Path -Parent $rollbackPreviewTarget
@@ -460,6 +468,100 @@ if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonTarget) -and (Te
                     $operation.table, $operation.operation, $keyColumnText, $operation.keySource, $operation.whereShape, $operation.wouldDeleteRows, $operation.requiresReview, $operation.reviewReason))
             }
             Set-Content -LiteralPath $rollbackPreviewMarkdownTarget -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($rollbackAuditTarget) -or -not [string]::IsNullOrWhiteSpace($rollbackAuditMarkdownTarget)) {
+        if ($null -eq $rollbackPreviewForAudit) {
+            throw "Rollback audit requires rollback preview data."
+        }
+        $rollbackTables = @($tables | Where-Object { ([int64]$_.rolledBackRows) -gt 0 })
+        $actualRolledBackRows = [int64](($rollbackTables | Measure-Object -Property rolledBackRows -Sum).Sum)
+        $executionApplied = $migration.mode -eq "rollback"
+        $releaseGate = if (-not $executionApplied) {
+            "await-rollback-execute"
+        } elseif ($actualRolledBackRows -eq [int64]($rollbackPreviewForAudit.summary.totalWouldDeleteRows)) {
+            "rollback-executed-review"
+        } else {
+            "rollback-count-mismatch-review"
+        }
+        $auditFocusValues = New-Object System.Collections.Generic.List[string]
+        [void]$auditFocusValues.Add("rollback-before-preview")
+        if ($executionApplied) {
+            [void]$auditFocusValues.Add("rollback-after-execute")
+        } else {
+            [void]$auditFocusValues.Add("rollback-not-executed")
+        }
+        if ([int64]($rollbackPreviewForAudit.summary.fallbackKeyReviewTableCount) -gt 0) {
+            [void]$auditFocusValues.Add("fallback-key-review")
+        }
+        $rollbackAudit = [ordered]@{
+            format = "qtnetworkchat-sqlite-pg-rollback-audit-v1"
+            generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+            ok = $true
+            executionApplied = $executionApplied
+            sourceMode = $migration.mode
+            postgresPassword = "<redacted>"
+            before = [ordered]@{
+                dryRun = [bool]$rollbackPreviewForAudit.dryRun
+                riskLevel = [string]$rollbackPreviewForAudit.riskLevel
+                totalWouldDeleteRows = [int64]$rollbackPreviewForAudit.summary.totalWouldDeleteRows
+                tablesWithDeletes = [int]$rollbackPreviewForAudit.summary.tablesWithDeletes
+                fallbackKeyReviewTableCount = [int]$rollbackPreviewForAudit.summary.fallbackKeyReviewTableCount
+                reviewReasons = @($rollbackPreviewForAudit.summary.reviewReasons)
+                operatorAction = [string]$rollbackPreviewForAudit.summary.operatorAction
+            }
+            after = [ordered]@{
+                mode = $migration.mode
+                actualRolledBackRows = $actualRolledBackRows
+                affectedTableCount = @($rollbackTables).Count
+                diffSeverity = $severity
+                executionReadiness = $executionReadiness
+                operatorAction = if ($executionApplied) { "Archive rollback audit and verify PostgreSQL smoke before closing rollback." } else { "Run rollback mode only after reviewing preview predicates and taking a backup." }
+            }
+            auditSummary = [ordered]@{
+                releaseGate = $releaseGate
+                backupRequired = $true
+                beforeAfterComplete = $executionApplied
+                countMatchesPreview = ($actualRolledBackRows -eq [int64]$rollbackPreviewForAudit.summary.totalWouldDeleteRows)
+                auditFocus = @($auditFocusValues)
+                evidenceBundle = @("rollback-audit-json", "rollback-preview-json")
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($rollbackAuditTarget)) {
+            $parent = Split-Path -Parent $rollbackAuditTarget
+            if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            $rollbackAudit | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $rollbackAuditTarget -Encoding UTF8
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($rollbackAuditMarkdownTarget)) {
+            $parent = Split-Path -Parent $rollbackAuditMarkdownTarget
+            if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            $lines = [System.Collections.Generic.List[string]]::new()
+            $lines.Add("# SQLite to PostgreSQL Rollback Audit")
+            $lines.Add("")
+            $lines.Add(("- Source mode: {0}" -f $rollbackAudit.sourceMode))
+            $lines.Add(("- Execution applied: {0}" -f $rollbackAudit.executionApplied))
+            $lines.Add(("- PostgreSQL password: {0}" -f $rollbackAudit.postgresPassword))
+            $lines.Add(("- Before risk level: {0}" -f $rollbackAudit.before.riskLevel))
+            $lines.Add(("- Before would delete rows: {0}" -f $rollbackAudit.before.totalWouldDeleteRows))
+            $lines.Add(("- Before fallback-key review tables: {0}" -f $rollbackAudit.before.fallbackKeyReviewTableCount))
+            $lines.Add(("- After actual rolled back rows: {0}" -f $rollbackAudit.after.actualRolledBackRows))
+            $lines.Add(("- After affected tables: {0}" -f $rollbackAudit.after.affectedTableCount))
+            $lines.Add(("- Release gate: {0}" -f $rollbackAudit.auditSummary.releaseGate))
+            $lines.Add(("- Count matches preview: {0}" -f $rollbackAudit.auditSummary.countMatchesPreview))
+            $lines.Add(("- Audit focus: {0}" -f (@($rollbackAudit.auditSummary.auditFocus) -join ", ")))
+            $lines.Add("")
+            $lines.Add("| Phase | Metric | Value |")
+            $lines.Add("|---|---|---|")
+            $lines.Add(("| before | riskLevel | {0} |" -f $rollbackAudit.before.riskLevel))
+            $lines.Add(("| before | totalWouldDeleteRows | {0} |" -f $rollbackAudit.before.totalWouldDeleteRows))
+            $lines.Add(("| before | fallbackKeyReviewTableCount | {0} |" -f $rollbackAudit.before.fallbackKeyReviewTableCount))
+            $lines.Add(("| after | actualRolledBackRows | {0} |" -f $rollbackAudit.after.actualRolledBackRows))
+            $lines.Add(("| after | affectedTableCount | {0} |" -f $rollbackAudit.after.affectedTableCount))
+            $lines.Add(("| audit | releaseGate | {0} |" -f $rollbackAudit.auditSummary.releaseGate))
+            Set-Content -LiteralPath $rollbackAuditMarkdownTarget -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
         }
     }
 }

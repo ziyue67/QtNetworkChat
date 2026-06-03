@@ -7,6 +7,7 @@ set(DASHBOARD_PATH "${TEMP_DIR}/database-health-dashboard.json")
 set(SMOKE_JSON_PATH "${TEMP_DIR}/pgsql-smoke.json")
 set(MIGRATION_JSON_PATH "${TEMP_DIR}/migration.json")
 set(ROLLBACK_PREVIEW_PATH "${TEMP_DIR}/rollback-preview.json")
+set(ROLLBACK_AUDIT_PATH "${TEMP_DIR}/rollback-audit.json")
 set(OUTPUT_JSON_PATH "${TEMP_DIR}/pgsql-release-acceptance.json")
 set(OUTPUT_MD_PATH "${TEMP_DIR}/pgsql-release-acceptance.md")
 file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -47,12 +48,22 @@ file(WRITE "${ROLLBACK_PREVIEW_PATH}" [=[
 }
 ]=])
 
+file(WRITE "${ROLLBACK_AUDIT_PATH}" [=[
+{
+  "executionApplied":false,
+  "before":{"totalWouldDeleteRows":5,"riskLevel":"review"},
+  "after":{"actualRolledBackRows":0},
+  "auditSummary":{"releaseGate":"await-rollback-execute","countMatchesPreview":false,"auditFocus":["rollback-before-preview","rollback-not-executed"],"evidenceBundle":["rollback-audit-json","rollback-preview-json"]}
+}
+]=])
+
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
         -DatabaseHealthDashboardPath "${DASHBOARD_PATH}"
         -SmokeJsonPath "${SMOKE_JSON_PATH}"
         -MigrationJsonPath "${MIGRATION_JSON_PATH}"
         -RollbackPreviewPath "${ROLLBACK_PREVIEW_PATH}"
+        -RollbackAuditPath "${ROLLBACK_AUDIT_PATH}"
         -JsonPath "${OUTPUT_JSON_PATH}"
         -MarkdownPath "${OUTPUT_MD_PATH}"
     RESULT_VARIABLE result
@@ -89,18 +100,26 @@ string(JSON operator_action GET "${json_content}" "summary" "operatorAction")
 string(JSON release_gate GET "${json_content}" "auditSummary" "releaseGate")
 string(JSON release_detail0 GET "${json_content}" "releaseDetails" 0)
 string(JSON release_detail5 GET "${json_content}" "releaseDetails" 5)
+string(JSON release_detail6 GET "${json_content}" "releaseDetails" 6)
+string(JSON release_detail7 GET "${json_content}" "releaseDetails" 7)
 string(JSON metric_retry GET "${json_content}" "metrics" "smokeRetryOrResumeCount")
 string(JSON metric_cleanup GET "${json_content}" "metrics" "smokeCleanupProofCount")
 string(JSON metric_slow GET "${json_content}" "metrics" "slowQueryCount")
 string(JSON metric_query_failure GET "${json_content}" "metrics" "queryFailureCount")
 string(JSON metric_rollback_review GET "${json_content}" "metrics" "rollbackPreviewFallbackReviewTables")
+string(JSON metric_rollback_audit_before GET "${json_content}" "metrics" "rollbackAuditBeforeRows")
+string(JSON metric_rollback_audit_after GET "${json_content}" "metrics" "rollbackAuditAfterRows")
+string(JSON metric_rollback_audit_match GET "${json_content}" "metrics" "rollbackAuditCountMatchesPreview")
 string(JSON evidence0 GET "${json_content}" "auditSummary" "evidenceBundle" 0)
-string(JSON evidence4 GET "${json_content}" "auditSummary" "evidenceBundle" 4)
+string(JSON evidence8 GET "${json_content}" "auditSummary" "evidenceBundle" 8)
+string(JSON evidence9 GET "${json_content}" "auditSummary" "evidenceBundle" 9)
 string(FIND "${markdown_content}" "QtNetworkChat PostgreSQL Release Acceptance" has_title)
 string(FIND "${markdown_content}" "Release gate: `review-query-failures`" has_gate)
-string(FIND "${markdown_content}" "Release details: `bootstrapRequired=true; smokeReleaseHint=Use real smoke evidence to confirm retry, cleanup, and restart recovery paths.; writeIntent=dry-run-plan; backupRequired=false; rollbackPreview=true; rollbackRisk=review; slowQueries=1; queryFailures=1; evidence=dashboard-json, dashboard-markdown, query-metrics, json, markdown, boundary-scenarios, html, rollback-preview-json, rollback-preview-markdown`" has_details)
+string(FIND "${markdown_content}" "rollbackAuditGate=await-rollback-execute" has_audit_gate_detail)
 string(FIND "${markdown_content}" "| smokeRetryOrResumeCount | 3 |" has_retry_metric)
 string(FIND "${markdown_content}" "| rollbackPreviewFallbackReviewTables | 5 |" has_rollback_metric)
+string(FIND "${markdown_content}" "| rollbackAuditBeforeRows | 5 |" has_rollback_audit_before_metric)
+string(FIND "${markdown_content}" "| rollbackAuditAfterRows | 0 |" has_rollback_audit_after_metric)
 
 if(NOT format STREQUAL "qtnetworkchat-pgsql-release-acceptance-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -130,15 +149,24 @@ if(NOT release_detail5 STREQUAL "rollbackRisk=review")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Release details should expose rollback risk")
 endif()
+if(NOT release_detail6 STREQUAL "rollbackAuditGate=await-rollback-execute" OR NOT release_detail7 STREQUAL "rollbackExecuted=false")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Release details should expose rollback audit gate and execution flag")
+endif()
 if(NOT metric_retry EQUAL 3 OR NOT metric_cleanup EQUAL 6 OR NOT metric_rollback_review EQUAL 5 OR NOT metric_slow EQUAL 1 OR NOT metric_query_failure EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Release acceptance metrics mismatch")
 endif()
-if(NOT evidence0 STREQUAL "dashboard-json" OR NOT evidence4 STREQUAL "markdown")
+if(NOT metric_rollback_audit_before EQUAL 5 OR NOT metric_rollback_audit_after EQUAL 0 OR metric_rollback_audit_match)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Release acceptance should expose rollback audit before/after metrics")
+endif()
+if(NOT evidence0 STREQUAL "dashboard-json" OR NOT evidence8 STREQUAL "rollback-preview-markdown" OR NOT evidence9 STREQUAL "rollback-audit-json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Release acceptance evidence bundle should merge and preserve order")
 endif()
-if(has_title EQUAL -1 OR has_gate EQUAL -1 OR has_details EQUAL -1 OR has_retry_metric EQUAL -1 OR has_rollback_metric EQUAL -1)
+if(has_title EQUAL -1 OR has_gate EQUAL -1 OR has_audit_gate_detail EQUAL -1 OR has_retry_metric EQUAL -1 OR has_rollback_metric EQUAL -1
+    OR has_rollback_audit_before_metric EQUAL -1 OR has_rollback_audit_after_metric EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Release acceptance markdown missing title, gate, details, or metrics")
 endif()

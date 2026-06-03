@@ -20,6 +20,7 @@ execute_process(
         -SmokeJsonPath "${OUTPUT_DIR}/pgsql-smoke.json"
         -MigrationJsonPath "${OUTPUT_DIR}/sqlite-pg-migration-plan.json"
         -RollbackPreviewPath "${OUTPUT_DIR}/sqlite-pg-rollback-preview.json"
+        -RollbackAuditPath "${OUTPUT_DIR}/sqlite-pg-rollback-audit.json"
         -EnsureDatabase
         -InjectSlowQueryProbe
         -SlowQueryProbeSeconds 2
@@ -72,6 +73,8 @@ foreach(expected_text
         "-InjectQueryFailureReason"
         "-MigratorExe"
         "-RollbackPreviewMarkdownPath"
+        "-RollbackAuditPath"
+        "-RollbackAuditMarkdownPath"
         "-DatabaseHealthDashboardPath"
         "-SmokeJsonPath"
         "-MigrationJsonPath"
@@ -90,6 +93,7 @@ foreach(expected_text
         "historyExitCode"
         "evidencePackagePath"
         "evidenceManifestPath"
+        "rollbackAuditPath="
         "historyPath="
         "historyMarkdownPath="
         "ackPath="
@@ -123,6 +127,8 @@ string(JSON smoke_script GET "${preview_content}" "smokeScript")
 string(JSON migration_script GET "${preview_content}" "migrationScript")
 string(JSON health_path GET "${preview_content}" "healthPath")
 string(JSON health_status_path GET "${preview_content}" "healthStatusPath")
+string(JSON rollback_audit_path GET "${preview_content}" "rollbackAuditPath")
+string(JSON rollback_audit_markdown_path GET "${preview_content}" "rollbackAuditMarkdownPath")
 string(JSON history_path GET "${preview_content}" "historyPath")
 string(JSON history_artifact_path GET "${preview_content}" "historyArtifactPath")
 string(JSON history_markdown_path GET "${preview_content}" "historyMarkdownPath")
@@ -194,6 +200,10 @@ endif()
 if(NOT health_path MATCHES "database-health.json" OR NOT health_status_path MATCHES "database-health-status.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Preview health/status paths missing expected names")
+endif()
+if(NOT rollback_audit_path MATCHES "sqlite-pg-rollback-audit.json" OR NOT rollback_audit_markdown_path MATCHES "sqlite-pg-rollback-audit.md")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Preview rollback audit paths missing expected names")
 endif()
 if(NOT history_path MATCHES "automation-task-history.json" OR NOT history_markdown_path MATCHES "automation-task-history.md" OR NOT ack_path MATCHES "automation-task-ack.json" OR NOT last_run_path MATCHES "last-run.log")
     file(REMOVE_RECURSE "${TEMP_DIR}")

@@ -13,6 +13,7 @@ set(DASHBOARD "${TEMP_DIR}/database-health-dashboard.json")
 set(SMOKE "${TEMP_DIR}/pgsql-smoke.json")
 set(MIGRATION "${TEMP_DIR}/migration.json")
 set(ROLLBACK "${TEMP_DIR}/rollback-preview.json")
+set(ROLLBACK_AUDIT "${TEMP_DIR}/rollback-audit.json")
 set(ACCEPTANCE "${TEMP_DIR}/pgsql-release-acceptance.json")
 set(LAST_RUN "${TEMP_DIR}/last-run.log")
 set(HISTORY "${TEMP_DIR}/automation-task-history.json")
@@ -23,6 +24,7 @@ file(WRITE "${DASHBOARD}" "{\"ok\":true,\"status\":\"healthy\"}\n")
 file(WRITE "${SMOKE}" "{\"ok\":true,\"summary\":{\"readiness\":\"verified\"}}\n")
 file(WRITE "${MIGRATION}" "{\"ok\":true,\"reportSummary\":{\"executionReadiness\":\"ready\"}}\n")
 file(WRITE "${ROLLBACK}" "{\"ok\":true,\"riskLevel\":\"review\"}\n")
+file(WRITE "${ROLLBACK_AUDIT}" "{\"ok\":true,\"executionApplied\":false,\"postgresPassword\":\"<redacted>\"}\n")
 file(WRITE "${ACCEPTANCE}" "{\"ok\":false,\"status\":\"review\"}\n")
 file(WRITE "${LAST_RUN}" "2026-06-03T00:00:00Z exitCode=0\n")
 file(WRITE "${HISTORY}" "{\"runCount\":1,\"failedRunCount\":0}\n")
@@ -36,6 +38,7 @@ execute_process(
         -SmokeJsonPath "${SMOKE}"
         -MigrationJsonPath "${MIGRATION}"
         -RollbackPreviewPath "${ROLLBACK}"
+        -RollbackAuditPath "${ROLLBACK_AUDIT}"
         -AcceptanceJsonPath "${ACCEPTANCE}"
         -LastRunPath "${LAST_RUN}"
         -HistoryPath "${HISTORY}"
@@ -71,7 +74,7 @@ if(NOT format STREQUAL "qtnetworkchat-pgsql-release-evidence-package-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected PostgreSQL evidence manifest format: ${format}")
 endif()
-if(NOT ok OR NOT input_count EQUAL 9 OR NOT input0_kind STREQUAL "database-health")
+if(NOT ok OR NOT input_count EQUAL 10 OR NOT input0_kind STREQUAL "database-health")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected PostgreSQL evidence manifest summary")
 endif()

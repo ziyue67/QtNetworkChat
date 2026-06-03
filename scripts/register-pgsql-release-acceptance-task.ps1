@@ -56,6 +56,8 @@ param(
 
     [string]$RollbackPreviewPath,
 
+    [string]$RollbackAuditPath,
+
     [switch]$FailOnUnhealthy,
 
     [switch]$SkipEvidencePackage,
@@ -135,6 +137,7 @@ Assert-NoSensitiveValue "DatabaseHealthDashboardPath" @($DatabaseHealthDashboard
 Assert-NoSensitiveValue "SmokeJsonPath" @($SmokeJsonPath)
 Assert-NoSensitiveValue "MigrationJsonPath" @($MigrationJsonPath)
 Assert-NoSensitiveValue "RollbackPreviewPath" @($RollbackPreviewPath)
+Assert-NoSensitiveValue "RollbackAuditPath" @($RollbackAuditPath)
 if ($PostgresPort -lt 1 -or $PostgresPort -gt 65535) {
     throw "PostgresPort must be between 1 and 65535."
 }
@@ -191,6 +194,7 @@ $smokeBootstrapPath = Join-Path $resolvedOutputDir "pgsql-smoke-bootstrap.json"
 $migrationMarkdownPath = Join-Path $resolvedOutputDir "sqlite-pg-migration-plan.md"
 $migrationHtmlPath = Join-Path $resolvedOutputDir "sqlite-pg-migration-plan.html"
 $rollbackPreviewMarkdownPath = Join-Path $resolvedOutputDir "sqlite-pg-rollback-preview.md"
+$rollbackAuditMarkdownPath = Join-Path $resolvedOutputDir "sqlite-pg-rollback-audit.md"
 $evidenceDir = Join-Path $resolvedOutputDir "evidence"
 $evidencePackagePath = Join-Path $evidenceDir "pgsql-release-evidence.zip"
 $evidenceManifestPath = Join-Path $evidenceDir "pgsql-release-evidence-manifest.json"
@@ -206,6 +210,9 @@ if ([string]::IsNullOrWhiteSpace($MigrationJsonPath)) {
 }
 if ([string]::IsNullOrWhiteSpace($RollbackPreviewPath)) {
     $RollbackPreviewPath = Join-Path $resolvedOutputDir "sqlite-pg-rollback-preview.json"
+}
+if ([string]::IsNullOrWhiteSpace($RollbackAuditPath)) {
+    $RollbackAuditPath = Join-Path $resolvedOutputDir "sqlite-pg-rollback-audit.json"
 }
 
 $lines = New-Object System.Collections.ArrayList
@@ -329,6 +336,8 @@ Add-ScalarArg $lines "MarkdownPath" $migrationMarkdownPath
 Add-ScalarArg $lines "HtmlPath" $migrationHtmlPath
 Add-ScalarArg $lines "RollbackPreviewPath" $RollbackPreviewPath
 Add-ScalarArg $lines "RollbackPreviewMarkdownPath" $rollbackPreviewMarkdownPath
+Add-ScalarArg $lines "RollbackAuditPath" $RollbackAuditPath
+Add-ScalarArg $lines "RollbackAuditMarkdownPath" $rollbackAuditMarkdownPath
 $lastIndex = $lines.Count - 1
 if ($lastIndex -ge 0) {
     $lastLine = ([string]$lines[$lastIndex]).TrimEnd()
@@ -343,6 +352,7 @@ Add-ScalarArg $lines "DatabaseHealthDashboardPath" $DatabaseHealthDashboardPath
 Add-ScalarArg $lines "SmokeJsonPath" $SmokeJsonPath
 Add-ScalarArg $lines "MigrationJsonPath" $MigrationJsonPath
 Add-ScalarArg $lines "RollbackPreviewPath" $RollbackPreviewPath
+Add-ScalarArg $lines "RollbackAuditPath" $RollbackAuditPath
 Add-ScalarArg $lines "JsonPath" $jsonPath
 Add-ScalarArg $lines "MarkdownPath" $markdownPath
 Add-SwitchArg $lines "FailOnUnhealthy" $FailOnUnhealthy.IsPresent
@@ -358,7 +368,7 @@ if ($lastIndex -ge 0) {
 [void]$lines.Add('$pipelineExitCode = if ($healthExitCode -ne 0) { $healthExitCode } elseif ($healthStatusExitCode -ne 0) { $healthStatusExitCode } elseif ($dashboardExitCode -ne 0) { $dashboardExitCode } elseif ($smokeExitCode -ne 0) { $smokeExitCode } elseif ($migrationExitCode -ne 0) { $migrationExitCode } else { $acceptanceExitCode }')
 [void]$lines.Add('$packageExitCode = 0')
 [void]$lines.Add('$exitCode = $pipelineExitCode')
-[void]$lines.Add(('"{0} healthExitCode=$healthExitCode healthStatusExitCode=$healthStatusExitCode dashboardExitCode=$dashboardExitCode smokeExitCode=$smokeExitCode migrationExitCode=$migrationExitCode acceptanceExitCode=$acceptanceExitCode packageExitCode=$packageExitCode exitCode=$exitCode healthPath={1} healthStatusPath={2} dashboardPath={3} smokeJsonPath={4} migrationJsonPath={5} rollbackPreviewPath={6} jsonPath={7} markdownPath={8} evidencePackagePath={9} evidenceManifestPath={10} historyPath={11} historyMarkdownPath={12} ackPath={13}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $healthPath, $healthStatusPath, $DatabaseHealthDashboardPath, $SmokeJsonPath, $MigrationJsonPath, $RollbackPreviewPath, $jsonPath, $markdownPath, $evidencePackagePath, $evidenceManifestPath, $historyPath, $historyMarkdownPath, $ackPath))
+    [void]$lines.Add(('"{0} healthExitCode=$healthExitCode healthStatusExitCode=$healthStatusExitCode dashboardExitCode=$dashboardExitCode smokeExitCode=$smokeExitCode migrationExitCode=$migrationExitCode acceptanceExitCode=$acceptanceExitCode packageExitCode=$packageExitCode exitCode=$exitCode healthPath={1} healthStatusPath={2} dashboardPath={3} smokeJsonPath={4} migrationJsonPath={5} rollbackPreviewPath={6} rollbackAuditPath={7} jsonPath={8} markdownPath={9} evidencePackagePath={10} evidenceManifestPath={11} historyPath={12} historyMarkdownPath={13} ackPath={14}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $healthPath, $healthStatusPath, $DatabaseHealthDashboardPath, $SmokeJsonPath, $MigrationJsonPath, $RollbackPreviewPath, $RollbackAuditPath, $jsonPath, $markdownPath, $evidencePackagePath, $evidenceManifestPath, $historyPath, $historyMarkdownPath, $ackPath))
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $historyScript `')
 Add-ScalarArg $lines "LastRunPath" $logPath
 Add-ScalarArg $lines "AckPath" $ackPath
@@ -390,6 +400,8 @@ if (-not $SkipEvidencePackage.IsPresent) {
     Add-ScalarArg $lines "MigrationHtmlPath" $migrationHtmlPath
     Add-ScalarArg $lines "RollbackPreviewPath" $RollbackPreviewPath
     Add-ScalarArg $lines "RollbackPreviewMarkdownPath" $rollbackPreviewMarkdownPath
+    Add-ScalarArg $lines "RollbackAuditPath" $RollbackAuditPath
+    Add-ScalarArg $lines "RollbackAuditMarkdownPath" $rollbackAuditMarkdownPath
     Add-ScalarArg $lines "AcceptanceJsonPath" $jsonPath
     Add-ScalarArg $lines "AcceptanceMarkdownPath" $markdownPath
     Add-ScalarArg $lines "LastRunPath" $logPath
@@ -445,6 +457,8 @@ $preview = [pscustomobject]@{
     migrationHtmlPath = $migrationHtmlPath
     rollbackPreviewPath = $RollbackPreviewPath
     rollbackPreviewMarkdownPath = $rollbackPreviewMarkdownPath
+    rollbackAuditPath = $RollbackAuditPath
+    rollbackAuditMarkdownPath = $rollbackAuditMarkdownPath
     statusArtifactPath = $jsonPath
     jsonPath = $jsonPath
     markdownPath = $markdownPath
