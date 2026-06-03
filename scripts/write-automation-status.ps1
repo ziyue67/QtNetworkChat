@@ -349,6 +349,61 @@ function Find-PreviewRecordForArtifact([object[]]$PreviewRecords, [string[]]$Pro
     }
 }
 
+function Get-GenericTaskReadback([object]$PreviewRecord) {
+    $statusConfig = Get-PreviewArtifactConfiguration $PreviewRecord.state @("statusArtifactPath", "statusPath", "dashboardPath") "status"
+    $lastRunConfig = Get-PreviewArtifactConfiguration $PreviewRecord.state @("lastRunPath", "logPath") "lastRun"
+    $historyConfig = Get-PreviewArtifactConfiguration $PreviewRecord.state @("historyArtifactPath", "historyPath") "history"
+    $ackConfig = Get-PreviewArtifactConfiguration $PreviewRecord.state @("ackArtifactPath", "ackPath") "ack"
+
+    $statusState = Get-ArtifactState -PathValue $statusConfig.path -ExpectJson
+    $lastRunState = Get-ArtifactState -PathValue $lastRunConfig.path
+    $historyState = Get-ArtifactState -PathValue $historyConfig.path -ExpectJson
+    $ackState = Get-ArtifactState -PathValue $ackConfig.path -ExpectJson
+    $lastRunSummary = Read-LastRunSummary $lastRunState
+
+    $statusSummary = "unavailable"
+    if ($statusState.state -eq "ok") {
+        $statusValue = Get-JsonValue $statusState.value "status" ""
+        $okValue = Get-JsonValue $statusState.value "ok" $null
+        if (-not [string]::IsNullOrWhiteSpace([string]$statusValue)) {
+            $statusSummary = [string]$statusValue
+            if ($null -ne $okValue) {
+                $statusSummary = $statusSummary + "/ok=" + (Format-StatusValue $okValue)
+            }
+        } elseif ($null -ne $okValue) {
+            $statusSummary = "ok=" + (Format-StatusValue $okValue)
+        } else {
+            $statusSummary = "ok"
+        }
+    } else {
+        $statusSummary = $statusState.state
+    }
+
+    $lastRunExitCode = if ($null -ne $lastRunSummary) { Format-StatusValue $lastRunSummary.exitCode } else { Format-StatusValue $lastRunState.state }
+    $historySummary = if ($historyState.state -eq "ok") {
+        'runs=' + (Format-StatusValue (Get-JsonValue $historyState.value "runCount" "unknown"))
+    } else {
+        $historyState.state
+    }
+    $ackSummary = if ($ackState.state -eq "ok") {
+        'ack=' + (Format-StatusValue (Get-JsonValue $ackState.value "acknowledged" $null))
+    } else {
+        $ackState.state
+    }
+
+    [pscustomobject]@{
+        previewRecord = $PreviewRecord
+        statusState = $statusState
+        lastRunState = $lastRunState
+        historyState = $historyState
+        ackState = $ackState
+        statusSummary = $statusSummary
+        lastRunExitCode = $lastRunExitCode
+        historySummary = $historySummary
+        ackSummary = $ackSummary
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($Head)) {
     $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
 }
@@ -377,6 +432,7 @@ foreach ($previewPath in $normalizedTaskPreviewPaths) {
 $previewRecords = $previewRecords.ToArray()
 $databaseHealthPreviewCandidates = @($previewRecords | Where-Object { $_.label -eq "database-health" -or $_.taskKind -eq "database-health" })
 $largeFileGovernancePreviewCandidates = @($previewRecords | Where-Object { $_.label -eq "large-file-governance" -or $_.taskKind -eq "large-file-governance" })
+$genericPreviewCandidates = @($previewRecords | Where-Object { $_.taskKind -ne "database-health" -and $_.taskKind -ne "large-file-governance" })
 
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthStatusPath)) {
     $DatabaseHealthStatusPath = Resolve-PreviewCollectionValueAny $databaseHealthPreviewCandidates @("statusArtifactPath", "statusPath")
@@ -495,6 +551,24 @@ if ($previewRecords.Count -eq 0) {
             (Format-StatusValue $previewRecord.state.state), `
             $previewPathText
         $lines.Add($previewLine)
+    }
+}
+$lines.Add("")
+$lines.Add("## Generic Task Readback")
+$lines.Add("")
+if ($genericPreviewCandidates.Count -eq 0) {
+    $lines.Add('- Generic task readback: `none`')
+} else {
+    foreach ($genericPreview in $genericPreviewCandidates) {
+        $genericReadback = Get-GenericTaskReadback $genericPreview
+        $genericLine = '- Generic task: kind=`{0}`, name=`{1}`, status=`{2}`, lastRun=`{3}`, history=`{4}`, ack=`{5}`' -f `
+            (Format-StatusValue $genericPreview.taskKind), `
+            (Format-StatusValue $genericPreview.taskName), `
+            (Format-StatusValue $genericReadback.statusSummary), `
+            (Format-StatusValue $genericReadback.lastRunExitCode), `
+            (Format-StatusValue $genericReadback.historySummary), `
+            (Format-StatusValue $genericReadback.ackSummary)
+        $lines.Add($genericLine)
     }
 }
 $lines.Add("")

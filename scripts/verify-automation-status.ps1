@@ -152,6 +152,8 @@ foreach ($expected in @(
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, state=`ok`, path=`',
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, state=`ok`, path=`',
+    'Generic Task Readback',
+    'Generic task readback: `none`',
     'Scheduled Task Readback',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`, checks=`4`, failedChecks=`0`, slowQueries=`2`, queryFailures=`1`',
     'Database health last run: at=`2026-06-03T01:02:03.0000000Z`, exitCode=`0`',
@@ -314,11 +316,75 @@ $genericMarkdown = Get-Content -LiteralPath $genericMarkdownPath -Raw -Encoding 
 foreach ($expected in @(
     'Preview task: label=`generic`, kind=`database-health`, name=`unknown`, state=`ok`, path=`',
     'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, state=`ok`, path=`',
+    'Generic task readback: `none`',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`',
     'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',
     'Automation history artifacts: `history=ok; ack=ok`'
 )) {
     Assert-Contains -Text $genericMarkdown -Expected $expected
+}
+
+$customPreviewPath = Join-Path $configuredTempDir "custom-task-preview.json"
+$customStatusPath = Join-Path $configuredTempDir "custom-task-status.json"
+$customLastRunPath = Join-Path $configuredTempDir "custom-task-last-run.log"
+$customHistoryPath = Join-Path $configuredTempDir "custom-task-history.json"
+$customAckPath = Join-Path $configuredTempDir "custom-task-ack.json"
+$customMarkdownPath = Join-Path $configuredTempDir "automation-status-custom.md"
+
+@'
+{
+  "status":"warning",
+  "ok":false
+}
+'@ | Set-Content -LiteralPath $customStatusPath -Encoding UTF8
+'2026-06-03T06:00:00.0000000Z exitCode=5' | Set-Content -LiteralPath $customLastRunPath -Encoding UTF8
+@'
+{
+  "runCount":7
+}
+'@ | Set-Content -LiteralPath $customHistoryPath -Encoding UTF8
+@'
+{
+  "acknowledged":false
+}
+'@ | Set-Content -LiteralPath $customAckPath -Encoding UTF8
+([ordered]@{
+    taskKind = "custom-ops"
+    taskName = "CustomOpsTask"
+    statusArtifactPath = $customStatusPath
+    lastRunPath = $customLastRunPath
+    historyArtifactPath = $customHistoryPath
+    ackArtifactPath = $customAckPath
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
+} | ConvertTo-Json) | Set-Content -LiteralPath $customPreviewPath -Encoding UTF8
+
+& $ScriptPath `
+    -MarkdownPath $customMarkdownPath `
+    -Head "8899aa0" `
+    -OriginMain "8899aa0" `
+    -OriginCodexQt "8899aa0" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -TaskPreviewPath @($customPreviewPath) `
+    -FailOnSensitive
+
+$customMarkdown = Get-Content -LiteralPath $customMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Preview task: label=`generic`, kind=`custom-ops`, name=`CustomOpsTask`, state=`ok`, path=`',
+    'Generic task: kind=`custom-ops`, name=`CustomOpsTask`, status=`warning/ok=false`, lastRun=`5`, history=`runs=7`, ack=`ack=false`',
+    'Database health: `configured but status artifact unavailable`',
+    'Large-file governance: `configured but status artifact unavailable`',
+    'Task history: runs=`7`',
+    'Task acknowledgement: acknowledged=`false`, by=`unknown`, at=`unknown`, reason=`unknown`'
+)) {
+    Assert-Contains -Text $customMarkdown -Expected $expected
 }
 
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
