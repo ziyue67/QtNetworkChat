@@ -434,7 +434,7 @@ Ensure-Directory -Path $configuredTempDir
   "status":"success",
   "ok":true,
   "summary":{"readiness":"verified","operatorAction":"Archive the evidence bundle before promoting PostgreSQL smoke coverage."},
-  "auditSummary":{"releaseGate":"can-review-smoke-evidence","auditFocus":["offline-attachments","resume-boundaries"]},
+  "auditSummary":{"releaseGate":"can-review-smoke-evidence","bootstrapRequired":true,"auditFocus":["offline-attachments","resume-boundaries"],"evidenceBundle":["pgsql-smoke.json","pgsql-smoke.md"]},
   "recoverySummary":{"releaseHint":"review-recovery-summary"}
 }
 '@ | Set-Content -LiteralPath $pgsqlSmokeStatusPath -Encoding UTF8
@@ -476,7 +476,7 @@ Ensure-Directory -Path $configuredTempDir
 {
   "mode":"diff",
   "reportSummary":{"executionReadiness":"review","operatorAction":"Inspect drift tables and rollback preview before cutover."},
-  "auditSummary":{"releaseGate":"can-cutover-after-smoke","auditFocus":["drift-report","rollback-preview"]}
+  "auditSummary":{"releaseGate":"can-cutover-after-smoke","writeIntent":"read-only-diff","backupRequired":false,"rollbackPreviewAvailable":true,"auditFocus":["drift-report","rollback-preview"],"evidenceBundle":["migration.json","migration.md","migration.html"]}
 }
 '@ | Set-Content -LiteralPath $pgsqlMigrationStatusPath -Encoding UTF8
 '2026-06-03T06:20:00.0000000Z exitCode=2' | Set-Content -LiteralPath $pgsqlMigrationLastRunPath -Encoding UTF8
@@ -533,9 +533,11 @@ foreach ($expected in @(
     'Generic task: kind=`custom-ops`, name=`CustomOpsTask`, display=`Custom ops`, status=`warning/ok=false`, lastRun=`5`, history=`runs=7`, ack=`ack=false`',
     'Generic task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, display=`PostgreSQL smoke`, status=`success/ok=true`, lastRun=`0`, history=`runs=3`, ack=`ack=true`',
     'Gate: readiness=`verified`, releaseGate=`can-review-smoke-evidence`, action=`Archive the evidence bundle before promoting PostgreSQL smoke coverage.`, auditFocus=`offline-attachments, resume-boundaries`',
+    'Release details: `bootstrapRequired=true; releaseHint=review-recovery-summary; evidence=pgsql-smoke.json, pgsql-smoke.md`',
     'Summary: `Real QPSQL smoke gate sample`',
     'Generic task: kind=`pgsql-migration`, name=`PgsqlMigrationTask`, display=`PostgreSQL migration`, status=`ok`, lastRun=`2`, history=`runs=5`, ack=`ack=false`',
     'Gate: readiness=`review`, releaseGate=`can-cutover-after-smoke`, action=`Inspect drift tables and rollback preview before cutover.`, auditFocus=`drift-report, rollback-preview`',
+    'Release details: `writeIntent=read-only-diff; backupRequired=false; rollbackPreview=true; evidence=migration.json, migration.md, migration.html`',
     'Summary: `SQLite to PostgreSQL release gate sample`',
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',

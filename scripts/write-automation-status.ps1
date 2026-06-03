@@ -397,12 +397,14 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
     $releaseGateSummary = "unknown"
     $operatorActionSummary = "unknown"
     $auditFocusSummary = "unknown"
+    $releaseDetailsSummary = "unknown"
     if ($statusState.state -eq "ok") {
         $statusValue = Get-JsonValue $statusState.value "status" ""
         $okValue = Get-JsonValue $statusState.value "ok" $null
         $statusSummaryNode = Get-JsonValue $statusState.value "summary" $null
         $reportSummaryNode = Get-JsonValue $statusState.value "reportSummary" $null
         $auditSummaryNode = Get-JsonValue $statusState.value "auditSummary" $null
+        $recoverySummaryNode = Get-JsonValue $statusState.value "recoverySummary" $null
         if (-not [string]::IsNullOrWhiteSpace([string]$statusValue)) {
             $statusSummary = [string]$statusValue
             if ($null -ne $okValue) {
@@ -438,12 +440,44 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
                 $auditFocusSummary = "unknown"
             }
         }
+        $releaseDetails = New-Object System.Collections.Generic.List[string]
+        $bootstrapRequired = Get-JsonValue $auditSummaryNode "bootstrapRequired" $null
+        if ($null -ne $bootstrapRequired) {
+            $releaseDetails.Add('bootstrapRequired=' + (Format-StatusValue $bootstrapRequired))
+        }
+        $writeIntent = Get-JsonValue $auditSummaryNode "writeIntent" ""
+        if (-not [string]::IsNullOrWhiteSpace([string]$writeIntent)) {
+            $releaseDetails.Add('writeIntent=' + [string]$writeIntent)
+        }
+        $backupRequired = Get-JsonValue $auditSummaryNode "backupRequired" $null
+        if ($null -ne $backupRequired) {
+            $releaseDetails.Add('backupRequired=' + (Format-StatusValue $backupRequired))
+        }
+        $rollbackPreviewAvailable = Get-JsonValue $auditSummaryNode "rollbackPreviewAvailable" $null
+        if ($null -ne $rollbackPreviewAvailable) {
+            $releaseDetails.Add('rollbackPreview=' + (Format-StatusValue $rollbackPreviewAvailable))
+        }
+        $releaseHint = Get-JsonValue $recoverySummaryNode "releaseHint" ""
+        if (-not [string]::IsNullOrWhiteSpace([string]$releaseHint)) {
+            $releaseDetails.Add('releaseHint=' + [string]$releaseHint)
+        }
+        $evidenceBundle = @((Get-JsonValue $auditSummaryNode "evidenceBundle" @()))
+        if ($evidenceBundle.Count -gt 0) {
+            $evidenceSummary = ($evidenceBundle | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join ", "
+            if (-not [string]::IsNullOrWhiteSpace($evidenceSummary)) {
+                $releaseDetails.Add('evidence=' + $evidenceSummary)
+            }
+        }
+        if ($releaseDetails.Count -gt 0) {
+            $releaseDetailsSummary = $releaseDetails -join "; "
+        }
     } else {
         $statusSummary = $statusState.state
         $readinessSummary = $statusState.state
         $releaseGateSummary = $statusState.state
         $operatorActionSummary = $statusState.state
         $auditFocusSummary = $statusState.state
+        $releaseDetailsSummary = $statusState.state
     }
 
     $lastRunExitCode = if ($null -ne $lastRunSummary) { Format-StatusValue $lastRunSummary.exitCode } else { Format-StatusValue $lastRunState.state }
@@ -469,6 +503,7 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
         releaseGateSummary = $releaseGateSummary
         operatorActionSummary = $operatorActionSummary
         auditFocusSummary = $auditFocusSummary
+        releaseDetailsSummary = $releaseDetailsSummary
         lastRunExitCode = $lastRunExitCode
         historySummary = $historySummary
         ackSummary = $ackSummary
@@ -655,6 +690,9 @@ if ($genericPreviewCandidates.Count -eq 0) {
                     (Format-StatusValue $genericReadback.releaseGateSummary), `
                     (Format-StatusValue $genericReadback.operatorActionSummary), `
                     (Format-StatusValue $genericReadback.auditFocusSummary)))
+        }
+        if ($genericReadback.releaseDetailsSummary -ne "unknown") {
+            $lines.Add('  Release details: `' + $genericReadback.releaseDetailsSummary + '`')
         }
         if ($genericPreview.taskSummary -ne "unknown") {
             $lines.Add('  Summary: `' + $genericPreview.taskSummary + '`')
