@@ -61,7 +61,9 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
   "driver":"QPSQL",
   "checkCount":4,
   "failedChecks":[],
-  "queryMetrics":{"slowQueryCount":2,"queryFailureCount":1}
+  "queryMetrics":{"slowQueryCount":2,"queryFailureCount":1},
+  "summary":{"readiness":"verified","operatorAction":"Investigate query failures before promoting this database health snapshot."},
+  "auditSummary":{"releaseGate":"review-query-failures","auditFocus":["query-failures","slow-queries"]}
 }
 '@ | Set-Content -LiteralPath $dbStatusPath -Encoding UTF8
 '2026-06-03T01:02:03.0000000Z healthExitCode=0 statusExitCode=0 dashboardExitCode=0 exitCode=0 healthPath=redacted statusPath=redacted dashboardPath=redacted markdownPath=redacted' |
@@ -182,6 +184,7 @@ foreach ($expected in @(
     'Generic task readback: `none`',
     'Scheduled Task Readback',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`, checks=`4`, failedChecks=`0`, slowQueries=`2`, queryFailures=`1`',
+    'Gate: readiness=`verified`, releaseGate=`review-query-failures`, action=`Investigate query failures before promoting this database health snapshot.`, auditFocus=`query-failures, slow-queries`',
     'Database health last run: at=`2026-06-03T01:02:03.0000000Z`, exitCode=`0`',
     'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',
     'Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`',
@@ -363,6 +366,7 @@ foreach ($expected in @(
     'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
     'Generic task readback: `none`',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`',
+    'Gate: readiness=`verified`, releaseGate=`review-query-failures`, action=`Investigate query failures before promoting this database health snapshot.`, auditFocus=`query-failures, slow-queries`',
     'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',
     'Automation history artifacts: `history=ok; ack=ok`'
 )) {

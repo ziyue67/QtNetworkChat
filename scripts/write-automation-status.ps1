@@ -626,6 +626,9 @@ if ($databaseHealthStatusState.state -ne "ok") {
 } else {
     $dbQueryMetrics = Get-JsonValue $databaseHealthStatus "queryMetrics" $null
     $dbFailedChecks = @((Get-JsonValue $databaseHealthStatus "failedChecks" @()))
+    $dbSummary = Get-JsonValue $databaseHealthStatus "summary" $null
+    $dbAuditSummary = Get-JsonValue $databaseHealthStatus "auditSummary" $null
+    $dbAuditFocus = @((Get-JsonValue $dbAuditSummary "auditFocus" @()))
     $lines.Add(('- Database health: status=`{0}`, ok=`{1}`, driver=`{2}`, checks=`{3}`, failedChecks=`{4}`, slowQueries=`{5}`, queryFailures=`{6}`' -f
             (Format-StatusValue (Get-JsonValue $databaseHealthStatus "status" "unknown")),
             (Format-StatusValue (Get-JsonValue $databaseHealthStatus "ok" $null)),
@@ -634,6 +637,11 @@ if ($databaseHealthStatusState.state -ne "ok") {
             $dbFailedChecks.Count,
             (Format-StatusValue (Get-JsonValue $dbQueryMetrics "slowQueryCount" "unknown")),
             (Format-StatusValue (Get-JsonValue $dbQueryMetrics "queryFailureCount" "unknown"))))
+    $lines.Add(('  Gate: readiness=`{0}`, releaseGate=`{1}`, action=`{2}`, auditFocus=`{3}`' -f
+            (Format-StatusValue (Get-JsonValue $dbSummary "readiness" "unknown")),
+            (Format-StatusValue (Get-JsonValue $dbAuditSummary "releaseGate" "unknown")),
+            (Format-StatusValue (Get-JsonValue $dbSummary "operatorAction" "unknown")),
+            (Format-StatusValue ($(if ($dbAuditFocus.Count -gt 0) { $dbAuditFocus -join ", " } else { "none" })))))
 }
 if ($null -ne $databaseHealthLastRun) {
     $lines.Add(('- Database health last run: at=`{0}`, exitCode=`{1}`' -f
