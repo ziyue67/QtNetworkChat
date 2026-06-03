@@ -145,6 +145,37 @@ $summary = [ordered]@{
     sensitiveHits = @($sensitiveHits)
     checks = $checks
 }
+$auditFocus = New-Object System.Collections.Generic.List[string]
+if ($queryFailureCount -gt 0) { [void]$auditFocus.Add("query-failures") }
+if ($slowQueryCount -gt 0) { [void]$auditFocus.Add("slow-queries") }
+if ($summary.failedChecks.Count -gt 0) { [void]$auditFocus.Add("failed-checks") }
+if ($sensitiveHits.Count -gt 0) { [void]$auditFocus.Add("sensitive-fields") }
+if ($auditFocus.Count -eq 0) { [void]$auditFocus.Add("routine-health-review") }
+$summary.summary = [ordered]@{
+    readiness = if ($summary.ok) { "verified" } else { "blocked" }
+    operatorAction = if (-not $summary.ok) {
+        "Review failed checks, sensitive hits, and last error evidence before trusting this health snapshot."
+    } elseif ($queryFailureCount -gt 0) {
+        "Investigate query failures before promoting this database health snapshot."
+    } elseif ($slowQueryCount -gt 0) {
+        "Review slow queries and pool thresholds before promoting this database health snapshot."
+    } else {
+        "Archive the redacted database health summary for release readiness review."
+    }
+}
+$summary.auditSummary = [ordered]@{
+    releaseGate = if (-not $summary.ok) {
+        "blocked"
+    } elseif ($queryFailureCount -gt 0) {
+        "review-query-failures"
+    } elseif ($slowQueryCount -gt 0) {
+        "review-slow-queries"
+    } else {
+        "can-review-health-evidence"
+    }
+    evidenceBundle = @("status-json", "status-markdown", "query-metrics")
+    auditFocus = @($auditFocus)
+}
 
 if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
     $resolvedJsonPath = Resolve-OptionalPath $JsonPath
@@ -174,6 +205,9 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("| lastErrorReason | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorReason)))
     $lines.Add(("| lastErrorCheck | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorCheck)))
     $lines.Add(("| lastErrorSample | {0} |" -f (Format-Value $summary.queryMetrics.lastErrorSample)))
+    $lines.Add(("| readiness | {0} |" -f (Format-Value $summary.summary.readiness)))
+    $lines.Add(("| operatorAction | {0} |" -f (Format-Value $summary.summary.operatorAction)))
+    $lines.Add(("| releaseGate | {0} |" -f (Format-Value $summary.auditSummary.releaseGate)))
     $lines.Add(("| poolEnabled | {0} |" -f (Format-Value $summary.reconnectPolicy.poolEnabled)))
     $lines.Add(("| poolMaxConnections | {0} |" -f (Format-Value $summary.reconnectPolicy.maxConnections)))
     $lines.Add(("| poolIdleMs | {0} |" -f (Format-Value $summary.reconnectPolicy.idleMs)))
@@ -181,6 +215,7 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("| threadConnectionOwnership | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.connectionOwnership)))
     $lines.Add(("| threadCrossReuse | {0} |" -f (Format-Value $summary.reconnectPolicy.threadPolicy.crossThreadReuse)))
     $lines.Add(("| sensitiveHits | {0} |" -f $summary.sensitiveHits.Count))
+    $lines.Add(("| auditFocus | {0} |" -f (@($summary.auditSummary.auditFocus) -join ", ")))
     $lines.Add("")
     $lines.Add("| check | ok | detail | reason |")
     $lines.Add("| --- | --- | --- | --- |")

@@ -102,6 +102,57 @@ function Add-QueryFailure {
     $Metrics.errorReasons[$fixedReason] += 1
 }
 
+function Get-HealthOperatorAction {
+    param(
+        [string]$Driver,
+        [bool]$PlanOnly,
+        [bool]$Ok,
+        [string]$Status,
+        [int]$SlowQueryCount,
+        [int]$QueryFailureCount
+    )
+
+    if (-not $Ok -or $Status -eq "unhealthy") {
+        return "Fix runtime, credential, schema, or path issues before trusting database health."
+    }
+    if ($PlanOnly) {
+        return "Runtime prerequisites look ready; next run can execute live database health checks."
+    }
+    if ($QueryFailureCount -gt 0) {
+        return "Investigate query failures before promoting this database health snapshot."
+    }
+    if ($SlowQueryCount -gt 0) {
+        return "Review slow queries and pool backoff thresholds before treating the database as release-ready."
+    }
+    if ($Driver -eq "postgres") {
+        return "Archive the redacted PostgreSQL health evidence and use it for release readiness review."
+    }
+    "Archive the redacted SQLite health evidence and use it for local readiness review."
+}
+
+function Get-HealthReleaseGate {
+    param(
+        [bool]$PlanOnly,
+        [bool]$Ok,
+        [int]$SlowQueryCount,
+        [int]$QueryFailureCount
+    )
+
+    if (-not $Ok) {
+        return "blocked"
+    }
+    if ($PlanOnly) {
+        return "await-live-health-check"
+    }
+    if ($QueryFailureCount -gt 0) {
+        return "review-query-failures"
+    }
+    if ($SlowQueryCount -gt 0) {
+        return "review-slow-queries"
+    }
+    "can-review-health-evidence"
+}
+
 $normalizedDriver = $Driver.ToLowerInvariant()
 $qtPluginDir = Join-Path $QtRoot "plugins"
 $qpsqlPluginPath = Join-Path $qtPluginDir "sqldrivers\qsqlpsql.dll"
@@ -238,6 +289,32 @@ $resultObject = [ordered]@{
     queryMetrics = $queryMetrics
     checks = $checks
     environment = $environment
+}
+$failedChecks = @($checks | Where-Object { -not $_.ok })
+$auditFocus = New-Object System.Collections.Generic.List[string]
+if ($normalizedDriver -eq "postgres") {
+    [void]$auditFocus.Add("postgres-runtime")
+    [void]$auditFocus.Add("connection-pool-thread-policy")
+} else {
+    [void]$auditFocus.Add("sqlite-path")
+}
+if ($queryMetrics.queryFailureCount -gt 0) { [void]$auditFocus.Add("query-failures") }
+if ($queryMetrics.slowQueryCount -gt 0) { [void]$auditFocus.Add("slow-queries") }
+if ($failedChecks.Count -gt 0) { [void]$auditFocus.Add("failed-checks") }
+if ($auditFocus.Count -eq 0) { [void]$auditFocus.Add("routine-health-review") }
+$resultObject.summary = [ordered]@{
+    readiness = if ($ok) { $(if ($PlanOnly) { "ready" } else { "verified" }) } else { "blocked" }
+    failedCheckCount = $failedChecks.Count
+    slowQueryCount = $queryMetrics.slowQueryCount
+    queryFailureCount = $queryMetrics.queryFailureCount
+    operatorAction = Get-HealthOperatorAction -Driver $normalizedDriver -PlanOnly ([bool]$PlanOnly) -Ok ([bool]$ok) -Status $status -SlowQueryCount $queryMetrics.slowQueryCount -QueryFailureCount $queryMetrics.queryFailureCount
+}
+$resultObject.auditSummary = [ordered]@{
+    releaseGate = Get-HealthReleaseGate -PlanOnly ([bool]$PlanOnly) -Ok ([bool]$ok) -SlowQueryCount $queryMetrics.slowQueryCount -QueryFailureCount $queryMetrics.queryFailureCount
+    driverMode = if ($normalizedDriver -eq "postgres") { "server-database" } else { "local-database" }
+    poolMode = if ($normalizedDriver -eq "postgres" -and -not $DisableConnectionPool) { "pooled" } else { "direct-open" }
+    evidenceBundle = @("json", "checks", "query-metrics")
+    auditFocus = @($auditFocus)
 }
 
 if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {

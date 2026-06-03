@@ -219,6 +219,34 @@ $dashboard = [ordered]@{
         taskPreviewPath = $resolvedTaskPreviewPath
     }
 }
+$dashboard.summary = [ordered]@{
+    readiness = if ($dashboard.ok) { "verified" } else { "blocked" }
+    operatorAction = if (-not $dashboard.ok) {
+        "Review failed checks, sensitive hits, and task warnings before trusting this dashboard."
+    } elseif ($queryFailureCount -gt 0) {
+        "Investigate query failures before promoting this dashboard to release readiness."
+    } elseif ($slowQueryCount -gt 0) {
+        "Review slow queries and pool thresholds before promoting this dashboard to release readiness."
+    } else {
+        "Archive the redacted dashboard for release readiness review."
+    }
+}
+$dashboard.auditSummary = [ordered]@{
+    releaseGate = if (-not $dashboard.ok) {
+        "blocked"
+    } elseif ($queryFailureCount -gt 0) {
+        "review-query-failures"
+    } elseif ($slowQueryCount -gt 0) {
+        "review-slow-queries"
+    } else {
+        "can-review-health-evidence"
+    }
+    evidenceBundle = @("dashboard-json", "dashboard-markdown", "query-metrics")
+    auditFocus = @($warnings | ForEach-Object { [string]$_ })
+}
+if ($dashboard.auditSummary.auditFocus.Count -eq 0) {
+    $dashboard.auditSummary.auditFocus = @("routine-health-review")
+}
 
 $dashboardParent = Split-Path -Parent $resolvedDashboardPath
 if (-not [string]::IsNullOrWhiteSpace($dashboardParent)) {
@@ -246,6 +274,9 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add(('- Last error reason: `{0}`' -f (Format-Value $dashboard.queryMetrics.lastErrorReason)))
     $lines.Add(('- Last error check: `{0}`' -f (Format-Value $dashboard.queryMetrics.lastErrorCheck)))
     $lines.Add(('- Last error sample: `{0}`' -f (Format-Value $dashboard.queryMetrics.lastErrorSample)))
+    $lines.Add(('- Readiness: `{0}`' -f (Format-Value $dashboard.summary.readiness)))
+    $lines.Add(('- Operator action: `{0}`' -f (Format-Value $dashboard.summary.operatorAction)))
+    $lines.Add(('- Release gate: `{0}`' -f (Format-Value $dashboard.auditSummary.releaseGate)))
     $lines.Add(('- Pool enabled: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.poolEnabled)))
     $lines.Add(('- Pool max connections: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.maxConnections)))
     $lines.Add(('- Pool idle ms: `{0}`' -f (Format-Value $dashboard.reconnectPolicy.idleMs)))
@@ -256,6 +287,7 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add(('- Sensitive hits: `{0}`' -f @($dashboard.sensitiveHits).Count))
     $lines.Add(('- Task configured: `{0}`' -f (Format-Value $dashboard.taskConfigured)))
     $lines.Add(('- Password source: `{0}`' -f (Format-Value $dashboard.passwordSource)))
+    $lines.Add(('- Audit focus: `{0}`' -f (@($dashboard.auditSummary.auditFocus) -join ", ")))
     if ($dashboard.warnings.Count -gt 0) {
         $lines.Add("")
         $lines.Add("## Warnings")

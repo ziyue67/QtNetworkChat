@@ -237,6 +237,8 @@ $failedChecks = @($checks | Where-Object { -not $_.ok })
 $offlineAttachmentScenarios = @($boundaryScenarios | Where-Object { [string]$_.category -like "offline-attachment*" })
 $resumeScenarios = @($boundaryScenarios | Where-Object { [string]$_.category -eq "offline-attachment-resume" })
 $failureScenarios = @($boundaryScenarios | Where-Object { [string]$_.category -eq "offline-attachment-failure" })
+$cleanupScenarios = @($boundaryScenarios | Where-Object { [string]$_.expectedEvidence -match "clear" -or [string]$_.expectedEvidence -match "cleanup" })
+$retryScenarios = @($boundaryScenarios | Where-Object { [string]$_.expectedEvidence -match "retry" -or [string]$_.expectedEvidence -match "resume" })
 $auditFocus = New-Object System.Collections.Generic.List[string]
 if ($EnsureDatabase) { [void]$auditFocus.Add("verify-bootstrap-readiness") }
 if ($offlineAttachmentScenarios.Count -gt 0) { [void]$auditFocus.Add("offline-attachment-recovery") }
@@ -261,6 +263,17 @@ $result.auditSummary = [ordered]@{
     resumeScenarioCount = $resumeScenarios.Count
     failureScenarioCount = $failureScenarios.Count
     auditFocus = @($auditFocus)
+}
+$result.recoverySummary = [ordered]@{
+    offlineAttachmentRecoveryCount = $offlineAttachmentScenarios.Count
+    retryOrResumeCount = $retryScenarios.Count
+    cleanupProofCount = $cleanupScenarios.Count
+    restartBoundaryCovered = (@($boundaryScenarios | Where-Object { [string]$_.category -eq "restart-boundary" }).Count -gt 0)
+    releaseHint = if ($PlanOnly) {
+        "Use real smoke evidence to confirm retry, cleanup, and restart recovery paths."
+    } else {
+        "Review retry, cleanup, and restart evidence before promoting PostgreSQL file recovery behavior."
+    }
 }
 
 if (-not $PlanOnly) {
@@ -384,6 +397,10 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("- Audit failure scenarios: {0}" -f $result.auditSummary.failureScenarioCount))
     $lines.Add(("- Audit evidence bundle: {0}" -f (@($result.auditSummary.evidenceBundle) -join ", ")))
     $lines.Add(("- Audit focus: {0}" -f (@($result.auditSummary.auditFocus) -join ", ")))
+    $lines.Add(("- Recovery retry/resume scenarios: {0}" -f $result.recoverySummary.retryOrResumeCount))
+    $lines.Add(("- Recovery cleanup proofs: {0}" -f $result.recoverySummary.cleanupProofCount))
+    $lines.Add(("- Recovery restart boundary covered: {0}" -f $result.recoverySummary.restartBoundaryCovered))
+    $lines.Add(("- Recovery release hint: {0}" -f $result.recoverySummary.releaseHint))
     $lines.Add("")
     $lines.Add("## Runtime Checks")
     $lines.Add("")
@@ -413,6 +430,16 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("| Boundary categories | {0} |" -f (@($result.auditSummary.boundaryCategories) -join ", ")))
     $lines.Add(("| Evidence bundle | {0} |" -f (@($result.auditSummary.evidenceBundle) -join ", ")))
     $lines.Add(("| Audit focus | {0} |" -f (@($result.auditSummary.auditFocus) -join ", ")))
+    $lines.Add("")
+    $lines.Add("## Recovery Summary")
+    $lines.Add("")
+    $lines.Add("| Recovery metric | Value |")
+    $lines.Add("|---|---|")
+    $lines.Add(("| Offline attachment recovery count | {0} |" -f $result.recoverySummary.offlineAttachmentRecoveryCount))
+    $lines.Add(("| Retry or resume count | {0} |" -f $result.recoverySummary.retryOrResumeCount))
+    $lines.Add(("| Cleanup proof count | {0} |" -f $result.recoverySummary.cleanupProofCount))
+    $lines.Add(("| Restart boundary covered | {0} |" -f $result.recoverySummary.restartBoundaryCovered))
+    $lines.Add(("| Release hint | {0} |" -f $result.recoverySummary.releaseHint))
     $lines.Add("")
     $lines.Add("## Boundary Scenarios")
     $lines.Add("")
