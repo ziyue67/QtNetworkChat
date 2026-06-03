@@ -120,8 +120,10 @@ $coverageSurfaces = @(
     "offline-private-queue-replay",
     "offline-attachment-queue-replay",
     "offline-attachment-partial-ack-resume",
+    "offline-attachment-rejected-ack-retry",
     "offline-attachment-expired-resume-fallback",
     "offline-attachment-confirmed-chunks-gap-resume",
+    "offline-attachment-confirmed-bytes-chunks-conflict",
     "offline-attachment-all-confirmed-cleanup",
     "restart-login-kdf-session"
 )
@@ -164,6 +166,12 @@ $boundaryScenarios = @(
         expectedEvidence = "raw receiver confirms the first chunk then disconnects, PostgreSQL stores confirmedBytes/confirmedChunks/resumeUpdatedAt, and retry resumes from the first unconfirmed chunk"
     },
     [pscustomobject]@{
+        name = "offline-attachment-rejected-ack-retry"
+        category = "offline-attachment-retry"
+        persistence = "offline_messages"
+        expectedEvidence = "raw receiver rejects the first chunk, PostgreSQL retains the queue row and attachment, and the next login must retry from chunk 0 before cleanup"
+    },
+    [pscustomobject]@{
         name = "offline-attachment-expired-resume-fallback"
         category = "offline-attachment-resume"
         persistence = "offline_messages.payload"
@@ -174,6 +182,12 @@ $boundaryScenarios = @(
         category = "offline-attachment-resume"
         persistence = "offline_messages.payload"
         expectedEvidence = "duplicate confirmedChunks are deduplicated, non-contiguous gaps resume from the first missing chunk, and the PostgreSQL queue is cleared after delivery"
+    },
+    [pscustomobject]@{
+        name = "offline-attachment-confirmed-bytes-chunks-conflict"
+        category = "offline-attachment-resume"
+        persistence = "offline_messages.payload"
+        expectedEvidence = "confirmedBytes may claim the full file while confirmedChunks has a gap; PostgreSQL trusts confirmedChunks, resumes from the first missing chunk, and clears the queue after delivery"
     },
     [pscustomobject]@{
         name = "offline-attachment-all-confirmed-cleanup"

@@ -9,6 +9,7 @@
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -496,6 +497,79 @@ bool loginRawAckFileReplay(const QString& account,
     socket.waitForDisconnected(1000);
     if (lastReceivedBytes) *lastReceivedBytes = receivedBytes;
     return sawLoginSuccess && ackedReplay;
+}
+
+bool loginRawRejectFirstChunkThenDisconnect(const QString& account,
+                                            const QString& userName,
+                                            quint16 port,
+                                            QVector<qint64>* rejectedChunkIndexes = nullptr,
+                                            int timeoutMs = 10000) {
+    QTcpSocket socket;
+    QByteArray buffer;
+    bool sawLoginSuccess = false;
+    bool rejectedFirstChunk = false;
+
+    auto drainSocket = [&]() {
+        buffer.append(socket.readAll());
+        while (buffer.contains('\n')) {
+            const int newlineIndex = buffer.indexOf('\n');
+            const QByteArray line = buffer.left(newlineIndex);
+            buffer = buffer.mid(newlineIndex + 1);
+            if (line.trimmed().isEmpty()) continue;
+
+            const QJsonDocument doc = QJsonDocument::fromJson(line);
+            if (!doc.isObject()) continue;
+            const QJsonObject obj = doc.object();
+            const QString type = obj["type"].toString();
+            if (type == "login_success") {
+                sawLoginSuccess = true;
+            } else if (type == "file_chunk" && !rejectedFirstChunk) {
+                const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
+                if (rejectedChunkIndexes) {
+                    rejectedChunkIndexes->append(chunkIndex);
+                }
+
+                QJsonObject ack;
+                ack["type"] = "file_chunk_ack";
+                ack["transferId"] = obj["transferId"].toString();
+                ack["chunkIndex"] = obj["chunkIndex"].toString();
+                ack["accepted"] = false;
+                ack["reason"] = "temporary-reject";
+                ack["receivedBytes"] = QStringLiteral("0");
+                socket.write(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+                socket.write("\n");
+                socket.flush();
+                socket.waitForBytesWritten(1000);
+                rejectedFirstChunk = true;
+                socket.disconnectFromHost();
+                return;
+            }
+        }
+    };
+    QObject::connect(&socket, &QTcpSocket::readyRead, &socket, drainSocket);
+
+    socket.connectToHost("127.0.0.1", port);
+    if (!socket.waitForConnected(timeoutMs)) return false;
+
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "login";
+    login["account"] = account;
+    login["password"] = "pg-smoke-secret";
+    login["userName"] = userName;
+    socket.write(QJsonDocument(login).toJson(QJsonDocument::Compact));
+    socket.write("\n");
+    socket.flush();
+
+    const bool rejected = waitFor([&] {
+        drainSocket();
+        return rejectedFirstChunk;
+    }, timeoutMs);
+    if (socket.state() != QAbstractSocket::UnconnectedState) {
+        socket.disconnectFromHost();
+    }
+    socket.waitForDisconnected(1000);
+    return sawLoginSuccess && rejected;
 }
 }
 
@@ -1147,6 +1221,64 @@ int main(int argc, char** argv) {
                 && offlineRows == 0;
         }), "partial-ack offline attachment retry should clear the PostgreSQL queue row") && ok;
 
+        setSmokeStep(QStringLiteral("offline attachment rejected ack retry"));
+        const QString rejectedAckFileName = "pgsql-smoke-rejected-ack-offline-file.bin";
+        const QString rejectedAckFilePath = QDir(appDataDir).filePath(rejectedAckFileName);
+        QByteArray rejectedAckPayload(300 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < rejectedAckPayload.size(); ++i) {
+            rejectedAckPayload[i] = static_cast<char>('R' + (i % 11));
+        }
+        QFile rejectedAckFile(rejectedAckFilePath);
+        ok = expect(rejectedAckFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL rejected-ack offline attachment smoke file should be writable") && ok;
+        if (rejectedAckFile.isOpen()) {
+            ok = expect(rejectedAckFile.write(rejectedAckPayload) == rejectedAckPayload.size(),
+                        "PostgreSQL rejected-ack offline attachment smoke file should contain the test payload") && ok;
+            rejectedAckFile.close();
+        }
+        ok = expect(owner.sendFile(rejectedAckFilePath, peerId),
+                    "owner should queue an offline attachment for rejected ACK retry") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + rejectedAckFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 1;
+        }), "rejected-ack offline attachment should be queued in PostgreSQL") && ok;
+        QVector<qint64> rejectedAckChunks;
+        ok = expect(loginRawRejectFirstChunkThenDisconnect(peerId,
+                                                           "PgPeer",
+                                                           port,
+                                                           &rejectedAckChunks),
+                    "raw peer should reject the first PostgreSQL offline attachment chunk") && ok;
+        ok = expect(rejectedAckChunks.size() == 1 && rejectedAckChunks.first() == 0,
+                    "raw rejected-ack peer should reject chunk 0 first") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + rejectedAckFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 1;
+        }), "rejected-ack offline attachment should remain queued for retry") && ok;
+        QVector<qint64> rejectedAckRetryChunks;
+        qint64 rejectedAckRetryReceivedBytes = 0;
+        ok = expect(loginRawAckFileReplay(peerId,
+                                          "PgPeer",
+                                          port,
+                                          &rejectedAckRetryChunks,
+                                          &rejectedAckRetryReceivedBytes),
+                    "raw peer should retry and finish rejected-ack PostgreSQL offline attachment replay") && ok;
+        ok = expect(rejectedAckRetryChunks.size() == 2
+                        && rejectedAckRetryChunks[0] == 0
+                        && rejectedAckRetryChunks[1] == 1,
+                    "rejected-ack retry should replay the full attachment from chunk 0") && ok;
+        ok = expect(rejectedAckRetryReceivedBytes == rejectedAckPayload.size(),
+                    "rejected-ack retry should confirm the full attachment size") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + rejectedAckFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 0;
+        }), "rejected-ack offline attachment retry should clear the PostgreSQL queue row") && ok;
+
         setSmokeStep(QStringLiteral("offline attachment expired resume fallback"));
         const QString expiredResumeFileName = "pgsql-smoke-expired-resume-offline-file.bin";
         const QString expiredResumeFilePath = QDir(appDataDir).filePath(expiredResumeFileName);
@@ -1273,6 +1405,69 @@ int main(int argc, char** argv) {
                                   &offlineRows)
                 && offlineRows == 0;
         }), "gap-resume offline attachment replay should clear the PostgreSQL queue row") && ok;
+
+        setSmokeStep(QStringLiteral("offline attachment confirmed bytes chunks conflict"));
+        const QString conflictResumeFileName = "pgsql-smoke-conflict-resume-offline-file.bin";
+        const QString conflictResumeFilePath = QDir(appDataDir).filePath(conflictResumeFileName);
+        QByteArray conflictResumePayload(700 * 1024, Qt::Uninitialized);
+        for (int i = 0; i < conflictResumePayload.size(); ++i) {
+            conflictResumePayload[i] = static_cast<char>('k' + (i % 9));
+        }
+        QFile conflictResumeFile(conflictResumeFilePath);
+        ok = expect(conflictResumeFile.open(QIODevice::WriteOnly),
+                    "PostgreSQL conflict-resume offline attachment smoke file should be writable") && ok;
+        if (conflictResumeFile.isOpen()) {
+            ok = expect(conflictResumeFile.write(conflictResumePayload) == conflictResumePayload.size(),
+                        "PostgreSQL conflict-resume offline attachment smoke file should contain the test payload") && ok;
+            conflictResumeFile.close();
+        }
+        ok = expect(owner.sendFile(conflictResumeFilePath, peerId),
+                    "owner should queue an offline attachment for confirmedBytes/confirmedChunks conflict") && ok;
+        QString conflictResumePayloadJson;
+        ok = expect(loadOfflineAttachmentPayload(conflictResumeFileName, &conflictResumePayloadJson, nullptr),
+                    "conflict-resume offline attachment payload should be persisted in PostgreSQL") && ok;
+        QJsonObject conflictResumePayloadObject = QJsonDocument::fromJson(conflictResumePayloadJson.toUtf8()).object();
+        QJsonArray conflictConfirmedChunks;
+        conflictConfirmedChunks.append(QString::number(0));
+        conflictConfirmedChunks.append(QString::number(2));
+        conflictResumePayloadObject["confirmedBytes"] = QString::number(conflictResumePayload.size());
+        conflictResumePayloadObject["confirmedChunks"] = conflictConfirmedChunks;
+        conflictResumePayloadObject["resumeUpdatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        const QString mutatedConflictResumePayload = QString::fromUtf8(QJsonDocument(conflictResumePayloadObject).toJson(QJsonDocument::Compact));
+        const QString mutateConflictResumeConnectionName = "postgres_qpsql_mutate_conflict_resume_payload";
+        bool mutatedConflictResumePayloadOk = false;
+        {
+            QSqlDatabase db = openPostgres(mutateConflictResumeConnectionName);
+            if (db.open()) {
+                mutatedConflictResumePayloadOk = execSql(db,
+                                                         "UPDATE offline_messages SET payload = ? WHERE receiver_id = ? AND payload LIKE ?",
+                                                         {mutatedConflictResumePayload, peerId, "%" + conflictResumeFileName + "%"});
+                db.close();
+            }
+        }
+        QSqlDatabase::removeDatabase(mutateConflictResumeConnectionName);
+        ok = expect(mutatedConflictResumePayloadOk,
+                    "smoke should mutate queued offline attachment to conflicting confirmedBytes and confirmedChunks") && ok;
+
+        QVector<qint64> conflictResumeReplayChunks;
+        qint64 conflictResumeReplayReceivedBytes = 0;
+        ok = expect(loginRawAckChunksThenDisconnect(peerId,
+                                                    "PgPeer",
+                                                    port,
+                                                    1,
+                                                    &conflictResumeReplayReceivedBytes,
+                                                    &conflictResumeReplayChunks),
+                    "raw peer should ack the first missing chunk for conflicting PostgreSQL offline attachment progress") && ok;
+        ok = expect(conflictResumeReplayChunks.size() == 1 && conflictResumeReplayChunks.first() == 1,
+                    "confirmedChunks should win over conflicting confirmedBytes and resume from chunk 1") && ok;
+        ok = expect(conflictResumeReplayReceivedBytes == 512 * 1024,
+                    "conflict-resume replay should report progress through the first missing chunk") && ok;
+        ok = expect(waitFor([&] {
+            return scalarLongLong("SELECT COUNT(*) FROM offline_messages WHERE receiver_id = ? AND payload LIKE ?",
+                                  {peerId, "%" + conflictResumeFileName + "%"},
+                                  &offlineRows)
+                && offlineRows == 0;
+        }), "conflict-resume offline attachment replay should clear the PostgreSQL queue row") && ok;
 
         setSmokeStep(QStringLiteral("offline attachment all chunks already confirmed cleanup"));
         const QString allConfirmedFileName = "pgsql-smoke-all-confirmed-offline-file.bin";

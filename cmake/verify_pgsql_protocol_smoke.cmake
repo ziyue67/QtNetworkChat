@@ -94,8 +94,10 @@ string(FIND "${json_content}" "offline-attachment-chunk-metadata" has_offline_at
 string(FIND "${json_content}" "offline-attachment-missing-file-cleanup" has_offline_attachment_missing)
 string(FIND "${json_content}" "offline-attachment-size-hash-chunk-cleanup" has_offline_attachment_corruptions)
 string(FIND "${json_content}" "offline-attachment-partial-ack-resume" has_offline_attachment_resume)
+string(FIND "${json_content}" "offline-attachment-rejected-ack-retry" has_offline_attachment_rejected_ack)
 string(FIND "${json_content}" "offline-attachment-expired-resume-fallback" has_offline_attachment_expired_resume)
 string(FIND "${json_content}" "offline-attachment-confirmed-chunks-gap-resume" has_offline_attachment_gap_resume)
+string(FIND "${json_content}" "offline-attachment-confirmed-bytes-chunks-conflict" has_offline_attachment_conflict_resume)
 string(FIND "${json_content}" "offline-attachment-all-confirmed-cleanup" has_offline_attachment_all_confirmed)
 string(FIND "${json_content}" "file-chunk-metadata-persistence" has_file_chunk_boundary)
 string(FIND "${json_content}" "online-file-chunk-invalid-ack-retry" has_online_file_retry)
@@ -108,8 +110,8 @@ string(FIND "${markdown_content}" "Operator action: Runtime prerequisites look r
 string(FIND "${markdown_content}" "Audit release gate: await-real-smoke" has_markdown_audit_release_gate)
 string(FIND "${markdown_content}" "Audit evidence bundle: json, markdown, boundary-scenarios" has_markdown_audit_bundle)
 string(FIND "${markdown_content}" "| Release gate | await-real-smoke |" has_markdown_audit_table)
-string(FIND "${markdown_content}" "Recovery retry/resume scenarios: 3" has_markdown_recovery_retry)
-string(FIND "${markdown_content}" "| Cleanup proof count | 6 |" has_markdown_recovery_table)
+string(FIND "${markdown_content}" "Recovery retry/resume scenarios: 5" has_markdown_recovery_retry)
+string(FIND "${markdown_content}" "| Cleanup proof count | 8 |" has_markdown_recovery_table)
 string(FIND "${markdown_content}" "<redacted>" has_markdown_redacted)
 string(FIND "${markdown_content}" "not-used-in-plan" has_markdown_secret)
 if(NOT format STREQUAL "qtnetworkchat-pgsql-protocol-smoke-v1")
@@ -144,7 +146,7 @@ if(NOT coverage0 STREQUAL "register-login")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke plan should expose register-login coverage")
 endif()
-if(NOT summary_readiness STREQUAL "ready" OR NOT summary_failed_checks EQUAL 0 OR NOT summary_coverage_count EQUAL 16 OR NOT summary_boundary_count EQUAL 12 OR NOT summary_bootstrap_mode STREQUAL "direct-connect")
+if(NOT summary_readiness STREQUAL "ready" OR NOT summary_failed_checks EQUAL 0 OR NOT summary_coverage_count EQUAL 18 OR NOT summary_boundary_count EQUAL 14 OR NOT summary_bootstrap_mode STREQUAL "direct-connect")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke plan should expose ready summary counts and direct-connect bootstrap mode")
 endif()
@@ -152,14 +154,14 @@ if(NOT summary_operator_action STREQUAL "Runtime prerequisites look ready; next 
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke plan should expose the expected operator action")
 endif()
-if(NOT audit_release_gate STREQUAL "await-real-smoke" OR audit_bootstrap_required OR NOT audit_offline_attachment_count EQUAL 8
-    OR NOT audit_resume_count EQUAL 4 OR NOT audit_failure_count EQUAL 2 OR NOT audit_evidence0 STREQUAL "json"
+if(NOT audit_release_gate STREQUAL "await-real-smoke" OR audit_bootstrap_required OR NOT audit_offline_attachment_count EQUAL 10
+    OR NOT audit_resume_count EQUAL 5 OR NOT audit_failure_count EQUAL 2 OR NOT audit_evidence0 STREQUAL "json"
     OR NOT audit_evidence2 STREQUAL "boundary-scenarios" OR NOT audit_category0 STREQUAL "file-chunk"
     OR NOT audit_focus0 STREQUAL "offline-attachment-recovery")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke audit summary should expose release gate, category counts, and audit focus")
 endif()
-if(NOT recovery_retry_count EQUAL 3 OR NOT recovery_cleanup_count EQUAL 6 OR NOT recovery_restart_covered
+if(NOT recovery_retry_count EQUAL 5 OR NOT recovery_cleanup_count EQUAL 8 OR NOT recovery_restart_covered
     OR NOT recovery_release_hint STREQUAL "Use real smoke evidence to confirm retry, cleanup, and restart recovery paths.")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke recovery summary should expose retry/cleanup/restart coverage")
@@ -184,13 +186,15 @@ if(has_offline_attachment_metadata EQUAL -1
     OR has_offline_attachment_missing EQUAL -1
     OR has_offline_attachment_corruptions EQUAL -1
     OR has_offline_attachment_resume EQUAL -1
+    OR has_offline_attachment_rejected_ack EQUAL -1
     OR has_offline_attachment_expired_resume EQUAL -1
     OR has_offline_attachment_gap_resume EQUAL -1
+    OR has_offline_attachment_conflict_resume EQUAL -1
     OR has_offline_attachment_all_confirmed EQUAL -1
     OR has_file_chunk_boundary EQUAL -1
     OR has_online_file_retry EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "PostgreSQL smoke plan should expose offline attachment metadata, corruption cleanup, resume fallback, confirmedChunks cleanup and online file chunk retry boundaries")
+    message(FATAL_ERROR "PostgreSQL smoke plan should expose offline attachment metadata, corruption cleanup, rejected ACK retry, resume fallback, confirmedBytes/confirmedChunks conflict, confirmedChunks cleanup and online file chunk retry boundaries")
 endif()
 if(has_markdown_title EQUAL -1 OR has_markdown_boundaries EQUAL -1 OR has_markdown_redacted EQUAL -1 OR has_markdown_ensure_database EQUAL -1 OR has_markdown_bootstrap_json EQUAL -1 OR has_markdown_readiness EQUAL -1 OR has_markdown_operator_action EQUAL -1 OR has_markdown_audit_release_gate EQUAL -1 OR has_markdown_audit_bundle EQUAL -1 OR has_markdown_audit_table EQUAL -1 OR has_markdown_recovery_retry EQUAL -1 OR has_markdown_recovery_table EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
