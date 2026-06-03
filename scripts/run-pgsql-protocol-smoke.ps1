@@ -40,6 +40,29 @@ function New-Check {
     }
 }
 
+function Get-SmokeOperatorAction {
+    param(
+        [bool]$PlanOnly,
+        [bool]$EnsureDatabase,
+        [bool]$Ok,
+        [int]$FailedChecks
+    )
+
+    if (-not $Ok) {
+        return "Fix prerequisite failures before running PostgreSQL QPSQL smoke."
+    }
+    if ($PlanOnly -and $EnsureDatabase) {
+        return "Bootstrap prerequisites look ready; next run can enable real smoke with EnsureDatabase."
+    }
+    if ($PlanOnly) {
+        return "Runtime prerequisites look ready; next run can enable real smoke against the target PostgreSQL."
+    }
+    if ($FailedChecks -gt 0) {
+        return "Review prerequisite failures and rerun smoke after fixing local runtime or database access."
+    }
+    "Archive the redacted evidence and use it for PostgreSQL release readiness review."
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $testExePath = Resolve-RepoPath $TestExe
 $qtBinDir = Join-Path $QtRoot "bin"
@@ -188,6 +211,16 @@ if (-not [string]::IsNullOrWhiteSpace($BootstrapJsonPath)) {
     $result.bootstrapJsonPath = Resolve-RepoPath $BootstrapJsonPath
 }
 
+$failedChecks = @($checks | Where-Object { -not $_.ok })
+$result.summary = [ordered]@{
+    readiness = if ($result.ok) { "ready" } else { "blocked" }
+    failedCheckCount = $failedChecks.Count
+    coverageSurfaceCount = $coverageSurfaces.Count
+    boundaryScenarioCount = $boundaryScenarios.Count
+    bootstrapMode = if ($EnsureDatabase) { "ensure-database" } else { "direct-connect" }
+    operatorAction = Get-SmokeOperatorAction -PlanOnly ([bool]$PlanOnly) -EnsureDatabase ([bool]$EnsureDatabase) -Ok ([bool]$result.ok) -FailedChecks $failedChecks.Count
+}
+
 if (-not $PlanOnly) {
     if (-not $result.ok) {
         $missing = @($checks | Where-Object { -not $_.ok } | ForEach-Object { $_.name })
@@ -250,6 +283,8 @@ if (-not $PlanOnly) {
         & $testExePath
         $result.exitCode = $LASTEXITCODE
         $result.ok = $result.ok -and ($LASTEXITCODE -eq 0)
+        $result.summary.readiness = if ($result.ok) { "verified" } else { "blocked" }
+        $result.summary.operatorAction = Get-SmokeOperatorAction -PlanOnly $false -EnsureDatabase ([bool]$EnsureDatabase) -Ok ([bool]$result.ok) -FailedChecks (@($checks | Where-Object { -not $_.ok }).Count)
     } finally {
         $env:PATH = $oldPath
         $env:QT_PLUGIN_PATH = $oldPluginPath
@@ -294,6 +329,11 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(("- PostgreSQL target: {0}:{1}/{2} as {3}" -f $PostgresHost, $PostgresPort, $PostgresDatabase, $PostgresUser))
     $lines.Add("- PostgreSQL password: <redacted>")
     $lines.Add(("- Failed prerequisite checks: {0}" -f $failedChecks.Count))
+    $lines.Add(("- Readiness: {0}" -f $result.summary.readiness))
+    $lines.Add(("- Coverage surfaces: {0}" -f $result.summary.coverageSurfaceCount))
+    $lines.Add(("- Boundary scenarios: {0}" -f $result.summary.boundaryScenarioCount))
+    $lines.Add(("- Bootstrap mode: {0}" -f $result.summary.bootstrapMode))
+    $lines.Add(("- Operator action: {0}" -f $result.summary.operatorAction))
     $lines.Add("")
     $lines.Add("## Runtime Checks")
     $lines.Add("")
