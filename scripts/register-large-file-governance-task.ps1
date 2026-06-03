@@ -368,6 +368,22 @@ $preview = [pscustomobject]@{
         history = "historyArtifactPath"
         ack = "ackArtifactPath"
     }
+    artifacts = [ordered]@{
+        status = [ordered]@{
+            path = $dashboardPreviewPath
+            markdownPath = $dashboardMarkdownPreviewPath
+        }
+        lastRun = [ordered]@{
+            path = $logPath
+        }
+        history = [ordered]@{
+            path = $historyPath
+            markdownPath = $historyMarkdownPath
+        }
+        ack = [ordered]@{
+            path = $ackPath
+        }
+    }
     readOnly = $true
     notes = "Default mode only writes this preview and launcher script. Use -Register to create or update the Windows Scheduled Task. After each run, read alertOverviewPath for aggregated health status, healthCheckPath for a single ok/notOk verdict, dashboardPath for machine-readable local status, reportPath for an operator-readable summary, diagnosticsPackagePath for a sanitized zip, and automation task history JSON/Markdown derived from last-run.log plus same-directory ack state."
 }

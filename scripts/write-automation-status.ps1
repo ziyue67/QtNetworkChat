@@ -220,6 +220,16 @@ function Get-PreviewArtifactConfiguration(
             source = "preview-" + $PreviewState.state
         }
     }
+    $artifactsObject = Get-JsonValue $PreviewState.value "artifacts" $null
+    $artifactObject = Get-JsonValue $artifactsObject $ArtifactLabel $null
+    $artifactPath = Get-JsonValue $artifactObject "path" ""
+    if (-not [string]::IsNullOrWhiteSpace([string]$artifactPath)) {
+        return [pscustomobject]@{
+            configured = $true
+            path = [string]$artifactPath
+            source = "artifacts." + $ArtifactLabel + ".path"
+        }
+    }
     $roleHints = Get-JsonValue $PreviewState.value "artifactRoles" $null
     foreach ($propertyName in $PreferredPropertyNames) {
         $value = Resolve-PreviewValue $PreviewState $propertyName

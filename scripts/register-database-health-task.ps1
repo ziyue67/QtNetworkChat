@@ -306,6 +306,22 @@ $preview = [pscustomobject]@{
         history = "historyArtifactPath"
         ack = "ackArtifactPath"
     }
+    artifacts = [ordered]@{
+        status = [ordered]@{
+            path = $statusPath
+            markdownPath = $markdownPath
+        }
+        lastRun = [ordered]@{
+            path = $logPath
+        }
+        history = [ordered]@{
+            path = $historyPath
+            markdownPath = $historyMarkdownPath
+        }
+        ack = [ordered]@{
+            path = $ackPath
+        }
+    }
     driver = $Driver
     planOnly = $PlanOnly.IsPresent
     failOnUnhealthy = $FailOnUnhealthy.IsPresent
