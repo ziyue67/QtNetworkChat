@@ -693,4 +693,10 @@ if(BUILD_TESTING)
             -DQT_ROOT=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/..
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_sqlite_pg_migration.cmake
     )
+    add_test(
+        NAME PostgresReleaseAcceptance
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-pgsql-release-acceptance.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_pgsql_release_acceptance.cmake
+    )
 endif()
