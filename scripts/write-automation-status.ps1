@@ -14,6 +14,7 @@ param(
     [string]$LargeFileGovernanceStatusPath,
     [string]$LargeFileGovernanceLastRunPath,
     [string]$LargeFileGovernanceTaskPreviewPath,
+    [string[]]$TaskPreviewPath = @(),
     [string]$AutomationTaskHistoryPath,
     [string]$AutomationTaskAckPath,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
@@ -107,6 +108,19 @@ function Has-ConfigurationHint([string[]]$Values) {
         }
     }
     $false
+}
+
+function Normalize-PathList([string[]]$Values) {
+    $normalized = New-Object System.Collections.Generic.List[string]
+    foreach ($value in $Values) {
+        foreach ($part in ([string]$value -split ",")) {
+            $trimmed = $part.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                $normalized.Add($trimmed)
+            }
+        }
+    }
+    @($normalized)
 }
 
 function Get-ArtifactState(
@@ -286,6 +300,55 @@ function Get-ArtifactIssueText(
     $ArtifactLabel + '=not-configured'
 }
 
+function New-PreviewRecord([string]$Label, [string]$PathValue) {
+    $state = Get-ArtifactState -PathValue $PathValue -ExpectJson
+    $taskKind = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskKind" "unknown") } else { "unknown" }
+    $taskName = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskName" "unknown") } else { "unknown" }
+    [pscustomobject]@{
+        label = $Label
+        path = $PathValue
+        state = $state
+        taskKind = $taskKind
+        taskName = $taskName
+    }
+}
+
+function Resolve-PreviewCollectionValueAny([object[]]$PreviewRecords, [string[]]$PropertyNames) {
+    foreach ($previewRecord in $PreviewRecords) {
+        $value = Resolve-PreviewValueAny $previewRecord.state $PropertyNames
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value
+        }
+    }
+    ""
+}
+
+function Find-PreviewRecordForArtifact([object[]]$PreviewRecords, [string[]]$PropertyNames, [string]$ArtifactLabel) {
+    foreach ($previewRecord in $PreviewRecords) {
+        $configuration = Get-PreviewArtifactConfiguration $previewRecord.state $PropertyNames $ArtifactLabel
+        if ($configuration.configured -or $configuration.source -ne "preview-missing-property") {
+            return [pscustomobject]@{
+                record = $previewRecord
+                configuration = $configuration
+            }
+        }
+    }
+    if ($PreviewRecords.Count -gt 0) {
+        return [pscustomobject]@{
+            record = $PreviewRecords[0]
+            configuration = Get-PreviewArtifactConfiguration $PreviewRecords[0].state $PropertyNames $ArtifactLabel
+        }
+    }
+    [pscustomobject]@{
+        record = $null
+        configuration = [pscustomobject]@{
+            configured = $false
+            path = ""
+            source = "preview-not-configured"
+        }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($Head)) {
     $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
 }
@@ -296,20 +359,36 @@ if ([string]::IsNullOrWhiteSpace($OriginCodexQt)) {
     $OriginCodexQt = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt") }
 }
 
+$normalizedTaskPreviewPaths = Normalize-PathList $TaskPreviewPath
 $databaseHealthPreview = Get-ArtifactState -PathValue $DatabaseHealthTaskPreviewPath -ExpectJson
 $largeFileGovernancePreview = Get-ArtifactState -PathValue $LargeFileGovernanceTaskPreviewPath -ExpectJson
+$previewRecords = New-Object System.Collections.Generic.List[object]
+if (-not [string]::IsNullOrWhiteSpace($DatabaseHealthTaskPreviewPath)) {
+    $previewRecords.Add((New-PreviewRecord "database-health" $DatabaseHealthTaskPreviewPath))
+}
+if (-not [string]::IsNullOrWhiteSpace($LargeFileGovernanceTaskPreviewPath)) {
+    $previewRecords.Add((New-PreviewRecord "large-file-governance" $LargeFileGovernanceTaskPreviewPath))
+}
+foreach ($previewPath in $normalizedTaskPreviewPaths) {
+    if ($previewPath -ne $DatabaseHealthTaskPreviewPath -and $previewPath -ne $LargeFileGovernanceTaskPreviewPath) {
+        $previewRecords.Add((New-PreviewRecord "generic" $previewPath))
+    }
+}
+$previewRecords = $previewRecords.ToArray()
+$databaseHealthPreviewCandidates = @($previewRecords | Where-Object { $_.label -eq "database-health" -or $_.taskKind -eq "database-health" })
+$largeFileGovernancePreviewCandidates = @($previewRecords | Where-Object { $_.label -eq "large-file-governance" -or $_.taskKind -eq "large-file-governance" })
 
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthStatusPath)) {
-    $DatabaseHealthStatusPath = Resolve-PreviewValueAny $databaseHealthPreview @("statusArtifactPath", "statusPath")
+    $DatabaseHealthStatusPath = Resolve-PreviewCollectionValueAny $databaseHealthPreviewCandidates @("statusArtifactPath", "statusPath")
 }
 if ([string]::IsNullOrWhiteSpace($DatabaseHealthLastRunPath)) {
-    $DatabaseHealthLastRunPath = Resolve-PreviewValueAny $databaseHealthPreview @("lastRunPath", "logPath")
+    $DatabaseHealthLastRunPath = Resolve-PreviewCollectionValueAny $databaseHealthPreviewCandidates @("lastRunPath", "logPath")
 }
 if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceStatusPath)) {
-    $LargeFileGovernanceStatusPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("statusArtifactPath", "dashboardPath")
+    $LargeFileGovernanceStatusPath = Resolve-PreviewCollectionValueAny $largeFileGovernancePreviewCandidates @("statusArtifactPath", "dashboardPath")
 }
 if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
-    $previewLogPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("lastRunPath", "logPath")
+    $previewLogPath = Resolve-PreviewCollectionValueAny $largeFileGovernancePreviewCandidates @("lastRunPath", "logPath")
     if (-not [string]::IsNullOrWhiteSpace($previewLogPath)) {
         $LargeFileGovernanceLastRunPath = $previewLogPath
     } else {
@@ -320,16 +399,10 @@ if ([string]::IsNullOrWhiteSpace($LargeFileGovernanceLastRunPath)) {
     }
 }
 if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
-    $AutomationTaskHistoryPath = Resolve-PreviewValueAny $databaseHealthPreview @("historyArtifactPath", "historyPath")
-    if ([string]::IsNullOrWhiteSpace($AutomationTaskHistoryPath)) {
-        $AutomationTaskHistoryPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("historyArtifactPath", "historyPath")
-    }
+    $AutomationTaskHistoryPath = Resolve-PreviewCollectionValueAny @($previewRecords) @("historyArtifactPath", "historyPath")
 }
 if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
-    $AutomationTaskAckPath = Resolve-PreviewValueAny $databaseHealthPreview @("ackArtifactPath", "ackPath")
-    if ([string]::IsNullOrWhiteSpace($AutomationTaskAckPath)) {
-        $AutomationTaskAckPath = Resolve-PreviewValueAny $largeFileGovernancePreview @("ackArtifactPath", "ackPath")
-    }
+    $AutomationTaskAckPath = Resolve-PreviewCollectionValueAny @($previewRecords) @("ackArtifactPath", "ackPath")
 }
 
 $normalizedProtectedUntracked = @()
@@ -343,22 +416,26 @@ foreach ($entry in $ProtectedUntracked) {
 }
 $protectedText = if ($normalizedProtectedUntracked.Count -gt 0) { $normalizedProtectedUntracked -join ", " } else { "none" }
 $generatedAt = (Get-Date).ToUniversalTime().ToString("o")
-$databaseHealthStatusConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("statusArtifactPath", "statusPath") "status"
-$databaseHealthLastRunConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("lastRunPath", "logPath") "lastRun"
-$largeFileGovernanceStatusConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("statusArtifactPath", "dashboardPath") "status"
-$largeFileGovernanceLastRunConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("lastRunPath", "logPath") "lastRun"
-$automationTaskHistoryConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("historyArtifactPath", "historyPath") "history"
-$automationTaskHistoryPreviewState = $databaseHealthPreview
-if (-not $automationTaskHistoryConfig.configured) {
-    $automationTaskHistoryConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("historyArtifactPath", "historyPath") "history"
-    $automationTaskHistoryPreviewState = $largeFileGovernancePreview
-}
-$automationTaskAckConfig = Get-PreviewArtifactConfiguration $databaseHealthPreview @("ackArtifactPath", "ackPath") "ack"
-$automationTaskAckPreviewState = $databaseHealthPreview
-if (-not $automationTaskAckConfig.configured) {
-    $automationTaskAckConfig = Get-PreviewArtifactConfiguration $largeFileGovernancePreview @("ackArtifactPath", "ackPath") "ack"
-    $automationTaskAckPreviewState = $largeFileGovernancePreview
-}
+$databaseHealthPreviewRecord = @($databaseHealthPreviewCandidates | Select-Object -First 1)[0]
+$largeFileGovernancePreviewRecord = @($largeFileGovernancePreviewCandidates | Select-Object -First 1)[0]
+$databaseHealthStatusConfigMatch = Find-PreviewRecordForArtifact $databaseHealthPreviewCandidates @("statusArtifactPath", "statusPath") "status"
+$databaseHealthStatusConfig = $databaseHealthStatusConfigMatch.configuration
+$databaseHealthStatusPreviewState = if ($null -ne $databaseHealthStatusConfigMatch.record) { $databaseHealthStatusConfigMatch.record.state } else { $null }
+$databaseHealthLastRunConfigMatch = Find-PreviewRecordForArtifact $databaseHealthPreviewCandidates @("lastRunPath", "logPath") "lastRun"
+$databaseHealthLastRunConfig = $databaseHealthLastRunConfigMatch.configuration
+$databaseHealthLastRunPreviewState = if ($null -ne $databaseHealthLastRunConfigMatch.record) { $databaseHealthLastRunConfigMatch.record.state } else { $null }
+$largeFileGovernanceStatusConfigMatch = Find-PreviewRecordForArtifact $largeFileGovernancePreviewCandidates @("statusArtifactPath", "dashboardPath") "status"
+$largeFileGovernanceStatusConfig = $largeFileGovernanceStatusConfigMatch.configuration
+$largeFileGovernanceStatusPreviewState = if ($null -ne $largeFileGovernanceStatusConfigMatch.record) { $largeFileGovernanceStatusConfigMatch.record.state } else { $null }
+$largeFileGovernanceLastRunConfigMatch = Find-PreviewRecordForArtifact $largeFileGovernancePreviewCandidates @("lastRunPath", "logPath") "lastRun"
+$largeFileGovernanceLastRunConfig = $largeFileGovernanceLastRunConfigMatch.configuration
+$largeFileGovernanceLastRunPreviewState = if ($null -ne $largeFileGovernanceLastRunConfigMatch.record) { $largeFileGovernanceLastRunConfigMatch.record.state } else { $null }
+$automationTaskHistoryConfigMatch = Find-PreviewRecordForArtifact @($previewRecords) @("historyArtifactPath", "historyPath") "history"
+$automationTaskHistoryConfig = $automationTaskHistoryConfigMatch.configuration
+$automationTaskHistoryPreviewState = if ($null -ne $automationTaskHistoryConfigMatch.record) { $automationTaskHistoryConfigMatch.record.state } else { $null }
+$automationTaskAckConfigMatch = Find-PreviewRecordForArtifact @($previewRecords) @("ackArtifactPath", "ackPath") "ack"
+$automationTaskAckConfig = $automationTaskAckConfigMatch.configuration
+$automationTaskAckPreviewState = if ($null -ne $automationTaskAckConfigMatch.record) { $automationTaskAckConfigMatch.record.state } else { $null }
 
 $databaseHealthStatusState = Get-ArtifactState -PathValue $DatabaseHealthStatusPath -ExpectJson
 $databaseHealthLastRunState = Get-ArtifactState -PathValue $DatabaseHealthLastRunPath
@@ -401,10 +478,30 @@ $lines.Add("- Keep PostgreSQL passwords, GPG passphrases, GitHub tokens, S3 cred
 $lines.Add("- Verify with the PowerShell timeout wrappers: build 600 seconds, CTest 900 seconds.")
 $lines.Add('- Use signed Conventional Commits and push `main`, then fast-forward `codex/qt`.')
 $lines.Add("")
+$lines.Add("## Registered Preview Tasks")
+$lines.Add("")
+if ($previewRecords.Count -eq 0) {
+    $lines.Add('- Registered preview tasks: `none`')
+} else {
+    foreach ($previewRecord in $previewRecords) {
+        $previewPathText = "unknown"
+        if (-not [string]::IsNullOrWhiteSpace([string]$previewRecord.path)) {
+            $previewPathText = [string]$previewRecord.path
+        }
+        $previewLine = '- Preview task: label=`{0}`, kind=`{1}`, name=`{2}`, state=`{3}`, path=`{4}`' -f `
+            (Format-StatusValue $previewRecord.label), `
+            (Format-StatusValue $previewRecord.taskKind), `
+            (Format-StatusValue $previewRecord.taskName), `
+            (Format-StatusValue $previewRecord.state.state), `
+            $previewPathText
+        $lines.Add($previewLine)
+    }
+}
+$lines.Add("")
 $lines.Add("## Scheduled Task Readback")
 $lines.Add("")
 if ($databaseHealthStatusState.state -ne "ok") {
-    if (Has-ConfigurationHint @($DatabaseHealthStatusPath, $DatabaseHealthLastRunPath, $DatabaseHealthTaskPreviewPath)) {
+    if (Has-ConfigurationHint @($DatabaseHealthStatusPath, $DatabaseHealthLastRunPath, $DatabaseHealthTaskPreviewPath, $normalizedTaskPreviewPaths)) {
         $lines.Add('- Database health: `configured but status artifact unavailable`')
     } else {
         $lines.Add('- Database health: `not configured`')
@@ -427,7 +524,7 @@ if ($null -ne $databaseHealthLastRun) {
             (Format-StatusValue $databaseHealthLastRun.exitCode)))
 }
 if ($largeFileGovernanceStatusState.state -ne "ok") {
-    if (Has-ConfigurationHint @($LargeFileGovernanceStatusPath, $LargeFileGovernanceLastRunPath, $LargeFileGovernanceTaskPreviewPath)) {
+    if (Has-ConfigurationHint @($LargeFileGovernanceStatusPath, $LargeFileGovernanceLastRunPath, $LargeFileGovernanceTaskPreviewPath, $normalizedTaskPreviewPaths)) {
         $lines.Add('- Large-file governance: `configured but status artifact unavailable`')
     } else {
         $lines.Add('- Large-file governance: `not configured`')
@@ -447,7 +544,7 @@ if ($null -ne $largeFileGovernanceLastRun) {
             (Format-StatusValue $largeFileGovernanceLastRun.exitCode)))
 }
 if ($automationTaskHistoryState.state -ne "ok") {
-    if (Has-ConfigurationHint @($AutomationTaskHistoryPath, $AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath)) {
+    if (Has-ConfigurationHint @($AutomationTaskHistoryPath, $AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath, $normalizedTaskPreviewPaths)) {
         $lines.Add('- Task history: `configured but history artifact unavailable`')
     } else {
         $lines.Add('- Task history: `not configured`')
@@ -463,7 +560,7 @@ if ($automationTaskHistoryState.state -ne "ok") {
             (Format-StatusValue (Get-JsonValue $automationTaskHistory "ackExpired" $null))))
 }
 if ($automationTaskAckState.state -ne "ok") {
-    if (Has-ConfigurationHint @($AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath)) {
+    if (Has-ConfigurationHint @($AutomationTaskAckPath, $DatabaseHealthTaskPreviewPath, $LargeFileGovernanceTaskPreviewPath, $normalizedTaskPreviewPaths)) {
         $lines.Add('- Task acknowledgement: `configured but ack artifact unavailable`')
     }
 } else {
@@ -476,20 +573,23 @@ if ($automationTaskAckState.state -ne "ok") {
 $lines.Add("")
 $lines.Add("## Artifact Diagnostics")
 $lines.Add("")
-$lines.Add('- Database health artifacts: `' + ((@(
-        (Get-ArtifactIssueText "preview" $databaseHealthPreview $null $null),
-        (Get-ArtifactIssueText "status" $databaseHealthStatusState $databaseHealthPreview $databaseHealthStatusConfig),
-        (Get-ArtifactIssueText "lastRun" $databaseHealthLastRunState $databaseHealthPreview $databaseHealthLastRunConfig)
-    ) -join "; ")) + '`')
-$lines.Add('- Large-file governance artifacts: `' + ((@(
-        (Get-ArtifactIssueText "preview" $largeFileGovernancePreview $null $null),
-        (Get-ArtifactIssueText "status" $largeFileGovernanceStatusState $largeFileGovernancePreview $largeFileGovernanceStatusConfig),
-        (Get-ArtifactIssueText "lastRun" $largeFileGovernanceLastRunState $largeFileGovernancePreview $largeFileGovernanceLastRunConfig)
-    ) -join "; ")) + '`')
-$lines.Add('- Automation history artifacts: `' + ((@(
-        (Get-ArtifactIssueText "history" $automationTaskHistoryState $automationTaskHistoryPreviewState $automationTaskHistoryConfig),
-        (Get-ArtifactIssueText "ack" $automationTaskAckState $automationTaskAckPreviewState $automationTaskAckConfig)
-    ) -join "; ")) + '`')
+$databaseHealthDiagnostics = @(
+    (Get-ArtifactIssueText "preview" $databaseHealthPreview $null $null),
+    (Get-ArtifactIssueText "status" $databaseHealthStatusState $databaseHealthStatusPreviewState $databaseHealthStatusConfig),
+    (Get-ArtifactIssueText "lastRun" $databaseHealthLastRunState $databaseHealthLastRunPreviewState $databaseHealthLastRunConfig)
+) -join "; "
+$largeFileGovernanceDiagnostics = @(
+    (Get-ArtifactIssueText "preview" $largeFileGovernancePreview $null $null),
+    (Get-ArtifactIssueText "status" $largeFileGovernanceStatusState $largeFileGovernanceStatusPreviewState $largeFileGovernanceStatusConfig),
+    (Get-ArtifactIssueText "lastRun" $largeFileGovernanceLastRunState $largeFileGovernanceLastRunPreviewState $largeFileGovernanceLastRunConfig)
+) -join "; "
+$automationHistoryDiagnostics = @(
+    (Get-ArtifactIssueText "history" $automationTaskHistoryState $automationTaskHistoryPreviewState $automationTaskHistoryConfig),
+    (Get-ArtifactIssueText "ack" $automationTaskAckState $automationTaskAckPreviewState $automationTaskAckConfig)
+) -join "; "
+$lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
+$lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnostics + '`')
+$lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics + '`')
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")

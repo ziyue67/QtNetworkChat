@@ -149,6 +149,9 @@ foreach ($expected in @(
     'Local CTest count: `51`',
     'Protected untracked entries: `.polaris/, AGENTS.md`',
     'Automation Guardrails',
+    'Registered Preview Tasks',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, state=`ok`, path=`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, state=`ok`, path=`',
     'Scheduled Task Readback',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`, checks=`4`, failedChecks=`0`, slowQueries=`2`, queryFailures=`1`',
     'Database health last run: at=`2026-06-03T01:02:03.0000000Z`, exitCode=`0`',
@@ -292,6 +295,30 @@ foreach ($expected in @(
     'Automation history artifacts: `history=invalid-json; ack=preview-invalid-json`'
 )) {
     Assert-Contains -Text $invalidMarkdown -Expected $expected
+}
+
+$genericMarkdownPath = Join-Path $configuredTempDir "automation-status-generic.md"
+& $ScriptPath `
+    -MarkdownPath $genericMarkdownPath `
+    -Head "5566778" `
+    -OriginMain "5566778" `
+    -OriginCodexQt "5566778" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -TaskPreviewPath @($dbPreviewPath, $govPreviewPath) `
+    -FailOnSensitive
+
+$genericMarkdown = Get-Content -LiteralPath $genericMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Preview task: label=`generic`, kind=`database-health`, name=`unknown`, state=`ok`, path=`',
+    'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, state=`ok`, path=`',
+    'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`',
+    'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',
+    'Automation history artifacts: `history=ok; ack=ok`'
+)) {
+    Assert-Contains -Text $genericMarkdown -Expected $expected
 }
 
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
