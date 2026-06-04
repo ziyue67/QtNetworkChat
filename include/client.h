@@ -83,8 +83,10 @@ public:
                                    MessageType messageType,
                                    const QString& fileHash,
                                    qint64 fileSize,
-                                   qint64 chunkCount);
+                                   qint64 chunkCount,
+                                   const QJsonObject& recoveryPolicy = QJsonObject());
     bool loadOutgoingTransferState(QJsonObject* state) const;
+    QJsonObject savedOutgoingTransferRecoveryStatus() const;
     bool clearOutgoingTransferState();
     bool resumeSavedOutgoingTransfer(QString* rejectReason = nullptr, int timeoutMs = 5000);
     void cancelCurrentOutgoingTransfer();

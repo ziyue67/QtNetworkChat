@@ -712,6 +712,14 @@ int main(int argc, char** argv) {
                 "persisted state should include the chunk size") && ok;
     ok = expect(persistedState["chunkCount"].toVariant().toLongLong() == resumeChunkCount,
                 "persisted state should include the chunk count") && ok;
+    const QJsonObject defaultRecoveryStatus = sender.savedOutgoingTransferRecoveryStatus();
+    ok = expect(defaultRecoveryStatus["configured"].toBool(),
+                "default persisted state should expose recovery status") && ok;
+    ok = expect(defaultRecoveryStatus["recoveryMode"].toString() == "resume"
+                    && defaultRecoveryStatus["canAutoResume"].toBool(),
+                "default persisted state should remain auto-resumable") && ok;
+    ok = expect(defaultRecoveryStatus["reason"].toString() == "can-query-resume-state",
+                "default persisted state should describe resume query recovery") && ok;
     QJsonObject expiredState = persistedState;
     expiredState["updatedAt"] = QDateTime::currentDateTimeUtc().addDays(-2).toString(Qt::ISODate);
     ok = expect(writeOutgoingTransferState(expiredState),
@@ -782,6 +790,66 @@ int main(int argc, char** argv) {
     ok = expect(!recoveredSender.loadOutgoingTransferState(nullptr),
                 "successful cross-connection saved recovery should clear persisted state") && ok;
     recoveredSender.disconnectFromServer();
+
+    QJsonObject e2eRecoveryPolicy;
+    e2eRecoveryPolicy["recoveryMode"] = "resend";
+    e2eRecoveryPolicy["recoveryReason"] = "e2e-file-resend-required";
+    e2eRecoveryPolicy["recoveryAction"] = "resend-file";
+    e2eRecoveryPolicy["e2eFileEncrypted"] = true;
+    e2eRecoveryPolicy["e2eFileKeyId"] = "e2e-file-key-001";
+    e2eRecoveryPolicy["e2eFileKeyFingerprintSha256"] = "0123456789abcdef";
+    e2eRecoveryPolicy["e2eFilePlainSize"] = QString::number(resumeFileSize);
+    e2eRecoveryPolicy["e2eFilePlainHash"] = resumeFileHash;
+    e2eRecoveryPolicy["e2eFileWireSize"] = QString::number(resumeFileSize + 96);
+    e2eRecoveryPolicy["e2eFileWireHash"] = "wire-ciphertext-sha256";
+    ok = expect(sender.saveOutgoingTransferState("e2e-resend-transfer",
+                                                 resumeFilePath,
+                                                 "960002",
+                                                 MessageType::File,
+                                                 "wire-ciphertext-sha256",
+                                                 resumeFileSize + 96,
+                                                 resumeChunkCount + 1,
+                                                 e2eRecoveryPolicy),
+                "sender should persist E2E file resend recovery metadata") && ok;
+    const QJsonObject e2eRecoveryStatus = sender.savedOutgoingTransferRecoveryStatus();
+    ok = expect(e2eRecoveryStatus["configured"].toBool(),
+                "E2E persisted state should expose recovery status") && ok;
+    ok = expect(e2eRecoveryStatus["recoveryMode"].toString() == "resend"
+                    && !e2eRecoveryStatus["canAutoResume"].toBool(),
+                "E2E persisted state should require a resend instead of auto-resume") && ok;
+    ok = expect(e2eRecoveryStatus["reason"].toString() == "e2e-file-resend-required"
+                    && e2eRecoveryStatus["action"].toString() == "resend-file",
+                "E2E persisted state should expose resend reason and operator action") && ok;
+    ok = expect(e2eRecoveryStatus["fileHash"].toString() == "wire-ciphertext-sha256"
+                    && e2eRecoveryStatus["fileSize"].toVariant().toLongLong() == resumeFileSize + 96,
+                "E2E persisted state should keep wire ciphertext size/hash as the transfer metadata") && ok;
+    ok = expect(e2eRecoveryStatus["e2eFileEncrypted"].toBool()
+                    && e2eRecoveryStatus["e2eFileKeyId"].toString() == "e2e-file-key-001"
+                    && e2eRecoveryStatus["e2eFileKeyFingerprintSha256"].toString() == "0123456789abcdef"
+                    && e2eRecoveryStatus["e2eFilePlainSize"].toVariant().toLongLong() == resumeFileSize
+                    && e2eRecoveryStatus["e2eFilePlainHash"].toString() == resumeFileHash
+                    && e2eRecoveryStatus["e2eFileWireSize"].toVariant().toLongLong() == resumeFileSize + 96
+                    && e2eRecoveryStatus["e2eFileWireHash"].toString() == "wire-ciphertext-sha256",
+                "E2E persisted state should expose sanitized plaintext/wire evidence") && ok;
+    const int queriesBeforeE2eResend = server.resumeQueries();
+    const int chunksBeforeE2eResend = server.resumedChunkIndexes().size();
+    const int errorsBeforeE2eResend = connectionErrors.size();
+    QString e2eResendReason;
+    ok = expect(!sender.resumeSavedOutgoingTransfer(&e2eResendReason, 5000),
+                "E2E persisted file recovery should refuse automatic resume") && ok;
+    ok = expect(e2eResendReason == "e2e-file-resend-required",
+                "E2E resend refusal should expose the fixed reason") && ok;
+    ok = expect(server.resumeQueries() == queriesBeforeE2eResend,
+                "E2E resend recovery should not query server resume state") && ok;
+    ok = expect(server.resumedChunkIndexes().size() == chunksBeforeE2eResend,
+                "E2E resend recovery should not send any chunks") && ok;
+    ok = expect(connectionErrors.size() > errorsBeforeE2eResend
+                    && connectionErrors.last().contains(QString::fromUtf8("未完成发送需要重新发送")),
+                "E2E resend recovery should surface a user-visible resend message") && ok;
+    ok = expect(sender.loadOutgoingTransferState(nullptr),
+                "E2E resend recovery should keep persisted state until the user clears it") && ok;
+    ok = expect(sender.clearOutgoingTransferState(),
+                "sender should clear E2E resend recovery state before continuing the test") && ok;
 
     ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kMismatchResumeTransferId),
                                                  resumeFilePath,
