@@ -26,6 +26,9 @@ int main() {
     const QString expectedAction = adapterLinked
         ? QStringLiteral("complete-production-crypto-adapter-implementation-and-compatibility-tests")
         : QStringLiteral("link-reviewed-production-crypto-backend");
+    const QString expectedDispatchState = adapterLinked
+        ? QStringLiteral("linked-placeholder-not-ready")
+        : QStringLiteral("not-linked");
 
     ok = expect(status.value("requestedBackendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && status.value("selectionSource").toString() == QStringLiteral("environment")
@@ -39,6 +42,10 @@ int main() {
         status.value("operations").toObject().value("payload-encrypt").toObject();
     ok = expect(payloadEncrypt.value("backendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && payloadEncrypt.value("entrypoint").toString() == QStringLiteral("production-adapter/payload-encrypt")
+                    && payloadEncrypt.value("providerId").toString() == QStringLiteral("openssl-reviewed-provider-v1")
+                    && payloadEncrypt.value("operationContractVersion").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1")
+                    && payloadEncrypt.value("dispatchState").toString() == expectedDispatchState
                     && payloadEncrypt.value("requiresProductionReady").toBool(false)
                     && payloadEncrypt.value("adapterLinked").toBool(!adapterLinked) == adapterLinked
                     && payloadEncrypt.value("productionReady").toBool(true) == false

@@ -46,6 +46,9 @@ struct E2ECryptoAdapterDescriptor {
     QString id;
     QString type;
     QString implementation;
+    QString providerId;
+    QString operationContractVersion;
+    QString dispatchState;
     QString unavailableReason;
     QString operatorAction;
     bool productionReady = false;
@@ -161,6 +164,9 @@ E2ECryptoAdapterDescriptor draftAdapterDescriptor() {
     descriptor.id = QString::fromLatin1(DraftBackendId);
     descriptor.type = QStringLiteral("draft");
     descriptor.implementation = QStringLiteral("draft-qt-primitives");
+    descriptor.providerId = QStringLiteral("draft-qt-provider-v1");
+    descriptor.operationContractVersion = QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1");
+    descriptor.dispatchState = QStringLiteral("draft-dispatch-ready");
     descriptor.unavailableReason = e2eProductionCryptoRequired()
         ? QStringLiteral("production-crypto-backend-unavailable")
         : QStringLiteral("draft-backend-available");
@@ -177,6 +183,11 @@ E2ECryptoAdapterDescriptor productionAdapterDescriptor() {
     descriptor.id = QString::fromLatin1(ProductionBackendId);
     descriptor.type = QStringLiteral("production-adapter");
     descriptor.implementation = QStringLiteral("production-adapter");
+    descriptor.providerId = QStringLiteral("openssl-reviewed-provider-v1");
+    descriptor.operationContractVersion = QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1");
+    descriptor.dispatchState = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
+        ? QStringLiteral("linked-placeholder-not-ready")
+        : QStringLiteral("not-linked");
     descriptor.unavailableReason = QStringLiteral("production-crypto-backend-unavailable");
     descriptor.operatorAction = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
         ? QStringLiteral("run-production-crypto-compatibility-tests")
@@ -210,6 +221,9 @@ E2ECryptoAdapterDescriptor cryptoAdapterForBackend(const QString& requested, boo
     descriptor.id = requested;
     descriptor.type = QStringLiteral("unsupported");
     descriptor.implementation = QStringLiteral("none");
+    descriptor.providerId = QStringLiteral("none");
+    descriptor.operationContractVersion = QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1");
+    descriptor.dispatchState = QStringLiteral("unsupported-backend");
     descriptor.unavailableReason = QStringLiteral("unsupported-crypto-backend");
     descriptor.operatorAction = QStringLiteral("choose-a-registered-crypto-backend");
     return descriptor;
@@ -220,6 +234,33 @@ bool adapterSupportsOperation(const E2ECryptoAdapterDescriptor& descriptor,
     return descriptor.operations.contains(operation);
 }
 
+bool providerCanDispatchOperation(const E2ECryptoAdapterDescriptor& descriptor,
+                                  E2ECryptoOperation operation,
+                                  bool productionRequired,
+                                  QString* reason) {
+    if (!adapterSupportsOperation(descriptor, operation)) {
+        return fail(reason, QStringLiteral("operation-not-registered"));
+    }
+    if (descriptor.id == QString::fromLatin1(DraftBackendId)) {
+        if (productionRequired) {
+            return fail(reason, QStringLiteral("production-crypto-backend-unavailable"));
+        }
+        if (reason) reason->clear();
+        return true;
+    }
+    if (descriptor.id == QString::fromLatin1(ProductionBackendId)) {
+        if (!descriptor.linked) {
+            return fail(reason, QStringLiteral("production-crypto-backend-unavailable"));
+        }
+        if (!descriptor.productionReady) {
+            return fail(reason, QStringLiteral("production-adapter-not-ready"));
+        }
+        if (reason) reason->clear();
+        return true;
+    }
+    return fail(reason, QStringLiteral("unsupported-crypto-backend"));
+}
+
 E2ECryptoExecutionContext cryptoExecutionContext(E2ECryptoOperation operation,
                                                  const QString& requested,
                                                  bool productionRequired) {
@@ -228,9 +269,9 @@ E2ECryptoExecutionContext cryptoExecutionContext(E2ECryptoOperation operation,
     const bool draftSelected = requested == QString::fromLatin1(DraftBackendId);
     const bool productionSelected = requested == QString::fromLatin1(ProductionBackendId);
     const bool operationRegistered = found && adapterSupportsOperation(descriptor, operation);
-    const bool operationAvailable = operationRegistered
-        && ((draftSelected && !productionRequired)
-            || (productionSelected && descriptor.productionReady && descriptor.linked));
+    QString dispatchReason;
+    const bool operationAvailable = found
+        && providerCanDispatchOperation(descriptor, operation, productionRequired, &dispatchReason);
 
     E2ECryptoExecutionContext context;
     context.descriptor = descriptor;
@@ -240,21 +281,23 @@ E2ECryptoExecutionContext cryptoExecutionContext(E2ECryptoOperation operation,
     context.available = operationAvailable;
     context.entrypoint = descriptor.type + QStringLiteral("/") + cryptoOperationName(operation);
 
-    if (draftSelected) {
-        context.reason = productionRequired
-            ? QStringLiteral("production-crypto-backend-unavailable")
-            : QStringLiteral("draft-backend-available");
+    if (operationAvailable) {
+        context.reason = draftSelected
+            ? QStringLiteral("draft-backend-available")
+            : QStringLiteral("production-backend-available");
         return context;
     }
 
-    if (productionSelected) {
-        context.reason = descriptor.linked
+    if (!dispatchReason.isEmpty()) {
+        context.reason = dispatchReason;
+        return context;
+    }
+
+    context.reason = productionSelected
+        ? (descriptor.linked
             ? QStringLiteral("production-adapter-not-ready")
-            : QStringLiteral("production-crypto-backend-unavailable");
-        return context;
-    }
-
-    context.reason = QStringLiteral("unsupported-crypto-backend");
+            : QStringLiteral("production-crypto-backend-unavailable"))
+        : QStringLiteral("unsupported-crypto-backend");
     return context;
 }
 
@@ -271,6 +314,9 @@ QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
     obj["backendId"] = requested;
     obj["adapterType"] = descriptor.type;
     obj["implementation"] = descriptor.implementation;
+    obj["providerId"] = descriptor.providerId;
+    obj["operationContractVersion"] = descriptor.operationContractVersion;
+    obj["dispatchState"] = descriptor.dispatchState;
     obj["entrypoint"] = context.entrypoint;
     obj["registered"] = context.operationRegistered;
     obj["adapterLinked"] = descriptor.linked;
@@ -336,6 +382,9 @@ QJsonObject backendDescriptor(const E2ECryptoAdapterDescriptor& descriptor,
     obj["type"] = descriptor.type;
     obj["selected"] = selected;
     obj["implementation"] = descriptor.implementation;
+    obj["providerId"] = descriptor.providerId;
+    obj["operationContractVersion"] = descriptor.operationContractVersion;
+    obj["dispatchState"] = descriptor.dispatchState;
     obj["linked"] = descriptor.linked;
     obj["productionReady"] = descriptor.productionReady;
     obj["available"] = available;

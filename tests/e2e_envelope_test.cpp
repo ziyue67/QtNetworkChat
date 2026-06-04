@@ -26,6 +26,8 @@ bool expectOperation(const QJsonObject& backendStatus,
                       && status.value("reason").toString() == reason
                       && status.value("entrypoint").toString().endsWith(QStringLiteral("/") + operation)
                       && status.value("blockedReason").toString() == (available ? QString() : reason)
+                      && status.value("operationContractVersion").toString()
+                          == QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1")
                       && !status.value("rawKeyExported").toBool(true)
                       && !status.value("privateMaterialExported").toBool(true),
                   message);
@@ -98,9 +100,13 @@ int main() {
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && draftBackend.value("linked").toBool(false)
+                    && draftBackend.value("providerId").toString() == QStringLiteral("draft-qt-provider-v1")
+                    && draftBackend.value("dispatchState").toString() == QStringLiteral("draft-dispatch-ready")
                     && draftBackend.value("operations").toArray().size() == 8
                     && !draftBackend.value("rawKeyExported").toBool(true)
                     && productionBackend.value("id").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && productionBackend.value("providerId").toString() == QStringLiteral("openssl-reviewed-provider-v1")
+                    && productionBackend.value("dispatchState").toString() == QStringLiteral("not-linked")
                     && !productionBackend.value("linked").toBool(true)
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
@@ -116,6 +122,12 @@ int main() {
                     && backendStatus.value("operations").toObject()
                         .value("payload-encrypt").toObject()
                         .value("entrypoint").toString() == QStringLiteral("draft/payload-encrypt")
+                    && backendStatus.value("operations").toObject()
+                        .value("payload-encrypt").toObject()
+                        .value("providerId").toString() == QStringLiteral("draft-qt-provider-v1")
+                    && backendStatus.value("operations").toObject()
+                        .value("payload-encrypt").toObject()
+                        .value("dispatchState").toString() == QStringLiteral("draft-dispatch-ready")
                     && backendStatus.value("operations").toObject()
                         .value("payload-encrypt").toObject()
                         .value("adapterLinked").toBool(false),
@@ -392,6 +404,12 @@ int main() {
                         .value("entrypoint").toString() == QStringLiteral("production-adapter/payload-decrypt")
                     && productionRequestedStatus.value("operations").toObject()
                         .value("payload-decrypt").toObject()
+                        .value("providerId").toString() == QStringLiteral("openssl-reviewed-provider-v1")
+                    && productionRequestedStatus.value("operations").toObject()
+                        .value("payload-decrypt").toObject()
+                        .value("dispatchState").toString() == QStringLiteral("not-linked")
+                    && productionRequestedStatus.value("operations").toObject()
+                        .value("payload-decrypt").toObject()
                         .value("requiresProductionReady").toBool(false) == true
                     && !productionRequestedStatus.value("operations").toObject()
                         .value("payload-decrypt").toObject()
@@ -427,7 +445,13 @@ int main() {
                         == QStringLiteral("choose-a-registered-crypto-backend")
                     && unsupportedBackendStatus.value("operations").toObject()
                         .value("session-derive").toObject()
-                        .value("entrypoint").toString() == QStringLiteral("unsupported/session-derive"),
+                        .value("entrypoint").toString() == QStringLiteral("unsupported/session-derive")
+                    && unsupportedBackendStatus.value("operations").toObject()
+                        .value("session-derive").toObject()
+                        .value("providerId").toString() == QStringLiteral("none")
+                    && unsupportedBackendStatus.value("operations").toObject()
+                        .value("session-derive").toObject()
+                        .value("dispatchState").toString() == QStringLiteral("unsupported-backend"),
                 "unsupported operation status should tell operators to pick a registered backend") && ok;
     ok = expect(generateE2EPrivateKey().isEmpty(),
                 "unsupported backend request should not generate draft private keys") && ok;
