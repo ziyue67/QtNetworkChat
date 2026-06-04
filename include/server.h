@@ -72,11 +72,13 @@ private:
     void clearRedisPresence(const QString& userId);
     bool isRedisUserOnline(const QString& userId) const;
     bool publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
+    bool publishRedisE2EControlEvent(const QJsonObject& forwarded) const;
     bool publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const;
     bool publishRedisLargeFileClaim(const QJsonObject& offer) const;
     bool publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 confirmedBytes) const;
     bool publishRedisLargeFileFailed(const QJsonObject& offer, const QString& reason) const;
     void handleRedisMessageEvent(const QByteArray& payload);
+    void handleRedisE2EControlEvent(const QJsonObject& event);
     void handleRedisLargeFileOffer(const QJsonObject& event);
     void handleRedisLargeFileDelivered(const QJsonObject& event);
     void handleRedisLargeFileFailed(const QJsonObject& event);

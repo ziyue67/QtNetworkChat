@@ -1,6 +1,6 @@
 # End-to-End Encryption Hardening Plan
 
-QtNetworkChat currently treats the server as a transparent carrier for private-message E2E envelopes, identity announcements, and session rotation control messages. The client keeps the trust decision local: peer identity public keys are observed from online announcements, displayed as SHA-256 fingerprints, and verified with a short cross-device code before the default encrypted data plane is allowed. Authenticated session setup now requires identity-signed request/response transcripts and derives local session keys without sending the raw session key over the wire.
+QtNetworkChat currently treats the server as a transparent carrier for private-message E2E envelopes, identity announcements, and session rotation control messages. The client keeps the trust decision local: peer identity public keys are observed from online announcements, displayed as SHA-256 fingerprints, and verified with a short cross-device code before the default encrypted data plane is allowed. Authenticated session setup now requires identity-signed request/response transcripts and derives local session keys without sending the raw session key over the wire. Redis-backed multi-instance deployments also route E2E identity announcements and signed rotation control messages as small control-plane events; session keys, private identity material, and full file ciphertext are still not cached in Redis.
 
 ## Current Authenticated Agreement Boundary
 
@@ -9,7 +9,7 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 - A client signs outgoing rotation requests/responses with its local persisted E2E identity material. Incoming rotation messages are accepted only when the sender identity fingerprint matches the locally observed peer identity, the receiver identity fingerprint matches the local identity, and the agreement signature verifies against the pinned sender identity public material.
 - Rotation request/response messages carry only public agreement material. Each side keeps its private agreement scalar locally, validates the identity-bound transcript, and derives the same session key from the shared transcript before marking the data plane `ready`.
 - Missing pending agreement state, mismatched peer IDs, mismatched identity fingerprints, missing/tampered agreement signatures, invalid local private/public pairing, or malformed remote public material fail closed and do not install a session.
-- The server validates shape and routing, then forwards only public agreement material. It does not cache identity keys, session keys, or private material.
+- The server validates shape and routing, then forwards only public agreement material. For remote Redis-present users it publishes an `e2e_control` event that contains the same public identity or signed agreement material and is delivered only to the online receiver instance. It does not cache identity keys, session keys, or private material.
 - This is still a draft productization step using Qt primitives for testable authenticated agreement semantics. It is now signature-gated and cross-device-code gated at the client protocol boundary, but still needs a reviewed production cryptographic backend before it should be treated as an audited production suite.
 
 ## Current Cross-Device Trust Boundary
@@ -34,12 +34,14 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 
 - Private file and image sends now use the same verified, trusted, non-mismatched peer identity and ready local E2E session as encrypted private text by default. Missing session, unverified identity, mismatch, or rotation-required state fails closed instead of silently sending private file payloads as plaintext.
 - The sender encrypts the whole file payload into one E2E envelope, then sends the opaque ciphertext through the existing file chunk path. The server can validate and store only ciphertext size/hash and transfer metadata.
+- Redis large-file object routing now preserves E2E file evidence without putting full ciphertext in Redis. The source instance writes only the ciphertext object and publishes a compact `large_file_offer` with E2E file key id, key fingerprint, plaintext size/hash, and an envelope header without `ciphertext`; the remote instance forwards chunks with that header, the receiver reconstructs the full envelope from collected ciphertext chunks, then authenticates and decrypts locally.
+- `large_file_delivered` and `large_file_failed` events preserve the same E2E evidence fields so release/cleanup review can distinguish ciphertext routing hash from plaintext verification hash without logging private keys, session keys, plaintext payload, full peer public keys, or object-store credentials.
 - The receiver collects the ciphertext chunks, authenticates the E2E envelope locally, decrypts the plaintext payload, and verifies the declared plaintext size and SHA-256 hash before surfacing the file message.
 - Missing trust on an existing session, rotation-required sessions, invalid envelopes, authentication failure, plaintext size mismatch, or plaintext hash mismatch fail closed. Raw session keys, private agreement material, plaintext payloads, and full key material are not written into wire status or server logs.
-- E2E file resume is currently conservative: interrupted encrypted private file sends must be resent so the ciphertext and envelope stay consistent. Group files, Redis/S3 object routing, and production crypto replacement remain separate productization work. Protocol/operations tests that intentionally exercise legacy plaintext private-file routing must opt in with `QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE=1`; production defaults keep this path closed.
+- E2E file resume is currently conservative: interrupted encrypted private file sends must be resent so the ciphertext and envelope stay consistent. Group files, production crypto replacement, and richer resumable encrypted upload UX remain separate productization work. Protocol/operations tests that intentionally exercise legacy plaintext private-file routing must opt in with `QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE=1`; production defaults keep this path closed.
 
 ## Remaining Work
 
 - Replace the draft agreement/signature primitive with a reviewed production cryptographic backend and durable signed identity keys.
 - Add migration checks for older identity/pin store schemas and richer operator/user recovery prompts.
-- Extend E2E file recovery and large-object routing evidence beyond the current resend-on-interruption boundary.
+- Extend encrypted file recovery beyond resend-on-interruption with resumable envelope/object evidence and user-facing recovery controls.

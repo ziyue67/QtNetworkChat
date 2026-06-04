@@ -627,7 +627,10 @@ int main(int argc, char** argv) {
     QList<QByteArray> bobFilePayloads;
     QStringList bobImageNames;
     QList<QByteArray> bobImagePayloads;
+    QVector<Message> bobFileMessages;
     QVector<Message> serverBMessages;
+    QJsonObject bobRotationRequest;
+    QJsonObject aliceRotationResponse;
     QObject::connect(&serverB, &Server::newMessage, &app, [&](const Message& msg) {
         serverBMessages.append(msg);
     });
@@ -644,9 +647,20 @@ int main(int argc, char** argv) {
         } else if (msg.type == MessageType::File) {
             bobFileNames << msg.fileName;
             bobFilePayloads << msg.fileData;
+            bobFileMessages.append(msg);
         } else if (msg.type == MessageType::Image) {
             bobImageNames << msg.fileName;
             bobImagePayloads << msg.fileData;
+        }
+    });
+    QObject::connect(&bob, &Client::e2eSessionRotationRequested, &app, [&](const QString& peerId, const QJsonObject& agreement) {
+        if (peerId == QStringLiteral("960001")) {
+            bobRotationRequest = agreement;
+        }
+    });
+    QObject::connect(&alice, &Client::e2eSessionRotationResponded, &app, [&](const QString& peerId, const QJsonObject& agreement, bool accepted, const QString&) {
+        if (peerId == QStringLiteral("960002") && accepted) {
+            aliceRotationResponse = agreement;
         }
     });
 
@@ -948,6 +962,92 @@ int main(int argc, char** argv) {
                                  QStringLiteral("objectKey=") + largeFileObjectKey,
                                  QStringLiteral("fileHash=") + largeFileOffer["fileHash"].toString()});
     }), "source server should emit a read-only cleaned delivered_reconcile route log") && ok;
+
+    QString rejectReason;
+    qunsetenv("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE");
+    ok = expect(alice.announceE2EIdentity("960002", &rejectReason),
+                "alice should publish her e2e identity across Redis control plane") && ok;
+    ok = expect(waitFor([&] {
+        return bob.e2ePeerIdentityStatus("960001").value("configured").toBool(false);
+    }), "bob should observe alice's e2e identity across Redis") && ok;
+    ok = expect(bob.announceE2EIdentity("960001", &rejectReason),
+                "bob should publish his e2e identity across Redis control plane") && ok;
+    ok = expect(waitFor([&] {
+        return alice.e2ePeerIdentityStatus("960002").value("configured").toBool(false);
+    }), "alice should observe bob's e2e identity across Redis") && ok;
+    const QString aliceVerificationCode = alice.e2ePeerIdentityStatus("960002").value("verificationCode").toString();
+    const QString bobVerificationCode = bob.e2ePeerIdentityStatus("960001").value("verificationCode").toString();
+    ok = expect(!aliceVerificationCode.isEmpty()
+                    && aliceVerificationCode == bobVerificationCode
+                    && alice.verifyAndPinE2EPeerIdentity("960002", aliceVerificationCode, &rejectReason)
+                    && bob.verifyAndPinE2EPeerIdentity("960001", bobVerificationCode, &rejectReason),
+                "both cross-instance peers should verify matching e2e short codes") && ok;
+    ok = expect(alice.requestE2ESessionRotation("960002", &rejectReason),
+                "alice should send signed e2e key agreement across Redis") && ok;
+    ok = expect(waitFor([&] {
+        return !bobRotationRequest.isEmpty();
+    }), "bob should receive the signed cross-instance e2e agreement request") && ok;
+    const E2EKeyAgreement bobRequestAgreement = E2EKeyAgreement::fromJson(bobRotationRequest);
+    ok = expect(bob.respondE2ESessionRotation("960001",
+                                             bobRequestAgreement.keyId,
+                                             bobRequestAgreement.publicKey,
+                                             true,
+                                             QStringLiteral("accepted"),
+                                             &rejectReason),
+                "bob should respond to the cross-instance signed e2e agreement") && ok;
+    ok = expect(waitFor([&] {
+        return !aliceRotationResponse.isEmpty()
+            && alice.e2eSessionStatus("960002").value("state").toString() == QStringLiteral("ready")
+            && bob.e2eSessionStatus("960001").value("state").toString() == QStringLiteral("ready")
+            && alice.e2eSessionStatus("960002").value("keyFingerprintSha256").toString()
+                == bob.e2eSessionStatus("960001").value("keyFingerprintSha256").toString();
+    }), "both peers should install the Redis-routed authenticated e2e session") && ok;
+
+    const QString e2eLargeFileName = "redis-e2e-large-object-route.bin";
+    const QString e2eLargeFilePath = transferDir.filePath(e2eLargeFileName);
+    const QByteArray e2eLargePlainPayload = makePatternPayload(1024 * 1024 + 8192);
+    QFile e2eLargeFile(e2eLargeFilePath);
+    ok = expect(e2eLargeFile.open(QIODevice::WriteOnly),
+                "e2e large transfer file should open for writing") && ok;
+    if (e2eLargeFile.isOpen()) {
+        ok = expect(e2eLargeFile.write(e2eLargePlainPayload) == e2eLargePlainPayload.size(),
+                    "e2e large transfer file should be written") && ok;
+        e2eLargeFile.close();
+    }
+    bobFileNames.clear();
+    bobFilePayloads.clear();
+    bobFileMessages.clear();
+    ok = expect(alice.sendFile(e2eLargeFilePath, "960002"),
+                "alice should send an e2e encrypted large file through object routing") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject offer = findLargeFileOffer(e2eLargeFileName);
+        return offer.value("e2eFileEncrypted").toBool(false)
+            && offer.value("e2eEnvelope").isObject()
+            && !offer.value("e2eEnvelope").toObject().contains("ciphertext");
+    }), "large file offer should preserve e2e file evidence metadata") && ok;
+    const QJsonObject e2eLargeOffer = findLargeFileOffer(e2eLargeFileName);
+    const QString e2eLargeObjectKey = e2eLargeOffer["objectKey"].toString();
+    const QString e2ePlainHash = QString::fromLatin1(QCryptographicHash::hash(e2eLargePlainPayload, QCryptographicHash::Sha256).toHex());
+    ok = expect(e2eLargeOffer["e2eFilePlainSize"].toVariant().toLongLong() == e2eLargePlainPayload.size()
+                    && e2eLargeOffer["e2eFilePlainHash"].toString() == e2ePlainHash
+                    && e2eLargeOffer["fileHash"].toString() != e2ePlainHash,
+                "e2e large file offer should expose plaintext evidence without using plaintext as routed payload") && ok;
+    ok = expect(waitFor([&] {
+        return bobFileNames.contains(e2eLargeFileName) && bobFilePayloads.contains(e2eLargePlainPayload);
+    }, 9000), "bob should receive and decrypt the Redis object-routed e2e large file") && ok;
+    ok = expect(!bobFileMessages.isEmpty()
+                    && bobFileMessages.last().e2eFileEncrypted
+                    && bobFileMessages.last().e2eFilePlainHash == e2ePlainHash
+                    && bobFileMessages.last().fileHash == e2ePlainHash,
+                "decrypted object-routed e2e file should keep safe plaintext evidence on the client") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject delivered = findPublishedEvent("large_file_delivered", QString(), e2eLargeObjectKey);
+        return delivered.value("e2eFileEncrypted").toBool(false)
+            && delivered.value("e2eFilePlainHash").toString() == e2ePlainHash;
+    }), "delivered receipt should keep e2e file evidence for cleanup review") && ok;
+    alice.clearE2ESessionKey("960002");
+    bob.clearE2ESessionKey("960001");
+    qputenv("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE", "1");
 
     QTcpSocket rejectReceiver;
     QByteArray rejectReceiverBuffer;

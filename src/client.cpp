@@ -271,6 +271,23 @@ QByteArray fromBase64Url(const QString& value) {
     return QByteArray::fromBase64(value.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
 }
 
+bool e2eEnvelopeHeaderLooksSafe(const QJsonObject& header) {
+    const QByteArray nonce = fromBase64Url(header.value("nonce").toString());
+    const QByteArray tag = fromBase64Url(header.value("tag").toString());
+    return isSupportedE2EProtocol(header.value("protocol").toString())
+        && isSupportedE2ESuite(header.value("suite").toString())
+        && !header.value("senderId").toString().trimmed().isEmpty()
+        && !header.value("receiverId").toString().trimmed().isEmpty()
+        && header.value("senderId").toString().trimmed() != header.value("receiverId").toString().trimmed()
+        && !header.value("keyId").toString().trimmed().isEmpty()
+        && nonce.size() >= 8
+        && nonce.size() <= 64
+        && tag.size() >= 8
+        && tag.size() <= 128
+        && header.value("aad").toString().size() <= 512
+        && (!header.contains("ciphertextSha256") || isValidE2EFingerprint(header.value("ciphertextSha256").toString()));
+}
+
 QJsonObject e2eIdentityJson(const QString& userId, const QByteArray& publicKey) {
     QJsonObject obj;
     obj["protocol"] = QStringLiteral("qtnetworkchat-e2e-v1");
@@ -2315,9 +2332,9 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     const bool e2eFileEncrypted = obj["e2eFileEncrypted"].toBool(false);
     const qint64 e2ePlainSize = obj["e2eFilePlainSize"].toVariant().toLongLong();
     const QString e2ePlainHash = obj["e2eFilePlainHash"].toString().trimmed();
-    E2EEnvelope e2eEnvelope;
+    QJsonObject e2eEnvelopeObject;
     if (e2eFileEncrypted && obj.value("e2eEnvelope").isObject()) {
-        e2eEnvelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+        e2eEnvelopeObject = obj.value("e2eEnvelope").toObject();
     }
 
     auto failTransfer = [this, transferId, fileName, fileSize, chunkIndex](const QString& reason) {
@@ -2360,11 +2377,15 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         return;
     }
     QString e2eValidationReason;
+    const E2EEnvelope e2eEnvelope = E2EEnvelope::fromJson(e2eEnvelopeObject);
+    const bool e2eEnvelopeValid = e2eEnvelopeObject.contains(QStringLiteral("ciphertext"))
+        ? e2eEnvelope.isValid(&e2eValidationReason)
+        : e2eEnvelopeHeaderLooksSafe(e2eEnvelopeObject);
     if (e2eFileEncrypted
-        && (!e2eEnvelope.isValid(&e2eValidationReason)
-            || e2eEnvelope.senderId != obj["senderId"].toString()
-            || e2eEnvelope.receiverId != m_userId
-            || e2eEnvelope.keyId != obj["e2eFileKeyId"].toString()
+        && (!e2eEnvelopeValid
+            || e2eEnvelopeObject.value("senderId").toString() != obj["senderId"].toString()
+            || e2eEnvelopeObject.value("receiverId").toString() != m_userId
+            || e2eEnvelopeObject.value("keyId").toString() != obj["e2eFileKeyId"].toString()
             || e2ePlainSize <= 0
             || e2ePlainHash.isEmpty())) {
         failTransfer(QStringLiteral("端到端加密文件信封无效"));
@@ -2425,7 +2446,11 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
 
     QJsonObject fullFile = pending.envelope;
     if (e2eFileEncrypted) {
-        const E2EEnvelope fullEnvelope = E2EEnvelope::fromJson(fullFile.value("e2eEnvelope").toObject());
+        QJsonObject envelopeObject = fullFile.value("e2eEnvelope").toObject();
+        if (!envelopeObject.contains(QStringLiteral("ciphertext"))) {
+            envelopeObject[QStringLiteral("ciphertext")] = QString::fromLatin1(fileData.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+        }
+        const E2EEnvelope fullEnvelope = E2EEnvelope::fromJson(envelopeObject);
         auto sessionIt = m_e2eSessions.find(fullEnvelope.senderId);
         QByteArray plaintextPayload;
         QString decryptReason;
@@ -2457,7 +2482,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         emit e2eSessionStateChanged(fullEnvelope.senderId, e2eSessionStatus(fullEnvelope.senderId));
     }
     m_incomingFileTransfers.remove(transferId);
-    sendFileChunkAck(transferId, chunkIndex, true, QString(), fileData.size());
+    sendFileChunkAck(transferId, chunkIndex, true, QString(), fileSize);
     emit fileTransferStatusChanged(fileName,
                                    transferId,
                                    QStringLiteral("receive-completed"),

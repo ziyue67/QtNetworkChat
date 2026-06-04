@@ -65,6 +65,8 @@ bool envEnabled(const char* name) {
     return value == "1" || value == "true" || value == "yes" || value == "on";
 }
 
+bool looksLikeSha256Hex(const QString& value);
+
 void appendE2EFields(QJsonObject* obj, const Message& msg) {
     if (!obj) return;
     QString reason;
@@ -81,6 +83,66 @@ void appendE2EFields(QJsonObject* obj, const Message& msg) {
     }
     if (msg.e2eKeyAgreement.isValid(&reason)) {
         (*obj)["e2eKeyAgreement"] = msg.e2eKeyAgreement.toJson();
+    }
+}
+
+QJsonObject e2eEnvelopeHeaderJson(const E2EEnvelope& envelope) {
+    QJsonObject header = envelope.toJson();
+    header.remove(QStringLiteral("ciphertext"));
+    return header;
+}
+
+bool e2eEnvelopeHeaderLooksSafe(const QJsonObject& header) {
+    const QByteArray nonce = QByteArray::fromBase64(header.value("nonce").toString().toLatin1(),
+                                                    QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+    const QByteArray tag = QByteArray::fromBase64(header.value("tag").toString().toLatin1(),
+                                                  QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+    return isSupportedE2EProtocol(header.value("protocol").toString())
+        && isSupportedE2ESuite(header.value("suite").toString())
+        && !header.value("senderId").toString().trimmed().isEmpty()
+        && !header.value("receiverId").toString().trimmed().isEmpty()
+        && header.value("senderId").toString().trimmed() != header.value("receiverId").toString().trimmed()
+        && !header.value("keyId").toString().trimmed().isEmpty()
+        && nonce.size() >= 8
+        && nonce.size() <= 64
+        && tag.size() >= 8
+        && tag.size() <= 128
+        && header.value("aad").toString().size() <= 512
+        && (!header.contains("ciphertextSha256")
+            || looksLikeSha256Hex(header.value("ciphertextSha256").toString()));
+}
+
+void appendE2EFileFields(QJsonObject* target, const QJsonObject& source, bool includeCiphertext = false) {
+    if (!target || !source.value("e2eFileEncrypted").toBool(false)) {
+        return;
+    }
+
+    const QString keyId = source.value("e2eFileKeyId").toString().trimmed();
+    const QString keyFingerprint = source.value("e2eFileKeyFingerprintSha256").toString().trimmed().toLower();
+    const qint64 plainSize = source.value("e2eFilePlainSize").toVariant().toLongLong();
+    const QString plainHash = source.value("e2eFilePlainHash").toString().trimmed().toLower();
+    if (keyId.isEmpty() || !looksLikeSha256Hex(keyFingerprint) || plainSize <= 0 || !looksLikeSha256Hex(plainHash)) {
+        return;
+    }
+
+    (*target)["e2eFileEncrypted"] = true;
+    (*target)["e2eFileKeyId"] = keyId;
+    (*target)["e2eFileKeyFingerprintSha256"] = keyFingerprint;
+    (*target)["e2eFilePlainSize"] = QString::number(plainSize);
+    (*target)["e2eFilePlainHash"] = plainHash;
+    if (source.value("e2eEnvelope").isObject()) {
+        QJsonObject envelopeObject = source.value("e2eEnvelope").toObject();
+        if (includeCiphertext || envelopeObject.contains(QStringLiteral("ciphertext"))) {
+            const E2EEnvelope envelope = E2EEnvelope::fromJson(envelopeObject);
+            if (!envelope.isValid()) {
+                return;
+            }
+            envelopeObject = includeCiphertext ? envelope.toJson() : e2eEnvelopeHeaderJson(envelope);
+        }
+        if (e2eEnvelopeHeaderLooksSafe(envelopeObject)) {
+            (*target)["e2eEnvelope"] = envelopeObject;
+            (*target)["isEncrypted"] = true;
+        }
     }
 }
 
@@ -1613,14 +1675,19 @@ void Server::handleE2EIdentityAnnouncement(const QJsonObject& obj, QTcpSocket* s
     if (!receiverId.isEmpty()) {
         forwarded["receiverId"] = receiverId;
         QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+        if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
+            targetSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
+            targetSocket->write("\n");
+            targetSocket->flush();
+            return;
+        }
+        if (isRedisUserOnline(receiverId) && publishRedisE2EControlEvent(forwarded)) {
+            return;
+        }
         if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
             sendSystemNotice(socket, QStringLiteral("端到端加密身份公告失败：对方不在线，未缓存身份材料"));
             return;
         }
-        targetSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
-        targetSocket->write("\n");
-        targetSocket->flush();
-        return;
     }
 
     for (QTcpSocket* targetSocket : m_clients.keys()) {
@@ -1655,6 +1722,23 @@ void Server::handleE2EKeyRotation(const QJsonObject& obj, QTcpSocket* socket) {
 
     QTcpSocket* targetSocket = m_userSockets.value(receiverId);
     if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+        if (isRedisUserOnline(receiverId)) {
+            QJsonObject forwarded;
+            forwarded["type"] = type;
+            forwarded["senderId"] = sender->id;
+            forwarded["senderName"] = sender->name;
+            forwarded["receiverId"] = receiverId;
+            forwarded["e2eKeyAgreement"] = agreement.toJson();
+            forwarded["reason"] = obj.value("reason").toString(type == QLatin1String("e2e_key_rotation_request")
+                ? QStringLiteral("manual-request")
+                : QStringLiteral("accepted"));
+            if (type == QLatin1String("e2e_key_rotation_response")) {
+                forwarded["accepted"] = obj.value("accepted").toBool(false);
+            }
+            if (publishRedisE2EControlEvent(forwarded)) {
+                return;
+            }
+        }
         sendSystemNotice(socket, QStringLiteral("端到端加密轮换失败：对方不在线，未缓存轮换材料"));
         return;
     }
@@ -2493,6 +2577,29 @@ bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliver
     return m_redisClient->publish("messages", eventPayload);
 }
 
+bool Server::publishRedisE2EControlEvent(const QJsonObject& forwarded) const {
+    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    const QString receiverId = forwarded.value("receiverId").toString().trimmed();
+    if (receiverId.isEmpty()) return false;
+
+    QJsonObject event;
+    event["eventType"] = "e2e_control";
+    event["instanceId"] = m_instanceId;
+    event["receiverId"] = receiverId;
+    event["senderId"] = forwarded.value("senderId").toString();
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    event["message"] = forwarded;
+
+    const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
+        qWarning() << "Skip Redis E2E control event because encoded payload is too large:"
+                   << eventPayload.size()
+                   << "limit:" << kRedisPubSubEventMaxBytes;
+        return false;
+    }
+    return m_redisClient->publish("messages", eventPayload);
+}
+
 bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const {
     if (!m_redisClient || !m_redisClient->isEnabled()) return false;
 
@@ -2531,6 +2638,7 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
     event["chunkCount"] = QString::number(chunkCount);
     event["expiresAt"] = offlinePayload["objectStoreExpiresAt"].toString();
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    appendE2EFileFields(&event, offlinePayload);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
@@ -2594,6 +2702,7 @@ bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 con
     event["confirmedBytes"] = QString::number(confirmedBytes);
     event["fileHash"] = offer["fileHash"].toString();
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    appendE2EFileFields(&event, offer);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
@@ -2626,6 +2735,7 @@ bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString
     event["fileHash"] = offer["fileHash"].toString();
     event["reason"] = reason.left(160);
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    appendE2EFileFields(&event, offer);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
@@ -2656,6 +2766,10 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
 
     const QJsonObject event = doc.object();
     const QString eventType = event["eventType"].toString();
+    if (eventType == "e2e_control") {
+        handleRedisE2EControlEvent(event);
+        return;
+    }
     if (eventType == "large_file_offer") {
         handleRedisLargeFileOffer(event);
         return;
@@ -2696,6 +2810,31 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     emit newMessage(msg);
 }
 
+void Server::handleRedisE2EControlEvent(const QJsonObject& event) {
+    if (event["instanceId"].toString() == m_instanceId) return;
+    const QString receiverId = event.value("receiverId").toString().trimmed();
+    if (receiverId.isEmpty()) return;
+
+    QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+    if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+        return;
+    }
+
+    const QJsonObject message = event.value("message").toObject();
+    const QString type = message.value("type").toString();
+    if ((type != QLatin1String("e2e_identity_announce")
+         && type != QLatin1String("e2e_key_rotation_request")
+         && type != QLatin1String("e2e_key_rotation_response"))
+        || message.value("receiverId").toString().trimmed() != receiverId
+        || message.value("senderId").toString().trimmed().isEmpty()) {
+        return;
+    }
+
+    targetSocket->write(QJsonDocument(message).toJson(QJsonDocument::Compact));
+    targetSocket->write("\n");
+    targetSocket->flush();
+}
+
 void Server::handleRedisLargeFileOffer(const QJsonObject& event) {
     if (event["instanceId"].toString() == m_instanceId) return;
     if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return;
@@ -2721,6 +2860,14 @@ void Server::handleRedisLargeFileOffer(const QJsonObject& event) {
         msg.chunkCount = event["chunkCount"].toVariant().toLongLong();
         msg.type = event["messageType"].toString() == "Image" ? MessageType::Image : MessageType::File;
         msg.content = QString(msg.type == MessageType::Image ? "发送了图片: %1" : "发送了文件: %1").arg(msg.fileName);
+        msg.e2eFileEncrypted = event["e2eFileEncrypted"].toBool(false);
+        msg.e2eFileKeyId = event["e2eFileKeyId"].toString();
+        msg.e2eFileKeyFingerprint = event["e2eFileKeyFingerprintSha256"].toString();
+        msg.e2eFilePlainSize = event["e2eFilePlainSize"].toVariant().toLongLong();
+        msg.e2eFilePlainHash = event["e2eFilePlainHash"].toString();
+        if (event.value("e2eEnvelope").isObject()) {
+            msg.e2eEnvelope = E2EEnvelope::fromJson(event.value("e2eEnvelope").toObject());
+        }
         msg.timestamp = QDateTime::currentDateTime();
         emit newMessage(msg);
     }
@@ -2907,6 +3054,7 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         chunkObj["chunkCount"] = QString::number(chunkCount);
         chunkObj["chunkIndex"] = QString::number(index);
         chunkObj["fileData"] = QString::fromLatin1(chunk.toBase64());
+        appendE2EFileFields(&chunkObj, event);
 
         QString ackRejectReason;
         qint64 ackReceivedBytes = 0;
