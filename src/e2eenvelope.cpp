@@ -168,7 +168,9 @@ E2ECryptoAdapterDescriptor productionAdapterDescriptor() {
     descriptor.type = QStringLiteral("production-adapter");
     descriptor.implementation = QStringLiteral("production-adapter");
     descriptor.unavailableReason = QStringLiteral("production-crypto-backend-unavailable");
-    descriptor.operatorAction = QStringLiteral("link-reviewed-production-crypto-backend");
+    descriptor.operatorAction = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
+        ? QStringLiteral("run-production-crypto-compatibility-tests")
+        : QStringLiteral("link-reviewed-production-crypto-backend");
     descriptor.productionReady = false;
     descriptor.linked = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0;
     descriptor.operations = cryptoOperations();
@@ -563,7 +565,9 @@ QJsonObject e2eCryptoBackendStatus() {
     status["productionBackendAvailableAtBuild"] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE != 0;
     status["productionBackendReason"] = QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON);
     status["requestedProductionBackend"] = QString::fromLatin1(QTNETWORKCHAT_E2E_REQUESTED_PRODUCTION_BACKEND);
+    status["productionAdapterRequested"] = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED != 0;
     status["productionAdapterLinked"] = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0;
+    status["productionAdapterReason"] = QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON);
     status["productionRequiredOperations"] =
         QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_REQUIRED_OPERATIONS);
     status["available"] = available;

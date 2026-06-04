@@ -16,6 +16,7 @@ configure_file(
 )
 
 option(QTNETWORKCHAT_E2E_ENABLE_PRODUCTION_CRYPTO "Probe for a production E2E crypto backend without enabling the draft backend as production-ready" OFF)
+option(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER "Link a reviewed production E2E crypto adapter; currently fails closed until an implementation is added" OFF)
 set(QTNETWORKCHAT_E2E_PRODUCTION_CRYPTO_BACKEND "openssl" CACHE STRING "Production E2E crypto backend to probe; no adapter is enabled until explicitly implemented")
 set_property(CACHE QTNETWORKCHAT_E2E_PRODUCTION_CRYPTO_BACKEND PROPERTY STRINGS openssl)
 set(QTNETWORKCHAT_E2E_COMPILED_BACKEND_ID "draft-qt-hmac-stream-v1")
@@ -23,9 +24,16 @@ set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_ID "openssl-reviewed-adapter-v1")
 set(QTNETWORKCHAT_E2E_REQUESTED_PRODUCTION_BACKEND "none")
 set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE 0)
+set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON "production-backend-not-requested")
+set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-not-requested")
 set(QTNETWORKCHAT_E2E_PRODUCTION_REQUIRED_OPERATIONS "session-key-generation,identity-key-generation,public-key-derivation,agreement-sign,agreement-verify,session-derive,payload-encrypt,payload-decrypt")
+if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER)
+    set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 1)
+    set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-implementation-missing")
+    message(FATAL_ERROR "production-adapter-implementation-missing: QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER requires a reviewed production E2E crypto implementation; the current build only exposes a fail-closed adapter contract.")
+endif()
 if(QTNETWORKCHAT_E2E_ENABLE_PRODUCTION_CRYPTO)
     set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 1)
     string(TOLOWER "${QTNETWORKCHAT_E2E_PRODUCTION_CRYPTO_BACKEND}" QTNETWORKCHAT_E2E_REQUESTED_PRODUCTION_BACKEND)
@@ -416,6 +424,17 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DCONFIG_HEADER=${CMAKE_CURRENT_BINARY_DIR}/generated/qtnetworkchat_e2e_crypto_config.h
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_crypto_backend_config.cmake
+    )
+    add_test(
+        NAME E2EProductionAdapterLinkGate
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -DPROBE_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/e2e-production-adapter-link-gate
+            -DCMAKE_EXE=${CMAKE_COMMAND}
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_production_adapter_link_gate.cmake
     )
     add_test(
         NAME E2EPrivateMessageDelivery

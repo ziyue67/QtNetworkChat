@@ -83,7 +83,10 @@ int main() {
                     && backendStatus.value("suite").toString() == e2eDefaultSuite()
                     && backendStatus.value("signatureSuite").toString() == e2eAgreementSignatureSuite()
                     && !backendStatus.value("productionReady").toBool(true)
+                    && !backendStatus.value("productionAdapterRequested").toBool(true)
                     && !backendStatus.value("productionAdapterLinked").toBool(true)
+                    && backendStatus.value("productionAdapterReason").toString()
+                        == QStringLiteral("production-adapter-not-requested")
                     && backendStatus.value("productionRequiredOperations").toString().contains(QStringLiteral("payload-decrypt"))
                     && !backendStatus.value("productionBackendRequestedAtBuild").toBool(true)
                     && !backendStatus.value("productionBackendAvailableAtBuild").toBool(true)
@@ -98,6 +101,7 @@ int main() {
                     && productionBackend.value("id").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && !productionBackend.value("linked").toBool(true)
                     && !productionBackend.value("productionReady").toBool(true)
+                    && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("operations").toArray().size() == 8,
                 "registered backend descriptors should expose adapter readiness without private material") && ok;
     ok = expectAllOperations(backendStatus,
@@ -364,6 +368,10 @@ int main() {
                         == QStringLiteral("environment")
                     && !productionRequestedStatus.value("available").toBool(true)
                     && productionRequestedStatus.value("selectedBackendId").toString().isEmpty()
+                    && !productionRequestedStatus.value("productionAdapterRequested").toBool(true)
+                    && !productionRequestedStatus.value("productionAdapterLinked").toBool(true)
+                    && productionRequestedStatus.value("productionAdapterReason").toString()
+                        == QStringLiteral("production-adapter-not-requested")
                     && productionRequestedStatus.value("unavailableReason").toString()
                         == QStringLiteral("production-crypto-backend-unavailable"),
                 "explicit production backend request should fail closed until the adapter is linked") && ok;
