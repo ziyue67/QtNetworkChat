@@ -10,6 +10,9 @@ endif()
 if(NOT DEFINED GENERATOR_NAME OR "${GENERATOR_NAME}" STREQUAL "")
     message(FATAL_ERROR "GENERATOR_NAME is required")
 endif()
+if(NOT DEFINED QT_BIN_DIR OR NOT EXISTS "${QT_BIN_DIR}")
+    message(FATAL_ERROR "QT_BIN_DIR is required")
+endif()
 
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
@@ -18,6 +21,7 @@ set(configure_args
     -B "${PROBE_BUILD_DIR}"
     -G "${GENERATOR_NAME}"
     -DQTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER=ON
+    -DBUILD_TESTING=ON
 )
 if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
     list(APPEND configure_args -A "${GENERATOR_PLATFORM}")
@@ -41,32 +45,48 @@ execute_process(
     OUTPUT_VARIABLE configure_stdout
     ERROR_VARIABLE configure_stderr
 )
-
-string(CONCAT configure_output "${configure_stdout}" "\n" "${configure_stderr}")
 if(NOT configure_result EQUAL 0)
     file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
-    message(STATUS "Captured production adapter configure output: ${configure_output}")
-    message(FATAL_ERROR "Production adapter link probe should configure a linked placeholder so runtime gates can verify fail-closed behavior")
+    message(STATUS "Captured production adapter runtime configure output: ${configure_stdout}\n${configure_stderr}")
+    message(FATAL_ERROR "Production adapter runtime probe should configure")
 endif()
 
-set(config_header "${PROBE_BUILD_DIR}/generated/qtnetworkchat_e2e_crypto_config.h")
-if(NOT EXISTS "${config_header}")
+execute_process(
+    COMMAND "${CMAKE_EXE}" --build "${PROBE_BUILD_DIR}" --target e2e_production_adapter_runtime_test
+    RESULT_VARIABLE build_result
+    OUTPUT_VARIABLE build_stdout
+    ERROR_VARIABLE build_stderr
+)
+if(NOT build_result EQUAL 0)
     file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
-    message(FATAL_ERROR "Production adapter link probe should generate the E2E crypto config header")
+    message(STATUS "Captured production adapter runtime build output: ${build_stdout}\n${build_stderr}")
+    message(FATAL_ERROR "Production adapter runtime probe should build e2e_production_adapter_runtime_test")
 endif()
 
-file(READ "${config_header}" config_content)
-string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 1" adapter_requested_pos)
-string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED 1" adapter_linked_pos)
-string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON \"production-adapter-linked-placeholder\"" adapter_reason_pos)
+set(path_separator ":")
+if(WIN32)
+    set(path_separator ";")
+endif()
+set(probe_path "$ENV{PATH}")
+if(NOT "${QT_BIN_DIR}" STREQUAL "")
+    set(probe_path "${QT_BIN_DIR}${path_separator}$ENV{PATH}")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "PATH=${probe_path}"
+        "QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production"
+        "${CMAKE_CTEST_COMMAND}" --test-dir "${PROBE_BUILD_DIR}" -R "^E2EProductionAdapterRuntime$" --output-on-failure
+    RESULT_VARIABLE test_result
+    OUTPUT_VARIABLE test_stdout
+    ERROR_VARIABLE test_stderr
+)
 
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
-if(adapter_requested_pos LESS 0 OR adapter_linked_pos LESS 0)
-    message(FATAL_ERROR "Production adapter link probe should expose requested=1 and linked=1 in the sanitized config header")
-endif()
-if(adapter_reason_pos LESS 0)
-    message(FATAL_ERROR "Production adapter link probe should expose the linked placeholder reason without claiming production readiness")
+if(NOT test_result EQUAL 0)
+    message(STATUS "Captured production adapter runtime test output: ${test_stdout}\n${test_stderr}")
+    message(FATAL_ERROR "Production adapter linked-placeholder runtime should remain fail-closed under production backend selection")
 endif()
 
-message(STATUS "E2E production adapter linked-placeholder gate verified")
+message(STATUS "E2E production adapter runtime fail-closed gate verified")

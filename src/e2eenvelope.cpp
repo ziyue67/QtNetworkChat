@@ -248,7 +248,9 @@ E2ECryptoExecutionContext cryptoExecutionContext(E2ECryptoOperation operation,
     }
 
     if (productionSelected) {
-        context.reason = QStringLiteral("production-crypto-backend-unavailable");
+        context.reason = descriptor.linked
+            ? QStringLiteral("production-adapter-not-ready")
+            : QStringLiteral("production-crypto-backend-unavailable");
         return context;
     }
 
@@ -289,7 +291,9 @@ QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
 
     if (productionSelected) {
         obj["reason"] = context.reason;
-        obj["operatorAction"] = QStringLiteral("link-reviewed-production-crypto-backend");
+        obj["operatorAction"] = descriptor.linked
+            ? QStringLiteral("complete-production-crypto-adapter-implementation-and-compatibility-tests")
+            : QStringLiteral("link-reviewed-production-crypto-backend");
         return obj;
     }
 
@@ -567,10 +571,14 @@ bool e2eCryptoBackendAvailable(QString* reason) {
 QJsonObject e2eCryptoBackendStatus() {
     QString selectionSource;
     const QString requested = requestedBackendId(&selectionSource);
-    QString availabilityReason;
-    const bool available = e2eCryptoBackendAvailable(&availabilityReason);
+    const E2ECryptoAdapterDescriptor requestedDescriptor = cryptoAdapterForBackend(requested);
     const bool selectedDraft = requested == QString::fromLatin1(DraftBackendId);
     const bool selectedProduction = requested == QString::fromLatin1(ProductionBackendId);
+    QString availabilityReason;
+    const bool available = e2eCryptoBackendAvailable(&availabilityReason);
+    if (!available && selectedProduction && requestedDescriptor.linked && !requestedDescriptor.productionReady) {
+        availabilityReason = QStringLiteral("production-adapter-not-ready");
+    }
 
     QJsonArray registeredBackends;
     for (const E2ECryptoAdapterDescriptor& descriptor : cryptoAdapterRegistry()) {
@@ -580,7 +588,9 @@ QJsonObject e2eCryptoBackendStatus() {
             ? (e2eProductionCryptoRequired()
                 ? QStringLiteral("production-required")
                 : QStringLiteral("draft-backend-available"))
-            : QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON);
+            : (descriptor.linked
+                ? QStringLiteral("production-adapter-not-ready")
+                : QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON));
         registeredBackends.append(backendDescriptor(descriptor,
                                                     selected,
                                                     descriptorAvailable,

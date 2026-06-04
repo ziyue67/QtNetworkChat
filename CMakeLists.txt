@@ -31,8 +31,8 @@ set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-not-requeste
 set(QTNETWORKCHAT_E2E_PRODUCTION_REQUIRED_OPERATIONS "session-key-generation,identity-key-generation,public-key-derivation,agreement-sign,agreement-verify,session-derive,payload-encrypt,payload-decrypt")
 if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER)
     set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 1)
-    set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-implementation-missing")
-    message(FATAL_ERROR "production-adapter-implementation-missing: QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER requires a reviewed production E2E crypto implementation; the current build only exposes a fail-closed adapter contract.")
+    set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED 1)
+    set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-linked-placeholder")
 endif()
 if(QTNETWORKCHAT_E2E_ENABLE_PRODUCTION_CRYPTO)
     set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 1)
@@ -122,6 +122,14 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(e2e_envelope_test)
     target_link_libraries(e2e_envelope_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(e2e_production_adapter_runtime_test
+        tests/e2e_production_adapter_runtime_test.cpp
+        src/e2eenvelope.cpp
+        include/e2eenvelope.h
+    )
+    qtnetworkchat_target_include_dirs(e2e_production_adapter_runtime_test)
+    target_link_libraries(e2e_production_adapter_runtime_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(e2e_private_message_delivery_test
         tests/e2e_private_message_delivery_test.cpp
@@ -438,6 +446,28 @@ if(BUILD_TESTING)
             -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
             -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_production_adapter_link_gate.cmake
+    )
+    add_test(
+        NAME E2EProductionAdapterRuntimeGate
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -DPROBE_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/e2e-production-adapter-runtime-gate
+            -DCMAKE_EXE=${CMAKE_COMMAND}
+            -DGENERATOR_NAME=${CMAKE_GENERATOR}
+            -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+            -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_production_adapter_runtime_gate.cmake
+    )
+    add_test(
+        NAME E2EProductionAdapterRuntime
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:e2e_production_adapter_runtime_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
     add_test(
         NAME E2EPrivateMessageDelivery
