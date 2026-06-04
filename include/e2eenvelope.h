@@ -59,5 +59,16 @@ bool decryptE2EText(const E2EEnvelope& envelope,
                     const QByteArray& sessionKey,
                     QString* plaintext,
                     QString* reason = nullptr);
+E2EEnvelope encryptE2EPayload(const QString& senderId,
+                              const QString& receiverId,
+                              const QString& keyId,
+                              const QByteArray& sessionKey,
+                              const QByteArray& plaintext,
+                              const QString& aad,
+                              QString* reason = nullptr);
+bool decryptE2EPayload(const E2EEnvelope& envelope,
+                       const QByteArray& sessionKey,
+                       QByteArray* plaintext,
+                       QString* reason = nullptr);
 
 #endif // E2EENVELOPE_H

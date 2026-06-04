@@ -180,7 +180,6 @@ private:
     void installE2EDerivedSession(const QString& peerId,
                                   const QString& keyId,
                                   const QByteArray& sessionKey);
-
     struct E2ESession {
         QString keyId;
         QByteArray sessionKey;
@@ -189,6 +188,11 @@ private:
         qint64 decryptedMessages = 0;
         bool rotationRequired = false;
     };
+
+    bool e2eFileSessionForPeer(const QString& peerId,
+                               const E2ESession** session,
+                               QString* rejectReason = nullptr) const;
+    bool markE2EFileChunkSent(const QString& peerId);
 
     struct E2EPeerIdentity {
         QByteArray publicKey;

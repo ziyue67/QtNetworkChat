@@ -72,6 +72,13 @@ void appendE2EFields(QJsonObject* obj, const Message& msg) {
         (*obj)["e2eEnvelope"] = msg.e2eEnvelope.toJson();
         (*obj)["isEncrypted"] = true;
     }
+    if (msg.e2eFileEncrypted) {
+        (*obj)["e2eFileEncrypted"] = true;
+        (*obj)["e2eFileKeyId"] = msg.e2eFileKeyId;
+        (*obj)["e2eFileKeyFingerprintSha256"] = msg.e2eFileKeyFingerprint;
+        (*obj)["e2eFilePlainSize"] = QString::number(msg.e2eFilePlainSize);
+        (*obj)["e2eFilePlainHash"] = msg.e2eFilePlainHash;
+    }
     if (msg.e2eKeyAgreement.isValid(&reason)) {
         (*obj)["e2eKeyAgreement"] = msg.e2eKeyAgreement.toJson();
     }
@@ -2132,6 +2139,17 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.transferId = obj["transferId"].toString().trimmed();
     msg.fileSize = obj["fileSize"].toVariant().toLongLong();
     msg.fileHash = obj["fileHash"].toString();
+    msg.e2eFileEncrypted = obj["e2eFileEncrypted"].toBool(false);
+    msg.e2eFileKeyId = obj["e2eFileKeyId"].toString();
+    msg.e2eFileKeyFingerprint = obj["e2eFileKeyFingerprintSha256"].toString();
+    msg.e2eFilePlainSize = obj["e2eFilePlainSize"].toVariant().toLongLong();
+    msg.e2eFilePlainHash = obj["e2eFilePlainHash"].toString();
+    if (obj.value("e2eEnvelope").isObject()) {
+        const E2EEnvelope envelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+        if (envelope.isValid()) {
+            msg.e2eEnvelope = envelope;
+        }
+    }
     const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
     const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
     msg.chunkSize = declaredChunkSize;
@@ -2172,7 +2190,7 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     if (declaredSize > 0 && declaredSize != actualSize) {
         integrityErrors << QString("大小不一致：声明 %1 字节，实际 %2 字节").arg(declaredSize).arg(actualSize);
     }
-    if (!declaredHash.isEmpty() && actualHash.compare(declaredHash, Qt::CaseInsensitive) != 0) {
+    if (!msg.e2eFileEncrypted && !declaredHash.isEmpty() && actualHash.compare(declaredHash, Qt::CaseInsensitive) != 0) {
         integrityErrors << "SHA-256 不一致";
     }
     if (declaredChunkSize < 0 || declaredChunkCount < 0) {
@@ -4250,6 +4268,13 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         chunkObj["chunkCount"] = QString::number(chunkCount);
         chunkObj["chunkIndex"] = QString::number(index);
         chunkObj["fileData"] = QString::fromLatin1(chunk.toBase64());
+        if (obj["e2eFileEncrypted"].toBool(false)) {
+            chunkObj["e2eFileEncrypted"] = true;
+            chunkObj["e2eFileKeyId"] = obj["e2eFileKeyId"].toString();
+            chunkObj["e2eFileKeyFingerprintSha256"] = obj["e2eFileKeyFingerprintSha256"].toString();
+            chunkObj["e2eFilePlainSize"] = obj["e2eFilePlainSize"].toString();
+            chunkObj["e2eFilePlainHash"] = obj["e2eFilePlainHash"].toString();
+        }
 
         QString ackRejectReason;
         qint64 ackReceivedBytes = 0;
@@ -4398,6 +4423,7 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
         obj["chunkCount"] = QString::number(chunkCount);
         obj["chunkIndex"] = QString::number(index);
         obj["fileData"] = QString::fromLatin1(chunk.toBase64());
+        appendE2EFields(&obj, msg);
 
         QString ackRejectReason;
         qint64 ackReceivedBytes = 0;

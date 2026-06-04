@@ -1017,6 +1017,41 @@ bool Client::sendEncryptedPrivateMessage(const QString& receiverId, const QStrin
     return sent;
 }
 
+bool Client::e2eFileSessionForPeer(const QString& peerId,
+                                   const E2ESession** session,
+                                   QString* rejectReason) const {
+    if (session) *session = nullptr;
+    if (rejectReason) rejectReason->clear();
+    const QString normalizedPeerId = peerId.trimmed();
+    const auto sessionIt = m_e2eSessions.constFind(normalizedPeerId);
+    if (normalizedPeerId.isEmpty() || sessionIt == m_e2eSessions.constEnd()) {
+        if (rejectReason) *rejectReason = QStringLiteral("missing-session");
+        return false;
+    }
+    if (!requireTrustedE2EPeer(normalizedPeerId, rejectReason)) {
+        return false;
+    }
+    if (sessionIt->rotationRequired || sessionIt->encryptedMessages >= m_e2eSessionMessageLimit) {
+        if (rejectReason) *rejectReason = QStringLiteral("rotation-required");
+        return false;
+    }
+    if (session) *session = &(*sessionIt);
+    return true;
+}
+
+bool Client::markE2EFileChunkSent(const QString& peerId) {
+    auto sessionIt = m_e2eSessions.find(peerId.trimmed());
+    if (sessionIt == m_e2eSessions.end()) {
+        return false;
+    }
+    ++sessionIt->encryptedMessages;
+    if (sessionIt->encryptedMessages >= m_e2eSessionMessageLimit) {
+        sessionIt->rotationRequired = true;
+    }
+    emit e2eSessionStateChanged(peerId.trimmed(), e2eSessionStatus(peerId));
+    return !sessionIt->rotationRequired;
+}
+
 bool Client::sendFriendRequest(const QString& receiverId) {
     if (!isConnected() || receiverId.isEmpty()) return false;
 
@@ -1396,6 +1431,15 @@ bool Client::sendFilePayload(const QString& filePath,
                              qint64 resumeNextChunkIndex,
                              const QVector<qint64>& resumeReceivedChunks) {
     if (!isConnected()) return false;
+    const bool e2eFileRequired = !receiverId.trimmed().isEmpty()
+        && (messageType == MessageType::File || messageType == MessageType::Image)
+        && hasE2ESession(receiverId);
+    const E2ESession* e2eFileSession = nullptr;
+    QString e2eFileRejectReason;
+    if (e2eFileRequired && !e2eFileSessionForPeer(receiverId, &e2eFileSession, &e2eFileRejectReason)) {
+        emit connectionError(QStringLiteral("端到端加密文件发送失败：%1").arg(e2eFileRejectReason));
+        return false;
+    }
     m_cancelOutgoingTransfer = false;
     m_currentOutgoingTransferId.clear();
     m_currentOutgoingReceiverId.clear();
@@ -1444,6 +1488,59 @@ bool Client::sendFilePayload(const QString& filePath,
     const qint64 chunkCount = (fileInfo.size() + kTransferChunkBytes - 1) / kTransferChunkBytes;
     const QString fileHash = QString::fromLatin1(hasher.result().toHex());
     const bool resumeMode = !resumeTransferId.trimmed().isEmpty();
+    const QString transferId = resumeMode
+        ? resumeTransferId.trimmed()
+        : QString("%1_%2_%3")
+            .arg(m_userId,
+                 QString::number(QDateTime::currentMSecsSinceEpoch()),
+                 QString::number(QRandomGenerator::global()->generate()));
+    const QString e2eFileKeyId = e2eFileRequired && e2eFileSession ? e2eFileSession->keyId : QString();
+    const QString e2eFileKeyFingerprint = e2eFileRequired && e2eFileSession ? e2eFingerprint(e2eFileSession->sessionKey) : QString();
+    QByteArray e2eWirePayload;
+    E2EEnvelope e2eFileEnvelope;
+    QString wireFileHash = fileHash;
+    qint64 wireFileSize = fileInfo.size();
+    qint64 wireChunkCount = chunkCount;
+    if (e2eFileRequired) {
+        if (resumeMode) {
+            emit connectionError(QStringLiteral("端到端加密文件续传失败：需要重新发送以保持认证信封一致"));
+            file.close();
+            return false;
+        }
+        QFile plainFile(fileInfo.absoluteFilePath());
+        if (!plainFile.open(QIODevice::ReadOnly)) {
+            file.close();
+            return false;
+        }
+        const QByteArray plainPayload = plainFile.readAll();
+        plainFile.close();
+        if (plainPayload.size() != fileInfo.size()) {
+            file.close();
+            return false;
+        }
+        const QString aad = QStringLiteral("file/private/v1;%1;%2;%3;%4")
+            .arg(transferId,
+                 QString::number(fileInfo.size()),
+                 fileHash,
+                 fileInfo.fileName());
+        QString encryptReason;
+        e2eFileEnvelope = encryptE2EPayload(m_userId,
+                                            receiverId.trimmed(),
+                                            e2eFileKeyId,
+                                            e2eFileSession->sessionKey,
+                                            plainPayload,
+                                            aad,
+                                            &encryptReason);
+        if (!e2eFileEnvelope.isValid(&encryptReason)) {
+            emit connectionError(QStringLiteral("端到端加密文件发送失败：%1").arg(encryptReason));
+            file.close();
+            return false;
+        }
+        e2eWirePayload = e2eFileEnvelope.ciphertext;
+        wireFileSize = e2eWirePayload.size();
+        wireChunkCount = (wireFileSize + kTransferChunkBytes - 1) / kTransferChunkBytes;
+        wireFileHash = QString::fromLatin1(QCryptographicHash::hash(e2eWirePayload, QCryptographicHash::Sha256).toHex());
+    }
     QSet<qint64> receivedChunkIndexes;
     qint64 resolvedResumeNextChunkIndex = resumeNextChunkIndex;
     if (resumeMode) {
@@ -1469,13 +1566,7 @@ bool Client::sendFilePayload(const QString& filePath,
     emit fileTransferPrepared(fileInfo.fileName(), fileInfo.size(), kTransferChunkBytes, chunkCount, fileHash);
     if (m_cancelOutgoingTransfer) return false;
 
-    if (!file.open(QIODevice::ReadOnly)) return false;
-    const QString transferId = resumeMode
-        ? resumeTransferId.trimmed()
-        : QString("%1_%2_%3")
-            .arg(m_userId,
-                 QString::number(QDateTime::currentMSecsSinceEpoch()),
-                 QString::number(QRandomGenerator::global()->generate()));
+    if (!e2eFileRequired && !file.open(QIODevice::ReadOnly)) return false;
     m_currentOutgoingTransferId = transferId;
     m_currentOutgoingReceiverId = receiverId;
     m_currentOutgoingFileName = fileInfo.fileName();
@@ -1484,22 +1575,23 @@ bool Client::sendFilePayload(const QString& filePath,
                                    resumeMode ? QStringLiteral("transfer-resumed") : QStringLiteral("transfer-prepared"),
                                    resumeMode ? resumeConfirmedBytes : 0,
                                    fileInfo.size());
-    if (!saveOutgoingTransferState(transferId,
-                                   fileInfo.absoluteFilePath(),
-                                   receiverId,
-                                   messageType,
-                                   fileHash,
-                                   fileInfo.size(),
-                                   chunkCount)) {
+    if (!e2eFileRequired
+        && !saveOutgoingTransferState(transferId,
+                                      fileInfo.absoluteFilePath(),
+                                      receiverId,
+                                      messageType,
+                                      wireFileHash,
+                                      wireFileSize,
+                                      wireChunkCount)) {
         file.close();
         return false;
     }
     qint64 sentBytes = resumeMode ? resumeConfirmedBytes : 0;
     qint64 chunkIndex = resumeMode ? resolvedResumeNextChunkIndex : 0;
     emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
-    if (chunkIndex == chunkCount) {
+    if (chunkIndex == wireChunkCount) {
         file.close();
-        const bool completed = sentBytes == fileInfo.size();
+        const bool completed = sentBytes == wireFileSize;
         if (completed) {
             clearOutgoingTransferState();
             emit fileTransferStatusChanged(fileInfo.fileName(),
@@ -1511,19 +1603,22 @@ bool Client::sendFilePayload(const QString& filePath,
         return completed;
     }
     const qint64 startOffset = chunkIndex * kTransferChunkBytes;
-    if (startOffset > fileInfo.size() || !file.seek(startOffset)) {
+    if (startOffset > wireFileSize || (!e2eFileRequired && !file.seek(startOffset))) {
         file.close();
         return false;
     }
 
     bool resumeAfterAckTimeoutUsed = false;
-    while (!file.atEnd()) {
+    while (chunkIndex < wireChunkCount) {
         if (m_cancelOutgoingTransfer) {
             file.close();
             return false;
         }
-        const QByteArray chunk = file.read(kTransferChunkBytes);
-        if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
+        const QByteArray chunk = e2eFileRequired
+            ? e2eWirePayload.mid(static_cast<int>(chunkIndex * kTransferChunkBytes),
+                                 static_cast<int>(qMin(kTransferChunkBytes, wireFileSize - chunkIndex * kTransferChunkBytes)))
+            : file.read(kTransferChunkBytes);
+        if (chunk.isEmpty()) {
             file.close();
             return false;
         }
@@ -1542,12 +1637,21 @@ bool Client::sendFilePayload(const QString& filePath,
         obj["receiverId"] = receiverId;
         obj["messageType"] = static_cast<int>(messageType);
         obj["fileName"] = fileInfo.fileName();
-        obj["fileSize"] = QString::number(fileInfo.size());
-        obj["fileHash"] = fileHash;
+        obj["fileSize"] = QString::number(wireFileSize);
+        obj["fileHash"] = wireFileHash;
         obj["chunkSize"] = QString::number(kTransferChunkBytes);
-        obj["chunkCount"] = QString::number(chunkCount);
+        obj["chunkCount"] = QString::number(wireChunkCount);
         obj["chunkIndex"] = QString::number(chunkIndex);
         obj["content"] = contentPrefix + fileInfo.fileName();
+        if (e2eFileRequired) {
+            obj["e2eEnvelope"] = e2eFileEnvelope.toJson();
+            obj["isEncrypted"] = true;
+            obj["e2eFileEncrypted"] = true;
+            obj["e2eFileKeyId"] = e2eFileKeyId;
+            obj["e2eFileKeyFingerprintSha256"] = e2eFileKeyFingerprint;
+            obj["e2eFilePlainSize"] = QString::number(fileInfo.size());
+            obj["e2eFilePlainHash"] = fileHash;
+        }
         obj["fileData"] = QString::fromLatin1(chunk.toBase64());
 
         QString ackRejectReason;
@@ -1564,8 +1668,8 @@ bool Client::sendFilePayload(const QString& filePath,
                 return false;
             }
             if (waitForFileChunkAck(transferId, chunkIndex, &ackRejectReason, &ackReceivedBytes)) {
-                const qint64 expectedAckBytes = qMin(fileInfo.size(), chunkIndex * kTransferChunkBytes + chunk.size());
-                if (ackReceivedBytes > 0 && (ackReceivedBytes < expectedAckBytes || ackReceivedBytes > fileInfo.size())) {
+                const qint64 expectedAckBytes = qMin(wireFileSize, chunkIndex * kTransferChunkBytes + chunk.size());
+                if (ackReceivedBytes > 0 && (ackReceivedBytes < expectedAckBytes || ackReceivedBytes > wireFileSize)) {
                     if (attempt == kChunkSendMaxAttempts) {
                         ackRejectReason = QString::fromUtf8("文件分片确认进度非法");
                     }
@@ -1614,35 +1718,35 @@ bool Client::sendFilePayload(const QString& filePath,
                                                  &resumeChunkSize,
                                                  &resumeChunkCount,
                                                  &resumeFileHash)) {
-                    if (resumeFileSize == fileInfo.size()
+                    if (resumeFileSize == wireFileSize
                         && resumeChunkSize == kTransferChunkBytes
-                        && resumeChunkCount == chunkCount
-                        && resumeFileHash.compare(fileHash, Qt::CaseInsensitive) == 0
+                        && resumeChunkCount == wireChunkCount
+                        && resumeFileHash.compare(wireFileHash, Qt::CaseInsensitive) == 0
                         && resolveResumeProgress(resumeConfirmedBytes,
-                                                 resumeNextChunkIndex,
-                                                 resumeReceivedChunks,
-                                                 fileInfo.size(),
-                                                 chunkCount,
-                                                 &resumeReceivedChunkSet,
-                                                 &firstMissingChunkIndex)) {
+                                                  resumeNextChunkIndex,
+                                                  resumeReceivedChunks,
+                                                  wireFileSize,
+                                                  wireChunkCount,
+                                                  &resumeReceivedChunkSet,
+                                                  &firstMissingChunkIndex)) {
                         receivedChunkIndexes = resumeReceivedChunkSet;
                         if (firstMissingChunkIndex > chunkIndex) {
-                            if (firstMissingChunkIndex == chunkCount) {
-                                sentBytes = fileInfo.size();
-                                chunkIndex = chunkCount;
+                            if (firstMissingChunkIndex == wireChunkCount) {
+                                sentBytes = wireFileSize;
+                                chunkIndex = wireChunkCount;
                                 emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
                                 advancedByResumeState = true;
                                 acknowledged = true;
                                 break;
                             }
                             const qint64 resumeOffset = firstMissingChunkIndex * kTransferChunkBytes;
-                            if (resumeOffset > fileInfo.size() || !file.seek(resumeOffset)) {
+                            if (resumeOffset > wireFileSize || (!e2eFileRequired && !file.seek(resumeOffset))) {
                                 continue;
                             }
                             sentBytes = qMax(sentBytes,
                                              receivedBytesFromChunks(resumeReceivedChunkSet,
-                                                                     fileInfo.size(),
-                                                                     chunkCount));
+                                                                     wireFileSize,
+                                                                     wireChunkCount));
                             chunkIndex = firstMissingChunkIndex;
                             emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
                             advancedByResumeState = true;
@@ -1654,9 +1758,9 @@ bool Client::sendFilePayload(const QString& filePath,
             }
         }
         if (advancedByResumeState) {
-            if (chunkIndex == chunkCount) {
+            if (chunkIndex == wireChunkCount) {
                 file.close();
-                const bool completed = sentBytes == fileInfo.size();
+                const bool completed = sentBytes == wireFileSize;
                 if (completed) {
                     clearOutgoingTransferState();
                     emit fileTransferStatusChanged(fileInfo.fileName(),
@@ -1676,20 +1780,23 @@ bool Client::sendFilePayload(const QString& filePath,
                                            sentBytes,
                                            fileInfo.size());
             emit connectionError(fileTransferUserMessage(QStringLiteral("chunk-ack-timeout"),
-                QString("文件分片发送超时：%1 第 %2/%3 片").arg(fileInfo.fileName()).arg(chunkIndex + 1).arg(chunkCount)));
+                QString("文件分片发送超时：%1 第 %2/%3 片").arg(fileInfo.fileName()).arg(chunkIndex + 1).arg(wireChunkCount)));
             file.close();
             return false;
         }
         const qint64 nextSentBytes = sentBytes + chunk.size();
         sentBytes = ackReceivedBytes > 0
-            ? qBound<qint64>(sentBytes, ackReceivedBytes, fileInfo.size())
+            ? qBound<qint64>(sentBytes, ackReceivedBytes, wireFileSize)
             : nextSentBytes;
         receivedChunkIndexes.insert(chunkIndex);
+        if (e2eFileRequired) {
+            markE2EFileChunkSent(receiverId);
+        }
         ++chunkIndex;
         emit fileTransferProgress(fileInfo.fileName(), sentBytes, fileInfo.size());
     }
     file.close();
-    const bool completed = sentBytes == fileInfo.size() && chunkIndex == chunkCount;
+    const bool completed = sentBytes == wireFileSize && chunkIndex == wireChunkCount;
     if (completed) {
         clearOutgoingTransferState();
         emit fileTransferStatusChanged(fileInfo.fileName(),
@@ -1958,6 +2065,11 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.fileHash = obj["fileHash"].toString();
         msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
         msg.chunkCount = obj["chunkCount"].toVariant().toLongLong();
+        msg.e2eFileEncrypted = obj["e2eFileEncrypted"].toBool(false);
+        msg.e2eFileKeyId = obj["e2eFileKeyId"].toString();
+        msg.e2eFileKeyFingerprint = obj["e2eFileKeyFingerprintSha256"].toString();
+        msg.e2eFilePlainSize = obj["e2eFilePlainSize"].toVariant().toLongLong();
+        msg.e2eFilePlainHash = obj["e2eFilePlainHash"].toString();
         msg.timestamp = QDateTime::currentDateTime();
         QString base64Data = obj["fileData"].toString();
         if (!base64Data.isEmpty()) {
@@ -2056,7 +2168,14 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     const qint64 chunkSize = obj["chunkSize"].toVariant().toLongLong();
     const qint64 chunkCount = obj["chunkCount"].toVariant().toLongLong();
     const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
-    const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+    QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+    const bool e2eFileEncrypted = obj["e2eFileEncrypted"].toBool(false);
+    const qint64 e2ePlainSize = obj["e2eFilePlainSize"].toVariant().toLongLong();
+    const QString e2ePlainHash = obj["e2eFilePlainHash"].toString().trimmed();
+    E2EEnvelope e2eEnvelope;
+    if (e2eFileEncrypted && obj.value("e2eEnvelope").isObject()) {
+        e2eEnvelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+    }
 
     auto failTransfer = [this, transferId, fileName, fileSize, chunkIndex](const QString& reason) {
         qint64 receivedBytes = 0;
@@ -2097,6 +2216,17 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         failTransfer("非末尾分片大小不一致");
         return;
     }
+    QString e2eValidationReason;
+    if (e2eFileEncrypted
+        && (!e2eEnvelope.isValid(&e2eValidationReason)
+            || e2eEnvelope.senderId != obj["senderId"].toString()
+            || e2eEnvelope.receiverId != m_userId
+            || e2eEnvelope.keyId != obj["e2eFileKeyId"].toString()
+            || e2ePlainSize <= 0
+            || e2ePlainHash.isEmpty())) {
+        failTransfer(QStringLiteral("端到端加密文件信封无效"));
+        return;
+    }
 
     PendingIncomingFileTransfer& pending = m_incomingFileTransfers[transferId];
     if (pending.chunks.isEmpty()) {
@@ -2113,8 +2243,12 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
                                        transferId,
                                        QStringLiteral("receive-started"),
                                        0,
-                                       fileSize);
-    } else if (pending.fileSize != fileSize || pending.chunkSize != chunkSize || pending.chunkCount != chunkCount) {
+                                       pending.fileSize);
+    } else if (pending.fileSize != fileSize
+               || pending.chunkSize != chunkSize
+               || pending.chunkCount != chunkCount
+               || pending.envelope["e2eFileEncrypted"].toBool(false) != e2eFileEncrypted
+               || pending.envelope["e2eFilePlainHash"].toString().trimmed() != e2ePlainHash) {
         failTransfer("同一传输编号的元数据不一致");
         return;
     }
@@ -2126,11 +2260,11 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         pending.receivedIndexes.insert(index);
         pending.receivedBytes += chunkData.size();
     }
-    if (pending.receivedBytes > fileSize) {
+    if (pending.receivedBytes > pending.fileSize) {
         failTransfer("累计分片大小超过声明文件大小");
         return;
     }
-    emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, fileSize);
+    emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, pending.fileSize);
     if (pending.receivedIndexes.size() < pending.chunkCount) {
         sendFileChunkAck(transferId, chunkIndex, true, QString(), pending.receivedBytes);
         return;
@@ -2147,6 +2281,38 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
     }
 
     QJsonObject fullFile = pending.envelope;
+    if (e2eFileEncrypted) {
+        const E2EEnvelope fullEnvelope = E2EEnvelope::fromJson(fullFile.value("e2eEnvelope").toObject());
+        auto sessionIt = m_e2eSessions.find(fullEnvelope.senderId);
+        QByteArray plaintextPayload;
+        QString decryptReason;
+        if (sessionIt == m_e2eSessions.end()
+            || sessionIt->keyId != fullEnvelope.keyId
+            || !decryptE2EPayload(fullEnvelope, sessionIt->sessionKey, &plaintextPayload, &decryptReason)) {
+            failTransfer(QStringLiteral("端到端加密文件无法解密"));
+            emit connectionError(QStringLiteral("端到端加密文件无法解密：%1")
+                .arg(decryptReason.isEmpty() ? QStringLiteral("missing-session") : decryptReason));
+            return;
+        }
+        fileData = plaintextPayload;
+        const QString actualPlainHash = QString::fromLatin1(QCryptographicHash::hash(fileData, QCryptographicHash::Sha256).toHex());
+        if (e2ePlainSize > 0 && fileData.size() != e2ePlainSize) {
+            failTransfer(QStringLiteral("端到端加密文件明文大小校验失败"));
+            return;
+        }
+        if (!e2ePlainHash.isEmpty() && actualPlainHash.compare(e2ePlainHash, Qt::CaseInsensitive) != 0) {
+            failTransfer(QStringLiteral("端到端加密文件明文哈希校验失败"));
+            return;
+        }
+        fullFile.remove("e2eEnvelope");
+        fullFile["fileSize"] = QString::number(e2ePlainSize);
+        fullFile["fileHash"] = e2ePlainHash;
+        fullFile["chunkSize"] = QString::number(kTransferChunkBytes);
+        fullFile["chunkCount"] = QString::number((e2ePlainSize + kTransferChunkBytes - 1) / kTransferChunkBytes);
+        fullFile["content"] = QStringLiteral("[端到端加密] ") + fullFile["content"].toString();
+        ++sessionIt->decryptedMessages;
+        emit e2eSessionStateChanged(fullEnvelope.senderId, e2eSessionStatus(fullEnvelope.senderId));
+    }
     m_incomingFileTransfers.remove(transferId);
     sendFileChunkAck(transferId, chunkIndex, true, QString(), fileData.size());
     emit fileTransferStatusChanged(fileName,

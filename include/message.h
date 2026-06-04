@@ -33,6 +33,11 @@ struct Message {
     QDateTime timestamp;
     E2EEnvelope e2eEnvelope;
     E2EKeyAgreement e2eKeyAgreement;
+    QString e2eFileKeyId;
+    QString e2eFileKeyFingerprint;
+    qint64 e2eFilePlainSize = 0;
+    QString e2eFilePlainHash;
+    bool e2eFileEncrypted = false;
 
     Message() : fileSize(0), chunkSize(0), chunkCount(0), type(MessageType::Text), timestamp(QDateTime::currentDateTime()) {}
 

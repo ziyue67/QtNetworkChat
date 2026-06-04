@@ -9,6 +9,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QHostAddress>
+#include <QCryptographicHash>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QThread>
@@ -141,6 +142,7 @@ int main(int argc, char** argv) {
         Client bob;
         Client mallory;
         Message bobMessage;
+        Message bobFileMessage;
         QString bobError;
         QString malloryError;
         QJsonObject aliceE2EStatus;
@@ -158,6 +160,8 @@ int main(int argc, char** argv) {
         QObject::connect(&bob, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::Private) {
                 bobMessage = msg;
+            } else if (msg.type == MessageType::File) {
+                bobFileMessage = msg;
             }
         });
         QObject::connect(&bob, &Client::connectionError, &app, [&](const QString& error) {
@@ -378,6 +382,27 @@ int main(int argc, char** argv) {
             return bobMessage.content == QStringLiteral("encrypted again after manual rotation");
         }), "receiver should decrypt after manual rotation installs matching local keys") && ok;
 
+        const QByteArray privateFilePayload("e2e private file payload should not cross the server as plaintext");
+        const QString privateFilePath = QDir(appDataDir).filePath(QStringLiteral("alice-private-e2e-file.bin"));
+        ok = expect(writeTextFile(privateFilePath, privateFilePayload),
+                    "test should write a private file payload") && ok;
+        bobFileMessage = Message();
+        ok = expect(alice.sendFile(privateFilePath, bobId),
+                    "trusted e2e private file send should succeed") && ok;
+        ok = expect(waitFor([&] {
+            return bobFileMessage.type == MessageType::File
+                && bobFileMessage.fileData == privateFilePayload;
+        }, 9000), "bob should receive the decrypted private file payload") && ok;
+        ok = expect(bobFileMessage.e2eFileEncrypted
+                        && bobFileMessage.e2eFilePlainSize == privateFilePayload.size()
+                        && bobFileMessage.e2eFilePlainHash
+                            == QString::fromLatin1(QCryptographicHash::hash(privateFilePayload, QCryptographicHash::Sha256).toHex())
+                        && bobFileMessage.fileHash == bobFileMessage.e2eFilePlainHash
+                        && bobFileMessage.content.contains(QStringLiteral("端到端加密")),
+                    "decrypted private file should retain safe e2e metadata and plaintext hash") && ok;
+        ok = expect(!bobFileMessage.fileData.contains("ciphertext"),
+                    "received private file data should be plaintext after local decrypt") && ok;
+
         alice.clearE2ESessionKey(bobId);
         ok = expect(!alice.hasE2ESession(bobId)
                         && alice.e2eSessionStatus(bobId).value("state").toString() == QStringLiteral("missing-session"),
@@ -431,6 +456,8 @@ int main(int argc, char** argv) {
         ok = expect(!aliceRestarted.sendEncryptedPrivateMessage(bobId, "stale trusted session must not send", &rejectReason)
                         && rejectReason == QStringLiteral("untrusted-identity"),
                     "default e2e policy should block encrypted sends after trust pin recovery clears trust") && ok;
+        ok = expect(!aliceRestarted.sendFile(privateFilePath, bobId),
+                    "default e2e policy should block private file sends after trust pin recovery clears trust") && ok;
         disconnectClient(aliceRestarted);
         disconnectClient(bobRestarted);
 

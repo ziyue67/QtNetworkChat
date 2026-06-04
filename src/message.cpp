@@ -18,6 +18,13 @@ QByteArray Message::toJson() const {
     obj["fileHash"] = fileHash;
     obj["chunkSize"] = QString::number(chunkSize);
     obj["chunkCount"] = QString::number(chunkCount);
+    if (e2eFileEncrypted) {
+        obj["e2eFileEncrypted"] = true;
+        obj["e2eFileKeyId"] = e2eFileKeyId;
+        obj["e2eFileKeyFingerprintSha256"] = e2eFileKeyFingerprint;
+        obj["e2eFilePlainSize"] = QString::number(e2eFilePlainSize);
+        obj["e2eFilePlainHash"] = e2eFilePlainHash;
+    }
 
     if (!fileData.isEmpty()) {
         obj["fileData"] = QString::fromLatin1(fileData.toBase64());
@@ -54,6 +61,11 @@ Message Message::fromJson(const QByteArray& json) {
     msg.fileHash = obj["fileHash"].toString();
     msg.chunkSize = obj["chunkSize"].toVariant().toLongLong();
     msg.chunkCount = obj["chunkCount"].toVariant().toLongLong();
+    msg.e2eFileEncrypted = obj["e2eFileEncrypted"].toBool(false);
+    msg.e2eFileKeyId = obj["e2eFileKeyId"].toString();
+    msg.e2eFileKeyFingerprint = obj["e2eFileKeyFingerprintSha256"].toString();
+    msg.e2eFilePlainSize = obj["e2eFilePlainSize"].toVariant().toLongLong();
+    msg.e2eFilePlainHash = obj["e2eFilePlainHash"].toString();
 
     if (obj.contains("hasFile") && obj["hasFile"].toBool()) {
         msg.fileData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());

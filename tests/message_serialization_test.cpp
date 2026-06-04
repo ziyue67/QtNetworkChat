@@ -42,6 +42,11 @@ int main() {
     original.e2eEnvelope.nonce = QByteArray("123456789012", 12);
     original.e2eEnvelope.ciphertext = QByteArray("encrypted-payload", 17);
     original.e2eEnvelope.tag = QByteArray("1234567890abcdef", 16);
+    original.e2eFileEncrypted = true;
+    original.e2eFileKeyId = original.e2eEnvelope.keyId;
+    original.e2eFileKeyFingerprint = QString(64, QLatin1Char('a'));
+    original.e2eFilePlainSize = 19;
+    original.e2eFilePlainHash = QString(64, QLatin1Char('b'));
 
     const Message restored = Message::fromJson(original.toJson());
 
@@ -64,6 +69,12 @@ int main() {
                 "e2e envelope should round-trip") && ok;
     ok = expect(restored.e2eEnvelope.tag == original.e2eEnvelope.tag,
                 "e2e envelope auth tag should round-trip") && ok;
+    ok = expect(restored.e2eFileEncrypted
+                    && restored.e2eFileKeyId == original.e2eFileKeyId
+                    && restored.e2eFileKeyFingerprint == original.e2eFileKeyFingerprint
+                    && restored.e2eFilePlainSize == original.e2eFilePlainSize
+                    && restored.e2eFilePlainHash == original.e2eFilePlainHash,
+                "e2e file metadata should round-trip") && ok;
 
     return ok ? 0 : 1;
 }

@@ -169,5 +169,27 @@ int main() {
                     && reason == "invalid-session-key",
                 "short session keys should fail closed") && ok;
 
+    const QByteArray binaryPayload("\x00\x01binary file payload\x7f", 22);
+    const E2EEnvelope encryptedPayload = encryptE2EPayload("10001",
+                                                           "10002",
+                                                           "alice-bob-file-1",
+                                                           sessionKey,
+                                                           binaryPayload,
+                                                           QStringLiteral("file/private/v1;transfer-1"),
+                                                           &reason);
+    ok = expect(encryptedPayload.isValid(&reason)
+                    && encryptedPayload.aad.startsWith(QStringLiteral("file/private/v1"))
+                    && encryptedPayload.ciphertext != binaryPayload,
+                "encrypted binary payload should be valid and opaque") && ok;
+    QByteArray decryptedPayload;
+    ok = expect(decryptE2EPayload(encryptedPayload, sessionKey, &decryptedPayload, &reason)
+                    && decryptedPayload == binaryPayload,
+                "encrypted binary payload should decrypt with the matching session key") && ok;
+    E2EEnvelope tamperedPayload = encryptedPayload;
+    tamperedPayload.aad.append(QStringLiteral(";tampered"));
+    ok = expect(!decryptE2EPayload(tamperedPayload, sessionKey, &decryptedPayload, &reason)
+                    && reason == QStringLiteral("authentication-failed"),
+                "binary payload aad tampering should fail authentication") && ok;
+
     return ok ? 0 : 1;
 }

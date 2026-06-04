@@ -421,6 +421,46 @@ E2EEnvelope encryptE2EText(const QString& senderId,
                            const QByteArray& sessionKey,
                            const QString& plaintext,
                            QString* reason) {
+    return encryptE2EPayload(senderId,
+                             receiverId,
+                             keyId,
+                             sessionKey,
+                             plaintext.toUtf8(),
+                             QStringLiteral("text/private/v1"),
+                             reason);
+}
+
+bool decryptE2EText(const E2EEnvelope& envelope,
+                    const QByteArray& sessionKey,
+                    QString* plaintext,
+                    QString* reason) {
+    if (plaintext) {
+        plaintext->clear();
+    }
+    QByteArray plainBytes;
+    if (!decryptE2EPayload(envelope, sessionKey, &plainBytes, reason)) {
+        return false;
+    }
+    const QString decoded = QString::fromUtf8(plainBytes);
+    if (decoded.toUtf8() != plainBytes) {
+        return fail(reason, QStringLiteral("invalid-plaintext"));
+    }
+    if (plaintext) {
+        *plaintext = decoded;
+    }
+    if (reason) {
+        reason->clear();
+    }
+    return true;
+}
+
+E2EEnvelope encryptE2EPayload(const QString& senderId,
+                              const QString& receiverId,
+                              const QString& keyId,
+                              const QByteArray& sessionKey,
+                              const QByteArray& plaintext,
+                              const QString& aad,
+                              QString* reason) {
     E2EEnvelope envelope;
     envelope.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
     envelope.suite = QStringLiteral("draft-placeholder");
@@ -428,7 +468,7 @@ E2EEnvelope encryptE2EText(const QString& senderId,
     envelope.receiverId = trimmed(receiverId);
     envelope.keyId = trimmed(keyId);
     envelope.nonce = randomBytes(MinNonceBytes);
-    envelope.aad = QStringLiteral("text/private/v1");
+    envelope.aad = aad.trimmed().isEmpty() ? QStringLiteral("payload/private/v1") : aad.trimmed();
 
     if (sessionKey.size() < MinSessionKeyBytes) {
         fail(reason, QStringLiteral("invalid-session-key"));
@@ -439,7 +479,7 @@ E2EEnvelope encryptE2EText(const QString& senderId,
         return envelope;
     }
 
-    envelope.ciphertext = streamXor(sessionKey, envelope.nonce, envelope.aad, plaintext.toUtf8());
+    envelope.ciphertext = streamXor(sessionKey, envelope.nonce, envelope.aad, plaintext);
     envelope.tag = hmacSha256(sessionKey, envelopeTagData(envelope));
     if (!envelope.isValid(reason)) {
         return E2EEnvelope();
@@ -450,10 +490,10 @@ E2EEnvelope encryptE2EText(const QString& senderId,
     return envelope;
 }
 
-bool decryptE2EText(const E2EEnvelope& envelope,
-                    const QByteArray& sessionKey,
-                    QString* plaintext,
-                    QString* reason) {
+bool decryptE2EPayload(const E2EEnvelope& envelope,
+                       const QByteArray& sessionKey,
+                       QByteArray* plaintext,
+                       QString* reason) {
     if (plaintext) {
         plaintext->clear();
     }
@@ -469,12 +509,8 @@ bool decryptE2EText(const E2EEnvelope& envelope,
         return fail(reason, QStringLiteral("authentication-failed"));
     }
     const QByteArray plainBytes = streamXor(sessionKey, envelope.nonce, envelope.aad, envelope.ciphertext);
-    const QString decoded = QString::fromUtf8(plainBytes);
-    if (decoded.toUtf8() != plainBytes) {
-        return fail(reason, QStringLiteral("invalid-plaintext"));
-    }
     if (plaintext) {
-        *plaintext = decoded;
+        *plaintext = plainBytes;
     }
     if (reason) {
         reason->clear();
