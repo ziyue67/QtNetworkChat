@@ -264,6 +264,11 @@ QString formatE2EVerificationCode(const QString& localFingerprint, const QString
              QString::fromLatin1(digest.mid(8, 4)));
 }
 
+QString shortE2EFingerprint(QString value) {
+    value = value.trimmed().toLower();
+    return value.size() <= 12 ? value : value.left(12);
+}
+
 QString e2eCurrentBackendId() {
     return e2eCryptoBackendStatus().value(QStringLiteral("requestedBackendId")).toString(e2eCryptoBackendId()).trimmed();
 }
@@ -594,38 +599,130 @@ void Client::clearE2ESessionKey(const QString& peerId) {
 }
 
 bool Client::clearE2EBackendMigrationState(QString* rejectReason) {
+    const QJsonObject evidence = executeE2EBackendMigration(rejectReason);
+    return evidence.value(QStringLiteral("executed")).toBool(false);
+}
+
+QJsonObject Client::planE2EBackendMigration() const {
+    QJsonObject plan;
+    const QString normalizedUserId = m_userId.trimmed();
+    plan[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-backend-migration-v1");
+    plan[QStringLiteral("mode")] = QStringLiteral("plan");
+    plan[QStringLiteral("userConfigured")] = !normalizedUserId.isEmpty();
+    plan[QStringLiteral("currentBackendId")] = e2eCurrentBackendId();
+    plan[QStringLiteral("localIdentityBackendId")] = m_e2eIdentityBackendId.trimmed();
+    plan[QStringLiteral("localIdentityFingerprintSummary")] = shortE2EFingerprint(m_e2eIdentityFingerprint);
+    plan[QStringLiteral("identityStorePresent")] = !normalizedUserId.isEmpty()
+        && QFile::exists(e2eIdentityFilePath(normalizedUserId));
+    plan[QStringLiteral("trustPinStorePresent")] = !normalizedUserId.isEmpty()
+        && QFile::exists(e2eTrustPinsFilePath(normalizedUserId));
+
+    const QJsonObject localStatus = e2eLocalIdentityStatus();
+    const bool localMigrationRequired = localStatus.value(QStringLiteral("backendMigrationRequired")).toBool(false);
+    plan[QStringLiteral("localIdentityMigrationRequired")] = localMigrationRequired;
+    plan[QStringLiteral("localIdentityBlockedReason")] = localStatus.value(QStringLiteral("blockedReason")).toString();
+
+    QJsonArray peerPins;
+    int pinnedPeerCount = 0;
+    int pinnedPeerMigrationCount = 0;
+    for (auto it = m_e2ePeerIdentities.constBegin(); it != m_e2ePeerIdentities.constEnd(); ++it) {
+        const QJsonObject peerStatus = e2ePeerIdentityStatus(it.key());
+        if (!peerStatus.value(QStringLiteral("pinned")).toBool(false)) {
+            continue;
+        }
+        ++pinnedPeerCount;
+        if (peerStatus.value(QStringLiteral("backendMigrationRequired")).toBool(false)) {
+            ++pinnedPeerMigrationCount;
+        }
+        QJsonObject peer;
+        peer[QStringLiteral("peerId")] = it.key();
+        peer[QStringLiteral("trustState")] = peerStatus.value(QStringLiteral("trustState")).toString();
+        peer[QStringLiteral("pinBackendId")] = peerStatus.value(QStringLiteral("pinBackendId")).toString();
+        peer[QStringLiteral("backendMigrationRequired")] = peerStatus.value(QStringLiteral("backendMigrationRequired")).toBool(false);
+        peer[QStringLiteral("blockedReason")] = peerStatus.value(QStringLiteral("blockedReason")).toString();
+        peer[QStringLiteral("fingerprintSummary")] =
+            shortE2EFingerprint(peerStatus.value(QStringLiteral("publicKeyFingerprintSha256")).toString());
+        peerPins.append(peer);
+    }
+
+    QJsonArray sessions;
+    int sessionMigrationCount = 0;
+    for (auto it = m_e2eSessions.constBegin(); it != m_e2eSessions.constEnd(); ++it) {
+        const QJsonObject sessionStatus = e2eSessionStatus(it.key());
+        if (sessionStatus.value(QStringLiteral("backendMigrationRequired")).toBool(false)) {
+            ++sessionMigrationCount;
+        }
+        QJsonObject session;
+        session[QStringLiteral("peerId")] = it.key();
+        session[QStringLiteral("backendId")] = sessionStatus.value(QStringLiteral("backendId")).toString();
+        session[QStringLiteral("state")] = sessionStatus.value(QStringLiteral("state")).toString();
+        session[QStringLiteral("backendMigrationRequired")] = sessionStatus.value(QStringLiteral("backendMigrationRequired")).toBool(false);
+        session[QStringLiteral("blockedReason")] = sessionStatus.value(QStringLiteral("blockedReason")).toString();
+        session[QStringLiteral("keyFingerprintSummary")] =
+            shortE2EFingerprint(sessionStatus.value(QStringLiteral("keyFingerprintSha256")).toString());
+        sessions.append(session);
+    }
+
+    plan[QStringLiteral("pinnedPeerCount")] = pinnedPeerCount;
+    plan[QStringLiteral("pinnedPeerMigrationCount")] = pinnedPeerMigrationCount;
+    plan[QStringLiteral("sessionCount")] = m_e2eSessions.size();
+    plan[QStringLiteral("sessionMigrationCount")] = sessionMigrationCount;
+    plan[QStringLiteral("pendingOutgoingAgreementCount")] = m_e2ePendingOutgoingAgreements.size();
+    plan[QStringLiteral("pendingIncomingAgreementCount")] = m_e2ePendingIncomingAgreements.size();
+    plan[QStringLiteral("peerPins")] = peerPins;
+    plan[QStringLiteral("sessions")] = sessions;
+
+    const bool migrationRequired = localMigrationRequired
+        || pinnedPeerMigrationCount > 0
+        || sessionMigrationCount > 0;
+    plan[QStringLiteral("migrationRequired")] = migrationRequired;
+    plan[QStringLiteral("releaseGate")] = migrationRequired
+        ? QStringLiteral("manual-e2e-backend-migration-required")
+        : QStringLiteral("no-e2e-backend-migration-required");
+    plan[QStringLiteral("operatorAction")] = migrationRequired
+        ? QStringLiteral("execute-local-e2e-backend-migration-before-production-crypto")
+        : QStringLiteral("no-local-e2e-migration-needed");
+    return plan;
+}
+
+QJsonObject Client::executeE2EBackendMigration(QString* rejectReason) {
     if (rejectReason) rejectReason->clear();
+    QJsonObject evidence;
+    evidence[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-backend-migration-v1");
+    evidence[QStringLiteral("mode")] = QStringLiteral("execute");
+    evidence[QStringLiteral("executed")] = false;
+    evidence[QStringLiteral("startedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+
     const QString normalizedUserId = m_userId.trimmed();
     if (normalizedUserId.isEmpty()) {
         if (rejectReason) *rejectReason = QStringLiteral("identity-not-ready");
-        return false;
+        evidence[QStringLiteral("reason")] = QStringLiteral("identity-not-ready");
+        return evidence;
     }
 
-    const bool localMigrationRequired = e2eLocalIdentityStatus().value(QStringLiteral("backendMigrationRequired")).toBool(false);
-    bool peerOrSessionMigrationRequired = false;
-    for (auto it = m_e2ePeerIdentities.constBegin(); it != m_e2ePeerIdentities.constEnd() && !peerOrSessionMigrationRequired; ++it) {
-        peerOrSessionMigrationRequired = e2ePeerIdentityStatus(it.key()).value(QStringLiteral("backendMigrationRequired")).toBool(false);
-    }
-    for (auto it = m_e2eSessions.constBegin(); it != m_e2eSessions.constEnd() && !peerOrSessionMigrationRequired; ++it) {
-        peerOrSessionMigrationRequired = e2eSessionStatus(it.key()).value(QStringLiteral("backendMigrationRequired")).toBool(false);
-    }
-    if (!localMigrationRequired && !peerOrSessionMigrationRequired) {
+    const QJsonObject beforePlan = planE2EBackendMigration();
+    evidence[QStringLiteral("before")] = beforePlan;
+    if (!beforePlan.value(QStringLiteral("migrationRequired")).toBool(false)) {
         if (rejectReason) *rejectReason = QStringLiteral("migration-not-required");
-        return false;
+        evidence[QStringLiteral("reason")] = QStringLiteral("migration-not-required");
+        return evidence;
     }
 
     const QString identityPath = e2eIdentityFilePath(normalizedUserId);
     if (QFile::exists(identityPath) && !QFile::remove(identityPath)) {
         if (rejectReason) *rejectReason = QStringLiteral("identity-store-remove-failed");
-        return false;
+        evidence[QStringLiteral("reason")] = QStringLiteral("identity-store-remove-failed");
+        return evidence;
     }
     const QString pinsPath = e2eTrustPinsFilePath(normalizedUserId);
     if (QFile::exists(pinsPath) && !QFile::remove(pinsPath)) {
         if (rejectReason) *rejectReason = QStringLiteral("pin-store-remove-failed");
-        return false;
+        evidence[QStringLiteral("reason")] = QStringLiteral("pin-store-remove-failed");
+        return evidence;
     }
 
     const QStringList sessionPeers = m_e2eSessions.keys();
+    const QStringList identityPeers = m_e2ePeerIdentities.keys();
     m_e2eIdentityPrivateKey.clear();
     m_e2eIdentityPublicKey.clear();
     m_e2eIdentityBackendId.clear();
@@ -645,7 +742,18 @@ bool Client::clearE2EBackendMigrationState(QString* rejectReason) {
     for (const QString& peerId : sessionPeers) {
         emit e2eSessionStateChanged(peerId, e2eSessionStatus(peerId));
     }
-    return true;
+    evidence[QStringLiteral("executed")] = true;
+    evidence[QStringLiteral("completedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    evidence[QStringLiteral("clearedIdentityStore")] = true;
+    evidence[QStringLiteral("clearedTrustPinStore")] = true;
+    evidence[QStringLiteral("clearedSessionCount")] = sessionPeers.size();
+    evidence[QStringLiteral("clearedPeerTrustCount")] = identityPeers.size();
+    evidence[QStringLiteral("clearedPendingOutgoingAgreementCount")] =
+        beforePlan.value(QStringLiteral("pendingOutgoingAgreementCount")).toInt();
+    evidence[QStringLiteral("clearedPendingIncomingAgreementCount")] =
+        beforePlan.value(QStringLiteral("pendingIncomingAgreementCount")).toInt();
+    evidence[QStringLiteral("after")] = planE2EBackendMigration();
+    return evidence;
 }
 
 bool Client::hasE2ESession(const QString& peerId) const {

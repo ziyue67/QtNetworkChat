@@ -31,6 +31,8 @@ public:
     QJsonObject e2eSessionStatus(const QString& peerId) const;
     QJsonObject e2eLocalIdentityStatus() const;
     QJsonObject e2ePeerIdentityStatus(const QString& peerId) const;
+    QJsonObject planE2EBackendMigration() const;
+    QJsonObject executeE2EBackendMigration(QString* rejectReason = nullptr);
     void setE2ESessionMessageLimitForTesting(int limit);
     bool announceE2EIdentity(const QString& peerId = QString(), QString* rejectReason = nullptr);
     bool pinE2EPeerIdentity(const QString& peerId, const QString& expectedFingerprint = QString(), QString* rejectReason = nullptr);

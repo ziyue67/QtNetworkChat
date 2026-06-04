@@ -9,6 +9,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonDocument>
 #include <QCryptographicHash>
 #include <QStandardPaths>
 #include <QTcpServer>
@@ -457,8 +458,43 @@ int main(int argc, char** argv) {
         ok = expect(QFile::exists(aliceIdentityPathBeforeClear)
                         && QFile::exists(aliceTrustPinsPathBeforeClear),
                     "test should have persisted draft identity and trust pin stores before migration recovery") && ok;
-        ok = expect(alice.clearE2EBackendMigrationState(&rejectReason) && rejectReason.isEmpty(),
-                    "migration recovery should clear persisted draft identity, pins, sessions, and pending agreements") && ok;
+        const QJsonObject migrationPlan = alice.planE2EBackendMigration();
+        ok = expect(migrationPlan.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-backend-migration-v1")
+                        && migrationPlan.value("mode").toString() == QStringLiteral("plan")
+                        && migrationPlan.value("migrationRequired").toBool(false)
+                        && migrationPlan.value("releaseGate").toString()
+                            == QStringLiteral("manual-e2e-backend-migration-required")
+                        && migrationPlan.value("operatorAction").toString()
+                            == QStringLiteral("execute-local-e2e-backend-migration-before-production-crypto")
+                        && migrationPlan.value("identityStorePresent").toBool(false)
+                        && migrationPlan.value("trustPinStorePresent").toBool(false)
+                        && migrationPlan.value("pinnedPeerMigrationCount").toInt() >= 1
+                        && migrationPlan.value("sessionMigrationCount").toInt() >= 1,
+                    "migration plan should expose local draft identity, trust pin, and session migration evidence") && ok;
+        const QByteArray migrationPlanJson = QJsonDocument(migrationPlan).toJson(QJsonDocument::Compact);
+        ok = expect(!migrationPlanJson.contains("privateKey")
+                        && !migrationPlanJson.contains("sessionKey")
+                        && !migrationPlanJson.contains("publicKey\"")
+                        && !migrationPlanJson.contains(originalAliceIdentityFingerprint.toUtf8()),
+                    "migration plan should not leak private keys, raw session keys, public keys, or full identity fingerprints") && ok;
+        const QJsonObject migrationEvidence = alice.executeE2EBackendMigration(&rejectReason);
+        ok = expect(rejectReason.isEmpty()
+                        && migrationEvidence.value("executed").toBool(false)
+                        && migrationEvidence.value("mode").toString() == QStringLiteral("execute")
+                        && migrationEvidence.value("clearedIdentityStore").toBool(false)
+                        && migrationEvidence.value("clearedTrustPinStore").toBool(false)
+                        && migrationEvidence.value("clearedSessionCount").toInt() >= 1
+                        && migrationEvidence.value("clearedPeerTrustCount").toInt() >= 1
+                        && migrationEvidence.value("before").toObject().value("migrationRequired").toBool(false)
+                        && !migrationEvidence.value("after").toObject().value("migrationRequired").toBool(true),
+                    "migration execution should return before/after counters and clear persisted draft identity, pins, sessions, and pending agreements") && ok;
+        const QByteArray migrationEvidenceJson = QJsonDocument(migrationEvidence).toJson(QJsonDocument::Compact);
+        ok = expect(!migrationEvidenceJson.contains("privateKey")
+                        && !migrationEvidenceJson.contains("sessionKey")
+                        && !migrationEvidenceJson.contains("publicKey\"")
+                        && !migrationEvidenceJson.contains(originalAliceIdentityFingerprint.toUtf8()),
+                    "migration execution evidence should stay sanitized") && ok;
         ok = expect(!QFile::exists(aliceIdentityPathBeforeClear)
                         && !QFile::exists(aliceTrustPinsPathBeforeClear)
                         && alice.e2eLocalIdentityStatus().value("blockedReason").toString()
@@ -476,6 +512,9 @@ int main(int argc, char** argv) {
         ok = expect(!alice.requestE2ESessionRotation(bobId, &rejectReason)
                         && rejectReason == QStringLiteral("identity-not-ready"),
                     "cleared migration state should require a new backend identity before rotation") && ok;
+        ok = expect(!alice.clearE2EBackendMigrationState(&rejectReason)
+                        && rejectReason == QStringLiteral("migration-not-required"),
+                    "compatibility migration clear wrapper should report when no migration remains") && ok;
         qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
         alice.setUserInfo(aliceId, "Alice");
         ok = expect(alice.announceE2EIdentity(bobId, &rejectReason)
