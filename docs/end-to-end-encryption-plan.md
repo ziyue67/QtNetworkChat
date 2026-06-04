@@ -4,13 +4,15 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 
 ## Current Authenticated Agreement Boundary
 
+- The E2E cryptographic surface now has an explicit backend contract. Runtime status exposes `backendId=draft-qt-hmac-stream-v1`, `suite=draft-placeholder`, `signatureSuite=draft-identity-hmac-sha256`, `productionReady=false`, `available`, `productionRequired`, and an operator action. Identity and session status include this backend block without exposing raw session keys, private identity material, or full payloads.
+- Operators can set `QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO=1` to fail closed when the current build has only the draft backend. In that mode draft session-key generation, draft identity-key generation, agreement signing, signature verification, session derivation, payload encryption, payload decryption, and identity announcement are blocked with `production-crypto-backend-unavailable` or `identity-not-ready` before any draft encrypted data plane is used.
 - `E2EKeyAgreement` now carries both `senderIdentityFingerprintSha256` and `receiverIdentityFingerprintSha256` in addition to the rotation public key fingerprint and a draft identity-bound agreement signature.
 - A client can send a rotation request or response only after it has observed the peer identity and that identity is not in `mismatch` state.
 - A client signs outgoing rotation requests/responses with its local persisted E2E identity material. Incoming rotation messages are accepted only when the sender identity fingerprint matches the locally observed peer identity, the receiver identity fingerprint matches the local identity, and the agreement signature verifies against the pinned sender identity public material.
 - Rotation request/response messages carry only public agreement material. Each side keeps its private agreement scalar locally, validates the identity-bound transcript, and derives the same session key from the shared transcript before marking the data plane `ready`.
 - Missing pending agreement state, mismatched peer IDs, mismatched identity fingerprints, missing/tampered agreement signatures, invalid local private/public pairing, or malformed remote public material fail closed and do not install a session.
 - The server validates shape and routing, then forwards only public agreement material. For remote Redis-present users it publishes an `e2e_control` event that contains the same public identity or signed agreement material and is delivered only to the online receiver instance. It does not cache identity keys, session keys, or private material.
-- This is still a draft productization step using Qt primitives for testable authenticated agreement semantics. It is now signature-gated and cross-device-code gated at the client protocol boundary, but still needs a reviewed production cryptographic backend before it should be treated as an audited production suite.
+- This is still a draft productization step using Qt primitives for testable authenticated agreement semantics. It is now signature-gated, cross-device-code gated, and production-required fail-closed at the client protocol boundary, but still needs a reviewed production cryptographic backend before it should be treated as an audited production suite.
 
 ## Current Cross-Device Trust Boundary
 
@@ -43,5 +45,6 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 ## Remaining Work
 
 - Replace the draft agreement/signature primitive with a reviewed production cryptographic backend and durable signed identity keys.
+- Wire the production backend into the existing backend contract so `productionReady=true` can be reported only when key generation, agreement, signatures, payload encryption/decryption, protocol compatibility, and fail-closed tests all pass.
 - Add migration checks for older identity/pin store schemas and richer operator/user recovery prompts.
 - Extend encrypted file recovery beyond the current resend-on-interruption policy with resumable envelope/object evidence once the production crypto backend and key-rotation persistence model are ready.

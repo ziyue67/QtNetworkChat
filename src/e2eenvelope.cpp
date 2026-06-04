@@ -21,6 +21,16 @@ constexpr quint32 DraftDhPrime = 2147483647u;
 constexpr quint32 DraftDhGenerator = 5u;
 const char DraftDhPrivatePrefix[] = "qnc-dh1-private:";
 const char DraftDhPublicPrefix[] = "qnc-dh1-public:";
+const char E2EProtocolV1[] = "qtnetworkchat-e2e-v1";
+const char E2EDraftSuite[] = "draft-placeholder";
+const char E2EAdvertisedSuite[] = "x25519-hkdf-sha256-aes-256-gcm";
+const char E2EDraftBackendId[] = "draft-qt-hmac-stream-v1";
+const char E2EDraftSignatureSuite[] = "draft-identity-hmac-sha256";
+
+bool envEnabled(const char* name) {
+    const QByteArray value = qgetenv(name).trimmed().toLower();
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
 
 QString trimmed(QString value) {
     return value.trimmed();
@@ -40,6 +50,14 @@ bool fail(QString* reason, const QString& value) {
         *reason = value;
     }
     return false;
+}
+
+bool rejectWhenProductionCryptoRequired(QString* reason) {
+    if (!e2eProductionCryptoRequired()) {
+        return false;
+    }
+    fail(reason, QStringLiteral("production-crypto-backend-unavailable"));
+    return true;
 }
 
 bool validIdentity(const QString& value) {
@@ -225,13 +243,49 @@ QString normalizedE2ESuite(QString suite) {
 }
 
 bool isSupportedE2EProtocol(const QString& protocol) {
-    return normalizedE2EProtocol(protocol) == QStringLiteral("qtnetworkchat-e2e-v1");
+    return normalizedE2EProtocol(protocol) == QString::fromLatin1(E2EProtocolV1);
 }
 
 bool isSupportedE2ESuite(const QString& suite) {
     const QString normalized = normalizedE2ESuite(suite);
-    return normalized == QStringLiteral("x25519-hkdf-sha256-aes-256-gcm")
-        || normalized == QStringLiteral("draft-placeholder");
+    return normalized == QString::fromLatin1(E2EAdvertisedSuite)
+        || normalized == QString::fromLatin1(E2EDraftSuite);
+}
+
+QString e2eDefaultSuite() {
+    return QString::fromLatin1(E2EDraftSuite);
+}
+
+QString e2eCryptoBackendId() {
+    return QString::fromLatin1(E2EDraftBackendId);
+}
+
+QString e2eAgreementSignatureSuite() {
+    return QString::fromLatin1(E2EDraftSignatureSuite);
+}
+
+bool e2eProductionCryptoRequired() {
+    return envEnabled("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO");
+}
+
+QJsonObject e2eCryptoBackendStatus() {
+    QJsonObject status;
+    status["backendId"] = e2eCryptoBackendId();
+    status["protocol"] = QString::fromLatin1(E2EProtocolV1);
+    status["suite"] = e2eDefaultSuite();
+    status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
+    status["signatureSuite"] = e2eAgreementSignatureSuite();
+    status["productionReady"] = false;
+    status["productionRequired"] = e2eProductionCryptoRequired();
+    status["available"] = !e2eProductionCryptoRequired();
+    status["status"] = e2eProductionCryptoRequired()
+        ? QStringLiteral("blocked-production-backend-unavailable")
+        : QStringLiteral("draft-backend-active");
+    status["operatorAction"] = e2eProductionCryptoRequired()
+        ? QStringLiteral("install-production-crypto-backend-or-disable-requirement")
+        : QStringLiteral("draft-backend-allowed-for-current-build");
+    status["rawKeyExported"] = false;
+    return status;
 }
 
 QString e2eFingerprint(const QByteArray& value) {
@@ -365,10 +419,16 @@ E2EEnvelope E2EEnvelope::fromJson(const QJsonObject& obj) {
 }
 
 QByteArray generateE2ESessionKey() {
+    if (rejectWhenProductionCryptoRequired(nullptr)) {
+        return QByteArray();
+    }
     return randomBytes(SessionKeyBytes);
 }
 
 QByteArray generateE2EPrivateKey() {
+    if (rejectWhenProductionCryptoRequired(nullptr)) {
+        return QByteArray();
+    }
     quint32 scalar = 0;
     while (scalar < 2 || scalar >= DraftDhPrime - 1) {
         const QByteArray bytes = randomBytes(4);
@@ -382,6 +442,9 @@ QByteArray generateE2EPrivateKey() {
 }
 
 QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey) {
+    if (rejectWhenProductionCryptoRequired(nullptr)) {
+        return QByteArray();
+    }
     const quint32 scalar = readDhValue(privateKey, DraftDhPrivatePrefix);
     if (scalar < 2 || scalar >= DraftDhPrime - 1) {
         return QByteArray();
@@ -392,6 +455,10 @@ QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey) {
 bool signE2EKeyAgreement(E2EKeyAgreement* agreement,
                          const QByteArray& identityPrivateKey,
                          QString* reason) {
+    if (rejectWhenProductionCryptoRequired(reason)) {
+        if (agreement) agreement->signature.clear();
+        return false;
+    }
     if (!agreement) {
         return fail(reason, QStringLiteral("invalid-agreement"));
     }
@@ -415,6 +482,9 @@ bool signE2EKeyAgreement(E2EKeyAgreement* agreement,
 bool verifyE2EKeyAgreementSignature(const E2EKeyAgreement& agreement,
                                     const QByteArray& identityPublicKey,
                                     QString* reason) {
+    if (rejectWhenProductionCryptoRequired(reason)) {
+        return false;
+    }
     QString validationReason;
     if (!agreement.isValid(&validationReason)) {
         return fail(reason, validationReason);
@@ -440,6 +510,9 @@ QByteArray deriveE2EAuthenticatedSessionKey(const QByteArray& localPrivateKey,
                                             const E2EKeyAgreement& localAgreement,
                                             const E2EKeyAgreement& remoteAgreement,
                                             QString* reason) {
+    if (rejectWhenProductionCryptoRequired(reason)) {
+        return QByteArray();
+    }
     QString validationReason;
     if (!localAgreement.isValid(&validationReason) || !remoteAgreement.isValid(&validationReason)) {
         fail(reason, validationReason);
@@ -530,14 +603,17 @@ E2EEnvelope encryptE2EPayload(const QString& senderId,
                               const QString& aad,
                               QString* reason) {
     E2EEnvelope envelope;
-    envelope.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
-    envelope.suite = QStringLiteral("draft-placeholder");
+    envelope.protocol = QString::fromLatin1(E2EProtocolV1);
+    envelope.suite = e2eDefaultSuite();
     envelope.senderId = trimmed(senderId);
     envelope.receiverId = trimmed(receiverId);
     envelope.keyId = trimmed(keyId);
     envelope.nonce = randomBytes(MinNonceBytes);
     envelope.aad = aad.trimmed().isEmpty() ? QStringLiteral("payload/private/v1") : aad.trimmed();
 
+    if (rejectWhenProductionCryptoRequired(reason)) {
+        return envelope;
+    }
     if (sessionKey.size() < MinSessionKeyBytes) {
         fail(reason, QStringLiteral("invalid-session-key"));
         return envelope;
@@ -567,6 +643,9 @@ bool decryptE2EPayload(const E2EEnvelope& envelope,
     }
     if (sessionKey.size() < MinSessionKeyBytes) {
         return fail(reason, QStringLiteral("invalid-session-key"));
+    }
+    if (rejectWhenProductionCryptoRequired(reason)) {
+        return false;
     }
     QString validationReason;
     if (!envelope.isValid(&validationReason)) {

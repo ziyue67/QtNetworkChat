@@ -291,12 +291,13 @@ bool e2eEnvelopeHeaderLooksSafe(const QJsonObject& header) {
 QJsonObject e2eIdentityJson(const QString& userId, const QByteArray& publicKey) {
     QJsonObject obj;
     obj["protocol"] = QStringLiteral("qtnetworkchat-e2e-v1");
-    obj["suite"] = QStringLiteral("draft-placeholder");
+    obj["suite"] = e2eDefaultSuite();
     obj["userId"] = userId.trimmed();
     obj["publicKey"] = base64Url(publicKey);
     obj["publicKeyFingerprintSha256"] = e2eFingerprint(publicKey);
-    obj["agreementSigning"] = true;
-    obj["signatureSuite"] = QStringLiteral("draft-identity-hmac-sha256");
+    obj["agreementSigning"] = !publicKey.isEmpty() && e2eCryptoBackendStatus().value("available").toBool(false);
+    obj["signatureSuite"] = e2eAgreementSignatureSuite();
+    obj["cryptoBackend"] = e2eCryptoBackendStatus();
     obj["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     return obj;
 }
@@ -326,7 +327,7 @@ bool validateE2EIdentityJson(const QJsonObject& identity, QString* reason = null
     }
     const QString signatureSuite = identity.value("signatureSuite").toString().trimmed();
     if (!signatureSuite.isEmpty()
-        && signatureSuite != QLatin1String("draft-identity-hmac-sha256")) {
+        && signatureSuite != e2eAgreementSignatureSuite()) {
         if (reason) *reason = QStringLiteral("unsupported-signature-suite");
         return false;
     }
@@ -554,6 +555,7 @@ QJsonObject Client::e2eSessionStatus(const QString& peerId) const {
     status["ready"] = false;
     status["rotationRequired"] = false;
     status["messageLimit"] = m_e2eSessionMessageLimit;
+    status["cryptoBackend"] = e2eCryptoBackendStatus();
     const auto it = m_e2eSessions.constFind(normalizedPeerId);
     if (it == m_e2eSessions.constEnd()) {
         status["state"] = QStringLiteral("missing-session");
@@ -578,8 +580,10 @@ QJsonObject Client::e2eLocalIdentityStatus() const {
     status["trusted"] = true;
     status["trustState"] = QStringLiteral("local");
     status["agreementSigning"] = !m_e2eIdentityPrivateKey.isEmpty()
-        && !m_e2eIdentityPublicKey.isEmpty();
-    status["signatureSuite"] = QStringLiteral("draft-identity-hmac-sha256");
+        && !m_e2eIdentityPublicKey.isEmpty()
+        && e2eCryptoBackendStatus().value("available").toBool(false);
+    status["signatureSuite"] = e2eAgreementSignatureSuite();
+    status["cryptoBackend"] = e2eCryptoBackendStatus();
     status["identityPersisted"] = !m_userId.trimmed().isEmpty()
         && QFile::exists(e2eIdentityFilePath(m_userId));
     return status;
@@ -616,7 +620,8 @@ QJsonObject Client::e2ePeerIdentityStatus(const QString& peerId) const {
     }
     status["trusted"] = it->pinned && it->verified && !it->fingerprintMismatch;
     status["agreementSignatureVerified"] = it->pinned && it->verified && !it->fingerprintMismatch && !it->publicKey.isEmpty();
-    status["signatureSuite"] = QStringLiteral("draft-identity-hmac-sha256");
+    status["signatureSuite"] = e2eAgreementSignatureSuite();
+    status["cryptoBackend"] = e2eCryptoBackendStatus();
     status["trustState"] = it->fingerprintMismatch
         ? QStringLiteral("mismatch")
         : (it->pinned && it->verified ? QStringLiteral("trusted")
@@ -638,6 +643,10 @@ bool Client::announceE2EIdentity(const QString& peerId, QString* rejectReason) {
     }
     if (m_userId.trimmed().isEmpty() || m_e2eIdentityPublicKey.isEmpty()) {
         if (rejectReason) *rejectReason = QStringLiteral("identity-not-ready");
+        return false;
+    }
+    if (!e2eCryptoBackendStatus().value("available").toBool(false)) {
+        if (rejectReason) *rejectReason = QStringLiteral("production-crypto-backend-unavailable");
         return false;
     }
 
@@ -972,7 +981,7 @@ bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectRea
 
     E2EKeyAgreement agreement;
     agreement.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
-    agreement.suite = QStringLiteral("draft-placeholder");
+    agreement.suite = e2eDefaultSuite();
     agreement.senderId = m_userId;
     agreement.receiverId = normalizedPeerId;
     agreement.keyId = QStringLiteral("rotate-%1-%2")
@@ -1024,7 +1033,7 @@ bool Client::respondE2ESessionRotation(const QString& peerId,
     const QString normalizedPeerId = peerId.trimmed();
     E2EKeyAgreement agreement;
     agreement.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
-    agreement.suite = QStringLiteral("draft-placeholder");
+    agreement.suite = e2eDefaultSuite();
     agreement.senderId = m_userId;
     agreement.receiverId = normalizedPeerId;
     agreement.keyId = keyId.trimmed();

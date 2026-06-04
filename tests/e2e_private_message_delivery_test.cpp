@@ -220,7 +220,11 @@ int main(int argc, char** argv) {
         ok = expect(alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
                         && alice.e2eLocalIdentityStatus().value("agreementSigning").toBool(false)
                         && alice.e2eLocalIdentityStatus().value("signatureSuite").toString()
-                            == QStringLiteral("draft-identity-hmac-sha256")
+                            == e2eAgreementSignatureSuite()
+                        && alice.e2eLocalIdentityStatus().value("cryptoBackend").toObject()
+                            .value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                        && !alice.e2eLocalIdentityStatus().value("cryptoBackend").toObject()
+                            .value("productionReady").toBool(true)
                         && !alice.e2eLocalIdentityStatus().contains("privateKey")
                         && !aliceSawBobIdentity.contains("privateKey")
                         && !bobSawAliceIdentity.contains("sessionKey"),
@@ -328,8 +332,10 @@ int main(int argc, char** argv) {
                     "both peers should install the same derived session without exposing the raw key") && ok;
         ok = expect(alice.hasE2ESession(bobId)
                         && alice.e2eSessionStatus(bobId).value("state").toString() == "ready"
-                        && alice.e2eSessionStatus(bobId).value("keyFingerprintSha256").toString().size() == 64,
-                    "alice should expose ready e2e session status without the raw key") && ok;
+                        && alice.e2eSessionStatus(bobId).value("keyFingerprintSha256").toString().size() == 64
+                        && alice.e2eSessionStatus(bobId).value("cryptoBackend").toObject()
+                            .value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1"),
+                    "alice should expose ready e2e session and backend status without the raw key") && ok;
 
         ok = expect(!alice.sendEncryptedPrivateMessage(malloryId, "missing session should fail", &rejectReason)
                         && rejectReason == "missing-session",
@@ -502,6 +508,23 @@ int main(int argc, char** argv) {
                     "default e2e policy should block private file sends after trust pin recovery clears trust") && ok;
         disconnectClient(aliceRestarted);
         disconnectClient(bobRestarted);
+
+        qputenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO", "1");
+        Client productionRequiredClient;
+        productionRequiredClient.setUserInfo("950099", "ProdRequired");
+        const QJsonObject productionRequiredIdentity = productionRequiredClient.e2eLocalIdentityStatus();
+        ok = expect(productionRequiredIdentity.value("cryptoBackend").toObject()
+                        .value("status").toString() == QStringLiteral("blocked-production-backend-unavailable")
+                        && !productionRequiredIdentity.value("agreementSigning").toBool(true),
+                    "client identity status should expose blocked production-required crypto backend") && ok;
+        productionRequiredClient.setAccountInfo("950099", "secret", false);
+        ok = expect(productionRequiredClient.connectToServer("127.0.0.1", port),
+                    "production-required client should still connect for fail-closed e2e checks") && ok;
+        ok = expect(!productionRequiredClient.announceE2EIdentity(aliceId, &rejectReason)
+                        && rejectReason == QStringLiteral("identity-not-ready"),
+                    "production-required client should not announce a draft identity") && ok;
+        productionRequiredClient.disconnectFromServer();
+        qunsetenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO");
 
         Client aliceAfterClear;
         Client bobAfterClear;

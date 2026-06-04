@@ -174,7 +174,7 @@ bool validateE2EIdentityJson(const QJsonObject& identity, QString* reason = null
     }
     const QString signatureSuite = identity.value("signatureSuite").toString().trimmed();
     if (!signatureSuite.isEmpty()
-        && signatureSuite != QLatin1String("draft-identity-hmac-sha256")) {
+        && signatureSuite != e2eAgreementSignatureSuite()) {
         if (reason) *reason = QStringLiteral("unsupported-signature-suite");
         return false;
     }

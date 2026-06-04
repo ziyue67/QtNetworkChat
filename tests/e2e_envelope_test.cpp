@@ -30,6 +30,13 @@ int main() {
     QString reason;
     ok = expect(agreement.isValid(&reason) && reason.isEmpty(),
                 "valid key agreement should pass") && ok;
+    const QJsonObject backendStatus = e2eCryptoBackendStatus();
+    ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && backendStatus.value("suite").toString() == e2eDefaultSuite()
+                    && backendStatus.value("signatureSuite").toString() == e2eAgreementSignatureSuite()
+                    && !backendStatus.value("productionReady").toBool(true)
+                    && backendStatus.value("available").toBool(false),
+                "default e2e backend status should explicitly identify the draft backend") && ok;
 
     const QJsonObject agreementJson = agreement.toJson();
     ok = expect(agreementJson.value("protocol").toString() == "qtnetworkchat-e2e-v1",
@@ -223,6 +230,43 @@ int main() {
     ok = expect(!decryptE2EPayload(tamperedPayload, sessionKey, &decryptedPayload, &reason)
                     && reason == QStringLiteral("authentication-failed"),
                 "binary payload aad tampering should fail authentication") && ok;
+
+    qputenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO", "1");
+    const QJsonObject requiredBackendStatus = e2eCryptoBackendStatus();
+    ok = expect(requiredBackendStatus.value("productionRequired").toBool(false)
+                    && !requiredBackendStatus.value("available").toBool(true)
+                    && requiredBackendStatus.value("status").toString()
+                        == QStringLiteral("blocked-production-backend-unavailable"),
+                "production-required mode should report the draft backend as unavailable") && ok;
+    ok = expect(generateE2ESessionKey().isEmpty(),
+                "production-required mode should not generate draft session keys") && ok;
+    ok = expect(generateE2EPrivateKey().isEmpty(),
+                "production-required mode should not generate draft private keys") && ok;
+    E2EKeyAgreement blockedAgreement = aliceAgreement;
+    blockedAgreement.signature.clear();
+    ok = expect(!signE2EKeyAgreement(&blockedAgreement, aliceIdentityPrivateKey, &reason)
+                    && reason == QStringLiteral("production-crypto-backend-unavailable")
+                    && blockedAgreement.signature.isEmpty(),
+                "production-required mode should block draft agreement signatures") && ok;
+    ok = expect(!verifyE2EKeyAgreementSignature(aliceAgreement, aliceIdentityPublicKey, &reason)
+                    && reason == QStringLiteral("production-crypto-backend-unavailable"),
+                "production-required mode should block draft signature verification") && ok;
+    ok = expect(deriveE2EAuthenticatedSessionKey(alicePrivateKey, aliceAgreement, bobAgreement, &reason).isEmpty()
+                    && reason == QStringLiteral("production-crypto-backend-unavailable"),
+                "production-required mode should block draft session derivation") && ok;
+    ok = expect(!encryptE2EPayload("10001",
+                                   "10002",
+                                   "blocked-production-required",
+                                   sessionKey,
+                                   binaryPayload,
+                                   QStringLiteral("file/private/v1"),
+                                   &reason).isValid()
+                    && reason == QStringLiteral("production-crypto-backend-unavailable"),
+                "production-required mode should block draft payload encryption") && ok;
+    ok = expect(!decryptE2EPayload(encryptedPayload, sessionKey, &decryptedPayload, &reason)
+                    && reason == QStringLiteral("production-crypto-backend-unavailable"),
+                "production-required mode should block draft payload decryption") && ok;
+    qunsetenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO");
 
     return ok ? 0 : 1;
 }
