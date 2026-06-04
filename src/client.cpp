@@ -34,6 +34,7 @@ const char kE2ETrustPinsFilePrefix[] = "e2e_trust_pins_";
 const char kE2EIdentityFilePrefix[] = "e2e_identity_";
 constexpr qsizetype kMaxE2EIdentityPublicKeyBytes = 4096;
 constexpr qsizetype kE2ETrustFingerprintHexLength = 64;
+const char kE2EDraftBackendId[] = "draft-qt-hmac-stream-v1";
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
@@ -263,6 +264,32 @@ QString formatE2EVerificationCode(const QString& localFingerprint, const QString
              QString::fromLatin1(digest.mid(8, 4)));
 }
 
+QString e2eCurrentBackendId() {
+    return e2eCryptoBackendStatus().value(QStringLiteral("requestedBackendId")).toString(e2eCryptoBackendId()).trimmed();
+}
+
+bool e2eBackendUsableForLocalMaterial(QString materialBackendId,
+                                      QString* rejectReason = nullptr) {
+    QString availabilityReason;
+    if (!e2eCryptoBackendAvailable(&availabilityReason)) {
+        if (rejectReason) *rejectReason = availabilityReason.isEmpty()
+            ? QStringLiteral("crypto-backend-unavailable")
+            : availabilityReason;
+        return false;
+    }
+    materialBackendId = materialBackendId.trimmed();
+    if (materialBackendId.isEmpty()) {
+        materialBackendId = QString::fromLatin1(kE2EDraftBackendId);
+    }
+    const QString requestedBackend = e2eCurrentBackendId();
+    if (materialBackendId != requestedBackend) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-backend-migration-required");
+        return false;
+    }
+    if (rejectReason) rejectReason->clear();
+    return true;
+}
+
 QString base64Url(const QByteArray& value) {
     return QString::fromLatin1(value.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
 }
@@ -444,18 +471,29 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
 
 void Client::loadOrCreateE2ELocalIdentity() {
     const QString normalizedUserId = m_userId.trimmed();
+    m_e2eIdentityBackendId.clear();
+    m_e2eIdentityFingerprint.clear();
     if (!normalizedUserId.isEmpty()) {
         QFile file(e2eIdentityFilePath(normalizedUserId));
         if (file.open(QIODevice::ReadOnly)) {
             const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
             const QByteArray privateKey = fromBase64Url(root.value(QStringLiteral("privateKey")).toString());
+            const QString storedBackendId = root.value(QStringLiteral("backendId")).toString(QString::fromLatin1(kE2EDraftBackendId)).trimmed();
+            const QString storedFingerprint = root.value(QStringLiteral("publicKeyFingerprintSha256")).toString().trimmed().toLower();
             const QByteArray publicKey = e2ePublicKeyFromPrivateKey(privateKey);
-            const QString expectedFingerprint = root.value(QStringLiteral("publicKeyFingerprintSha256")).toString().trimmed().toLower();
-            if (!privateKey.isEmpty()
-                && !publicKey.isEmpty()
-                && (expectedFingerprint.isEmpty() || expectedFingerprint == e2eFingerprint(publicKey))) {
+            if (!privateKey.isEmpty() && !publicKey.isEmpty()
+                && (storedFingerprint.isEmpty() || storedFingerprint == e2eFingerprint(publicKey))) {
                 m_e2eIdentityPrivateKey = privateKey;
                 m_e2eIdentityPublicKey = publicKey;
+                m_e2eIdentityBackendId = storedBackendId.isEmpty() ? QString::fromLatin1(kE2EDraftBackendId) : storedBackendId;
+                m_e2eIdentityFingerprint = e2eFingerprint(publicKey);
+                return;
+            }
+            if (!privateKey.isEmpty() && isValidE2EFingerprint(storedFingerprint)) {
+                m_e2eIdentityPrivateKey = privateKey;
+                m_e2eIdentityPublicKey.clear();
+                m_e2eIdentityBackendId = storedBackendId.isEmpty() ? QString::fromLatin1(kE2EDraftBackendId) : storedBackendId;
+                m_e2eIdentityFingerprint = storedFingerprint;
                 return;
             }
         }
@@ -463,6 +501,8 @@ void Client::loadOrCreateE2ELocalIdentity() {
 
     m_e2eIdentityPrivateKey = generateE2EPrivateKey();
     m_e2eIdentityPublicKey = e2ePublicKeyFromPrivateKey(m_e2eIdentityPrivateKey);
+    m_e2eIdentityBackendId = m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eCryptoBackendId();
+    m_e2eIdentityFingerprint = m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eFingerprint(m_e2eIdentityPublicKey);
     if (!normalizedUserId.isEmpty()) {
         saveE2ELocalIdentity();
     }
@@ -478,6 +518,11 @@ bool Client::saveE2ELocalIdentity(QString* rejectReason) const {
     QJsonObject root;
     root[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-identity-v1");
     root[QStringLiteral("userId")] = normalizedUserId;
+    const QString identityBackendId = m_e2eIdentityBackendId.trimmed().isEmpty()
+        ? e2eCryptoBackendId()
+        : m_e2eIdentityBackendId.trimmed();
+    root[QStringLiteral("backendId")] = identityBackendId;
+    root[QStringLiteral("backendMigrationRequired")] = e2eCurrentBackendId() != identityBackendId;
     root[QStringLiteral("privateKey")] = base64Url(m_e2eIdentityPrivateKey);
     root[QStringLiteral("publicKeyFingerprintSha256")] = e2eFingerprint(m_e2eIdentityPublicKey);
     root[QStringLiteral("updatedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
@@ -521,6 +566,7 @@ void Client::setE2ESessionKey(const QString& peerId, const QString& keyId, const
 
     E2ESession session;
     session.keyId = normalizedKeyId;
+    session.backendId = e2eCryptoBackendId();
     session.sessionKey = sessionKey;
     session.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     m_e2eSessions[normalizedPeerId] = session;
@@ -556,6 +602,7 @@ QJsonObject Client::e2eSessionStatus(const QString& peerId) const {
     status["rotationRequired"] = false;
     status["messageLimit"] = m_e2eSessionMessageLimit;
     status["cryptoBackend"] = e2eCryptoBackendStatus();
+    status["backendMigrationRequired"] = false;
     const auto it = m_e2eSessions.constFind(normalizedPeerId);
     if (it == m_e2eSessions.constEnd()) {
         status["state"] = QStringLiteral("missing-session");
@@ -563,8 +610,23 @@ QJsonObject Client::e2eSessionStatus(const QString& peerId) const {
     }
 
     status["configured"] = true;
-    status["ready"] = !it->rotationRequired;
-    status["state"] = it->rotationRequired ? QStringLiteral("rotation-required") : QStringLiteral("ready");
+    const QString sessionBackendId = it->backendId.trimmed().isEmpty()
+        ? QString::fromLatin1(kE2EDraftBackendId)
+        : it->backendId.trimmed();
+    QString backendRejectReason;
+    const bool backendUsable = e2eBackendUsableForLocalMaterial(sessionBackendId, &backendRejectReason);
+    status["backendId"] = sessionBackendId;
+    status["backendMigrationRequired"] = sessionBackendId != e2eCurrentBackendId();
+    status["backendUsable"] = backendUsable;
+    if (!backendRejectReason.isEmpty()) {
+        status["blockedReason"] = backendRejectReason;
+    }
+    status["ready"] = backendUsable && !it->rotationRequired;
+    status["state"] = !backendUsable
+        ? (sessionBackendId != e2eCurrentBackendId()
+            ? QStringLiteral("backend-migration-required")
+            : QStringLiteral("backend-unavailable"))
+        : (it->rotationRequired ? QStringLiteral("rotation-required") : QStringLiteral("ready"));
     status["keyId"] = it->keyId;
     status["keyFingerprintSha256"] = e2eFingerprint(it->sessionKey);
     status["createdAt"] = QDateTime::fromMSecsSinceEpoch(it->createdAtMs).toUTC().toString(Qt::ISODateWithMs);
@@ -576,12 +638,31 @@ QJsonObject Client::e2eSessionStatus(const QString& peerId) const {
 
 QJsonObject Client::e2eLocalIdentityStatus() const {
     QJsonObject status = e2eIdentityJson(m_userId, m_e2eIdentityPublicKey);
-    status["configured"] = !m_userId.trimmed().isEmpty() && !m_e2eIdentityPublicKey.isEmpty();
+    QString identityRejectReason;
+    const bool identityUsable = e2eLocalIdentityUsable(&identityRejectReason);
+    const QString identityBackendId = m_e2eIdentityBackendId.trimmed().isEmpty()
+        ? (m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eCryptoBackendId())
+        : m_e2eIdentityBackendId.trimmed();
+    const QString identityFingerprint = !m_e2eIdentityFingerprint.trimmed().isEmpty()
+        ? m_e2eIdentityFingerprint.trimmed().toLower()
+        : (m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eFingerprint(m_e2eIdentityPublicKey));
+    status["configured"] = !m_userId.trimmed().isEmpty()
+        && (!m_e2eIdentityPublicKey.isEmpty() || isValidE2EFingerprint(identityFingerprint));
     status["trusted"] = true;
     status["trustState"] = QStringLiteral("local");
+    if (isValidE2EFingerprint(identityFingerprint)) {
+        status["publicKeyFingerprintSha256"] = identityFingerprint;
+    }
+    status["backendId"] = identityBackendId;
+    status["backendUsable"] = identityUsable;
+    status["backendMigrationRequired"] = !identityBackendId.isEmpty()
+        && identityBackendId != e2eCurrentBackendId();
+    if (!identityRejectReason.isEmpty()) {
+        status["blockedReason"] = identityRejectReason;
+    }
     status["agreementSigning"] = !m_e2eIdentityPrivateKey.isEmpty()
         && !m_e2eIdentityPublicKey.isEmpty()
-        && e2eCryptoBackendStatus().value("available").toBool(false);
+        && identityUsable;
     status["signatureSuite"] = e2eAgreementSignatureSuite();
     status["cryptoBackend"] = e2eCryptoBackendStatus();
     status["identityPersisted"] = !m_userId.trimmed().isEmpty()
@@ -622,6 +703,17 @@ QJsonObject Client::e2ePeerIdentityStatus(const QString& peerId) const {
     status["agreementSignatureVerified"] = it->pinned && it->verified && !it->fingerprintMismatch && !it->publicKey.isEmpty();
     status["signatureSuite"] = e2eAgreementSignatureSuite();
     status["cryptoBackend"] = e2eCryptoBackendStatus();
+    const QString pinBackendId = storedPin == m_e2eStoredTrustPins.constEnd() || storedPin->backendId.trimmed().isEmpty()
+        ? QString::fromLatin1(kE2EDraftBackendId)
+        : storedPin->backendId.trimmed();
+    status["pinBackendId"] = it->pinned ? pinBackendId : QString();
+    QString pinBackendRejectReason;
+    const bool pinBackendUsable = !it->pinned || e2eBackendUsableForLocalMaterial(pinBackendId, &pinBackendRejectReason);
+    status["backendUsable"] = pinBackendUsable;
+    status["backendMigrationRequired"] = it->pinned && pinBackendId != e2eCurrentBackendId();
+    if (!pinBackendRejectReason.isEmpty()) {
+        status["blockedReason"] = pinBackendRejectReason;
+    }
     status["trustState"] = it->fingerprintMismatch
         ? QStringLiteral("mismatch")
         : (it->pinned && it->verified ? QStringLiteral("trusted")
@@ -797,6 +889,7 @@ void Client::loadE2ETrustPins() {
         if (!peerId.isEmpty() && isValidE2EFingerprint(fingerprint)) {
             E2EStoredTrustPin storedPin;
             storedPin.fingerprint = fingerprint;
+            storedPin.backendId = pin.value(QStringLiteral("backendId")).toString(QString::fromLatin1(kE2EDraftBackendId)).trimmed();
             storedPin.verified = pin.value(QStringLiteral("verified")).toBool(false);
             storedPin.verificationCode = normalizedVerificationCode(pin.value(QStringLiteral("verificationCode")).toString());
             const QDateTime verifiedAt = QDateTime::fromString(pin.value(QStringLiteral("verifiedAt")).toString(), Qt::ISODateWithMs);
@@ -818,6 +911,8 @@ bool Client::saveE2ETrustPins(QString* rejectReason) const {
         QJsonObject pin;
         pin[QStringLiteral("peerId")] = it.key();
         pin[QStringLiteral("fingerprintSha256")] = it->pinnedFingerprint;
+        pin[QStringLiteral("backendId")] = e2eCryptoBackendId();
+        pin[QStringLiteral("backendMigrationRequired")] = e2eCurrentBackendId() != e2eCryptoBackendId();
         pin[QStringLiteral("verified")] = it->verified && !it->fingerprintMismatch;
         if (it->verified && !it->verificationCode.isEmpty()) {
             pin[QStringLiteral("verificationCode")] = it->verificationCode;
@@ -874,6 +969,25 @@ void Client::applyE2EStoredTrustPin(const QString& peerId, E2EPeerIdentity* peer
     peerIdentity->verifiedAtMs = peerIdentity->verified ? storedPin->verifiedAtMs : 0;
 }
 
+bool Client::e2eLocalIdentityUsable(QString* rejectReason) const {
+    if (rejectReason) rejectReason->clear();
+    if (m_userId.trimmed().isEmpty() || m_e2eIdentityPrivateKey.isEmpty() || m_e2eIdentityPublicKey.isEmpty()) {
+        if (rejectReason) {
+            const QString identityBackendId = m_e2eIdentityBackendId.trimmed().isEmpty()
+                ? QString()
+                : m_e2eIdentityBackendId.trimmed();
+            *rejectReason = !identityBackendId.isEmpty() && identityBackendId != e2eCurrentBackendId()
+                ? QStringLiteral("e2e-backend-migration-required")
+                : QStringLiteral("identity-not-ready");
+        }
+        return false;
+    }
+    return e2eBackendUsableForLocalMaterial(m_e2eIdentityBackendId.trimmed().isEmpty()
+                                                ? e2eCryptoBackendId()
+                                                : m_e2eIdentityBackendId.trimmed(),
+                                            rejectReason);
+}
+
 bool Client::requireTrustedE2EPeer(const QString& peerId, QString* rejectReason) const {
     if (rejectReason) rejectReason->clear();
     const QString normalizedPeerId = peerId.trimmed();
@@ -894,6 +1008,13 @@ bool Client::requireTrustedE2EPeer(const QString& peerId, QString* rejectReason)
         if (rejectReason) *rejectReason = QStringLiteral("unverified-identity");
         return false;
     }
+    const auto storedPin = m_e2eStoredTrustPins.constFind(normalizedPeerId);
+    const QString pinBackendId = storedPin == m_e2eStoredTrustPins.constEnd() || storedPin->backendId.trimmed().isEmpty()
+        ? QString::fromLatin1(kE2EDraftBackendId)
+        : storedPin->backendId.trimmed();
+    if (!e2eBackendUsableForLocalMaterial(pinBackendId, rejectReason)) {
+        return false;
+    }
     return true;
 }
 
@@ -907,6 +1028,9 @@ bool Client::populateE2EAgreementIdentityFingerprints(const QString& peerId,
     }
     if (m_userId.trimmed().isEmpty() || m_e2eIdentityPublicKey.isEmpty()) {
         if (rejectReason) *rejectReason = QStringLiteral("identity-not-ready");
+        return false;
+    }
+    if (!e2eLocalIdentityUsable(rejectReason)) {
         return false;
     }
 
@@ -960,6 +1084,7 @@ void Client::installE2EDerivedSession(const QString& peerId,
 
     E2ESession session;
     session.keyId = normalizedKeyId;
+    session.backendId = e2eCryptoBackendId();
     session.sessionKey = sessionKey;
     session.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     m_e2eSessions[normalizedPeerId] = session;

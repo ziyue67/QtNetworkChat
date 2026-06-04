@@ -176,6 +176,7 @@ private:
     bool saveE2ELocalIdentity(QString* rejectReason = nullptr) const;
     void loadE2ETrustPins();
     bool saveE2ETrustPins(QString* rejectReason = nullptr) const;
+    bool e2eLocalIdentityUsable(QString* rejectReason = nullptr) const;
     bool requireTrustedE2EPeer(const QString& peerId, QString* rejectReason = nullptr) const;
     bool populateE2EAgreementIdentityFingerprints(const QString& peerId,
                                                   E2EKeyAgreement* agreement,
@@ -187,6 +188,7 @@ private:
                                   const QByteArray& sessionKey);
     struct E2ESession {
         QString keyId;
+        QString backendId;
         QByteArray sessionKey;
         qint64 createdAtMs = 0;
         qint64 encryptedMessages = 0;
@@ -216,6 +218,7 @@ private:
 
     struct E2EStoredTrustPin {
         QString fingerprint;
+        QString backendId;
         bool verified = false;
         QString verificationCode;
         qint64 verifiedAtMs = 0;
@@ -267,6 +270,8 @@ private:
     QMap<QString, E2ESession> m_e2eSessions;
     QByteArray m_e2eIdentityPrivateKey;
     QByteArray m_e2eIdentityPublicKey;
+    QString m_e2eIdentityBackendId;
+    QString m_e2eIdentityFingerprint;
     QMap<QString, E2EPeerIdentity> m_e2ePeerIdentities;
     QMap<QString, E2EStoredTrustPin> m_e2eStoredTrustPins;
     QMap<QString, E2EPendingAgreement> m_e2ePendingOutgoingAgreements;

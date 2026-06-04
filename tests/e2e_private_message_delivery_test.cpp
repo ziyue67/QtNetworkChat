@@ -14,6 +14,7 @@
 #include <QTcpServer>
 #include <QThread>
 
+#include <cstdio>
 #include <functional>
 
 namespace {
@@ -27,6 +28,7 @@ QString testAppDataDir() {
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
+        std::fprintf(stderr, "%s\n", message);
         qWarning() << message;
         return false;
     }
@@ -418,6 +420,39 @@ int main(int argc, char** argv) {
         const QByteArray rotatedSessionKey = generateE2ESessionKey();
         alice.setE2ESessionKey(bobId, keyId + "-manual-rotation", rotatedSessionKey);
         bob.setE2ESessionKey(aliceId, keyId + "-manual-rotation", rotatedSessionKey);
+        qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "production");
+        const QJsonObject aliceProductionRequestedIdentity = alice.e2eLocalIdentityStatus();
+        const QJsonObject aliceProductionRequestedPeer = alice.e2ePeerIdentityStatus(bobId);
+        const QJsonObject aliceProductionRequestedSession = alice.e2eSessionStatus(bobId);
+        ok = expect(aliceProductionRequestedIdentity.value("backendId").toString()
+                        == QStringLiteral("draft-qt-hmac-stream-v1")
+                        && aliceProductionRequestedIdentity.value("backendMigrationRequired").toBool(false)
+                        && aliceProductionRequestedIdentity.value("blockedReason").toString()
+                            == QStringLiteral("production-crypto-backend-unavailable")
+                        && !aliceProductionRequestedIdentity.value("agreementSigning").toBool(true),
+                    "draft local identity should expose migration-required evidence when production backend is requested") && ok;
+        ok = expect(aliceProductionRequestedPeer.value("pinBackendId").toString()
+                        == QStringLiteral("draft-qt-hmac-stream-v1")
+                        && aliceProductionRequestedPeer.value("backendMigrationRequired").toBool(false)
+                        && aliceProductionRequestedPeer.value("blockedReason").toString()
+                            == QStringLiteral("production-crypto-backend-unavailable"),
+                    "draft trust pin should expose migration-required evidence when production backend is requested") && ok;
+        ok = expect(aliceProductionRequestedSession.value("backendId").toString()
+                        == QStringLiteral("draft-qt-hmac-stream-v1")
+                        && aliceProductionRequestedSession.value("state").toString()
+                            == QStringLiteral("backend-migration-required")
+                        && aliceProductionRequestedSession.value("backendMigrationRequired").toBool(false)
+                        && !aliceProductionRequestedSession.value("ready").toBool(true),
+                    "draft session should require backend migration when production backend is requested") && ok;
+        ok = expect(!alice.sendEncryptedPrivateMessage(bobId,
+                                                       "draft session must not send under production backend request",
+                                                       &rejectReason)
+                        && rejectReason == QStringLiteral("production-crypto-backend-unavailable"),
+                    "production backend request should block sending with a draft session") && ok;
+        ok = expect(!alice.requestE2ESessionRotation(bobId, &rejectReason)
+                        && rejectReason == QStringLiteral("production-crypto-backend-unavailable"),
+                    "production backend request should block draft key agreement rotation") && ok;
+        qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
         bobMessage = Message();
         ok = expect(alice.sendEncryptedPrivateMessage(bobId, "encrypted again after manual rotation", &rejectReason),
                     "encrypted send should resume after both clients install a local rotated session") && ok;
@@ -495,6 +530,30 @@ int main(int argc, char** argv) {
                 && restartedAliceSawBobIdentity.value("publicKeyFingerprintSha256").toString()
                     == aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString();
         }), "restarted alice should restore the persisted verified e2e trust pin for bob") && ok;
+        disconnectClient(aliceRestarted);
+        disconnectClient(bobRestarted);
+
+        qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "production");
+        Client aliceProductionRestarted;
+        aliceProductionRestarted.setUserInfo(aliceId, "Alice");
+        const QJsonObject persistedDraftIdentityUnderProduction = aliceProductionRestarted.e2eLocalIdentityStatus();
+        ok = expect(persistedDraftIdentityUnderProduction.value("backendId").toString()
+                        == QStringLiteral("draft-qt-hmac-stream-v1")
+                        && persistedDraftIdentityUnderProduction.value("publicKeyFingerprintSha256").toString()
+                            == originalAliceIdentityFingerprint
+                        && persistedDraftIdentityUnderProduction.value("backendMigrationRequired").toBool(false)
+                        && (persistedDraftIdentityUnderProduction.value("blockedReason").toString()
+                                == QStringLiteral("e2e-backend-migration-required")
+                            || persistedDraftIdentityUnderProduction.value("blockedReason").toString()
+                                == QStringLiteral("production-crypto-backend-unavailable"))
+                        && !persistedDraftIdentityUnderProduction.value("agreementSigning").toBool(true),
+                    "persisted draft identity should remain inspectable but require migration under production backend request") && ok;
+        qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
+
+        ok = expect(loginClient(aliceRestarted, aliceId, "Alice", port),
+                    "restarted alice should reconnect after production migration inspection") && ok;
+        ok = expect(loginClient(bobRestarted, bobId, "Bob", port),
+                    "restarted bob should reconnect after production migration inspection") && ok;
         ok = expect(aliceRestarted.clearE2EPeerIdentityPin(bobId, &rejectReason)
                         && aliceRestarted.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("unverified")
                         && !aliceRestarted.e2ePeerIdentityStatus(bobId).value("verified").toBool(true)
@@ -519,13 +578,15 @@ int main(int argc, char** argv) {
                             .value("selectedBackendId").toString().isEmpty()
                         && productionRequiredIdentity.value("cryptoBackend").toObject()
                             .value("unavailableReason").toString() == QStringLiteral("production-crypto-backend-unavailable")
+                        && !productionRequiredIdentity.value("backendMigrationRequired").toBool(true)
                         && !productionRequiredIdentity.value("agreementSigning").toBool(true),
                     "client identity status should expose blocked production-required crypto backend") && ok;
         productionRequiredClient.setAccountInfo("950099", "secret", false);
         ok = expect(productionRequiredClient.connectToServer("127.0.0.1", port),
                     "production-required client should still connect for fail-closed e2e checks") && ok;
         ok = expect(!productionRequiredClient.announceE2EIdentity(aliceId, &rejectReason)
-                        && rejectReason == QStringLiteral("identity-not-ready"),
+                        && (rejectReason == QStringLiteral("identity-not-ready")
+                            || rejectReason == QStringLiteral("e2e-backend-migration-required")),
                     "production-required client should not announce a draft identity") && ok;
         productionRequiredClient.disconnectFromServer();
         qunsetenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO");
@@ -540,13 +601,15 @@ int main(int argc, char** argv) {
                             .value("selectionSource").toString() == QStringLiteral("environment")
                         && !productionAdapterIdentity.value("cryptoBackend").toObject()
                             .value("available").toBool(true)
+                        && !productionAdapterIdentity.value("backendMigrationRequired").toBool(true)
                         && !productionAdapterIdentity.value("agreementSigning").toBool(true),
                     "client identity status should fail closed when production adapter is requested but not linked") && ok;
         productionAdapterClient.setAccountInfo("950098", "secret", false);
         ok = expect(productionAdapterClient.connectToServer("127.0.0.1", port),
                     "production-adapter client should still connect for fail-closed e2e checks") && ok;
         ok = expect(!productionAdapterClient.announceE2EIdentity(aliceId, &rejectReason)
-                        && rejectReason == QStringLiteral("identity-not-ready"),
+                        && (rejectReason == QStringLiteral("identity-not-ready")
+                            || rejectReason == QStringLiteral("e2e-backend-migration-required")),
                     "production-adapter client should not announce unavailable production identity") && ok;
         productionAdapterClient.disconnectFromServer();
         qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
