@@ -49,6 +49,8 @@ struct E2ECryptoAdapterDescriptor {
     QString providerId;
     QString operationContractVersion;
     QString dispatchState;
+    QString selfTestStatus;
+    QString readinessGate;
     QString unavailableReason;
     QString operatorAction;
     bool productionReady = false;
@@ -167,6 +169,8 @@ E2ECryptoAdapterDescriptor draftAdapterDescriptor() {
     descriptor.providerId = QStringLiteral("draft-qt-provider-v1");
     descriptor.operationContractVersion = QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1");
     descriptor.dispatchState = QStringLiteral("draft-dispatch-ready");
+    descriptor.selfTestStatus = QStringLiteral("development-only-self-test-passed");
+    descriptor.readinessGate = QStringLiteral("draft-provider-not-production");
     descriptor.unavailableReason = e2eProductionCryptoRequired()
         ? QStringLiteral("production-crypto-backend-unavailable")
         : QStringLiteral("draft-backend-available");
@@ -188,6 +192,12 @@ E2ECryptoAdapterDescriptor productionAdapterDescriptor() {
     descriptor.dispatchState = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
         ? QStringLiteral("linked-placeholder-not-ready")
         : QStringLiteral("not-linked");
+    descriptor.selfTestStatus = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
+        ? QStringLiteral("self-test-blocked-placeholder")
+        : QStringLiteral("self-test-blocked-not-linked");
+    descriptor.readinessGate = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
+        ? QStringLiteral("production-operations-not-implemented")
+        : QStringLiteral("production-adapter-not-linked");
     descriptor.unavailableReason = QStringLiteral("production-crypto-backend-unavailable");
     descriptor.operatorAction = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
         ? QStringLiteral("run-production-crypto-compatibility-tests")
@@ -224,6 +234,8 @@ E2ECryptoAdapterDescriptor cryptoAdapterForBackend(const QString& requested, boo
     descriptor.providerId = QStringLiteral("none");
     descriptor.operationContractVersion = QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1");
     descriptor.dispatchState = QStringLiteral("unsupported-backend");
+    descriptor.selfTestStatus = QStringLiteral("self-test-unavailable");
+    descriptor.readinessGate = QStringLiteral("unsupported-backend");
     descriptor.unavailableReason = QStringLiteral("unsupported-crypto-backend");
     descriptor.operatorAction = QStringLiteral("choose-a-registered-crypto-backend");
     return descriptor;
@@ -259,6 +271,63 @@ bool providerCanDispatchOperation(const E2ECryptoAdapterDescriptor& descriptor,
         return true;
     }
     return fail(reason, QStringLiteral("unsupported-crypto-backend"));
+}
+
+QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor) {
+    QJsonArray checks;
+    const auto appendCheck = [&checks](const QString& name,
+                                      bool passed,
+                                      const QString& reason,
+                                      const QString& operatorAction) {
+        QJsonObject check;
+        check[QStringLiteral("name")] = name;
+        check[QStringLiteral("passed")] = passed;
+        check[QStringLiteral("reason")] = reason;
+        check[QStringLiteral("operatorAction")] = operatorAction;
+        checks.append(check);
+    };
+
+    const bool isDraft = descriptor.id == QString::fromLatin1(DraftBackendId);
+    const bool isProduction = descriptor.id == QString::fromLatin1(ProductionBackendId);
+    appendCheck(QStringLiteral("provider-linked"),
+                descriptor.linked,
+                descriptor.linked ? QStringLiteral("linked") : descriptor.readinessGate,
+                descriptor.linked ? QStringLiteral("none") : descriptor.operatorAction);
+    appendCheck(QStringLiteral("production-reviewed"),
+                descriptor.productionReady,
+                descriptor.productionReady
+                    ? QStringLiteral("reviewed-production-provider")
+                    : (isDraft ? QStringLiteral("draft-provider-not-production") : descriptor.readinessGate),
+                descriptor.productionReady
+                    ? QStringLiteral("none")
+                    : QStringLiteral("complete-reviewed-production-crypto-provider"));
+    appendCheck(QStringLiteral("operation-contract-complete"),
+                descriptor.operations.size() == cryptoOperations().size(),
+                descriptor.operations.size() == cryptoOperations().size()
+                    ? QStringLiteral("all-required-operations-registered")
+                    : QStringLiteral("required-operation-missing"),
+                descriptor.operations.size() == cryptoOperations().size()
+                    ? QStringLiteral("none")
+                    : QStringLiteral("register-all-required-provider-operations"));
+    appendCheck(QStringLiteral("self-test"),
+                isDraft && !e2eProductionCryptoRequired(),
+                descriptor.selfTestStatus,
+                isProduction
+                    ? QStringLiteral("run-production-provider-self-tests")
+                    : QStringLiteral("none"));
+    return checks;
+}
+
+QJsonObject providerReadinessStatus(const E2ECryptoAdapterDescriptor& descriptor) {
+    QJsonObject status;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("dispatchState")] = descriptor.dispatchState;
+    status[QStringLiteral("selfTestStatus")] = descriptor.selfTestStatus;
+    status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("checks")] = providerReadinessChecks(descriptor);
+    return status;
 }
 
 E2ECryptoExecutionContext cryptoExecutionContext(E2ECryptoOperation operation,
@@ -317,6 +386,8 @@ QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
     obj["providerId"] = descriptor.providerId;
     obj["operationContractVersion"] = descriptor.operationContractVersion;
     obj["dispatchState"] = descriptor.dispatchState;
+    obj["providerSelfTestStatus"] = descriptor.selfTestStatus;
+    obj["providerReadinessGate"] = descriptor.readinessGate;
     obj["entrypoint"] = context.entrypoint;
     obj["registered"] = context.operationRegistered;
     obj["adapterLinked"] = descriptor.linked;
@@ -385,6 +456,9 @@ QJsonObject backendDescriptor(const E2ECryptoAdapterDescriptor& descriptor,
     obj["providerId"] = descriptor.providerId;
     obj["operationContractVersion"] = descriptor.operationContractVersion;
     obj["dispatchState"] = descriptor.dispatchState;
+    obj["providerSelfTestStatus"] = descriptor.selfTestStatus;
+    obj["providerReadinessGate"] = descriptor.readinessGate;
+    obj["providerReadiness"] = providerReadinessStatus(descriptor);
     obj["linked"] = descriptor.linked;
     obj["productionReady"] = descriptor.productionReady;
     obj["available"] = available;
@@ -654,6 +728,7 @@ QJsonObject e2eCryptoBackendStatus() {
     status["selectionSource"] = selectionSource;
     status["fallbackBackendId"] = QString::fromLatin1(DraftBackendId);
     status["registeredBackends"] = registeredBackends;
+    status["selectedProviderReadiness"] = providerReadinessStatus(requestedDescriptor);
     QJsonObject operations;
     for (const E2ECryptoOperation operation : cryptoOperations()) {
         operations[cryptoOperationName(operation)] =

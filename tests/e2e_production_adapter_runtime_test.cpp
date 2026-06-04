@@ -29,12 +29,24 @@ int main() {
     const QString expectedDispatchState = adapterLinked
         ? QStringLiteral("linked-placeholder-not-ready")
         : QStringLiteral("not-linked");
+    const QString expectedReadinessGate = adapterLinked
+        ? QStringLiteral("production-operations-not-implemented")
+        : QStringLiteral("production-adapter-not-linked");
+    const QString expectedSelfTestStatus = adapterLinked
+        ? QStringLiteral("self-test-blocked-placeholder")
+        : QStringLiteral("self-test-blocked-not-linked");
 
     ok = expect(status.value("requestedBackendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && status.value("selectionSource").toString() == QStringLiteral("environment")
                     && !status.value("available").toBool(true)
                     && status.value("selectedBackendId").toString().isEmpty()
                     && status.value("productionReady").toBool(true) == false
+                    && status.value("selectedProviderReadiness").toObject()
+                        .value("readinessGate").toString()
+                            == expectedReadinessGate
+                    && status.value("selectedProviderReadiness").toObject()
+                        .value("selfTestStatus").toString()
+                            == expectedSelfTestStatus
                     && status.value("unavailableReason").toString() == expectedReason,
                 "production adapter runtime status should fail closed with a precise reason") && ok;
 
@@ -46,6 +58,10 @@ int main() {
                     && payloadEncrypt.value("operationContractVersion").toString()
                         == QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1")
                     && payloadEncrypt.value("dispatchState").toString() == expectedDispatchState
+                    && payloadEncrypt.value("providerSelfTestStatus").toString()
+                        == expectedSelfTestStatus
+                    && payloadEncrypt.value("providerReadinessGate").toString()
+                        == expectedReadinessGate
                     && payloadEncrypt.value("requiresProductionReady").toBool(false)
                     && payloadEncrypt.value("adapterLinked").toBool(!adapterLinked) == adapterLinked
                     && payloadEncrypt.value("productionReady").toBool(true) == false
