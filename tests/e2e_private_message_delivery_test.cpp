@@ -452,7 +452,55 @@ int main(int argc, char** argv) {
         ok = expect(!alice.requestE2ESessionRotation(bobId, &rejectReason)
                         && rejectReason == QStringLiteral("production-crypto-backend-unavailable"),
                     "production backend request should block draft key agreement rotation") && ok;
+        const QString aliceIdentityPathBeforeClear = e2eIdentityFilePath(appDataDir, aliceId);
+        const QString aliceTrustPinsPathBeforeClear = e2eTrustPinsFilePath(appDataDir, aliceId);
+        ok = expect(QFile::exists(aliceIdentityPathBeforeClear)
+                        && QFile::exists(aliceTrustPinsPathBeforeClear),
+                    "test should have persisted draft identity and trust pin stores before migration recovery") && ok;
+        ok = expect(alice.clearE2EBackendMigrationState(&rejectReason) && rejectReason.isEmpty(),
+                    "migration recovery should clear persisted draft identity, pins, sessions, and pending agreements") && ok;
+        ok = expect(!QFile::exists(aliceIdentityPathBeforeClear)
+                        && !QFile::exists(aliceTrustPinsPathBeforeClear)
+                        && alice.e2eLocalIdentityStatus().value("blockedReason").toString()
+                            == QStringLiteral("identity-not-ready")
+                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString()
+                            == QStringLiteral("unverified")
+                        && alice.e2eSessionStatus(bobId).value("state").toString()
+                            == QStringLiteral("missing-session"),
+                    "migration recovery should leave sanitized untrusted peer identity and no reusable draft session") && ok;
+        ok = expect(!alice.sendEncryptedPrivateMessage(bobId,
+                                                       "cleared migration state must not send",
+                                                       &rejectReason)
+                        && rejectReason == QStringLiteral("missing-session"),
+                    "cleared migration state should block encrypted sends without reusing draft material") && ok;
+        ok = expect(!alice.requestE2ESessionRotation(bobId, &rejectReason)
+                        && rejectReason == QStringLiteral("identity-not-ready"),
+                    "cleared migration state should require a new backend identity before rotation") && ok;
         qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
+        alice.setUserInfo(aliceId, "Alice");
+        ok = expect(alice.announceE2EIdentity(bobId, &rejectReason)
+                        && bob.announceE2EIdentity(aliceId, &rejectReason),
+                    "test should announce regenerated draft identities after clearing migration state") && ok;
+        ok = expect(waitFor([&] {
+            return alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
+                && alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
+                    != originalAliceIdentityFingerprint
+                && alice.e2ePeerIdentityStatus(bobId).value("verificationCode").toString().size() >= 12
+                && bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString()
+                    == alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+        }), "regenerated draft identity should be announced with a fresh verification code") && ok;
+        const QString regeneratedAliceBobVerificationCode = alice.e2ePeerIdentityStatus(bobId).value("verificationCode").toString();
+        ok = expect(alice.pinE2EPeerIdentity(bobId,
+                                             alice.e2ePeerIdentityStatus(bobId).value("publicKeyFingerprintSha256").toString(),
+                                             &rejectReason)
+                        && alice.verifyAndPinE2EPeerIdentity(bobId, regeneratedAliceBobVerificationCode, &rejectReason),
+                    "test should re-pin bob with the regenerated identity verification code") && ok;
+        ok = expect(bob.pinE2EPeerIdentity(aliceId,
+                                           bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString(),
+                                           &rejectReason)
+                        && bob.verifyAndPinE2EPeerIdentity(aliceId, regeneratedAliceBobVerificationCode, &rejectReason),
+                    "receiver should re-pin regenerated alice identity so draft compatibility flow can continue") && ok;
+        alice.setE2ESessionKey(bobId, keyId + "-manual-rotation", rotatedSessionKey);
         bobMessage = Message();
         ok = expect(alice.sendEncryptedPrivateMessage(bobId, "encrypted again after manual rotation", &rejectReason),
                     "encrypted send should resume after both clients install a local rotated session") && ok;
@@ -525,7 +573,7 @@ int main(int argc, char** argv) {
         ok = expect(waitFor([&] {
             return restartedAliceSawBobIdentity.value("trustState").toString() == QStringLiteral("trusted")
                 && restartedAliceSawBobIdentity.value("verified").toBool(false)
-                && restartedAliceSawBobIdentity.value("verificationCode").toString() == aliceBobVerificationCode
+                && restartedAliceSawBobIdentity.value("verificationCode").toString() == regeneratedAliceBobVerificationCode
                 && restartedAliceSawBobIdentity.value("pinPersisted").toBool(false)
                 && restartedAliceSawBobIdentity.value("publicKeyFingerprintSha256").toString()
                     == aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString();
@@ -540,7 +588,7 @@ int main(int argc, char** argv) {
         ok = expect(persistedDraftIdentityUnderProduction.value("backendId").toString()
                         == QStringLiteral("draft-qt-hmac-stream-v1")
                         && persistedDraftIdentityUnderProduction.value("publicKeyFingerprintSha256").toString()
-                            == originalAliceIdentityFingerprint
+                            == alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
                         && persistedDraftIdentityUnderProduction.value("backendMigrationRequired").toBool(false)
                         && (persistedDraftIdentityUnderProduction.value("blockedReason").toString()
                                 == QStringLiteral("e2e-backend-migration-required")

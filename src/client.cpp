@@ -471,6 +471,17 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
 
 void Client::loadOrCreateE2ELocalIdentity() {
     const QString normalizedUserId = m_userId.trimmed();
+    const auto refreshPeerVerificationCodes = [this]() {
+        if (m_e2eIdentityPublicKey.isEmpty()) {
+            return;
+        }
+        const QString localFingerprint = e2eFingerprint(m_e2eIdentityPublicKey);
+        for (auto it = m_e2ePeerIdentities.begin(); it != m_e2ePeerIdentities.end(); ++it) {
+            it->verificationCode = formatE2EVerificationCode(localFingerprint, it->fingerprint);
+            applyE2EStoredTrustPin(it.key(), &(*it));
+            emit e2eIdentityStateChanged(it.key(), e2ePeerIdentityStatus(it.key()));
+        }
+    };
     m_e2eIdentityBackendId.clear();
     m_e2eIdentityFingerprint.clear();
     if (!normalizedUserId.isEmpty()) {
@@ -487,6 +498,7 @@ void Client::loadOrCreateE2ELocalIdentity() {
                 m_e2eIdentityPublicKey = publicKey;
                 m_e2eIdentityBackendId = storedBackendId.isEmpty() ? QString::fromLatin1(kE2EDraftBackendId) : storedBackendId;
                 m_e2eIdentityFingerprint = e2eFingerprint(publicKey);
+                refreshPeerVerificationCodes();
                 return;
             }
             if (!privateKey.isEmpty() && isValidE2EFingerprint(storedFingerprint)) {
@@ -494,6 +506,7 @@ void Client::loadOrCreateE2ELocalIdentity() {
                 m_e2eIdentityPublicKey.clear();
                 m_e2eIdentityBackendId = storedBackendId.isEmpty() ? QString::fromLatin1(kE2EDraftBackendId) : storedBackendId;
                 m_e2eIdentityFingerprint = storedFingerprint;
+                refreshPeerVerificationCodes();
                 return;
             }
         }
@@ -503,6 +516,7 @@ void Client::loadOrCreateE2ELocalIdentity() {
     m_e2eIdentityPublicKey = e2ePublicKeyFromPrivateKey(m_e2eIdentityPrivateKey);
     m_e2eIdentityBackendId = m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eCryptoBackendId();
     m_e2eIdentityFingerprint = m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eFingerprint(m_e2eIdentityPublicKey);
+    refreshPeerVerificationCodes();
     if (!normalizedUserId.isEmpty()) {
         saveE2ELocalIdentity();
     }
@@ -577,6 +591,61 @@ void Client::clearE2ESessionKey(const QString& peerId) {
     const QString normalizedPeerId = peerId.trimmed();
     m_e2eSessions.remove(normalizedPeerId);
     emit e2eSessionStateChanged(normalizedPeerId, e2eSessionStatus(normalizedPeerId));
+}
+
+bool Client::clearE2EBackendMigrationState(QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    const QString normalizedUserId = m_userId.trimmed();
+    if (normalizedUserId.isEmpty()) {
+        if (rejectReason) *rejectReason = QStringLiteral("identity-not-ready");
+        return false;
+    }
+
+    const bool localMigrationRequired = e2eLocalIdentityStatus().value(QStringLiteral("backendMigrationRequired")).toBool(false);
+    bool peerOrSessionMigrationRequired = false;
+    for (auto it = m_e2ePeerIdentities.constBegin(); it != m_e2ePeerIdentities.constEnd() && !peerOrSessionMigrationRequired; ++it) {
+        peerOrSessionMigrationRequired = e2ePeerIdentityStatus(it.key()).value(QStringLiteral("backendMigrationRequired")).toBool(false);
+    }
+    for (auto it = m_e2eSessions.constBegin(); it != m_e2eSessions.constEnd() && !peerOrSessionMigrationRequired; ++it) {
+        peerOrSessionMigrationRequired = e2eSessionStatus(it.key()).value(QStringLiteral("backendMigrationRequired")).toBool(false);
+    }
+    if (!localMigrationRequired && !peerOrSessionMigrationRequired) {
+        if (rejectReason) *rejectReason = QStringLiteral("migration-not-required");
+        return false;
+    }
+
+    const QString identityPath = e2eIdentityFilePath(normalizedUserId);
+    if (QFile::exists(identityPath) && !QFile::remove(identityPath)) {
+        if (rejectReason) *rejectReason = QStringLiteral("identity-store-remove-failed");
+        return false;
+    }
+    const QString pinsPath = e2eTrustPinsFilePath(normalizedUserId);
+    if (QFile::exists(pinsPath) && !QFile::remove(pinsPath)) {
+        if (rejectReason) *rejectReason = QStringLiteral("pin-store-remove-failed");
+        return false;
+    }
+
+    const QStringList sessionPeers = m_e2eSessions.keys();
+    m_e2eIdentityPrivateKey.clear();
+    m_e2eIdentityPublicKey.clear();
+    m_e2eIdentityBackendId.clear();
+    m_e2eIdentityFingerprint.clear();
+    m_e2eStoredTrustPins.clear();
+    m_e2ePendingOutgoingAgreements.clear();
+    m_e2ePendingIncomingAgreements.clear();
+    m_e2eSessions.clear();
+    for (auto it = m_e2ePeerIdentities.begin(); it != m_e2ePeerIdentities.end(); ++it) {
+        it->pinned = false;
+        it->pinnedFingerprint.clear();
+        it->verified = false;
+        it->verifiedAtMs = 0;
+        it->fingerprintMismatch = false;
+        emit e2eIdentityStateChanged(it.key(), e2ePeerIdentityStatus(it.key()));
+    }
+    for (const QString& peerId : sessionPeers) {
+        emit e2eSessionStateChanged(peerId, e2eSessionStatus(peerId));
+    }
+    return true;
 }
 
 bool Client::hasE2ESession(const QString& peerId) const {

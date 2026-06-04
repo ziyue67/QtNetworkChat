@@ -38,6 +38,7 @@ public:
                                      const QString& verificationCode,
                                      QString* rejectReason = nullptr);
     bool clearE2EPeerIdentityPin(const QString& peerId, QString* rejectReason = nullptr);
+    bool clearE2EBackendMigrationState(QString* rejectReason = nullptr);
     bool requestE2ESessionRotation(const QString& peerId, QString* rejectReason = nullptr);
     bool respondE2ESessionRotation(const QString& peerId,
                                    const QString& keyId,

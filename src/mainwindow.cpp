@@ -6016,6 +6016,15 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         : nullptr;
     QAction* requestE2ERotationAction = menu.addAction("请求加密轮换");
     QAction* clearE2ESessionAction = m_client && m_client->hasE2ESession(userId) ? menu.addAction("关闭本机会话密钥") : nullptr;
+    const QJsonObject currentE2ESession = m_client ? m_client->e2eSessionStatus(userId) : QJsonObject();
+    const QJsonObject currentE2ELocalIdentity = m_client ? m_client->e2eLocalIdentityStatus() : QJsonObject();
+    const bool e2eBackendMigrationRequired =
+        currentE2ELocalIdentity.value("backendMigrationRequired").toBool(false)
+        || currentE2EIdentity.value("backendMigrationRequired").toBool(false)
+        || currentE2ESession.value("backendMigrationRequired").toBool(false);
+    QAction* clearE2EBackendMigrationAction = e2eBackendMigrationRequired
+        ? menu.addAction("清理加密后端迁移状态")
+        : nullptr;
     QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
     QAction* renameAction = nullptr;
     QAction* addAction = nullptr;
@@ -6044,6 +6053,7 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     describeUserAction(clearE2EIdentityTrustAction, "清除当前联系人端到端加密身份固定信任并恢复为未验证");
     describeUserAction(requestE2ERotationAction, "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥");
     describeUserAction(clearE2ESessionAction, "清除本机为该联系人保存的端到端会话密钥");
+    describeUserAction(clearE2EBackendMigrationAction, "清除本机旧加密后端身份、信任和会话状态，等待新后端重新建立信任");
     describeUserAction(inviteCurrentGroupAction, "邀请当前联系人加入正在查看的本地群聊");
     describeUserAction(renameAction, "修改当前好友在本地显示的备注名");
     describeUserAction(removeAction, "从本地好友列表删除当前好友");
@@ -6164,6 +6174,15 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             m_client->clearE2ESessionKey(userId);
             appendSystemMessage(QString("已关闭 %1 的本机端到端加密会话").arg(contactDisplayName(userId)));
             ui->statusbar->showMessage("本机端到端加密会话已关闭", 2400);
+        }
+    } else if (selected == clearE2EBackendMigrationAction) {
+        QString rejectReason;
+        if (m_client && m_client->clearE2EBackendMigrationState(&rejectReason)) {
+            appendSystemMessage("已清理本机端到端加密后端迁移状态；需要重新接收身份公告、核对短码并建立会话后才能继续默认加密");
+            ui->statusbar->showMessage("端到端加密迁移状态已清理", 3200);
+        } else {
+            appendSystemMessage(QString("清理端到端加密迁移状态失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage("清理端到端加密迁移状态失败", 3000);
         }
     } else if (selected == inviteCurrentGroupAction) {
         QString requestNote;
