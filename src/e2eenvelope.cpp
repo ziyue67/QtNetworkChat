@@ -4,6 +4,7 @@
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonValue>
+#include <QList>
 #include <QMessageAuthenticationCode>
 #include <QRandomGenerator>
 
@@ -30,6 +31,17 @@ const char E2EDraftSignatureSuite[] = "draft-identity-hmac-sha256";
 const char DraftBackendId[] = "draft-qt-hmac-stream-v1";
 const char ProductionBackendId[] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_ID;
 
+enum class E2ECryptoOperation {
+    SessionKeyGeneration,
+    IdentityKeyGeneration,
+    PublicKeyDerivation,
+    AgreementSign,
+    AgreementVerify,
+    SessionDerive,
+    PayloadEncrypt,
+    PayloadDecrypt,
+};
+
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
@@ -53,14 +65,6 @@ bool fail(QString* reason, const QString& value) {
         *reason = value;
     }
     return false;
-}
-
-bool rejectWhenProductionCryptoRequired(QString* reason) {
-    if (!e2eProductionCryptoRequired()) {
-        return false;
-    }
-    fail(reason, QStringLiteral("production-crypto-backend-unavailable"));
-    return true;
 }
 
 QString sanitizedBackendId(QString value) {
@@ -94,18 +98,98 @@ QString requestedBackendId(QString* source = nullptr) {
     return e2eCryptoBackendId();
 }
 
-bool rejectWhenCryptoBackendUnavailable(QString* reason) {
+QString cryptoOperationName(E2ECryptoOperation operation) {
+    switch (operation) {
+    case E2ECryptoOperation::SessionKeyGeneration:
+        return QStringLiteral("session-key-generation");
+    case E2ECryptoOperation::IdentityKeyGeneration:
+        return QStringLiteral("identity-key-generation");
+    case E2ECryptoOperation::PublicKeyDerivation:
+        return QStringLiteral("public-key-derivation");
+    case E2ECryptoOperation::AgreementSign:
+        return QStringLiteral("agreement-sign");
+    case E2ECryptoOperation::AgreementVerify:
+        return QStringLiteral("agreement-verify");
+    case E2ECryptoOperation::SessionDerive:
+        return QStringLiteral("session-derive");
+    case E2ECryptoOperation::PayloadEncrypt:
+        return QStringLiteral("payload-encrypt");
+    case E2ECryptoOperation::PayloadDecrypt:
+        return QStringLiteral("payload-decrypt");
+    }
+    return QStringLiteral("unknown");
+}
+
+QList<E2ECryptoOperation> cryptoOperations() {
+    return {
+        E2ECryptoOperation::SessionKeyGeneration,
+        E2ECryptoOperation::IdentityKeyGeneration,
+        E2ECryptoOperation::PublicKeyDerivation,
+        E2ECryptoOperation::AgreementSign,
+        E2ECryptoOperation::AgreementVerify,
+        E2ECryptoOperation::SessionDerive,
+        E2ECryptoOperation::PayloadEncrypt,
+        E2ECryptoOperation::PayloadDecrypt,
+    };
+}
+
+QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
+                                  const QString& requested,
+                                  bool productionRequired) {
+    QJsonObject obj;
+    obj["operation"] = cryptoOperationName(operation);
+    obj["backendId"] = requested;
+    obj["rawKeyExported"] = false;
+    obj["privateMaterialExported"] = false;
+    obj["productionReady"] = false;
+
+    if (requested == QString::fromLatin1(DraftBackendId)) {
+        obj["available"] = !productionRequired;
+        obj["reason"] = productionRequired
+            ? QStringLiteral("production-crypto-backend-unavailable")
+            : QStringLiteral("draft-backend-available");
+        obj["implementation"] = QStringLiteral("draft-qt-primitives");
+        obj["operatorAction"] = productionRequired
+            ? QStringLiteral("link-production-crypto-backend-or-disable-requirement")
+            : QStringLiteral("allowed-for-development-and-tests");
+        return obj;
+    }
+
+    if (requested == QString::fromLatin1(ProductionBackendId)) {
+        obj["available"] = false;
+        obj["reason"] = QStringLiteral("production-crypto-backend-unavailable");
+        obj["implementation"] = QStringLiteral("production-adapter");
+        obj["operatorAction"] = QStringLiteral("link-reviewed-production-crypto-backend");
+        return obj;
+    }
+
+    obj["available"] = false;
+    obj["reason"] = QStringLiteral("unsupported-crypto-backend");
+    obj["implementation"] = QStringLiteral("none");
+    obj["operatorAction"] = QStringLiteral("choose-a-registered-crypto-backend");
+    return obj;
+}
+
+QJsonObject currentCryptoOperationStatus(E2ECryptoOperation operation) {
     QString source;
     const QString requested = requestedBackendId(&source);
-    if (requested == QString::fromLatin1(DraftBackendId)) {
-        return rejectWhenProductionCryptoRequired(reason);
+    return cryptoOperationStatus(operation, requested, e2eProductionCryptoRequired());
+}
+
+bool rejectWhenCryptoOperationUnavailable(E2ECryptoOperation operation, QString* reason) {
+    const QJsonObject status = currentCryptoOperationStatus(operation);
+    if (status.value("available").toBool(false)) {
+        if (reason) {
+            reason->clear();
+        }
+        return false;
     }
-    if (requested == QString::fromLatin1(ProductionBackendId)) {
-        fail(reason, QStringLiteral("production-crypto-backend-unavailable"));
-        return true;
-    }
-    fail(reason, QStringLiteral("unsupported-crypto-backend"));
+    fail(reason, status.value("reason").toString(QStringLiteral("crypto-backend-unavailable")));
     return true;
+}
+
+bool rejectWhenCryptoBackendUnavailable(QString* reason) {
+    return rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::SessionKeyGeneration, reason);
 }
 
 QJsonObject backendDescriptor(const QString& id,
@@ -375,6 +459,12 @@ QJsonObject e2eCryptoBackendStatus() {
     status["selectionSource"] = selectionSource;
     status["fallbackBackendId"] = QString::fromLatin1(DraftBackendId);
     status["registeredBackends"] = registeredBackends;
+    QJsonObject operations;
+    for (const E2ECryptoOperation operation : cryptoOperations()) {
+        operations[cryptoOperationName(operation)] =
+            cryptoOperationStatus(operation, requested, e2eProductionCryptoRequired());
+    }
+    status["operations"] = operations;
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -529,14 +619,14 @@ E2EEnvelope E2EEnvelope::fromJson(const QJsonObject& obj) {
 }
 
 QByteArray generateE2ESessionKey() {
-    if (rejectWhenCryptoBackendUnavailable(nullptr)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::SessionKeyGeneration, nullptr)) {
         return QByteArray();
     }
     return randomBytes(SessionKeyBytes);
 }
 
 QByteArray generateE2EPrivateKey() {
-    if (rejectWhenCryptoBackendUnavailable(nullptr)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::IdentityKeyGeneration, nullptr)) {
         return QByteArray();
     }
     quint32 scalar = 0;
@@ -552,7 +642,7 @@ QByteArray generateE2EPrivateKey() {
 }
 
 QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey) {
-    if (rejectWhenCryptoBackendUnavailable(nullptr)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::PublicKeyDerivation, nullptr)) {
         return QByteArray();
     }
     const quint32 scalar = readDhValue(privateKey, DraftDhPrivatePrefix);
@@ -565,7 +655,7 @@ QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey) {
 bool signE2EKeyAgreement(E2EKeyAgreement* agreement,
                          const QByteArray& identityPrivateKey,
                          QString* reason) {
-    if (rejectWhenCryptoBackendUnavailable(reason)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::AgreementSign, reason)) {
         if (agreement) agreement->signature.clear();
         return false;
     }
@@ -592,7 +682,7 @@ bool signE2EKeyAgreement(E2EKeyAgreement* agreement,
 bool verifyE2EKeyAgreementSignature(const E2EKeyAgreement& agreement,
                                     const QByteArray& identityPublicKey,
                                     QString* reason) {
-    if (rejectWhenCryptoBackendUnavailable(reason)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::AgreementVerify, reason)) {
         return false;
     }
     QString validationReason;
@@ -620,7 +710,7 @@ QByteArray deriveE2EAuthenticatedSessionKey(const QByteArray& localPrivateKey,
                                             const E2EKeyAgreement& localAgreement,
                                             const E2EKeyAgreement& remoteAgreement,
                                             QString* reason) {
-    if (rejectWhenCryptoBackendUnavailable(reason)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::SessionDerive, reason)) {
         return QByteArray();
     }
     QString validationReason;
@@ -721,7 +811,7 @@ E2EEnvelope encryptE2EPayload(const QString& senderId,
     envelope.nonce = randomBytes(MinNonceBytes);
     envelope.aad = aad.trimmed().isEmpty() ? QStringLiteral("payload/private/v1") : aad.trimmed();
 
-    if (rejectWhenCryptoBackendUnavailable(reason)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::PayloadEncrypt, reason)) {
         return envelope;
     }
     if (sessionKey.size() < MinSessionKeyBytes) {
@@ -754,7 +844,7 @@ bool decryptE2EPayload(const E2EEnvelope& envelope,
     if (sessionKey.size() < MinSessionKeyBytes) {
         return fail(reason, QStringLiteral("invalid-session-key"));
     }
-    if (rejectWhenCryptoBackendUnavailable(reason)) {
+    if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::PayloadDecrypt, reason)) {
         return false;
     }
     QString validationReason;

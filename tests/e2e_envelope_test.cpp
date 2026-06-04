@@ -3,12 +3,50 @@
 #include <QDebug>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QStringList>
 
 namespace {
 bool expect(bool condition, const char* message) {
     if (!condition) {
         qWarning() << message;
         return false;
+    }
+    return true;
+}
+
+bool expectOperation(const QJsonObject& backendStatus,
+                     const QString& operation,
+                     bool available,
+                     const QString& reason,
+                     const char* message) {
+    const QJsonObject operations = backendStatus.value("operations").toObject();
+    const QJsonObject status = operations.value(operation).toObject();
+    return expect(status.value("operation").toString() == operation
+                      && status.value("available").toBool(!available) == available
+                      && status.value("reason").toString() == reason
+                      && !status.value("rawKeyExported").toBool(true)
+                      && !status.value("privateMaterialExported").toBool(true),
+                  message);
+}
+
+bool expectAllOperations(const QJsonObject& backendStatus,
+                         bool available,
+                         const QString& reason,
+                         const char* message) {
+    const QStringList names = {
+        QStringLiteral("session-key-generation"),
+        QStringLiteral("identity-key-generation"),
+        QStringLiteral("public-key-derivation"),
+        QStringLiteral("agreement-sign"),
+        QStringLiteral("agreement-verify"),
+        QStringLiteral("session-derive"),
+        QStringLiteral("payload-encrypt"),
+        QStringLiteral("payload-decrypt"),
+    };
+    for (const QString& name : names) {
+        if (!expectOperation(backendStatus, name, available, reason, message)) {
+            return false;
+        }
     }
     return true;
 }
@@ -50,6 +88,14 @@ int main() {
                         == QStringLiteral("production-backend-not-requested")
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
+    ok = expectAllOperations(backendStatus,
+                             true,
+                             QStringLiteral("draft-backend-available"),
+                             "default draft backend should allow every operation in the matrix") && ok;
+    ok = expect(backendStatus.value("operations").toObject()
+                    .value("payload-encrypt").toObject()
+                    .value("implementation").toString() == QStringLiteral("draft-qt-primitives"),
+                "operation matrix should disclose the selected draft implementation") && ok;
     ok = expect(e2eCryptoBackendAvailable(&reason) && reason.isEmpty(),
                 "draft backend should be available when production crypto is not required") && ok;
 
@@ -256,6 +302,15 @@ int main() {
                     && requiredBackendStatus.value("status").toString()
                         == QStringLiteral("production-crypto-backend-unavailable"),
                 "production-required mode should report the draft backend as unavailable") && ok;
+    ok = expectAllOperations(requiredBackendStatus,
+                             false,
+                             QStringLiteral("production-crypto-backend-unavailable"),
+                             "production-required mode should block every backend operation") && ok;
+    ok = expect(requiredBackendStatus.value("operations").toObject()
+                    .value("agreement-sign").toObject()
+                    .value("operatorAction").toString()
+                        == QStringLiteral("link-production-crypto-backend-or-disable-requirement"),
+                "production-required operation status should include an operator action") && ok;
     ok = expect(generateE2ESessionKey().isEmpty(),
                 "production-required mode should not generate draft session keys") && ok;
     ok = expect(generateE2EPrivateKey().isEmpty(),
@@ -297,6 +352,14 @@ int main() {
                     && productionRequestedStatus.value("unavailableReason").toString()
                         == QStringLiteral("production-crypto-backend-unavailable"),
                 "explicit production backend request should fail closed until the adapter is linked") && ok;
+    ok = expectAllOperations(productionRequestedStatus,
+                             false,
+                             QStringLiteral("production-crypto-backend-unavailable"),
+                             "explicit production backend request should block every backend operation") && ok;
+    ok = expect(productionRequestedStatus.value("operations").toObject()
+                    .value("payload-decrypt").toObject()
+                    .value("implementation").toString() == QStringLiteral("production-adapter"),
+                "explicit production operation status should point at the adapter boundary") && ok;
     ok = expect(!e2eCryptoBackendAvailable(&reason)
                     && reason == QStringLiteral("production-crypto-backend-unavailable"),
                 "production backend availability helper should refuse an unlinked adapter") && ok;
@@ -317,6 +380,15 @@ int main() {
                     && unsupportedBackendStatus.value("unavailableReason").toString()
                         == QStringLiteral("unsupported-crypto-backend"),
                 "unsupported backend requests should be sanitized and fail closed") && ok;
+    ok = expectAllOperations(unsupportedBackendStatus,
+                             false,
+                             QStringLiteral("unsupported-crypto-backend"),
+                             "unsupported backend request should block every backend operation") && ok;
+    ok = expect(unsupportedBackendStatus.value("operations").toObject()
+                    .value("session-derive").toObject()
+                    .value("operatorAction").toString()
+                        == QStringLiteral("choose-a-registered-crypto-backend"),
+                "unsupported operation status should tell operators to pick a registered backend") && ok;
     ok = expect(generateE2EPrivateKey().isEmpty(),
                 "unsupported backend request should not generate draft private keys") && ok;
     qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
