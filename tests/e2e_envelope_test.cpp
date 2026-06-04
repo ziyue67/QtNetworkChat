@@ -71,6 +71,8 @@ int main() {
                 "valid key agreement should pass") && ok;
     const QJsonObject backendStatus = e2eCryptoBackendStatus();
     const QJsonArray registeredBackends = backendStatus.value("registeredBackends").toArray();
+    const QJsonObject draftBackend = registeredBackends.at(0).toObject();
+    const QJsonObject productionBackend = registeredBackends.at(1).toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -82,19 +84,32 @@ int main() {
                     && backendStatus.value("signatureSuite").toString() == e2eAgreementSignatureSuite()
                     && !backendStatus.value("productionReady").toBool(true)
                     && !backendStatus.value("productionAdapterLinked").toBool(true)
+                    && backendStatus.value("productionRequiredOperations").toString().contains(QStringLiteral("payload-decrypt"))
                     && !backendStatus.value("productionBackendRequestedAtBuild").toBool(true)
                     && !backendStatus.value("productionBackendAvailableAtBuild").toBool(true)
                     && backendStatus.value("productionBackendReason").toString()
                         == QStringLiteral("production-backend-not-requested")
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
+    ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && draftBackend.value("linked").toBool(false)
+                    && draftBackend.value("operations").toArray().size() == 8
+                    && !draftBackend.value("rawKeyExported").toBool(true)
+                    && productionBackend.value("id").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && !productionBackend.value("linked").toBool(true)
+                    && !productionBackend.value("productionReady").toBool(true)
+                    && productionBackend.value("operations").toArray().size() == 8,
+                "registered backend descriptors should expose adapter readiness without private material") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),
                              "default draft backend should allow every operation in the matrix") && ok;
     ok = expect(backendStatus.value("operations").toObject()
                     .value("payload-encrypt").toObject()
-                    .value("implementation").toString() == QStringLiteral("draft-qt-primitives"),
+                    .value("implementation").toString() == QStringLiteral("draft-qt-primitives")
+                    && backendStatus.value("operations").toObject()
+                        .value("payload-encrypt").toObject()
+                        .value("adapterLinked").toBool(false),
                 "operation matrix should disclose the selected draft implementation") && ok;
     ok = expect(e2eCryptoBackendAvailable(&reason) && reason.isEmpty(),
                 "draft backend should be available when production crypto is not required") && ok;
@@ -358,7 +373,10 @@ int main() {
                              "explicit production backend request should block every backend operation") && ok;
     ok = expect(productionRequestedStatus.value("operations").toObject()
                     .value("payload-decrypt").toObject()
-                    .value("implementation").toString() == QStringLiteral("production-adapter"),
+                    .value("implementation").toString() == QStringLiteral("production-adapter")
+                    && !productionRequestedStatus.value("operations").toObject()
+                        .value("payload-decrypt").toObject()
+                        .value("adapterLinked").toBool(true),
                 "explicit production operation status should point at the adapter boundary") && ok;
     ok = expect(!e2eCryptoBackendAvailable(&reason)
                     && reason == QStringLiteral("production-crypto-backend-unavailable"),

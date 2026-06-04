@@ -42,6 +42,19 @@ enum class E2ECryptoOperation {
     PayloadDecrypt,
 };
 
+struct E2ECryptoAdapterDescriptor {
+    QString id;
+    QString type;
+    QString implementation;
+    QString unavailableReason;
+    QString operatorAction;
+    bool productionReady = false;
+    bool linked = false;
+    bool rawKeyExported = false;
+    bool privateMaterialExported = false;
+    QList<E2ECryptoOperation> operations;
+};
+
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
@@ -133,39 +146,109 @@ QList<E2ECryptoOperation> cryptoOperations() {
     };
 }
 
+E2ECryptoAdapterDescriptor draftAdapterDescriptor() {
+    E2ECryptoAdapterDescriptor descriptor;
+    descriptor.id = QString::fromLatin1(DraftBackendId);
+    descriptor.type = QStringLiteral("draft");
+    descriptor.implementation = QStringLiteral("draft-qt-primitives");
+    descriptor.unavailableReason = e2eProductionCryptoRequired()
+        ? QStringLiteral("production-crypto-backend-unavailable")
+        : QStringLiteral("draft-backend-available");
+    descriptor.operatorAction = e2eProductionCryptoRequired()
+        ? QStringLiteral("link-production-crypto-backend-or-disable-requirement")
+        : QStringLiteral("allowed-for-development-and-tests");
+    descriptor.linked = true;
+    descriptor.operations = cryptoOperations();
+    return descriptor;
+}
+
+E2ECryptoAdapterDescriptor productionAdapterDescriptor() {
+    E2ECryptoAdapterDescriptor descriptor;
+    descriptor.id = QString::fromLatin1(ProductionBackendId);
+    descriptor.type = QStringLiteral("production-adapter");
+    descriptor.implementation = QStringLiteral("production-adapter");
+    descriptor.unavailableReason = QStringLiteral("production-crypto-backend-unavailable");
+    descriptor.operatorAction = QStringLiteral("link-reviewed-production-crypto-backend");
+    descriptor.productionReady = false;
+    descriptor.linked = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0;
+    descriptor.operations = cryptoOperations();
+    return descriptor;
+}
+
+QList<E2ECryptoAdapterDescriptor> cryptoAdapterRegistry() {
+    return {
+        draftAdapterDescriptor(),
+        productionAdapterDescriptor(),
+    };
+}
+
+E2ECryptoAdapterDescriptor cryptoAdapterForBackend(const QString& requested, bool* found = nullptr) {
+    for (const E2ECryptoAdapterDescriptor& descriptor : cryptoAdapterRegistry()) {
+        if (descriptor.id == requested) {
+            if (found) {
+                *found = true;
+            }
+            return descriptor;
+        }
+    }
+    if (found) {
+        *found = false;
+    }
+    E2ECryptoAdapterDescriptor descriptor;
+    descriptor.id = requested;
+    descriptor.type = QStringLiteral("unsupported");
+    descriptor.implementation = QStringLiteral("none");
+    descriptor.unavailableReason = QStringLiteral("unsupported-crypto-backend");
+    descriptor.operatorAction = QStringLiteral("choose-a-registered-crypto-backend");
+    return descriptor;
+}
+
+bool adapterSupportsOperation(const E2ECryptoAdapterDescriptor& descriptor,
+                              E2ECryptoOperation operation) {
+    return descriptor.operations.contains(operation);
+}
+
 QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
                                   const QString& requested,
                                   bool productionRequired) {
+    bool found = false;
+    const E2ECryptoAdapterDescriptor descriptor = cryptoAdapterForBackend(requested, &found);
+    const bool draftSelected = requested == QString::fromLatin1(DraftBackendId);
+    const bool productionSelected = requested == QString::fromLatin1(ProductionBackendId);
+    const bool operationRegistered = found && adapterSupportsOperation(descriptor, operation);
+    const bool operationAvailable = operationRegistered
+        && ((draftSelected && !productionRequired)
+            || (productionSelected && descriptor.productionReady && descriptor.linked));
+
     QJsonObject obj;
     obj["operation"] = cryptoOperationName(operation);
     obj["backendId"] = requested;
-    obj["rawKeyExported"] = false;
-    obj["privateMaterialExported"] = false;
-    obj["productionReady"] = false;
+    obj["adapterType"] = descriptor.type;
+    obj["implementation"] = descriptor.implementation;
+    obj["registered"] = operationRegistered;
+    obj["adapterLinked"] = descriptor.linked;
+    obj["rawKeyExported"] = descriptor.rawKeyExported;
+    obj["privateMaterialExported"] = descriptor.privateMaterialExported;
+    obj["productionReady"] = descriptor.productionReady;
+    obj["available"] = operationAvailable;
 
-    if (requested == QString::fromLatin1(DraftBackendId)) {
-        obj["available"] = !productionRequired;
+    if (draftSelected) {
         obj["reason"] = productionRequired
             ? QStringLiteral("production-crypto-backend-unavailable")
             : QStringLiteral("draft-backend-available");
-        obj["implementation"] = QStringLiteral("draft-qt-primitives");
         obj["operatorAction"] = productionRequired
             ? QStringLiteral("link-production-crypto-backend-or-disable-requirement")
             : QStringLiteral("allowed-for-development-and-tests");
         return obj;
     }
 
-    if (requested == QString::fromLatin1(ProductionBackendId)) {
-        obj["available"] = false;
+    if (productionSelected) {
         obj["reason"] = QStringLiteral("production-crypto-backend-unavailable");
-        obj["implementation"] = QStringLiteral("production-adapter");
         obj["operatorAction"] = QStringLiteral("link-reviewed-production-crypto-backend");
         return obj;
     }
 
-    obj["available"] = false;
     obj["reason"] = QStringLiteral("unsupported-crypto-backend");
-    obj["implementation"] = QStringLiteral("none");
     obj["operatorAction"] = QStringLiteral("choose-a-registered-crypto-backend");
     return obj;
 }
@@ -192,20 +275,26 @@ bool rejectWhenCryptoBackendUnavailable(QString* reason) {
     return rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::SessionKeyGeneration, reason);
 }
 
-QJsonObject backendDescriptor(const QString& id,
-                              const QString& type,
+QJsonObject backendDescriptor(const E2ECryptoAdapterDescriptor& descriptor,
                               bool selected,
-                              bool productionReady,
                               bool available,
                               const QString& reason) {
     QJsonObject obj;
-    obj["id"] = id;
-    obj["type"] = type;
+    obj["id"] = descriptor.id;
+    obj["type"] = descriptor.type;
     obj["selected"] = selected;
-    obj["productionReady"] = productionReady;
+    obj["implementation"] = descriptor.implementation;
+    obj["linked"] = descriptor.linked;
+    obj["productionReady"] = descriptor.productionReady;
     obj["available"] = available;
     obj["reason"] = reason;
-    obj["rawKeyExported"] = false;
+    obj["rawKeyExported"] = descriptor.rawKeyExported;
+    obj["privateMaterialExported"] = descriptor.privateMaterialExported;
+    QJsonArray operations;
+    for (const E2ECryptoOperation operation : descriptor.operations) {
+        operations.append(cryptoOperationName(operation));
+    }
+    obj["operations"] = operations;
     return obj;
 }
 
@@ -436,20 +525,19 @@ QJsonObject e2eCryptoBackendStatus() {
     const bool selectedProduction = requested == QString::fromLatin1(ProductionBackendId);
 
     QJsonArray registeredBackends;
-    registeredBackends.append(backendDescriptor(QString::fromLatin1(DraftBackendId),
-                                                QStringLiteral("draft"),
-                                                selectedDraft,
-                                                false,
-                                                !e2eProductionCryptoRequired() && selectedDraft,
-                                                e2eProductionCryptoRequired()
-                                                    ? QStringLiteral("production-required")
-                                                    : QStringLiteral("draft-backend-available")));
-    registeredBackends.append(backendDescriptor(QString::fromLatin1(ProductionBackendId),
-                                                QStringLiteral("production-adapter"),
-                                                selectedProduction,
-                                                false,
-                                                false,
-                                                QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON)));
+    for (const E2ECryptoAdapterDescriptor& descriptor : cryptoAdapterRegistry()) {
+        const bool selected = descriptor.id == requested;
+        const bool descriptorAvailable = selected && available;
+        const QString reason = descriptor.id == QString::fromLatin1(DraftBackendId)
+            ? (e2eProductionCryptoRequired()
+                ? QStringLiteral("production-required")
+                : QStringLiteral("draft-backend-available"))
+            : QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON);
+        registeredBackends.append(backendDescriptor(descriptor,
+                                                    selected,
+                                                    descriptorAvailable,
+                                                    reason));
+    }
 
     QJsonObject status;
     status["backendId"] = e2eCryptoBackendId();
@@ -475,7 +563,9 @@ QJsonObject e2eCryptoBackendStatus() {
     status["productionBackendAvailableAtBuild"] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE != 0;
     status["productionBackendReason"] = QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON);
     status["requestedProductionBackend"] = QString::fromLatin1(QTNETWORKCHAT_E2E_REQUESTED_PRODUCTION_BACKEND);
-    status["productionAdapterLinked"] = false;
+    status["productionAdapterLinked"] = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0;
+    status["productionRequiredOperations"] =
+        QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_REQUIRED_OPERATIONS);
     status["available"] = available;
     status["unavailableReason"] = availabilityReason;
     status["status"] = available
