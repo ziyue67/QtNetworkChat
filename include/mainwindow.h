@@ -83,8 +83,18 @@ private:
     void appendSystemMessage(const QString& text);
     void loadHistory(const QString& peerId = QString());
     void saveHistory(const QString& peerId, const QString& content);
+    void saveHistory(const QString& peerId,
+                     const QString& content,
+                     const QString& encryptionState,
+                     const QString& e2eKeyId = QString(),
+                     const QString& e2eKeyFingerprint = QString());
     bool ensureClientDatabase() const;
     bool saveHistoryToSqlite(const QString& peerId, const QString& content) const;
+    bool saveHistoryToSqlite(const QString& peerId,
+                             const QString& content,
+                             const QString& encryptionState,
+                             const QString& e2eKeyId = QString(),
+                             const QString& e2eKeyFingerprint = QString()) const;
     bool hasHistoryRecords(const QString& peerId) const;
     QStringList historyRecordsForDate(const QString& peerId, const QDate& date) const;
     QStringList historyRecordsForExport(const QString& peerId) const;

@@ -30,6 +30,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
+    src/historymetadata.cpp
     src/server.cpp
     src/client.cpp
     src/redisclient.cpp
@@ -39,6 +40,7 @@ add_executable(QtNetworkChat
     src/logincredentialstore.cpp
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     include/mainwindow.h
+    include/historymetadata.h
     include/server.h
     include/client.h
     include/redisclient.h
@@ -97,6 +99,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(e2e_private_message_delivery_test PRIVATE include)
     target_link_libraries(e2e_private_message_delivery_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+
+    add_executable(history_metadata_test
+        tests/history_metadata_test.cpp
+        src/historymetadata.cpp
+        include/historymetadata.h
+    )
+    target_include_directories(history_metadata_test PRIVATE include)
+    target_link_libraries(history_metadata_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(server_group_member_update_test
         tests/server_group_member_update_test.cpp
@@ -370,6 +380,13 @@ if(BUILD_TESTING)
         NAME E2EPrivateMessageDelivery
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:e2e_private_message_delivery_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME HistoryEncryptionMetadata
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:history_metadata_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

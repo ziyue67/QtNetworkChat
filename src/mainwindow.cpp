@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "filetransferstatus.h"
+#include "historymetadata.h"
 #include "qtnetworkchat_version.h"
 #include <QInputDialog>
 #include <QFileDialog>
@@ -2394,7 +2395,12 @@ void MainWindow::onSendMessage() {
                                                      m_currentUserName,
                                                      sentEncrypted ? QStringLiteral("[端到端加密] ") : QString(),
                                                      text);
-        saveHistory(peerId, line);
+        const QJsonObject e2eStatus = sentEncrypted ? m_client->e2eSessionStatus(peerId) : QJsonObject();
+        saveHistory(peerId,
+                    line,
+                    sentEncrypted ? QStringLiteral("encrypted") : QStringLiteral("plaintext"),
+                    e2eStatus.value("keyId").toString(),
+                    e2eStatus.value("keyFingerprintSha256").toString());
 
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
@@ -2679,7 +2685,20 @@ void MainWindow::onNewMessage(const Message& msg) {
     if (msg.isPrivate()) {
         QString peerId = msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId;
         if (!m_privateChatTarget.isEmpty() && peerId != m_privateChatTarget) {
-            saveHistory(peerId, line);
+            const QString encryptionState = msg.e2eEnvelope.isValid()
+                ? (msg.content == QStringLiteral("加密消息无法解密")
+                    ? QStringLiteral("decrypt-failed")
+                    : QStringLiteral("encrypted"))
+                : QStringLiteral("plaintext");
+            const QJsonObject e2eStatus = msg.e2eEnvelope.isValid() && m_client
+                ? m_client->e2eSessionStatus(peerId)
+                : QJsonObject();
+            const bool envelopeMatchesLocalSession = e2eStatus.value("keyId").toString() == msg.e2eEnvelope.keyId;
+            saveHistory(peerId,
+                        line,
+                        encryptionState,
+                        msg.e2eEnvelope.keyId,
+                        envelopeMatchesLocalSession ? e2eStatus.value("keyFingerprintSha256").toString() : QString());
             ++m_unreadCount;
             updateUnreadState();
             ui->statusbar->showMessage(QString("新的私聊消息 · %1：%2").arg(displayName, msg.content.left(24)), 5000);
@@ -2710,7 +2729,21 @@ void MainWindow::onNewMessage(const Message& msg) {
         item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     }
     m_chatModel->appendRow(item);
-    saveHistory(msg.isPrivate() ? (msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId) : "group", line);
+    const QString historyPeerId = msg.isPrivate() ? (msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId) : "group";
+    const QString encryptionState = msg.e2eEnvelope.isValid()
+        ? (msg.content == QStringLiteral("加密消息无法解密")
+            ? QStringLiteral("decrypt-failed")
+            : QStringLiteral("encrypted"))
+        : QStringLiteral("plaintext");
+    const QJsonObject e2eStatus = msg.e2eEnvelope.isValid() && m_client
+        ? m_client->e2eSessionStatus(historyPeerId)
+        : QJsonObject();
+    const bool envelopeMatchesLocalSession = e2eStatus.value("keyId").toString() == msg.e2eEnvelope.keyId;
+    saveHistory(historyPeerId,
+                line,
+                encryptionState,
+                msg.e2eEnvelope.keyId,
+                envelopeMatchesLocalSession ? e2eStatus.value("keyFingerprintSha256").toString() : QString());
 
     if (msg.type == MessageType::Image && !msg.fileData.isEmpty()) {
         const QString receivedName = safeReceivedFileName(msg.fileName, "received_image");
@@ -7272,14 +7305,18 @@ void MainWindow::loadHistory(const QString& peerId) {
             db.setDatabaseName(clientDbPath());
             if (db.open()) {
                 QSqlQuery query(db);
-                query.prepare("SELECT content FROM ("
-                              "SELECT id, content FROM chat_history WHERE peer_id = ? ORDER BY id DESC LIMIT ?"
+                query.prepare("SELECT content, encryption_state, e2e_key_id, e2e_key_fingerprint FROM ("
+                              "SELECT id, content, encryption_state, e2e_key_id, e2e_key_fingerprint "
+                              "FROM chat_history WHERE peer_id = ? ORDER BY id DESC LIMIT ?"
                               ") ORDER BY id ASC");
                 query.addBindValue(peerId);
                 query.addBindValue(MAX_HISTORY_LINES);
                 if (query.exec()) {
                     while (query.next()) {
-                        appendHistoryLine(query.value(0).toString());
+                        appendHistoryLine(formattedHistoryContent(query.value(0).toString(),
+                                                                  query.value(1).toString(),
+                                                                  query.value(2).toString(),
+                                                                  query.value(3).toString()));
                         ++loadedRows;
                     }
                 }
@@ -7307,20 +7344,28 @@ void MainWindow::loadHistory(const QString& peerId) {
     for (const QString& line : legacyLines) {
         appendHistoryLine(line);
         if (dbReady) {
-            saveHistoryToSqlite(peerId, line);
+            saveHistoryToSqlite(peerId, line, QStringLiteral("plaintext"));
         }
     }
 }
 
 void MainWindow::saveHistory(const QString& peerId, const QString& content) {
+    saveHistory(peerId, content, QStringLiteral("plaintext"));
+}
+
+void MainWindow::saveHistory(const QString& peerId,
+                             const QString& content,
+                             const QString& encryptionState,
+                             const QString& e2eKeyId,
+                             const QString& e2eKeyFingerprint) {
     if (peerId.isEmpty()) return;
-    if (saveHistoryToSqlite(peerId, content)) return;
+    if (saveHistoryToSqlite(peerId, content, encryptionState, e2eKeyId, e2eKeyFingerprint)) return;
 
     QString filePath = getHistoryFilePath(peerId);
     QFile file(filePath);
     if (file.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream out(&file);
-        out << content << "\n";
+        out << formattedHistoryContent(content, encryptionState, e2eKeyId, e2eKeyFingerprint) << "\n";
         file.close();
     }
 }
@@ -7333,14 +7378,7 @@ bool MainWindow::ensureClientDatabase() const {
         db.setDatabaseName(clientDbPath());
         if (db.open()) {
             QSqlQuery query(db);
-            ok = query.exec("CREATE TABLE IF NOT EXISTS chat_history ("
-                            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                            "peer_id TEXT NOT NULL, "
-                            "content TEXT NOT NULL, "
-                            "created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-            if (ok) {
-                ok = query.exec("CREATE INDEX IF NOT EXISTS idx_chat_history_peer_id ON chat_history(peer_id, id)");
-            }
+            ok = ensureChatHistorySchema(db);
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS friends ("
                                 "user_id TEXT PRIMARY KEY, "
@@ -7379,6 +7417,14 @@ bool MainWindow::ensureClientDatabase() const {
 }
 
 bool MainWindow::saveHistoryToSqlite(const QString& peerId, const QString& content) const {
+    return saveHistoryToSqlite(peerId, content, QStringLiteral("plaintext"));
+}
+
+bool MainWindow::saveHistoryToSqlite(const QString& peerId,
+                                     const QString& content,
+                                     const QString& encryptionState,
+                                     const QString& e2eKeyId,
+                                     const QString& e2eKeyFingerprint) const {
     if (peerId.isEmpty() || !ensureClientDatabase()) return false;
 
     const QString connectionName = "client_history_write_" + QString::number(reinterpret_cast<quintptr>(this));
@@ -7388,9 +7434,13 @@ bool MainWindow::saveHistoryToSqlite(const QString& peerId, const QString& conte
         db.setDatabaseName(clientDbPath());
         if (db.open()) {
             QSqlQuery query(db);
-            query.prepare("INSERT INTO chat_history(peer_id, content, created_at) VALUES(?, ?, datetime('now'))");
+            query.prepare("INSERT INTO chat_history(peer_id, content, created_at, encryption_state, e2e_key_id, e2e_key_fingerprint) "
+                          "VALUES(?, ?, datetime('now'), ?, ?, ?)");
             query.addBindValue(peerId);
             query.addBindValue(content);
+            query.addBindValue(normalizedHistoryEncryptionState(encryptionState));
+            query.addBindValue(e2eKeyId.trimmed());
+            query.addBindValue(e2eKeyFingerprint.trimmed());
             ok = query.exec();
             db.close();
         }
@@ -7429,14 +7479,17 @@ QStringList MainWindow::historyRecordsForDate(const QString& peerId, const QDate
         db.setDatabaseName(clientDbPath());
         if (db.open()) {
             QSqlQuery query(db);
-            query.prepare("SELECT content FROM chat_history "
+            query.prepare("SELECT content, encryption_state, e2e_key_id, e2e_key_fingerprint FROM chat_history "
                           "WHERE peer_id = ? AND date(created_at, 'localtime') = ? "
                           "ORDER BY id ASC");
             query.addBindValue(peerId);
             query.addBindValue(date.toString("yyyy-MM-dd"));
             if (query.exec()) {
                 while (query.next()) {
-                    rows << query.value(0).toString();
+                    rows << formattedHistoryContent(query.value(0).toString(),
+                                                    query.value(1).toString(),
+                                                    query.value(2).toString(),
+                                                    query.value(3).toString());
                 }
             }
             db.close();
@@ -7457,13 +7510,17 @@ QStringList MainWindow::historyRecordsForExport(const QString& peerId) const {
             db.setDatabaseName(clientDbPath());
             if (db.open()) {
                 QSqlQuery query(db);
-                query.prepare("SELECT created_at, content FROM chat_history WHERE peer_id = ? ORDER BY id ASC");
+                query.prepare("SELECT created_at, content, encryption_state, e2e_key_id, e2e_key_fingerprint "
+                              "FROM chat_history WHERE peer_id = ? ORDER BY id ASC");
                 query.addBindValue(peerId);
                 if (query.exec()) {
                     while (query.next()) {
                         const QString createdAt = query.value(0).toString();
-                        const QString content = query.value(1).toString();
-                        rows << QString("%1 | %2").arg(createdAt, content);
+                        rows << formattedHistoryExportLine(createdAt,
+                                                           query.value(1).toString(),
+                                                           query.value(2).toString(),
+                                                           query.value(3).toString(),
+                                                           query.value(4).toString());
                     }
                 }
                 db.close();

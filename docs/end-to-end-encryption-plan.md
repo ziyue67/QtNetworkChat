@@ -21,10 +21,17 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 - The default data-plane policy requires a trusted, non-mismatched peer identity before starting key agreement, accepting key agreement, or sending encrypted private messages. Stale sessions are not enough after trust recovery clears a pin.
 - Corrupted local identity stores are regenerated with a fresh persisted identity, while malformed trust pins are ignored instead of being treated as trusted.
 
+## Current History Metadata Boundary
+
+- The local `chat_history` table is migrated in place with `encryption_state`, `e2e_key_id`, and `e2e_key_fingerprint` columns.
+- Legacy rows with no encryption metadata are normalized to `plaintext`; new encrypted private-message rows are stored as `encrypted`, and valid envelopes that cannot decrypt are stored as `decrypt-failed`.
+- History loading, date filtering, legacy text fallback, and export formatting now show explicit E2E state labels for encrypted or failed records while leaving plaintext rows visually unchanged.
+- History metadata stores the key id and a short display fingerprint derived from the local session status when it matches the envelope key id. Raw session keys, private agreement material, peer public keys, passwords, tokens, and full fingerprints are not exported through this formatting path.
+- This is metadata governance for local history visibility and auditability. It does not retroactively encrypt old plaintext rows and does not yet encrypt file payloads or file chunks.
+
 ## Remaining Work
 
 - Replace the draft agreement primitive with a reviewed production cryptographic backend and signed identity keys.
 - Add cross-device verification UX.
 - Add migration checks for older identity/pin store schemas and richer operator/user recovery prompts.
-- Migrate existing private-message history into explicit encrypted/plaintext states.
 - Encrypt file content or chunks with the same fail-closed identity binding.
