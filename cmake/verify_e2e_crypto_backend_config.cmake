@@ -1,0 +1,22 @@
+if(NOT DEFINED CONFIG_HEADER OR NOT EXISTS "${CONFIG_HEADER}")
+    message(FATAL_ERROR "CONFIG_HEADER is required")
+endif()
+
+file(READ "${CONFIG_HEADER}" config_content)
+
+string(FIND "${config_content}" "QTNETWORKCHAT_E2E_COMPILED_BACKEND_ID \"draft-qt-hmac-stream-v1\"" backend_id_pos)
+string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 0" requested_pos)
+string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE 0" available_pos)
+string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON \"production-backend-not-requested\"" reason_pos)
+
+if(backend_id_pos LESS 0)
+    message(FATAL_ERROR "E2E crypto backend config should declare the draft backend id")
+endif()
+if(requested_pos LESS 0 OR available_pos LESS 0)
+    message(FATAL_ERROR "E2E crypto backend config should declare production backend request/availability flags")
+endif()
+if(reason_pos LESS 0)
+    message(FATAL_ERROR "E2E crypto backend config should declare a sanitized production backend reason")
+endif()
+
+message(STATUS "E2E crypto backend config verified")

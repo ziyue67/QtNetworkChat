@@ -1,4 +1,5 @@
 #include "e2eenvelope.h"
+#include "qtnetworkchat_e2e_crypto_config.h"
 
 #include <QCryptographicHash>
 #include <QJsonValue>
@@ -24,7 +25,6 @@ const char DraftDhPublicPrefix[] = "qnc-dh1-public:";
 const char E2EProtocolV1[] = "qtnetworkchat-e2e-v1";
 const char E2EDraftSuite[] = "draft-placeholder";
 const char E2EAdvertisedSuite[] = "x25519-hkdf-sha256-aes-256-gcm";
-const char E2EDraftBackendId[] = "draft-qt-hmac-stream-v1";
 const char E2EDraftSignatureSuite[] = "draft-identity-hmac-sha256";
 
 bool envEnabled(const char* name) {
@@ -257,7 +257,7 @@ QString e2eDefaultSuite() {
 }
 
 QString e2eCryptoBackendId() {
-    return QString::fromLatin1(E2EDraftBackendId);
+    return QString::fromLatin1(QTNETWORKCHAT_E2E_COMPILED_BACKEND_ID);
 }
 
 QString e2eAgreementSignatureSuite() {
@@ -277,6 +277,9 @@ QJsonObject e2eCryptoBackendStatus() {
     status["signatureSuite"] = e2eAgreementSignatureSuite();
     status["productionReady"] = false;
     status["productionRequired"] = e2eProductionCryptoRequired();
+    status["productionBackendRequestedAtBuild"] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED != 0;
+    status["productionBackendAvailableAtBuild"] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE != 0;
+    status["productionBackendReason"] = QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON);
     status["available"] = !e2eProductionCryptoRequired();
     status["status"] = e2eProductionCryptoRequired()
         ? QStringLiteral("blocked-production-backend-unavailable")

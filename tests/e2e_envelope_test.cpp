@@ -35,6 +35,10 @@ int main() {
                     && backendStatus.value("suite").toString() == e2eDefaultSuite()
                     && backendStatus.value("signatureSuite").toString() == e2eAgreementSignatureSuite()
                     && !backendStatus.value("productionReady").toBool(true)
+                    && !backendStatus.value("productionBackendRequestedAtBuild").toBool(true)
+                    && !backendStatus.value("productionBackendAvailableAtBuild").toBool(true)
+                    && backendStatus.value("productionBackendReason").toString()
+                        == QStringLiteral("production-backend-not-requested")
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
 

@@ -15,6 +15,26 @@ configure_file(
     @ONLY
 )
 
+option(QTNETWORKCHAT_E2E_ENABLE_PRODUCTION_CRYPTO "Probe for a production E2E crypto backend without enabling the draft backend as production-ready" OFF)
+set(QTNETWORKCHAT_E2E_COMPILED_BACKEND_ID "draft-qt-hmac-stream-v1")
+set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 0)
+set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE 0)
+set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON "production-backend-not-requested")
+if(QTNETWORKCHAT_E2E_ENABLE_PRODUCTION_CRYPTO)
+    set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 1)
+    find_package(OpenSSL QUIET)
+    if(OpenSSL_FOUND)
+        set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON "openssl-detected-adapter-not-enabled")
+    else()
+        set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON "openssl-not-found")
+    endif()
+endif()
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/qtnetworkchat_e2e_crypto_config.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/qtnetworkchat_e2e_crypto_config.h
+    @ONLY
+)
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Test)
 
@@ -62,6 +82,10 @@ target_link_libraries(sqlite_to_postgres_migrator PRIVATE Qt${QT_VERSION_MAJOR}:
 
 include(CTest)
 if(BUILD_TESTING)
+    function(qtnetworkchat_target_include_dirs target_name)
+        target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
+    endfunction()
+
     add_executable(message_serialization_test
         tests/message_serialization_test.cpp
         src/message.cpp
@@ -69,7 +93,7 @@ if(BUILD_TESTING)
         include/message.h
         include/e2eenvelope.h
     )
-    target_include_directories(message_serialization_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(message_serialization_test)
     target_link_libraries(message_serialization_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(e2e_envelope_test
@@ -77,7 +101,7 @@ if(BUILD_TESTING)
         src/e2eenvelope.cpp
         include/e2eenvelope.h
     )
-    target_include_directories(e2e_envelope_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(e2e_envelope_test)
     target_link_libraries(e2e_envelope_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(e2e_private_message_delivery_test
@@ -97,7 +121,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(e2e_private_message_delivery_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(e2e_private_message_delivery_test)
     target_link_libraries(e2e_private_message_delivery_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(history_metadata_test
@@ -125,7 +149,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(server_group_member_update_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(server_group_member_update_test)
     target_link_libraries(server_group_member_update_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(account_password_kdf_test
@@ -145,7 +169,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(account_password_kdf_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(account_password_kdf_test)
     target_link_libraries(account_password_kdf_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(login_credential_store_test
@@ -189,7 +213,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(file_transfer_cancel_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(file_transfer_cancel_test)
     target_link_libraries(file_transfer_cancel_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(file_chunk_duplicate_ack_test
@@ -209,7 +233,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(file_chunk_duplicate_ack_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(file_chunk_duplicate_ack_test)
     target_link_libraries(file_chunk_duplicate_ack_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(file_chunk_retry_progress_test
@@ -221,7 +245,7 @@ if(BUILD_TESTING)
         include/message.h
         include/chatuser.h
     )
-    target_include_directories(file_chunk_retry_progress_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(file_chunk_retry_progress_test)
     target_link_libraries(file_chunk_retry_progress_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
 
     add_executable(offline_attachment_quota_test
@@ -241,7 +265,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(offline_attachment_quota_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(offline_attachment_quota_test)
     target_link_libraries(offline_attachment_quota_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(redis_client_test
@@ -277,7 +301,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(redis_unavailable_fallback_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(redis_unavailable_fallback_test)
     target_link_libraries(redis_unavailable_fallback_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(database_health_test
@@ -297,7 +321,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(database_health_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(database_health_test)
     target_link_libraries(database_health_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(postgres_qpsql_protocol_smoke_test
@@ -317,7 +341,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(postgres_qpsql_protocol_smoke_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(postgres_qpsql_protocol_smoke_test)
     target_link_libraries(postgres_qpsql_protocol_smoke_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(redis_presence_flow_test
@@ -345,7 +369,7 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    target_include_directories(redis_cross_instance_chat_test PRIVATE include)
+    qtnetworkchat_target_include_dirs(redis_cross_instance_chat_test)
     target_link_libraries(redis_cross_instance_chat_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(heartbeat_monitor_test
@@ -375,6 +399,12 @@ if(BUILD_TESTING)
             -DTEST_EXE=$<TARGET_FILE:e2e_envelope_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME E2ECryptoBackendConfig
+        COMMAND ${CMAKE_COMMAND}
+            -DCONFIG_HEADER=${CMAKE_CURRENT_BINARY_DIR}/generated/qtnetworkchat_e2e_crypto_config.h
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_crypto_backend_config.cmake
     )
     add_test(
         NAME E2EPrivateMessageDelivery
