@@ -218,10 +218,13 @@ int main(int argc, char** argv) {
             return bobSawAliceIdentity.value("publicKeyFingerprintSha256").toString().size() == 64;
         }), "bob should receive alice's targeted e2e identity announcement") && ok;
         ok = expect(alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
+                        && alice.e2eLocalIdentityStatus().value("agreementSigning").toBool(false)
+                        && alice.e2eLocalIdentityStatus().value("signatureSuite").toString()
+                            == QStringLiteral("draft-identity-hmac-sha256")
                         && !alice.e2eLocalIdentityStatus().contains("privateKey")
                         && !aliceSawBobIdentity.contains("privateKey")
                         && !bobSawAliceIdentity.contains("sessionKey"),
-                    "e2e identity status should expose fingerprints but no private or session keys") && ok;
+                    "e2e identity status should expose signing capability and fingerprints but no private or session keys") && ok;
         const QString originalAliceIdentityFingerprint = alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
         ok = expect(alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("unverified"),
                     "newly observed peer e2e identity should start unverified") && ok;
@@ -265,8 +268,18 @@ int main(int argc, char** argv) {
                             == bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString()
                         && bobRotationRequest.value("receiverIdentityFingerprintSha256").toString()
                             == bob.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
+                        && bobRotationRequest.value("signature").toString().size() > 20
                         && !bobRotationRequest.contains("sessionKey"),
                     "key agreement request should expose only public material bound to identity fingerprints") && ok;
+        QJsonObject tamperedRequest = bobRotationRequest;
+        tamperedRequest["publicKey"] = bobRotationRequest.value("publicKey").toString() + QStringLiteral("AA");
+        ok = expect(!verifyE2EKeyAgreementSignature(E2EKeyAgreement::fromJson(tamperedRequest),
+                                                    QByteArray("not-the-pinned-public-key"),
+                                                    &rejectReason)
+                        && (rejectReason == QStringLiteral("identity-key-mismatch")
+                            || rejectReason == QStringLiteral("signature-mismatch")
+                            || rejectReason == QStringLiteral("invalid-public-key")),
+                    "tampered key agreement request should fail signature verification") && ok;
         ok = expect(bob.respondE2ESessionRotation(aliceId,
                                                   bobRotationRequest.value("keyId").toString() + QStringLiteral("-response"),
                                                   generateE2ESessionKey(),
@@ -343,6 +356,7 @@ int main(int argc, char** argv) {
                             == bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString()
                         && bobRotationRequest.value("receiverIdentityFingerprintSha256").toString()
                             == bob.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
+                        && bobRotationRequest.value("signature").toString().size() > 20
                         && !bobRotationRequest.contains("sessionKey"),
                     "rotation request should expose only public agreement material bound to identity fingerprints") && ok;
         ok = expect(bob.respondE2ESessionRotation(aliceId,
@@ -360,6 +374,7 @@ int main(int argc, char** argv) {
                 && alice.e2eSessionStatus(bobId).value("state").toString() == QStringLiteral("ready");
         }), "sender should install the authenticated e2e rotation response") && ok;
         ok = expect(!aliceRotationResponse.contains("sessionKey")
+                        && aliceRotationResponse.value("signature").toString().size() > 20
                         && aliceRotationResponse.value("publicKeyFingerprintSha256").toString().size() == 64
                         && alice.e2eSessionStatus(bobId).value("keyFingerprintSha256").toString()
                             == bob.e2eSessionStatus(aliceId).value("keyFingerprintSha256").toString(),

@@ -110,6 +110,12 @@ bool validateE2EIdentityJson(const QJsonObject& identity, QString* reason = null
         if (reason) *reason = QStringLiteral("fingerprint-mismatch");
         return false;
     }
+    const QString signatureSuite = identity.value("signatureSuite").toString().trimmed();
+    if (!signatureSuite.isEmpty()
+        && signatureSuite != QLatin1String("draft-identity-hmac-sha256")) {
+        if (reason) *reason = QStringLiteral("unsupported-signature-suite");
+        return false;
+    }
     if (reason) reason->clear();
     return true;
 }

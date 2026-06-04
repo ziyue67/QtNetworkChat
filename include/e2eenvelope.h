@@ -45,6 +45,12 @@ bool isSupportedE2ESuite(const QString& suite);
 QByteArray generateE2ESessionKey();
 QByteArray generateE2EPrivateKey();
 QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey);
+bool signE2EKeyAgreement(E2EKeyAgreement* agreement,
+                         const QByteArray& identityPrivateKey,
+                         QString* reason = nullptr);
+bool verifyE2EKeyAgreementSignature(const E2EKeyAgreement& agreement,
+                                    const QByteArray& identityPublicKey,
+                                    QString* reason = nullptr);
 QByteArray deriveE2EAuthenticatedSessionKey(const QByteArray& localPrivateKey,
                                             const E2EKeyAgreement& localAgreement,
                                             const E2EKeyAgreement& remoteAgreement,

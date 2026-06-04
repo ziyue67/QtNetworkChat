@@ -129,6 +129,39 @@ int main() {
     bobAgreement.publicKey = bobPublicKey;
     bobAgreement.senderIdentityFingerprint = aliceAgreement.receiverIdentityFingerprint;
     bobAgreement.receiverIdentityFingerprint = aliceAgreement.senderIdentityFingerprint;
+    const QByteArray aliceIdentityPrivateKey = generateE2EPrivateKey();
+    const QByteArray bobIdentityPrivateKey = generateE2EPrivateKey();
+    const QByteArray aliceIdentityPublicKey = e2ePublicKeyFromPrivateKey(aliceIdentityPrivateKey);
+    const QByteArray bobIdentityPublicKey = e2ePublicKeyFromPrivateKey(bobIdentityPrivateKey);
+    aliceAgreement.senderIdentityFingerprint = e2eFingerprint(aliceIdentityPublicKey);
+    aliceAgreement.receiverIdentityFingerprint = e2eFingerprint(bobIdentityPublicKey);
+    bobAgreement.senderIdentityFingerprint = e2eFingerprint(bobIdentityPublicKey);
+    bobAgreement.receiverIdentityFingerprint = e2eFingerprint(aliceIdentityPublicKey);
+    ok = expect(signE2EKeyAgreement(&aliceAgreement, aliceIdentityPrivateKey, &reason)
+                    && !aliceAgreement.signature.isEmpty()
+                    && reason.isEmpty(),
+                "sender should sign key agreement with local identity material") && ok;
+    ok = expect(signE2EKeyAgreement(&bobAgreement, bobIdentityPrivateKey, &reason)
+                    && !bobAgreement.signature.isEmpty(),
+                "receiver should sign key agreement with local identity material") && ok;
+    ok = expect(verifyE2EKeyAgreementSignature(aliceAgreement, aliceIdentityPublicKey, &reason)
+                    && verifyE2EKeyAgreementSignature(bobAgreement, bobIdentityPublicKey, &reason),
+                "signed key agreements should verify against pinned identity public material") && ok;
+    E2EKeyAgreement unsignedAgreement = aliceAgreement;
+    unsignedAgreement.signature.clear();
+    ok = expect(!verifyE2EKeyAgreementSignature(unsignedAgreement, aliceIdentityPublicKey, &reason)
+                    && reason == QStringLiteral("missing-signature"),
+                "unsigned key agreement should fail closed") && ok;
+    E2EKeyAgreement tamperedSignatureAgreement = aliceAgreement;
+    tamperedSignatureAgreement.publicKey = e2ePublicKeyFromPrivateKey(generateE2EPrivateKey());
+    ok = expect(!verifyE2EKeyAgreementSignature(tamperedSignatureAgreement, aliceIdentityPublicKey, &reason)
+                    && reason == QStringLiteral("signature-mismatch"),
+                "tampered agreement public material should fail signature verification") && ok;
+    tamperedSignatureAgreement = aliceAgreement;
+    tamperedSignatureAgreement.senderIdentityFingerprint = e2eFingerprint(bobIdentityPublicKey);
+    ok = expect(!verifyE2EKeyAgreementSignature(tamperedSignatureAgreement, aliceIdentityPublicKey, &reason)
+                    && reason == QStringLiteral("identity-key-mismatch"),
+                "agreement signed by a different identity should fail closed") && ok;
 
     const QByteArray aliceDerived = deriveE2EAuthenticatedSessionKey(alicePrivateKey, aliceAgreement, bobAgreement, &reason);
     const QByteArray bobDerived = deriveE2EAuthenticatedSessionKey(bobPrivateKey, bobAgreement, aliceAgreement, &reason);

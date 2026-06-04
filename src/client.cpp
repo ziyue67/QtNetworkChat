@@ -254,6 +254,8 @@ QJsonObject e2eIdentityJson(const QString& userId, const QByteArray& publicKey) 
     obj["userId"] = userId.trimmed();
     obj["publicKey"] = base64Url(publicKey);
     obj["publicKeyFingerprintSha256"] = e2eFingerprint(publicKey);
+    obj["agreementSigning"] = true;
+    obj["signatureSuite"] = QStringLiteral("draft-identity-hmac-sha256");
     obj["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     return obj;
 }
@@ -279,6 +281,12 @@ bool validateE2EIdentityJson(const QJsonObject& identity, QString* reason = null
     const QString expectedFingerprint = e2eFingerprint(publicKey);
     if (identity.value("publicKeyFingerprintSha256").toString().trimmed().toLower() != expectedFingerprint) {
         if (reason) *reason = QStringLiteral("fingerprint-mismatch");
+        return false;
+    }
+    const QString signatureSuite = identity.value("signatureSuite").toString().trimmed();
+    if (!signatureSuite.isEmpty()
+        && signatureSuite != QLatin1String("draft-identity-hmac-sha256")) {
+        if (reason) *reason = QStringLiteral("unsupported-signature-suite");
         return false;
     }
     if (reason) reason->clear();
@@ -528,6 +536,9 @@ QJsonObject Client::e2eLocalIdentityStatus() const {
     status["configured"] = !m_userId.trimmed().isEmpty() && !m_e2eIdentityPublicKey.isEmpty();
     status["trusted"] = true;
     status["trustState"] = QStringLiteral("local");
+    status["agreementSigning"] = !m_e2eIdentityPrivateKey.isEmpty()
+        && !m_e2eIdentityPublicKey.isEmpty();
+    status["signatureSuite"] = QStringLiteral("draft-identity-hmac-sha256");
     status["identityPersisted"] = !m_userId.trimmed().isEmpty()
         && QFile::exists(e2eIdentityFilePath(m_userId));
     return status;
@@ -554,6 +565,8 @@ QJsonObject Client::e2ePeerIdentityStatus(const QString& peerId) const {
     status["pinPersisted"] = it->pinned && m_e2eStoredTrustPins.value(normalizedPeerId) == it->pinnedFingerprint;
     status["fingerprintMismatch"] = it->fingerprintMismatch;
     status["trusted"] = it->pinned && !it->fingerprintMismatch;
+    status["agreementSignatureVerified"] = it->pinned && !it->fingerprintMismatch && !it->publicKey.isEmpty();
+    status["signatureSuite"] = QStringLiteral("draft-identity-hmac-sha256");
     status["trustState"] = it->fingerprintMismatch
         ? QStringLiteral("mismatch")
         : (it->pinned ? QStringLiteral("trusted") : QStringLiteral("unverified"));
@@ -790,6 +803,9 @@ bool Client::validateIncomingE2EAgreementIdentity(const E2EKeyAgreement& agreeme
         if (rejectReason) *rejectReason = QStringLiteral("sender-fingerprint-mismatch");
         return false;
     }
+    if (!verifyE2EKeyAgreementSignature(agreement, peerIdentity->publicKey, rejectReason)) {
+        return false;
+    }
     return true;
 }
 
@@ -837,6 +853,9 @@ bool Client::requestE2ESessionRotation(const QString& peerId, QString* rejectRea
     if (!populateE2EAgreementIdentityFingerprints(normalizedPeerId, &agreement, rejectReason)) {
         return false;
     }
+    if (!signE2EKeyAgreement(&agreement, m_e2eIdentityPrivateKey, rejectReason)) {
+        return false;
+    }
 
     QString validationReason;
     if (!agreement.isValid(&validationReason)) {
@@ -882,6 +901,9 @@ bool Client::respondE2ESessionRotation(const QString& peerId,
     pending.privateKey = generateE2EPrivateKey();
     agreement.publicKey = e2ePublicKeyFromPrivateKey(pending.privateKey);
     if (!populateE2EAgreementIdentityFingerprints(normalizedPeerId, &agreement, rejectReason)) {
+        return false;
+    }
+    if (!signE2EKeyAgreement(&agreement, m_e2eIdentityPrivateKey, rejectReason)) {
         return false;
     }
 

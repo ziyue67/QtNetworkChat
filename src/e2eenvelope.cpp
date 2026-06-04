@@ -158,6 +158,27 @@ QByteArray envelopeTagData(const E2EEnvelope& envelope) {
     return data;
 }
 
+QByteArray agreementSignatureData(const E2EKeyAgreement& agreement) {
+    QByteArray data;
+    data.append("qtnetworkchat-e2e-agreement-signature-v1|");
+    data.append(normalizedE2EProtocol(agreement.protocol).toUtf8());
+    data.append('|');
+    data.append(normalizedE2ESuite(agreement.suite).toUtf8());
+    data.append('|');
+    data.append(agreement.senderId.trimmed().toUtf8());
+    data.append('|');
+    data.append(agreement.receiverId.trimmed().toUtf8());
+    data.append('|');
+    data.append(agreement.keyId.trimmed().toUtf8());
+    data.append('|');
+    data.append(e2eFingerprint(agreement.publicKey).toUtf8());
+    data.append('|');
+    data.append(agreement.senderIdentityFingerprint.trimmed().toLower().toUtf8());
+    data.append('|');
+    data.append(agreement.receiverIdentityFingerprint.trimmed().toLower().toUtf8());
+    return data;
+}
+
 QByteArray agreementTranscriptData(const E2EKeyAgreement& left,
                                    const E2EKeyAgreement& right,
                                    const QByteArray& sharedSecret) {
@@ -366,6 +387,53 @@ QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey) {
         return QByteArray();
     }
     return writeDhValue(DraftDhPublicPrefix, modPow(DraftDhGenerator, scalar));
+}
+
+bool signE2EKeyAgreement(E2EKeyAgreement* agreement,
+                         const QByteArray& identityPrivateKey,
+                         QString* reason) {
+    if (!agreement) {
+        return fail(reason, QStringLiteral("invalid-agreement"));
+    }
+    agreement->signature.clear();
+    QString validationReason;
+    if (!agreement->isValid(&validationReason)) {
+        return fail(reason, validationReason);
+    }
+    const QByteArray identityPublicKey = e2ePublicKeyFromPrivateKey(identityPrivateKey);
+    if (identityPublicKey.isEmpty()
+        || agreement->senderIdentityFingerprint.trimmed().toLower() != e2eFingerprint(identityPublicKey)) {
+        return fail(reason, QStringLiteral("identity-key-mismatch"));
+    }
+    agreement->signature = hmacSha256(identityPublicKey, agreementSignatureData(*agreement));
+    if (reason) {
+        reason->clear();
+    }
+    return true;
+}
+
+bool verifyE2EKeyAgreementSignature(const E2EKeyAgreement& agreement,
+                                    const QByteArray& identityPublicKey,
+                                    QString* reason) {
+    QString validationReason;
+    if (!agreement.isValid(&validationReason)) {
+        return fail(reason, validationReason);
+    }
+    if (identityPublicKey.isEmpty()
+        || agreement.senderIdentityFingerprint.trimmed().toLower() != e2eFingerprint(identityPublicKey)) {
+        return fail(reason, QStringLiteral("identity-key-mismatch"));
+    }
+    if (agreement.signature.isEmpty()) {
+        return fail(reason, QStringLiteral("missing-signature"));
+    }
+    const QByteArray expected = hmacSha256(identityPublicKey, agreementSignatureData(agreement));
+    if (expected != agreement.signature) {
+        return fail(reason, QStringLiteral("signature-mismatch"));
+    }
+    if (reason) {
+        reason->clear();
+    }
+    return true;
 }
 
 QByteArray deriveE2EAuthenticatedSessionKey(const QByteArray& localPrivateKey,

@@ -34,6 +34,9 @@ int main() {
     original.e2eKeyAgreement.receiverId = original.receiverId;
     original.e2eKeyAgreement.keyId = "alice-bob-1";
     original.e2eKeyAgreement.publicKey = QByteArray::fromHex("00112233445566778899aabbccddeeff");
+    original.e2eKeyAgreement.senderIdentityFingerprint = QString(64, QLatin1Char('a'));
+    original.e2eKeyAgreement.receiverIdentityFingerprint = QString(64, QLatin1Char('b'));
+    original.e2eKeyAgreement.signature = QByteArray::fromHex("aabbccddeeff00112233445566778899");
     original.e2eEnvelope.protocol = "qtnetworkchat-e2e-v1";
     original.e2eEnvelope.suite = "x25519-hkdf-sha256-aes-256-gcm";
     original.e2eEnvelope.senderId = original.senderId;
@@ -65,6 +68,8 @@ int main() {
     ok = expect(restored.timestamp == original.timestamp, "timestamp should round-trip") && ok;
     ok = expect(restored.e2eKeyAgreement.publicKey == original.e2eKeyAgreement.publicKey,
                 "e2e key agreement should round-trip") && ok;
+    ok = expect(restored.e2eKeyAgreement.signature == original.e2eKeyAgreement.signature,
+                "signed e2e key agreement should round-trip") && ok;
     ok = expect(restored.e2eEnvelope.ciphertext == original.e2eEnvelope.ciphertext,
                 "e2e envelope should round-trip") && ok;
     ok = expect(restored.e2eEnvelope.tag == original.e2eEnvelope.tag,
