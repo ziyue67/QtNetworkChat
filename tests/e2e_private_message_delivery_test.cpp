@@ -514,7 +514,11 @@ int main(int argc, char** argv) {
         productionRequiredClient.setUserInfo("950099", "ProdRequired");
         const QJsonObject productionRequiredIdentity = productionRequiredClient.e2eLocalIdentityStatus();
         ok = expect(productionRequiredIdentity.value("cryptoBackend").toObject()
-                        .value("status").toString() == QStringLiteral("blocked-production-backend-unavailable")
+                        .value("status").toString() == QStringLiteral("production-crypto-backend-unavailable")
+                        && productionRequiredIdentity.value("cryptoBackend").toObject()
+                            .value("selectedBackendId").toString().isEmpty()
+                        && productionRequiredIdentity.value("cryptoBackend").toObject()
+                            .value("unavailableReason").toString() == QStringLiteral("production-crypto-backend-unavailable")
                         && !productionRequiredIdentity.value("agreementSigning").toBool(true),
                     "client identity status should expose blocked production-required crypto backend") && ok;
         productionRequiredClient.setAccountInfo("950099", "secret", false);
@@ -525,6 +529,27 @@ int main(int argc, char** argv) {
                     "production-required client should not announce a draft identity") && ok;
         productionRequiredClient.disconnectFromServer();
         qunsetenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO");
+
+        qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "production");
+        Client productionAdapterClient;
+        productionAdapterClient.setUserInfo("950098", "ProdAdapter");
+        const QJsonObject productionAdapterIdentity = productionAdapterClient.e2eLocalIdentityStatus();
+        ok = expect(productionAdapterIdentity.value("cryptoBackend").toObject()
+                        .value("requestedBackendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && productionAdapterIdentity.value("cryptoBackend").toObject()
+                            .value("selectionSource").toString() == QStringLiteral("environment")
+                        && !productionAdapterIdentity.value("cryptoBackend").toObject()
+                            .value("available").toBool(true)
+                        && !productionAdapterIdentity.value("agreementSigning").toBool(true),
+                    "client identity status should fail closed when production adapter is requested but not linked") && ok;
+        productionAdapterClient.setAccountInfo("950098", "secret", false);
+        ok = expect(productionAdapterClient.connectToServer("127.0.0.1", port),
+                    "production-adapter client should still connect for fail-closed e2e checks") && ok;
+        ok = expect(!productionAdapterClient.announceE2EIdentity(aliceId, &rejectReason)
+                        && rejectReason == QStringLiteral("identity-not-ready"),
+                    "production-adapter client should not announce unavailable production identity") && ok;
+        productionAdapterClient.disconnectFromServer();
+        qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
 
         Client aliceAfterClear;
         Client bobAfterClear;

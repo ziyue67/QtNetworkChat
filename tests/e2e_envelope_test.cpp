@@ -1,6 +1,7 @@
 #include "e2eenvelope.h"
 
 #include <QDebug>
+#include <QJsonArray>
 #include <QJsonObject>
 
 namespace {
@@ -31,16 +32,26 @@ int main() {
     ok = expect(agreement.isValid(&reason) && reason.isEmpty(),
                 "valid key agreement should pass") && ok;
     const QJsonObject backendStatus = e2eCryptoBackendStatus();
+    const QJsonArray registeredBackends = backendStatus.value("registeredBackends").toArray();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && backendStatus.value("selectedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && backendStatus.value("selectionSource").toString() == QStringLiteral("compiled-default")
+                    && backendStatus.value("fallbackBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && registeredBackends.size() == 2
                     && backendStatus.value("suite").toString() == e2eDefaultSuite()
                     && backendStatus.value("signatureSuite").toString() == e2eAgreementSignatureSuite()
                     && !backendStatus.value("productionReady").toBool(true)
+                    && !backendStatus.value("productionAdapterLinked").toBool(true)
                     && !backendStatus.value("productionBackendRequestedAtBuild").toBool(true)
                     && !backendStatus.value("productionBackendAvailableAtBuild").toBool(true)
                     && backendStatus.value("productionBackendReason").toString()
                         == QStringLiteral("production-backend-not-requested")
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
+    ok = expect(e2eCryptoBackendAvailable(&reason) && reason.isEmpty(),
+                "draft backend should be available when production crypto is not required") && ok;
 
     const QJsonObject agreementJson = agreement.toJson();
     ok = expect(agreementJson.value("protocol").toString() == "qtnetworkchat-e2e-v1",
@@ -239,8 +250,11 @@ int main() {
     const QJsonObject requiredBackendStatus = e2eCryptoBackendStatus();
     ok = expect(requiredBackendStatus.value("productionRequired").toBool(false)
                     && !requiredBackendStatus.value("available").toBool(true)
+                    && requiredBackendStatus.value("selectedBackendId").toString().isEmpty()
+                    && requiredBackendStatus.value("unavailableReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
                     && requiredBackendStatus.value("status").toString()
-                        == QStringLiteral("blocked-production-backend-unavailable"),
+                        == QStringLiteral("production-crypto-backend-unavailable"),
                 "production-required mode should report the draft backend as unavailable") && ok;
     ok = expect(generateE2ESessionKey().isEmpty(),
                 "production-required mode should not generate draft session keys") && ok;
@@ -271,6 +285,41 @@ int main() {
                     && reason == QStringLiteral("production-crypto-backend-unavailable"),
                 "production-required mode should block draft payload decryption") && ok;
     qunsetenv("QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO");
+
+    qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "production");
+    const QJsonObject productionRequestedStatus = e2eCryptoBackendStatus();
+    ok = expect(productionRequestedStatus.value("requestedBackendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && productionRequestedStatus.value("selectionSource").toString()
+                        == QStringLiteral("environment")
+                    && !productionRequestedStatus.value("available").toBool(true)
+                    && productionRequestedStatus.value("selectedBackendId").toString().isEmpty()
+                    && productionRequestedStatus.value("unavailableReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable"),
+                "explicit production backend request should fail closed until the adapter is linked") && ok;
+    ok = expect(!e2eCryptoBackendAvailable(&reason)
+                    && reason == QStringLiteral("production-crypto-backend-unavailable"),
+                "production backend availability helper should refuse an unlinked adapter") && ok;
+    ok = expect(generateE2ESessionKey().isEmpty(),
+                "explicit production backend request should not fall back to draft session keys") && ok;
+    ok = expect(!signE2EKeyAgreement(&blockedAgreement, aliceIdentityPrivateKey, &reason)
+                    && reason == QStringLiteral("production-crypto-backend-unavailable"),
+                "explicit production backend request should block draft agreement signatures") && ok;
+    qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
+
+    qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "experimental:bad/backend");
+    const QJsonObject unsupportedBackendStatus = e2eCryptoBackendStatus();
+    ok = expect(unsupportedBackendStatus.value("requestedBackendId").toString()
+                        == QStringLiteral("experimentalbadbackend")
+                    && unsupportedBackendStatus.value("selectionSource").toString()
+                        == QStringLiteral("environment")
+                    && !unsupportedBackendStatus.value("available").toBool(true)
+                    && unsupportedBackendStatus.value("unavailableReason").toString()
+                        == QStringLiteral("unsupported-crypto-backend"),
+                "unsupported backend requests should be sanitized and fail closed") && ok;
+    ok = expect(generateE2EPrivateKey().isEmpty(),
+                "unsupported backend request should not generate draft private keys") && ok;
+    qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
 
     return ok ? 0 : 1;
 }

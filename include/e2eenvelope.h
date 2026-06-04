@@ -46,6 +46,7 @@ QString e2eDefaultSuite();
 QString e2eCryptoBackendId();
 QString e2eAgreementSignatureSuite();
 bool e2eProductionCryptoRequired();
+bool e2eCryptoBackendAvailable(QString* reason = nullptr);
 QJsonObject e2eCryptoBackendStatus();
 QByteArray generateE2ESessionKey();
 QByteArray generateE2EPrivateKey();
