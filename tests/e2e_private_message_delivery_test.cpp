@@ -238,17 +238,39 @@ int main(int argc, char** argv) {
         ok = expect(alice.pinE2EPeerIdentity(bobId,
                                              aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString(),
                                              &rejectReason)
-                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("trusted")
+                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("pending-verification")
                         && alice.e2ePeerIdentityStatus(bobId).value("pinPersisted").toBool(false),
-                    "pinning the observed e2e identity fingerprint should persist trusted state") && ok;
+                    "pinning the observed e2e identity fingerprint should persist pending verification state") && ok;
+        ok = expect(!alice.requestE2ESessionRotation(bobId, &rejectReason)
+                        && rejectReason == QStringLiteral("unverified-identity"),
+                    "default e2e policy should block key agreement until the cross-device code is verified") && ok;
+        const QString aliceBobVerificationCode = alice.e2ePeerIdentityStatus(bobId).value("verificationCode").toString();
+        ok = expect(aliceBobVerificationCode.size() == 14
+                        && aliceBobVerificationCode == bob.e2ePeerIdentityStatus(aliceId).value("verificationCode").toString(),
+                    "both devices should compute the same cross-device verification code") && ok;
+        ok = expect(!alice.verifyAndPinE2EPeerIdentity(bobId, QStringLiteral("0000-0000-0000"), &rejectReason)
+                        && rejectReason == QStringLiteral("verification-code-mismatch"),
+                    "wrong cross-device verification code should fail closed") && ok;
+        ok = expect(alice.verifyAndPinE2EPeerIdentity(bobId,
+                                                      aliceBobVerificationCode.toLower(),
+                                                      &rejectReason)
+                        && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("trusted")
+                        && alice.e2ePeerIdentityStatus(bobId).value("verified").toBool(false),
+                    "matching cross-device verification code should promote the pin to trusted") && ok;
         ok = expect(!bob.requestE2ESessionRotation(aliceId, &rejectReason)
                         && rejectReason == QStringLiteral("untrusted-identity"),
                     "default e2e policy should block key agreement to an unpinned identity") && ok;
         ok = expect(bob.pinE2EPeerIdentity(aliceId,
                                            bobSawAliceIdentity.value("publicKeyFingerprintSha256").toString(),
                                            &rejectReason)
-                        && bob.e2ePeerIdentityStatus(aliceId).value("trustState").toString() == QStringLiteral("trusted"),
-                    "receiver should pin the sender before accepting authenticated key agreement") && ok;
+                        && bob.e2ePeerIdentityStatus(aliceId).value("trustState").toString() == QStringLiteral("pending-verification"),
+                    "receiver should pin the sender before cross-device verification") && ok;
+        ok = expect(bob.verifyAndPinE2EPeerIdentity(aliceId,
+                                                    bob.e2ePeerIdentityStatus(aliceId).value("verificationCode").toString(),
+                                                    &rejectReason)
+                        && bob.e2ePeerIdentityStatus(aliceId).value("trustState").toString() == QStringLiteral("trusted")
+                        && bob.e2ePeerIdentityStatus(aliceId).value("verified").toBool(false),
+                    "receiver should verify the sender before accepting authenticated key agreement") && ok;
         ok = expect(!alice.announceE2EIdentity(aliceId, &rejectReason)
                         && rejectReason == QStringLiteral("invalid-peer"),
                     "clients should reject self-targeted e2e identity announcements") && ok;
@@ -459,12 +481,15 @@ int main(int argc, char** argv) {
                     "restarted bob should log in with the same app data") && ok;
         ok = expect(waitFor([&] {
             return restartedAliceSawBobIdentity.value("trustState").toString() == QStringLiteral("trusted")
+                && restartedAliceSawBobIdentity.value("verified").toBool(false)
+                && restartedAliceSawBobIdentity.value("verificationCode").toString() == aliceBobVerificationCode
                 && restartedAliceSawBobIdentity.value("pinPersisted").toBool(false)
                 && restartedAliceSawBobIdentity.value("publicKeyFingerprintSha256").toString()
                     == aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString();
-        }), "restarted alice should restore the persisted e2e trust pin for bob") && ok;
+        }), "restarted alice should restore the persisted verified e2e trust pin for bob") && ok;
         ok = expect(aliceRestarted.clearE2EPeerIdentityPin(bobId, &rejectReason)
                         && aliceRestarted.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("unverified")
+                        && !aliceRestarted.e2ePeerIdentityStatus(bobId).value("verified").toBool(true)
                         && !aliceRestarted.e2ePeerIdentityStatus(bobId).value("pinPersisted").toBool(true),
                     "clearing an e2e trust pin should recover the peer to unverified state") && ok;
         aliceRestarted.setE2ESessionKey(bobId, "stale-after-pin-clear", generateE2ESessionKey());

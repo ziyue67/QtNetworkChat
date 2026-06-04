@@ -1,6 +1,6 @@
 # End-to-End Encryption Hardening Plan
 
-QtNetworkChat currently treats the server as a transparent carrier for private-message E2E envelopes, identity announcements, and session rotation control messages. The client keeps the trust decision local: peer identity public keys are observed from online announcements, displayed as SHA-256 fingerprints, and can be pinned by the user. Authenticated session setup now requires identity-signed request/response transcripts and derives local session keys without sending the raw session key over the wire.
+QtNetworkChat currently treats the server as a transparent carrier for private-message E2E envelopes, identity announcements, and session rotation control messages. The client keeps the trust decision local: peer identity public keys are observed from online announcements, displayed as SHA-256 fingerprints, and verified with a short cross-device code before the default encrypted data plane is allowed. Authenticated session setup now requires identity-signed request/response transcripts and derives local session keys without sending the raw session key over the wire.
 
 ## Current Authenticated Agreement Boundary
 
@@ -10,15 +10,16 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 - Rotation request/response messages carry only public agreement material. Each side keeps its private agreement scalar locally, validates the identity-bound transcript, and derives the same session key from the shared transcript before marking the data plane `ready`.
 - Missing pending agreement state, mismatched peer IDs, mismatched identity fingerprints, missing/tampered agreement signatures, invalid local private/public pairing, or malformed remote public material fail closed and do not install a session.
 - The server validates shape and routing, then forwards only public agreement material. It does not cache identity keys, session keys, or private material.
-- This is still a draft productization step using Qt primitives for testable authenticated agreement semantics. It is now signature-gated at the client protocol boundary, but still needs a reviewed production cryptographic backend and cross-device verification UX before it should be treated as an audited production suite.
+- This is still a draft productization step using Qt primitives for testable authenticated agreement semantics. It is now signature-gated and cross-device-code gated at the client protocol boundary, but still needs a reviewed production cryptographic backend before it should be treated as an audited production suite.
 
-## Current Trust Persistence Boundary
+## Current Cross-Device Trust Boundary
 
 - Local E2E identity private material is persisted per local account under the app data directory, so a restart keeps the same advertised public-key fingerprint instead of breaking previously pinned peers.
-- Peer trust pins are persisted per local account as SHA-256 fingerprints only. The trust store does not contain peer public keys, local private agreement material, session keys, passwords, tokens, or server endpoints.
-- A newly observed peer identity is automatically marked `trusted` when it matches a persisted pin, and `mismatch` when it conflicts with the persisted pin.
+- Each side computes the same short cross-device verification code from the local and peer identity fingerprints. The contact context menu can copy the code for comparison over a trusted channel, or accept an entered code to promote a pinned identity to `trusted`.
+- Peer trust pins are persisted per local account as SHA-256 fingerprints plus verification state, verification code, and timestamps. The trust store does not contain peer public keys, local private agreement material, session keys, passwords, tokens, or server endpoints.
+- A newly observed peer identity is automatically marked `trusted` only when it matches a persisted verified pin and the verification code still matches; unverified pins stay `pending-verification`, and conflicting fingerprints become `mismatch`.
 - The contact context menu can clear a persisted trust pin and recover the peer to `unverified` without deleting the latest observed identity.
-- The default data-plane policy requires a trusted, non-mismatched peer identity before starting key agreement, accepting key agreement, or sending encrypted private messages. Stale sessions are not enough after trust recovery clears a pin.
+- The default data-plane policy requires a verified, trusted, non-mismatched peer identity before starting key agreement, accepting key agreement, or sending encrypted private messages. Stale sessions are not enough after trust recovery clears a pin.
 - Corrupted local identity stores are regenerated with a fresh persisted identity, while malformed trust pins are ignored instead of being treated as trusted.
 
 ## Current History Metadata Boundary
@@ -40,7 +41,6 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 ## Remaining Work
 
 - Replace the draft agreement/signature primitive with a reviewed production cryptographic backend and durable signed identity keys.
-- Add cross-device verification UX.
 - Add migration checks for older identity/pin store schemas and richer operator/user recovery prompts.
 - Tighten the default private file policy from opportunistic E2E when a session exists to mandatory E2E once cross-device recovery and onboarding UX are ready.
 - Extend E2E file recovery and large-object routing evidence beyond the current resend-on-interruption boundary.

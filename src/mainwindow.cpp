@@ -5972,7 +5972,9 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     QAction* copyChatStarterAction = menu.addAction("复制开聊话术");
     QAction* copyE2EStatusAction = menu.addAction("复制加密状态");
     QAction* copyE2EIdentityAction = menu.addAction("复制加密身份指纹");
+    QAction* copyE2EVerificationAction = menu.addAction("复制加密验证短码");
     QAction* trustE2EIdentityAction = menu.addAction("信任加密身份");
+    QAction* verifyE2EIdentityAction = menu.addAction("验证并信任加密身份");
     const QJsonObject currentE2EIdentity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
     QAction* clearE2EIdentityTrustAction = currentE2EIdentity.value("pinned").toBool(false)
         ? menu.addAction("清除加密身份信任")
@@ -6001,7 +6003,9 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     describeUserAction(copyChatStarterAction, "复制一段可直接发送的开聊话术");
     describeUserAction(copyE2EStatusAction, "复制当前联系人端到端加密会话状态");
     describeUserAction(copyE2EIdentityAction, "复制本机记录的联系人端到端加密身份指纹");
-    describeUserAction(trustE2EIdentityAction, "将当前记录的联系人端到端加密身份指纹固定为本机信任");
+    describeUserAction(copyE2EVerificationAction, "复制需要与对方跨设备核对的端到端加密验证短码");
+    describeUserAction(trustE2EIdentityAction, "仅固定当前记录的联系人端到端加密身份指纹，仍需验证短码后才能用于默认加密");
+    describeUserAction(verifyE2EIdentityAction, "输入与对方核对一致的验证短码并将身份标记为已验证信任");
     describeUserAction(clearE2EIdentityTrustAction, "清除当前联系人端到端加密身份固定信任并恢复为未验证");
     describeUserAction(requestE2ERotationAction, "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥");
     describeUserAction(clearE2ESessionAction, "清除本机为该联系人保存的端到端会话密钥");
@@ -6051,23 +6055,56 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     } else if (selected == copyE2EIdentityAction) {
         const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
         const QString text = identity.value("configured").toBool(false)
-            ? QString("端到端加密身份\n对端QQ：%1\n信任状态：%2\n公钥指纹：%3\n首次看到：%4\n最近看到：%5")
+            ? QString("端到端加密身份\n对端QQ：%1\n信任状态：%2\n验证状态：%3\n公钥指纹：%4\n验证短码：%5\n首次看到：%6\n最近看到：%7")
                 .arg(userId,
                      identity.value("trustState").toString(),
+                     identity.value("verified").toBool(false) ? QStringLiteral("verified") : QStringLiteral("unverified"),
                      identity.value("publicKeyFingerprintSha256").toString(),
+                     identity.value("verificationCodeDisplay").toString(),
                      identity.value("firstSeenAt").toString(),
                      identity.value("lastSeenAt").toString())
             : QString("端到端加密身份\n对端QQ：%1\n信任状态：unknown\n说明：尚未收到该联系人的身份公告").arg(userId);
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("端到端加密身份指纹已复制", 2400);
+    } else if (selected == copyE2EVerificationAction) {
+        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
+        const QString code = identity.value("verificationCodeDisplay").toString();
+        const QString text = identity.value("configured").toBool(false) && !code.isEmpty()
+            ? QString("端到端加密验证短码\n对端QQ：%1\n短码：%2\n核对方式：请通过另一个可信渠道与对方屏幕上的短码一致后再验证信任。")
+                .arg(userId, code)
+            : QString("端到端加密验证短码\n对端QQ：%1\n说明：尚未收到该联系人的身份公告").arg(userId);
+        QApplication::clipboard()->setText(text);
+        ui->statusbar->showMessage("端到端加密验证短码已复制", 2400);
     } else if (selected == trustE2EIdentityAction) {
         QString rejectReason;
         if (m_client && m_client->pinE2EPeerIdentity(userId, QString(), &rejectReason)) {
-            appendSystemMessage(QString("已信任 %1 的端到端加密身份指纹").arg(contactDisplayName(userId)));
-            ui->statusbar->showMessage("端到端加密身份已信任", 2400);
+            appendSystemMessage(QString("已固定 %1 的端到端加密身份指纹；完成验证短码核对前不会启用默认加密").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage("端到端加密身份已固定，等待验证", 2600);
         } else {
             appendSystemMessage(QString("信任端到端加密身份失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
             ui->statusbar->showMessage("信任端到端加密身份失败", 3000);
+        }
+    } else if (selected == verifyE2EIdentityAction) {
+        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
+        const QString suggestedCode = identity.value("verificationCodeDisplay").toString();
+        bool ok = false;
+        const QString code = QInputDialog::getText(this,
+                                                   "验证加密身份",
+                                                   QString("请输入与 %1 通过可信渠道核对一致的验证短码:").arg(contactDisplayName(userId)),
+                                                   QLineEdit::Normal,
+                                                   suggestedCode,
+                                                   &ok).trimmed();
+        if (!ok) {
+            ui->statusbar->showMessage("已取消端到端加密身份验证", 1800);
+        } else {
+            QString rejectReason;
+            if (m_client && m_client->verifyAndPinE2EPeerIdentity(userId, code, &rejectReason)) {
+                appendSystemMessage(QString("已验证并信任 %1 的端到端加密身份").arg(contactDisplayName(userId)));
+                ui->statusbar->showMessage("端到端加密身份已验证", 2400);
+            } else {
+                appendSystemMessage(QString("验证端到端加密身份失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+                ui->statusbar->showMessage("验证端到端加密身份失败", 3000);
+            }
         }
     } else if (selected == clearE2EIdentityTrustAction) {
         QString rejectReason;
@@ -8238,8 +8275,10 @@ QString MainWindow::e2eSessionStatusText(const QString& peerId) const {
     const QJsonObject status = m_client->e2eSessionStatus(peerId);
     const QJsonObject identity = m_client->e2ePeerIdentityStatus(peerId);
     const QString identityLine = identity.value("configured").toBool(false)
-        ? QString("\n身份信任：%1\n身份指纹：%2\n信任持久化：%3")
+        ? QString("\n身份信任：%1\n跨设备验证：%2\n验证短码：%3\n身份指纹：%4\n信任持久化：%5")
             .arg(identity.value("trustState").toString(),
+                 identity.value("verified").toBool(false) ? QStringLiteral("verified") : QStringLiteral("unverified"),
+                 identity.value("verificationCodeDisplay").toString(),
                  identity.value("publicKeyFingerprintSha256").toString().left(16),
                  identity.value("pinPersisted").toBool(false) ? QStringLiteral("yes") : QStringLiteral("no"))
         : QStringLiteral("\n身份信任：unknown\n身份指纹：未收到");

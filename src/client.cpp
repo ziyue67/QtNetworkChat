@@ -239,6 +239,30 @@ bool isValidE2EFingerprint(const QString& value) {
     return true;
 }
 
+QString normalizedVerificationCode(QString value) {
+    value = value.trimmed().toUpper();
+    value.remove(QLatin1Char(' '));
+    value.remove(QLatin1Char('-'));
+    return value;
+}
+
+QString formatE2EVerificationCode(const QString& localFingerprint, const QString& peerFingerprint) {
+    const QString left = localFingerprint.trimmed().toLower();
+    const QString right = peerFingerprint.trimmed().toLower();
+    if (!isValidE2EFingerprint(left) || !isValidE2EFingerprint(right) || left == right) {
+        return QString();
+    }
+    const QString first = left < right ? left : right;
+    const QString second = left < right ? right : left;
+    const QByteArray digest = QCryptographicHash::hash(
+        QByteArray("qtnetworkchat-e2e-cross-device-v1|") + first.toUtf8() + "|" + second.toUtf8(),
+        QCryptographicHash::Sha256).toHex().toUpper();
+    return QStringLiteral("%1-%2-%3")
+        .arg(QString::fromLatin1(digest.left(4)),
+             QString::fromLatin1(digest.mid(4, 4)),
+             QString::fromLatin1(digest.mid(8, 4)));
+}
+
 QString base64Url(const QByteArray& value) {
     return QString::fromLatin1(value.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
 }
@@ -562,14 +586,24 @@ QJsonObject Client::e2ePeerIdentityStatus(const QString& peerId) const {
     status["publicKeyFingerprintSha256"] = it->fingerprint;
     status["pinned"] = it->pinned;
     status["pinnedFingerprintSha256"] = it->pinnedFingerprint;
-    status["pinPersisted"] = it->pinned && m_e2eStoredTrustPins.value(normalizedPeerId) == it->pinnedFingerprint;
+    const auto storedPin = m_e2eStoredTrustPins.constFind(normalizedPeerId);
+    status["pinPersisted"] = it->pinned
+        && storedPin != m_e2eStoredTrustPins.constEnd()
+        && storedPin->fingerprint == it->pinnedFingerprint;
     status["fingerprintMismatch"] = it->fingerprintMismatch;
-    status["trusted"] = it->pinned && !it->fingerprintMismatch;
-    status["agreementSignatureVerified"] = it->pinned && !it->fingerprintMismatch && !it->publicKey.isEmpty();
+    status["verified"] = it->verified && !it->fingerprintMismatch;
+    status["verificationCode"] = it->verificationCode;
+    status["verificationCodeDisplay"] = it->verificationCode;
+    if (it->verifiedAtMs > 0) {
+        status["verifiedAt"] = QDateTime::fromMSecsSinceEpoch(it->verifiedAtMs).toUTC().toString(Qt::ISODateWithMs);
+    }
+    status["trusted"] = it->pinned && it->verified && !it->fingerprintMismatch;
+    status["agreementSignatureVerified"] = it->pinned && it->verified && !it->fingerprintMismatch && !it->publicKey.isEmpty();
     status["signatureSuite"] = QStringLiteral("draft-identity-hmac-sha256");
     status["trustState"] = it->fingerprintMismatch
         ? QStringLiteral("mismatch")
-        : (it->pinned ? QStringLiteral("trusted") : QStringLiteral("unverified"));
+        : (it->pinned && it->verified ? QStringLiteral("trusted")
+            : (it->pinned ? QStringLiteral("pending-verification") : QStringLiteral("unverified")));
     status["firstSeenAt"] = QDateTime::fromMSecsSinceEpoch(it->firstSeenAtMs).toUTC().toString(Qt::ISODateWithMs);
     status["lastSeenAt"] = QDateTime::fromMSecsSinceEpoch(it->lastSeenAtMs).toUTC().toString(Qt::ISODateWithMs);
     return status;
@@ -626,6 +660,8 @@ bool Client::pinE2EPeerIdentity(const QString& peerId, const QString& expectedFi
 
     it->pinned = true;
     it->pinnedFingerprint = it->fingerprint;
+    it->verified = false;
+    it->verifiedAtMs = 0;
     it->fingerprintMismatch = false;
     if (!saveE2ETrustPins(rejectReason)) {
         it->pinned = false;
@@ -633,7 +669,53 @@ bool Client::pinE2EPeerIdentity(const QString& peerId, const QString& expectedFi
         emit e2eIdentityStateChanged(normalizedPeerId, e2ePeerIdentityStatus(normalizedPeerId));
         return false;
     }
-    m_e2eStoredTrustPins[normalizedPeerId] = it->pinnedFingerprint;
+    E2EStoredTrustPin storedPin;
+    storedPin.fingerprint = it->pinnedFingerprint;
+    m_e2eStoredTrustPins[normalizedPeerId] = storedPin;
+    emit e2eIdentityStateChanged(normalizedPeerId, e2ePeerIdentityStatus(normalizedPeerId));
+    return true;
+}
+
+bool Client::verifyAndPinE2EPeerIdentity(const QString& peerId,
+                                         const QString& verificationCode,
+                                         QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    const QString normalizedPeerId = peerId.trimmed();
+    auto it = m_e2ePeerIdentities.find(normalizedPeerId);
+    if (normalizedPeerId.isEmpty() || it == m_e2ePeerIdentities.end()) {
+        if (rejectReason) *rejectReason = QStringLiteral("missing-identity");
+        return false;
+    }
+    if (it->fingerprintMismatch) {
+        if (rejectReason) *rejectReason = QStringLiteral("fingerprint-mismatch");
+        return false;
+    }
+    const QString expectedCode = normalizedVerificationCode(it->verificationCode);
+    if (expectedCode.isEmpty()
+        || normalizedVerificationCode(verificationCode) != expectedCode) {
+        if (rejectReason) *rejectReason = QStringLiteral("verification-code-mismatch");
+        return false;
+    }
+
+    it->pinned = true;
+    it->pinnedFingerprint = it->fingerprint;
+    it->verified = true;
+    it->verifiedAtMs = QDateTime::currentMSecsSinceEpoch();
+    it->fingerprintMismatch = false;
+    if (!saveE2ETrustPins(rejectReason)) {
+        it->pinned = false;
+        it->pinnedFingerprint.clear();
+        it->verified = false;
+        it->verifiedAtMs = 0;
+        emit e2eIdentityStateChanged(normalizedPeerId, e2ePeerIdentityStatus(normalizedPeerId));
+        return false;
+    }
+    E2EStoredTrustPin storedPin;
+    storedPin.fingerprint = it->pinnedFingerprint;
+    storedPin.verified = true;
+    storedPin.verificationCode = it->verificationCode;
+    storedPin.verifiedAtMs = it->verifiedAtMs;
+    m_e2eStoredTrustPins[normalizedPeerId] = storedPin;
     emit e2eIdentityStateChanged(normalizedPeerId, e2ePeerIdentityStatus(normalizedPeerId));
     return true;
 }
@@ -648,9 +730,11 @@ bool Client::clearE2EPeerIdentityPin(const QString& peerId, QString* rejectReaso
     bool changed = m_e2eStoredTrustPins.remove(normalizedPeerId) > 0;
     auto it = m_e2ePeerIdentities.find(normalizedPeerId);
     if (it != m_e2ePeerIdentities.end()) {
-        changed = changed || it->pinned || it->fingerprintMismatch || !it->pinnedFingerprint.isEmpty();
+        changed = changed || it->pinned || it->verified || it->fingerprintMismatch || !it->pinnedFingerprint.isEmpty();
         it->pinned = false;
         it->pinnedFingerprint.clear();
+        it->verified = false;
+        it->verifiedAtMs = 0;
         it->fingerprintMismatch = false;
     }
     if (!changed) {
@@ -685,7 +769,15 @@ void Client::loadE2ETrustPins() {
         const QString peerId = pin.value(QStringLiteral("peerId")).toString().trimmed();
         const QString fingerprint = pin.value(QStringLiteral("fingerprintSha256")).toString().trimmed().toLower();
         if (!peerId.isEmpty() && isValidE2EFingerprint(fingerprint)) {
-            m_e2eStoredTrustPins[peerId] = fingerprint;
+            E2EStoredTrustPin storedPin;
+            storedPin.fingerprint = fingerprint;
+            storedPin.verified = pin.value(QStringLiteral("verified")).toBool(false);
+            storedPin.verificationCode = normalizedVerificationCode(pin.value(QStringLiteral("verificationCode")).toString());
+            const QDateTime verifiedAt = QDateTime::fromString(pin.value(QStringLiteral("verifiedAt")).toString(), Qt::ISODateWithMs);
+            if (verifiedAt.isValid()) {
+                storedPin.verifiedAtMs = verifiedAt.toUTC().toMSecsSinceEpoch();
+            }
+            m_e2eStoredTrustPins[peerId] = storedPin;
         }
     }
 }
@@ -700,6 +792,13 @@ bool Client::saveE2ETrustPins(QString* rejectReason) const {
         QJsonObject pin;
         pin[QStringLiteral("peerId")] = it.key();
         pin[QStringLiteral("fingerprintSha256")] = it->pinnedFingerprint;
+        pin[QStringLiteral("verified")] = it->verified && !it->fingerprintMismatch;
+        if (it->verified && !it->verificationCode.isEmpty()) {
+            pin[QStringLiteral("verificationCode")] = it->verificationCode;
+        }
+        if (it->verifiedAtMs > 0) {
+            pin[QStringLiteral("verifiedAt")] = QDateTime::fromMSecsSinceEpoch(it->verifiedAtMs).toUTC().toString(Qt::ISODateWithMs);
+        }
         pin[QStringLiteral("updatedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
         pins.append(pin);
     }
@@ -725,10 +824,15 @@ void Client::applyE2EStoredTrustPin(const QString& peerId, E2EPeerIdentity* peer
     if (!peerIdentity) {
         return;
     }
-    const QString pinnedFingerprint = m_e2eStoredTrustPins.value(peerId.trimmed()).trimmed().toLower();
+    const auto storedPin = m_e2eStoredTrustPins.constFind(peerId.trimmed());
+    const QString pinnedFingerprint = storedPin == m_e2eStoredTrustPins.constEnd()
+        ? QString()
+        : storedPin->fingerprint.trimmed().toLower();
     if (pinnedFingerprint.isEmpty()) {
         if (!peerIdentity->pinned) {
             peerIdentity->pinnedFingerprint.clear();
+            peerIdentity->verified = false;
+            peerIdentity->verifiedAtMs = 0;
             peerIdentity->fingerprintMismatch = false;
         }
         return;
@@ -736,6 +840,12 @@ void Client::applyE2EStoredTrustPin(const QString& peerId, E2EPeerIdentity* peer
     peerIdentity->pinned = true;
     peerIdentity->pinnedFingerprint = pinnedFingerprint;
     peerIdentity->fingerprintMismatch = peerIdentity->fingerprint != pinnedFingerprint;
+    peerIdentity->verified = storedPin != m_e2eStoredTrustPins.constEnd()
+        && storedPin->verified
+        && !peerIdentity->fingerprintMismatch
+        && normalizedVerificationCode(storedPin->verificationCode)
+            == normalizedVerificationCode(peerIdentity->verificationCode);
+    peerIdentity->verifiedAtMs = peerIdentity->verified ? storedPin->verifiedAtMs : 0;
 }
 
 bool Client::requireTrustedE2EPeer(const QString& peerId, QString* rejectReason) const {
@@ -752,6 +862,10 @@ bool Client::requireTrustedE2EPeer(const QString& peerId, QString* rejectReason)
     }
     if (!peerIdentity->pinned || peerIdentity->pinnedFingerprint != peerIdentity->fingerprint) {
         if (rejectReason) *rejectReason = QStringLiteral("untrusted-identity");
+        return false;
+    }
+    if (!peerIdentity->verified) {
+        if (rejectReason) *rejectReason = QStringLiteral("unverified-identity");
         return false;
     }
     return true;
@@ -1979,10 +2093,15 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         peerIdentity.lastSeenAtMs = nowMs;
         peerIdentity.publicKey = publicKey;
         peerIdentity.fingerprint = fingerprint;
+        peerIdentity.verificationCode = formatE2EVerificationCode(e2eFingerprint(m_e2eIdentityPublicKey), fingerprint);
         applyE2EStoredTrustPin(senderId, &peerIdentity);
         peerIdentity.fingerprintMismatch = peerIdentity.pinned
             && !peerIdentity.pinnedFingerprint.isEmpty()
             && peerIdentity.pinnedFingerprint != fingerprint;
+        if (peerIdentity.fingerprintMismatch) {
+            peerIdentity.verified = false;
+            peerIdentity.verifiedAtMs = 0;
+        }
         emit e2eIdentityStateChanged(senderId, e2ePeerIdentityStatus(senderId));
         if (peerIdentity.fingerprintMismatch) {
             emit connectionError(QStringLiteral("端到端加密身份指纹变化：%1").arg(senderId));
