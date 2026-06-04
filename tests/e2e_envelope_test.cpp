@@ -24,6 +24,8 @@ bool expectOperation(const QJsonObject& backendStatus,
     return expect(status.value("operation").toString() == operation
                       && status.value("available").toBool(!available) == available
                       && status.value("reason").toString() == reason
+                      && status.value("entrypoint").toString().endsWith(QStringLiteral("/") + operation)
+                      && status.value("blockedReason").toString() == (available ? QString() : reason)
                       && !status.value("rawKeyExported").toBool(true)
                       && !status.value("privateMaterialExported").toBool(true),
                   message);
@@ -111,6 +113,9 @@ int main() {
     ok = expect(backendStatus.value("operations").toObject()
                     .value("payload-encrypt").toObject()
                     .value("implementation").toString() == QStringLiteral("draft-qt-primitives")
+                    && backendStatus.value("operations").toObject()
+                        .value("payload-encrypt").toObject()
+                        .value("entrypoint").toString() == QStringLiteral("draft/payload-encrypt")
                     && backendStatus.value("operations").toObject()
                         .value("payload-encrypt").toObject()
                         .value("adapterLinked").toBool(false),
@@ -382,6 +387,12 @@ int main() {
     ok = expect(productionRequestedStatus.value("operations").toObject()
                     .value("payload-decrypt").toObject()
                     .value("implementation").toString() == QStringLiteral("production-adapter")
+                    && productionRequestedStatus.value("operations").toObject()
+                        .value("payload-decrypt").toObject()
+                        .value("entrypoint").toString() == QStringLiteral("production-adapter/payload-decrypt")
+                    && productionRequestedStatus.value("operations").toObject()
+                        .value("payload-decrypt").toObject()
+                        .value("requiresProductionReady").toBool(false) == true
                     && !productionRequestedStatus.value("operations").toObject()
                         .value("payload-decrypt").toObject()
                         .value("adapterLinked").toBool(true),
@@ -413,7 +424,10 @@ int main() {
     ok = expect(unsupportedBackendStatus.value("operations").toObject()
                     .value("session-derive").toObject()
                     .value("operatorAction").toString()
-                        == QStringLiteral("choose-a-registered-crypto-backend"),
+                        == QStringLiteral("choose-a-registered-crypto-backend")
+                    && unsupportedBackendStatus.value("operations").toObject()
+                        .value("session-derive").toObject()
+                        .value("entrypoint").toString() == QStringLiteral("unsupported/session-derive"),
                 "unsupported operation status should tell operators to pick a registered backend") && ok;
     ok = expect(generateE2EPrivateKey().isEmpty(),
                 "unsupported backend request should not generate draft private keys") && ok;
