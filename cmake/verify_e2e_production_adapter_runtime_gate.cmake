@@ -53,6 +53,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_EXE}" --build "${PROBE_BUILD_DIR}" --target e2e_production_adapter_runtime_test
+        --config "${CONFIGURATION}"
     RESULT_VARIABLE build_result
     OUTPUT_VARIABLE build_stdout
     ERROR_VARIABLE build_stderr
@@ -71,12 +72,16 @@ set(probe_path "$ENV{PATH}")
 if(NOT "${QT_BIN_DIR}" STREQUAL "")
     set(probe_path "${QT_BIN_DIR}${path_separator}$ENV{PATH}")
 endif()
+set(test_args --test-dir "${PROBE_BUILD_DIR}" -R "^E2EProductionAdapterRuntime$" --output-on-failure)
+if(DEFINED CONFIGURATION AND NOT "${CONFIGURATION}" STREQUAL "")
+    list(APPEND test_args -C "${CONFIGURATION}")
+endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
         "PATH=${probe_path}"
         "QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production"
-        "${CMAKE_CTEST_COMMAND}" --test-dir "${PROBE_BUILD_DIR}" -R "^E2EProductionAdapterRuntime$" --output-on-failure
+        "${CMAKE_CTEST_COMMAND}" ${test_args}
     RESULT_VARIABLE test_result
     OUTPUT_VARIABLE test_stdout
     ERROR_VARIABLE test_stderr
