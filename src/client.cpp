@@ -492,6 +492,11 @@ bool Client::e2eSessionNeedsRotation(const QString& peerId) const {
     return it != m_e2eSessions.constEnd() && it->rotationRequired;
 }
 
+bool Client::e2ePeerIdentityTrusted(const QString& peerId) const {
+    QString reason;
+    return requireTrustedE2EPeer(peerId, &reason);
+}
+
 QJsonObject Client::e2eSessionStatus(const QString& peerId) const {
     const QString normalizedPeerId = peerId.trimmed();
     QJsonObject status;
@@ -720,6 +725,25 @@ void Client::applyE2EStoredTrustPin(const QString& peerId, E2EPeerIdentity* peer
     peerIdentity->fingerprintMismatch = peerIdentity->fingerprint != pinnedFingerprint;
 }
 
+bool Client::requireTrustedE2EPeer(const QString& peerId, QString* rejectReason) const {
+    if (rejectReason) rejectReason->clear();
+    const QString normalizedPeerId = peerId.trimmed();
+    const auto peerIdentity = m_e2ePeerIdentities.constFind(normalizedPeerId);
+    if (normalizedPeerId.isEmpty() || peerIdentity == m_e2ePeerIdentities.constEnd()) {
+        if (rejectReason) *rejectReason = QStringLiteral("missing-identity");
+        return false;
+    }
+    if (peerIdentity->fingerprintMismatch) {
+        if (rejectReason) *rejectReason = QStringLiteral("fingerprint-mismatch");
+        return false;
+    }
+    if (!peerIdentity->pinned || peerIdentity->pinnedFingerprint != peerIdentity->fingerprint) {
+        if (rejectReason) *rejectReason = QStringLiteral("untrusted-identity");
+        return false;
+    }
+    return true;
+}
+
 bool Client::populateE2EAgreementIdentityFingerprints(const QString& peerId,
                                                       E2EKeyAgreement* agreement,
                                                       QString* rejectReason) const {
@@ -734,15 +758,10 @@ bool Client::populateE2EAgreementIdentityFingerprints(const QString& peerId,
     }
 
     const QString normalizedPeerId = peerId.trimmed();
+    if (!requireTrustedE2EPeer(normalizedPeerId, rejectReason)) {
+        return false;
+    }
     const auto peerIdentity = m_e2ePeerIdentities.constFind(normalizedPeerId);
-    if (normalizedPeerId.isEmpty() || peerIdentity == m_e2ePeerIdentities.constEnd()) {
-        if (rejectReason) *rejectReason = QStringLiteral("missing-identity");
-        return false;
-    }
-    if (peerIdentity->fingerprintMismatch) {
-        if (rejectReason) *rejectReason = QStringLiteral("fingerprint-mismatch");
-        return false;
-    }
 
     agreement->senderIdentityFingerprint = e2eFingerprint(m_e2eIdentityPublicKey);
     agreement->receiverIdentityFingerprint = peerIdentity->fingerprint;
@@ -763,15 +782,10 @@ bool Client::validateIncomingE2EAgreementIdentity(const E2EKeyAgreement& agreeme
         return false;
     }
 
+    if (!requireTrustedE2EPeer(senderId, rejectReason)) {
+        return false;
+    }
     const auto peerIdentity = m_e2ePeerIdentities.constFind(senderId);
-    if (peerIdentity == m_e2ePeerIdentities.constEnd()) {
-        if (rejectReason) *rejectReason = QStringLiteral("missing-identity");
-        return false;
-    }
-    if (peerIdentity->fingerprintMismatch) {
-        if (rejectReason) *rejectReason = QStringLiteral("fingerprint-mismatch");
-        return false;
-    }
     if (agreement.senderIdentityFingerprint.trimmed().toLower() != peerIdentity->fingerprint) {
         if (rejectReason) *rejectReason = QStringLiteral("sender-fingerprint-mismatch");
         return false;
@@ -958,6 +972,9 @@ bool Client::sendEncryptedPrivateMessage(const QString& receiverId, const QStrin
     auto sessionIt = m_e2eSessions.find(normalizedReceiverId);
     if (normalizedReceiverId.isEmpty() || sessionIt == m_e2eSessions.constEnd()) {
         if (rejectReason) *rejectReason = QStringLiteral("missing-session");
+        return false;
+    }
+    if (!requireTrustedE2EPeer(normalizedReceiverId, rejectReason)) {
         return false;
     }
     if (sessionIt->rotationRequired || sessionIt->encryptedMessages >= m_e2eSessionMessageLimit) {

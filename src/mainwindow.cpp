@@ -2130,6 +2130,7 @@ void MainWindow::refreshComposerState() {
         && !isLocalGroup
         && m_client
         && m_client->hasE2ESession(m_privateChatTarget)
+        && m_client->e2ePeerIdentityTrusted(m_privateChatTarget)
         && !m_client->e2eSessionNeedsRotation(m_privateChatTarget);
     const QString composerHint = QString("发往 %1%2... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)")
         .arg(targetName, encryptedReady ? QStringLiteral(" · 端到端加密") : QString());

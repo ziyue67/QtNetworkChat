@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QHostAddress>
 #include <QStandardPaths>
 #include <QTcpServer>
@@ -84,6 +85,33 @@ bool loginClient(Client& client,
     client.setAccountInfo(account, "secret", false);
     if (!client.connectToServer("127.0.0.1", port)) return false;
     return client.waitForLoginResult(5000);
+}
+
+QString safeLocalFileToken(const QString& value) {
+    QString token;
+    for (const QChar ch : value.trimmed()) {
+        const ushort code = ch.unicode();
+        const bool alpha = (code >= 'a' && code <= 'z') || (code >= 'A' && code <= 'Z');
+        const bool digit = code >= '0' && code <= '9';
+        token.append(alpha || digit ? ch : QLatin1Char('_'));
+    }
+    return token.isEmpty() ? QStringLiteral("default") : token.left(96);
+}
+
+QString e2eIdentityFilePath(const QString& appDataDir, const QString& userId) {
+    return QDir(appDataDir).filePath("e2e_identity_" + safeLocalFileToken(userId) + ".json");
+}
+
+QString e2eTrustPinsFilePath(const QString& appDataDir, const QString& userId) {
+    return QDir(appDataDir).filePath("e2e_trust_pins_" + safeLocalFileToken(userId) + ".json");
+}
+
+bool writeTextFile(const QString& path, const QByteArray& content) {
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+    return file.write(content) == content.size();
 }
 }
 
@@ -190,18 +218,30 @@ int main(int argc, char** argv) {
                         && !aliceSawBobIdentity.contains("privateKey")
                         && !bobSawAliceIdentity.contains("sessionKey"),
                     "e2e identity status should expose fingerprints but no private or session keys") && ok;
+        const QString originalAliceIdentityFingerprint = alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
         ok = expect(alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("unverified"),
                     "newly observed peer e2e identity should start unverified") && ok;
         ok = expect(!alice.pinE2EPeerIdentity(bobId, QStringLiteral("bad-fingerprint"), &rejectReason)
                         && rejectReason == QStringLiteral("fingerprint-mismatch")
                         && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("mismatch"),
                     "pinning with an unexpected fingerprint should fail closed and mark mismatch") && ok;
+        ok = expect(!alice.requestE2ESessionRotation(bobId, &rejectReason)
+                        && rejectReason == QStringLiteral("fingerprint-mismatch"),
+                    "key agreement should fail closed while the observed identity is mismatched") && ok;
         ok = expect(alice.pinE2EPeerIdentity(bobId,
                                              aliceSawBobIdentity.value("publicKeyFingerprintSha256").toString(),
                                              &rejectReason)
                         && alice.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("trusted")
                         && alice.e2ePeerIdentityStatus(bobId).value("pinPersisted").toBool(false),
                     "pinning the observed e2e identity fingerprint should persist trusted state") && ok;
+        ok = expect(!bob.requestE2ESessionRotation(aliceId, &rejectReason)
+                        && rejectReason == QStringLiteral("untrusted-identity"),
+                    "default e2e policy should block key agreement to an unpinned identity") && ok;
+        ok = expect(bob.pinE2EPeerIdentity(aliceId,
+                                           bobSawAliceIdentity.value("publicKeyFingerprintSha256").toString(),
+                                           &rejectReason)
+                        && bob.e2ePeerIdentityStatus(aliceId).value("trustState").toString() == QStringLiteral("trusted"),
+                    "receiver should pin the sender before accepting authenticated key agreement") && ok;
         ok = expect(!alice.announceE2EIdentity(aliceId, &rejectReason)
                         && rejectReason == QStringLiteral("invalid-peer"),
                     "clients should reject self-targeted e2e identity announcements") && ok;
@@ -387,6 +427,10 @@ int main(int argc, char** argv) {
                         && aliceRestarted.e2ePeerIdentityStatus(bobId).value("trustState").toString() == QStringLiteral("unverified")
                         && !aliceRestarted.e2ePeerIdentityStatus(bobId).value("pinPersisted").toBool(true),
                     "clearing an e2e trust pin should recover the peer to unverified state") && ok;
+        aliceRestarted.setE2ESessionKey(bobId, "stale-after-pin-clear", generateE2ESessionKey());
+        ok = expect(!aliceRestarted.sendEncryptedPrivateMessage(bobId, "stale trusted session must not send", &rejectReason)
+                        && rejectReason == QStringLiteral("untrusted-identity"),
+                    "default e2e policy should block encrypted sends after trust pin recovery clears trust") && ok;
         disconnectClient(aliceRestarted);
         disconnectClient(bobRestarted);
 
@@ -409,6 +453,37 @@ int main(int argc, char** argv) {
         }), "cleared e2e trust pin should stay cleared across another restart") && ok;
         disconnectClient(aliceAfterClear);
         disconnectClient(bobAfterClear);
+
+        const QString aliceIdentityPath = e2eIdentityFilePath(appDataDir, aliceId);
+        const QString aliceTrustPinsPath = e2eTrustPinsFilePath(appDataDir, aliceId);
+        ok = expect(writeTextFile(aliceIdentityPath, QByteArray("{\"schema\":\"qtnetworkchat-e2e-identity-v1\",\"privateKey\":\"broken\",\"publicKeyFingerprintSha256\":\"bad\"}")),
+                    "test should corrupt alice local e2e identity file") && ok;
+        ok = expect(writeTextFile(aliceTrustPinsPath, QByteArray("{\"schema\":\"qtnetworkchat-e2e-trust-pins-v1\",\"pins\":[{\"peerId\":\"920002\",\"fingerprintSha256\":\"not-a-fingerprint\"}]}")),
+                    "test should corrupt alice e2e trust pin file") && ok;
+        Client aliceRecovered;
+        Client bobAfterCorruption;
+        QJsonObject recoveredAliceSawBobIdentity;
+        QObject::connect(&aliceRecovered, &Client::e2eIdentityStateChanged, &app, [&](const QString& peerId, const QJsonObject& status) {
+            if (peerId == bobId) {
+                recoveredAliceSawBobIdentity = status;
+            }
+        });
+        ok = expect(loginClient(aliceRecovered, aliceId, "Alice", port),
+                    "alice should recover from a corrupted e2e identity store") && ok;
+        ok = expect(aliceRecovered.e2eLocalIdentityStatus().value("identityPersisted").toBool(false)
+                        && aliceRecovered.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
+                        && aliceRecovered.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
+                            != originalAliceIdentityFingerprint,
+                    "corrupted local e2e identity should be regenerated and persisted") && ok;
+        ok = expect(loginClient(bobAfterCorruption, bobId, "Bob", port),
+                    "bob should log in after alice e2e store corruption") && ok;
+        ok = expect(waitFor([&] {
+            return recoveredAliceSawBobIdentity.value("publicKeyFingerprintSha256").toString().size() == 64
+                && recoveredAliceSawBobIdentity.value("trustState").toString() == QStringLiteral("unverified")
+                && !recoveredAliceSawBobIdentity.value("pinPersisted").toBool(false);
+        }), "corrupted e2e trust pin store should be ignored instead of trusting a malformed pin") && ok;
+        disconnectClient(aliceRecovered);
+        disconnectClient(bobAfterCorruption);
         server.stop();
         drainEvents();
     }

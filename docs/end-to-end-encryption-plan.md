@@ -18,11 +18,13 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 - Peer trust pins are persisted per local account as SHA-256 fingerprints only. The trust store does not contain peer public keys, local private agreement material, session keys, passwords, tokens, or server endpoints.
 - A newly observed peer identity is automatically marked `trusted` when it matches a persisted pin, and `mismatch` when it conflicts with the persisted pin.
 - The contact context menu can clear a persisted trust pin and recover the peer to `unverified` without deleting the latest observed identity.
+- The default data-plane policy requires a trusted, non-mismatched peer identity before starting key agreement, accepting key agreement, or sending encrypted private messages. Stale sessions are not enough after trust recovery clears a pin.
+- Corrupted local identity stores are regenerated with a fresh persisted identity, while malformed trust pins are ignored instead of being treated as trusted.
 
 ## Remaining Work
 
 - Replace the draft agreement primitive with a reviewed production cryptographic backend and signed identity keys.
 - Add cross-device verification UX.
-- Add migration checks for older or corrupted identity/pin stores and an explicit default-enable policy with operator/user recovery gates.
+- Add migration checks for older identity/pin store schemas and richer operator/user recovery prompts.
 - Migrate existing private-message history into explicit encrypted/plaintext states.
 - Encrypt file content or chunks with the same fail-closed identity binding.

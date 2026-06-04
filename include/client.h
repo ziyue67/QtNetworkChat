@@ -27,6 +27,7 @@ public:
     void clearE2ESessionKey(const QString& peerId);
     bool hasE2ESession(const QString& peerId) const;
     bool e2eSessionNeedsRotation(const QString& peerId) const;
+    bool e2ePeerIdentityTrusted(const QString& peerId) const;
     QJsonObject e2eSessionStatus(const QString& peerId) const;
     QJsonObject e2eLocalIdentityStatus() const;
     QJsonObject e2ePeerIdentityStatus(const QString& peerId) const;
@@ -170,6 +171,7 @@ private:
     bool saveE2ELocalIdentity(QString* rejectReason = nullptr) const;
     void loadE2ETrustPins();
     bool saveE2ETrustPins(QString* rejectReason = nullptr) const;
+    bool requireTrustedE2EPeer(const QString& peerId, QString* rejectReason = nullptr) const;
     bool populateE2EAgreementIdentityFingerprints(const QString& peerId,
                                                   E2EKeyAgreement* agreement,
                                                   QString* rejectReason) const;
