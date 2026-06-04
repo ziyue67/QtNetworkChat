@@ -575,6 +575,7 @@ bool loginRawRejectFirstChunkThenDisconnect(const QString& account,
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    qputenv("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE", "1");
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
     QCoreApplication::setApplicationName("postgres_qpsql_protocol_smoke_test");
     QStandardPaths::setTestModeEnabled(true);

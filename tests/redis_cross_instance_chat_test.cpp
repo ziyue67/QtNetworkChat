@@ -481,6 +481,7 @@ void captureRouteLogMessage(QtMsgType type, const QMessageLogContext& context, c
 }
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE", "1");
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
     QCoreApplication::setApplicationName("redis_cross_instance_chat_test");

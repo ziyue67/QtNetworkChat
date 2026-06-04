@@ -719,6 +719,7 @@ bool setOfflineQueueRejectTrigger(const QString& appDataDir, bool enabled) {
 }
 
 int main(int argc, char** argv) {
+    qputenv("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE", "1");
     qputenv("QTNETWORKCHAT_OFFLINE_ATTACHMENT_QUOTA_MB", "1");
 
     QCoreApplication app(argc, argv);

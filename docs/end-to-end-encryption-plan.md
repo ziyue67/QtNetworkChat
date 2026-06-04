@@ -32,15 +32,14 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 
 ## Current File Payload Boundary
 
-- Private file and image sends automatically use the same trusted, non-mismatched peer identity and ready local E2E session as encrypted private text when such a session already exists. Legacy private file sends without any local E2E session remain compatible with the existing plaintext file path until the default product policy is tightened.
+- Private file and image sends now use the same verified, trusted, non-mismatched peer identity and ready local E2E session as encrypted private text by default. Missing session, unverified identity, mismatch, or rotation-required state fails closed instead of silently sending private file payloads as plaintext.
 - The sender encrypts the whole file payload into one E2E envelope, then sends the opaque ciphertext through the existing file chunk path. The server can validate and store only ciphertext size/hash and transfer metadata.
 - The receiver collects the ciphertext chunks, authenticates the E2E envelope locally, decrypts the plaintext payload, and verifies the declared plaintext size and SHA-256 hash before surfacing the file message.
 - Missing trust on an existing session, rotation-required sessions, invalid envelopes, authentication failure, plaintext size mismatch, or plaintext hash mismatch fail closed. Raw session keys, private agreement material, plaintext payloads, and full key material are not written into wire status or server logs.
-- E2E file resume is currently conservative: interrupted encrypted private file sends must be resent so the ciphertext and envelope stay consistent. Group files, Redis/S3 object routing, and production crypto replacement remain separate productization work.
+- E2E file resume is currently conservative: interrupted encrypted private file sends must be resent so the ciphertext and envelope stay consistent. Group files, Redis/S3 object routing, and production crypto replacement remain separate productization work. Protocol/operations tests that intentionally exercise legacy plaintext private-file routing must opt in with `QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE=1`; production defaults keep this path closed.
 
 ## Remaining Work
 
 - Replace the draft agreement/signature primitive with a reviewed production cryptographic backend and durable signed identity keys.
 - Add migration checks for older identity/pin store schemas and richer operator/user recovery prompts.
-- Tighten the default private file policy from opportunistic E2E when a session exists to mandatory E2E once cross-device recovery and onboarding UX are ready.
 - Extend E2E file recovery and large-object routing evidence beyond the current resend-on-interruption boundary.

@@ -1567,9 +1567,11 @@ bool Client::sendFilePayload(const QString& filePath,
                              qint64 resumeNextChunkIndex,
                              const QVector<qint64>& resumeReceivedChunks) {
     if (!isConnected()) return false;
-    const bool e2eFileRequired = !receiverId.trimmed().isEmpty()
-        && (messageType == MessageType::File || messageType == MessageType::Image)
-        && hasE2ESession(receiverId);
+    const bool privateFileTarget = !receiverId.trimmed().isEmpty()
+        && (messageType == MessageType::File || messageType == MessageType::Image);
+    const bool allowPlaintextPrivateFile = envEnabled("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE");
+    const bool e2eFileRequired = privateFileTarget
+        && (hasE2ESession(receiverId) || !allowPlaintextPrivateFile);
     const E2ESession* e2eFileSession = nullptr;
     QString e2eFileRejectReason;
     if (e2eFileRequired && !e2eFileSessionForPeer(receiverId, &e2eFileSession, &e2eFileRejectReason)) {

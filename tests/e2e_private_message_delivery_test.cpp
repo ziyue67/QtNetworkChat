@@ -444,6 +444,8 @@ int main(int argc, char** argv) {
         ok = expect(!alice.hasE2ESession(bobId)
                         && alice.e2eSessionStatus(bobId).value("state").toString() == QStringLiteral("missing-session"),
                     "clearing an e2e session should expose missing-session status") && ok;
+        ok = expect(!alice.sendFile(privateFilePath, bobId),
+                    "mandatory e2e private file policy should reject private files without a ready session") && ok;
         alice.setE2ESessionKey(bobId, keyId + "-rotated", generateE2ESessionKey());
         ok = expect(alice.hasE2ESession(bobId) && !alice.e2eSessionNeedsRotation(bobId),
                     "setting a new e2e session should clear the rotation gate") && ok;
