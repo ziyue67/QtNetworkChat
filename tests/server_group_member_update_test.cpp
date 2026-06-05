@@ -13,8 +13,10 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 #include <QTcpServer>
+#include <QTemporaryDir>
 #include <QThread>
 
+#include <cstdio>
 #include <functional>
 
 namespace {
@@ -28,6 +30,7 @@ QString testAppDataDir() {
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
+        std::fprintf(stderr, "%s\n", message);
         qWarning() << message;
         return false;
     }
@@ -178,6 +181,12 @@ bool groupHasAuditEvent(const QJsonObject& group,
     return false;
 }
 
+bool writeTestFile(const QString& path, const QByteArray& payload) {
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    return file.write(payload) == payload.size();
+}
+
 QJsonObject firstPrivateGroup(const QJsonArray& groups) {
     for (const QJsonValue& value : groups) {
         const QJsonObject group = value.toObject();
@@ -201,6 +210,11 @@ int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QCoreApplication::setOrganizationName("QtNetworkChatTests");
     QCoreApplication::setApplicationName("server_group_member_update_test");
+    QTemporaryDir transferDir;
+    if (!transferDir.isValid()) {
+        qWarning() << "failed to create transfer temp dir";
+        return 1;
+    }
     QStandardPaths::setTestModeEnabled(true);
 
     const QString appDataDir = testAppDataDir();
@@ -515,6 +529,24 @@ int main(int argc, char** argv) {
         return memberGroupMessages.contains(privateMessage);
     }), "private group message should be delivered to invited member") && ok;
 
+    const QString privateFilePath = transferDir.filePath("private-group-file.txt");
+    ok = expect(writeTestFile(privateFilePath, QByteArray("private group file payload")),
+                "private group test file should be created") && ok;
+    QStringList memberGroupFiles;
+    QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::File && msg.receiverId == privateGroupId) {
+            memberGroupFiles << msg.fileName;
+        }
+    });
+    ok = expect(owner.sendServerGroupFile(privateGroupId, privateFilePath),
+                "private group owner should send file through group route") && ok;
+    ok = expect(waitFor([&] {
+        return memberGroupFiles.contains("private-group-file.txt");
+    }, 8000), "private group file should be delivered through group route") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasAuditEvent(groupById(owner.serverGroups(), privateGroupId), "file_sent", ownerId, ownerId);
+    }), "private group file send should appear in audit snapshot") && ok;
+
     guestSystemMessages.clear();
     ok = expect(guest.sendServerGroupMessage(privateGroupId, "guest should be blocked"),
                 "non-member private group message request should still be sent") && ok;
@@ -524,6 +556,14 @@ int main(int argc, char** argv) {
         }
         return false;
     }), "non-member private group message should fail closed") && ok;
+    ok = expect(!guest.sendServerGroupFile(privateGroupId, privateFilePath),
+                "non-member private group file should be rejected by server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("文件分片上传已被服务端拒绝"))) return true;
+        }
+        return false;
+    }), "non-member private group file should fail closed") && ok;
 
     ok = expect(owner.sendServerGroupMemberUpdate(privateGroupId, memberId, "remove"),
                 "private group owner should remove invited member") && ok;
@@ -551,6 +591,18 @@ int main(int argc, char** argv) {
         }
         return false;
     }), "removed private member should be blocked from sending private group messages") && ok;
+    memberSystemMessages.clear();
+    ok = expect(!member.sendServerGroupFile(privateGroupId, privateFilePath),
+                "removed private member file should be rejected by server") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("文件分片上传已被服务端拒绝"))) return true;
+        }
+        return false;
+    }), "removed private member should be blocked from sending private group files") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasAuditEvent(groupById(owner.serverGroups(), privateGroupId), "file_rejected", memberId, memberId);
+    }), "rejected private group file should appear in audit snapshot") && ok;
 
         disconnectClient(owner);
         disconnectClient(member);

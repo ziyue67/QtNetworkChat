@@ -1899,6 +1899,34 @@ bool Client::sendServerGroupMessage(const QString& groupId, const QString& conte
     return sendJson(obj);
 }
 
+bool Client::sendServerGroupFile(const QString& groupId, const QString& filePath) {
+    const QString trimmedGroupId = groupId.trimmed();
+    if (trimmedGroupId.isEmpty()) return false;
+    return sendFilePayload(filePath,
+                           QString(),
+                           MessageType::File,
+                           "发送了文件: ",
+                           QString(),
+                           0,
+                           0,
+                           QVector<qint64>(),
+                           trimmedGroupId);
+}
+
+bool Client::sendServerGroupImage(const QString& groupId, const QString& filePath) {
+    const QString trimmedGroupId = groupId.trimmed();
+    if (trimmedGroupId.isEmpty()) return false;
+    return sendFilePayload(filePath,
+                           QString(),
+                           MessageType::Image,
+                           "发送了图片: ",
+                           QString(),
+                           0,
+                           0,
+                           QVector<qint64>(),
+                           trimmedGroupId);
+}
+
 bool Client::sendFile(const QString& filePath, const QString& receiverId) {
     return sendFilePayload(filePath, receiverId, MessageType::File, "发送了文件: ");
 }
@@ -2293,8 +2321,10 @@ bool Client::sendFilePayload(const QString& filePath,
                              const QString& resumeTransferId,
                              qint64 resumeConfirmedBytes,
                              qint64 resumeNextChunkIndex,
-                             const QVector<qint64>& resumeReceivedChunks) {
+                             const QVector<qint64>& resumeReceivedChunks,
+                             const QString& serverGroupId) {
     if (!isConnected()) return false;
+    const QString trimmedServerGroupId = serverGroupId.trimmed();
     const bool privateFileTarget = !receiverId.trimmed().isEmpty()
         && (messageType == MessageType::File || messageType == MessageType::Image);
     const bool allowPlaintextPrivateFile = envEnabled("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE");
@@ -2525,6 +2555,9 @@ bool Client::sendFilePayload(const QString& filePath,
         obj["senderId"] = m_userId;
         obj["senderName"] = m_userName;
         obj["receiverId"] = receiverId;
+        if (!trimmedServerGroupId.isEmpty()) {
+            obj["groupId"] = trimmedServerGroupId;
+        }
         obj["messageType"] = static_cast<int>(messageType);
         obj["fileName"] = fileInfo.fileName();
         obj["fileSize"] = QString::number(wireFileSize);

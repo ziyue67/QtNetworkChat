@@ -833,7 +833,7 @@ $lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics +
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")
-$lines.Add("1. Group productization is the active automation lane: private group creation/invitation/removal, private scoped messages, non-member fail-closed behavior, snapshot permission fields, removed-member read-only history markers, and basic private audit evidence are implemented; next large package must deepen group-file permission enforcement, history visibility policy, and fuller audit strategy.")
+$lines.Add("1. Group productization is the active automation lane: private group creation/invitation/removal, private scoped messages/files, non-member and removed-member fail-closed behavior, snapshot permission fields, removed-member read-only history markers, and private file send/reject audit evidence are implemented; next large package must deepen history visibility policy and fuller audit strategy.")
 $lines.Add("2. Mainwindow structure split follows group productization: extract TransferManager, FriendManager, GroupManager, HistoryService, and Storage in small behavior-preserving steps with focused tests.")
 $lines.Add("3. README information architecture is closed for now: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, and E2E hardening status in focused docs, and keep CTest/automation-status references pointed at those docs so long paragraphs do not return.")
 $lines.Add("4. E2E production crypto remains important but is no longer allowed to preempt the README IA, group productization, or mainwindow split lanes unless CI/build/test failures require it.")

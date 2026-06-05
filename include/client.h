@@ -60,6 +60,8 @@ public:
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
     bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString());
     bool sendServerGroupMessage(const QString& groupId, const QString& content);
+    bool sendServerGroupFile(const QString& groupId, const QString& filePath);
+    bool sendServerGroupImage(const QString& groupId, const QString& filePath);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
     bool sendImage(const QString& filePath, const QString& receiverId = QString());
     bool resumeFileTransfer(const QString& filePath,
@@ -166,7 +168,8 @@ private:
                          const QString& resumeTransferId = QString(),
                          qint64 resumeConfirmedBytes = 0,
                          qint64 resumeNextChunkIndex = 0,
-                         const QVector<qint64>& resumeReceivedChunks = QVector<qint64>());
+                         const QVector<qint64>& resumeReceivedChunks = QVector<qint64>(),
+                         const QString& serverGroupId = QString());
     bool waitForFileChunkAck(const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     bool waitForFileTransferResumeState(const QString& transferId,
                                         qint64* confirmedBytes,

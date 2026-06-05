@@ -31,7 +31,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - 服务端记录公共群移出状态，避免被移出账号重登后自动重新入群；群快照会同步只读移出记录，客户端可继续查看本机历史并提示移出人/时间
 - 服务端记录公共群公告和成员变更审计事件，并随群快照同步最近审计记录；客户端群成员面板会展示最近审计摘要，拒绝的越权或重复操作不会写入审计
 - 客户端会提示公共群被移出/重新加入状态，并在被移出时禁用公共群发送入口、标记公共群历史只读
-- 服务端支持创建私有群、邀请/移出成员、私有群定向消息、非成员不可见与发送 fail-closed；群快照会输出 `groupType`、`membershipState`、`historyPolicy`、`filePolicy`、`canSend`、`canSendFiles` 和 `canReadHistory`，移出成员保留只读历史标记并失去发送/文件权限
+- 服务端支持创建私有群、邀请/移出成员、私有群定向消息、私有群文件路由、非成员不可见与发送 fail-closed；群快照会输出 `groupType`、`membershipState`、`historyPolicy`、`filePolicy`、`canSend`、`canSendFiles` 和 `canReadHistory`，移出成员保留只读历史标记并失去发送/文件权限，私有群文件发送/拒绝会写入群审计
 - 好友私聊
 - QQ 号搜索用户
 - 好友申请、同意、拒绝

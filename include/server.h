@@ -93,6 +93,7 @@ private:
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool recordDefaultGroupMembership(const ChatUser& user) const;
     bool isServerGroupMember(const QString& groupId, const QString& userId) const;
+    QStringList serverGroupMemberIds(const QString& groupId) const;
     bool recordServerGroupAuditEvent(const QString& groupId,
                                      const QString& action,
                                      const QString& actorId,

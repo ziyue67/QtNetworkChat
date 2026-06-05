@@ -2400,6 +2400,7 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.senderId = obj["senderId"].toString();
     msg.senderName = obj["senderName"].toString();
     msg.receiverId = obj["receiverId"].toString();
+    const QString serverGroupId = obj["groupId"].toString().trimmed();
     msg.content = obj["content"].toString();
     msg.fileName = obj["fileName"].toString();
     msg.transferId = obj["transferId"].toString().trimmed();
@@ -2427,8 +2428,31 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         msg.senderId = sender->id;
         msg.senderName = sender->name;
     }
-    if (msg.receiverId.isEmpty() && !isServerGroupMember("public", msg.senderId)) {
-        sendSystemNotice(socket, "公共群文件发送失败：你已不在该群组，请联系群主或管理员重新邀请。");
+    const QString routedGroupId = !serverGroupId.isEmpty()
+        ? serverGroupId
+        : (msg.receiverId.isEmpty() ? QStringLiteral("public") : QString());
+    if (!routedGroupId.isEmpty() && !isServerGroupMember(routedGroupId, msg.senderId)) {
+        QJsonObject details;
+        details["fileName"] = msg.fileName;
+        details["reason"] = QStringLiteral("not-member");
+        details["filePolicy"] = serverGroupFilePolicy(serverGroupTypeFromId(routedGroupId));
+        recordServerGroupAuditEvent(routedGroupId,
+                                    QStringLiteral("file_rejected"),
+                                    msg.senderId,
+                                    msg.senderName,
+                                    msg.senderId,
+                                    msg.senderName,
+                                    details);
+        const QStringList memberIds = serverGroupMemberIds(routedGroupId);
+        for (const QString& memberId : memberIds) {
+            QTcpSocket* memberSocket = m_userSockets.value(memberId);
+            if (memberSocket && memberSocket->state() == QAbstractSocket::ConnectedState) {
+                sendServerGroupSnapshot(memberId, memberSocket);
+            }
+        }
+        sendSystemNotice(socket, routedGroupId == QLatin1String("public")
+            ? QStringLiteral("公共群文件发送失败：你已不在该群组，请联系群主或管理员重新邀请。")
+            : QStringLiteral("私有群文件发送失败：你不在该群组或已被移出。"));
         return;
     }
 
@@ -2490,7 +2514,45 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     }
 
     QString deliveryState = "broadcast";
-    if (!msg.receiverId.isEmpty()) {
+    if (!routedGroupId.isEmpty() && routedGroupId != QLatin1String("public")) {
+        msg.receiverId = routedGroupId;
+        deliveryState = "server-group-file";
+        const QStringList memberIds = serverGroupMemberIds(routedGroupId);
+        for (const QString& memberId : memberIds) {
+            QTcpSocket* memberSocket = m_userSockets.value(memberId);
+            if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+            Message groupMsg = msg;
+            groupMsg.receiverId = routedGroupId;
+            if (groupMsg.type == MessageType::File || groupMsg.type == MessageType::Image) {
+                sendChunkedFileToSocket(groupMsg, memberSocket);
+            } else {
+                QJsonObject forwarded = QJsonDocument::fromJson(groupMsg.toJson()).object();
+                forwarded["type"] = "server_group_message";
+                forwarded["groupId"] = routedGroupId;
+                memberSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
+                memberSocket->write("\n");
+                memberSocket->flush();
+            }
+        }
+        QJsonObject details;
+        details["fileName"] = msg.fileName;
+        details["fileSize"] = QString::number(msg.fileSize);
+        details["transferId"] = msg.transferId;
+        details["filePolicy"] = serverGroupFilePolicy(QStringLiteral("private"));
+        recordServerGroupAuditEvent(routedGroupId,
+                                    QStringLiteral("file_sent"),
+                                    msg.senderId,
+                                    msg.senderName,
+                                    msg.senderId,
+                                    msg.senderName,
+                                    details);
+        for (const QString& memberId : memberIds) {
+            QTcpSocket* memberSocket = m_userSockets.value(memberId);
+            if (memberSocket && memberSocket->state() == QAbstractSocket::ConnectedState) {
+                sendServerGroupSnapshot(memberId, memberSocket);
+            }
+        }
+    } else if (!msg.receiverId.isEmpty()) {
         QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
         if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
             deliveryState = "direct";
@@ -2503,6 +2565,18 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         }
     } else {
         broadcastMessage(msg);
+        QJsonObject details;
+        details["fileName"] = msg.fileName;
+        details["fileSize"] = QString::number(msg.fileSize);
+        details["transferId"] = msg.transferId;
+        details["filePolicy"] = serverGroupFilePolicy(QStringLiteral("public"));
+        recordServerGroupAuditEvent(QStringLiteral("public"),
+                                    QStringLiteral("file_sent"),
+                                    msg.senderId,
+                                    msg.senderName,
+                                    msg.senderId,
+                                    msg.senderName,
+                                    details);
     }
     saveMessageToSqlite(msg, deliveryState);
     const bool redisPublished = publishRedisMessageEvent(msg, deliveryState);
@@ -2521,14 +2595,35 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
     const qint64 chunkCount = obj["chunkCount"].toVariant().toLongLong();
     const qint64 chunkIndex = obj["chunkIndex"].toVariant().toLongLong();
     const QByteArray chunkData = QByteArray::fromBase64(obj["fileData"].toString().toLatin1());
+    const QString serverGroupId = obj["groupId"].toString().trimmed();
     const ChatUser* sender = findUserBySocket(socket);
     const QString declaredSenderId = obj["senderId"].toString().trimmed();
     const QString senderId = sender ? sender->id : QString();
     const QString key = pendingFileTransferKey(senderId, transferId);
 
-    auto rejectTransfer = [this, socket, key, fileName, transferId, chunkIndex](const QString& reason) {
+    auto rejectTransfer = [this, socket, key, fileName, transferId, chunkIndex, serverGroupId, senderId](const QString& reason) {
         if (!key.isEmpty()) {
             m_pendingFileTransfers.remove(key);
+        }
+        if (!serverGroupId.isEmpty() && !senderId.isEmpty()) {
+            QJsonObject details;
+            details["fileName"] = fileName;
+            details["reason"] = reason;
+            details["filePolicy"] = serverGroupFilePolicy(serverGroupTypeFromId(serverGroupId));
+            recordServerGroupAuditEvent(serverGroupId,
+                                        QStringLiteral("file_rejected"),
+                                        senderId,
+                                        QString(),
+                                        senderId,
+                                        QString(),
+                                        details);
+            const QStringList memberIds = serverGroupMemberIds(serverGroupId);
+            for (const QString& memberId : memberIds) {
+                QTcpSocket* memberSocket = m_userSockets.value(memberId);
+                if (memberSocket && memberSocket->state() == QAbstractSocket::ConnectedState) {
+                    sendServerGroupSnapshot(memberId, memberSocket);
+                }
+            }
         }
         const QString visibleName = fileName.isEmpty() ? "未命名文件" : fileName;
         sendFileChunkAck(socket, transferId, chunkIndex, false, reason);
@@ -2548,7 +2643,10 @@ void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
         rejectTransfer("发送者身份不一致");
         return;
     }
-    if (obj["receiverId"].toString().trimmed().isEmpty() && !isServerGroupMember("public", senderId)) {
+    const QString routedGroupId = !serverGroupId.isEmpty()
+        ? serverGroupId
+        : (obj["receiverId"].toString().trimmed().isEmpty() ? QStringLiteral("public") : QString());
+    if (!routedGroupId.isEmpty() && !isServerGroupMember(routedGroupId, senderId)) {
         rejectTransfer("已不在该群组");
         return;
     }
@@ -3541,6 +3639,34 @@ bool Server::isServerGroupMember(const QString& groupId, const QString& userId) 
     }
     releaseAccountDatabase(connectionName);
     return exists;
+}
+
+QStringList Server::serverGroupMemberIds(const QString& groupId) const {
+    QStringList memberIds;
+    if (groupId.trimmed().isEmpty() || !ensureAccountDatabase()) return memberIds;
+
+    const QString connectionName = "server_group_member_ids_"
+        + QString::number(reinterpret_cast<quintptr>(this)) + "_"
+        + QString::number(qHash(groupId));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+            query.addBindValue(groupId.trimmed());
+            if (query.exec()) {
+                while (query.next()) {
+                    const QString memberId = query.value(0).toString().trimmed();
+                    if (!memberId.isEmpty() && !memberIds.contains(memberId)) {
+                        memberIds << memberId;
+                    }
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    return memberIds;
 }
 
 bool Server::recordServerGroupAuditEvent(const QString& groupId,
