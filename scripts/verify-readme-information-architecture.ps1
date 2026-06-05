@@ -60,8 +60,8 @@ Assert-Contains $readme "docs/e2e-hardening-status.md"
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
 $automationStatus = Read-Utf8Text $automationStatusPath
-Assert-Contains $automationStatus "Group productization is the active automation lane"
-Assert-Contains $automationStatus "Mainwindow structure split follows group productization"
+Assert-Contains $automationStatus "Group productization is closed for the current automation lane"
+Assert-Contains $automationStatus "Mainwindow structure split is now the active automation lane"
 Assert-Contains $automationStatus "README information architecture is closed for now"
 
 $utf8 = [System.Text.Encoding]::UTF8

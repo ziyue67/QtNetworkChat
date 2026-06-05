@@ -2033,6 +2033,25 @@ void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSoc
     releaseAccountDatabase(connectionName);
 
     if (!saved) {
+        QJsonObject details;
+        details["requestedAction"] = QStringLiteral("announcement_update");
+        details["rejected"] = true;
+        details["reason"] = errorText.isEmpty() ? QStringLiteral("unknown") : errorText;
+        details["contentLength"] = announcement.size();
+        recordServerGroupAuditEvent(groupId,
+                                    QStringLiteral("announcement_rejected"),
+                                    requester->id,
+                                    requester->name,
+                                    QString(),
+                                    QString(),
+                                    details);
+        const QStringList snapshotUserIds = serverGroupMemberIds(groupId);
+        for (const QString& userId : snapshotUserIds) {
+            QTcpSocket* memberSocket = m_userSockets.value(userId);
+            if (memberSocket && memberSocket->state() == QAbstractSocket::ConnectedState) {
+                sendServerGroupSnapshot(userId, memberSocket);
+            }
+        }
         sendSystemNotice(socket, errorText.isEmpty() ? "群公告更新失败" : errorText);
         return;
     }
@@ -2257,6 +2276,25 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
     releaseAccountDatabase(connectionName);
 
     if (!changed) {
+        QJsonObject details;
+        details["requestedAction"] = action;
+        details["roleAction"] = roleAction;
+        details["rejected"] = true;
+        details["reason"] = errorText.isEmpty() ? QStringLiteral("not-applied") : errorText;
+        recordServerGroupAuditEvent(groupId,
+                                    action.isEmpty() ? QStringLiteral("member_update_rejected") : action + QStringLiteral("_rejected"),
+                                    requester->id,
+                                    requester->name,
+                                    memberId,
+                                    memberName,
+                                    details);
+        const QStringList snapshotUserIds = serverGroupMemberIds(groupId);
+        for (const QString& userId : snapshotUserIds) {
+            QTcpSocket* memberSocket = m_userSockets.value(userId);
+            if (memberSocket && memberSocket->state() == QAbstractSocket::ConnectedState) {
+                sendServerGroupSnapshot(userId, memberSocket);
+            }
+        }
         sendSystemNotice(socket, errorText.isEmpty() ? "群成员变更未生效" : errorText);
         return;
     }
@@ -5152,6 +5190,11 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     groupObj["canSend"] = true;
                     groupObj["canSendFiles"] = true;
                     groupObj["canReadHistory"] = true;
+                    groupObj["historyVisibility"] = groupType == QLatin1String("private")
+                        ? QStringLiteral("active-members-and-removed-readonly")
+                        : QStringLiteral("public-members-and-removed-readonly");
+                    groupObj["historyReadOnly"] = false;
+                    groupObj["historyRetainedAfterRemoval"] = historyPolicy.contains(QStringLiteral("removed-readonly"));
 
                     QJsonArray members;
                     QSqlQuery memberQuery(db);
@@ -5234,6 +5277,11 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     groupObj["canReadHistory"] = true;
                     groupObj["historyPolicy"] = historyPolicy;
                     groupObj["filePolicy"] = filePolicy;
+                    groupObj["historyVisibility"] = groupType == QLatin1String("private")
+                        ? QStringLiteral("removed-member-readonly")
+                        : QStringLiteral("public-removed-member-readonly");
+                    groupObj["historyReadOnly"] = true;
+                    groupObj["historyRetainedAfterRemoval"] = historyPolicy.contains(QStringLiteral("removed-readonly"));
                     groupObj["removedBy"] = removedQuery.value(7).toString();
                     groupObj["removedByName"] = removedQuery.value(8).toString();
                     groupObj["removedAt"] = removedQuery.value(9).toString();

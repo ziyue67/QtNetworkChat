@@ -181,6 +181,24 @@ bool groupHasAuditEvent(const QJsonObject& group,
     return false;
 }
 
+bool groupHasRejectedAuditEvent(const QJsonObject& group,
+                                const QString& action,
+                                const QString& actorId,
+                                const QString& reasonFragment = QString()) {
+    const QJsonArray auditEvents = group["auditEvents"].toArray();
+    for (const QJsonValue& value : auditEvents) {
+        const QJsonObject event = value.toObject();
+        const QJsonObject details = event["details"].toObject();
+        if (event["action"].toString() == action
+            && event["actorId"].toString() == actorId
+            && details["rejected"].toBool(false)
+            && (reasonFragment.isEmpty() || details["reason"].toString().contains(reasonFragment))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool writeTestFile(const QString& path, const QByteArray& payload) {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
@@ -298,7 +316,10 @@ int main(int argc, char** argv) {
     ok = expect(publicGroupAnnouncement(member.serverGroups()) == ownerAnnouncement,
                 "rejected member announcement should not change public group announcement") && ok;
     ok = expect(publicGroupAuditActionCount(member.serverGroups(), "announcement_update") == 1,
-                "rejected member announcement should not create an audit event") && ok;
+                "rejected member announcement should not create another success audit event") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasRejectedAuditEvent(publicGroup(owner.serverGroups()), "announcement_rejected", memberId, QString::fromUtf8("只有群主或管理员"));
+    }), "rejected member announcement should create a rejected audit event with reason") && ok;
 
     ownerSystemMessages.clear();
     ok = expect(owner.sendServerGroupMemberUpdate("public", ownerId, "remove"),
@@ -312,6 +333,9 @@ int main(int argc, char** argv) {
     ok = expect(publicGroupHasMember(owner.serverGroups(), ownerId)
                     && publicGroupMemberRole(owner.serverGroups(), ownerId) == "owner",
                 "owner should remain the public group owner after rejected self-removal") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasRejectedAuditEvent(publicGroup(owner.serverGroups()), "remove_rejected", ownerId, QString::fromUtf8("不能移出群主"));
+    }), "owner self-removal rejection should be visible in audit events") && ok;
 
     ok = expect(owner.sendServerGroupMemberUpdate("public", memberId, "remove"),
                 "owner should submit member removal") && ok;
@@ -375,7 +399,10 @@ int main(int argc, char** argv) {
                     && publicGroupMemberRole(member.serverGroups(), memberId) == "member",
                 "duplicate member add should keep the existing member role") && ok;
     ok = expect(publicGroupAuditActionCount(member.serverGroups(), "add") == 1,
-                "duplicate member add should not create another audit event") && ok;
+                "duplicate member add should not create another success audit event") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasRejectedAuditEvent(publicGroup(owner.serverGroups()), "add_rejected", ownerId, QString::fromUtf8("已经是群成员"));
+    }), "duplicate member add should create a rejected audit event with reason") && ok;
 
     const QString restoredBroadcast = "restored member broadcast should pass";
     ownerGroupMessages.clear();
@@ -489,6 +516,9 @@ int main(int argc, char** argv) {
             && group["groupType"].toString() == "private"
             && group["membershipState"].toString() == "active"
             && group["historyPolicy"].toString() == "member-and-removed-readonly"
+            && group["historyVisibility"].toString() == "active-members-and-removed-readonly"
+            && !group["historyReadOnly"].toBool(true)
+            && group["historyRetainedAfterRemoval"].toBool(false)
             && group["filePolicy"].toString() == "members-only"
             && group["canSend"].toBool(false)
             && group["canSendFiles"].toBool(false)
@@ -507,6 +537,9 @@ int main(int argc, char** argv) {
         const QJsonObject ownerPrivate = groupById(owner.serverGroups(), privateGroupId);
         return memberPrivate["groupType"].toString() == "private"
             && memberPrivate["membershipState"].toString() == "active"
+            && memberPrivate["historyVisibility"].toString() == "active-members-and-removed-readonly"
+            && !memberPrivate["historyReadOnly"].toBool(true)
+            && memberPrivate["historyRetainedAfterRemoval"].toBool(false)
             && memberPrivate["canSend"].toBool(false)
             && memberPrivate["canSendFiles"].toBool(false)
             && memberPrivate["canReadHistory"].toBool(false)
@@ -572,6 +605,9 @@ int main(int argc, char** argv) {
         return removedPrivate["membershipState"].toString() == "removed"
             && removedPrivate["groupType"].toString() == "private"
             && removedPrivate["historyPolicy"].toString() == "member-and-removed-readonly"
+            && removedPrivate["historyVisibility"].toString() == "removed-member-readonly"
+            && removedPrivate["historyReadOnly"].toBool(false)
+            && removedPrivate["historyRetainedAfterRemoval"].toBool(false)
             && removedPrivate["filePolicy"].toString() == "members-only"
             && removedPrivate["canReadHistory"].toBool(false)
             && !removedPrivate["canSend"].toBool(true)
