@@ -75,6 +75,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
+    src/clientstorage.cpp
     src/historyservice.cpp
     src/historymetadata.cpp
     src/server.cpp
@@ -86,6 +87,7 @@ add_executable(QtNetworkChat
     src/logincredentialstore.cpp
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     include/mainwindow.h
+    include/clientstorage.h
     include/historyservice.h
     include/historymetadata.h
     include/server.h
@@ -267,6 +269,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(group_manager_test PRIVATE include)
     target_link_libraries(group_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(client_storage_test
+        tests/client_storage_test.cpp
+        src/clientstorage.cpp
+        include/clientstorage.h
+    )
+    target_include_directories(client_storage_test PRIVATE include)
+    target_link_libraries(client_storage_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
 
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
@@ -589,6 +599,13 @@ if(BUILD_TESTING)
         NAME GroupManagerPermissionState
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:group_manager_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME ClientStoragePersistence
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:client_storage_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

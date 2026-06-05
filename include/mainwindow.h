@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include "client.h"
 #include "chatuser.h"
+#include "clientstorage.h"
 #include "friendmanager.h"
 #include "groupmanager.h"
 #include "historyservice.h"
@@ -127,6 +128,7 @@ private:
 
     Ui::MainWindow* ui;
     Client* m_client;
+    ClientStorage m_clientStorage;
     QStandardItemModel* m_userListModel;
     QStandardItemModel* m_chatModel;
     QStandardItemModel* m_groupMemberModel;

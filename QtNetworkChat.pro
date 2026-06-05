@@ -18,6 +18,7 @@ SOURCES += \
     src/filetransferstatus.cpp \
     src/friendmanager.cpp \
     src/groupmanager.cpp \
+    src/clientstorage.cpp \
     src/server.cpp \
     src/client.cpp \
     src/redisclient.cpp \
@@ -32,6 +33,7 @@ HEADERS += \
     include/filetransferstatus.h \
     include/friendmanager.h \
     include/groupmanager.h \
+    include/clientstorage.h \
     include/server.h \
     include/client.h \
     include/redisclient.h \

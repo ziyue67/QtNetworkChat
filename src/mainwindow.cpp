@@ -302,6 +302,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , m_client(client)
+    , m_clientStorage(userName)
     , m_userListModel(new QStandardItemModel(this))
     , m_chatModel(new QStandardItemModel(this))
     , m_groupMemberModel(new QStandardItemModel(this))
@@ -377,6 +378,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     m_currentUserId = m_client->currentUserId();
     m_currentUserName = m_client->currentUserName();
     m_historyService.setUserId(m_currentUserId);
+    m_clientStorage.setUserName(m_currentUserName);
     setWindowIcon(createChatIcon(m_currentUserName));
     ui->profileNameLabel->setText("QQ: " + m_currentUserId);
     ui->profileIdLabel->setText("昵称: " + m_currentUserName);
@@ -7435,25 +7437,8 @@ QString MainWindow::clientDbPath() const {
 
 bool MainWindow::saveProfileToSqlite() const {
     if (m_currentUserId.isEmpty() || !ensureClientDatabase()) return false;
-
-    const QString connectionName = "client_profile_write_" + QString::number(reinterpret_cast<quintptr>(this));
-    bool ok = false;
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-        db.setDatabaseName(clientDbPath());
-        if (db.open()) {
-            QSqlQuery query(db);
-            query.prepare("INSERT OR REPLACE INTO profile(user_id, user_name, avatar_path, updated_at) "
-                          "VALUES(?, ?, ?, datetime('now'))");
-            query.addBindValue(m_currentUserId);
-            query.addBindValue(m_currentUserName);
-            query.addBindValue(QFileInfo::exists(getAvatarFilePath()) ? getAvatarFilePath() : QString());
-            ok = query.exec();
-            db.close();
-        }
-    }
-    QSqlDatabase::removeDatabase(connectionName);
-    return ok;
+    const QString avatarPath = QFileInfo::exists(getAvatarFilePath()) ? getAvatarFilePath() : QString();
+    return m_clientStorage.saveProfileToSqlite(clientDbPath(), m_currentUserId, m_currentUserName, avatarPath);
 }
 
 QStandardItem* MainWindow::findUserItem(const QString& userId) {
@@ -7497,20 +7482,9 @@ void MainWindow::refreshFriendList() {
         QSqlDatabase::removeDatabase(connectionName);
     }
 
-    QFile file(getFriendFilePath());
-    if (!loadedFriendsFromSqlite && m_friendIds.isEmpty() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QTextStream in(&file);
-        while (!in.atEnd()) {
-            QString line = in.readLine().trimmed();
-            QString id = line.section('|', 0, 0);
-            QString name = line.section('|', 1);
-            if (!id.isEmpty() && !m_friendIds.contains(id)) {
-                m_friendIds << id;
-            }
-            if (!id.isEmpty() && !name.isEmpty()) {
-                m_friendNames[id] = name;
-            }
-        }
+    if (!loadedFriendsFromSqlite
+        && m_friendIds.isEmpty()
+        && m_clientStorage.readLegacyFriends(&m_friendIds, &m_friendNames)) {
         saveFriends();
     }
 
@@ -7578,25 +7552,13 @@ void MainWindow::refreshFriendList() {
         QSqlDatabase::removeDatabase(connectionName);
     }
 
-    QFile groupFile(getGroupFilePath());
-    if (!loadedGroupsFromSqlite && m_localGroupIds.isEmpty() && groupFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QTextStream in(&groupFile);
-        while (!in.atEnd()) {
-            QString line = in.readLine().trimmed();
-            QString id = line.section('|', 0, 0);
-            QString name = line.section('|', 1);
-            if (!id.isEmpty() && !m_localGroupIds.contains(id)) {
-                m_localGroupIds << id;
-            }
-            if (!id.isEmpty() && !name.isEmpty()) {
-                m_localGroupNames[id] = name;
-            }
-            QStringList members = line.section('|', 2).split(',', Qt::SkipEmptyParts);
-            if (members.isEmpty() && !id.isEmpty()) members << m_currentUserId;
-            if (!id.isEmpty()) m_localGroupMembers[id] = members;
-            QString announcement = line.section('|', 3);
-            if (!id.isEmpty()) m_localGroupAnnouncements[id] = announcement.isEmpty() ? QString("%1 已创建，可继续邀请好友并发送消息。").arg(m_localGroupNames.value(id, "群聊")) : announcement;
-        }
+    if (!loadedGroupsFromSqlite
+        && m_localGroupIds.isEmpty()
+        && m_clientStorage.readLegacyLocalGroups(m_currentUserId,
+                                                 &m_localGroupIds,
+                                                 &m_localGroupNames,
+                                                 &m_localGroupMembers,
+                                                 &m_localGroupAnnouncements)) {
         saveLocalGroups();
     }
 
@@ -8099,120 +8061,42 @@ void MainWindow::copyE2ESessionStatus(const QString& peerId) {
 }
 
 QString MainWindow::getFriendFilePath() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (dir.isEmpty()) dir = ".";
-    QDir().mkpath(dir);
-    return dir + "/friends_" + m_currentUserName + ".txt";
+    return m_clientStorage.friendFilePath();
 }
 
 QString MainWindow::getGroupFilePath() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (dir.isEmpty()) dir = ".";
-    QDir().mkpath(dir);
-    return dir + "/groups_" + m_currentUserName + ".txt";
+    return m_clientStorage.groupFilePath();
 }
 
 QString MainWindow::getAvatarFilePath() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (dir.isEmpty()) dir = ".";
-    QDir().mkpath(dir);
-    return dir + "/avatar_" + m_currentUserName + ".png";
+    return m_clientStorage.avatarFilePath();
 }
 
 void MainWindow::saveFriends() const {
     if (ensureClientDatabase()) {
-        const QString connectionName = "client_friends_write_" + QString::number(reinterpret_cast<quintptr>(this));
-        {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(clientDbPath());
-            if (db.open()) {
-                db.transaction();
-                QSqlQuery clearQuery(db);
-                bool ok = clearQuery.exec("DELETE FROM friends");
-                QSqlQuery insertQuery(db);
-                insertQuery.prepare("INSERT OR REPLACE INTO friends(user_id, display_name, updated_at) VALUES(?, ?, datetime('now'))");
-                for (const QString& id : m_friendIds) {
-                    if (id.isEmpty()) continue;
-                    insertQuery.addBindValue(id);
-                    insertQuery.addBindValue(m_friendNames.value(id, id));
-                    ok = insertQuery.exec() && ok;
-                }
-                if (ok) {
-                    QSqlQuery clearRequestsQuery(db);
-                    ok = clearRequestsQuery.exec("DELETE FROM friend_requests");
-                }
-                QSqlQuery requestQuery(db);
-                requestQuery.prepare("INSERT OR REPLACE INTO friend_requests(request_id, display_name, direction, status, updated_at) "
-                                     "VALUES(?, ?, ?, 'pending', datetime('now'))");
-                for (const QString& id : m_pendingFriendRequests) {
-                    if (id.isEmpty() || m_friendIds.contains(id)) continue;
-                    requestQuery.bindValue(0, id);
-                    requestQuery.bindValue(1, m_friendNames.value(id, id));
-                    requestQuery.bindValue(2, "incoming");
-                    ok = requestQuery.exec() && ok;
-                }
-                for (const QString& id : m_pendingOutgoingFriendRequests) {
-                    if (id.isEmpty() || m_friendIds.contains(id)) continue;
-                    requestQuery.bindValue(0, id);
-                    requestQuery.bindValue(1, m_friendNames.value(id, id));
-                    requestQuery.bindValue(2, "outgoing");
-                    ok = requestQuery.exec() && ok;
-                }
-                ok ? db.commit() : db.rollback();
-                db.close();
-            }
-        }
-        QSqlDatabase::removeDatabase(connectionName);
+        m_clientStorage.saveFriendsToSqlite(clientDbPath(),
+                                            m_friendIds,
+                                            m_friendNames,
+                                            m_pendingFriendRequests,
+                                            m_pendingOutgoingFriendRequests);
     }
-
-    QFile file(getFriendFilePath());
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-
-    QTextStream out(&file);
-    for (const QString& id : m_friendIds) {
-        out << id << "|" << m_friendNames.value(id, id) << "\n";
-    }
+    m_clientStorage.writeLegacyFriends(m_friendIds, m_friendNames);
 }
 
 void MainWindow::saveLocalGroups() const {
     if (ensureClientDatabase()) {
-        const QString connectionName = "client_groups_write_" + QString::number(reinterpret_cast<quintptr>(this));
-        {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-            db.setDatabaseName(clientDbPath());
-            if (db.open()) {
-                db.transaction();
-                QSqlQuery clearQuery(db);
-                bool ok = clearQuery.exec("DELETE FROM local_groups");
-                QSqlQuery insertQuery(db);
-                insertQuery.prepare("INSERT OR REPLACE INTO local_groups(group_id, group_name, members, announcement, updated_at) "
-                                    "VALUES(?, ?, ?, ?, datetime('now'))");
-                for (const QString& id : m_localGroupIds) {
-                    if (id.isEmpty()) continue;
-                    QStringList members = m_localGroupMembers.value(id);
-                    if (members.isEmpty()) members << m_currentUserId;
-                    insertQuery.addBindValue(id);
-                    insertQuery.addBindValue(m_localGroupNames.value(id, "群聊"));
-                    insertQuery.addBindValue(members.join(','));
-                    insertQuery.addBindValue(m_localGroupAnnouncements.value(id));
-                    ok = insertQuery.exec() && ok;
-                }
-                ok ? db.commit() : db.rollback();
-                db.close();
-            }
-        }
-        QSqlDatabase::removeDatabase(connectionName);
+        m_clientStorage.saveLocalGroupsToSqlite(clientDbPath(),
+                                                m_currentUserId,
+                                                m_localGroupIds,
+                                                m_localGroupNames,
+                                                m_localGroupMembers,
+                                                m_localGroupAnnouncements);
     }
-
-    QFile file(getGroupFilePath());
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-
-    QTextStream out(&file);
-    for (const QString& id : m_localGroupIds) {
-        QStringList members = m_localGroupMembers.value(id);
-        if (members.isEmpty()) members << m_currentUserId;
-        out << id << "|" << m_localGroupNames.value(id, "群聊") << "|" << members.join(',') << "|" << m_localGroupAnnouncements.value(id) << "\n";
-    }
+    m_clientStorage.writeLegacyLocalGroups(m_currentUserId,
+                                           m_localGroupIds,
+                                           m_localGroupNames,
+                                           m_localGroupMembers,
+                                           m_localGroupAnnouncements);
 }
 
 void MainWindow::updateUnreadState() {
