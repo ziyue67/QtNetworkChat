@@ -1,0 +1,21 @@
+# E2E Hardening Status
+
+QtNetworkChat treats the server as a transparent carrier for private-message E2E envelopes, identity announcements, and rotation control messages. Trust decisions remain local to the client.
+
+## Completed Boundaries
+
+- Authenticated identity-bound agreement using signed request/response transcripts.
+- Persistent local E2E identity material, observed peer fingerprints, trust pins, mismatch handling, and cross-device short-code verification.
+- Default trust gates for private text and private files.
+- History metadata migration for `plaintext`, `encrypted`, and `decrypt-failed` states.
+- Private file payload encryption before chunk upload, including Redis/object routing evidence that avoids Redis plaintext or session keys.
+- Encrypted private file interruption policy that requires resend rather than automatic old-envelope resume.
+- Production crypto backend contract, adapter registry, provider dispatch evidence, operation matrix, harness, execution plan, invocation contract, slot registry, dispatch binding table, production acceptance gate, and production-required fail-closed behavior.
+
+## Remaining Production Crypto Work
+
+- Replace draft Qt/HMAC primitives with reviewed production operations.
+- Make `productionAcceptance.accepted=true` only after every operation has reviewed implementation state, vector evidence, compatibility status, no sensitive material export, passing harness, ready execution plan, callable invocation, reviewed slot, callable dispatch binding, and passing production-required dispatch.
+- Replace fail-closed production rotation evidence with real reviewed key/signature/session rotation after the backend is ready.
+- Extend encrypted file recovery beyond resend-only after the production backend and key rotation model are stable.
+

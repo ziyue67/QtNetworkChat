@@ -743,6 +743,13 @@ if(BUILD_TESTING)
             -ScriptPath ${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-automation-status.ps1
     )
     add_test(
+        NAME ReadmeInformationArchitecture
+        COMMAND powershell -ExecutionPolicy Bypass -File
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify-readme-information-architecture.ps1
+            -ReadmePath ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+            -DocsDir ${CMAKE_CURRENT_SOURCE_DIR}/docs
+    )
+    add_test(
         NAME AutomationTaskHistory
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-automation-task-history.ps1
