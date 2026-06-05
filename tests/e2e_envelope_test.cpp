@@ -1,4 +1,5 @@
 #include "e2eenvelope.h"
+#include "qtnetworkchat_e2e_provider_api.h"
 
 #include <QDebug>
 #include <QJsonArray>
@@ -181,6 +182,14 @@ int main() {
                         == QStringLiteral("production-provider-table-blocked-not-linked")
                     && productionProviderTable.value("buildProbeReason").toString()
                         == QStringLiteral("production-provider-table-not-requested")
+                    && productionProviderTable.value("providerApiHeader").toString()
+                        == QStringLiteral("include/qtnetworkchat_e2e_provider_api.h")
+                    && productionProviderTable.value("headerTableAbi").toString()
+                        == QString::fromLatin1(QNC_E2E_PROVIDER_TABLE_ABI)
+                    && productionProviderTable.value("abiMatchesHeader").toBool(false)
+                    && productionProviderTable.value("headerOperationCount").toInt()
+                        == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT
+                    && productionProviderTable.value("operationCountMatchesHeader").toBool(false)
                     && !productionProviderTable.value("tableBound").toBool(true)
                     && productionProviderTable.value("requiredSymbolCount").toInt() == 8
                     && productionProviderTable.value("boundSymbolCount").toInt() == 0
@@ -316,7 +325,11 @@ int main() {
                     && firstProviderTableEntry.value("requiredSymbol").toString()
                         == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
                     && firstProviderTableEntry.value("tableAbi").toString()
-                        == QStringLiteral("qtnetworkchat-e2e-provider-table-v1")
+                        == QString::fromLatin1(QNC_E2E_PROVIDER_TABLE_ABI)
+                    && firstProviderTableEntry.value("providerApiHeader").toString()
+                        == QStringLiteral("include/qtnetworkchat_e2e_provider_api.h")
+                    && firstProviderTableEntry.value("headerOperationCount").toInt()
+                        == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT
                     && firstProviderTableEntry.value("required").toBool(false)
                     && !firstProviderTableEntry.value("bound").toBool(true)
                     && firstProviderTableEntry.value("abiSignature").toString()
@@ -327,6 +340,14 @@ int main() {
                     && !firstProviderTableEntry.value("rawKeyExported").toBool(true)
                     && !firstProviderTableEntry.value("privateMaterialExported").toBool(true),
                 "production provider table should expose required symbols without binding placeholders") && ok;
+    ok = expect(QString::fromLatin1(QNC_E2E_OPERATION_CONTRACT_VERSION)
+                        == QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1")
+                    && sizeof(qnc_e2e_operation_input_v1) > 0
+                    && sizeof(qnc_e2e_operation_output_v1) > 0
+                    && sizeof(qnc_e2e_provider_table_v1) > sizeof(void*)
+                    && QNC_E2E_OPERATION_PAYLOAD_DECRYPT == 7
+                    && QNC_E2E_STATUS_OK == 0,
+                "production provider C ABI header should expose stable table and operation contracts") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),

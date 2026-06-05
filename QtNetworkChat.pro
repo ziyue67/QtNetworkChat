@@ -40,7 +40,8 @@ HEADERS += \
     include/objectstore.h \
     include/chatuser.h \
     include/message.h \
-    include/qtnetworkchat_version.h
+    include/qtnetworkchat_version.h \
+    include/qtnetworkchat_e2e_provider_api.h
 
 FORMS += \
     ui/mainwindow.ui

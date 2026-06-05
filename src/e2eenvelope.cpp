@@ -1,5 +1,6 @@
 #include "e2eenvelope.h"
 #include "qtnetworkchat_e2e_crypto_config.h"
+#include "qtnetworkchat_e2e_provider_api.h"
 
 #include <QCryptographicHash>
 #include <QHash>
@@ -353,9 +354,25 @@ QString productionOperationSlotId(E2ECryptoOperation operation) {
 }
 
 QString productionOperationProviderSymbol(E2ECryptoOperation operation) {
-    QString symbol = cryptoOperationName(operation);
-    symbol.replace(QLatin1Char('-'), QLatin1Char('_'));
-    return QStringLiteral("qnc_e2e_op_%1_v1").arg(symbol);
+    switch (operation) {
+    case E2ECryptoOperation::SessionKeyGeneration:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_SESSION_KEY_GENERATION);
+    case E2ECryptoOperation::IdentityKeyGeneration:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_IDENTITY_KEY_GENERATION);
+    case E2ECryptoOperation::PublicKeyDerivation:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_PUBLIC_KEY_DERIVATION);
+    case E2ECryptoOperation::AgreementSign:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_AGREEMENT_SIGN);
+    case E2ECryptoOperation::AgreementVerify:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_AGREEMENT_VERIFY);
+    case E2ECryptoOperation::SessionDerive:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_SESSION_DERIVE);
+    case E2ECryptoOperation::PayloadEncrypt:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_PAYLOAD_ENCRYPT);
+    case E2ECryptoOperation::PayloadDecrypt:
+        return QString::fromLatin1(QNC_E2E_PROVIDER_SYMBOL_PAYLOAD_DECRYPT);
+    }
+    return QStringLiteral("qnc_e2e_op_unknown_v1");
 }
 
 QString productionOperationProviderAbiSignature(E2ECryptoOperation operation) {
@@ -986,6 +1003,11 @@ QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDes
         productionOperationCallableManifestForDescriptor(descriptor);
     const QJsonArray callables = callableManifest.value(QStringLiteral("callables")).toArray();
     const QStringList configuredSymbols = configuredProductionProviderSymbols();
+    const bool abiMatchesHeader =
+        QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI)
+            == QString::fromLatin1(QNC_E2E_PROVIDER_TABLE_ABI);
+    const bool operationCountMatchesHeader =
+        cryptoOperations().size() == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT;
 
     QJsonArray entries;
     int requiredSymbolCount = 0;
@@ -1022,6 +1044,10 @@ QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDes
         entry[QStringLiteral("backendId")] = descriptor.id;
         entry[QStringLiteral("tableAbi")] =
             QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI);
+        entry[QStringLiteral("providerApiHeader")] =
+            QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_API_HEADER);
+        entry[QStringLiteral("headerOperationCount")] =
+            QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT;
         entry[QStringLiteral("requiredSymbol")] = expectedSymbol;
         entry[QStringLiteral("required")] = symbolRequired;
         entry[QStringLiteral("bound")] = symbolBound;
@@ -1070,6 +1096,8 @@ QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDes
         && descriptor.productionReady
         && descriptor.linked
         && tableBound
+        && abiMatchesHeader
+        && operationCountMatchesHeader
         && callableManifest.value(QStringLiteral("accepted")).toBool(false)
         && requiredSymbolCount == cryptoOperations().size()
         && boundSymbolCount == cryptoOperations().size()
@@ -1085,6 +1113,14 @@ QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDes
     status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
     status[QStringLiteral("tableAbi")] =
         QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI);
+    status[QStringLiteral("providerApiHeader")] =
+        QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_API_HEADER);
+    status[QStringLiteral("headerTableAbi")] =
+        QString::fromLatin1(QNC_E2E_PROVIDER_TABLE_ABI);
+    status[QStringLiteral("abiMatchesHeader")] = abiMatchesHeader;
+    status[QStringLiteral("headerOperationCount")] =
+        QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT;
+    status[QStringLiteral("operationCountMatchesHeader")] = operationCountMatchesHeader;
     status[QStringLiteral("buildProbeReason")] =
         QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REASON);
     status[QStringLiteral("linked")] = descriptor.linked;

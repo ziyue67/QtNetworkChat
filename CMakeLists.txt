@@ -30,6 +30,7 @@ set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON "production-backend-not-requeste
 set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-not-requested")
 set(QTNETWORKCHAT_E2E_PRODUCTION_REQUIRED_OPERATIONS "session-key-generation,identity-key-generation,public-key-derivation,agreement-sign,agreement-verify,session-derive,payload-encrypt,payload-decrypt")
 set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI "qtnetworkchat-e2e-provider-table-v1")
+set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_API_HEADER "include/qtnetworkchat_e2e_provider_api.h")
 set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REQUIRED_SYMBOLS "qnc_e2e_op_session_key_generation_v1,qnc_e2e_op_identity_key_generation_v1,qnc_e2e_op_public_key_derivation_v1,qnc_e2e_op_agreement_sign_v1,qnc_e2e_op_agreement_verify_v1,qnc_e2e_op_session_derive_v1,qnc_e2e_op_payload_encrypt_v1,qnc_e2e_op_payload_decrypt_v1")
 set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_BOUND 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REASON "production-provider-table-not-requested")
@@ -82,6 +83,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     include/friendmanager.h
     include/groupmanager.h
     include/e2eenvelope.h
+    include/qtnetworkchat_e2e_provider_api.h
 )
 
 add_executable(QtNetworkChat
@@ -133,6 +135,7 @@ if(BUILD_TESTING)
         src/e2eenvelope.cpp
         include/message.h
         include/e2eenvelope.h
+        include/qtnetworkchat_e2e_provider_api.h
     )
     qtnetworkchat_target_include_dirs(message_serialization_test)
     target_link_libraries(message_serialization_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
@@ -141,6 +144,7 @@ if(BUILD_TESTING)
         tests/e2e_envelope_test.cpp
         src/e2eenvelope.cpp
         include/e2eenvelope.h
+        include/qtnetworkchat_e2e_provider_api.h
     )
     qtnetworkchat_target_include_dirs(e2e_envelope_test)
     target_link_libraries(e2e_envelope_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)

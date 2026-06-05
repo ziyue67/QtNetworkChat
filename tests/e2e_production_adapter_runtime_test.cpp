@@ -1,4 +1,5 @@
 #include "e2eenvelope.h"
+#include "qtnetworkchat_e2e_provider_api.h"
 
 #include <QDebug>
 #include <QJsonArray>
@@ -225,6 +226,14 @@ int main() {
                     && providerTable.value("buildProbeReason").toString() == (adapterLinked
                         ? QStringLiteral("production-provider-table-linked-placeholder")
                         : QStringLiteral("production-provider-table-not-requested"))
+                    && providerTable.value("providerApiHeader").toString()
+                        == QStringLiteral("include/qtnetworkchat_e2e_provider_api.h")
+                    && providerTable.value("headerTableAbi").toString()
+                        == QString::fromLatin1(QNC_E2E_PROVIDER_TABLE_ABI)
+                    && providerTable.value("abiMatchesHeader").toBool(false)
+                    && providerTable.value("headerOperationCount").toInt()
+                        == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT
+                    && providerTable.value("operationCountMatchesHeader").toBool(false)
                     && !providerTable.value("accepted").toBool(true)
                     && !providerTable.value("tableBound").toBool(true)
                     && providerTable.value("requiredSymbolCount").toInt() == 8
