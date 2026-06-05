@@ -105,6 +105,8 @@ int main() {
         backendStatus.value("productionProviderTableRegistration").toObject();
     const QJsonObject productionProviderOperationPreflight =
         backendStatus.value("productionProviderOperationPreflight").toObject();
+    const QJsonObject productionProviderInvocationDryRun =
+        backendStatus.value("productionProviderInvocationDryRun").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -244,6 +246,15 @@ int main() {
                     && productionProviderOperationPreflight.value("presentOperationCount").toInt() == 0
                     && productionProviderOperationPreflight.value("operations").toArray().size() == 8
                     && !productionProviderOperationPreflight.value("operationInvoked").toBool(true)
+                    && productionProviderInvocationDryRun.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-dry-run-v1")
+                    && productionProviderInvocationDryRun.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-invocation-dry-run-blocked-not-linked")
+                    && productionProviderInvocationDryRun.value("blockedInvocationCount").toInt() == 8
+                    && productionProviderInvocationDryRun.value("dryRunReadyCount").toInt() == 0
+                    && productionProviderInvocationDryRun.value("sanitizedInvocationCount").toInt() == 8
+                    && productionProviderInvocationDryRun.value("invocations").toArray().size() == 8
+                    && !productionProviderInvocationDryRun.value("operationInvoked").toBool(true)
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -255,7 +266,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 9
+                        .value("checks").toArray().size() == 10
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -277,7 +288,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 9
+                        .value("checks").toArray().size() == 10
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -310,6 +321,10 @@ int main() {
                     && productionBackend.value("providerOperationPreflight").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && !productionBackend.value("providerOperationPreflight").toObject()
+                        .value("operationInvoked").toBool(true)
+                    && productionBackend.value("providerInvocationDryRun").toObject()
+                        .value("blockedInvocationCount").toInt() == 8
+                    && !productionBackend.value("providerInvocationDryRun").toObject()
                         .value("operationInvoked").toBool(true)
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
@@ -464,6 +479,8 @@ int main() {
     const QJsonObject backendStatusAfterRegistration = e2eCryptoBackendStatus();
     const QJsonObject preflightAfterRegistration =
         backendStatusAfterRegistration.value("productionProviderOperationPreflight").toObject();
+    const QJsonObject invocationDryRunAfterRegistration =
+        backendStatusAfterRegistration.value("productionProviderInvocationDryRun").toObject();
     ok = expect(!backendStatusAfterRegistration.value("productionReady").toBool(true)
                     && backendStatusAfterRegistration.value("productionProviderTableRegistration").toObject()
                         .value("registered").toBool(false)
@@ -482,7 +499,12 @@ int main() {
                         .value("pointerPresent").toBool(false)
                     && !preflightAfterRegistration.value("operationInvoked").toBool(true)
                     && !backendStatusAfterRegistration.value("productionAcceptance").toObject()
-                        .value("providerOperationPreflightAccepted").toBool(true),
+                        .value("providerOperationPreflightAccepted").toBool(true)
+                    && !backendStatusAfterRegistration.value("productionAcceptance").toObject()
+                        .value("providerInvocationDryRunAccepted").toBool(true)
+                    && invocationDryRunAfterRegistration.value("blockedInvocationCount").toInt() == 8
+                    && invocationDryRunAfterRegistration.value("invocations").toArray().size() == 8
+                    && !invocationDryRunAfterRegistration.value("operationInvoked").toBool(true),
                 "registered provider table should remain fail-closed until production readiness and binding are enabled") && ok;
     completeProviderTable.payload_decrypt = nullptr;
     const QJsonObject missingPointerTable =

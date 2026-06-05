@@ -651,6 +651,19 @@ int main(int argc, char** argv) {
                         && rotationProviderOperationPreflight.value("operations").toArray().size() == 8
                         && !rotationProviderOperationPreflight.value("operationInvoked").toBool(true),
                     "production rotation dry-run should embed provider operation preflight evidence") && ok;
+        const QJsonObject rotationProviderInvocationDryRun =
+            rotationDryRun.value("productionProviderInvocationDryRun").toObject();
+        ok = expect(rotationProviderInvocationDryRun.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-dry-run-v1")
+                        && rotationProviderInvocationDryRun.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-dry-run-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderInvocationDryRunReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-dry-run-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderInvocationDryRunAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderInvocationDryRunBlockedInvocationCount").toInt() == 8
+                        && rotationProviderInvocationDryRun.value("invocations").toArray().size() == 8
+                        && !rotationProviderInvocationDryRun.value("operationInvoked").toBool(true),
+                    "production rotation dry-run should embed provider invocation dry-run evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -675,6 +688,9 @@ int main(int argc, char** argv) {
                         && rotationAcceptance.value("providerOperationPreflight").toObject()
                             .value("blockedOperationCount").toInt() == 8
                         && !rotationAcceptance.value("providerOperationPreflightAccepted").toBool(true)
+                        && rotationAcceptance.value("providerInvocationDryRun").toObject()
+                            .value("blockedInvocationCount").toInt() == 8
+                        && !rotationAcceptance.value("providerInvocationDryRunAccepted").toBool(true)
                         && rotationAcceptance.value("implementedOperationCount").toInt() == 0,
                     "production rotation dry-run should embed sanitized acceptance evidence") && ok;
         const QJsonObject rotationHarness =
@@ -794,6 +810,14 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("productionProviderOperationPreflight").toObject()
                             .value("operations").toArray().size() == 8
                         && !rotationExecute.value("productionProviderOperationPreflight").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationDryRunReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-dry-run-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderInvocationDryRunAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationDryRunBlockedInvocationCount").toInt() == 8
+                        && rotationExecute.value("productionProviderInvocationDryRun").toObject()
+                            .value("invocations").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderInvocationDryRun").toObject()
                             .value("operationInvoked").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
