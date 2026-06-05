@@ -12,6 +12,8 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     src/main.cpp \
     src/mainwindow.cpp \
+    src/historyservice.cpp \
+    src/historymetadata.cpp \
     src/server.cpp \
     src/client.cpp \
     src/redisclient.cpp \
@@ -20,6 +22,8 @@ SOURCES += \
 
 HEADERS += \
     include/mainwindow.h \
+    include/historyservice.h \
+    include/historymetadata.h \
     include/server.h \
     include/client.h \
     include/redisclient.h \

@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include "client.h"
 #include "chatuser.h"
+#include "historyservice.h"
 #include "message.h"
 
 QT_BEGIN_NAMESPACE
@@ -89,19 +90,8 @@ private:
                      const QString& e2eKeyId = QString(),
                      const QString& e2eKeyFingerprint = QString());
     bool ensureClientDatabase() const;
-    bool saveHistoryToSqlite(const QString& peerId, const QString& content) const;
-    bool saveHistoryToSqlite(const QString& peerId,
-                             const QString& content,
-                             const QString& encryptionState,
-                             const QString& e2eKeyId = QString(),
-                             const QString& e2eKeyFingerprint = QString()) const;
-    bool hasHistoryRecords(const QString& peerId) const;
-    QStringList historyRecordsForDate(const QString& peerId, const QDate& date) const;
-    QStringList historyRecordsForExport(const QString& peerId) const;
-    void clearHistoryRecords(const QString& peerId) const;
     QString clientDbPath() const;
     bool saveProfileToSqlite() const;
-    QString getHistoryFilePath(const QString& peerId) const;
     bool sendTransferWithProgress(const QString& filePath, const QString& receiverId, const QString& targetName, const QString& kind, bool asImage, QString* transferSummary = nullptr, bool* canceled = nullptr);
     QStandardItem* findUserItem(const QString& userId);
     void refreshFriendList();
@@ -137,6 +127,7 @@ private:
     QStandardItemModel* m_userListModel;
     QStandardItemModel* m_chatModel;
     QStandardItemModel* m_groupMemberModel;
+    HistoryService m_historyService;
     QString m_currentUserId;
     QString m_currentUserName;
     QStringList m_friendIds;
