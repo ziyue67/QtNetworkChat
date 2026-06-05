@@ -80,6 +80,8 @@ int main() {
         status.value("productionOperationCallableManifest").toObject();
     const QJsonObject executionResult =
         status.value("productionOperationExecutionResult").toObject();
+    const QJsonObject providerTable =
+        status.value("productionProviderTable").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -211,6 +213,28 @@ int main() {
                     && !executionResult.value("sessionSecretExported").toBool(true)
                     && !executionResult.value("privateIdentityMaterialExported").toBool(true),
                 "production execution result status should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(providerTable.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-table-v1")
+                    && providerTable.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-table-blocked-placeholder")
+                            : QStringLiteral("production-provider-table-blocked-not-linked"))
+                    && providerTable.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-provider-table-placeholder")
+                        : QStringLiteral("production-provider-table-not-bound"))
+                    && providerTable.value("buildProbeReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-provider-table-linked-placeholder")
+                        : QStringLiteral("production-provider-table-not-requested"))
+                    && !providerTable.value("accepted").toBool(true)
+                    && !providerTable.value("tableBound").toBool(true)
+                    && providerTable.value("requiredSymbolCount").toInt() == 8
+                    && providerTable.value("boundSymbolCount").toInt() == 0
+                    && providerTable.value("missingSymbolCount").toInt() == 8
+                    && providerTable.value("callableManifestReleaseGate").toString()
+                        == callableManifest.value("releaseGate").toString()
+                    && !providerTable.value("rawKeyExported").toBool(true)
+                    && !providerTable.value("privateMaterialExported").toBool(true),
+                "production provider table should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

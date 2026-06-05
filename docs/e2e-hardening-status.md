@@ -10,11 +10,11 @@ QtNetworkChat treats the server as a transparent carrier for private-message E2E
 - History metadata migration for `plaintext`, `encrypted`, and `decrypt-failed` states.
 - Private file payload encryption before chunk upload, including Redis/object routing evidence that avoids Redis plaintext or session keys.
 - Encrypted private file interruption policy that requires resend rather than automatic old-envelope resume.
-- Production crypto backend contract, adapter registry, provider dispatch evidence, operation matrix, harness, execution plan, invocation contract, slot registry, dispatch binding table, callable manifest, sanitized execution result contract, production rotation dry-run/execute evidence, production acceptance gate, and production-required fail-closed behavior.
+- Production crypto backend contract, adapter registry, provider dispatch evidence, operation matrix, harness, execution plan, invocation contract, slot registry, dispatch binding table, callable manifest, sanitized execution result contract, provider table ABI/build-probe evidence, production rotation dry-run/execute evidence, production acceptance gate, and production-required fail-closed behavior.
 
 ## Remaining Production Crypto Work
 
 - Replace draft Qt/HMAC primitives with reviewed production operations.
-- Make `productionAcceptance.accepted=true` only after every operation has reviewed implementation state, vector evidence, compatibility status, no sensitive material export, passing harness, ready execution plan, callable invocation, reviewed slot, callable dispatch binding, callable manifest ABI/fixture evidence, sanitized execution result evidence, and passing production-required dispatch.
+- Make `productionAcceptance.accepted=true` only after every operation has reviewed implementation state, vector evidence, compatibility status, no sensitive material export, passing harness, ready execution plan, callable invocation, reviewed slot, callable dispatch binding, callable manifest ABI/fixture evidence, sanitized execution result evidence, bound provider table symbols, and passing production-required dispatch.
 - Replace fail-closed production rotation evidence with real reviewed key/signature/session rotation after the backend is ready and every sanitized operation execution result has passed.
 - Extend encrypted file recovery beyond resend-only after the production backend and key rotation model are stable.

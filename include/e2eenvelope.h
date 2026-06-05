@@ -56,6 +56,7 @@ QJsonObject e2eProductionCryptoOperationSlotStatus();
 QJsonObject e2eProductionCryptoOperationDispatchBindingStatus();
 QJsonObject e2eProductionCryptoOperationCallableManifestStatus();
 QJsonObject e2eProductionCryptoOperationExecutionResultStatus();
+QJsonObject e2eProductionCryptoProviderTableStatus();
 QByteArray generateE2ESessionKey();
 QByteArray generateE2EPrivateKey();
 QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey);

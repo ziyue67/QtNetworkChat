@@ -277,6 +277,7 @@ QJsonArray productionOperationManifest() {
 }
 
 QJsonObject productionOperationHarnessStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
+QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
 
 QStringList productionOperationInputContract(E2ECryptoOperation operation) {
     switch (operation) {
@@ -969,6 +970,158 @@ QJsonObject productionOperationExecutionResultForDescriptor(const E2ECryptoAdapt
     return status;
 }
 
+QStringList configuredProductionProviderSymbols() {
+    const QStringList configured =
+        QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REQUIRED_SYMBOLS)
+            .split(QLatin1Char(','), Qt::SkipEmptyParts);
+    QStringList symbols;
+    for (const QString& symbol : configured) {
+        symbols.append(symbol.trimmed());
+    }
+    return symbols;
+}
+
+QJsonObject productionProviderTableStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
+    const QJsonObject callableManifest =
+        productionOperationCallableManifestForDescriptor(descriptor);
+    const QJsonArray callables = callableManifest.value(QStringLiteral("callables")).toArray();
+    const QStringList configuredSymbols = configuredProductionProviderSymbols();
+
+    QJsonArray entries;
+    int requiredSymbolCount = 0;
+    int boundSymbolCount = 0;
+    int missingSymbolCount = 0;
+    int abiMismatchCount = 0;
+    int fixtureMismatchCount = 0;
+    int sequenceIndex = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const E2ECryptoOperation operation = spec.operation;
+        const QString operationName = cryptoOperationName(operation);
+        const QString expectedSymbol = productionOperationProviderSymbol(operation);
+        const QString expectedAbi = productionOperationProviderAbiSignature(operation);
+        const QString expectedFixture = productionHarnessFixtureHash(spec);
+        const QJsonObject callable = sequenceIndex < callables.size()
+            ? callables.at(sequenceIndex).toObject()
+            : QJsonObject();
+        const bool symbolRequired = configuredSymbols.contains(expectedSymbol);
+        const bool symbolBound = descriptor.productionReady
+            && descriptor.linked
+            && QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_BOUND != 0
+            && callable.value(QStringLiteral("callable")).toBool(false)
+            && callable.value(QStringLiteral("reviewed")).toBool(false)
+            && callable.value(QStringLiteral("providerSymbol")).toString() == expectedSymbol;
+        const bool abiMatches = callable.value(QStringLiteral("providerAbiSignature")).toString()
+            == expectedAbi;
+        const bool fixtureMatches = callable.value(QStringLiteral("fixtureHashSha256")).toString()
+            == expectedFixture;
+
+        QJsonObject entry;
+        entry[QStringLiteral("sequenceIndex")] = sequenceIndex;
+        entry[QStringLiteral("operation")] = operationName;
+        entry[QStringLiteral("providerId")] = descriptor.providerId;
+        entry[QStringLiteral("backendId")] = descriptor.id;
+        entry[QStringLiteral("tableAbi")] =
+            QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI);
+        entry[QStringLiteral("requiredSymbol")] = expectedSymbol;
+        entry[QStringLiteral("required")] = symbolRequired;
+        entry[QStringLiteral("bound")] = symbolBound;
+        entry[QStringLiteral("abiSignature")] = expectedAbi;
+        entry[QStringLiteral("abiSignatureMatches")] = abiMatches;
+        entry[QStringLiteral("fixtureHashSha256")] = expectedFixture;
+        entry[QStringLiteral("fixtureHashMatches")] = fixtureMatches;
+        entry[QStringLiteral("callableManifestState")] =
+            callable.value(QStringLiteral("bindingState")).toString(
+                descriptor.linked ? QStringLiteral("linked-placeholder") : QStringLiteral("not-linked"));
+        entry[QStringLiteral("callableManifestAccepted")] =
+            callableManifest.value(QStringLiteral("accepted")).toBool(false);
+        entry[QStringLiteral("blockedReason")] = symbolBound
+            ? QString()
+            : (descriptor.linked
+                ? QStringLiteral("production-provider-table-placeholder")
+                : QStringLiteral("production-provider-table-not-bound"));
+        entry[QStringLiteral("operatorAction")] = symbolBound
+            ? QStringLiteral("none")
+            : (descriptor.linked
+                ? QStringLiteral("bind-reviewed-provider-table-symbols")
+                : QStringLiteral("link-reviewed-production-crypto-backend"));
+        entry[QStringLiteral("rawKeyExported")] = false;
+        entry[QStringLiteral("privateMaterialExported")] = false;
+        entries.append(entry);
+
+        if (symbolRequired) {
+            ++requiredSymbolCount;
+        }
+        if (symbolBound) {
+            ++boundSymbolCount;
+        } else {
+            ++missingSymbolCount;
+        }
+        if (!abiMatches) {
+            ++abiMismatchCount;
+        }
+        if (!fixtureMatches) {
+            ++fixtureMismatchCount;
+        }
+        ++sequenceIndex;
+    }
+
+    const bool tableBound = QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_BOUND != 0;
+    const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
+        && descriptor.productionReady
+        && descriptor.linked
+        && tableBound
+        && callableManifest.value(QStringLiteral("accepted")).toBool(false)
+        && requiredSymbolCount == cryptoOperations().size()
+        && boundSymbolCount == cryptoOperations().size()
+        && missingSymbolCount == 0
+        && abiMismatchCount == 0
+        && fixtureMismatchCount == 0;
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-table-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("tableAbi")] =
+        QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI);
+    status[QStringLiteral("buildProbeReason")] =
+        QString::fromLatin1(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REASON);
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("tableBound")] = tableBound;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("accepted")] = accepted;
+    status[QStringLiteral("requiredSymbolCount")] = requiredSymbolCount;
+    status[QStringLiteral("boundSymbolCount")] = boundSymbolCount;
+    status[QStringLiteral("missingSymbolCount")] = missingSymbolCount;
+    status[QStringLiteral("abiMismatchCount")] = abiMismatchCount;
+    status[QStringLiteral("fixtureMismatchCount")] = fixtureMismatchCount;
+    status[QStringLiteral("callableManifestReleaseGate")] =
+        callableManifest.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("callableManifestAccepted")] =
+        callableManifest.value(QStringLiteral("accepted")).toBool(false);
+    status[QStringLiteral("releaseGate")] = accepted
+        ? QStringLiteral("production-provider-table-ready")
+        : (descriptor.linked
+            ? QStringLiteral("production-provider-table-blocked-placeholder")
+            : QStringLiteral("production-provider-table-blocked-not-linked"));
+    status[QStringLiteral("blockedReason")] = accepted
+        ? QString()
+        : (descriptor.linked
+            ? QStringLiteral("production-provider-table-placeholder")
+            : QStringLiteral("production-provider-table-not-bound"));
+    status[QStringLiteral("operatorAction")] = accepted
+        ? QStringLiteral("none")
+        : (descriptor.linked
+            ? QStringLiteral("bind-reviewed-provider-table-symbols")
+            : QStringLiteral("link-reviewed-production-crypto-backend"));
+    status[QStringLiteral("requiredSymbols")] = QJsonArray::fromStringList(configuredSymbols);
+    status[QStringLiteral("entries")] = entries;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    return status;
+}
+
 QJsonObject productionOperationHarnessStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const bool isProduction = descriptor.id == QString::fromLatin1(ProductionBackendId);
     QJsonArray operationHarnesses;
@@ -1371,6 +1524,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionOperationCallableManifestForDescriptor(descriptor);
         evidence[QStringLiteral("operationExecutionResult")] =
             productionOperationExecutionResultForDescriptor(descriptor);
+        evidence[QStringLiteral("providerTable")] =
+            productionProviderTableStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("implementedOperationCount")] = 0;
@@ -1447,6 +1602,15 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                 isProduction
                     ? QStringLiteral("run-production-provider-self-tests")
                     : QStringLiteral("none"));
+    const QJsonObject providerTable = productionProviderTableStatusForDescriptor(descriptor);
+    appendCheck(QStringLiteral("provider-table-bound"),
+                !isProduction || providerTable.value(QStringLiteral("accepted")).toBool(false),
+                isProduction
+                    ? providerTable.value(QStringLiteral("blockedReason")).toString()
+                    : QStringLiteral("not-production-provider"),
+                isProduction
+                    ? providerTable.value(QStringLiteral("operatorAction")).toString()
+                    : QStringLiteral("none"));
     return checks;
 }
 
@@ -1517,6 +1681,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         productionOperationCallableManifestForDescriptor(descriptor);
     const QJsonObject executionResult =
         productionOperationExecutionResultForDescriptor(descriptor);
+    const QJsonObject providerTable =
+        productionProviderTableStatusForDescriptor(descriptor);
     const bool operationContractComplete =
         descriptor.operations.size() == cryptoOperations().size();
     const bool linked = descriptor.linked;
@@ -1535,6 +1701,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         callableManifest.value(QStringLiteral("accepted")).toBool(false);
     const bool executionResultAccepted =
         executionResult.value(QStringLiteral("accepted")).toBool(false);
+    const bool providerTableAccepted =
+        providerTable.value(QStringLiteral("accepted")).toBool(false);
     const bool accepted = linked
         && descriptor.productionReady
         && operationContractComplete
@@ -1543,7 +1711,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && allOperationsAvailable
         && dispatchBindingsAccepted
         && callableManifestAccepted
-        && executionResultAccepted;
+        && executionResultAccepted
+        && providerTableAccepted;
 
     QString releaseGate;
     QString blockedReason;
@@ -1579,6 +1748,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-operation-execution-results-blocked");
         blockedReason = executionResult.value(QStringLiteral("blockedReason")).toString();
         operatorAction = executionResult.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerTableAccepted) {
+        releaseGate = QStringLiteral("production-provider-table-blocked");
+        blockedReason = providerTable.value(QStringLiteral("blockedReason")).toString();
+        operatorAction = providerTable.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
@@ -1618,11 +1791,19 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
     status[QStringLiteral("operationDispatchBindings")] = dispatchBindings;
     status[QStringLiteral("operationCallableManifest")] = callableManifest;
     status[QStringLiteral("operationExecutionResult")] = executionResult;
+    status[QStringLiteral("providerTable")] = providerTable;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] = 0;
     status[QStringLiteral("passedExecutionResultCount")] =
         executionResult.value(QStringLiteral("passedResultCount")).toInt();
+    status[QStringLiteral("providerTableAccepted")] = providerTableAccepted;
+    status[QStringLiteral("providerTableReleaseGate")] =
+        providerTable.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerTableBoundSymbolCount")] =
+        providerTable.value(QStringLiteral("boundSymbolCount")).toInt();
+    status[QStringLiteral("providerTableMissingSymbolCount")] =
+        providerTable.value(QStringLiteral("missingSymbolCount")).toInt();
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -1787,6 +1968,8 @@ QJsonObject backendDescriptor(const E2ECryptoAdapterDescriptor& descriptor,
             productionOperationCallableManifestForDescriptor(descriptor);
         obj["operationExecutionResult"] =
             productionOperationExecutionResultForDescriptor(descriptor);
+        obj["providerTable"] =
+            productionProviderTableStatusForDescriptor(descriptor);
     }
     obj["linked"] = descriptor.linked;
     obj["productionReady"] = descriptor.productionReady;
@@ -2088,6 +2271,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionOperationCallableManifestForDescriptor(productionAdapterDescriptor());
     status["productionOperationExecutionResult"] =
         productionOperationExecutionResultForDescriptor(productionAdapterDescriptor());
+    status["productionProviderTable"] =
+        productionProviderTableStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -2151,6 +2336,11 @@ QJsonObject e2eProductionCryptoOperationCallableManifestStatus() {
 QJsonObject e2eProductionCryptoOperationExecutionResultStatus() {
     return e2eCryptoBackendStatus()
         .value(QStringLiteral("productionOperationExecutionResult")).toObject();
+}
+
+QJsonObject e2eProductionCryptoProviderTableStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionProviderTable")).toObject();
 }
 
 QString e2eFingerprint(const QByteArray& value) {

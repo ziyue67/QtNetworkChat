@@ -91,6 +91,8 @@ int main() {
         backendStatus.value("productionOperationCallableManifest").toObject();
     const QJsonObject productionExecutionResult =
         backendStatus.value("productionOperationExecutionResult").toObject();
+    const QJsonObject productionProviderTable =
+        backendStatus.value("productionProviderTable").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -173,6 +175,17 @@ int main() {
                     && productionExecutionResult.value("passedResultCount").toInt() == 0
                     && productionExecutionResult.value("sanitizedResultCount").toInt() == 8
                     && productionExecutionResult.value("results").toArray().size() == 8
+                    && productionProviderTable.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-table-v1")
+                    && productionProviderTable.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-table-blocked-not-linked")
+                    && productionProviderTable.value("buildProbeReason").toString()
+                        == QStringLiteral("production-provider-table-not-requested")
+                    && !productionProviderTable.value("tableBound").toBool(true)
+                    && productionProviderTable.value("requiredSymbolCount").toInt() == 8
+                    && productionProviderTable.value("boundSymbolCount").toInt() == 0
+                    && productionProviderTable.value("missingSymbolCount").toInt() == 8
+                    && productionProviderTable.value("entries").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -184,7 +197,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 6
+                        .value("checks").toArray().size() == 7
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -206,7 +219,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 6
+                        .value("checks").toArray().size() == 7
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -222,6 +235,12 @@ int main() {
                         .value("blockedCallableCount").toInt() == 8
                     && productionBackend.value("operationExecutionResult").toObject()
                         .value("blockedResultCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerTable").toObject()
+                        .value("missingSymbolCount").toInt() == 8
+                    && productionBackend.value("providerTable").toObject()
+                        .value("releaseGate").toString()
+                            == QStringLiteral("production-provider-table-blocked-not-linked")
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
@@ -290,6 +309,24 @@ int main() {
                     && !firstExecutionResult.value("sessionSecretExported").toBool(true)
                     && !firstExecutionResult.value("privateIdentityMaterialExported").toBool(true),
                 "production execution results should expose sanitized result contracts without executing placeholders") && ok;
+    const QJsonObject firstProviderTableEntry =
+        productionProviderTable.value("entries").toArray().at(0).toObject();
+    ok = expect(firstProviderTableEntry.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstProviderTableEntry.value("requiredSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstProviderTableEntry.value("tableAbi").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-provider-table-v1")
+                    && firstProviderTableEntry.value("required").toBool(false)
+                    && !firstProviderTableEntry.value("bound").toBool(true)
+                    && firstProviderTableEntry.value("abiSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && firstProviderTableEntry.value("fixtureHashSha256").toString().size() == 64
+                    && firstProviderTableEntry.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-table-not-bound")
+                    && !firstProviderTableEntry.value("rawKeyExported").toBool(true)
+                    && !firstProviderTableEntry.value("privateMaterialExported").toBool(true),
+                "production provider table should expose required symbols without binding placeholders") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),
