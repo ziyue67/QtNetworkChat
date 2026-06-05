@@ -79,6 +79,8 @@ int main() {
     const QJsonObject productionBackend = registeredBackends.at(1).toObject();
     const QJsonObject productionAcceptance = backendStatus.value("productionAcceptance").toObject();
     const QJsonObject productionHarness = backendStatus.value("productionOperationHarness").toObject();
+    const QJsonObject productionExecutionPlan =
+        backendStatus.value("productionOperationExecutionPlan").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -123,6 +125,12 @@ int main() {
                         == QStringLiteral("production-operation-harness-blocked-not-linked")
                     && productionHarness.value("blockedOperationCount").toInt() == 8
                     && productionHarness.value("operations").toArray().size() == 8
+                    && productionExecutionPlan.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-execution-plan-v1")
+                    && productionExecutionPlan.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-execution-plan-blocked-not-linked")
+                    && productionExecutionPlan.value("blockedStepCount").toInt() == 8
+                    && productionExecutionPlan.value("steps").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -445,6 +453,8 @@ int main() {
         e2eProductionCryptoAcceptanceStatus();
     const QJsonObject productionRequestedHarness =
         e2eProductionCryptoOperationHarnessStatus();
+    const QJsonObject productionRequestedExecutionPlan =
+        e2eProductionCryptoOperationExecutionPlanStatus();
     ok = expect(productionRequestedStatus.value("requestedBackendId").toString()
                         == QStringLiteral("openssl-reviewed-adapter-v1")
                     && productionRequestedStatus.value("selectionSource").toString()
@@ -486,6 +496,41 @@ int main() {
                     && !productionRequestedHarness.value("rawKeyExported").toBool(true)
                     && !productionRequestedHarness.value("privateMaterialExported").toBool(true),
                 "production operation harness should expose blocked not-linked execution evidence") && ok;
+    ok = expect(productionRequestedExecutionPlan.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-execution-plan-v1")
+                    && productionRequestedExecutionPlan.value("backendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && productionRequestedExecutionPlan.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-execution-plan-blocked-not-linked")
+                    && productionRequestedExecutionPlan.value("blockedReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
+                    && !productionRequestedExecutionPlan.value("accepted").toBool(true)
+                    && !productionRequestedExecutionPlan.value("planReady").toBool(true)
+                    && productionRequestedExecutionPlan.value("runnableStepCount").toInt() == 0
+                    && productionRequestedExecutionPlan.value("blockedStepCount").toInt() == 8
+                    && productionRequestedExecutionPlan.value("steps").toArray().size() == 8
+                    && !productionRequestedExecutionPlan.value("rawKeyExported").toBool(true)
+                    && !productionRequestedExecutionPlan.value("privateMaterialExported").toBool(true),
+                "production operation execution plan should publish blocked not-linked step evidence") && ok;
+    const QJsonObject productionExecutionFirstStep =
+        productionRequestedExecutionPlan.value("steps").toArray().at(0).toObject();
+    ok = expect(productionExecutionFirstStep.value("sequenceIndex").toInt(-1) == 0
+                    && productionExecutionFirstStep.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && productionExecutionFirstStep.value("entrypoint").toString()
+                        == QStringLiteral("production-adapter/session-key-generation")
+                    && productionExecutionFirstStep.value("fixtureHashSha256").toString().size() == 64
+                    && productionExecutionFirstStep.value("vectorSet").toString()
+                        == QStringLiteral("production-session-key-generation-vectors-v1")
+                    && productionExecutionFirstStep.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-harness-blocked-not-linked")
+                    && productionExecutionFirstStep.value("blockedReason").toString()
+                        == QStringLiteral("production-session-key-generation-not-implemented")
+                    && productionExecutionFirstStep.value("requiresHarnessRunnable").toBool(false)
+                    && !productionExecutionFirstStep.value("harnessRunnable").toBool(true)
+                    && !productionExecutionFirstStep.value("rawKeyExported").toBool(true)
+                    && !productionExecutionFirstStep.value("privateMaterialExported").toBool(true),
+                "production operation execution plan should order sanitized harness-backed steps") && ok;
     const QJsonObject productionHarnessFirstOperation =
         productionRequestedHarness.value("operations").toArray().at(0).toObject();
     ok = expect(productionHarnessFirstOperation.value("operation").toString()

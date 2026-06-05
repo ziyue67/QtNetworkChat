@@ -71,6 +71,7 @@ int main() {
         status.value("operations").toObject().value("payload-encrypt").toObject();
     const QJsonObject acceptance = status.value("productionAcceptance").toObject();
     const QJsonObject harness = status.value("productionOperationHarness").toObject();
+    const QJsonObject executionPlan = status.value("productionOperationExecutionPlan").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -87,6 +88,25 @@ int main() {
                     && !harness.value("rawKeyExported").toBool(true)
                     && !harness.value("privateMaterialExported").toBool(true),
                 "production operation harness should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(executionPlan.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-execution-plan-v1")
+                    && executionPlan.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operation-execution-plan-blocked-placeholder")
+                            : QStringLiteral("production-operation-execution-plan-blocked-not-linked"))
+                    && executionPlan.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-operations-not-implemented")
+                        : QStringLiteral("production-crypto-backend-unavailable"))
+                    && executionPlan.value("operationHarnessReleaseGate").toString()
+                        == harness.value("releaseGate").toString()
+                    && !executionPlan.value("accepted").toBool(true)
+                    && !executionPlan.value("planReady").toBool(true)
+                    && executionPlan.value("runnableStepCount").toInt() == 0
+                    && executionPlan.value("blockedStepCount").toInt() == 8
+                    && executionPlan.value("steps").toArray().size() == 8
+                    && !executionPlan.value("rawKeyExported").toBool(true)
+                    && !executionPlan.value("privateMaterialExported").toBool(true),
+                "production execution plan should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -100,6 +120,21 @@ int main() {
                     && firstHarnessOperation.value("blockedReason").toString()
                         == QStringLiteral("production-session-key-generation-not-implemented"),
                 "production operation harness should expose sanitized fixture hashes for linked placeholder operations") && ok;
+    const QJsonObject firstExecutionStep = executionPlan.value("steps").toArray().at(0).toObject();
+    ok = expect(firstExecutionStep.value("sequenceIndex").toInt(-1) == 0
+                    && firstExecutionStep.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstExecutionStep.value("dispatchState").toString() == expectedDispatchState
+                    && firstExecutionStep.value("implementationState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("linked-placeholder")
+                            : QStringLiteral("not-linked"))
+                    && firstExecutionStep.value("releaseGate").toString()
+                        == harness.value("releaseGate").toString()
+                    && firstExecutionStep.value("blockedReason").toString()
+                        == QStringLiteral("production-session-key-generation-not-implemented")
+                    && !firstExecutionStep.value("harnessRunnable").toBool(true),
+                "production execution plan should bind each ordered step to harness evidence") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()

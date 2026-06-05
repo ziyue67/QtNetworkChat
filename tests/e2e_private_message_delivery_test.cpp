@@ -504,6 +504,20 @@ int main(int argc, char** argv) {
                         && !rotationDryRun.value("productionAcceptanceAccepted").toBool(true)
                         && rotationDryRun.value("productionAcceptanceBlockedOperationCount").toInt() == 8,
                     "production rotation dry-run should block until the provider is ready without clearing local state") && ok;
+        const QJsonObject rotationExecutionPlan =
+            rotationDryRun.value("productionOperationExecutionPlan").toObject();
+        ok = expect(rotationExecutionPlan.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-operation-execution-plan-v1")
+                        && rotationExecutionPlan.value("releaseGate").toString()
+                            == QStringLiteral("production-operation-execution-plan-blocked-not-linked")
+                        && rotationDryRun.value("productionExecutionPlanReleaseGate").toString()
+                            == QStringLiteral("production-operation-execution-plan-blocked-not-linked")
+                        && !rotationDryRun.value("productionExecutionPlanAccepted").toBool(true)
+                        && rotationDryRun.value("productionExecutionPlanBlockedStepCount").toInt() == 8
+                        && rotationExecutionPlan.value("steps").toArray().size() == 8
+                        && rotationExecutionPlan.value("steps").toArray().at(0).toObject()
+                            .value("fixtureHashSha256").toString().size() == 64,
+                    "production rotation dry-run should embed sanitized execution plan evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -578,6 +592,12 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionAcceptanceAccepted").toBool(true)
                         && rotationExecute.value("productionAcceptance").toObject()
                             .value("operationManifest").toArray().size() == 8
+                        && rotationExecute.value("productionExecutionPlanReleaseGate").toString()
+                            == QStringLiteral("production-operation-execution-plan-blocked-not-linked")
+                        && !rotationExecute.value("productionExecutionPlanAccepted").toBool(true)
+                        && rotationExecute.value("productionExecutionPlanBlockedStepCount").toInt() == 8
+                        && rotationExecute.value("productionOperationExecutionPlan").toObject()
+                            .value("steps").toArray().size() == 8
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),
@@ -691,7 +711,7 @@ int main(int argc, char** argv) {
         alice.setE2ESessionKey(bobId, keyId + "-rotated", generateE2ESessionKey());
         ok = expect(alice.hasE2ESession(bobId) && !alice.e2eSessionNeedsRotation(bobId),
                     "setting a new e2e session should clear the rotation gate") && ok;
-        ok = expect(!mallory.requestE2ESessionRotation(aliceId, &rejectReason)
+        ok = expect(!mallory.requestE2ESessionRotation(QStringLiteral("929999"), &rejectReason)
                         && rejectReason == QStringLiteral("missing-identity"),
                     "rotation requests should fail closed until the peer identity has been observed") && ok;
 

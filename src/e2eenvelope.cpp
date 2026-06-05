@@ -2,6 +2,7 @@
 #include "qtnetworkchat_e2e_crypto_config.h"
 
 #include <QCryptographicHash>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QList>
@@ -348,6 +349,106 @@ QJsonObject productionOperationHarnessStatusForDescriptor(const E2ECryptoAdapter
     return status;
 }
 
+QJsonObject productionOperationExecutionPlanStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
+    const QJsonObject harness = productionOperationHarnessStatusForDescriptor(descriptor);
+    const QJsonArray harnessOperations = harness.value(QStringLiteral("operations")).toArray();
+    QHash<QString, QJsonObject> harnessByOperation;
+    for (const QJsonValue& value : harnessOperations) {
+        const QJsonObject operation = value.toObject();
+        harnessByOperation.insert(operation.value(QStringLiteral("operation")).toString(), operation);
+    }
+
+    QJsonArray steps;
+    int sequenceIndex = 0;
+    int runnableStepCount = 0;
+    int blockedStepCount = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const QString operationName = cryptoOperationName(spec.operation);
+        const QJsonObject harnessOperation = harnessByOperation.value(operationName);
+        const bool harnessRunnable = harnessOperation.value(QStringLiteral("runnable")).toBool(false);
+        QJsonObject step;
+        step[QStringLiteral("sequenceIndex")] = sequenceIndex++;
+        step[QStringLiteral("operation")] = operationName;
+        step[QStringLiteral("entrypoint")] = descriptor.type + QStringLiteral("/") + operationName;
+        step[QStringLiteral("providerId")] = descriptor.providerId;
+        step[QStringLiteral("backendId")] = descriptor.id;
+        step[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+        step[QStringLiteral("dispatchState")] = descriptor.dispatchState;
+        step[QStringLiteral("requiresHarnessRunnable")] = true;
+        step[QStringLiteral("harnessRunnable")] = harnessRunnable;
+        step[QStringLiteral("runnable")] = harnessRunnable;
+        step[QStringLiteral("registered")] = harnessOperation.value(QStringLiteral("registered")).toBool(false);
+        step[QStringLiteral("fixtureHashSha256")] =
+            harnessOperation.value(QStringLiteral("fixtureHashSha256")).toString();
+        step[QStringLiteral("vectorSet")] = spec.vectorSet;
+        step[QStringLiteral("implementationState")] = spec.implementationState;
+        step[QStringLiteral("compatibilityStatus")] = spec.compatibilityStatus;
+        step[QStringLiteral("knownAnswerPassed")] = spec.knownAnswerPassed;
+        step[QStringLiteral("roundTripPassed")] = spec.roundTripPassed;
+        step[QStringLiteral("releaseGate")] = harnessRunnable
+            ? QStringLiteral("production-operation-step-ready")
+            : harness.value(QStringLiteral("releaseGate")).toString();
+        step[QStringLiteral("blockedReason")] = harnessRunnable
+            ? QString()
+            : harnessOperation.value(QStringLiteral("blockedReason")).toString(spec.migrationBlocker);
+        step[QStringLiteral("operatorAction")] = harnessRunnable
+            ? QStringLiteral("none")
+            : harnessOperation.value(QStringLiteral("operatorAction")).toString(spec.operatorAction);
+        step[QStringLiteral("rawKeyExported")] = false;
+        step[QStringLiteral("privateMaterialExported")] = false;
+        steps.append(step);
+        if (harnessRunnable) {
+            ++runnableStepCount;
+        } else {
+            ++blockedStepCount;
+        }
+    }
+
+    const bool accepted = harness.value(QStringLiteral("accepted")).toBool(false)
+        && blockedStepCount == 0
+        && productionOperationSpecs().size() == cryptoOperations().size();
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-operation-execution-plan-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("dispatchState")] = descriptor.dispatchState;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("accepted")] = accepted;
+    status[QStringLiteral("planReady")] = accepted;
+    status[QStringLiteral("requiresHarnessRunnable")] = true;
+    status[QStringLiteral("requiredStepCount")] = cryptoOperations().size();
+    status[QStringLiteral("runnableStepCount")] = runnableStepCount;
+    status[QStringLiteral("blockedStepCount")] = blockedStepCount;
+    status[QStringLiteral("releaseGate")] = accepted
+        ? QStringLiteral("production-operation-execution-plan-ready")
+        : (descriptor.linked
+            ? QStringLiteral("production-operation-execution-plan-blocked-placeholder")
+            : QStringLiteral("production-operation-execution-plan-blocked-not-linked"));
+    status[QStringLiteral("blockedReason")] = accepted
+        ? QString()
+        : harness.value(QStringLiteral("blockedReason")).toString(
+            descriptor.linked
+                ? QStringLiteral("production-operations-not-implemented")
+                : QStringLiteral("production-crypto-backend-unavailable"));
+    status[QStringLiteral("operatorAction")] = accepted
+        ? QStringLiteral("none")
+        : (descriptor.linked
+            ? QStringLiteral("replace-placeholder-operations-and-run-execution-plan")
+            : QStringLiteral("link-reviewed-production-crypto-backend"));
+    status[QStringLiteral("operationHarnessReleaseGate")] =
+        harness.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("operationHarnessAccepted")] =
+        harness.value(QStringLiteral("accepted")).toBool(false);
+    status[QStringLiteral("operationHarness")] = harness;
+    status[QStringLiteral("steps")] = steps;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    return status;
+}
+
 E2ECryptoAdapterDescriptor draftAdapterDescriptor() {
     E2ECryptoAdapterDescriptor descriptor;
     descriptor.id = QString::fromLatin1(DraftBackendId);
@@ -505,6 +606,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
         evidence[QStringLiteral("operationManifest")] = productionOperationManifest();
         evidence[QStringLiteral("operationHarness")] =
             productionOperationHarnessStatusForDescriptor(descriptor);
+        evidence[QStringLiteral("operationExecutionPlan")] =
+            productionOperationExecutionPlanStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("implementedOperationCount")] = 0;
@@ -716,6 +819,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
     status[QStringLiteral("operationManifest")] = productionOperationManifest();
     status[QStringLiteral("operationHarness")] =
         productionOperationHarnessStatusForDescriptor(descriptor);
+    status[QStringLiteral("operationExecutionPlan")] =
+        productionOperationExecutionPlanStatusForDescriptor(descriptor);
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] = 0;
@@ -1166,6 +1271,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionAcceptanceStatusForDescriptor(productionAdapterDescriptor(), productionOperations);
     status["productionOperationHarness"] =
         productionOperationHarnessStatusForDescriptor(productionAdapterDescriptor());
+    status["productionOperationExecutionPlan"] =
+        productionOperationExecutionPlanStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -1199,6 +1306,11 @@ QJsonObject e2eProductionCryptoAcceptanceStatus() {
 
 QJsonObject e2eProductionCryptoOperationHarnessStatus() {
     return e2eCryptoBackendStatus().value(QStringLiteral("productionOperationHarness")).toObject();
+}
+
+QJsonObject e2eProductionCryptoOperationExecutionPlanStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionOperationExecutionPlan")).toObject();
 }
 
 QString e2eFingerprint(const QByteArray& value) {
