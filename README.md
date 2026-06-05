@@ -320,7 +320,7 @@ set QTNETWORKCHAT_TLS_PINNED_SHA256=ab12cd34...
 
 ### 端到端加密协议边界
 
-当前 E2E 已完成身份签名协商、信任 pin、默认信任门禁、历史状态治理、私聊文件加密、Redis/object routing 证据、加密文件 resend 恢复策略，以及 production crypto backend fail-closed 验收链；生产 adapter 现在还公开逐操作 callable manifest 和 sanitized execution result contract，要求 provider symbol、ABI signature、fixture hash、输出合约和敏感材料导出证明全部通过后才可能进入 productionReady。详细状态、生产 crypto 剩余风险和下一步门禁见 [E2E hardening status](docs/e2e-hardening-status.md)。
+当前 E2E 已完成身份签名协商、信任 pin、默认信任门禁、历史状态治理、私聊文件加密、Redis/object routing 证据、加密文件 resend 恢复策略，以及 production crypto backend fail-closed 验收链；生产 adapter 现在还公开逐操作 callable manifest、sanitized execution result contract 和 rotation dry-run/execute evidence，要求 provider symbol、ABI signature、fixture hash、输出合约和敏感材料导出证明全部通过后才可能进入 productionReady。详细状态、生产 crypto 剩余风险和下一步门禁见 [E2E hardening status](docs/e2e-hardening-status.md)。
 
 ### 文件传输状态时间线
 

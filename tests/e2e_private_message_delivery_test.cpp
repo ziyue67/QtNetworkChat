@@ -578,6 +578,21 @@ int main(int argc, char** argv) {
                             .value("expectedSignature").toString()
                                 .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1")),
                     "production rotation dry-run should embed sanitized dispatch binding evidence") && ok;
+        const QJsonObject rotationExecutionResult =
+            rotationDryRun.value("productionOperationExecutionResult").toObject();
+        ok = expect(rotationExecutionResult.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-operation-execution-result-v1")
+                        && rotationExecutionResult.value("releaseGate").toString()
+                            == QStringLiteral("production-operation-execution-results-blocked-not-linked")
+                        && rotationDryRun.value("productionExecutionResultReleaseGate").toString()
+                            == QStringLiteral("production-operation-execution-results-blocked-not-linked")
+                        && !rotationDryRun.value("productionExecutionResultAccepted").toBool(true)
+                        && rotationDryRun.value("productionExecutionResultBlockedResultCount").toInt() == 8
+                        && rotationDryRun.value("productionExecutionResultPassedResultCount").toInt() == 0
+                        && rotationExecutionResult.value("results").toArray().size() == 8
+                        && rotationExecutionResult.value("results").toArray().at(0).toObject()
+                            .value("resultContract").toArray().size() == 4,
+                    "production rotation dry-run should embed sanitized execution result evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -678,6 +693,13 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("productionDispatchBindingsBlockedBindingCount").toInt() == 8
                         && rotationExecute.value("productionOperationDispatchBindings").toObject()
                             .value("bindings").toArray().size() == 8
+                        && rotationExecute.value("productionExecutionResultReleaseGate").toString()
+                            == QStringLiteral("production-operation-execution-results-blocked-not-linked")
+                        && !rotationExecute.value("productionExecutionResultAccepted").toBool(true)
+                        && rotationExecute.value("productionExecutionResultBlockedResultCount").toInt() == 8
+                        && rotationExecute.value("productionExecutionResultPassedResultCount").toInt() == 0
+                        && rotationExecute.value("productionOperationExecutionResult").toObject()
+                            .value("results").toArray().size() == 8
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),

@@ -63,6 +63,7 @@ $automationStatus = Read-Utf8Text $automationStatusPath
 Assert-Contains $automationStatus "E2E production crypto is the active automation lane again"
 Assert-Contains $automationStatus "callable manifest"
 Assert-Contains $automationStatus "sanitized execution result contract"
+Assert-Contains $automationStatus "production rotation dry-run/execute evidence"
 Assert-Contains $automationStatus "Group productization is closed for the current automation lane"
 Assert-Contains $automationStatus "Mainwindow structure split is no longer the active lane but remains partially complete"
 Assert-Contains $automationStatus "README information architecture is closed for now"
