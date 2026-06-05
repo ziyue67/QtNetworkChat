@@ -188,24 +188,6 @@ QString transferIntegritySummary(const Message& msg) {
     return "完整性校验失败：" + issues.join("、");
 }
 
-QString transferManifestSummary(qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash) {
-    QStringList parts;
-    if (chunkCount > 0) {
-        parts << QString("%1片").arg(chunkCount);
-    }
-    if (chunkSize > 0) {
-        parts << QString("分片%1").arg(humanFileSize(chunkSize));
-    }
-    const QString trimmedHash = fileHash.trimmed();
-    if (!trimmedHash.isEmpty()) {
-        parts << QString("SHA-256 %1").arg(trimmedHash.left(12));
-    }
-    if (parts.isEmpty() && totalBytes > 0) {
-        parts << humanFileSize(totalBytes);
-    }
-    return parts.join(" · ");
-}
-
 QString lastTransferDirectory() {
     QSettings settings("QtNetworkChat", "QtNetworkChat");
     QString directory = settings.value("transfer/lastDirectory").toString();
@@ -427,7 +409,7 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
         bool cancelRequested = false;
         QProgressDialog progress(this);
         progress.setWindowTitle(QString("发送%1").arg(kind));
-        progress.setLabelText(QString("正在分片读取%1...\n%2 -> %3").arg(kind, info.fileName(), targetName));
+        progress.setLabelText(m_transferManager.sendingInitialState(kind, info.fileName(), targetName).labelText);
         progress.setRange(0, 100);
         progress.setValue(0);
         progress.setMinimumDuration(0);
@@ -444,7 +426,7 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
             [this, &progress, &info, &kind, &cancelRequested, canceled]() {
                 cancelRequested = true;
                 if (canceled) *canceled = true;
-                progress.setLabelText(QString("正在取消%1发送...\n%2").arg(kind, info.fileName()));
+                progress.setLabelText(m_transferManager.sendingCancelState(kind, info.fileName()).labelText);
                 if (m_client) m_client->cancelCurrentOutgoingTransfer();
                 ui->statusbar->showMessage(QString("正在取消发送%1：%2").arg(kind, info.fileName()), 1600);
                 QApplication::processEvents();
@@ -453,33 +435,26 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
             m_client,
             &Client::fileTransferProgress,
             this,
-            [&progress, &info, &targetName, &kind](const QString& fileName, qint64 bytesPrepared, qint64 totalBytes) {
+            [this, &progress, &info, &targetName, &kind](const QString& fileName, qint64 bytesPrepared, qint64 totalBytes) {
                 if (fileName != info.fileName()) return;
-                const int percent = totalBytes > 0
-                    ? qBound(0, static_cast<int>((bytesPrepared * 100) / totalBytes), 100)
-                    : 0;
-                progress.setValue(percent);
-                progress.setLabelText(QString("正在分片发送%1到 %2\n%3 · %4 / %5")
-                                          .arg(kind,
-                                               targetName,
-                                               fileName,
-                                               humanFileSize(bytesPrepared),
-                                               humanFileSize(totalBytes)));
+                const TransferProgressUiState state = m_transferManager.sendingProgressState(kind, fileName, targetName, bytesPrepared, totalBytes);
+                progress.setValue(state.percent);
+                progress.setLabelText(state.labelText);
                 QApplication::processEvents();
             });
         QMetaObject::Connection preparedConnection = connect(
             m_client,
             &Client::fileTransferPrepared,
             this,
-            [&progress, &info, &targetName, &kind, &preparedSummary](const QString& fileName,
+            [this, &progress, &info, &targetName, &kind, &preparedSummary](const QString& fileName,
                                                                       qint64 totalBytes,
                                                                       qint64 chunkSize,
                                                                       qint64 chunkCount,
                                                                       const QString& fileHash) {
                 if (fileName != info.fileName()) return;
-                preparedSummary = transferManifestSummary(totalBytes, chunkSize, chunkCount, fileHash);
-                progress.setLabelText(QString("%1校验清单已生成\n%2 -> %3\n%4")
-                                          .arg(kind, fileName, targetName, preparedSummary));
+                const TransferProgressUiState state = m_transferManager.sendingPreparedState(kind, fileName, targetName, totalBytes, chunkSize, chunkCount, fileHash);
+                preparedSummary = state.manifestSummary;
+                progress.setLabelText(state.labelText);
                 QApplication::processEvents();
             });
 
@@ -649,7 +624,7 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
 
     QProgressDialog progress(this);
     progress.setWindowTitle("恢复未完成发送");
-    progress.setLabelText(QString("正在恢复发送\n%1 -> %2").arg(fileName, targetName));
+    progress.setLabelText(m_transferManager.resumeInitialState(fileName, targetName).labelText);
     progress.setCancelButtonText("取消");
     progress.setRange(0, 100);
     progress.setValue(0);
@@ -663,7 +638,7 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         this,
         [this, &progress, &cancelRequested, &fileName]() {
             cancelRequested = true;
-            progress.setLabelText("正在取消恢复发送...\n" + fileName);
+            progress.setLabelText(m_transferManager.resumeCancelState(fileName).labelText);
             if (m_client) m_client->cancelCurrentOutgoingTransfer();
             ui->statusbar->showMessage("正在取消恢复发送：" + fileName, 1600);
             QApplication::processEvents();
@@ -672,33 +647,24 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         m_client,
         &Client::fileTransferProgress,
         this,
-        [&progress, &fileName, &targetName](const QString& currentFileName, qint64 bytesPrepared, qint64 totalBytes) {
+        [this, &progress, &fileName, &targetName](const QString& currentFileName, qint64 bytesPrepared, qint64 totalBytes) {
             if (currentFileName != fileName) return;
-            const int percent = totalBytes > 0
-                ? qBound(0, static_cast<int>((bytesPrepared * 100) / totalBytes), 100)
-                : 0;
-            progress.setValue(percent);
-            progress.setLabelText(QString("正在恢复发送\n%1 -> %2\n%3 / %4")
-                                      .arg(fileName,
-                                           targetName,
-                                           humanFileSize(bytesPrepared),
-                                           humanFileSize(totalBytes)));
+            const TransferProgressUiState state = m_transferManager.resumeProgressState(fileName, targetName, bytesPrepared, totalBytes);
+            progress.setValue(state.percent);
+            progress.setLabelText(state.labelText);
             QApplication::processEvents();
         });
     QMetaObject::Connection preparedConnection = connect(
         m_client,
         &Client::fileTransferPrepared,
         this,
-        [&progress, &fileName, &targetName](const QString& currentFileName,
+        [this, &progress, &fileName, &targetName](const QString& currentFileName,
                                              qint64 totalBytes,
                                              qint64 chunkSize,
                                              qint64 chunkCount,
                                              const QString& fileHash) {
             if (currentFileName != fileName) return;
-            progress.setLabelText(QString("恢复发送校验清单已生成\n%1 -> %2\n%3")
-                                      .arg(fileName,
-                                           targetName,
-                                           transferManifestSummary(totalBytes, chunkSize, chunkCount, fileHash)));
+            progress.setLabelText(m_transferManager.resumePreparedState(fileName, targetName, totalBytes, chunkSize, chunkCount, fileHash).labelText);
             QApplication::processEvents();
         });
 
@@ -2770,7 +2736,13 @@ void MainWindow::onNewMessage(const Message& msg) {
         const QString receivedSize = humanFileSize(msg.fileData.size());
         const QString integrityText = transferIntegritySummary(msg);
         const QString integritySuffix = integrityText.isEmpty() ? QString() : QString(" · %1").arg(integrityText);
-        const QString manifestText = transferManifestSummary(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(), msg.chunkSize, msg.chunkCount, msg.fileHash);
+        const QString manifestText = m_transferManager.sendingPreparedState(QStringLiteral("图片"),
+                                                                            receivedName,
+                                                                            displayName,
+                                                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
+                                                                            msg.chunkSize,
+                                                                            msg.chunkCount,
+                                                                            msg.fileHash).manifestSummary;
         const QString manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
         QPixmap pixmap;
         if (pixmap.loadFromData(msg.fileData)) {
@@ -2836,7 +2808,13 @@ void MainWindow::onNewMessage(const Message& msg) {
         const QString receivedSize = humanFileSize(msg.fileData.size());
         const QString integrityText = transferIntegritySummary(msg);
         const QString integritySuffix = integrityText.isEmpty() ? QString() : QString(" · %1").arg(integrityText);
-        const QString manifestText = transferManifestSummary(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(), msg.chunkSize, msg.chunkCount, msg.fileHash);
+        const QString manifestText = m_transferManager.sendingPreparedState(QStringLiteral("文件"),
+                                                                            receivedName,
+                                                                            displayName,
+                                                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
+                                                                            msg.chunkSize,
+                                                                            msg.chunkCount,
+                                                                            msg.fileHash).manifestSummary;
         const QString manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
         QString fileDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Files";
         QDir().mkpath(fileDirPath);

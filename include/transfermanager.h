@@ -31,6 +31,12 @@ struct TransferStatusEvent {
     QString copyActionToolTip;
 };
 
+struct TransferProgressUiState {
+    QString labelText;
+    QString manifestSummary;
+    int percent = 0;
+};
+
 class TransferManager {
 public:
     static TransferRecoveryUiState recoveryUiState(bool hasSavedTransfer,
@@ -43,6 +49,36 @@ public:
                                            const QString& reason,
                                            qint64 receivedBytes = 0,
                                            qint64 totalBytes = 0);
+    static TransferProgressUiState sendingInitialState(const QString& kind,
+                                                       const QString& fileName,
+                                                       const QString& targetName);
+    static TransferProgressUiState sendingCancelState(const QString& kind,
+                                                      const QString& fileName);
+    static TransferProgressUiState sendingProgressState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& targetName,
+                                                        qint64 bytesPrepared,
+                                                        qint64 totalBytes);
+    static TransferProgressUiState sendingPreparedState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& targetName,
+                                                        qint64 totalBytes,
+                                                        qint64 chunkSize,
+                                                        qint64 chunkCount,
+                                                        const QString& fileHash);
+    static TransferProgressUiState resumeInitialState(const QString& fileName,
+                                                      const QString& targetName);
+    static TransferProgressUiState resumeCancelState(const QString& fileName);
+    static TransferProgressUiState resumeProgressState(const QString& fileName,
+                                                       const QString& targetName,
+                                                       qint64 bytesPrepared,
+                                                       qint64 totalBytes);
+    static TransferProgressUiState resumePreparedState(const QString& fileName,
+                                                       const QString& targetName,
+                                                       qint64 totalBytes,
+                                                       qint64 chunkSize,
+                                                       qint64 chunkCount,
+                                                       const QString& fileHash);
 };
 
 #endif // TRANSFERMANAGER_H
