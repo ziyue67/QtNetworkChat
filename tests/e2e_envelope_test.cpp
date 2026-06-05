@@ -83,6 +83,8 @@ int main() {
         backendStatus.value("productionOperationExecutionPlan").toObject();
     const QJsonObject productionInvocation =
         backendStatus.value("productionOperationInvocation").toObject();
+    const QJsonObject productionSlots =
+        backendStatus.value("productionOperationSlots").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -139,6 +141,12 @@ int main() {
                         == QStringLiteral("production-operation-invocation-blocked-not-linked")
                     && productionInvocation.value("blockedOperationCount").toInt() == 8
                     && productionInvocation.value("invocations").toArray().size() == 8
+                    && productionSlots.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-slots-v1")
+                    && productionSlots.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-slots-blocked-not-linked")
+                    && productionSlots.value("blockedSlotCount").toInt() == 8
+                    && productionSlots.value("slots").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -465,6 +473,8 @@ int main() {
         e2eProductionCryptoOperationExecutionPlanStatus();
     const QJsonObject productionRequestedInvocation =
         e2eProductionCryptoOperationInvocationStatus();
+    const QJsonObject productionRequestedSlots =
+        e2eProductionCryptoOperationSlotStatus();
     ok = expect(productionRequestedStatus.value("requestedBackendId").toString()
                         == QStringLiteral("openssl-reviewed-adapter-v1")
                     && productionRequestedStatus.value("selectionSource").toString()
@@ -537,6 +547,22 @@ int main() {
                     && !productionRequestedInvocation.value("rawKeyExported").toBool(true)
                     && !productionRequestedInvocation.value("privateMaterialExported").toBool(true),
                 "production operation invocation status should publish blocked not-linked call contracts") && ok;
+    ok = expect(productionRequestedSlots.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-slots-v1")
+                    && productionRequestedSlots.value("backendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && productionRequestedSlots.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-slots-blocked-not-linked")
+                    && productionRequestedSlots.value("blockedReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
+                    && !productionRequestedSlots.value("accepted").toBool(true)
+                    && productionRequestedSlots.value("reviewedSlotCount").toInt() == 0
+                    && productionRequestedSlots.value("callableSlotCount").toInt() == 0
+                    && productionRequestedSlots.value("blockedSlotCount").toInt() == 8
+                    && productionRequestedSlots.value("slots").toArray().size() == 8
+                    && !productionRequestedSlots.value("rawKeyExported").toBool(true)
+                    && !productionRequestedSlots.value("privateMaterialExported").toBool(true),
+                "production operation slots should publish blocked not-linked reviewed slot evidence") && ok;
     const QJsonObject productionExecutionFirstStep =
         productionRequestedExecutionPlan.value("steps").toArray().at(0).toObject();
     ok = expect(productionExecutionFirstStep.value("sequenceIndex").toInt(-1) == 0
@@ -575,6 +601,24 @@ int main() {
                     && !productionFirstInvocation.value("rawKeyExported").toBool(true)
                     && !productionFirstInvocation.value("privateMaterialExported").toBool(true),
                 "production invocation contract should define sanitized inputs and outputs for future reviewed calls") && ok;
+    const QJsonObject productionFirstSlot =
+        productionRequestedSlots.value("slots").toArray().at(0).toObject();
+    ok = expect(productionFirstSlot.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && productionFirstSlot.value("slotId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1/session-key-generation-slot")
+                    && productionFirstSlot.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && productionFirstSlot.value("migrationPhase").toString()
+                        == QStringLiteral("session-bootstrap")
+                    && productionFirstSlot.value("reviewState").toString()
+                        == QStringLiteral("not-linked")
+                    && productionFirstSlot.value("materialPolicy").toString()
+                        == QStringLiteral("handle-based-no-private-material-export")
+                    && !productionFirstSlot.value("reviewed").toBool(true)
+                    && !productionFirstSlot.value("callable").toBool(true)
+                    && !productionFirstSlot.value("rawKeyExported").toBool(true),
+                "production operation slots should define stable reviewed provider symbols and material policy") && ok;
     const QJsonObject productionHarnessFirstOperation =
         productionRequestedHarness.value("operations").toArray().at(0).toObject();
     ok = expect(productionHarnessFirstOperation.value("operation").toString()

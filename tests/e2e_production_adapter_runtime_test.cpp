@@ -73,6 +73,7 @@ int main() {
     const QJsonObject harness = status.value("productionOperationHarness").toObject();
     const QJsonObject executionPlan = status.value("productionOperationExecutionPlan").toObject();
     const QJsonObject invocation = status.value("productionOperationInvocation").toObject();
+    const QJsonObject slotStatus = status.value("productionOperationSlots").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -126,6 +127,23 @@ int main() {
                     && !invocation.value("rawKeyExported").toBool(true)
                     && !invocation.value("privateMaterialExported").toBool(true),
                 "production invocation status should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(slotStatus.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-slots-v1")
+                    && slotStatus.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operation-slots-blocked-placeholder")
+                            : QStringLiteral("production-operation-slots-blocked-not-linked"))
+                    && slotStatus.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-operation-slots-not-reviewed")
+                        : QStringLiteral("production-crypto-backend-unavailable"))
+                    && !slotStatus.value("accepted").toBool(true)
+                    && slotStatus.value("reviewedSlotCount").toInt() == 0
+                    && slotStatus.value("callableSlotCount").toInt() == 0
+                    && slotStatus.value("blockedSlotCount").toInt() == 8
+                    && slotStatus.value("slots").toArray().size() == 8
+                    && !slotStatus.value("rawKeyExported").toBool(true)
+                    && !slotStatus.value("privateMaterialExported").toBool(true),
+                "production slot registry should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -169,6 +187,20 @@ int main() {
                     && !firstInvocation.value("callable").toBool(true)
                     && !firstInvocation.value("rawKeyExported").toBool(true),
                 "production invocation contracts should expose callable boundaries without enabling placeholder crypto") && ok;
+    const QJsonObject firstSlot = slotStatus.value("slots").toArray().at(0).toObject();
+    ok = expect(firstSlot.value("slotId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1/session-key-generation-slot")
+                    && firstSlot.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstSlot.value("reviewState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("placeholder-linked")
+                            : QStringLiteral("not-linked"))
+                    && firstSlot.value("sideEffectPolicy").toString()
+                        == QStringLiteral("may-create-key-handle")
+                    && !firstSlot.value("reviewed").toBool(true)
+                    && !firstSlot.value("callable").toBool(true),
+                "production slot registry should expose reviewed provider symbols without marking placeholders ready") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()

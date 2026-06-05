@@ -533,6 +533,21 @@ int main(int argc, char** argv) {
                             .value("inputContract").toArray().at(0).toString()
                                 == QStringLiteral("secure-random-source"),
                     "production rotation dry-run should embed sanitized invocation contract evidence") && ok;
+        const QJsonObject rotationSlots =
+            rotationDryRun.value("productionOperationSlots").toObject();
+        ok = expect(rotationSlots.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-operation-slots-v1")
+                        && rotationSlots.value("releaseGate").toString()
+                            == QStringLiteral("production-operation-slots-blocked-not-linked")
+                        && rotationDryRun.value("productionSlotsReleaseGate").toString()
+                            == QStringLiteral("production-operation-slots-blocked-not-linked")
+                        && !rotationDryRun.value("productionSlotsAccepted").toBool(true)
+                        && rotationDryRun.value("productionSlotsBlockedSlotCount").toInt() == 8
+                        && rotationSlots.value("slots").toArray().size() == 8
+                        && rotationSlots.value("slots").toArray().at(0).toObject()
+                            .value("providerSymbol").toString()
+                                == QStringLiteral("qnc_e2e_op_session_key_generation_v1"),
+                    "production rotation dry-run should embed sanitized operation slot evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -619,6 +634,12 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("productionInvocationBlockedOperationCount").toInt() == 8
                         && rotationExecute.value("productionOperationInvocation").toObject()
                             .value("invocations").toArray().size() == 8
+                        && rotationExecute.value("productionSlotsReleaseGate").toString()
+                            == QStringLiteral("production-operation-slots-blocked-not-linked")
+                        && !rotationExecute.value("productionSlotsAccepted").toBool(true)
+                        && rotationExecute.value("productionSlotsBlockedSlotCount").toInt() == 8
+                        && rotationExecute.value("productionOperationSlots").toObject()
+                            .value("slots").toArray().size() == 8
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),
