@@ -94,6 +94,8 @@ int main() {
         backendStatus.value("productionOperationExecutionResult").toObject();
     const QJsonObject productionProviderTable =
         backendStatus.value("productionProviderTable").toObject();
+    const QJsonObject productionProviderTableBindingProbe =
+        backendStatus.value("productionProviderTableBindingProbe").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -195,6 +197,20 @@ int main() {
                     && productionProviderTable.value("boundSymbolCount").toInt() == 0
                     && productionProviderTable.value("missingSymbolCount").toInt() == 8
                     && productionProviderTable.value("entries").toArray().size() == 8
+                    && productionProviderTable.value("bindingProbe").toObject()
+                        .value("enumMappings").toArray().size() == 8
+                    && productionProviderTableBindingProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-table-binding-probe-v1")
+                    && productionProviderTableBindingProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-table-binding-blocked-not-linked")
+                    && productionProviderTableBindingProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-table-not-bound")
+                    && productionProviderTableBindingProbe.value("headerLayoutComplete").toBool(false)
+                    && productionProviderTableBindingProbe.value("enumMappingComplete").toBool(false)
+                    && productionProviderTableBindingProbe.value("functionPointerSlotsComplete").toBool(false)
+                    && !productionProviderTableBindingProbe.value("accepted").toBool(true)
+                    && productionProviderTableBindingProbe.value("enumMappings").toArray().size() == 8
+                    && productionProviderTableBindingProbe.value("fieldOffsets").toArray().size() == 5
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -250,6 +266,9 @@ int main() {
                     && productionBackend.value("providerTable").toObject()
                         .value("releaseGate").toString()
                             == QStringLiteral("production-provider-table-blocked-not-linked")
+                    && productionBackend.value("providerTableBindingProbe").toObject()
+                        .value("releaseGate").toString()
+                            == QStringLiteral("production-provider-table-binding-blocked-not-linked")
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
@@ -348,6 +367,17 @@ int main() {
                     && QNC_E2E_OPERATION_PAYLOAD_DECRYPT == 7
                     && QNC_E2E_STATUS_OK == 0,
                 "production provider C ABI header should expose stable table and operation contracts") && ok;
+    const QJsonObject firstBindingProbeMapping =
+        productionProviderTableBindingProbe.value("enumMappings").toArray().at(0).toObject();
+    ok = expect(firstBindingProbeMapping.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstBindingProbeMapping.value("headerEnumValue").toInt(-1)
+                        == QNC_E2E_OPERATION_SESSION_KEY_GENERATION
+                    && firstBindingProbeMapping.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstBindingProbeMapping.value("enumMatchesOperationOrder").toBool(false)
+                    && !firstBindingProbeMapping.value("bound").toBool(true),
+                "production provider table binding probe should map header enum values to provider symbols") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),

@@ -789,6 +789,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionOperationExecutionResult")).toObject();
     const QJsonObject productionProviderTable =
         backendStatus.value(QStringLiteral("productionProviderTable")).toObject();
+    const QJsonObject productionProviderTableBindingProbe =
+        backendStatus.value(QStringLiteral("productionProviderTableBindingProbe")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -878,6 +880,12 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderTable.value(QStringLiteral("boundSymbolCount")).toInt();
     dryRun[QStringLiteral("productionProviderTableMissingSymbolCount")] =
         productionProviderTable.value(QStringLiteral("missingSymbolCount")).toInt();
+    dryRun[QStringLiteral("productionProviderTableBindingProbe")] =
+        productionProviderTableBindingProbe;
+    dryRun[QStringLiteral("productionProviderTableBindingProbeReleaseGate")] =
+        productionProviderTableBindingProbe.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderTableBindingProbeAccepted")] =
+        productionProviderTableBindingProbe.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -997,6 +1005,12 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderTableBoundSymbolCount")).toInt();
     evidence[QStringLiteral("productionProviderTableMissingSymbolCount")] =
         dryRun.value(QStringLiteral("productionProviderTableMissingSymbolCount")).toInt();
+    evidence[QStringLiteral("productionProviderTableBindingProbe")] =
+        dryRun.value(QStringLiteral("productionProviderTableBindingProbe")).toObject();
+    evidence[QStringLiteral("productionProviderTableBindingProbeReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderTableBindingProbeReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderTableBindingProbeAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderTableBindingProbeAccepted")).toBool(false);
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

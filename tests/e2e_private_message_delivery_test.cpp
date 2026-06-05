@@ -609,6 +609,18 @@ int main(int argc, char** argv) {
                             .value("requiredSymbol").toString()
                                 == QStringLiteral("qnc_e2e_op_session_key_generation_v1"),
                     "production rotation dry-run should embed provider table binding evidence") && ok;
+        const QJsonObject rotationProviderTableBindingProbe =
+            rotationDryRun.value("productionProviderTableBindingProbe").toObject();
+        ok = expect(rotationProviderTableBindingProbe.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-table-binding-probe-v1")
+                        && rotationProviderTableBindingProbe.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-table-binding-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderTableBindingProbeReleaseGate").toString()
+                            == QStringLiteral("production-provider-table-binding-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderTableBindingProbeAccepted").toBool(true)
+                        && rotationProviderTableBindingProbe.value("enumMappings").toArray().size() == 8
+                        && rotationProviderTableBindingProbe.value("fieldOffsets").toArray().size() == 5,
+                    "production rotation dry-run should embed provider table binding probe evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -625,6 +637,8 @@ int main(int argc, char** argv) {
                             .value("bindings").toArray().size() == 8
                         && rotationAcceptance.value("providerTable").toObject()
                             .value("missingSymbolCount").toInt() == 8
+                        && rotationAcceptance.value("providerTableBindingProbe").toObject()
+                            .value("enumMappings").toArray().size() == 8
                         && rotationAcceptance.value("implementedOperationCount").toInt() == 0,
                     "production rotation dry-run should embed sanitized acceptance evidence") && ok;
         const QJsonObject rotationHarness =
@@ -725,6 +739,11 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("productionProviderTableMissingSymbolCount").toInt() == 8
                         && rotationExecute.value("productionProviderTable").toObject()
                             .value("entries").toArray().size() == 8
+                        && rotationExecute.value("productionProviderTableBindingProbeReleaseGate").toString()
+                            == QStringLiteral("production-provider-table-binding-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderTableBindingProbeAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderTableBindingProbe").toObject()
+                            .value("enumMappings").toArray().size() == 8
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),

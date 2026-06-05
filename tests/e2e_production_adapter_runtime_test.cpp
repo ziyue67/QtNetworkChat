@@ -83,6 +83,8 @@ int main() {
         status.value("productionOperationExecutionResult").toObject();
     const QJsonObject providerTable =
         status.value("productionProviderTable").toObject();
+    const QJsonObject providerTableBindingProbe =
+        status.value("productionProviderTableBindingProbe").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -244,6 +246,29 @@ int main() {
                     && !providerTable.value("rawKeyExported").toBool(true)
                     && !providerTable.value("privateMaterialExported").toBool(true),
                 "production provider table should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(providerTableBindingProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-table-binding-probe-v1")
+                    && providerTableBindingProbe.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-table-binding-blocked-placeholder")
+                            : QStringLiteral("production-provider-table-binding-blocked-not-linked"))
+                    && providerTableBindingProbe.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-provider-table-placeholder")
+                        : QStringLiteral("production-provider-table-not-bound"))
+                    && providerTableBindingProbe.value("headerLayoutComplete").toBool(false)
+                    && providerTableBindingProbe.value("enumMappingComplete").toBool(false)
+                    && providerTableBindingProbe.value("functionPointerSlotsComplete").toBool(false)
+                    && !providerTableBindingProbe.value("accepted").toBool(true)
+                    && !providerTableBindingProbe.value("tableBound").toBool(true)
+                    && providerTableBindingProbe.value("requiredOperationCount").toInt()
+                        == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT
+                    && providerTableBindingProbe.value("enumMatchCount").toInt()
+                        == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT
+                    && providerTableBindingProbe.value("enumMappings").toArray().size() == 8
+                    && providerTableBindingProbe.value("fieldOffsets").toArray().size() == 5
+                    && !providerTableBindingProbe.value("rawKeyExported").toBool(true)
+                    && !providerTableBindingProbe.value("privateMaterialExported").toBool(true),
+                "production provider table binding probe should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
