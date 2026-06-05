@@ -85,6 +85,8 @@ int main() {
         backendStatus.value("productionOperationInvocation").toObject();
     const QJsonObject productionSlots =
         backendStatus.value("productionOperationSlots").toObject();
+    const QJsonObject productionDispatchBindings =
+        backendStatus.value("productionOperationDispatchBindings").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -147,6 +149,12 @@ int main() {
                         == QStringLiteral("production-operation-slots-blocked-not-linked")
                     && productionSlots.value("blockedSlotCount").toInt() == 8
                     && productionSlots.value("slots").toArray().size() == 8
+                    && productionDispatchBindings.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-dispatch-bindings-v1")
+                    && productionDispatchBindings.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-dispatch-bindings-blocked-not-linked")
+                    && productionDispatchBindings.value("blockedBindingCount").toInt() == 8
+                    && productionDispatchBindings.value("bindings").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -187,9 +195,34 @@ int main() {
                         .value("operationHarness").toObject()
                         .value("operations").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("operationDispatchBindings").toObject()
+                        .value("bindings").toArray().size() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
                 "registered backend descriptors should expose adapter readiness without private material") && ok;
+    const QJsonObject firstDispatchBinding =
+        productionDispatchBindings.value("bindings").toArray().at(0).toObject();
+    ok = expect(firstDispatchBinding.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstDispatchBinding.value("slotId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1/session-key-generation-slot")
+                    && firstDispatchBinding.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstDispatchBinding.value("bindingState").toString()
+                        == QStringLiteral("not-linked")
+                    && !firstDispatchBinding.value("dispatchCallable").toBool(true)
+                    && !firstDispatchBinding.value("reviewed").toBool(true)
+                    && firstDispatchBinding.value("expectedSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && firstDispatchBinding.value("inputContract").toArray().at(0).toString()
+                        == QStringLiteral("secure-random-source")
+                    && firstDispatchBinding.value("outputContract").toArray().at(0).toString()
+                        == QStringLiteral("session-key-handle")
+                    && firstDispatchBinding.value("fixtureHashSha256").toString().size() == 64
+                    && !firstDispatchBinding.value("rawKeyExported").toBool(true)
+                    && !firstDispatchBinding.value("privateMaterialExported").toBool(true),
+                "production dispatch bindings should expose stable provider ABI evidence without enabling placeholders") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),

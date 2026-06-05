@@ -783,6 +783,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionOperationInvocation")).toObject();
     const QJsonObject productionSlots =
         backendStatus.value(QStringLiteral("productionOperationSlots")).toObject();
+    const QJsonObject productionDispatchBindings =
+        backendStatus.value(QStringLiteral("productionOperationDispatchBindings")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -847,6 +849,13 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionSlots.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionSlotsBlockedSlotCount")] =
         productionSlots.value(QStringLiteral("blockedSlotCount")).toInt();
+    dryRun[QStringLiteral("productionOperationDispatchBindings")] = productionDispatchBindings;
+    dryRun[QStringLiteral("productionDispatchBindingsReleaseGate")] =
+        productionDispatchBindings.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionDispatchBindingsAccepted")] =
+        productionDispatchBindings.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionDispatchBindingsBlockedBindingCount")] =
+        productionDispatchBindings.value(QStringLiteral("blockedBindingCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -938,6 +947,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionSlotsAccepted")).toBool(false);
     evidence[QStringLiteral("productionSlotsBlockedSlotCount")] =
         dryRun.value(QStringLiteral("productionSlotsBlockedSlotCount")).toInt();
+    evidence[QStringLiteral("productionOperationDispatchBindings")] =
+        dryRun.value(QStringLiteral("productionOperationDispatchBindings")).toObject();
+    evidence[QStringLiteral("productionDispatchBindingsReleaseGate")] =
+        dryRun.value(QStringLiteral("productionDispatchBindingsReleaseGate")).toString();
+    evidence[QStringLiteral("productionDispatchBindingsAccepted")] =
+        dryRun.value(QStringLiteral("productionDispatchBindingsAccepted")).toBool(false);
+    evidence[QStringLiteral("productionDispatchBindingsBlockedBindingCount")] =
+        dryRun.value(QStringLiteral("productionDispatchBindingsBlockedBindingCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

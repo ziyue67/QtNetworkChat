@@ -74,6 +74,8 @@ int main() {
     const QJsonObject executionPlan = status.value("productionOperationExecutionPlan").toObject();
     const QJsonObject invocation = status.value("productionOperationInvocation").toObject();
     const QJsonObject slotStatus = status.value("productionOperationSlots").toObject();
+    const QJsonObject dispatchBindings =
+        status.value("productionOperationDispatchBindings").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -144,6 +146,25 @@ int main() {
                     && !slotStatus.value("rawKeyExported").toBool(true)
                     && !slotStatus.value("privateMaterialExported").toBool(true),
                 "production slot registry should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(dispatchBindings.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-dispatch-bindings-v1")
+                    && dispatchBindings.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operation-dispatch-bindings-blocked-placeholder")
+                            : QStringLiteral("production-operation-dispatch-bindings-blocked-not-linked"))
+                    && dispatchBindings.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-operation-dispatch-bindings-not-reviewed")
+                        : QStringLiteral("production-crypto-backend-unavailable"))
+                    && !dispatchBindings.value("accepted").toBool(true)
+                    && dispatchBindings.value("reviewedBindingCount").toInt() == 0
+                    && dispatchBindings.value("callableBindingCount").toInt() == 0
+                    && dispatchBindings.value("blockedBindingCount").toInt() == 8
+                    && dispatchBindings.value("bindings").toArray().size() == 8
+                    && dispatchBindings.value("operationSlotsReleaseGate").toString()
+                        == slotStatus.value("releaseGate").toString()
+                    && !dispatchBindings.value("rawKeyExported").toBool(true)
+                    && !dispatchBindings.value("privateMaterialExported").toBool(true),
+                "production dispatch bindings should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -201,6 +222,28 @@ int main() {
                     && !firstSlot.value("reviewed").toBool(true)
                     && !firstSlot.value("callable").toBool(true),
                 "production slot registry should expose reviewed provider symbols without marking placeholders ready") && ok;
+    const QJsonObject firstBinding = dispatchBindings.value("bindings").toArray().at(0).toObject();
+    ok = expect(firstBinding.value("slotId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1/session-key-generation-slot")
+                    && firstBinding.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstBinding.value("bindingState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("linked-placeholder")
+                            : QStringLiteral("not-linked"))
+                    && !firstBinding.value("dispatchCallable").toBool(true)
+                    && firstBinding.value("expectedSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && firstBinding.value("inputContract").toArray().at(0).toString()
+                        == QStringLiteral("secure-random-source")
+                    && firstBinding.value("outputContract").toArray().at(0).toString()
+                        == QStringLiteral("session-key-handle")
+                    && firstBinding.value("blockedReason").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-dispatch-binding-placeholder")
+                            : QStringLiteral("production-crypto-backend-unavailable"))
+                    && !firstBinding.value("rawKeyExported").toBool(true),
+                "production dispatch binding should expose the reviewed provider ABI slot without calling it") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()
@@ -220,6 +263,8 @@ int main() {
                     && acceptance.value("blockedOperationCount").toInt() == 8
                     && acceptance.value("operationGates").toArray().size() == 8
                     && acceptance.value("operationManifest").toArray().size() == 8
+                    && acceptance.value("operationDispatchBindings").toObject()
+                        .value("bindings").toArray().size() == 8
                     && acceptance.value("implementedOperationCount").toInt() == 0
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
