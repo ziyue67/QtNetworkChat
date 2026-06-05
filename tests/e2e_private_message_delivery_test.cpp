@@ -637,6 +637,20 @@ int main(int argc, char** argv) {
                             .value("blockedReason").toString()
                                 == QStringLiteral("production-provider-table-not-bound"),
                     "production rotation dry-run should embed provider table registration evidence") && ok;
+        const QJsonObject rotationProviderOperationPreflight =
+            rotationDryRun.value("productionProviderOperationPreflight").toObject();
+        ok = expect(rotationProviderOperationPreflight.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-operation-preflight-v1")
+                        && rotationProviderOperationPreflight.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-operation-preflight-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderOperationPreflightReleaseGate").toString()
+                            == QStringLiteral("production-provider-operation-preflight-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderOperationPreflightAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderOperationPreflightBlockedOperationCount").toInt() == 8
+                        && rotationProviderOperationPreflight.value("presentOperationCount").toInt() == 0
+                        && rotationProviderOperationPreflight.value("operations").toArray().size() == 8
+                        && !rotationProviderOperationPreflight.value("operationInvoked").toBool(true),
+                    "production rotation dry-run should embed provider operation preflight evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -658,6 +672,9 @@ int main(int argc, char** argv) {
                         && rotationAcceptance.value("providerTableRegistration").toObject()
                             .value("registered").toBool(true) == false
                         && !rotationAcceptance.value("providerTableRegistrationAccepted").toBool(true)
+                        && rotationAcceptance.value("providerOperationPreflight").toObject()
+                            .value("blockedOperationCount").toInt() == 8
+                        && !rotationAcceptance.value("providerOperationPreflightAccepted").toBool(true)
                         && rotationAcceptance.value("implementedOperationCount").toInt() == 0,
                     "production rotation dry-run should embed sanitized acceptance evidence") && ok;
         const QJsonObject rotationHarness =
@@ -770,6 +787,14 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("productionProviderTableRegistration").toObject()
                             .value("blockedReason").toString()
                                 == QStringLiteral("production-provider-table-not-registered")
+                        && rotationExecute.value("productionProviderOperationPreflightReleaseGate").toString()
+                            == QStringLiteral("production-provider-operation-preflight-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderOperationPreflightAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderOperationPreflightBlockedOperationCount").toInt() == 8
+                        && rotationExecute.value("productionProviderOperationPreflight").toObject()
+                            .value("operations").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderOperationPreflight").toObject()
+                            .value("operationInvoked").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),

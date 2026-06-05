@@ -87,6 +87,8 @@ int main() {
         status.value("productionProviderTableBindingProbe").toObject();
     const QJsonObject providerTableRegistration =
         status.value("productionProviderTableRegistration").toObject();
+    const QJsonObject providerOperationPreflight =
+        status.value("productionProviderOperationPreflight").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -308,6 +310,26 @@ int main() {
                     && !providerTableRegistration.value("rawKeyExported").toBool(true)
                     && !providerTableRegistration.value("privateMaterialExported").toBool(true),
                 "production provider table registration should expose runtime binding evidence without enabling placeholders") && ok;
+    ok = expect(providerOperationPreflight.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-operation-preflight-v1")
+                    && providerOperationPreflight.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-operation-preflight-blocked-placeholder")
+                            : QStringLiteral("production-provider-operation-preflight-blocked-not-linked"))
+                    && providerOperationPreflight.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-table-not-registered")
+                    && !providerOperationPreflight.value("accepted").toBool(true)
+                    && !providerOperationPreflight.value("providerTableRegistered").toBool(true)
+                    && providerOperationPreflight.value("presentOperationCount").toInt() == 0
+                    && providerOperationPreflight.value("blockedOperationCount").toInt() == 8
+                    && providerOperationPreflight.value("abiMatchedOperationCount").toInt() == 8
+                    && providerOperationPreflight.value("contractMatchedOperationCount").toInt() == 8
+                    && providerOperationPreflight.value("fixtureMatchedOperationCount").toInt() == 8
+                    && providerOperationPreflight.value("operations").toArray().size() == 8
+                    && !providerOperationPreflight.value("operationInvoked").toBool(true)
+                    && !providerOperationPreflight.value("rawKeyExported").toBool(true)
+                    && !providerOperationPreflight.value("privateMaterialExported").toBool(true),
+                "production provider operation preflight should validate dispatch readiness without invoking crypto") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
