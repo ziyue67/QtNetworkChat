@@ -685,6 +685,75 @@ QJsonObject Client::planE2EBackendMigration() const {
     return plan;
 }
 
+QJsonObject Client::planE2EProductionRotationDryRun() const {
+    QJsonObject dryRun;
+    const QJsonObject backendStatus = e2eCryptoBackendStatus();
+    const QJsonObject migrationPlan = planE2EBackendMigration();
+    const QJsonObject providerReadiness =
+        backendStatus.value(QStringLiteral("selectedProviderReadiness")).toObject();
+    const QJsonObject providerCompatibility =
+        backendStatus.value(QStringLiteral("selectedProviderCompatibility")).toObject();
+    const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
+    const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
+    const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
+    const bool canRotate = backendAvailable && productionReady && migrationRequired;
+
+    dryRun[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-production-rotation-dry-run-v1");
+    dryRun[QStringLiteral("mode")] = QStringLiteral("dry-run");
+    dryRun[QStringLiteral("destructive")] = false;
+    dryRun[QStringLiteral("wouldClearLocalIdentityStore")] = false;
+    dryRun[QStringLiteral("wouldClearTrustPinStore")] = false;
+    dryRun[QStringLiteral("wouldDropActiveSessions")] = false;
+    dryRun[QStringLiteral("executed")] = false;
+    dryRun[QStringLiteral("userConfigured")] = migrationPlan.value(QStringLiteral("userConfigured")).toBool(false);
+    dryRun[QStringLiteral("currentBackendId")] = migrationPlan.value(QStringLiteral("currentBackendId")).toString();
+    dryRun[QStringLiteral("requestedBackendId")] =
+        backendStatus.value(QStringLiteral("requestedBackendId")).toString();
+    dryRun[QStringLiteral("selectedBackendId")] =
+        backendStatus.value(QStringLiteral("selectedBackendId")).toString();
+    dryRun[QStringLiteral("backendAvailable")] = backendAvailable;
+    dryRun[QStringLiteral("productionReady")] = productionReady;
+    dryRun[QStringLiteral("providerId")] = providerReadiness.value(QStringLiteral("providerId")).toString();
+    dryRun[QStringLiteral("readinessGate")] = providerReadiness.value(QStringLiteral("readinessGate")).toString();
+    dryRun[QStringLiteral("compatibilityGate")] = providerCompatibility.value(QStringLiteral("gate")).toString();
+    dryRun[QStringLiteral("compatibilityStatus")] = providerCompatibility.value(QStringLiteral("status")).toString();
+    dryRun[QStringLiteral("knownAnswerPassed")] =
+        providerCompatibility.value(QStringLiteral("knownAnswerPassed")).toBool(false);
+    dryRun[QStringLiteral("roundTripPassed")] =
+        providerCompatibility.value(QStringLiteral("roundTripPassed")).toBool(false);
+    dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
+    dryRun[QStringLiteral("localIdentityMigrationRequired")] =
+        migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
+    dryRun[QStringLiteral("pinnedPeerMigrationCount")] =
+        migrationPlan.value(QStringLiteral("pinnedPeerMigrationCount")).toInt();
+    dryRun[QStringLiteral("sessionMigrationCount")] =
+        migrationPlan.value(QStringLiteral("sessionMigrationCount")).toInt();
+    dryRun[QStringLiteral("pendingOutgoingAgreementCount")] =
+        migrationPlan.value(QStringLiteral("pendingOutgoingAgreementCount")).toInt();
+    dryRun[QStringLiteral("pendingIncomingAgreementCount")] =
+        migrationPlan.value(QStringLiteral("pendingIncomingAgreementCount")).toInt();
+    dryRun[QStringLiteral("affectedPeerPins")] = migrationPlan.value(QStringLiteral("peerPins")).toArray();
+    dryRun[QStringLiteral("affectedSessions")] = migrationPlan.value(QStringLiteral("sessions")).toArray();
+    dryRun[QStringLiteral("canRotateInPlace")] = canRotate;
+    dryRun[QStringLiteral("releaseGate")] = canRotate
+        ? QStringLiteral("can-rotate-e2e-state-to-production-backend")
+        : (productionReady
+            ? QStringLiteral("no-local-e2e-backend-migration-required")
+            : QStringLiteral("production-crypto-provider-not-ready"));
+    dryRun[QStringLiteral("blockedReason")] = canRotate
+        ? QString()
+        : (!productionReady
+            ? backendStatus.value(QStringLiteral("unavailableReason")).toString(
+                QStringLiteral("production-adapter-not-ready"))
+            : (migrationRequired ? QString() : QStringLiteral("migration-not-required")));
+    dryRun[QStringLiteral("operatorAction")] = canRotate
+        ? QStringLiteral("execute-reviewed-production-key-signature-session-rotation")
+        : (!productionReady
+            ? QStringLiteral("complete-reviewed-production-provider-before-rotation")
+            : QStringLiteral("no-local-e2e-migration-needed"));
+    return dryRun;
+}
+
 QJsonObject Client::executeE2EBackendMigration(QString* rejectReason) {
     if (rejectReason) rejectReason->clear();
     QJsonObject evidence;

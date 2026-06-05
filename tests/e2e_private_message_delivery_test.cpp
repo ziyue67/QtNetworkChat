@@ -478,6 +478,36 @@ int main(int argc, char** argv) {
                         && !migrationPlanJson.contains("publicKey\"")
                         && !migrationPlanJson.contains(originalAliceIdentityFingerprint.toUtf8()),
                     "migration plan should not leak private keys, raw session keys, public keys, or full identity fingerprints") && ok;
+        const QJsonObject rotationDryRun = alice.planE2EProductionRotationDryRun();
+        ok = expect(rotationDryRun.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-rotation-dry-run-v1")
+                        && rotationDryRun.value("mode").toString() == QStringLiteral("dry-run")
+                        && !rotationDryRun.value("destructive").toBool(true)
+                        && !rotationDryRun.value("executed").toBool(true)
+                        && !rotationDryRun.value("canRotateInPlace").toBool(true)
+                        && rotationDryRun.value("releaseGate").toString()
+                            == QStringLiteral("production-crypto-provider-not-ready")
+                        && rotationDryRun.value("operatorAction").toString()
+                            == QStringLiteral("complete-reviewed-production-provider-before-rotation")
+                        && rotationDryRun.value("migrationRequired").toBool(false)
+                        && rotationDryRun.value("pinnedPeerMigrationCount").toInt() >= 1
+                        && rotationDryRun.value("sessionMigrationCount").toInt() >= 1
+                        && !rotationDryRun.value("wouldClearLocalIdentityStore").toBool(true)
+                        && !rotationDryRun.value("wouldClearTrustPinStore").toBool(true)
+                        && !rotationDryRun.value("wouldDropActiveSessions").toBool(true)
+                        && rotationDryRun.value("affectedPeerPins").toArray().size() >= 1
+                        && rotationDryRun.value("affectedSessions").toArray().size() >= 1,
+                    "production rotation dry-run should block until the provider is ready without clearing local state") && ok;
+        const QByteArray rotationDryRunJson = QJsonDocument(rotationDryRun).toJson(QJsonDocument::Compact);
+        ok = expect(!rotationDryRunJson.contains("privateKey")
+                        && !rotationDryRunJson.contains("sessionKey")
+                        && !rotationDryRunJson.contains("publicKey\"")
+                        && !rotationDryRunJson.contains(originalAliceIdentityFingerprint.toUtf8())
+                        && QFile::exists(aliceIdentityPathBeforeClear)
+                        && QFile::exists(aliceTrustPinsPathBeforeClear)
+                        && alice.e2eSessionStatus(bobId).value("state").toString()
+                            == QStringLiteral("backend-migration-required"),
+                    "production rotation dry-run evidence should stay sanitized and preserve draft state") && ok;
         const QJsonObject migrationEvidence = alice.executeE2EBackendMigration(&rejectReason);
         ok = expect(rejectReason.isEmpty()
                         && migrationEvidence.value("executed").toBool(false)

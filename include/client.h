@@ -32,6 +32,7 @@ public:
     QJsonObject e2eLocalIdentityStatus() const;
     QJsonObject e2ePeerIdentityStatus(const QString& peerId) const;
     QJsonObject planE2EBackendMigration() const;
+    QJsonObject planE2EProductionRotationDryRun() const;
     QJsonObject executeE2EBackendMigration(QString* rejectReason = nullptr);
     void setE2ESessionMessageLimitForTesting(int limit);
     bool announceE2EIdentity(const QString& peerId = QString(), QString* rejectReason = nullptr);
