@@ -61,10 +61,12 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/tlssecurity.cpp
     src/filetransferstatus.cpp
     src/transfermanager.cpp
+    src/friendmanager.cpp
     src/e2eenvelope.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
     include/transfermanager.h
+    include/friendmanager.h
     include/e2eenvelope.h
 )
 
@@ -246,6 +248,15 @@ if(BUILD_TESTING)
     )
     target_include_directories(transfer_manager_test PRIVATE include)
     target_link_libraries(transfer_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(friend_manager_test
+        tests/friend_manager_test.cpp
+        src/friendmanager.cpp
+        include/friendmanager.h
+        include/chatuser.h
+    )
+    target_include_directories(friend_manager_test PRIVATE include)
+    target_link_libraries(friend_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
 
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
@@ -554,6 +565,13 @@ if(BUILD_TESTING)
         NAME TransferManagerRecoveryUi
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:transfer_manager_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME FriendManagerContactState
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:friend_manager_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

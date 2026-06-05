@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include "client.h"
 #include "chatuser.h"
+#include "friendmanager.h"
 #include "historyservice.h"
 #include "message.h"
 #include "transfermanager.h"
@@ -128,6 +129,7 @@ private:
     QStandardItemModel* m_userListModel;
     QStandardItemModel* m_chatModel;
     QStandardItemModel* m_groupMemberModel;
+    FriendManager m_friendManager;
     HistoryService m_historyService;
     TransferManager m_transferManager;
     QString m_currentUserId;

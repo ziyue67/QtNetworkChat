@@ -5748,8 +5748,9 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
         refreshGroupMemberPanel();
         m_pendingFriendRequests.removeAll(senderId);
         saveFriends();
-        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
-        ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
+        const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+        ui->friendNoticeBtn->setText(noticeState.text);
+        ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
         appendSystemMessage(displayName + " 已同意你的好友申请");
         ui->statusbar->showMessage(QString("%1 已同意好友申请").arg(displayName), 2800);
     } else {
@@ -6483,8 +6484,9 @@ void MainWindow::onShowFriendNotifications() {
     )");
 
     auto updateBadge = [this]() {
-        ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty() ? "好友通知" : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
-        ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty() ? "查看并处理好友申请" : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
+        const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+        ui->friendNoticeBtn->setText(noticeState.text);
+        ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
     };
     auto currentRequestId = [noticeList]() -> QString {
         QListWidgetItem* item = noticeList->currentItem();
@@ -7599,12 +7601,9 @@ void MainWindow::refreshFriendList() {
     }
 
     const int joinedGroupCount = m_localGroupIds.size() + 1;
-    ui->friendNoticeBtn->setText(m_pendingFriendRequests.isEmpty()
-        ? "好友通知"
-        : QString("好友通知 %1").arg(m_pendingFriendRequests.size()));
-    ui->friendNoticeBtn->setToolTip(m_pendingFriendRequests.isEmpty()
-        ? "查看并处理好友申请"
-        : QString("有 %1 个好友申请待处理").arg(m_pendingFriendRequests.size()));
+    const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+    ui->friendNoticeBtn->setText(noticeState.text);
+    ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
     ui->groupNoticeBtn->setText(m_localGroupIds.isEmpty()
         ? "群通知"
         : QString("群通知 %1").arg(joinedGroupCount));
@@ -7629,9 +7628,7 @@ void MainWindow::refreshFriendList() {
     int visiblePendingOutgoing = 0;
     int visibleStrangers = 0;
     auto matchesFilter = [this](const QString& id, const QString& name) {
-        return m_contactFilter.isEmpty()
-            || id.contains(m_contactFilter, Qt::CaseInsensitive)
-            || name.contains(m_contactFilter, Qt::CaseInsensitive);
+        return m_friendManager.matchesFilter(id, name, m_contactFilter);
     };
 
     appendSection("我的好友");
@@ -7984,12 +7981,11 @@ void MainWindow::loadAvatar() {
 }
 
 QString MainWindow::contactDisplayName(const QString& userId) const {
-    if (m_knownUsers.contains(userId)) return m_knownUsers.value(userId).name;
-    return m_friendNames.value(userId, userId);
+    return m_friendManager.contactDisplayName(userId, m_knownUsers, m_friendNames);
 }
 
 bool MainWindow::isContactOnline(const QString& userId) const {
-    return m_knownUsers.contains(userId) && m_knownUsers.value(userId).isOnline;
+    return m_friendManager.isContactOnline(userId, m_knownUsers);
 }
 
 bool MainWindow::isCurrentUserRemovedFromPublicGroup() const {

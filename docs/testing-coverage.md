@@ -6,6 +6,7 @@ QtNetworkChat uses CTest as the release-level local verification surface. The de
 
 - Message JSON round-trip and executable presence.
 - Account password KDF migration, legacy hash login compatibility, failed-login non-upgrade, and local credential storage without plaintext passwords.
+- FriendManager contact display state for known-user/remark/id fallback, online state, friend notification badge copy, filter matching, and relation labels.
 - TLS certificate SHA-256 pinning and fixed failure diagnostics.
 - E2E envelope/key agreement serialization, encrypted private text/file behavior, trust pin recovery, rotation gates, history metadata, production backend status, and production adapter fail-closed evidence.
 - HistoryService local persistence for SQLite save/load, encrypted history labels, date filtering, export formatting, clearing, sanitized paths, and legacy text fallback/import.
