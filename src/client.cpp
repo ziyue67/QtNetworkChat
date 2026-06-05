@@ -775,6 +775,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("selectedProviderReadiness")).toObject();
     const QJsonObject providerCompatibility =
         backendStatus.value(QStringLiteral("selectedProviderCompatibility")).toObject();
+    const QJsonObject productionAcceptance =
+        backendStatus.value(QStringLiteral("productionAcceptance")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -811,6 +813,13 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         providerCompatibility.value(QStringLiteral("knownAnswerPassed")).toBool(false);
     dryRun[QStringLiteral("roundTripPassed")] =
         providerCompatibility.value(QStringLiteral("roundTripPassed")).toBool(false);
+    dryRun[QStringLiteral("productionAcceptance")] = productionAcceptance;
+    dryRun[QStringLiteral("productionAcceptanceReleaseGate")] =
+        productionAcceptance.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionAcceptanceAccepted")] =
+        productionAcceptance.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionAcceptanceBlockedOperationCount")] =
+        productionAcceptance.value(QStringLiteral("blockedOperationCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -872,6 +881,12 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("pendingIncomingAgreementCount")).toInt();
     evidence[QStringLiteral("rotationStages")] = dryRun.value(QStringLiteral("rotationStages")).toArray();
     evidence[QStringLiteral("blockedStageCount")] = dryRun.value(QStringLiteral("blockedStageCount")).toInt();
+    evidence[QStringLiteral("productionAcceptance")] =
+        dryRun.value(QStringLiteral("productionAcceptance")).toObject();
+    evidence[QStringLiteral("productionAcceptanceReleaseGate")] =
+        dryRun.value(QStringLiteral("productionAcceptanceReleaseGate")).toString();
+    evidence[QStringLiteral("productionAcceptanceAccepted")] =
+        dryRun.value(QStringLiteral("productionAcceptanceAccepted")).toBool(false);
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

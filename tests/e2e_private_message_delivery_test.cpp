@@ -498,8 +498,22 @@ int main(int argc, char** argv) {
                         && rotationDryRun.value("affectedPeerPins").toArray().size() >= 1
                         && rotationDryRun.value("affectedSessions").toArray().size() >= 1
                         && rotationDryRun.value("rotationStages").toArray().size() == 7
-                        && rotationDryRun.value("blockedStageCount").toInt() == 7,
+                        && rotationDryRun.value("blockedStageCount").toInt() == 7
+                        && rotationDryRun.value("productionAcceptanceReleaseGate").toString()
+                            == QStringLiteral("production-adapter-not-linked")
+                        && !rotationDryRun.value("productionAcceptanceAccepted").toBool(true)
+                        && rotationDryRun.value("productionAcceptanceBlockedOperationCount").toInt() == 8,
                     "production rotation dry-run should block until the provider is ready without clearing local state") && ok;
+        const QJsonObject rotationAcceptance =
+            rotationDryRun.value("productionAcceptance").toObject();
+        ok = expect(rotationAcceptance.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
+                        && rotationAcceptance.value("releaseGate").toString()
+                            == QStringLiteral("production-adapter-not-linked")
+                        && rotationAcceptance.value("blockedReason").toString()
+                            == QStringLiteral("production-crypto-backend-unavailable")
+                        && rotationAcceptance.value("operationGates").toArray().size() == 8,
+                    "production rotation dry-run should embed sanitized acceptance evidence") && ok;
         const QJsonObject firstRotationStage = rotationDryRun.value("rotationStages").toArray().at(0).toObject();
         ok = expect(firstRotationStage.value("name").toString()
                             == QStringLiteral("generate-production-identity")
@@ -538,6 +552,9 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("affectedSessionCount").toInt() >= 1
                         && rotationExecute.value("rotationStages").toArray().size() == 7
                         && rotationExecute.value("blockedStageCount").toInt() == 7
+                        && rotationExecute.value("productionAcceptanceReleaseGate").toString()
+                            == QStringLiteral("production-adapter-not-linked")
+                        && !rotationExecute.value("productionAcceptanceAccepted").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),

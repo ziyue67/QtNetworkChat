@@ -69,6 +69,40 @@ int main() {
 
     const QJsonObject payloadEncrypt =
         status.value("operations").toObject().value("payload-encrypt").toObject();
+    const QJsonObject acceptance = status.value("productionAcceptance").toObject();
+    ok = expect(acceptance.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
+                    && acceptance.value("backendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && acceptance.value("providerId").toString()
+                        == QStringLiteral("openssl-reviewed-provider-v1")
+                    && acceptance.value("linked").toBool(false) == adapterLinked
+                    && !acceptance.value("productionReady").toBool(true)
+                    && !acceptance.value("accepted").toBool(true)
+                    && acceptance.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operations-not-ready")
+                            : QStringLiteral("production-adapter-not-linked"))
+                    && acceptance.value("blockedReason").toString() == expectedReason
+                    && acceptance.value("operationContractComplete").toBool(false)
+                    && acceptance.value("registeredOperationCount").toInt() == 8
+                    && acceptance.value("blockedOperationCount").toInt() == 8
+                    && acceptance.value("operationGates").toArray().size() == 8
+                    && !acceptance.value("rawKeyExported").toBool(true)
+                    && !acceptance.value("privateMaterialExported").toBool(true),
+                "production acceptance status should summarize linked-placeholder gates without enabling crypto") && ok;
+    const QJsonObject firstGate = acceptance.value("operationGates").toArray().at(0).toObject();
+    ok = expect(firstGate.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstGate.value("entrypoint").toString()
+                        == QStringLiteral("production-adapter/session-key-generation")
+                    && !firstGate.value("available").toBool(true)
+                    && firstGate.value("blockedReason").toString() == expectedReason
+                    && firstGate.value("providerId").toString()
+                        == QStringLiteral("openssl-reviewed-provider-v1")
+                    && !firstGate.value("rawKeyExported").toBool(true)
+                    && !firstGate.value("privateMaterialExported").toBool(true),
+                "production acceptance operation gates should be sanitized and dispatch-oriented") && ok;
     ok = expect(payloadEncrypt.value("backendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && payloadEncrypt.value("entrypoint").toString() == QStringLiteral("production-adapter/payload-encrypt")
                     && payloadEncrypt.value("providerId").toString() == QStringLiteral("openssl-reviewed-provider-v1")

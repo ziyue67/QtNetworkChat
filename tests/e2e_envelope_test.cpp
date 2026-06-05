@@ -77,6 +77,7 @@ int main() {
     const QJsonArray registeredBackends = backendStatus.value("registeredBackends").toArray();
     const QJsonObject draftBackend = registeredBackends.at(0).toObject();
     const QJsonObject productionBackend = registeredBackends.at(1).toObject();
+    const QJsonObject productionAcceptance = backendStatus.value("productionAcceptance").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -104,6 +105,15 @@ int main() {
                         .value("status").toString() == QStringLiteral("development-known-answer-passed")
                     && backendStatus.value("selectedProviderCompatibility").toObject()
                         .value("knownAnswerPassed").toBool(false)
+                    && productionAcceptance.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
+                    && !productionAcceptance.value("accepted").toBool(true)
+                    && productionAcceptance.value("releaseGate").toString()
+                        == QStringLiteral("production-adapter-not-linked")
+                    && productionAcceptance.value("blockedReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
+                    && productionAcceptance.value("blockedOperationCount").toInt() == 8
+                    && productionAcceptance.value("operationGates").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -413,6 +423,8 @@ int main() {
 
     qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "production");
     const QJsonObject productionRequestedStatus = e2eCryptoBackendStatus();
+    const QJsonObject productionRequestedAcceptance =
+        e2eProductionCryptoAcceptanceStatus();
     ok = expect(productionRequestedStatus.value("requestedBackendId").toString()
                         == QStringLiteral("openssl-reviewed-adapter-v1")
                     && productionRequestedStatus.value("selectionSource").toString()
@@ -426,6 +438,20 @@ int main() {
                     && productionRequestedStatus.value("unavailableReason").toString()
                         == QStringLiteral("production-crypto-backend-unavailable"),
                 "explicit production backend request should fail closed until the adapter is linked") && ok;
+    ok = expect(productionRequestedAcceptance.value("backendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && productionRequestedAcceptance.value("releaseGate").toString()
+                        == QStringLiteral("production-adapter-not-linked")
+                    && productionRequestedAcceptance.value("operatorAction").toString()
+                        == QStringLiteral("link-reviewed-production-crypto-backend")
+                    && !productionRequestedAcceptance.value("accepted").toBool(true)
+                    && !productionRequestedAcceptance.value("linked").toBool(true)
+                    && !productionRequestedAcceptance.value("productionReady").toBool(true)
+                    && productionRequestedAcceptance.value("registeredOperationCount").toInt() == 8
+                    && productionRequestedAcceptance.value("blockedOperationCount").toInt() == 8
+                    && !productionRequestedAcceptance.value("rawKeyExported").toBool(true)
+                    && !productionRequestedAcceptance.value("privateMaterialExported").toBool(true),
+                "production acceptance status should summarize the not-linked release gate") && ok;
     ok = expectAllOperations(productionRequestedStatus,
                              false,
                              QStringLiteral("production-crypto-backend-unavailable"),
