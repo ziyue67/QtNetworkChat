@@ -269,6 +269,88 @@ QString shortE2EFingerprint(QString value) {
     return value.size() <= 12 ? value : value.left(12);
 }
 
+QJsonArray e2eProductionRotationStageManifest(const QJsonObject& backendStatus,
+                                              const QJsonObject& providerCompatibility,
+                                              const QJsonObject& migrationPlan) {
+    const QJsonObject operations = backendStatus.value(QStringLiteral("operations")).toObject();
+    const auto appendStage = [&](QJsonArray* stages,
+                                 const QString& name,
+                                 const QString& requiredOperation,
+                                 const QString& evidenceSource,
+                                 bool localStateRequired) {
+        const QJsonObject operation = operations.value(requiredOperation).toObject();
+        const bool operationAvailable = operation.value(QStringLiteral("available")).toBool(false);
+        const bool stateReady = !localStateRequired
+            || migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
+        QJsonObject stage;
+        stage[QStringLiteral("name")] = name;
+        stage[QStringLiteral("requiredOperation")] = requiredOperation;
+        stage[QStringLiteral("evidenceSource")] = evidenceSource;
+        stage[QStringLiteral("operationAvailable")] = operationAvailable;
+        stage[QStringLiteral("localStateRequired")] = localStateRequired;
+        stage[QStringLiteral("localStateReady")] = stateReady;
+        stage[QStringLiteral("providerCompatibilityGate")] =
+            providerCompatibility.value(QStringLiteral("gate")).toString();
+        stage[QStringLiteral("providerCompatibilityStatus")] =
+            providerCompatibility.value(QStringLiteral("status")).toString();
+        stage[QStringLiteral("status")] = operationAvailable && stateReady
+            ? QStringLiteral("ready")
+            : QStringLiteral("blocked");
+        stage[QStringLiteral("blockedReason")] = operationAvailable && stateReady
+            ? QString()
+            : (!operationAvailable
+                ? operation.value(QStringLiteral("blockedReason")).toString(
+                    backendStatus.value(QStringLiteral("unavailableReason")).toString(
+                        QStringLiteral("production-crypto-backend-unavailable")))
+                : QStringLiteral("migration-not-required"));
+        stage[QStringLiteral("operatorAction")] = operationAvailable && stateReady
+            ? QStringLiteral("none")
+            : (!operationAvailable
+                ? operation.value(QStringLiteral("operatorAction")).toString(
+                    QStringLiteral("complete-reviewed-production-provider-before-rotation"))
+                : QStringLiteral("no-local-e2e-migration-needed"));
+        stages->append(stage);
+    };
+
+    QJsonArray stages;
+    appendStage(&stages,
+                QStringLiteral("generate-production-identity"),
+                QStringLiteral("identity-key-generation"),
+                QStringLiteral("local-identity-store"),
+                true);
+    appendStage(&stages,
+                QStringLiteral("derive-production-public-identity"),
+                QStringLiteral("public-key-derivation"),
+                QStringLiteral("local-identity-store"),
+                true);
+    appendStage(&stages,
+                QStringLiteral("sign-production-agreement"),
+                QStringLiteral("agreement-sign"),
+                QStringLiteral("peer-trust-pins"),
+                true);
+    appendStage(&stages,
+                QStringLiteral("verify-production-agreement"),
+                QStringLiteral("agreement-verify"),
+                QStringLiteral("peer-trust-pins"),
+                true);
+    appendStage(&stages,
+                QStringLiteral("derive-production-session"),
+                QStringLiteral("session-derive"),
+                QStringLiteral("active-sessions"),
+                true);
+    appendStage(&stages,
+                QStringLiteral("encrypt-production-payload"),
+                QStringLiteral("payload-encrypt"),
+                QStringLiteral("private-message-and-file-payloads"),
+                true);
+    appendStage(&stages,
+                QStringLiteral("decrypt-production-payload"),
+                QStringLiteral("payload-decrypt"),
+                QStringLiteral("private-message-and-file-payloads"),
+                true);
+    return stages;
+}
+
 QString e2eCurrentBackendId() {
     return e2eCryptoBackendStatus().value(QStringLiteral("requestedBackendId")).toString(e2eCryptoBackendId()).trimmed();
 }
@@ -696,7 +778,15 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
-    const bool canRotate = backendAvailable && productionReady && migrationRequired;
+    const QJsonArray stages =
+        e2eProductionRotationStageManifest(backendStatus, providerCompatibility, migrationPlan);
+    int blockedStageCount = 0;
+    for (const QJsonValue& value : stages) {
+        if (value.toObject().value(QStringLiteral("status")).toString() != QStringLiteral("ready")) {
+            ++blockedStageCount;
+        }
+    }
+    const bool canRotate = backendAvailable && productionReady && migrationRequired && blockedStageCount == 0;
 
     dryRun[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-production-rotation-dry-run-v1");
     dryRun[QStringLiteral("mode")] = QStringLiteral("dry-run");
@@ -734,6 +824,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         migrationPlan.value(QStringLiteral("pendingIncomingAgreementCount")).toInt();
     dryRun[QStringLiteral("affectedPeerPins")] = migrationPlan.value(QStringLiteral("peerPins")).toArray();
     dryRun[QStringLiteral("affectedSessions")] = migrationPlan.value(QStringLiteral("sessions")).toArray();
+    dryRun[QStringLiteral("rotationStages")] = stages;
+    dryRun[QStringLiteral("blockedStageCount")] = blockedStageCount;
     dryRun[QStringLiteral("canRotateInPlace")] = canRotate;
     dryRun[QStringLiteral("releaseGate")] = canRotate
         ? QStringLiteral("can-rotate-e2e-state-to-production-backend")
@@ -778,6 +870,8 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("pendingOutgoingAgreementCount")).toInt();
     evidence[QStringLiteral("pendingIncomingAgreementCount")] =
         dryRun.value(QStringLiteral("pendingIncomingAgreementCount")).toInt();
+    evidence[QStringLiteral("rotationStages")] = dryRun.value(QStringLiteral("rotationStages")).toArray();
+    evidence[QStringLiteral("blockedStageCount")] = dryRun.value(QStringLiteral("blockedStageCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

@@ -496,8 +496,21 @@ int main(int argc, char** argv) {
                         && !rotationDryRun.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationDryRun.value("wouldDropActiveSessions").toBool(true)
                         && rotationDryRun.value("affectedPeerPins").toArray().size() >= 1
-                        && rotationDryRun.value("affectedSessions").toArray().size() >= 1,
+                        && rotationDryRun.value("affectedSessions").toArray().size() >= 1
+                        && rotationDryRun.value("rotationStages").toArray().size() == 7
+                        && rotationDryRun.value("blockedStageCount").toInt() == 7,
                     "production rotation dry-run should block until the provider is ready without clearing local state") && ok;
+        const QJsonObject firstRotationStage = rotationDryRun.value("rotationStages").toArray().at(0).toObject();
+        ok = expect(firstRotationStage.value("name").toString()
+                            == QStringLiteral("generate-production-identity")
+                        && firstRotationStage.value("requiredOperation").toString()
+                            == QStringLiteral("identity-key-generation")
+                        && firstRotationStage.value("status").toString() == QStringLiteral("blocked")
+                        && firstRotationStage.value("blockedReason").toString()
+                            == QStringLiteral("production-crypto-backend-unavailable")
+                        && firstRotationStage.value("providerCompatibilityGate").toString()
+                            == QStringLiteral("production-adapter-not-linked"),
+                    "production rotation dry-run should expose per-stage provider gates") && ok;
         const QByteArray rotationDryRunJson = QJsonDocument(rotationDryRun).toJson(QJsonDocument::Compact);
         ok = expect(!rotationDryRunJson.contains("privateKey")
                         && !rotationDryRunJson.contains("sessionKey")
@@ -523,6 +536,8 @@ int main(int argc, char** argv) {
                             == QStringLiteral("complete-reviewed-production-provider-before-rotation")
                         && rotationExecute.value("affectedPeerPinCount").toInt() >= 1
                         && rotationExecute.value("affectedSessionCount").toInt() >= 1
+                        && rotationExecute.value("rotationStages").toArray().size() == 7
+                        && rotationExecute.value("blockedStageCount").toInt() == 7
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),
