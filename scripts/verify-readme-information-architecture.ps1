@@ -17,6 +17,14 @@ function Assert-File([string]$Path) {
     }
 }
 
+function Read-Utf8Text([string]$Path) {
+    return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+}
+
+function Read-Utf8Lines([string]$Path) {
+    return [System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8)
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $resolvedReadmePath = if ([System.IO.Path]::IsPathRooted($ReadmePath)) {
     $ReadmePath
@@ -28,7 +36,7 @@ $resolvedDocsDir = if ([System.IO.Path]::IsPathRooted($DocsDir)) {
 } else {
     Join-Path $repoRoot $DocsDir
 }
-$readme = Get-Content -LiteralPath $resolvedReadmePath -Raw
+$readme = Read-Utf8Text $resolvedReadmePath
 $docsRoot = $resolvedDocsDir
 
 $requiredDocs = @(
@@ -51,16 +59,22 @@ Assert-Contains $readme "docs/e2e-hardening-status.md"
 
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
-$automationStatus = Get-Content -LiteralPath $automationStatusPath -Raw
+$automationStatus = Read-Utf8Text $automationStatusPath
 Assert-Contains $automationStatus "Group productization is the active automation lane"
 Assert-Contains $automationStatus "Mainwindow structure split follows group productization"
 Assert-Contains $automationStatus "README information architecture is closed for now"
 
 $utf8 = [System.Text.Encoding]::UTF8
-$oversizedLines = @(Get-Content -LiteralPath $resolvedReadmePath |
-    Where-Object { $utf8.GetByteCount($_) -gt 2500 })
+$lineNumber = 0
+$oversizedLines = @(Read-Utf8Lines $resolvedReadmePath | ForEach-Object {
+    $lineNumber++
+    $byteCount = $utf8.GetByteCount($_)
+    if ($byteCount -gt 2500) {
+        "line=$lineNumber bytes=$byteCount"
+    }
+})
 if ($oversizedLines.Count -gt 0) {
-    throw ("README still contains oversized UTF-8 lines: {0}" -f $oversizedLines.Count)
+    throw ("README still contains oversized UTF-8 lines: {0}: {1}" -f $oversizedLines.Count, ($oversizedLines -join "; "))
 }
 
 Write-Host "README information architecture verified"
