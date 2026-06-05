@@ -14,6 +14,8 @@ SOURCES += \
     src/mainwindow.cpp \
     src/historyservice.cpp \
     src/historymetadata.cpp \
+    src/transfermanager.cpp \
+    src/filetransferstatus.cpp \
     src/server.cpp \
     src/client.cpp \
     src/redisclient.cpp \
@@ -24,6 +26,8 @@ HEADERS += \
     include/mainwindow.h \
     include/historyservice.h \
     include/historymetadata.h \
+    include/transfermanager.h \
+    include/filetransferstatus.h \
     include/server.h \
     include/client.h \
     include/redisclient.h \

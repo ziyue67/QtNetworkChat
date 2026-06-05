@@ -14,6 +14,7 @@ QtNetworkChat uses CTest as the release-level local verification surface. The de
 ## File And Routing Coverage
 
 - File chunk ACK progress, duplicate ACK de-duplication, invalid chunk metadata rejection, hash mismatch cleanup, forged sender rejection, cancel cleanup, retry after transient failure, and resume from the earliest missing chunk.
+- TransferManager recovery UI state for empty/resumable/disconnected/E2E resend saved transfers, plus file transfer status event diagnostics and copy-action state.
 - Offline attachment quota, TTL cleanup, bad metadata cleanup, interrupted replay retention, partial ACK resume, stale resume fallback, and full-confirmation cleanup.
 - Redis RESP, presence command flow, Pub/Sub route validation, cross-instance chat routing, E2E control routing, large-file object offer/claim/delivered/failed evidence, and Redis unavailable fallback.
 - Filesystem object store path safety, S3 SigV4 pure functions, request classification, timeout configuration, injected request execution, response size/hash validation, and delivered receipt governance.

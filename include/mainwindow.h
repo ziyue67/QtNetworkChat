@@ -16,6 +16,7 @@
 #include "chatuser.h"
 #include "historyservice.h"
 #include "message.h"
+#include "transfermanager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -128,6 +129,7 @@ private:
     QStandardItemModel* m_chatModel;
     QStandardItemModel* m_groupMemberModel;
     HistoryService m_historyService;
+    TransferManager m_transferManager;
     QString m_currentUserId;
     QString m_currentUserName;
     QStringList m_friendIds;

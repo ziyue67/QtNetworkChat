@@ -538,16 +538,16 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
                                              const QString& reason,
                                              qint64 receivedBytes,
                                              qint64 totalBytes) {
-    const QString eventText = fileTransferStatusEventMessage(fileName, transferId, reason, receivedBytes, totalBytes);
-    m_lastTransferStatusDiagnostic = fileTransferStatusDiagnostic(fileName, transferId, reason, receivedBytes, totalBytes);
+    const TransferStatusEvent event = m_transferManager.statusEvent(fileName, transferId, reason, receivedBytes, totalBytes);
+    m_lastTransferStatusDiagnostic = event.diagnostic;
     if (m_copyLastTransferStatusAction) {
-        m_copyLastTransferStatusAction->setVisible(true);
-        m_copyLastTransferStatusAction->setEnabled(true);
-        m_copyLastTransferStatusAction->setToolTip("复制最近一次文件传输准备、续传、完成、失败或离线兜底状态诊断");
+        m_copyLastTransferStatusAction->setVisible(event.copyActionVisible);
+        m_copyLastTransferStatusAction->setEnabled(event.copyActionEnabled);
+        m_copyLastTransferStatusAction->setToolTip(event.copyActionToolTip);
     }
-    appendSystemMessage(eventText);
-    ui->chatHintLabel->setText(eventText);
-    ui->statusbar->showMessage(eventText, 4200);
+    appendSystemMessage(event.message);
+    ui->chatHintLabel->setText(event.message);
+    ui->statusbar->showMessage(event.message, 4200);
 }
 
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
@@ -556,40 +556,22 @@ void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
     QJsonObject state;
     const bool hasSavedTransfer = m_client && m_client->loadOutgoingTransferState(&state);
     const QJsonObject recoveryStatus = hasSavedTransfer ? m_client->savedOutgoingTransferRecoveryStatus() : QJsonObject();
-    const bool canAutoResume = recoveryStatus.value("canAutoResume").toBool(false);
-    m_resumeSavedTransferAction->setVisible(hasSavedTransfer);
-    m_resumeSavedTransferAction->setEnabled(hasSavedTransfer && m_client->isConnected() && canAutoResume);
-    m_clearSavedTransferAction->setVisible(hasSavedTransfer);
-    m_clearSavedTransferAction->setEnabled(hasSavedTransfer);
+    const TransferRecoveryUiState uiState = m_transferManager.recoveryUiState(
+        hasSavedTransfer,
+        m_client && m_client->isConnected(),
+        state,
+        recoveryStatus,
+        announce);
+    m_resumeSavedTransferAction->setVisible(uiState.resumeVisible);
+    m_resumeSavedTransferAction->setEnabled(uiState.resumeEnabled);
+    m_clearSavedTransferAction->setVisible(uiState.clearVisible);
+    m_clearSavedTransferAction->setEnabled(uiState.clearEnabled);
+    m_resumeSavedTransferAction->setToolTip(uiState.resumeToolTip);
+    m_clearSavedTransferAction->setToolTip(uiState.clearToolTip);
 
-    if (!hasSavedTransfer) {
-        m_resumeSavedTransferAction->setToolTip("暂无可恢复的未完成发送");
-        m_clearSavedTransferAction->setToolTip("暂无可清除的恢复记录");
-        return;
-    }
-
-    const QFileInfo info(state["filePath"].toString());
-    const QString fileName = info.fileName().isEmpty() ? "未命名文件" : info.fileName();
-    const QString receiverId = state["receiverId"].toString().trimmed();
-    const QString targetName = receiverId.isEmpty() ? "公共聊天室" : QString("QQ:%1").arg(receiverId);
-    const QString detail = QString("检测到未完成发送：%1 -> %2").arg(fileName, targetName);
-    const bool e2eFileEncrypted = recoveryStatus.value("e2eFileEncrypted").toBool(false);
-    const QString recoveryMode = recoveryStatus.value("recoveryMode").toString();
-    const QString recoveryReason = recoveryStatus.value("reason").toString();
-    m_resumeSavedTransferAction->setToolTip(canAutoResume
-        ? detail
-        : detail + QString("（需要重新发送，原因：%1）").arg(recoveryReason));
-    m_clearSavedTransferAction->setToolTip("清除恢复记录：" + detail);
-
-    if (announce) {
-        if (canAutoResume) {
-            appendSystemMessage(detail + "，可通过菜单“恢复未完成发送”继续，或清除恢复记录。");
-            ui->statusbar->showMessage("可恢复未完成发送：" + fileName, 3200);
-        } else {
-            appendSystemMessage(detail + QString("，%1文件恢复策略为“重新发送”，不会自动续传；可重新选择文件发送或清除恢复记录。")
-                                    .arg(e2eFileEncrypted ? "端到端加密" : recoveryMode));
-            ui->statusbar->showMessage("未完成发送需要重新发送：" + fileName, 3600);
-        }
+    if (announce && !uiState.announceMessage.isEmpty()) {
+        appendSystemMessage(uiState.announceMessage);
+        ui->statusbar->showMessage(uiState.statusMessage, uiState.canAutoResume ? 3200 : 3600);
     }
 }
 

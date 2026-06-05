@@ -60,9 +60,11 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql 
 set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/tlssecurity.cpp
     src/filetransferstatus.cpp
+    src/transfermanager.cpp
     src/e2eenvelope.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
+    include/transfermanager.h
     include/e2eenvelope.h
 )
 
@@ -234,6 +236,16 @@ if(BUILD_TESTING)
     )
     target_include_directories(file_transfer_status_test PRIVATE include)
     target_link_libraries(file_transfer_status_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(transfer_manager_test
+        tests/transfer_manager_test.cpp
+        src/transfermanager.cpp
+        src/filetransferstatus.cpp
+        include/transfermanager.h
+        include/filetransferstatus.h
+    )
+    target_include_directories(transfer_manager_test PRIVATE include)
+    target_link_libraries(transfer_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
@@ -535,6 +547,13 @@ if(BUILD_TESTING)
         NAME FileTransferUserStatus
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:file_transfer_status_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME TransferManagerRecoveryUi
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:transfer_manager_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
