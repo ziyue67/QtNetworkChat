@@ -70,6 +70,36 @@ int main() {
     const QJsonObject payloadEncrypt =
         status.value("operations").toObject().value("payload-encrypt").toObject();
     const QJsonObject acceptance = status.value("productionAcceptance").toObject();
+    const QJsonObject harness = status.value("productionOperationHarness").toObject();
+    ok = expect(harness.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
+                    && harness.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operation-harness-blocked-placeholder")
+                            : QStringLiteral("production-operation-harness-blocked-not-linked"))
+                    && harness.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-operations-not-implemented")
+                        : QStringLiteral("production-crypto-backend-unavailable"))
+                    && !harness.value("harnessRunnable").toBool(true)
+                    && harness.value("runnableOperationCount").toInt() == 0
+                    && harness.value("blockedOperationCount").toInt() == 8
+                    && harness.value("operations").toArray().size() == 8
+                    && !harness.value("rawKeyExported").toBool(true)
+                    && !harness.value("privateMaterialExported").toBool(true),
+                "production operation harness should distinguish not-linked from linked-placeholder gates") && ok;
+    const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
+    ok = expect(firstHarnessOperation.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstHarnessOperation.value("implementationState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("linked-placeholder")
+                            : QStringLiteral("not-linked"))
+                    && firstHarnessOperation.value("fixtureHashSha256").toString().size() == 64
+                    && firstHarnessOperation.value("vectorSet").toString()
+                        == QStringLiteral("production-session-key-generation-vectors-v1")
+                    && firstHarnessOperation.value("blockedReason").toString()
+                        == QStringLiteral("production-session-key-generation-not-implemented"),
+                "production operation harness should expose sanitized fixture hashes for linked placeholder operations") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()

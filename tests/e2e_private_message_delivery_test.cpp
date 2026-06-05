@@ -514,8 +514,18 @@ int main(int argc, char** argv) {
                             == QStringLiteral("production-crypto-backend-unavailable")
                         && rotationAcceptance.value("operationGates").toArray().size() == 8
                         && rotationAcceptance.value("operationManifest").toArray().size() == 8
+                        && rotationAcceptance.value("operationHarness").toObject()
+                            .value("operations").toArray().size() == 8
                         && rotationAcceptance.value("implementedOperationCount").toInt() == 0,
                     "production rotation dry-run should embed sanitized acceptance evidence") && ok;
+        const QJsonObject rotationHarness =
+            rotationAcceptance.value("operationHarness").toObject();
+        ok = expect(rotationHarness.value("releaseGate").toString()
+                            == QStringLiteral("production-operation-harness-blocked-not-linked")
+                        && rotationHarness.value("blockedOperationCount").toInt() == 8
+                        && rotationHarness.value("operations").toArray().at(0).toObject()
+                            .value("fixtureHashSha256").toString().size() == 64,
+                    "production rotation acceptance should carry operation harness evidence") && ok;
         const QJsonObject rotationAcceptanceFirstGate =
             rotationAcceptance.value("operationGates").toArray().at(0).toObject();
         ok = expect(rotationAcceptanceFirstGate.value("implementationState").toString()

@@ -78,6 +78,7 @@ int main() {
     const QJsonObject draftBackend = registeredBackends.at(0).toObject();
     const QJsonObject productionBackend = registeredBackends.at(1).toObject();
     const QJsonObject productionAcceptance = backendStatus.value("productionAcceptance").toObject();
+    const QJsonObject productionHarness = backendStatus.value("productionOperationHarness").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -116,6 +117,12 @@ int main() {
                     && productionAcceptance.value("operationGates").toArray().size() == 8
                     && productionAcceptance.value("operationManifest").toArray().size() == 8
                     && productionAcceptance.value("operationManifestComplete").toBool(false)
+                    && productionHarness.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
+                    && productionHarness.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-harness-blocked-not-linked")
+                    && productionHarness.value("blockedOperationCount").toInt() == 8
+                    && productionHarness.value("operations").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -152,6 +159,9 @@ int main() {
                         .value("checks").toArray().size() == 6
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("operationHarness").toObject()
+                        .value("operations").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
@@ -433,6 +443,8 @@ int main() {
     const QJsonObject productionRequestedStatus = e2eCryptoBackendStatus();
     const QJsonObject productionRequestedAcceptance =
         e2eProductionCryptoAcceptanceStatus();
+    const QJsonObject productionRequestedHarness =
+        e2eProductionCryptoOperationHarnessStatus();
     ok = expect(productionRequestedStatus.value("requestedBackendId").toString()
                         == QStringLiteral("openssl-reviewed-adapter-v1")
                     && productionRequestedStatus.value("selectionSource").toString()
@@ -462,6 +474,29 @@ int main() {
                     && !productionRequestedAcceptance.value("rawKeyExported").toBool(true)
                     && !productionRequestedAcceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize the not-linked release gate") && ok;
+    ok = expect(productionRequestedHarness.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
+                    && productionRequestedHarness.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-harness-blocked-not-linked")
+                    && productionRequestedHarness.value("blockedReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
+                    && productionRequestedHarness.value("runnableOperationCount").toInt() == 0
+                    && productionRequestedHarness.value("blockedOperationCount").toInt() == 8
+                    && productionRequestedHarness.value("operations").toArray().size() == 8
+                    && !productionRequestedHarness.value("rawKeyExported").toBool(true)
+                    && !productionRequestedHarness.value("privateMaterialExported").toBool(true),
+                "production operation harness should expose blocked not-linked execution evidence") && ok;
+    const QJsonObject productionHarnessFirstOperation =
+        productionRequestedHarness.value("operations").toArray().at(0).toObject();
+    ok = expect(productionHarnessFirstOperation.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && !productionHarnessFirstOperation.value("runnable").toBool(true)
+                    && productionHarnessFirstOperation.value("fixtureHashSha256").toString().size() == 64
+                    && productionHarnessFirstOperation.value("blockedReason").toString()
+                        == QStringLiteral("production-session-key-generation-not-implemented")
+                    && !productionHarnessFirstOperation.value("rawKeyExported").toBool(true)
+                    && !productionHarnessFirstOperation.value("privateMaterialExported").toBool(true),
+                "production operation harness should publish sanitized fixture evidence for each operation") && ok;
     const QJsonObject productionSessionKeyGate =
         productionRequestedAcceptance.value("operationGates").toArray().at(0).toObject();
     ok = expect(productionSessionKeyGate.value("operation").toString()
