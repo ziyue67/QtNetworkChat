@@ -17,6 +17,10 @@ param(
     [string[]]$TaskPreviewPath = @(),
     [string]$AutomationTaskHistoryPath,
     [string]$AutomationTaskAckPath,
+    [switch]$BootstrapDefaultTasks,
+    [string]$DefaultTaskOutputDir = "build-qt6-mingw\automation-tasks",
+    [int]$TaskAckExpiryHours = 72,
+    [int]$TaskHistoryRetentionCount = 30,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
     [switch]$PlanOnly,
     [switch]$FailOnSensitive
@@ -521,8 +525,103 @@ function Format-PreviewDescriptor([object]$PreviewRecord) {
     $parts.Add(('readOnly=`{0}`' -f (Format-StatusValue $PreviewRecord.readOnly)))
     $parts.Add(('register=`{0}`' -f (Format-StatusValue $PreviewRecord.register)))
     $parts.Add(('schedule=`{0}`' -f (Format-StatusValue $PreviewRecord.scheduleSummary)))
-    $parts.Add(('path=`{0}`' -f (Format-StatusValue $PreviewRecord.path)))
+    $parts.Add(('path=`{0}`' -f (Format-StatusValue (Format-RepoRelativePath $PreviewRecord.path))))
     $parts -join ", "
+}
+
+function Resolve-DefaultTaskPath([string]$PathValue) {
+    if ([System.IO.Path]::IsPathRooted($PathValue)) {
+        return $PathValue
+    }
+    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
+}
+
+function Format-RepoRelativePath([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return "unknown"
+    }
+    try {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+        $resolvedPath = if ([System.IO.Path]::IsPathRooted($PathValue)) {
+            $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathValue)
+        } else {
+            $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath((Join-Path $repoRoot $PathValue))
+        }
+        if ($resolvedPath.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $resolvedPath.Substring($repoRoot.Length).TrimStart('\', '/')
+        }
+    } catch {
+    }
+    $PathValue
+}
+
+function Initialize-DefaultAutomationTasksIfNeeded {
+    $hasExplicitTaskConfiguration = Has-ConfigurationHint @(
+        $script:DatabaseHealthStatusPath,
+        $script:DatabaseHealthLastRunPath,
+        $script:DatabaseHealthTaskPreviewPath,
+        $script:LargeFileGovernanceStatusPath,
+        $script:LargeFileGovernanceLastRunPath,
+        $script:LargeFileGovernanceTaskPreviewPath,
+        $script:AutomationTaskHistoryPath,
+        $script:AutomationTaskAckPath,
+        $script:TaskPreviewPath
+    )
+    if ($hasExplicitTaskConfiguration -and -not $script:BootstrapDefaultTasks.IsPresent) {
+        return
+    }
+
+    $bootstrapScript = Join-Path $PSScriptRoot "bootstrap-automation-tasks.ps1"
+    if (-not (Test-Path -LiteralPath $bootstrapScript -PathType Leaf)) {
+        throw "Default automation task bootstrap script not found: $bootstrapScript"
+    }
+    $bootstrapOutputDir = Resolve-DefaultTaskPath $script:DefaultTaskOutputDir
+    if (-not $script:PlanOnly.IsPresent) {
+        $bootstrapArguments = @(
+            "-ExecutionPolicy", "Bypass",
+            "-File", $bootstrapScript,
+            "-OutputDir", $bootstrapOutputDir,
+            "-AckExpiryHours", $script:TaskAckExpiryHours,
+            "-HistoryRetentionCount", $script:TaskHistoryRetentionCount
+        )
+        if ($script:FailOnSensitive.IsPresent) {
+            $bootstrapArguments += "-FailOnSensitive"
+        }
+        & powershell @bootstrapArguments | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Default automation task bootstrap failed with exit code $LASTEXITCODE"
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($script:DatabaseHealthTaskPreviewPath)) {
+        $script:DatabaseHealthTaskPreviewPath = Join-Path $bootstrapOutputDir "database-health\database-health-task\database-health-task-preview.json"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:DatabaseHealthStatusPath)) {
+        $script:DatabaseHealthStatusPath = Join-Path $bootstrapOutputDir "database-health\database-health-status.json"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:DatabaseHealthLastRunPath)) {
+        $script:DatabaseHealthLastRunPath = Join-Path $bootstrapOutputDir "database-health\database-health-task\last-run.log"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:LargeFileGovernanceTaskPreviewPath)) {
+        $script:LargeFileGovernanceTaskPreviewPath = Join-Path $bootstrapOutputDir "large-file-governance\scheduled-task\scheduled-task-preview.json"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:LargeFileGovernanceStatusPath)) {
+        $script:LargeFileGovernanceStatusPath = Join-Path $bootstrapOutputDir "large-file-governance\large-file-governance-dashboard.json"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:LargeFileGovernanceLastRunPath)) {
+        $script:LargeFileGovernanceLastRunPath = Join-Path $bootstrapOutputDir "large-file-governance\scheduled-task\last-run.log"
+    }
+    $pgsqlPreviewPath = Join-Path $bootstrapOutputDir "pgsql-release-acceptance\pgsql-release-acceptance-task\pgsql-release-acceptance-task-preview.json"
+    $hasPgsqlPreview = @($script:TaskPreviewPath | Where-Object { [string]$_ -eq $pgsqlPreviewPath }).Count -gt 0
+    if (-not $hasPgsqlPreview) {
+        $script:TaskPreviewPath += $pgsqlPreviewPath
+    }
+    if ([string]::IsNullOrWhiteSpace($script:AutomationTaskHistoryPath)) {
+        $script:AutomationTaskHistoryPath = Join-Path $bootstrapOutputDir "database-health\database-health-task\automation-task-history.json"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:AutomationTaskAckPath)) {
+        $script:AutomationTaskAckPath = Join-Path $bootstrapOutputDir "database-health\database-health-task\automation-task-ack.json"
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($Head)) {
@@ -534,6 +633,8 @@ if ([string]::IsNullOrWhiteSpace($OriginMain)) {
 if ([string]::IsNullOrWhiteSpace($OriginCodexQt)) {
     $OriginCodexQt = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt") }
 }
+
+Initialize-DefaultAutomationTasksIfNeeded
 
 $normalizedTaskPreviewPaths = Normalize-PathList $TaskPreviewPath
 $databaseHealthPreview = Get-ArtifactState -PathValue $DatabaseHealthTaskPreviewPath -ExpectJson
@@ -673,7 +774,11 @@ $lines.Add("")
 $lines.Add("## Generic Task Readback")
 $lines.Add("")
 if ($genericPreviewCandidates.Count -eq 0) {
-    $lines.Add('- Generic task readback: `none`')
+    if ($previewRecords.Count -gt 0) {
+        $lines.Add('- Generic task readback: `typed task readback active; no unclassified generic tasks`')
+    } else {
+        $lines.Add('- Generic task readback: `none`')
+    }
 } else {
     foreach ($genericPreview in $genericPreviewCandidates) {
         $genericReadback = Get-GenericTaskReadback $genericPreview

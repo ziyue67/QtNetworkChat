@@ -181,7 +181,7 @@ foreach ($expected in @(
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
     'Summary: `Read-only governance sweep that writes redacted dashboard, reports, diagnostics, last-run, and task history artifacts.`',
     'Generic Task Readback',
-    'Generic task readback: `none`',
+    'Generic task readback: `typed task readback active; no unclassified generic tasks`',
     'Scheduled Task Readback',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`, checks=`4`, failedChecks=`0`, slowQueries=`2`, queryFailures=`1`',
     'Gate: readiness=`verified`, releaseGate=`review-query-failures`, action=`Investigate query failures before promoting this database health snapshot.`, auditFocus=`query-failures, slow-queries`',
@@ -214,6 +214,59 @@ foreach ($forbidden in @(
     "chenjun"
 )) {
     Assert-NotContains -Text $markdown -Forbidden $forbidden
+}
+
+$defaultBootstrapDir = Join-Path $tempDir "default-bootstrap"
+$defaultBootstrapMarkdownPath = Join-Path $tempDir "automation-status-default-bootstrap.md"
+& $ScriptPath `
+    -MarkdownPath $defaultBootstrapMarkdownPath `
+    -Head "boot1234" `
+    -OriginMain "boot1234" `
+    -OriginCodexQt "boot1234" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 69 `
+    -DefaultTaskOutputDir $defaultBootstrapDir `
+    -TaskAckExpiryHours 24 `
+    -TaskHistoryRetentionCount 5 `
+    -FailOnSensitive
+
+if (-not (Test-Path -LiteralPath $defaultBootstrapMarkdownPath -PathType Leaf)) {
+    throw "Default bootstrap automation status Markdown was not created"
+}
+$defaultBootstrapMarkdown = Get-Content -LiteralPath $defaultBootstrapMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'HEAD: `boot1234`',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`, path=`',
+    'Preview task: label=`generic`, kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, display=`PostgreSQL release acceptance`, state=`ok`, format=`qtnetworkchat-pgsql-release-acceptance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@04:45`, path=`',
+    'Generic task readback: `typed task readback active; no unclassified generic tasks`',
+    'PostgreSQL release acceptance: name=`QtNetworkChatPgsqlReleaseAcceptance`, status=`configured/ok=true`, lastRun=`0`, history=`runs=1`, ack=`ack=false`, evidence=`ok`',
+    'Database health: status=`configured`, ok=`true`, driver=`QPSQL`, checks=`0`, failedChecks=`0`, slowQueries=`0`, queryFailures=`0`',
+    'Large-file governance: status=`configured`, ok=`true`, warnings=`0`, alerts=`0`, actionableS3Gaps=`0`',
+    'Task history: runs=`1`, failed=`0`, latestAt=`',
+    'Task acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`bootstrap-default`',
+    'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
+    'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
+    'Automation history artifacts: `history=ok; ack=ok`'
+)) {
+    Assert-Contains -Text $defaultBootstrapMarkdown -Expected $expected
+}
+foreach ($forbidden in @(
+    'Registered preview tasks: `none`',
+    'Generic task readback: `none`',
+    'PostgreSQL release acceptance: `not configured`',
+    'Database health: `not configured`',
+    'Large-file governance: `not configured`',
+    'Task history: `not configured`',
+    "ghp_",
+    "github_pat_",
+    "Authorization:",
+    "Credential=",
+    "Signature="
+)) {
+    Assert-NotContains -Text $defaultBootstrapMarkdown -Forbidden $forbidden
 }
 
 $planOutput = & $ScriptPath `
@@ -367,7 +420,7 @@ $genericMarkdown = Get-Content -LiteralPath $genericMarkdownPath -Raw -Encoding 
 foreach ($expected in @(
     'Preview task: label=`generic`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
     'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
-    'Generic task readback: `none`',
+    'Generic task readback: `typed task readback active; no unclassified generic tasks`',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`',
     'Gate: readiness=`verified`, releaseGate=`review-query-failures`, action=`Investigate query failures before promoting this database health snapshot.`, auditFocus=`query-failures, slow-queries`',
     'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',

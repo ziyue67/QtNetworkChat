@@ -24,7 +24,7 @@ QtNetworkChat uses CTest as the release-level local verification surface. The de
 
 ## Automation Coverage
 
-- Automation status generation, task history, task acknowledgement, database health tasks, PostgreSQL release evidence, large-file governance tasks, governance dashboard/status/report generation, and README information architecture checks.
+- Automation status generation, default automation task bootstrap/readback, task history, task acknowledgement, database health tasks, PostgreSQL release evidence, large-file governance tasks, governance dashboard/status/report generation, and README information architecture checks.
 - Windows package manifest validation for versioned output directories, ZIP naming, manifest fields, runtime dependency checks, and packaged README inclusion.
 
 Run locally with:
