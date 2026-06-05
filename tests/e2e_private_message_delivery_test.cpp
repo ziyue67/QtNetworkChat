@@ -508,6 +508,35 @@ int main(int argc, char** argv) {
                         && alice.e2eSessionStatus(bobId).value("state").toString()
                             == QStringLiteral("backend-migration-required"),
                     "production rotation dry-run evidence should stay sanitized and preserve draft state") && ok;
+        const QJsonObject rotationExecute = alice.executeE2EProductionRotation(&rejectReason);
+        ok = expect(rejectReason == QStringLiteral("production-crypto-backend-unavailable")
+                        && rotationExecute.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-rotation-v1")
+                        && rotationExecute.value("mode").toString() == QStringLiteral("execute")
+                        && !rotationExecute.value("executed").toBool(true)
+                        && !rotationExecute.value("destructive").toBool(true)
+                        && rotationExecute.value("releaseGate").toString()
+                            == QStringLiteral("production-crypto-provider-not-ready")
+                        && rotationExecute.value("blockedReason").toString()
+                            == QStringLiteral("production-crypto-backend-unavailable")
+                        && rotationExecute.value("operatorAction").toString()
+                            == QStringLiteral("complete-reviewed-production-provider-before-rotation")
+                        && rotationExecute.value("affectedPeerPinCount").toInt() >= 1
+                        && rotationExecute.value("affectedSessionCount").toInt() >= 1
+                        && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
+                        && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
+                        && !rotationExecute.value("wouldDropActiveSessions").toBool(true),
+                    "production rotation execute should fail closed before provider readiness without clearing local state") && ok;
+        const QByteArray rotationExecuteJson = QJsonDocument(rotationExecute).toJson(QJsonDocument::Compact);
+        ok = expect(!rotationExecuteJson.contains("privateKey")
+                        && !rotationExecuteJson.contains("sessionKey")
+                        && !rotationExecuteJson.contains("publicKey\"")
+                        && !rotationExecuteJson.contains(originalAliceIdentityFingerprint.toUtf8())
+                        && QFile::exists(aliceIdentityPathBeforeClear)
+                        && QFile::exists(aliceTrustPinsPathBeforeClear)
+                        && alice.e2eSessionStatus(bobId).value("state").toString()
+                            == QStringLiteral("backend-migration-required"),
+                    "production rotation execute evidence should stay sanitized and preserve draft state") && ok;
         const QJsonObject migrationEvidence = alice.executeE2EBackendMigration(&rejectReason);
         ok = expect(rejectReason.isEmpty()
                         && migrationEvidence.value("executed").toBool(false)

@@ -754,6 +754,49 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
     return dryRun;
 }
 
+QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
+    if (rejectReason) rejectReason->clear();
+    QJsonObject evidence;
+    evidence[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-production-rotation-v1");
+    evidence[QStringLiteral("mode")] = QStringLiteral("execute");
+    evidence[QStringLiteral("executed")] = false;
+    evidence[QStringLiteral("destructive")] = false;
+    evidence[QStringLiteral("wouldClearLocalIdentityStore")] = false;
+    evidence[QStringLiteral("wouldClearTrustPinStore")] = false;
+    evidence[QStringLiteral("wouldDropActiveSessions")] = false;
+    evidence[QStringLiteral("startedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+
+    const QJsonObject dryRun = planE2EProductionRotationDryRun();
+    evidence[QStringLiteral("dryRun")] = dryRun;
+    evidence[QStringLiteral("releaseGate")] = dryRun.value(QStringLiteral("releaseGate")).toString();
+    evidence[QStringLiteral("operatorAction")] = dryRun.value(QStringLiteral("operatorAction")).toString();
+    evidence[QStringLiteral("affectedPeerPinCount")] =
+        dryRun.value(QStringLiteral("affectedPeerPins")).toArray().size();
+    evidence[QStringLiteral("affectedSessionCount")] =
+        dryRun.value(QStringLiteral("affectedSessions")).toArray().size();
+    evidence[QStringLiteral("pendingOutgoingAgreementCount")] =
+        dryRun.value(QStringLiteral("pendingOutgoingAgreementCount")).toInt();
+    evidence[QStringLiteral("pendingIncomingAgreementCount")] =
+        dryRun.value(QStringLiteral("pendingIncomingAgreementCount")).toInt();
+
+    if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
+        const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(
+            QStringLiteral("production-rotation-not-ready"));
+        if (rejectReason) *rejectReason = blockedReason;
+        evidence[QStringLiteral("blockedReason")] = blockedReason;
+        evidence[QStringLiteral("completedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        return evidence;
+    }
+
+    if (rejectReason) *rejectReason = QStringLiteral("production-rotation-implementation-pending");
+    evidence[QStringLiteral("blockedReason")] = QStringLiteral("production-rotation-implementation-pending");
+    evidence[QStringLiteral("releaseGate")] = QStringLiteral("production-rotation-implementation-pending");
+    evidence[QStringLiteral("operatorAction")] =
+        QStringLiteral("implement-reviewed-production-key-signature-session-rotation");
+    evidence[QStringLiteral("completedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    return evidence;
+}
+
 QJsonObject Client::executeE2EBackendMigration(QString* rejectReason) {
     if (rejectReason) rejectReason->clear();
     QJsonObject evidence;
