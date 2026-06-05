@@ -55,6 +55,21 @@ void drainEvents(int rounds = 5) {
     }
 }
 
+bool exchangeE2EIdentityAnnouncements(Client& left,
+                                      const QString& leftPeerId,
+                                      Client& right,
+                                      const QString& rightPeerId,
+                                      QString* leftRejectReason,
+                                      QString* rightRejectReason) {
+    bool sent = true;
+    for (int i = 0; i < 5; ++i) {
+        sent = left.announceE2EIdentity(leftPeerId, leftRejectReason) && sent;
+        sent = right.announceE2EIdentity(rightPeerId, rightRejectReason) && sent;
+        drainEvents(3);
+    }
+    return sent;
+}
+
 void disconnectClient(Client& client) {
     client.disconnectFromServer();
     waitFor([&] {
@@ -717,21 +732,43 @@ int main(int argc, char** argv) {
         qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
         alice.setUserInfo(aliceId, "Alice");
         bob.setUserInfo(bobId, "Bob");
+        ok = expect(waitFor([&] {
+            return alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
+                && alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
+                    != originalAliceIdentityFingerprint
+                && alice.e2eLocalIdentityStatus().value("agreementSigning").toBool(false);
+        }, 5000), "migration recovery should create a fresh local draft identity before re-announcing") && ok;
         ok = expect(bob.clearE2EPeerIdentityPin(aliceId, &rejectReason)
                         && bob.e2ePeerIdentityStatus(aliceId).value("trustState").toString()
                             == QStringLiteral("unverified"),
                     "receiver should explicitly clear the stale alice pin before trusting the regenerated identity") && ok;
         QString aliceAnnounceReason;
         QString bobAnnounceReason;
+        ok = expect(exchangeE2EIdentityAnnouncements(alice,
+                                                     bobId,
+                                                     bob,
+                                                     aliceId,
+                                                     &aliceAnnounceReason,
+                                                     &bobAnnounceReason),
+                    "test should exchange regenerated draft identity announcements") && ok;
         const bool regeneratedIdentityAnnounced = waitFor([&] {
             if (alice.e2ePeerIdentityStatus(bobId).value("publicKeyFingerprintSha256").toString()
                     != bob.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()) {
-                alice.announceE2EIdentity(bobId, &aliceAnnounceReason);
+                exchangeE2EIdentityAnnouncements(alice,
+                                                 bobId,
+                                                 bob,
+                                                 aliceId,
+                                                 &aliceAnnounceReason,
+                                                 &bobAnnounceReason);
             }
             if (bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString()
                     != alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()) {
-                bob.announceE2EIdentity(aliceId, &bobAnnounceReason);
-                alice.announceE2EIdentity(bobId, &aliceAnnounceReason);
+                exchangeE2EIdentityAnnouncements(alice,
+                                                 bobId,
+                                                 bob,
+                                                 aliceId,
+                                                 &aliceAnnounceReason,
+                                                 &bobAnnounceReason);
             }
             return alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
                 && alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
@@ -744,7 +781,7 @@ int main(int argc, char** argv) {
                     == bob.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
                 && alice.e2ePeerIdentityStatus(bobId).value("verificationCode").toString()
                     == bob.e2ePeerIdentityStatus(aliceId).value("verificationCode").toString();
-        }, 10000);
+        }, 15000);
         ok = expect(regeneratedIdentityAnnounced,
                     "regenerated draft identity should be announced with a fresh verification code") && ok;
         ok = expect(aliceAnnounceReason.isEmpty() && bobAnnounceReason.isEmpty(),

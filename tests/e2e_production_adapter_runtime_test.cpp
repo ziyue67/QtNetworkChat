@@ -78,6 +78,8 @@ int main() {
         status.value("productionOperationDispatchBindings").toObject();
     const QJsonObject callableManifest =
         status.value("productionOperationCallableManifest").toObject();
+    const QJsonObject executionResult =
+        status.value("productionOperationExecutionResult").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -187,6 +189,28 @@ int main() {
                     && !callableManifest.value("rawKeyExported").toBool(true)
                     && !callableManifest.value("privateMaterialExported").toBool(true),
                 "production callable manifest should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(executionResult.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-execution-result-v1")
+                    && executionResult.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operation-execution-results-blocked-placeholder")
+                            : QStringLiteral("production-operation-execution-results-blocked-not-linked"))
+                    && executionResult.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-operation-results-not-executed")
+                        : QStringLiteral("production-crypto-backend-unavailable"))
+                    && !executionResult.value("accepted").toBool(true)
+                    && executionResult.value("passedResultCount").toInt() == 0
+                    && executionResult.value("blockedResultCount").toInt() == 8
+                    && executionResult.value("sanitizedResultCount").toInt() == 8
+                    && executionResult.value("outputContractMismatchCount").toInt() == 0
+                    && executionResult.value("results").toArray().size() == 8
+                    && executionResult.value("operationCallableManifestReleaseGate").toString()
+                        == callableManifest.value("releaseGate").toString()
+                    && !executionResult.value("rawKeyExported").toBool(true)
+                    && !executionResult.value("privateMaterialExported").toBool(true)
+                    && !executionResult.value("sessionSecretExported").toBool(true)
+                    && !executionResult.value("privateIdentityMaterialExported").toBool(true),
+                "production execution result status should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -288,6 +312,30 @@ int main() {
                             : QStringLiteral("production-crypto-backend-unavailable"))
                     && !firstCallable.value("rawKeyExported").toBool(true),
                 "production callable manifest should expose the reviewed provider callable without calling placeholders") && ok;
+    const QJsonObject firstExecutionResult = executionResult.value("results").toArray().at(0).toObject();
+    ok = expect(firstExecutionResult.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstExecutionResult.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstExecutionResult.value("providerAbiSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && firstExecutionResult.value("resultState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("blocked-linked-placeholder")
+                            : QStringLiteral("blocked-not-linked"))
+                    && firstExecutionResult.value("errorClass").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-result-placeholder-not-executed")
+                            : QStringLiteral("production-result-adapter-not-linked"))
+                    && firstExecutionResult.value("outputContract").toArray().at(0).toString()
+                        == QStringLiteral("session-key-handle")
+                    && firstExecutionResult.value("resultContract").toArray().size() == 4
+                    && !firstExecutionResult.value("passed").toBool(true)
+                    && firstExecutionResult.value("sanitized").toBool(false)
+                    && !firstExecutionResult.value("rawKeyExported").toBool(true)
+                    && !firstExecutionResult.value("privateMaterialExported").toBool(true)
+                    && !firstExecutionResult.value("sessionSecretExported").toBool(true),
+                "production execution result contract should expose sanitized execution output boundaries") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()
@@ -313,6 +361,11 @@ int main() {
                         .value("callables").toArray().size() == 8
                     && !acceptance.value("operationCallableManifest").toObject()
                         .value("accepted").toBool(true)
+                    && acceptance.value("operationExecutionResult").toObject()
+                        .value("results").toArray().size() == 8
+                    && !acceptance.value("operationExecutionResult").toObject()
+                        .value("accepted").toBool(true)
+                    && acceptance.value("passedExecutionResultCount").toInt() == 0
                     && acceptance.value("implementedOperationCount").toInt() == 0
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),

@@ -89,6 +89,8 @@ int main() {
         backendStatus.value("productionOperationDispatchBindings").toObject();
     const QJsonObject productionCallableManifest =
         backendStatus.value("productionOperationCallableManifest").toObject();
+    const QJsonObject productionExecutionResult =
+        backendStatus.value("productionOperationExecutionResult").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -163,6 +165,14 @@ int main() {
                         == QStringLiteral("production-operation-callable-manifest-blocked-not-linked")
                     && productionCallableManifest.value("blockedCallableCount").toInt() == 8
                     && productionCallableManifest.value("callables").toArray().size() == 8
+                    && productionExecutionResult.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-execution-result-v1")
+                    && productionExecutionResult.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-execution-results-blocked-not-linked")
+                    && productionExecutionResult.value("blockedResultCount").toInt() == 8
+                    && productionExecutionResult.value("passedResultCount").toInt() == 0
+                    && productionExecutionResult.value("sanitizedResultCount").toInt() == 8
+                    && productionExecutionResult.value("results").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -210,6 +220,8 @@ int main() {
                         .value("callables").toArray().size() == 8
                     && productionBackend.value("operationCallableManifest").toObject()
                         .value("blockedCallableCount").toInt() == 8
+                    && productionBackend.value("operationExecutionResult").toObject()
+                        .value("blockedResultCount").toInt() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
@@ -256,6 +268,28 @@ int main() {
                     && !firstCallable.value("rawKeyExported").toBool(true)
                     && !firstCallable.value("privateMaterialExported").toBool(true),
                 "production callable manifest should expose reviewed ABI slots without enabling placeholders") && ok;
+    const QJsonObject firstExecutionResult =
+        productionExecutionResult.value("results").toArray().at(0).toObject();
+    ok = expect(firstExecutionResult.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstExecutionResult.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstExecutionResult.value("providerAbiSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && firstExecutionResult.value("resultState").toString()
+                        == QStringLiteral("blocked-not-linked")
+                    && firstExecutionResult.value("errorClass").toString()
+                        == QStringLiteral("production-result-adapter-not-linked")
+                    && firstExecutionResult.value("outputContract").toArray().at(0).toString()
+                        == QStringLiteral("session-key-handle")
+                    && firstExecutionResult.value("resultContract").toArray().size() == 4
+                    && !firstExecutionResult.value("passed").toBool(true)
+                    && firstExecutionResult.value("sanitized").toBool(false)
+                    && !firstExecutionResult.value("rawKeyExported").toBool(true)
+                    && !firstExecutionResult.value("privateMaterialExported").toBool(true)
+                    && !firstExecutionResult.value("sessionSecretExported").toBool(true)
+                    && !firstExecutionResult.value("privateIdentityMaterialExported").toBool(true),
+                "production execution results should expose sanitized result contracts without executing placeholders") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),

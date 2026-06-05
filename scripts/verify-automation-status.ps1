@@ -197,6 +197,7 @@ foreach ($expected in @(
     'Priority Backlog',
     'E2E production crypto is the active automation lane again',
     'callable manifest',
+    'sanitized execution result contract',
     'Group productization is closed for the current automation lane',
     'Mainwindow structure split is no longer the active lane but remains partially complete',
     'README information architecture is closed for now',
