@@ -63,6 +63,18 @@ struct E2ECryptoAdapterDescriptor {
     QList<E2ECryptoOperation> operations;
 };
 
+struct E2ECryptoOperationSpec {
+    E2ECryptoOperation operation;
+    QString implementationState;
+    QString vectorSet;
+    QString compatibilityStatus;
+    QString migrationBlocker;
+    QString operatorAction;
+    bool implemented = false;
+    bool knownAnswerPassed = false;
+    bool roundTripPassed = false;
+};
+
 struct E2ECryptoExecutionContext {
     E2ECryptoAdapterDescriptor descriptor;
     E2ECryptoOperation operation;
@@ -162,6 +174,94 @@ QList<E2ECryptoOperation> cryptoOperations() {
         E2ECryptoOperation::PayloadEncrypt,
         E2ECryptoOperation::PayloadDecrypt,
     };
+}
+
+QList<E2ECryptoOperationSpec> productionOperationSpecs() {
+    QList<E2ECryptoOperationSpec> specs;
+    const auto appendSpec = [&specs](E2ECryptoOperation operation,
+                                     const QString& vectorSet,
+                                     const QString& migrationBlocker) {
+        E2ECryptoOperationSpec spec;
+        spec.operation = operation;
+        spec.implementationState = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
+            ? QStringLiteral("linked-placeholder")
+            : QStringLiteral("not-linked");
+        spec.vectorSet = vectorSet;
+        spec.compatibilityStatus = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
+            ? QStringLiteral("not-run-placeholder")
+            : QStringLiteral("not-run-not-linked");
+        spec.migrationBlocker = migrationBlocker;
+        spec.operatorAction = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
+            ? QStringLiteral("replace-placeholder-operation-with-reviewed-implementation")
+            : QStringLiteral("link-reviewed-production-crypto-backend");
+        specs.append(spec);
+    };
+
+    appendSpec(E2ECryptoOperation::SessionKeyGeneration,
+               QStringLiteral("production-session-key-generation-vectors-v1"),
+               QStringLiteral("production-session-key-generation-not-implemented"));
+    appendSpec(E2ECryptoOperation::IdentityKeyGeneration,
+               QStringLiteral("production-identity-key-generation-vectors-v1"),
+               QStringLiteral("production-identity-key-generation-not-implemented"));
+    appendSpec(E2ECryptoOperation::PublicKeyDerivation,
+               QStringLiteral("production-public-key-derivation-vectors-v1"),
+               QStringLiteral("production-public-key-derivation-not-implemented"));
+    appendSpec(E2ECryptoOperation::AgreementSign,
+               QStringLiteral("production-agreement-sign-vectors-v1"),
+               QStringLiteral("production-agreement-sign-not-implemented"));
+    appendSpec(E2ECryptoOperation::AgreementVerify,
+               QStringLiteral("production-agreement-verify-vectors-v1"),
+               QStringLiteral("production-agreement-verify-not-implemented"));
+    appendSpec(E2ECryptoOperation::SessionDerive,
+               QStringLiteral("production-session-derive-vectors-v1"),
+               QStringLiteral("production-session-derive-not-implemented"));
+    appendSpec(E2ECryptoOperation::PayloadEncrypt,
+               QStringLiteral("production-payload-encrypt-vectors-v1"),
+               QStringLiteral("production-payload-encrypt-not-implemented"));
+    appendSpec(E2ECryptoOperation::PayloadDecrypt,
+               QStringLiteral("production-payload-decrypt-vectors-v1"),
+               QStringLiteral("production-payload-decrypt-not-implemented"));
+    return specs;
+}
+
+E2ECryptoOperationSpec productionOperationSpec(E2ECryptoOperation operation) {
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        if (spec.operation == operation) {
+            return spec;
+        }
+    }
+    E2ECryptoOperationSpec spec;
+    spec.operation = operation;
+    spec.implementationState = QStringLiteral("unknown");
+    spec.vectorSet = QStringLiteral("unknown");
+    spec.compatibilityStatus = QStringLiteral("unknown");
+    spec.migrationBlocker = QStringLiteral("production-operation-spec-missing");
+    spec.operatorAction = QStringLiteral("register-production-operation-spec");
+    return spec;
+}
+
+QJsonObject productionOperationSpecJson(const E2ECryptoOperationSpec& spec) {
+    QJsonObject obj;
+    obj[QStringLiteral("operation")] = cryptoOperationName(spec.operation);
+    obj[QStringLiteral("implemented")] = spec.implemented;
+    obj[QStringLiteral("implementationState")] = spec.implementationState;
+    obj[QStringLiteral("vectorSet")] = spec.vectorSet;
+    obj[QStringLiteral("compatibilityStatus")] = spec.compatibilityStatus;
+    obj[QStringLiteral("knownAnswerPassed")] = spec.knownAnswerPassed;
+    obj[QStringLiteral("roundTripPassed")] = spec.roundTripPassed;
+    obj[QStringLiteral("migrationBlocker")] = spec.migrationBlocker;
+    obj[QStringLiteral("operatorAction")] = spec.operatorAction;
+    obj[QStringLiteral("rawKeyExported")] = false;
+    obj[QStringLiteral("privateMaterialExported")] = false;
+    return obj;
+}
+
+QJsonArray productionOperationManifest() {
+    QJsonArray manifest;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        manifest.append(productionOperationSpecJson(spec));
+    }
+    return manifest;
 }
 
 E2ECryptoAdapterDescriptor draftAdapterDescriptor() {
@@ -296,6 +396,7 @@ QStringList cryptoOperationNames() {
 
 QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& descriptor) {
     const bool isDraft = descriptor.id == QString::fromLatin1(DraftBackendId);
+    const bool isProduction = descriptor.id == QString::fromLatin1(ProductionBackendId);
     const bool contractComplete = descriptor.operations.size() == cryptoOperations().size();
     QJsonObject evidence;
     evidence[QStringLiteral("providerId")] = descriptor.providerId;
@@ -316,6 +417,13 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
         : QStringLiteral("production-provider-vectors-v1");
     evidence[QStringLiteral("knownAnswerPassed")] = isDraft && !e2eProductionCryptoRequired();
     evidence[QStringLiteral("roundTripPassed")] = isDraft && !e2eProductionCryptoRequired();
+    if (isProduction) {
+        evidence[QStringLiteral("operationManifest")] = productionOperationManifest();
+        evidence[QStringLiteral("operationManifestComplete")] =
+            productionOperationSpecs().size() == cryptoOperations().size();
+        evidence[QStringLiteral("implementedOperationCount")] = 0;
+        evidence[QStringLiteral("blockedOperationCount")] = cryptoOperations().size();
+    }
     evidence[QStringLiteral("failClosedPassed")] = !descriptor.productionReady;
     evidence[QStringLiteral("rawKeyExported")] = descriptor.rawKeyExported;
     evidence[QStringLiteral("privateMaterialExported")] = descriptor.privateMaterialExported;
@@ -371,6 +479,16 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                 descriptor.productionReady
                     ? QStringLiteral("none")
                     : QStringLiteral("pass-production-crypto-compatibility-harness"));
+    appendCheck(QStringLiteral("production-operation-implementations"),
+                !isProduction || descriptor.productionReady,
+                isProduction
+                    ? (descriptor.productionReady
+                        ? QStringLiteral("all-production-operations-reviewed")
+                        : QStringLiteral("production-operation-placeholders-present"))
+                    : QStringLiteral("not-production-provider"),
+                isProduction && !descriptor.productionReady
+                    ? QStringLiteral("implement-all-production-operation-slots")
+                    : QStringLiteral("none"));
     appendCheck(QStringLiteral("self-test"),
                 isDraft && !e2eProductionCryptoRequired(),
                 descriptor.selfTestStatus,
@@ -418,6 +536,19 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         gate[QStringLiteral("rawKeyExported")] = operationStatus.value(QStringLiteral("rawKeyExported")).toBool(false);
         gate[QStringLiteral("privateMaterialExported")] =
             operationStatus.value(QStringLiteral("privateMaterialExported")).toBool(false);
+        if (operationStatus.value(QStringLiteral("operationImplementation")).isObject()) {
+            const QJsonObject implementation =
+                operationStatus.value(QStringLiteral("operationImplementation")).toObject();
+            gate[QStringLiteral("implementationState")] =
+                implementation.value(QStringLiteral("implementationState")).toString();
+            gate[QStringLiteral("vectorSet")] =
+                implementation.value(QStringLiteral("vectorSet")).toString();
+            gate[QStringLiteral("compatibilityStatus")] =
+                implementation.value(QStringLiteral("compatibilityStatus")).toString();
+            gate[QStringLiteral("migrationBlocker")] =
+                implementation.value(QStringLiteral("migrationBlocker")).toString();
+            gate[QStringLiteral("operationImplementation")] = implementation;
+        }
         operationGates.append(gate);
         if (available) {
             ++availableOperationCount;
@@ -496,6 +627,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
     status[QStringLiteral("availableOperationCount")] = availableOperationCount;
     status[QStringLiteral("blockedOperationCount")] = blockedOperationCount;
     status[QStringLiteral("operationContractComplete")] = operationContractComplete;
+    status[QStringLiteral("operationManifest")] = productionOperationManifest();
+    status[QStringLiteral("operationManifestComplete")] =
+        productionOperationSpecs().size() == cryptoOperations().size();
+    status[QStringLiteral("implementedOperationCount")] = 0;
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -586,6 +721,10 @@ QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
     obj["requiresProductionReady"] = productionSelected;
     obj["available"] = context.available;
     obj["blockedReason"] = context.available ? QString() : context.reason;
+    if (productionSelected) {
+        obj["operationImplementation"] =
+            productionOperationSpecJson(productionOperationSpec(operation));
+    }
 
     if (draftSelected) {
         obj["reason"] = context.reason;

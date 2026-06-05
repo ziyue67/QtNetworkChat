@@ -88,6 +88,8 @@ int main() {
                     && acceptance.value("registeredOperationCount").toInt() == 8
                     && acceptance.value("blockedOperationCount").toInt() == 8
                     && acceptance.value("operationGates").toArray().size() == 8
+                    && acceptance.value("operationManifest").toArray().size() == 8
+                    && acceptance.value("implementedOperationCount").toInt() == 0
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize linked-placeholder gates without enabling crypto") && ok;
@@ -96,6 +98,18 @@ int main() {
                         == QStringLiteral("session-key-generation")
                     && firstGate.value("entrypoint").toString()
                         == QStringLiteral("production-adapter/session-key-generation")
+                    && firstGate.value("implementationState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("linked-placeholder")
+                            : QStringLiteral("not-linked"))
+                    && firstGate.value("vectorSet").toString()
+                        == QStringLiteral("production-session-key-generation-vectors-v1")
+                    && firstGate.value("compatibilityStatus").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("not-run-placeholder")
+                            : QStringLiteral("not-run-not-linked"))
+                    && firstGate.value("migrationBlocker").toString()
+                        == QStringLiteral("production-session-key-generation-not-implemented")
                     && !firstGate.value("available").toBool(true)
                     && firstGate.value("blockedReason").toString() == expectedReason
                     && firstGate.value("providerId").toString()
@@ -117,6 +131,17 @@ int main() {
                         == expectedCompatibilityStatus
                     && payloadEncrypt.value("providerCompatibilityGate").toString()
                         == expectedCompatibilityGate
+                    && payloadEncrypt.value("operationImplementation").toObject()
+                        .value("implementationState").toString()
+                            == (adapterLinked
+                                ? QStringLiteral("linked-placeholder")
+                                : QStringLiteral("not-linked"))
+                    && payloadEncrypt.value("operationImplementation").toObject()
+                        .value("vectorSet").toString()
+                            == QStringLiteral("production-payload-encrypt-vectors-v1")
+                    && payloadEncrypt.value("operationImplementation").toObject()
+                        .value("migrationBlocker").toString()
+                            == QStringLiteral("production-payload-encrypt-not-implemented")
                     && payloadEncrypt.value("requiresProductionReady").toBool(false)
                     && payloadEncrypt.value("adapterLinked").toBool(!adapterLinked) == adapterLinked
                     && payloadEncrypt.value("productionReady").toBool(true) == false

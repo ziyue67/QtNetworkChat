@@ -512,8 +512,19 @@ int main(int argc, char** argv) {
                             == QStringLiteral("production-adapter-not-linked")
                         && rotationAcceptance.value("blockedReason").toString()
                             == QStringLiteral("production-crypto-backend-unavailable")
-                        && rotationAcceptance.value("operationGates").toArray().size() == 8,
+                        && rotationAcceptance.value("operationGates").toArray().size() == 8
+                        && rotationAcceptance.value("operationManifest").toArray().size() == 8
+                        && rotationAcceptance.value("implementedOperationCount").toInt() == 0,
                     "production rotation dry-run should embed sanitized acceptance evidence") && ok;
+        const QJsonObject rotationAcceptanceFirstGate =
+            rotationAcceptance.value("operationGates").toArray().at(0).toObject();
+        ok = expect(rotationAcceptanceFirstGate.value("implementationState").toString()
+                            == QStringLiteral("not-linked")
+                        && rotationAcceptanceFirstGate.value("vectorSet").toString()
+                            == QStringLiteral("production-session-key-generation-vectors-v1")
+                        && rotationAcceptanceFirstGate.value("migrationBlocker").toString()
+                            == QStringLiteral("production-session-key-generation-not-implemented"),
+                    "production rotation acceptance should expose required operation implementation slots") && ok;
         const QJsonObject firstRotationStage = rotationDryRun.value("rotationStages").toArray().at(0).toObject();
         ok = expect(firstRotationStage.value("name").toString()
                             == QStringLiteral("generate-production-identity")
@@ -555,6 +566,8 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("productionAcceptanceReleaseGate").toString()
                             == QStringLiteral("production-adapter-not-linked")
                         && !rotationExecute.value("productionAcceptanceAccepted").toBool(true)
+                        && rotationExecute.value("productionAcceptance").toObject()
+                            .value("operationManifest").toArray().size() == 8
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),

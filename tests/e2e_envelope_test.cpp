@@ -114,6 +114,8 @@ int main() {
                         == QStringLiteral("production-crypto-backend-unavailable")
                     && productionAcceptance.value("blockedOperationCount").toInt() == 8
                     && productionAcceptance.value("operationGates").toArray().size() == 8
+                    && productionAcceptance.value("operationManifest").toArray().size() == 8
+                    && productionAcceptance.value("operationManifestComplete").toBool(false)
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -125,7 +127,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 5
+                        .value("checks").toArray().size() == 6
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -146,6 +148,12 @@ int main() {
                     && !productionBackend.value("linked").toBool(true)
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
+                    && productionBackend.value("providerReadiness").toObject()
+                        .value("checks").toArray().size() == 6
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("operationManifest").toArray().size() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
                 "registered backend descriptors should expose adapter readiness without private material") && ok;
     ok = expectAllOperations(backendStatus,
@@ -449,9 +457,24 @@ int main() {
                     && !productionRequestedAcceptance.value("productionReady").toBool(true)
                     && productionRequestedAcceptance.value("registeredOperationCount").toInt() == 8
                     && productionRequestedAcceptance.value("blockedOperationCount").toInt() == 8
+                    && productionRequestedAcceptance.value("operationManifest").toArray().size() == 8
+                    && productionRequestedAcceptance.value("implementedOperationCount").toInt() == 0
                     && !productionRequestedAcceptance.value("rawKeyExported").toBool(true)
                     && !productionRequestedAcceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize the not-linked release gate") && ok;
+    const QJsonObject productionSessionKeyGate =
+        productionRequestedAcceptance.value("operationGates").toArray().at(0).toObject();
+    ok = expect(productionSessionKeyGate.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && productionSessionKeyGate.value("implementationState").toString()
+                        == QStringLiteral("not-linked")
+                    && productionSessionKeyGate.value("vectorSet").toString()
+                        == QStringLiteral("production-session-key-generation-vectors-v1")
+                    && productionSessionKeyGate.value("migrationBlocker").toString()
+                        == QStringLiteral("production-session-key-generation-not-implemented")
+                    && productionSessionKeyGate.value("operationImplementation").toObject()
+                        .value("implemented").toBool(true) == false,
+                "production acceptance gates should expose each required operation implementation slot") && ok;
     ok = expectAllOperations(productionRequestedStatus,
                              false,
                              QStringLiteral("production-crypto-backend-unavailable"),
@@ -468,6 +491,16 @@ int main() {
                     && productionRequestedStatus.value("operations").toObject()
                         .value("payload-decrypt").toObject()
                         .value("dispatchState").toString() == QStringLiteral("not-linked")
+                    && productionRequestedStatus.value("operations").toObject()
+                        .value("payload-decrypt").toObject()
+                        .value("operationImplementation").toObject()
+                        .value("vectorSet").toString()
+                            == QStringLiteral("production-payload-decrypt-vectors-v1")
+                    && productionRequestedStatus.value("operations").toObject()
+                        .value("payload-decrypt").toObject()
+                        .value("operationImplementation").toObject()
+                        .value("migrationBlocker").toString()
+                            == QStringLiteral("production-payload-decrypt-not-implemented")
                     && productionRequestedStatus.value("selectedProviderReadiness").toObject()
                         .value("readinessGate").toString() == QStringLiteral("production-adapter-not-linked")
                     && productionRequestedStatus.value("selectedProviderCompatibility").toObject()
