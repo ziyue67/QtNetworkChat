@@ -1,6 +1,7 @@
 #include "e2eenvelope.h"
 
 #include <QDebug>
+#include <QJsonArray>
 #include <QJsonObject>
 
 namespace {
@@ -35,6 +36,12 @@ int main() {
     const QString expectedSelfTestStatus = adapterLinked
         ? QStringLiteral("self-test-blocked-placeholder")
         : QStringLiteral("self-test-blocked-not-linked");
+    const QString expectedCompatibilityStatus = adapterLinked
+        ? QStringLiteral("compatibility-blocked-placeholder")
+        : QStringLiteral("compatibility-blocked-not-linked");
+    const QString expectedCompatibilityGate = adapterLinked
+        ? QStringLiteral("production-operation-vectors-not-implemented")
+        : QStringLiteral("production-adapter-not-linked");
 
     ok = expect(status.value("requestedBackendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && status.value("selectionSource").toString() == QStringLiteral("environment")
@@ -47,6 +54,16 @@ int main() {
                     && status.value("selectedProviderReadiness").toObject()
                         .value("selfTestStatus").toString()
                             == expectedSelfTestStatus
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("status").toString()
+                            == expectedCompatibilityStatus
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("gate").toString()
+                            == expectedCompatibilityGate
+                    && !status.value("selectedProviderCompatibility").toObject()
+                        .value("knownAnswerPassed").toBool(true)
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("requiredOperations").toArray().size() == 8
                     && status.value("unavailableReason").toString() == expectedReason,
                 "production adapter runtime status should fail closed with a precise reason") && ok;
 
@@ -62,6 +79,10 @@ int main() {
                         == expectedSelfTestStatus
                     && payloadEncrypt.value("providerReadinessGate").toString()
                         == expectedReadinessGate
+                    && payloadEncrypt.value("providerCompatibilityStatus").toString()
+                        == expectedCompatibilityStatus
+                    && payloadEncrypt.value("providerCompatibilityGate").toString()
+                        == expectedCompatibilityGate
                     && payloadEncrypt.value("requiresProductionReady").toBool(false)
                     && payloadEncrypt.value("adapterLinked").toBool(!adapterLinked) == adapterLinked
                     && payloadEncrypt.value("productionReady").toBool(true) == false
