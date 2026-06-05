@@ -195,9 +195,9 @@ foreach ($expected in @(
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok`',
     'Priority Backlog',
-    'README information architecture is now the active automation lane until closed',
-    'Group productization is next after README IA',
+    'Group productization is the active automation lane',
     'Mainwindow structure split follows group productization',
+    'README information architecture is closed for now',
     'QTNETWORKCHAT_PGPASSWORD',
     'generated evidence must remain redacted'
 )) {

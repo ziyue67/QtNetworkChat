@@ -60,6 +60,8 @@ private:
     void handleE2EIdentityAnnouncement(const QJsonObject& obj, QTcpSocket* socket);
     void handleE2EKeyRotation(const QJsonObject& obj, QTcpSocket* socket);
     void handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket = nullptr);
+    void handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket);
+    void handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleFile(const QJsonObject& obj, QTcpSocket* socket);

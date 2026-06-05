@@ -77,8 +77,24 @@ QJsonObject publicGroup(const QJsonArray& groups) {
     return {};
 }
 
+QJsonObject groupById(const QJsonArray& groups, const QString& groupId) {
+    for (const QJsonValue& value : groups) {
+        const QJsonObject group = value.toObject();
+        if (group["groupId"].toString() == groupId) return group;
+    }
+    return {};
+}
+
 bool publicGroupHasMember(const QJsonArray& groups, const QString& userId) {
     const QJsonArray members = publicGroup(groups)["members"].toArray();
+    for (const QJsonValue& value : members) {
+        if (value.toObject()["userId"].toString() == userId) return true;
+    }
+    return false;
+}
+
+bool groupHasMember(const QJsonObject& group, const QString& userId) {
+    const QJsonArray members = group["members"].toArray();
     for (const QJsonValue& value : members) {
         if (value.toObject()["userId"].toString() == userId) return true;
     }
@@ -144,6 +160,30 @@ bool publicGroupHasAuditEvent(const QJsonArray& groups,
         }
     }
     return false;
+}
+
+bool groupHasAuditEvent(const QJsonObject& group,
+                        const QString& action,
+                        const QString& actorId,
+                        const QString& targetUserId = QString()) {
+    const QJsonArray auditEvents = group["auditEvents"].toArray();
+    for (const QJsonValue& value : auditEvents) {
+        const QJsonObject event = value.toObject();
+        if (event["action"].toString() == action
+            && event["actorId"].toString() == actorId
+            && (targetUserId.isEmpty() || event["targetUserId"].toString() == targetUserId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QJsonObject firstPrivateGroup(const QJsonArray& groups) {
+    for (const QJsonValue& value : groups) {
+        const QJsonObject group = value.toObject();
+        if (group["groupType"].toString() == "private") return group;
+    }
+    return {};
 }
 
 bool registerClient(Client& client,
@@ -420,6 +460,97 @@ int main(int argc, char** argv) {
     }), "plain member should be rejected by server-side role check") && ok;
     ok = expect(publicGroupHasMember(member.serverGroups(), ownerId),
                 "owner should remain in public group after rejected removal") && ok;
+
+    const QString privateGroupName = "Private protocol group";
+    const QString privateAnnouncement = "Private group announcement";
+    ownerSystemMessages.clear();
+    ok = expect(owner.createPrivateServerGroup(privateGroupName, privateAnnouncement),
+                "owner should submit private group creation") && ok;
+    QString privateGroupId;
+    ok = expect(waitFor([&] {
+        const QJsonObject group = firstPrivateGroup(owner.serverGroups());
+        privateGroupId = group["groupId"].toString();
+        return !privateGroupId.isEmpty()
+            && group["groupName"].toString() == privateGroupName
+            && group["groupType"].toString() == "private"
+            && group["membershipState"].toString() == "active"
+            && group["historyPolicy"].toString() == "member-and-removed-readonly"
+            && group["filePolicy"].toString() == "members-only"
+            && group["canSend"].toBool(false)
+            && group["canSendFiles"].toBool(false)
+            && group["canReadHistory"].toBool(false)
+            && groupHasMember(group, ownerId)
+            && groupHasAuditEvent(group, "create_private_group", ownerId, ownerId);
+    }), "private group creator should receive active private group permission matrix and create audit") && ok;
+    ok = expect(groupById(member.serverGroups(), privateGroupId).isEmpty()
+                    && groupById(guest.serverGroups(), privateGroupId).isEmpty(),
+                "private group should not be visible to non-members before invitation") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate(privateGroupId, memberId, "add"),
+                "private group owner should invite a member") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject memberPrivate = groupById(member.serverGroups(), privateGroupId);
+        const QJsonObject ownerPrivate = groupById(owner.serverGroups(), privateGroupId);
+        return memberPrivate["groupType"].toString() == "private"
+            && memberPrivate["membershipState"].toString() == "active"
+            && memberPrivate["canSend"].toBool(false)
+            && memberPrivate["canSendFiles"].toBool(false)
+            && memberPrivate["canReadHistory"].toBool(false)
+            && groupHasMember(memberPrivate, ownerId)
+            && groupHasMember(memberPrivate, memberId)
+            && groupHasAuditEvent(ownerPrivate, "add", ownerId, memberId);
+    }), "invited member should receive private group snapshot with send/file/history permissions") && ok;
+
+    const QString privateMessage = "private group message should reach invited member only";
+    ownerGroupMessages.clear();
+    QStringList memberGroupMessages;
+    QObject::connect(&member, &Client::newMessage, &app, [&](const Message& msg) {
+        if (msg.type == MessageType::Text && msg.receiverId == privateGroupId) {
+            memberGroupMessages << msg.content;
+        }
+    });
+    ok = expect(owner.sendServerGroupMessage(privateGroupId, privateMessage),
+                "private group owner should send scoped group message") && ok;
+    ok = expect(waitFor([&] {
+        return memberGroupMessages.contains(privateMessage);
+    }), "private group message should be delivered to invited member") && ok;
+
+    guestSystemMessages.clear();
+    ok = expect(guest.sendServerGroupMessage(privateGroupId, "guest should be blocked"),
+                "non-member private group message request should still be sent") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : guestSystemMessages) {
+            if (message.contains(QString::fromUtf8("私有群消息发送失败"))) return true;
+        }
+        return false;
+    }), "non-member private group message should fail closed") && ok;
+
+    ok = expect(owner.sendServerGroupMemberUpdate(privateGroupId, memberId, "remove"),
+                "private group owner should remove invited member") && ok;
+    ok = expect(waitFor([&] {
+        const QJsonObject removedPrivate = groupById(member.removedServerGroups(), privateGroupId);
+        return removedPrivate["membershipState"].toString() == "removed"
+            && removedPrivate["groupType"].toString() == "private"
+            && removedPrivate["historyPolicy"].toString() == "member-and-removed-readonly"
+            && removedPrivate["filePolicy"].toString() == "members-only"
+            && removedPrivate["canReadHistory"].toBool(false)
+            && !removedPrivate["canSend"].toBool(true)
+            && !removedPrivate["canSendFiles"].toBool(true)
+            && !removedPrivate["removedBy"].toString().isEmpty();
+    }), "removed private member should keep read-only history marker and lose send/file permissions") && ok;
+    ok = expect(waitFor([&] {
+        return groupHasAuditEvent(groupById(owner.serverGroups(), privateGroupId), "remove", ownerId, memberId);
+    }), "private group removal should be visible in owner audit snapshot") && ok;
+
+    memberSystemMessages.clear();
+    ok = expect(member.sendServerGroupMessage(privateGroupId, "removed member private send should be blocked"),
+                "removed private member message request should still be sent") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : memberSystemMessages) {
+            if (message.contains(QString::fromUtf8("私有群消息发送失败"))) return true;
+        }
+        return false;
+    }), "removed private member should be blocked from sending private group messages") && ok;
 
         disconnectClient(owner);
         disconnectClient(member);

@@ -8,7 +8,7 @@ QtNetworkChat uses CTest as the release-level local verification surface. The de
 - Account password KDF migration, legacy hash login compatibility, failed-login non-upgrade, and local credential storage without plaintext passwords.
 - TLS certificate SHA-256 pinning and fixed failure diagnostics.
 - E2E envelope/key agreement serialization, encrypted private text/file behavior, trust pin recovery, rotation gates, history metadata, production backend status, and production adapter fail-closed evidence.
-- Group member update protocol, group audit snapshots, owner/admin permission boundaries, removed-member read-only history, and rejected-operation audit exclusion.
+- Group member update protocol, public/private group snapshots, private group creation/invitation/removal, group audit snapshots, owner/admin permission boundaries, removed-member read-only history, group send/file permission fields, and rejected-operation audit exclusion.
 
 ## File And Routing Coverage
 
@@ -27,4 +27,3 @@ Run locally with:
 ```powershell
 D:\Qt\Tools\CMake_64\bin\ctest.exe --test-dir build-qt6-mingw --output-on-failure
 ```
-

@@ -58,6 +58,8 @@ public:
     bool sendFriendResponse(const QString& receiverId, bool accepted);
     bool sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement);
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
+    bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString());
+    bool sendServerGroupMessage(const QString& groupId, const QString& content);
     bool sendFile(const QString& filePath, const QString& receiverId = QString());
     bool sendImage(const QString& filePath, const QString& receiverId = QString());
     bool resumeFileTransfer(const QString& filePath,

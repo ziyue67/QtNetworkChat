@@ -50,9 +50,9 @@ Assert-Contains $readme "docs/automation-status.md"
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
 $automationStatus = Get-Content -LiteralPath $automationStatusPath -Raw
-Assert-Contains $automationStatus "README information architecture is now the active automation lane until closed"
-Assert-Contains $automationStatus "Group productization is next after README IA"
+Assert-Contains $automationStatus "Group productization is the active automation lane"
 Assert-Contains $automationStatus "Mainwindow structure split follows group productization"
+Assert-Contains $automationStatus "README information architecture is closed for now"
 
 $oversizedLines = @(Get-Content -LiteralPath $resolvedReadmePath |
     Where-Object { $_.Length -gt 2500 })

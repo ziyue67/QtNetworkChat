@@ -1874,6 +1874,31 @@ bool Client::sendServerGroupMemberUpdate(const QString& groupId, const QString& 
     return sendJson(obj);
 }
 
+bool Client::createPrivateServerGroup(const QString& groupName, const QString& announcement) {
+    if (!isConnected() || groupName.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_create";
+    obj["groupType"] = "private";
+    obj["groupName"] = groupName.trimmed();
+    obj["announcement"] = announcement.trimmed();
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    return sendJson(obj);
+}
+
+bool Client::sendServerGroupMessage(const QString& groupId, const QString& content) {
+    if (!isConnected() || groupId.trimmed().isEmpty() || content.trimmed().isEmpty()) return false;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_message";
+    obj["groupId"] = groupId.trimmed();
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    obj["content"] = content;
+    return sendJson(obj);
+}
+
 bool Client::sendFile(const QString& filePath, const QString& receiverId) {
     return sendFilePayload(filePath, receiverId, MessageType::File, "发送了文件: ");
 }
@@ -2945,6 +2970,18 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         if (!base64Data.isEmpty()) {
             msg.fileData = QByteArray::fromBase64(base64Data.toLatin1());
         }
+        emit newMessage(msg);
+        return;
+    }
+
+    if (type == "server_group_message") {
+        Message msg;
+        msg.type = MessageType::Text;
+        msg.senderId = obj["senderId"].toString();
+        msg.senderName = obj["senderName"].toString();
+        msg.receiverId = obj["groupId"].toString(obj["receiverId"].toString());
+        msg.content = obj["content"].toString();
+        msg.timestamp = QDateTime::currentDateTime();
         emit newMessage(msg);
         return;
     }

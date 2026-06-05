@@ -67,6 +67,22 @@ bool envEnabled(const char* name) {
 
 bool looksLikeSha256Hex(const QString& value);
 
+QString serverGroupTypeFromId(const QString& groupId) {
+    return groupId == QLatin1String("public") ? QStringLiteral("public") : QStringLiteral("private");
+}
+
+QString serverGroupHistoryPolicy(const QString& groupType) {
+    return groupType == QLatin1String("private")
+        ? QStringLiteral("member-and-removed-readonly")
+        : QStringLiteral("public-removed-readonly");
+}
+
+QString serverGroupFilePolicy(const QString& groupType) {
+    return groupType == QLatin1String("private")
+        ? QStringLiteral("members-only")
+        : QStringLiteral("public-members-only");
+}
+
 void appendE2EFields(QJsonObject* obj, const Message& msg) {
     if (!obj) return;
     QString reason;
@@ -1396,6 +1412,10 @@ void Server::onClientReadyRead() {
             handleE2EIdentityAnnouncement(obj, socket);
         } else if (type == "e2e_key_rotation_request" || type == "e2e_key_rotation_response") {
             handleE2EKeyRotation(obj, socket);
+        } else if (type == "server_group_create") {
+            handleServerGroupCreate(obj, socket);
+        } else if (type == "server_group_message") {
+            handleServerGroupMessage(obj, socket);
         } else if (type == "server_group_announcement_update") {
             handleServerGroupAnnouncementUpdate(obj, socket);
         } else if (type == "server_group_member_update") {
@@ -1759,6 +1779,162 @@ void Server::handleE2EKeyRotation(const QJsonObject& obj, QTcpSocket* socket) {
     targetSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
     targetSocket->write("\n");
     targetSocket->flush();
+}
+
+void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* requester = findUserBySocket(socket);
+    if (!requester) {
+        sendSystemNotice(socket, "创建群组失败：请先登录");
+        return;
+    }
+
+    QString groupName = obj.value("groupName").toString().trimmed();
+    QString announcement = obj.value("announcement").toString().trimmed();
+    if (groupName.isEmpty()) {
+        sendSystemNotice(socket, "创建群组失败：群名称不能为空");
+        return;
+    }
+    if (groupName.size() > 80) {
+        groupName = groupName.left(80);
+    }
+    if (announcement.isEmpty()) {
+        announcement = QStringLiteral("私有群已创建。");
+    }
+    if (announcement.size() > 1000) {
+        announcement = announcement.left(1000);
+    }
+    if (!ensureAccountDatabase()) {
+        sendSystemNotice(socket, "创建群组失败：服务端群组存储不可用");
+        return;
+    }
+
+    const QString groupId = QStringLiteral("private-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    bool created = false;
+    QString errorText;
+    const QString connectionName = "server_group_create_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (!openAccountDatabaseConnection(db, connectionName)) {
+            errorText = "创建群组失败：无法打开群组数据库";
+        } else if (!db.transaction()) {
+            errorText = "创建群组失败：无法开启事务";
+        } else {
+            QSqlQuery groupQuery(db);
+            groupQuery.prepare("INSERT INTO server_groups(group_id, group_name, owner_id, announcement, group_type, history_policy, file_policy, created_at, updated_at) "
+                               "VALUES(?, ?, ?, ?, 'private', 'member-and-removed-readonly', 'members-only', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            groupQuery.addBindValue(groupId);
+            groupQuery.addBindValue(groupName);
+            groupQuery.addBindValue(requester->id);
+            groupQuery.addBindValue(announcement);
+            if (!groupQuery.exec()) {
+                errorText = "创建群组失败：保存群组失败";
+            }
+
+            if (errorText.isEmpty()) {
+                QSqlQuery memberQuery(db);
+                memberQuery.prepare("INSERT INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
+                                    "VALUES(?, ?, ?, 'owner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+                memberQuery.addBindValue(groupId);
+                memberQuery.addBindValue(requester->id);
+                memberQuery.addBindValue(requester->name);
+                if (!memberQuery.exec()) {
+                    errorText = "创建群组失败：保存群主成员失败";
+                }
+            }
+
+            if (errorText.isEmpty() && db.commit()) {
+                created = true;
+            } else {
+                if (errorText.isEmpty()) {
+                    errorText = "创建群组失败：提交事务失败";
+                }
+                db.rollback();
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+
+    if (!created) {
+        sendSystemNotice(socket, errorText.isEmpty() ? "创建群组失败" : errorText);
+        return;
+    }
+
+    recordServerGroupAuditEvent(groupId,
+                                QStringLiteral("create_private_group"),
+                                requester->id,
+                                requester->name,
+                                requester->id,
+                                requester->name,
+                                QJsonObject{
+                                    {QStringLiteral("groupType"), QStringLiteral("private")},
+                                    {QStringLiteral("historyPolicy"), QStringLiteral("member-and-removed-readonly")},
+                                    {QStringLiteral("filePolicy"), QStringLiteral("members-only")}
+                                });
+    sendSystemNotice(socket, QString("私有群 %1 已创建").arg(groupName));
+    sendServerGroupSnapshot(requester->id, socket);
+}
+
+void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* sender = findUserBySocket(socket);
+    if (!sender) {
+        sendSystemNotice(socket, "群消息发送失败：请先登录");
+        return;
+    }
+    const QString groupId = obj.value("groupId").toString().trimmed();
+    const QString content = obj.value("content").toString();
+    if (groupId.isEmpty() || content.trimmed().isEmpty()) {
+        sendSystemNotice(socket, "群消息发送失败：请求参数无效");
+        return;
+    }
+    if (!isServerGroupMember(groupId, sender->id)) {
+        sendSystemNotice(socket, groupId == QLatin1String("public")
+            ? QStringLiteral("公共群消息发送失败：你已不在该群组，请联系群主或管理员重新邀请。")
+            : QStringLiteral("私有群消息发送失败：你不在该群组或已被移出。"));
+        return;
+    }
+
+    QStringList memberIds;
+    const QString connectionName = "server_group_message_" + QString::number(reinterpret_cast<quintptr>(socket));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery memberQuery(db);
+            memberQuery.prepare("SELECT user_id FROM server_group_members WHERE group_id = ?");
+            memberQuery.addBindValue(groupId);
+            if (memberQuery.exec()) {
+                while (memberQuery.next()) {
+                    const QString memberId = memberQuery.value(0).toString();
+                    if (!memberId.isEmpty() && !memberIds.contains(memberId)) {
+                        memberIds << memberId;
+                    }
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+
+    Message msg;
+    msg.senderId = sender->id;
+    msg.senderName = sender->name;
+    msg.receiverId = groupId;
+    msg.content = content;
+    msg.type = MessageType::Text;
+    msg.timestamp = QDateTime::currentDateTime();
+
+    for (const QString& memberId : memberIds) {
+        QTcpSocket* memberSocket = m_userSockets.value(memberId);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        QJsonObject forwarded = QJsonDocument::fromJson(msg.toJson()).object();
+        forwarded["type"] = "server_group_message";
+        forwarded["groupId"] = groupId;
+        memberSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
+        memberSocket->write("\n");
+        memberSocket->flush();
+    }
+    saveMessageToSqlite(msg, QStringLiteral("server-group"));
+    emit newMessage(msg);
 }
 
 void Server::handleServerGroupAnnouncementUpdate(const QJsonObject& obj, QTcpSocket* socket) {
@@ -3556,8 +3732,14 @@ bool Server::ensureAccountDatabase() const {
                                 "group_name TEXT NOT NULL, "
                                 "owner_id TEXT, "
                                 "announcement TEXT, "
+                                "group_type TEXT DEFAULT 'public', "
+                                "history_policy TEXT DEFAULT 'public-removed-readonly', "
+                                "file_policy TEXT DEFAULT 'public-members-only', "
                                 "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
                                 "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+                query.exec("ALTER TABLE server_groups ADD COLUMN group_type TEXT DEFAULT 'public'");
+                query.exec("ALTER TABLE server_groups ADD COLUMN history_policy TEXT DEFAULT 'public-removed-readonly'");
+                query.exec("ALTER TABLE server_groups ADD COLUMN file_policy TEXT DEFAULT 'public-members-only'");
             }
             if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS server_group_members ("
@@ -3602,9 +3784,12 @@ bool Server::ensureAccountDatabase() const {
             if (ok) {
                 query.exec(insertIgnoreSql(
                     QStringLiteral("server_groups"),
-                    {QStringLiteral("group_id"), QStringLiteral("group_name"), QStringLiteral("announcement"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
-                    {QStringLiteral("'public'"), QStringLiteral("'公共聊天室'"), QStringLiteral("'欢迎来到公共聊天室。'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("group_id"), QStringLiteral("group_name"), QStringLiteral("announcement"), QStringLiteral("group_type"), QStringLiteral("history_policy"), QStringLiteral("file_policy"), QStringLiteral("created_at"), QStringLiteral("updated_at")},
+                    {QStringLiteral("'public'"), QStringLiteral("'公共聊天室'"), QStringLiteral("'欢迎来到公共聊天室。'"), QStringLiteral("'public'"), QStringLiteral("'public-removed-readonly'"), QStringLiteral("'public-members-only'"), QStringLiteral("CURRENT_TIMESTAMP"), QStringLiteral("CURRENT_TIMESTAMP")},
                     {QStringLiteral("group_id")}));
+                query.exec("UPDATE server_groups SET group_type = 'public' WHERE group_id = 'public' AND (group_type IS NULL OR group_type = '')");
+                query.exec("UPDATE server_groups SET history_policy = 'public-removed-readonly' WHERE group_id = 'public' AND (history_policy IS NULL OR history_policy = '')");
+                query.exec("UPDATE server_groups SET file_policy = 'public-members-only' WHERE group_id = 'public' AND (file_policy IS NULL OR file_policy = '')");
             }
             if (ok) {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)");
@@ -4810,7 +4995,8 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
         QSqlDatabase db = openAccountDatabase(connectionName);
         if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery groupQuery(db);
-            groupQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, '') "
+            groupQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), COALESCE(g.owner_id, ''), "
+                               "COALESCE(g.group_type, ''), COALESCE(g.history_policy, ''), COALESCE(g.file_policy, '') "
                                "FROM server_groups g "
                                "JOIN server_group_members m ON m.group_id = g.group_id "
                                "WHERE m.user_id = ? "
@@ -4824,6 +5010,22 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     groupObj["groupName"] = groupQuery.value(1).toString();
                     groupObj["announcement"] = groupQuery.value(2).toString();
                     groupObj["ownerId"] = groupQuery.value(3).toString();
+                    const QString groupType = groupQuery.value(4).toString().trimmed().isEmpty()
+                        ? serverGroupTypeFromId(groupId)
+                        : groupQuery.value(4).toString();
+                    const QString historyPolicy = groupQuery.value(5).toString().trimmed().isEmpty()
+                        ? serverGroupHistoryPolicy(groupType)
+                        : groupQuery.value(5).toString();
+                    const QString filePolicy = groupQuery.value(6).toString().trimmed().isEmpty()
+                        ? serverGroupFilePolicy(groupType)
+                        : groupQuery.value(6).toString();
+                    groupObj["groupType"] = groupType;
+                    groupObj["membershipState"] = "active";
+                    groupObj["historyPolicy"] = historyPolicy;
+                    groupObj["filePolicy"] = filePolicy;
+                    groupObj["canSend"] = true;
+                    groupObj["canSendFiles"] = true;
+                    groupObj["canReadHistory"] = true;
 
                     QJsonArray members;
                     QSqlQuery memberQuery(db);
@@ -4873,7 +5075,9 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
 
             QSqlQuery removedQuery(db);
             removedQuery.prepare("SELECT g.group_id, g.group_name, COALESCE(g.announcement, ''), "
-                                 "COALESCE(g.owner_id, ''), COALESCE(r.removed_by, ''), "
+                                 "COALESCE(g.owner_id, ''), COALESCE(g.group_type, ''), "
+                                 "COALESCE(g.history_policy, ''), COALESCE(g.file_policy, ''), "
+                                 "COALESCE(r.removed_by, ''), "
                                  "COALESCE(r.removed_by_name, ''), r.removed_at "
                                  "FROM server_group_removed_members r "
                                  "JOIN server_groups g ON g.group_id = r.group_id "
@@ -4888,12 +5092,25 @@ void Server::sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) 
                     groupObj["groupName"] = removedQuery.value(1).toString();
                     groupObj["announcement"] = removedQuery.value(2).toString();
                     groupObj["ownerId"] = removedQuery.value(3).toString();
+                    const QString groupType = removedQuery.value(4).toString().trimmed().isEmpty()
+                        ? serverGroupTypeFromId(groupObj["groupId"].toString())
+                        : removedQuery.value(4).toString();
+                    const QString historyPolicy = removedQuery.value(5).toString().trimmed().isEmpty()
+                        ? serverGroupHistoryPolicy(groupType)
+                        : removedQuery.value(5).toString();
+                    const QString filePolicy = removedQuery.value(6).toString().trimmed().isEmpty()
+                        ? serverGroupFilePolicy(groupType)
+                        : removedQuery.value(6).toString();
+                    groupObj["groupType"] = groupType;
                     groupObj["membershipState"] = "removed";
                     groupObj["canSend"] = false;
+                    groupObj["canSendFiles"] = false;
                     groupObj["canReadHistory"] = true;
-                    groupObj["removedBy"] = removedQuery.value(4).toString();
-                    groupObj["removedByName"] = removedQuery.value(5).toString();
-                    groupObj["removedAt"] = removedQuery.value(6).toString();
+                    groupObj["historyPolicy"] = historyPolicy;
+                    groupObj["filePolicy"] = filePolicy;
+                    groupObj["removedBy"] = removedQuery.value(7).toString();
+                    groupObj["removedByName"] = removedQuery.value(8).toString();
+                    groupObj["removedAt"] = removedQuery.value(9).toString();
                     removedGroups.append(groupObj);
                 }
             }
