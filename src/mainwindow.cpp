@@ -7600,16 +7600,12 @@ void MainWindow::refreshFriendList() {
         saveLocalGroups();
     }
 
-    const int joinedGroupCount = m_localGroupIds.size() + 1;
     const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+    const GroupNoticeUiState groupNoticeState = m_groupManager.noticeUiState(m_localGroupIds.size());
     ui->friendNoticeBtn->setText(noticeState.text);
     ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
-    ui->groupNoticeBtn->setText(m_localGroupIds.isEmpty()
-        ? "群通知"
-        : QString("群通知 %1").arg(joinedGroupCount));
-    ui->groupNoticeBtn->setToolTip(m_localGroupIds.isEmpty()
-        ? "查看公共聊天室、群公告和入群邀请"
-        : QString("已加入 %1 个群聊（含公共聊天室），可查看公告和入群邀请").arg(joinedGroupCount));
+    ui->groupNoticeBtn->setText(groupNoticeState.text);
+    ui->groupNoticeBtn->setToolTip(groupNoticeState.toolTip);
 
     auto appendSection = [this](const QString& title) {
         QStandardItem* section = new QStandardItem(title);
@@ -7737,12 +7733,10 @@ void MainWindow::refreshGroupMemberPanel() {
                 && !name.contains(filter, Qt::CaseInsensitive)) {
                 continue;
             }
-            QString role = memberId == ownerId
-                ? (memberId == m_currentUserId ? "群主/我" : "群主")
-                : (memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "群成员")));
-            QString state = online ? "在线" : "离线";
-            QString actionText = memberId == m_currentUserId ? "本人" : (isFriend ? "已是好友" : (isPending ? "等待确认" : "可发送申请"));
-            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, actionText));
+            const GroupMemberDisplayState display = m_groupManager.memberDisplayState(
+                memberId, m_currentUserId, ownerId, QString(), isFriend, isPending, online, false);
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5")
+                .arg(display.role, memberId, name, display.state, display.actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
             item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(20, 92, 160) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56))));
@@ -7841,19 +7835,13 @@ void MainWindow::refreshGroupMemberPanel() {
             }
 
             const QString serverRole = m_serverGroupMemberRoles.value("public|" + memberId, "member").toLower();
-            const bool isOwner = serverRole == "owner" || (!ownerId.isEmpty() && memberId == ownerId);
-            const bool isAdmin = serverRole == "admin";
-            const QString role = isOwner
-                ? (memberId == m_currentUserId ? "群主/我" : "群主")
-                : (isAdmin
-                    ? (memberId == m_currentUserId ? "管理员/我" : "管理员")
-                    : (memberId == m_currentUserId ? "我" : (isFriend ? "好友" : (isPending ? "申请中" : "成员"))));
-            const QString state = online ? "在线" : "离线";
-            const QString actionText = memberId == m_currentUserId ? "本人" : (isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请"));
-            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(role, memberId, name, state, actionText));
+            const GroupMemberDisplayState display = m_groupManager.memberDisplayState(
+                memberId, m_currentUserId, ownerId, serverRole, isFriend, isPending, online, true);
+            QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5")
+                .arg(display.role, memberId, name, display.state, display.actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
-            item->setForeground(isOwner ? QColor(156, 98, 0) : (memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)))));
+            item->setForeground(display.isOwner ? QColor(156, 98, 0) : (memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)))));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
@@ -7996,27 +7984,15 @@ bool MainWindow::isCurrentUserRemovedFromPublicGroup() const {
 }
 
 QString MainWindow::groupOwnerId(const QString& groupId) const {
-    const QStringList members = m_localGroupMembers.value(groupId);
-    for (const QString& memberId : members) {
-        if (!memberId.trimmed().isEmpty()) {
-            return memberId.trimmed();
-        }
-    }
-    return m_currentUserId;
+    return m_groupManager.localGroupOwnerId(m_localGroupMembers.value(groupId), m_currentUserId);
 }
 
 bool MainWindow::isCurrentUserGroupOwner(const QString& groupId) const {
-    return !groupId.isEmpty()
-        && groupId.startsWith("local_group_")
-        && groupOwnerId(groupId) == m_currentUserId;
+    return m_groupManager.isLocalGroupOwner(groupId, m_localGroupMembers.value(groupId), m_currentUserId);
 }
 
 bool MainWindow::canCurrentUserManageServerGroup(const QString& groupId) const {
-    if (groupId.isEmpty() || m_currentUserId.isEmpty()) return false;
-    const QString role = m_serverGroupMemberRoles.value(groupId + "|" + m_currentUserId).toLower();
-    return m_serverGroupOwners.value(groupId) == m_currentUserId
-        || role == "owner"
-        || role == "admin";
+    return m_groupManager.canManageServerGroup(groupId, m_currentUserId, m_serverGroupOwners, m_serverGroupMemberRoles);
 }
 
 bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const QString& action) {

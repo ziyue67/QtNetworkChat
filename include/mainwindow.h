@@ -15,6 +15,7 @@
 #include "client.h"
 #include "chatuser.h"
 #include "friendmanager.h"
+#include "groupmanager.h"
 #include "historyservice.h"
 #include "message.h"
 #include "transfermanager.h"
@@ -130,6 +131,7 @@ private:
     QStandardItemModel* m_chatModel;
     QStandardItemModel* m_groupMemberModel;
     FriendManager m_friendManager;
+    GroupManager m_groupManager;
     HistoryService m_historyService;
     TransferManager m_transferManager;
     QString m_currentUserId;
