@@ -55,6 +55,11 @@ bool expectAllOperations(const QJsonObject& backendStatus,
     }
     return true;
 }
+
+qnc_e2e_status_t dummyProviderOperation(const qnc_e2e_operation_input_v1*,
+                                        qnc_e2e_operation_output_v1*) {
+    return QNC_E2E_STATUS_UNSUPPORTED;
+}
 }
 
 int main() {
@@ -208,6 +213,10 @@ int main() {
                     && productionProviderTableBindingProbe.value("headerLayoutComplete").toBool(false)
                     && productionProviderTableBindingProbe.value("enumMappingComplete").toBool(false)
                     && productionProviderTableBindingProbe.value("functionPointerSlotsComplete").toBool(false)
+                    && productionProviderTableBindingProbe.value("tableValidation").toObject()
+                        .value("blockedReason").toString()
+                            == QStringLiteral("production-provider-table-not-bound")
+                    && !productionProviderTableBindingProbe.value("tableValidationAccepted").toBool(true)
                     && !productionProviderTableBindingProbe.value("accepted").toBool(true)
                     && productionProviderTableBindingProbe.value("enumMappings").toArray().size() == 8
                     && productionProviderTableBindingProbe.value("fieldOffsets").toArray().size() == 5
@@ -378,6 +387,47 @@ int main() {
                     && firstBindingProbeMapping.value("enumMatchesOperationOrder").toBool(false)
                     && !firstBindingProbeMapping.value("bound").toBool(true),
                 "production provider table binding probe should map header enum values to provider symbols") && ok;
+    qnc_e2e_provider_table_v1 completeProviderTable = {};
+    completeProviderTable.abi = QNC_E2E_PROVIDER_TABLE_ABI;
+    completeProviderTable.provider_id = "openssl-reviewed-provider-v1";
+    completeProviderTable.operation_count = QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT;
+    completeProviderTable.session_key_generation = dummyProviderOperation;
+    completeProviderTable.identity_key_generation = dummyProviderOperation;
+    completeProviderTable.public_key_derivation = dummyProviderOperation;
+    completeProviderTable.agreement_sign = dummyProviderOperation;
+    completeProviderTable.agreement_verify = dummyProviderOperation;
+    completeProviderTable.session_derive = dummyProviderOperation;
+    completeProviderTable.payload_encrypt = dummyProviderOperation;
+    completeProviderTable.payload_decrypt = dummyProviderOperation;
+    const QJsonObject validProviderTable =
+        e2eValidateProductionProviderTable(&completeProviderTable);
+    ok = expect(validProviderTable.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-table-validation-v1")
+                    && validProviderTable.value("accepted").toBool(false)
+                    && validProviderTable.value("present").toBool(false)
+                    && validProviderTable.value("abiMatches").toBool(false)
+                    && validProviderTable.value("providerId").toString()
+                        == QStringLiteral("openssl-reviewed-provider-v1")
+                    && validProviderTable.value("operationCountMatches").toBool(false)
+                    && validProviderTable.value("allOperationPointersPresent").toBool(false)
+                    && validProviderTable.value("blockedReason").toString().isEmpty(),
+                "complete production provider table should pass structural validation without executing crypto") && ok;
+    completeProviderTable.payload_decrypt = nullptr;
+    const QJsonObject missingPointerTable =
+        e2eValidateProductionProviderTable(&completeProviderTable);
+    ok = expect(!missingPointerTable.value("accepted").toBool(true)
+                    && missingPointerTable.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-table-operation-pointer-missing")
+                    && !missingPointerTable.value("allOperationPointersPresent").toBool(true),
+                "provider table validation should fail closed when a required operation pointer is missing") && ok;
+    completeProviderTable.payload_decrypt = dummyProviderOperation;
+    completeProviderTable.abi = "bad-abi";
+    const QJsonObject badAbiTable =
+        e2eValidateProductionProviderTable(&completeProviderTable);
+    ok = expect(!badAbiTable.value("accepted").toBool(true)
+                    && badAbiTable.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-table-abi-mismatch"),
+                "provider table validation should fail closed on ABI mismatch") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),

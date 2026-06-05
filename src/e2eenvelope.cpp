@@ -1180,7 +1180,72 @@ QJsonObject providerTableFieldOffsetStatus(const QString& name,
     return field;
 }
 
+QJsonObject providerTableValidationStatus(const qnc_e2e_provider_table_v1* table) {
+    const bool present = table != nullptr;
+    const QString abi = present && table->abi
+        ? QString::fromLatin1(table->abi)
+        : QString();
+    const QString providerId = present && table->provider_id
+        ? sanitizedBackendId(QString::fromLatin1(table->provider_id))
+        : QString();
+    const bool abiMatches = abi == QString::fromLatin1(QNC_E2E_PROVIDER_TABLE_ABI);
+    const bool providerIdPresent = !providerId.isEmpty();
+    const bool operationCountMatches = present
+        && table->operation_count == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT;
+    const bool allOperationPointersPresent = present
+        && table->session_key_generation
+        && table->identity_key_generation
+        && table->public_key_derivation
+        && table->agreement_sign
+        && table->agreement_verify
+        && table->session_derive
+        && table->payload_encrypt
+        && table->payload_decrypt;
+    const bool accepted = present
+        && abiMatches
+        && providerIdPresent
+        && operationCountMatches
+        && allOperationPointersPresent;
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-table-validation-v1");
+    status[QStringLiteral("present")] = present;
+    status[QStringLiteral("accepted")] = accepted;
+    status[QStringLiteral("tableAbi")] = abi;
+    status[QStringLiteral("expectedTableAbi")] =
+        QString::fromLatin1(QNC_E2E_PROVIDER_TABLE_ABI);
+    status[QStringLiteral("abiMatches")] = abiMatches;
+    status[QStringLiteral("providerId")] = providerId;
+    status[QStringLiteral("providerIdPresent")] = providerIdPresent;
+    status[QStringLiteral("operationCount")] = present
+        ? static_cast<int>(table->operation_count)
+        : 0;
+    status[QStringLiteral("requiredOperationCount")] =
+        QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT;
+    status[QStringLiteral("operationCountMatches")] = operationCountMatches;
+    status[QStringLiteral("allOperationPointersPresent")] = allOperationPointersPresent;
+    status[QStringLiteral("blockedReason")] = accepted
+        ? QString()
+        : (!present
+            ? QStringLiteral("production-provider-table-not-bound")
+            : (!abiMatches
+                ? QStringLiteral("production-provider-table-abi-mismatch")
+                : (!providerIdPresent
+                    ? QStringLiteral("production-provider-table-provider-id-missing")
+                    : (!operationCountMatches
+                        ? QStringLiteral("production-provider-table-operation-count-mismatch")
+                        : QStringLiteral("production-provider-table-operation-pointer-missing")))));
+    status[QStringLiteral("operatorAction")] = accepted
+        ? QStringLiteral("none")
+        : QStringLiteral("bind-reviewed-provider-table-with-all-required-operations");
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    return status;
+}
+
 QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
+    const QJsonObject tableValidation = providerTableValidationStatus(nullptr);
     QJsonArray enumMappings;
     int enumMatchCount = 0;
     int sequenceIndex = 0;
@@ -1242,6 +1307,7 @@ QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryp
         && descriptor.productionReady
         && descriptor.linked
         && tableBound
+        && tableValidation.value(QStringLiteral("accepted")).toBool(false)
         && headerLayoutComplete
         && enumMappingComplete
         && functionPointerSlotsComplete;
@@ -1262,6 +1328,11 @@ QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryp
     status[QStringLiteral("headerLayoutComplete")] = headerLayoutComplete;
     status[QStringLiteral("enumMappingComplete")] = enumMappingComplete;
     status[QStringLiteral("functionPointerSlotsComplete")] = functionPointerSlotsComplete;
+    status[QStringLiteral("tableValidation")] = tableValidation;
+    status[QStringLiteral("tableValidationAccepted")] =
+        tableValidation.value(QStringLiteral("accepted")).toBool(false);
+    status[QStringLiteral("tableValidationBlockedReason")] =
+        tableValidation.value(QStringLiteral("blockedReason")).toString();
     status[QStringLiteral("providerTableSizeBytes")] =
         static_cast<qint64>(sizeof(qnc_e2e_provider_table_v1));
     status[QStringLiteral("operationInputSizeBytes")] =
@@ -2539,6 +2610,10 @@ QJsonObject e2eProductionCryptoProviderTableStatus() {
 QJsonObject e2eProductionCryptoProviderTableBindingProbeStatus() {
     return e2eCryptoBackendStatus()
         .value(QStringLiteral("productionProviderTableBindingProbe")).toObject();
+}
+
+QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table) {
+    return providerTableValidationStatus(table);
 }
 
 QString e2eFingerprint(const QByteArray& value) {
