@@ -56,10 +56,11 @@ Assert-Contains $automationStatus "Group productization is the active automation
 Assert-Contains $automationStatus "Mainwindow structure split follows group productization"
 Assert-Contains $automationStatus "README information architecture is closed for now"
 
+$utf8 = [System.Text.Encoding]::UTF8
 $oversizedLines = @(Get-Content -LiteralPath $resolvedReadmePath |
-    Where-Object { $_.Length -gt 2500 })
+    Where-Object { $utf8.GetByteCount($_) -gt 2500 })
 if ($oversizedLines.Count -gt 0) {
-    throw ("README still contains oversized lines: {0}" -f $oversizedLines.Count)
+    throw ("README still contains oversized UTF-8 lines: {0}" -f $oversizedLines.Count)
 }
 
 Write-Host "README information architecture verified"
