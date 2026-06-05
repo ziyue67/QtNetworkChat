@@ -85,6 +85,8 @@ int main() {
         status.value("productionProviderTable").toObject();
     const QJsonObject providerTableBindingProbe =
         status.value("productionProviderTableBindingProbe").toObject();
+    const QJsonObject providerTableRegistration =
+        status.value("productionProviderTableRegistration").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -241,6 +243,12 @@ int main() {
                     && providerTable.value("requiredSymbolCount").toInt() == 8
                     && providerTable.value("boundSymbolCount").toInt() == 0
                     && providerTable.value("missingSymbolCount").toInt() == 8
+                    && !providerTable.value("providerTableRegistered").toBool(true)
+                    && !providerTable.value("registrationAccepted").toBool(true)
+                    && providerTable.value("registrationReleaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-table-registration-blocked-placeholder")
+                            : QStringLiteral("production-provider-table-registration-blocked-not-linked"))
                     && providerTable.value("callableManifestReleaseGate").toString()
                         == callableManifest.value("releaseGate").toString()
                     && !providerTable.value("rawKeyExported").toBool(true)
@@ -264,6 +272,12 @@ int main() {
                     && !providerTableBindingProbe.value("tableValidationAccepted").toBool(true)
                     && !providerTableBindingProbe.value("accepted").toBool(true)
                     && !providerTableBindingProbe.value("tableBound").toBool(true)
+                    && !providerTableBindingProbe.value("providerTableRegistered").toBool(true)
+                    && !providerTableBindingProbe.value("registrationAccepted").toBool(true)
+                    && providerTableBindingProbe.value("registrationReleaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-table-registration-blocked-placeholder")
+                            : QStringLiteral("production-provider-table-registration-blocked-not-linked"))
                     && providerTableBindingProbe.value("requiredOperationCount").toInt()
                         == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT
                     && providerTableBindingProbe.value("enumMatchCount").toInt()
@@ -273,6 +287,27 @@ int main() {
                     && !providerTableBindingProbe.value("rawKeyExported").toBool(true)
                     && !providerTableBindingProbe.value("privateMaterialExported").toBool(true),
                 "production provider table binding probe should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(providerTableRegistration.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-table-registration-v1")
+                    && providerTableRegistration.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-table-registration-blocked-placeholder")
+                            : QStringLiteral("production-provider-table-registration-blocked-not-linked"))
+                    && providerTableRegistration.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-table-not-registered")
+                    && !providerTableRegistration.value("registered").toBool(true)
+                    && !providerTableRegistration.value("accepted").toBool(true)
+                    && providerTableRegistration.value("registrationSource").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("linked-placeholder-without-runtime-table")
+                            : QStringLiteral("not-linked"))
+                    && providerTableRegistration.value("tableValidation").toObject()
+                        .value("blockedReason").toString()
+                            == QStringLiteral("production-provider-table-not-bound")
+                    && !providerTableRegistration.value("tableValidationAccepted").toBool(true)
+                    && !providerTableRegistration.value("rawKeyExported").toBool(true)
+                    && !providerTableRegistration.value("privateMaterialExported").toBool(true),
+                "production provider table registration should expose runtime binding evidence without enabling placeholders") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

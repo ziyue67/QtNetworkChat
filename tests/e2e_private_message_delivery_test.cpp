@@ -621,6 +621,22 @@ int main(int argc, char** argv) {
                         && rotationProviderTableBindingProbe.value("enumMappings").toArray().size() == 8
                         && rotationProviderTableBindingProbe.value("fieldOffsets").toArray().size() == 5,
                     "production rotation dry-run should embed provider table binding probe evidence") && ok;
+        const QJsonObject rotationProviderTableRegistration =
+            rotationDryRun.value("productionProviderTableRegistration").toObject();
+        ok = expect(rotationProviderTableRegistration.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-table-registration-v1")
+                        && rotationProviderTableRegistration.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-table-registration-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderTableRegistrationReleaseGate").toString()
+                            == QStringLiteral("production-provider-table-registration-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderTableRegistrationAccepted").toBool(true)
+                        && !rotationDryRun.value("productionProviderTableRegistered").toBool(true)
+                        && rotationProviderTableRegistration.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-table-not-registered")
+                        && rotationProviderTableRegistration.value("tableValidation").toObject()
+                            .value("blockedReason").toString()
+                                == QStringLiteral("production-provider-table-not-bound"),
+                    "production rotation dry-run should embed provider table registration evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -639,6 +655,9 @@ int main(int argc, char** argv) {
                             .value("missingSymbolCount").toInt() == 8
                         && rotationAcceptance.value("providerTableBindingProbe").toObject()
                             .value("enumMappings").toArray().size() == 8
+                        && rotationAcceptance.value("providerTableRegistration").toObject()
+                            .value("registered").toBool(true) == false
+                        && !rotationAcceptance.value("providerTableRegistrationAccepted").toBool(true)
                         && rotationAcceptance.value("implementedOperationCount").toInt() == 0,
                     "production rotation dry-run should embed sanitized acceptance evidence") && ok;
         const QJsonObject rotationHarness =
@@ -744,6 +763,13 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderTableBindingProbeAccepted").toBool(true)
                         && rotationExecute.value("productionProviderTableBindingProbe").toObject()
                             .value("enumMappings").toArray().size() == 8
+                        && rotationExecute.value("productionProviderTableRegistrationReleaseGate").toString()
+                            == QStringLiteral("production-provider-table-registration-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderTableRegistrationAccepted").toBool(true)
+                        && !rotationExecute.value("productionProviderTableRegistered").toBool(true)
+                        && rotationExecute.value("productionProviderTableRegistration").toObject()
+                            .value("blockedReason").toString()
+                                == QStringLiteral("production-provider-table-not-registered")
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),
