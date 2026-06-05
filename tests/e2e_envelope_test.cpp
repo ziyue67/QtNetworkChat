@@ -87,6 +87,8 @@ int main() {
         backendStatus.value("productionOperationSlots").toObject();
     const QJsonObject productionDispatchBindings =
         backendStatus.value("productionOperationDispatchBindings").toObject();
+    const QJsonObject productionCallableManifest =
+        backendStatus.value("productionOperationCallableManifest").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -155,6 +157,12 @@ int main() {
                         == QStringLiteral("production-operation-dispatch-bindings-blocked-not-linked")
                     && productionDispatchBindings.value("blockedBindingCount").toInt() == 8
                     && productionDispatchBindings.value("bindings").toArray().size() == 8
+                    && productionCallableManifest.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-callable-manifest-v1")
+                    && productionCallableManifest.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-callable-manifest-blocked-not-linked")
+                    && productionCallableManifest.value("blockedCallableCount").toInt() == 8
+                    && productionCallableManifest.value("callables").toArray().size() == 8
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -198,6 +206,11 @@ int main() {
                         .value("operationDispatchBindings").toObject()
                         .value("bindings").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("operationCallableManifest").toObject()
+                        .value("callables").toArray().size() == 8
+                    && productionBackend.value("operationCallableManifest").toObject()
+                        .value("blockedCallableCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
                 "registered backend descriptors should expose adapter readiness without private material") && ok;
@@ -223,6 +236,26 @@ int main() {
                     && !firstDispatchBinding.value("rawKeyExported").toBool(true)
                     && !firstDispatchBinding.value("privateMaterialExported").toBool(true),
                 "production dispatch bindings should expose stable provider ABI evidence without enabling placeholders") && ok;
+    const QJsonObject firstCallable =
+        productionCallableManifest.value("callables").toArray().at(0).toObject();
+    ok = expect(firstCallable.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstCallable.value("slotId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1/session-key-generation-slot")
+                    && firstCallable.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstCallable.value("providerAbiSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && firstCallable.value("symbolMatches").toBool(false)
+                    && firstCallable.value("abiSignatureMatches").toBool(false)
+                    && firstCallable.value("fixtureHashMatches").toBool(false)
+                    && !firstCallable.value("callable").toBool(true)
+                    && !firstCallable.value("reviewed").toBool(true)
+                    && firstCallable.value("blockedReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
+                    && !firstCallable.value("rawKeyExported").toBool(true)
+                    && !firstCallable.value("privateMaterialExported").toBool(true),
+                "production callable manifest should expose reviewed ABI slots without enabling placeholders") && ok;
     ok = expectAllOperations(backendStatus,
                              true,
                              QStringLiteral("draft-backend-available"),
@@ -508,6 +541,8 @@ int main() {
         e2eProductionCryptoOperationInvocationStatus();
     const QJsonObject productionRequestedSlots =
         e2eProductionCryptoOperationSlotStatus();
+    const QJsonObject productionRequestedCallableManifest =
+        e2eProductionCryptoOperationCallableManifestStatus();
     ok = expect(productionRequestedStatus.value("requestedBackendId").toString()
                         == QStringLiteral("openssl-reviewed-adapter-v1")
                     && productionRequestedStatus.value("selectionSource").toString()
@@ -596,6 +631,23 @@ int main() {
                     && !productionRequestedSlots.value("rawKeyExported").toBool(true)
                     && !productionRequestedSlots.value("privateMaterialExported").toBool(true),
                 "production operation slots should publish blocked not-linked reviewed slot evidence") && ok;
+    ok = expect(productionRequestedCallableManifest.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-callable-manifest-v1")
+                    && productionRequestedCallableManifest.value("backendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && productionRequestedCallableManifest.value("releaseGate").toString()
+                        == QStringLiteral("production-operation-callable-manifest-blocked-not-linked")
+                    && productionRequestedCallableManifest.value("blockedReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
+                    && !productionRequestedCallableManifest.value("accepted").toBool(true)
+                    && productionRequestedCallableManifest.value("reviewedCallableCount").toInt() == 0
+                    && productionRequestedCallableManifest.value("blockedCallableCount").toInt() == 8
+                    && productionRequestedCallableManifest.value("abiMismatchCount").toInt() == 0
+                    && productionRequestedCallableManifest.value("fixtureMismatchCount").toInt() == 0
+                    && productionRequestedCallableManifest.value("callables").toArray().size() == 8
+                    && !productionRequestedCallableManifest.value("rawKeyExported").toBool(true)
+                    && !productionRequestedCallableManifest.value("privateMaterialExported").toBool(true),
+                "production callable manifest should publish blocked not-linked provider ABI evidence") && ok;
     const QJsonObject productionExecutionFirstStep =
         productionRequestedExecutionPlan.value("steps").toArray().at(0).toObject();
     ok = expect(productionExecutionFirstStep.value("sequenceIndex").toInt(-1) == 0
@@ -652,6 +704,25 @@ int main() {
                     && !productionFirstSlot.value("callable").toBool(true)
                     && !productionFirstSlot.value("rawKeyExported").toBool(true),
                 "production operation slots should define stable reviewed provider symbols and material policy") && ok;
+    const QJsonObject productionFirstCallable =
+        productionRequestedCallableManifest.value("callables").toArray().at(0).toObject();
+    ok = expect(productionFirstCallable.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && productionFirstCallable.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && productionFirstCallable.value("providerAbiSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && productionFirstCallable.value("symbolMatches").toBool(false)
+                    && productionFirstCallable.value("abiSignatureMatches").toBool(false)
+                    && productionFirstCallable.value("fixtureHashMatches").toBool(false)
+                    && productionFirstCallable.value("inputContract").toArray().at(0).toString()
+                        == QStringLiteral("secure-random-source")
+                    && productionFirstCallable.value("outputContract").toArray().at(0).toString()
+                        == QStringLiteral("session-key-handle")
+                    && !productionFirstCallable.value("callable").toBool(true)
+                    && !productionFirstCallable.value("reviewed").toBool(true)
+                    && !productionFirstCallable.value("rawKeyExported").toBool(true),
+                "production callable manifest should tie each operation to reviewed ABI and fixture evidence") && ok;
     const QJsonObject productionHarnessFirstOperation =
         productionRequestedHarness.value("operations").toArray().at(0).toObject();
     ok = expect(productionHarnessFirstOperation.value("operation").toString()
@@ -676,6 +747,11 @@ int main() {
                     && productionSessionKeyGate.value("operationImplementation").toObject()
                         .value("implemented").toBool(true) == false,
                 "production acceptance gates should expose each required operation implementation slot") && ok;
+    ok = expect(productionRequestedAcceptance.value("operationCallableManifest").toObject()
+                    .value("callables").toArray().size() == 8
+                    && !productionRequestedAcceptance.value("operationCallableManifest").toObject()
+                        .value("accepted").toBool(true),
+                "production acceptance should include callable manifest gate evidence") && ok;
     ok = expectAllOperations(productionRequestedStatus,
                              false,
                              QStringLiteral("production-crypto-backend-unavailable"),

@@ -1199,6 +1199,11 @@ bool Client::announceE2EIdentity(const QString& peerId, QString* rejectReason) {
         if (rejectReason) *rejectReason = QStringLiteral("not-connected");
         return false;
     }
+    if (!m_userId.trimmed().isEmpty()
+        && (m_e2eIdentityPrivateKey.isEmpty() || m_e2eIdentityPublicKey.isEmpty())
+        && e2eCryptoBackendStatus().value("available").toBool(false)) {
+        loadOrCreateE2ELocalIdentity();
+    }
     if (m_userId.trimmed().isEmpty() || m_e2eIdentityPublicKey.isEmpty()) {
         if (rejectReason) *rejectReason = QStringLiteral("identity-not-ready");
         return false;

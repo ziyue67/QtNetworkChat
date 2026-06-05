@@ -76,6 +76,8 @@ int main() {
     const QJsonObject slotStatus = status.value("productionOperationSlots").toObject();
     const QJsonObject dispatchBindings =
         status.value("productionOperationDispatchBindings").toObject();
+    const QJsonObject callableManifest =
+        status.value("productionOperationCallableManifest").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -165,6 +167,26 @@ int main() {
                     && !dispatchBindings.value("rawKeyExported").toBool(true)
                     && !dispatchBindings.value("privateMaterialExported").toBool(true),
                 "production dispatch bindings should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(callableManifest.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-callable-manifest-v1")
+                    && callableManifest.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operation-callable-manifest-blocked-placeholder")
+                            : QStringLiteral("production-operation-callable-manifest-blocked-not-linked"))
+                    && callableManifest.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-callable-manifest-not-reviewed")
+                        : QStringLiteral("production-crypto-backend-unavailable"))
+                    && !callableManifest.value("accepted").toBool(true)
+                    && callableManifest.value("reviewedCallableCount").toInt() == 0
+                    && callableManifest.value("blockedCallableCount").toInt() == 8
+                    && callableManifest.value("abiMismatchCount").toInt() == 0
+                    && callableManifest.value("fixtureMismatchCount").toInt() == 0
+                    && callableManifest.value("callables").toArray().size() == 8
+                    && callableManifest.value("operationDispatchBindingsReleaseGate").toString()
+                        == dispatchBindings.value("releaseGate").toString()
+                    && !callableManifest.value("rawKeyExported").toBool(true)
+                    && !callableManifest.value("privateMaterialExported").toBool(true),
+                "production callable manifest should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -244,6 +266,28 @@ int main() {
                             : QStringLiteral("production-crypto-backend-unavailable"))
                     && !firstBinding.value("rawKeyExported").toBool(true),
                 "production dispatch binding should expose the reviewed provider ABI slot without calling it") && ok;
+    const QJsonObject firstCallable = callableManifest.value("callables").toArray().at(0).toObject();
+    ok = expect(firstCallable.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstCallable.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstCallable.value("providerAbiSignature").toString()
+                        .contains(QStringLiteral("qnc_e2e_op_session_key_generation_v1"))
+                    && firstCallable.value("bindingState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("linked-placeholder")
+                            : QStringLiteral("not-linked"))
+                    && firstCallable.value("symbolMatches").toBool(false)
+                    && firstCallable.value("abiSignatureMatches").toBool(false)
+                    && firstCallable.value("fixtureHashMatches").toBool(false)
+                    && !firstCallable.value("dispatchCallable").toBool(true)
+                    && !firstCallable.value("callable").toBool(true)
+                    && firstCallable.value("blockedReason").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-callable-manifest-placeholder")
+                            : QStringLiteral("production-crypto-backend-unavailable"))
+                    && !firstCallable.value("rawKeyExported").toBool(true),
+                "production callable manifest should expose the reviewed provider callable without calling placeholders") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()
@@ -265,6 +309,10 @@ int main() {
                     && acceptance.value("operationManifest").toArray().size() == 8
                     && acceptance.value("operationDispatchBindings").toObject()
                         .value("bindings").toArray().size() == 8
+                    && acceptance.value("operationCallableManifest").toObject()
+                        .value("callables").toArray().size() == 8
+                    && !acceptance.value("operationCallableManifest").toObject()
+                        .value("accepted").toBool(true)
                     && acceptance.value("implementedOperationCount").toInt() == 0
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),

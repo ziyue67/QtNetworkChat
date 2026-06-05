@@ -195,8 +195,10 @@ foreach ($expected in @(
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok`',
     'Priority Backlog',
+    'E2E production crypto is the active automation lane again',
+    'callable manifest',
     'Group productization is closed for the current automation lane',
-    'Mainwindow structure split is now the active automation lane',
+    'Mainwindow structure split is no longer the active lane but remains partially complete',
     'README information architecture is closed for now',
     'QTNETWORKCHAT_PGPASSWORD',
     'generated evidence must remain redacted'

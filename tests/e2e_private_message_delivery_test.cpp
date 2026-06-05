@@ -716,18 +716,41 @@ int main(int argc, char** argv) {
                     "compatibility migration clear wrapper should report when no migration remains") && ok;
         qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
         alice.setUserInfo(aliceId, "Alice");
-        ok = expect(alice.announceE2EIdentity(bobId, &rejectReason)
-                        && bob.announceE2EIdentity(aliceId, &rejectReason),
-                    "test should announce regenerated draft identities after clearing migration state") && ok;
-        ok = expect(waitFor([&] {
+        bob.setUserInfo(bobId, "Bob");
+        ok = expect(bob.clearE2EPeerIdentityPin(aliceId, &rejectReason)
+                        && bob.e2ePeerIdentityStatus(aliceId).value("trustState").toString()
+                            == QStringLiteral("unverified"),
+                    "receiver should explicitly clear the stale alice pin before trusting the regenerated identity") && ok;
+        QString aliceAnnounceReason;
+        QString bobAnnounceReason;
+        const bool regeneratedIdentityAnnounced = waitFor([&] {
+            if (alice.e2ePeerIdentityStatus(bobId).value("publicKeyFingerprintSha256").toString()
+                    != bob.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()) {
+                alice.announceE2EIdentity(bobId, &aliceAnnounceReason);
+            }
+            if (bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString()
+                    != alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()) {
+                bob.announceE2EIdentity(aliceId, &bobAnnounceReason);
+                alice.announceE2EIdentity(bobId, &aliceAnnounceReason);
+            }
             return alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString().size() == 64
                 && alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
                     != originalAliceIdentityFingerprint
                 && alice.e2ePeerIdentityStatus(bobId).value("verificationCode").toString().size() >= 12
+                && bob.e2ePeerIdentityStatus(aliceId).value("verificationCode").toString().size() >= 12
                 && bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString()
-                    == alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
-        }), "regenerated draft identity should be announced with a fresh verification code") && ok;
+                    == alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
+                && alice.e2ePeerIdentityStatus(bobId).value("publicKeyFingerprintSha256").toString()
+                    == bob.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString()
+                && alice.e2ePeerIdentityStatus(bobId).value("verificationCode").toString()
+                    == bob.e2ePeerIdentityStatus(aliceId).value("verificationCode").toString();
+        }, 10000);
+        ok = expect(regeneratedIdentityAnnounced,
+                    "regenerated draft identity should be announced with a fresh verification code") && ok;
+        ok = expect(aliceAnnounceReason.isEmpty() && bobAnnounceReason.isEmpty(),
+                    "regenerated identity announcements should not be rejected") && ok;
         const QString regeneratedAliceBobVerificationCode = alice.e2ePeerIdentityStatus(bobId).value("verificationCode").toString();
+        const QString regeneratedBobAliceVerificationCode = bob.e2ePeerIdentityStatus(aliceId).value("verificationCode").toString();
         ok = expect(alice.pinE2EPeerIdentity(bobId,
                                              alice.e2ePeerIdentityStatus(bobId).value("publicKeyFingerprintSha256").toString(),
                                              &rejectReason)
@@ -736,7 +759,7 @@ int main(int argc, char** argv) {
         ok = expect(bob.pinE2EPeerIdentity(aliceId,
                                            bob.e2ePeerIdentityStatus(aliceId).value("publicKeyFingerprintSha256").toString(),
                                            &rejectReason)
-                        && bob.verifyAndPinE2EPeerIdentity(aliceId, regeneratedAliceBobVerificationCode, &rejectReason),
+                        && bob.verifyAndPinE2EPeerIdentity(aliceId, regeneratedBobAliceVerificationCode, &rejectReason),
                     "receiver should re-pin regenerated alice identity so draft compatibility flow can continue") && ok;
         alice.setE2ESessionKey(bobId, keyId + "-manual-rotation", rotatedSessionKey);
         bobMessage = Message();
