@@ -29,7 +29,7 @@ execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
         -LastRunPath "${LAST_RUN_A},${LAST_RUN_B}"
         -AckPath "${ACK_PATH}"
-        -AckExpiryHours 48
+        -AckExpiryHours 240
         -RetentionCount 2
         -JsonPath "${JSON_PATH}"
         -MarkdownPath "${MD_PATH}"

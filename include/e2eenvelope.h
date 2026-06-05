@@ -51,6 +51,7 @@ QJsonObject e2eCryptoBackendStatus();
 QJsonObject e2eProductionCryptoAcceptanceStatus();
 QJsonObject e2eProductionCryptoOperationHarnessStatus();
 QJsonObject e2eProductionCryptoOperationExecutionPlanStatus();
+QJsonObject e2eProductionCryptoOperationInvocationStatus();
 QByteArray generateE2ESessionKey();
 QByteArray generateE2EPrivateKey();
 QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey);

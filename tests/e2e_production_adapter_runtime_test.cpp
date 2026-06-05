@@ -72,6 +72,7 @@ int main() {
     const QJsonObject acceptance = status.value("productionAcceptance").toObject();
     const QJsonObject harness = status.value("productionOperationHarness").toObject();
     const QJsonObject executionPlan = status.value("productionOperationExecutionPlan").toObject();
+    const QJsonObject invocation = status.value("productionOperationInvocation").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -107,6 +108,24 @@ int main() {
                     && !executionPlan.value("rawKeyExported").toBool(true)
                     && !executionPlan.value("privateMaterialExported").toBool(true),
                 "production execution plan should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(invocation.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-operation-invocation-v1")
+                    && invocation.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-operation-invocation-blocked-placeholder")
+                            : QStringLiteral("production-operation-invocation-blocked-not-linked"))
+                    && invocation.value("blockedReason").toString() == (adapterLinked
+                        ? QStringLiteral("production-operations-not-implemented")
+                        : QStringLiteral("production-crypto-backend-unavailable"))
+                    && invocation.value("executionPlanReleaseGate").toString()
+                        == executionPlan.value("releaseGate").toString()
+                    && !invocation.value("accepted").toBool(true)
+                    && invocation.value("callableOperationCount").toInt() == 0
+                    && invocation.value("blockedOperationCount").toInt() == 8
+                    && invocation.value("invocations").toArray().size() == 8
+                    && !invocation.value("rawKeyExported").toBool(true)
+                    && !invocation.value("privateMaterialExported").toBool(true),
+                "production invocation status should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -135,6 +154,21 @@ int main() {
                         == QStringLiteral("production-session-key-generation-not-implemented")
                     && !firstExecutionStep.value("harnessRunnable").toBool(true),
                 "production execution plan should bind each ordered step to harness evidence") && ok;
+    const QJsonObject firstInvocation = invocation.value("invocations").toArray().at(0).toObject();
+    ok = expect(firstInvocation.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstInvocation.value("invocationState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("blocked-linked-placeholder")
+                            : QStringLiteral("blocked-not-linked"))
+                    && firstInvocation.value("inputContract").toArray().at(0).toString()
+                        == QStringLiteral("secure-random-source")
+                    && firstInvocation.value("outputContract").toArray().at(0).toString()
+                        == QStringLiteral("session-key-handle")
+                    && firstInvocation.value("releaseGate").isUndefined()
+                    && !firstInvocation.value("callable").toBool(true)
+                    && !firstInvocation.value("rawKeyExported").toBool(true),
+                "production invocation contracts should expose callable boundaries without enabling placeholder crypto") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()
