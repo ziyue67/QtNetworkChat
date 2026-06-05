@@ -43,9 +43,11 @@ foreach ($doc in $requiredDocs) {
     Assert-Contains $readme ("docs/$doc")
 }
 
-Assert-Contains $readme "## 文档索引"
-Assert-Contains $readme "README 保留快速上手、项目结构、构建入口和运行入口"
 Assert-Contains $readme "docs/automation-status.md"
+Assert-Contains $readme "docs/testing-coverage.md"
+Assert-Contains $readme "docs/postgresql-operations.md"
+Assert-Contains $readme "docs/large-file-governance.md"
+Assert-Contains $readme "docs/e2e-hardening-status.md"
 
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
