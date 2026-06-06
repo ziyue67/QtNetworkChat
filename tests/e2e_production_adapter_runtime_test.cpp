@@ -101,6 +101,8 @@ int main() {
         status.value("productionProviderCallbackHarness").toObject();
     const QJsonObject providerVectorSelfTest =
         status.value("productionProviderVectorSelfTest").toObject();
+    const QJsonObject providerExecutionSlotBinding =
+        status.value("productionProviderExecutionSlotBinding").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -464,6 +466,29 @@ int main() {
                     && !providerVectorSelfTest.value("rawKeyExported").toBool(true)
                     && !providerVectorSelfTest.value("privateMaterialExported").toBool(true),
                 "production provider vector self-test should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(providerExecutionSlotBinding.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-execution-slot-binding-v1")
+                    && providerExecutionSlotBinding.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-execution-slot-binding-blocked-placeholder")
+                            : QStringLiteral("production-provider-execution-slot-binding-blocked-not-linked"))
+                    && !providerExecutionSlotBinding.value("accepted").toBool(true)
+                    && providerExecutionSlotBinding.value("bindableSlotCount").toInt() == 0
+                    && providerExecutionSlotBinding.value("blockedSlotCount").toInt() == 8
+                    && providerExecutionSlotBinding.value("reviewedSlotCount").toInt() == 0
+                    && providerExecutionSlotBinding.value("contractMatchedSlotCount").toInt() == 8
+                    && providerExecutionSlotBinding.value("fixtureMatchedSlotCount").toInt() == 8
+                    && providerExecutionSlotBinding.value("sanitizedSlotCount").toInt() == 8
+                    && providerExecutionSlotBinding.value("slots").toArray().size() == 8
+                    && providerExecutionSlotBinding.value("providerVectorSelfTestReleaseGate").toString()
+                        == providerVectorSelfTest.value("releaseGate").toString()
+                    && !providerExecutionSlotBinding.value("operationInvoked").toBool(true)
+                    && !providerExecutionSlotBinding.value("inputBytesCaptured").toBool(true)
+                    && !providerExecutionSlotBinding.value("outputBytesCaptured").toBool(true)
+                    && !providerExecutionSlotBinding.value("resultCaptured").toBool(true)
+                    && !providerExecutionSlotBinding.value("rawKeyExported").toBool(true)
+                    && !providerExecutionSlotBinding.value("privateMaterialExported").toBool(true),
+                "production provider execution slot binding should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

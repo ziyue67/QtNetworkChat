@@ -807,6 +807,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderCallbackHarness")).toObject();
     const QJsonObject productionProviderVectorSelfTest =
         backendStatus.value(QStringLiteral("productionProviderVectorSelfTest")).toObject();
+    const QJsonObject productionProviderExecutionSlotBinding =
+        backendStatus.value(QStringLiteral("productionProviderExecutionSlotBinding")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -966,6 +968,14 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderVectorSelfTest.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionProviderVectorSelfTestBlockedVectorCount")] =
         productionProviderVectorSelfTest.value(QStringLiteral("blockedVectorCount")).toInt();
+    dryRun[QStringLiteral("productionProviderExecutionSlotBinding")] =
+        productionProviderExecutionSlotBinding;
+    dryRun[QStringLiteral("productionProviderExecutionSlotBindingReleaseGate")] =
+        productionProviderExecutionSlotBinding.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderExecutionSlotBindingAccepted")] =
+        productionProviderExecutionSlotBinding.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionProviderExecutionSlotBindingBlockedSlotCount")] =
+        productionProviderExecutionSlotBinding.value(QStringLiteral("blockedSlotCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1155,6 +1165,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderVectorSelfTestAccepted")).toBool(false);
     evidence[QStringLiteral("productionProviderVectorSelfTestBlockedVectorCount")] =
         dryRun.value(QStringLiteral("productionProviderVectorSelfTestBlockedVectorCount")).toInt();
+    evidence[QStringLiteral("productionProviderExecutionSlotBinding")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionSlotBinding")).toObject();
+    evidence[QStringLiteral("productionProviderExecutionSlotBindingReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionSlotBindingReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderExecutionSlotBindingAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionSlotBindingAccepted")).toBool(false);
+    evidence[QStringLiteral("productionProviderExecutionSlotBindingBlockedSlotCount")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionSlotBindingBlockedSlotCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

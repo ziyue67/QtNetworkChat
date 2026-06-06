@@ -745,6 +745,24 @@ int main(int argc, char** argv) {
                         && !rotationProviderVectorSelfTest.value("outputBytesCaptured").toBool(true)
                         && !rotationProviderVectorSelfTest.value("resultCaptured").toBool(true),
                     "production rotation dry-run should embed provider vector self-test evidence") && ok;
+        const QJsonObject rotationProviderExecutionSlotBinding =
+            rotationDryRun.value("productionProviderExecutionSlotBinding").toObject();
+        ok = expect(rotationProviderExecutionSlotBinding.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-execution-slot-binding-v1")
+                        && rotationProviderExecutionSlotBinding.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-execution-slot-binding-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderExecutionSlotBindingReleaseGate").toString()
+                            == QStringLiteral("production-provider-execution-slot-binding-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderExecutionSlotBindingAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderExecutionSlotBindingBlockedSlotCount").toInt() == 8
+                        && rotationProviderExecutionSlotBinding.value("slots").toArray().size() == 8
+                        && rotationProviderExecutionSlotBinding.value("providerVectorSelfTestReleaseGate").toString()
+                            == QStringLiteral("production-provider-vector-self-test-blocked-not-linked")
+                        && !rotationProviderExecutionSlotBinding.value("operationInvoked").toBool(true)
+                        && !rotationProviderExecutionSlotBinding.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderExecutionSlotBinding.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderExecutionSlotBinding.value("resultCaptured").toBool(true),
+                    "production rotation dry-run should embed provider execution slot binding evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -961,6 +979,20 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderVectorSelfTest").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderVectorSelfTest").toObject()
+                            .value("resultCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderExecutionSlotBindingReleaseGate").toString()
+                            == QStringLiteral("production-provider-execution-slot-binding-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderExecutionSlotBindingAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderExecutionSlotBindingBlockedSlotCount").toInt() == 8
+                        && rotationExecute.value("productionProviderExecutionSlotBinding").toObject()
+                            .value("slots").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderExecutionSlotBinding").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && !rotationExecute.value("productionProviderExecutionSlotBinding").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderExecutionSlotBinding").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderExecutionSlotBinding").toObject()
                             .value("resultCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
