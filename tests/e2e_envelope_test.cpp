@@ -76,10 +76,26 @@ qnc_e2e_status_t countingProviderOperation(const qnc_e2e_operation_input_v1* inp
         return QNC_E2E_STATUS_INVALID_INPUT;
     }
     ++g_probeInvocationCount;
+    static const uint8_t publicOutputBytes[] = { 0x51, 0x4e, 0x43, 0x2d };
+    static const uint8_t sealedOutputBytes[] = { 0x45, 0x32, 0x45, 0x2d, 0x01 };
+    static const uint8_t payloadOutputBytes[] = { 0x50, 0x4c, 0x41, 0x49, 0x4e };
     output->status = QNC_E2E_STATUS_OK;
     output->material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
     output->public_output = {};
     output->sealed_output = {};
+    if (input->operation == QNC_E2E_OPERATION_IDENTITY_KEY_GENERATION
+        || input->operation == QNC_E2E_OPERATION_PUBLIC_KEY_DERIVATION
+        || input->operation == QNC_E2E_OPERATION_AGREEMENT_SIGN
+        || input->operation == QNC_E2E_OPERATION_AGREEMENT_VERIFY) {
+        output->material_policy = QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED;
+        output->public_output = { publicOutputBytes, sizeof(publicOutputBytes) };
+    } else if (input->operation == QNC_E2E_OPERATION_PAYLOAD_ENCRYPT) {
+        output->material_policy = QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED;
+        output->sealed_output = { sealedOutputBytes, sizeof(sealedOutputBytes) };
+    } else if (input->operation == QNC_E2E_OPERATION_PAYLOAD_DECRYPT) {
+        output->material_policy = QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED;
+        output->public_output = { payloadOutputBytes, sizeof(payloadOutputBytes) };
+    }
     output->sanitized_error_class = "ok";
     return QNC_E2E_STATUS_OK;
 }
@@ -929,10 +945,21 @@ int main() {
                     && invocationExecutionProbe.value("executionFrameCount").toInt() == 8
                     && invocationExecutionProbe.value("executionFrameSanitizedCount").toInt() == 8
                     && invocationExecutionProbe.value("executionFrameResultCapturedCount").toInt() == 8
+                    && invocationExecutionProbe.value("knownAnswerOutputEvidenceCount").toInt() == 8
+                    && invocationExecutionProbe.value("knownAnswerOutputShapeHashCount").toInt() == 8
+                    && invocationExecutionProbe.value("expectedOutputClassMatchCount").toInt() == 8
                     && invocationExecutionProbe.value("failureClassSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("vectorResultSummary").toObject()
                         .value("probe-vector-passed").toInt() == 8
+                    && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                        .value("handle-status-output").toInt() == 2
+                    && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                        .value("public-output-shape").toInt() == 4
+                    && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                        .value("sealed-output-shape").toInt() == 1
+                    && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                        .value("payload-output-shape").toInt() == 1
                     && invocationExecutionProbe.value("blockedProbeCount").toInt() == 0
                     && invocationExecutionProbe.value("probes").toArray().size() == 8
                     && g_probeInvocationCount == 8
@@ -959,6 +986,14 @@ int main() {
                     && firstExecutionProbe.value("probeExecutionResultCapturePolicy").toString()
                         == QStringLiteral("status-class-and-size-only")
                     && firstExecutionProbe.value("probeExecutionFrameSanitized").toBool(false)
+                    && firstExecutionProbe.value("probeKnownAnswerOutputEvidenceSchema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-output-evidence-v1")
+                    && firstExecutionProbe.value("expectedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("handle-status-output")
+                    && firstExecutionProbe.value("observedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("handle-status-output")
+                    && firstExecutionProbe.value("expectedOutputClassMatched").toBool(false)
+                    && firstExecutionProbe.value("outputShapeHashSha256").toString().size() == 64
                     && firstExecutionProbe.value("inputContractHashSha256").toString().size() == 64
                     && firstExecutionProbe.value("outputContractHashSha256").toString().size() == 64
                     && firstExecutionProbe.value("fixtureInputClass").toString()
@@ -1049,11 +1084,31 @@ int main() {
                     && agreementVerifyProbe.value("expectedMaterialPolicyClass").toString()
                         == QStringLiteral("public-export-allowed")
                     && agreementVerifyProbe.value("expectedMaterialPolicyClassMatched").toBool(false)
+                    && agreementVerifyProbe.value("observedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("public-output-shape")
+                    && agreementVerifyProbe.value("expectedOutputClassMatched").toBool(false)
                     && agreementVerifyProbe.value("knownAnswerPassed").toBool(false)
                     && agreementVerifyProbe.value("roundTripPassed").toBool(false)
                     && agreementVerifyProbe.value("vectorResultClass").toString()
                         == QStringLiteral("probe-vector-passed"),
                 "round-trip eligible provider probe operations should expose pass classification separately") && ok;
+    const QJsonObject payloadEncryptProbe =
+        invocationExecutionProbe.value("probes").toArray().at(6).toObject();
+    const QJsonObject payloadDecryptProbe =
+        invocationExecutionProbe.value("probes").toArray().at(7).toObject();
+    ok = expect(payloadEncryptProbe.value("observedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("sealed-output-shape")
+                    && payloadEncryptProbe.value("expectedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("sealed-output-shape")
+                    && payloadEncryptProbe.value("expectedOutputClassMatched").toBool(false)
+                    && payloadEncryptProbe.value("sealedOutputSize").toInt() == 5
+                    && payloadDecryptProbe.value("observedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("payload-output-shape")
+                    && payloadDecryptProbe.value("expectedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("payload-output-shape")
+                    && payloadDecryptProbe.value("expectedOutputClassMatched").toBool(false)
+                    && payloadDecryptProbe.value("publicOutputSize").toInt() == 5,
+                "provider invocation probe should classify encrypted and decrypted output shapes separately") && ok;
     completeProviderTable.abi = "bad-abi";
     const QJsonObject badAbiTable =
         e2eValidateProductionProviderTable(&completeProviderTable);
