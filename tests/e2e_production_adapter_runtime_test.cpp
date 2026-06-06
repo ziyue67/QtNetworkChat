@@ -103,6 +103,8 @@ int main() {
         status.value("productionProviderVectorSelfTest").toObject();
     const QJsonObject providerExecutionSlotBinding =
         status.value("productionProviderExecutionSlotBinding").toObject();
+    const QJsonObject providerExecutionPath =
+        status.value("productionProviderExecutionPath").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -489,6 +491,29 @@ int main() {
                     && !providerExecutionSlotBinding.value("rawKeyExported").toBool(true)
                     && !providerExecutionSlotBinding.value("privateMaterialExported").toBool(true),
                 "production provider execution slot binding should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(providerExecutionPath.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-execution-path-v1")
+                    && providerExecutionPath.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-execution-path-blocked-placeholder")
+                            : QStringLiteral("production-provider-execution-path-blocked-not-linked"))
+                    && !providerExecutionPath.value("accepted").toBool(true)
+                    && providerExecutionPath.value("mappedPathCount").toInt() == 0
+                    && providerExecutionPath.value("blockedPathCount").toInt() == 8
+                    && providerExecutionPath.value("pointerPresentCount").toInt() == 0
+                    && providerExecutionPath.value("bindableSlotCount").toInt() == 0
+                    && providerExecutionPath.value("capturePolicyCount").toInt() == 8
+                    && providerExecutionPath.value("sanitizedPathCount").toInt() == 8
+                    && providerExecutionPath.value("paths").toArray().size() == 8
+                    && providerExecutionPath.value("providerExecutionSlotBindingReleaseGate").toString()
+                        == providerExecutionSlotBinding.value("releaseGate").toString()
+                    && !providerExecutionPath.value("operationInvoked").toBool(true)
+                    && !providerExecutionPath.value("inputBytesCaptured").toBool(true)
+                    && !providerExecutionPath.value("outputBytesCaptured").toBool(true)
+                    && !providerExecutionPath.value("resultCaptured").toBool(true)
+                    && !providerExecutionPath.value("rawKeyExported").toBool(true)
+                    && !providerExecutionPath.value("privateMaterialExported").toBool(true),
+                "production provider execution path should map registered function pointers only after slot binding") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

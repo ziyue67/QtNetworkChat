@@ -809,6 +809,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderVectorSelfTest")).toObject();
     const QJsonObject productionProviderExecutionSlotBinding =
         backendStatus.value(QStringLiteral("productionProviderExecutionSlotBinding")).toObject();
+    const QJsonObject productionProviderExecutionPath =
+        backendStatus.value(QStringLiteral("productionProviderExecutionPath")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -976,6 +978,14 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderExecutionSlotBinding.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionProviderExecutionSlotBindingBlockedSlotCount")] =
         productionProviderExecutionSlotBinding.value(QStringLiteral("blockedSlotCount")).toInt();
+    dryRun[QStringLiteral("productionProviderExecutionPath")] =
+        productionProviderExecutionPath;
+    dryRun[QStringLiteral("productionProviderExecutionPathReleaseGate")] =
+        productionProviderExecutionPath.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderExecutionPathAccepted")] =
+        productionProviderExecutionPath.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionProviderExecutionPathBlockedPathCount")] =
+        productionProviderExecutionPath.value(QStringLiteral("blockedPathCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1173,6 +1183,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderExecutionSlotBindingAccepted")).toBool(false);
     evidence[QStringLiteral("productionProviderExecutionSlotBindingBlockedSlotCount")] =
         dryRun.value(QStringLiteral("productionProviderExecutionSlotBindingBlockedSlotCount")).toInt();
+    evidence[QStringLiteral("productionProviderExecutionPath")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionPath")).toObject();
+    evidence[QStringLiteral("productionProviderExecutionPathReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionPathReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderExecutionPathAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionPathAccepted")).toBool(false);
+    evidence[QStringLiteral("productionProviderExecutionPathBlockedPathCount")] =
+        dryRun.value(QStringLiteral("productionProviderExecutionPathBlockedPathCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(
