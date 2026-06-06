@@ -105,6 +105,8 @@ int main() {
         backendStatus.value("productionProviderTableRegistration").toObject();
     const QJsonObject productionProviderOperationPreflight =
         backendStatus.value("productionProviderOperationPreflight").toObject();
+    const QJsonObject productionProviderCallFrame =
+        backendStatus.value("productionProviderCallFrame").toObject();
     const QJsonObject productionProviderInvocationDryRun =
         backendStatus.value("productionProviderInvocationDryRun").toObject();
     const QJsonObject productionProviderInvocationResult =
@@ -250,6 +252,17 @@ int main() {
                     && productionProviderOperationPreflight.value("presentOperationCount").toInt() == 0
                     && productionProviderOperationPreflight.value("operations").toArray().size() == 8
                     && !productionProviderOperationPreflight.value("operationInvoked").toBool(true)
+                    && productionProviderCallFrame.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-call-frame-v1")
+                    && productionProviderCallFrame.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-call-frame-blocked-not-linked")
+                    && productionProviderCallFrame.value("blockedFrameCount").toInt() == 8
+                    && productionProviderCallFrame.value("readyFrameCount").toInt() == 0
+                    && productionProviderCallFrame.value("sanitizedFrameCount").toInt() == 8
+                    && productionProviderCallFrame.value("enumMatchedFrameCount").toInt() == 8
+                    && productionProviderCallFrame.value("contractHashCount").toInt() == 8
+                    && productionProviderCallFrame.value("frames").toArray().size() == 8
+                    && !productionProviderCallFrame.value("operationInvoked").toBool(true)
                     && productionProviderInvocationDryRun.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-dry-run-v1")
                     && productionProviderInvocationDryRun.value("releaseGate").toString()
@@ -293,7 +306,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 12
+                        .value("checks").toArray().size() == 13
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -315,7 +328,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 12
+                        .value("checks").toArray().size() == 13
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -348,6 +361,10 @@ int main() {
                     && productionBackend.value("providerOperationPreflight").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && !productionBackend.value("providerOperationPreflight").toObject()
+                        .value("operationInvoked").toBool(true)
+                    && productionBackend.value("providerCallFrame").toObject()
+                        .value("blockedFrameCount").toInt() == 8
+                    && !productionBackend.value("providerCallFrame").toObject()
                         .value("operationInvoked").toBool(true)
                     && productionBackend.value("providerInvocationDryRun").toObject()
                         .value("blockedInvocationCount").toInt() == 8
@@ -444,6 +461,27 @@ int main() {
                     && !firstProviderExecutionDecision.value("rawKeyExported").toBool(true)
                     && !firstProviderExecutionDecision.value("privateMaterialExported").toBool(true),
                 "production provider execution decision should block callbacks until result capture is accepted") && ok;
+    const QJsonObject firstProviderCallFrame =
+        productionProviderCallFrame.value("frames").toArray().at(0).toObject();
+    ok = expect(firstProviderCallFrame.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstProviderCallFrame.value("operationEnumValue").toInt(-1) == 0
+                    && firstProviderCallFrame.value("operationEnumMatched").toBool(false)
+                    && firstProviderCallFrame.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstProviderCallFrame.value("primaryInputClass").toString()
+                        == QStringLiteral("empty-random-source-context")
+                    && firstProviderCallFrame.value("outputMaterialPolicy").toString()
+                        == QStringLiteral("handle-only-no-private-material-export")
+                    && firstProviderCallFrame.value("inputContractHashSha256").toString().size() == 64
+                    && firstProviderCallFrame.value("outputContractHashSha256").toString().size() == 64
+                    && firstProviderCallFrame.value("contractHashed").toBool(false)
+                    && !firstProviderCallFrame.value("frameReady").toBool(true)
+                    && !firstProviderCallFrame.value("operationInvoked").toBool(true)
+                    && !firstProviderCallFrame.value("inputBytesAttached").toBool(true)
+                    && !firstProviderCallFrame.value("outputBytesAttached").toBool(true)
+                    && !firstProviderCallFrame.value("rawKeyExported").toBool(true),
+                "production provider call frames should expose sanitized ABI inputs before invocation") && ok;
     const QJsonObject firstProviderTableEntry =
         productionProviderTable.value("entries").toArray().at(0).toObject();
     ok = expect(firstProviderTableEntry.value("operation").toString()
@@ -529,6 +567,8 @@ int main() {
     const QJsonObject backendStatusAfterRegistration = e2eCryptoBackendStatus();
     const QJsonObject preflightAfterRegistration =
         backendStatusAfterRegistration.value("productionProviderOperationPreflight").toObject();
+    const QJsonObject callFrameAfterRegistration =
+        backendStatusAfterRegistration.value("productionProviderCallFrame").toObject();
     const QJsonObject invocationDryRunAfterRegistration =
         backendStatusAfterRegistration.value("productionProviderInvocationDryRun").toObject();
     const QJsonObject invocationResultAfterRegistration =
@@ -552,6 +592,11 @@ int main() {
                     && !preflightAfterRegistration.value("operationInvoked").toBool(true)
                     && !backendStatusAfterRegistration.value("productionAcceptance").toObject()
                         .value("providerOperationPreflightAccepted").toBool(true)
+                    && !backendStatusAfterRegistration.value("productionAcceptance").toObject()
+                        .value("providerCallFrameAccepted").toBool(true)
+                    && callFrameAfterRegistration.value("blockedFrameCount").toInt() == 8
+                    && callFrameAfterRegistration.value("frames").toArray().size() == 8
+                    && !callFrameAfterRegistration.value("operationInvoked").toBool(true)
                     && !backendStatusAfterRegistration.value("productionAcceptance").toObject()
                         .value("providerInvocationDryRunAccepted").toBool(true)
                     && !backendStatusAfterRegistration.value("productionAcceptance").toObject()

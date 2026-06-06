@@ -651,6 +651,21 @@ int main(int argc, char** argv) {
                         && rotationProviderOperationPreflight.value("operations").toArray().size() == 8
                         && !rotationProviderOperationPreflight.value("operationInvoked").toBool(true),
                     "production rotation dry-run should embed provider operation preflight evidence") && ok;
+        const QJsonObject rotationProviderCallFrame =
+            rotationDryRun.value("productionProviderCallFrame").toObject();
+        ok = expect(rotationProviderCallFrame.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-call-frame-v1")
+                        && rotationProviderCallFrame.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-call-frame-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderCallFrameReleaseGate").toString()
+                            == QStringLiteral("production-provider-call-frame-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderCallFrameAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderCallFrameBlockedFrameCount").toInt() == 8
+                        && rotationProviderCallFrame.value("frames").toArray().size() == 8
+                        && !rotationProviderCallFrame.value("operationInvoked").toBool(true)
+                        && !rotationProviderCallFrame.value("inputBytesAttached").toBool(true)
+                        && !rotationProviderCallFrame.value("outputBytesAttached").toBool(true),
+                    "production rotation dry-run should embed provider call frame evidence") && ok;
         const QJsonObject rotationProviderInvocationDryRun =
             rotationDryRun.value("productionProviderInvocationDryRun").toObject();
         ok = expect(rotationProviderInvocationDryRun.value("schema").toString()
@@ -704,6 +719,9 @@ int main(int argc, char** argv) {
                         && rotationAcceptance.value("providerOperationPreflight").toObject()
                             .value("blockedOperationCount").toInt() == 8
                         && !rotationAcceptance.value("providerOperationPreflightAccepted").toBool(true)
+                        && rotationAcceptance.value("providerCallFrame").toObject()
+                            .value("blockedFrameCount").toInt() == 8
+                        && !rotationAcceptance.value("providerCallFrameAccepted").toBool(true)
                         && rotationAcceptance.value("providerInvocationDryRun").toObject()
                             .value("blockedInvocationCount").toInt() == 8
                         && !rotationAcceptance.value("providerInvocationDryRunAccepted").toBool(true)
@@ -829,6 +847,14 @@ int main(int argc, char** argv) {
                         && rotationExecute.value("productionProviderOperationPreflight").toObject()
                             .value("operations").toArray().size() == 8
                         && !rotationExecute.value("productionProviderOperationPreflight").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && rotationExecute.value("productionProviderCallFrameReleaseGate").toString()
+                            == QStringLiteral("production-provider-call-frame-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderCallFrameAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderCallFrameBlockedFrameCount").toInt() == 8
+                        && rotationExecute.value("productionProviderCallFrame").toObject()
+                            .value("frames").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderCallFrame").toObject()
                             .value("operationInvoked").toBool(true)
                         && rotationExecute.value("productionProviderInvocationDryRunReleaseGate").toString()
                             == QStringLiteral("production-provider-invocation-dry-run-blocked-not-linked")

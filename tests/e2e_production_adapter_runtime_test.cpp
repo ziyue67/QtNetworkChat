@@ -89,6 +89,8 @@ int main() {
         status.value("productionProviderTableRegistration").toObject();
     const QJsonObject providerOperationPreflight =
         status.value("productionProviderOperationPreflight").toObject();
+    const QJsonObject providerCallFrame =
+        status.value("productionProviderCallFrame").toObject();
     const QJsonObject providerInvocationDryRun =
         status.value("productionProviderInvocationDryRun").toObject();
     const QJsonObject providerInvocationResult =
@@ -336,6 +338,27 @@ int main() {
                     && !providerOperationPreflight.value("rawKeyExported").toBool(true)
                     && !providerOperationPreflight.value("privateMaterialExported").toBool(true),
                 "production provider operation preflight should validate dispatch readiness without invoking crypto") && ok;
+    ok = expect(providerCallFrame.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-call-frame-v1")
+                    && providerCallFrame.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-call-frame-blocked-placeholder")
+                            : QStringLiteral("production-provider-call-frame-blocked-not-linked"))
+                    && !providerCallFrame.value("accepted").toBool(true)
+                    && providerCallFrame.value("readyFrameCount").toInt() == 0
+                    && providerCallFrame.value("blockedFrameCount").toInt() == 8
+                    && providerCallFrame.value("sanitizedFrameCount").toInt() == 8
+                    && providerCallFrame.value("enumMatchedFrameCount").toInt() == 8
+                    && providerCallFrame.value("contractHashCount").toInt() == 8
+                    && providerCallFrame.value("frames").toArray().size() == 8
+                    && providerCallFrame.value("providerOperationPreflightReleaseGate").toString()
+                        == providerOperationPreflight.value("releaseGate").toString()
+                    && !providerCallFrame.value("operationInvoked").toBool(true)
+                    && !providerCallFrame.value("inputBytesAttached").toBool(true)
+                    && !providerCallFrame.value("outputBytesAttached").toBool(true)
+                    && !providerCallFrame.value("rawKeyExported").toBool(true)
+                    && !providerCallFrame.value("privateMaterialExported").toBool(true),
+                "production provider call frame should bind sanitized ABI inputs before dry-run") && ok;
     ok = expect(providerInvocationDryRun.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-dry-run-v1")
                     && providerInvocationDryRun.value("releaseGate").toString()
@@ -347,8 +370,8 @@ int main() {
                     && providerInvocationDryRun.value("blockedInvocationCount").toInt() == 8
                     && providerInvocationDryRun.value("sanitizedInvocationCount").toInt() == 8
                     && providerInvocationDryRun.value("invocations").toArray().size() == 8
-                    && providerInvocationDryRun.value("providerOperationPreflightReleaseGate").toString()
-                        == providerOperationPreflight.value("releaseGate").toString()
+                    && providerInvocationDryRun.value("providerCallFrameReleaseGate").toString()
+                        == providerCallFrame.value("releaseGate").toString()
                     && !providerInvocationDryRun.value("operationInvoked").toBool(true)
                     && !providerInvocationDryRun.value("rawKeyExported").toBool(true)
                     && !providerInvocationDryRun.value("privateMaterialExported").toBool(true),
@@ -533,6 +556,28 @@ int main() {
                     && firstProviderDecision.value("noSensitiveMaterialExport").toBool(false)
                     && !firstProviderDecision.value("rawKeyExported").toBool(true),
                 "production provider execution decision should keep linked placeholders non-callable") && ok;
+    const QJsonObject firstProviderCallFrame =
+        providerCallFrame.value("frames").toArray().at(0).toObject();
+    ok = expect(firstProviderCallFrame.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstProviderCallFrame.value("operationEnumValue").toInt(-1) == 0
+                    && firstProviderCallFrame.value("operationEnumMatched").toBool(false)
+                    && firstProviderCallFrame.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstProviderCallFrame.value("suiteId").toString()
+                        == QStringLiteral("x25519-hkdf-sha256-aes-256-gcm")
+                    && firstProviderCallFrame.value("primaryInputClass").toString()
+                        == QStringLiteral("empty-random-source-context")
+                    && firstProviderCallFrame.value("secondaryInputClass").toString()
+                        == QStringLiteral("suite-context")
+                    && firstProviderCallFrame.value("outputMaterialPolicy").toString()
+                        == QStringLiteral("handle-only-no-private-material-export")
+                    && firstProviderCallFrame.value("contractHashed").toBool(false)
+                    && !firstProviderCallFrame.value("frameReady").toBool(true)
+                    && !firstProviderCallFrame.value("operationInvoked").toBool(true)
+                    && !firstProviderCallFrame.value("inputBytesAttached").toBool(true)
+                    && !firstProviderCallFrame.value("outputBytesAttached").toBool(true),
+                "production provider call frame should expose sanitized per-operation C ABI evidence") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()
@@ -564,6 +609,10 @@ int main() {
                         .value("accepted").toBool(true)
                     && acceptance.value("providerExecutionDecision").toObject()
                         .value("decisions").toArray().size() == 8
+                    && acceptance.value("providerCallFrame").toObject()
+                        .value("frames").toArray().size() == 8
+                    && !acceptance.value("providerCallFrameAccepted").toBool(true)
+                    && acceptance.value("providerCallFrameBlockedFrameCount").toInt() == 8
                     && !acceptance.value("providerExecutionDecisionAccepted").toBool(true)
                     && acceptance.value("providerExecutionDecisionBlockedDecisionCount").toInt() == 8
                     && acceptance.value("passedExecutionResultCount").toInt() == 0

@@ -795,6 +795,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderTableRegistration")).toObject();
     const QJsonObject productionProviderOperationPreflight =
         backendStatus.value(QStringLiteral("productionProviderOperationPreflight")).toObject();
+    const QJsonObject productionProviderCallFrame =
+        backendStatus.value(QStringLiteral("productionProviderCallFrame")).toObject();
     const QJsonObject productionProviderInvocationDryRun =
         backendStatus.value(QStringLiteral("productionProviderInvocationDryRun")).toObject();
     const QJsonObject productionProviderInvocationResult =
@@ -912,6 +914,14 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderOperationPreflight.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionProviderOperationPreflightBlockedOperationCount")] =
         productionProviderOperationPreflight.value(QStringLiteral("blockedOperationCount")).toInt();
+    dryRun[QStringLiteral("productionProviderCallFrame")] =
+        productionProviderCallFrame;
+    dryRun[QStringLiteral("productionProviderCallFrameReleaseGate")] =
+        productionProviderCallFrame.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderCallFrameAccepted")] =
+        productionProviderCallFrame.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionProviderCallFrameBlockedFrameCount")] =
+        productionProviderCallFrame.value(QStringLiteral("blockedFrameCount")).toInt();
     dryRun[QStringLiteral("productionProviderInvocationDryRun")] =
         productionProviderInvocationDryRun;
     dryRun[QStringLiteral("productionProviderInvocationDryRunReleaseGate")] =
@@ -1077,6 +1087,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderOperationPreflightAccepted")).toBool(false);
     evidence[QStringLiteral("productionProviderOperationPreflightBlockedOperationCount")] =
         dryRun.value(QStringLiteral("productionProviderOperationPreflightBlockedOperationCount")).toInt();
+    evidence[QStringLiteral("productionProviderCallFrame")] =
+        dryRun.value(QStringLiteral("productionProviderCallFrame")).toObject();
+    evidence[QStringLiteral("productionProviderCallFrameReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderCallFrameReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderCallFrameAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderCallFrameAccepted")).toBool(false);
+    evidence[QStringLiteral("productionProviderCallFrameBlockedFrameCount")] =
+        dryRun.value(QStringLiteral("productionProviderCallFrameBlockedFrameCount")).toInt();
     evidence[QStringLiteral("productionProviderInvocationDryRun")] =
         dryRun.value(QStringLiteral("productionProviderInvocationDryRun")).toObject();
     evidence[QStringLiteral("productionProviderInvocationDryRunReleaseGate")] =

@@ -62,6 +62,7 @@ QJsonObject e2eProductionCryptoProviderTableStatus();
 QJsonObject e2eProductionCryptoProviderTableBindingProbeStatus();
 QJsonObject e2eProductionCryptoProviderTableRegistrationStatus();
 QJsonObject e2eProductionCryptoProviderOperationPreflightStatus();
+QJsonObject e2eProductionCryptoProviderCallFrameStatus();
 QJsonObject e2eProductionCryptoProviderInvocationDryRunStatus();
 QJsonObject e2eProductionCryptoProviderInvocationResultStatus();
 QJsonObject e2eProductionCryptoProviderExecutionDecisionStatus();
