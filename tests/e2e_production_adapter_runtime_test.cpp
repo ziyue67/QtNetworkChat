@@ -113,6 +113,8 @@ int main() {
         status.value("productionProviderInvocationExecution").toObject();
     const QJsonObject providerReviewedExecutionCandidate =
         status.value("productionProviderReviewedExecutionCandidate").toObject();
+    const QJsonObject providerReviewedCallHandoff =
+        status.value("productionProviderReviewedCallHandoff").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -617,6 +619,28 @@ int main() {
                     && !providerReviewedExecutionCandidate.value("privateMaterialExported").toBool(true)
                     && !providerReviewedExecutionCandidate.value("sessionSecretExported").toBool(true),
                 "production reviewed execution candidate should stay blocked until an explicit sanitized probe is captured") && ok;
+    ok = expect(providerReviewedCallHandoff.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-call-handoff-v1")
+                    && providerReviewedCallHandoff.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
+                    && !providerReviewedCallHandoff.value("accepted").toBool(true)
+                    && providerReviewedCallHandoff.value("handoffNonReleaseGate").toBool(false)
+                    && !providerReviewedCallHandoff.value("candidateSourceCaptured").toBool(true)
+                    && providerReviewedCallHandoff.value("handoffCount").toInt() == 8
+                    && providerReviewedCallHandoff.value("readyHandoffCount").toInt() == 0
+                    && providerReviewedCallHandoff.value("blockedHandoffCount").toInt() == 8
+                    && providerReviewedCallHandoff.value("failClosedHandoffCount").toInt() == 8
+                    && providerReviewedCallHandoff.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-call-handoff-awaiting-candidate")
+                    && providerReviewedCallHandoff.value("handoffs").toArray().size() == 8
+                    && !providerReviewedCallHandoff.value("operationInvokedByHandoff").toBool(true)
+                    && !providerReviewedCallHandoff.value("inputBytesCaptured").toBool(true)
+                    && !providerReviewedCallHandoff.value("outputBytesCaptured").toBool(true)
+                    && !providerReviewedCallHandoff.value("resultCaptured").toBool(true)
+                    && !providerReviewedCallHandoff.value("rawKeyExported").toBool(true)
+                    && !providerReviewedCallHandoff.value("privateMaterialExported").toBool(true)
+                    && !providerReviewedCallHandoff.value("sessionSecretExported").toBool(true),
+                "production reviewed call handoff should stay blocked until reviewed candidates exist") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

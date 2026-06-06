@@ -854,6 +854,26 @@ int main(int argc, char** argv) {
                         && !rotationProviderReviewedExecutionCandidate.value("rawKeyExported").toBool(true)
                         && !rotationProviderReviewedExecutionCandidate.value("privateMaterialExported").toBool(true),
                     "production rotation dry-run should embed reviewed execution candidate evidence without invoking provider callbacks") && ok;
+        const QJsonObject rotationProviderReviewedCallHandoff =
+            rotationDryRun.value("productionProviderReviewedCallHandoff").toObject();
+        ok = expect(rotationProviderReviewedCallHandoff.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-call-handoff-v1")
+                        && rotationProviderReviewedCallHandoff.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedCallHandoffReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedCallHandoffNonReleaseGate").toBool(false)
+                        && rotationDryRun.value("productionProviderReviewedCallHandoffReadyCount").toInt() == 0
+                        && rotationDryRun.value("productionProviderReviewedCallHandoffBlockedCount").toInt() == 8
+                        && !rotationProviderReviewedCallHandoff.value("candidateSourceCaptured").toBool(true)
+                        && rotationProviderReviewedCallHandoff.value("handoffs").toArray().size() == 8
+                        && !rotationProviderReviewedCallHandoff.value("operationInvokedByHandoff").toBool(true)
+                        && !rotationProviderReviewedCallHandoff.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedCallHandoff.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedCallHandoff.value("resultCaptured").toBool(true)
+                        && !rotationProviderReviewedCallHandoff.value("rawKeyExported").toBool(true)
+                        && !rotationProviderReviewedCallHandoff.value("privateMaterialExported").toBool(true),
+                    "production rotation dry-run should embed reviewed call handoff evidence without invoking provider callbacks") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -1155,6 +1175,21 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderReviewedExecutionCandidate").toObject()
                             .value("inputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderReviewedExecutionCandidate").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderReviewedCallHandoffReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
+                        && rotationExecute.value("productionProviderReviewedCallHandoffNonReleaseGate").toBool(false)
+                        && rotationExecute.value("productionProviderReviewedCallHandoffReadyCount").toInt() == 0
+                        && rotationExecute.value("productionProviderReviewedCallHandoffBlockedCount").toInt() == 8
+                        && rotationExecute.value("productionProviderReviewedCallHandoff").toObject()
+                            .value("handoffs").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderReviewedCallHandoff").toObject()
+                            .value("candidateSourceCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedCallHandoff").toObject()
+                            .value("operationInvokedByHandoff").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedCallHandoff").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedCallHandoff").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)

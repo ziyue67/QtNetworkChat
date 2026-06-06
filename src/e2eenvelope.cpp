@@ -302,6 +302,11 @@ QJsonObject productionProviderReviewedExecutionCandidateStatusForDescriptor(
 QJsonObject productionProviderReviewedExecutionCandidateStatusFromProbe(
     const E2ECryptoAdapterDescriptor& descriptor,
     const QJsonObject& invocationExecutionProbe);
+QJsonObject productionProviderReviewedCallHandoffStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor);
+QJsonObject productionProviderReviewedCallHandoffStatusFromCandidate(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedExecutionCandidate);
 QString productionOperationProviderSymbol(E2ECryptoOperation operation);
 QString productionOperationProviderAbiSignature(E2ECryptoOperation operation);
 
@@ -4779,6 +4784,252 @@ QJsonObject productionProviderReviewedExecutionCandidateStatusForDescriptor(
     return productionProviderReviewedExecutionCandidateStatusFromProbe(descriptor, QJsonObject());
 }
 
+QString providerReviewedCallHandoffBlockedReason(const QJsonObject& candidate,
+                                                 bool candidateSourceCaptured,
+                                                 bool handoffSanitized,
+                                                 bool policyReady) {
+    if (!candidateSourceCaptured) {
+        return QStringLiteral("production-provider-reviewed-call-handoff-awaiting-candidate");
+    }
+    if (!candidate.value(QStringLiteral("candidateReady")).toBool(false)) {
+        return candidate.value(QStringLiteral("blockedReason")).toString(
+            QStringLiteral("production-provider-reviewed-candidate-blocked"));
+    }
+    if (!policyReady) {
+        return QStringLiteral("production-provider-reviewed-call-handoff-policy-blocked");
+    }
+    if (!handoffSanitized) {
+        return QStringLiteral("production-provider-reviewed-call-handoff-sensitive-export-blocked");
+    }
+    return QStringLiteral("production-provider-reviewed-call-handoff-awaiting-audit-release-gate");
+}
+
+QJsonObject productionProviderReviewedCallHandoffStatusFromCandidate(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedExecutionCandidate) {
+    const QJsonArray candidates =
+        reviewedExecutionCandidate.value(QStringLiteral("candidates")).toArray();
+    const bool candidateSourceCaptured =
+        reviewedExecutionCandidate.value(QStringLiteral("schema")).toString()
+            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-execution-candidate-v1")
+        && reviewedExecutionCandidate.value(QStringLiteral("probeSourceCaptured")).toBool(false);
+
+    QJsonArray handoffs;
+    int handoffCount = 0;
+    int readyHandoffCount = 0;
+    int blockedHandoffCount = 0;
+    int sanitizedHandoffCount = 0;
+    int candidateReadyHandoffCount = 0;
+    int entrypointReadyHandoffCount = 0;
+    int vectorContractHandoffCount = 0;
+    int outputShapeHandoffCount = 0;
+    int failClosedHandoffCount = 0;
+    QJsonObject blockedReasonSummary;
+
+    int sequenceIndex = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const E2ECryptoOperation operation = spec.operation;
+        const QJsonObject candidate = sequenceIndex < candidates.size()
+            ? candidates.at(sequenceIndex).toObject()
+            : QJsonObject();
+        const bool candidateReady =
+            candidate.value(QStringLiteral("candidateReady")).toBool(false);
+        const bool candidateEntrypointReady =
+            candidate.value(QStringLiteral("candidateEntrypointReady")).toBool(false);
+        const bool vectorContractReady =
+            candidate.value(QStringLiteral("probeEvidence")).toObject()
+                .value(QStringLiteral("vectorContractReady")).toBool(false)
+            || (candidate.value(QStringLiteral("probeEvidence")).toObject()
+                    .value(QStringLiteral("inputContractHashSha256")).toString().size()
+                    == FingerprintHexLength
+                && candidate.value(QStringLiteral("probeEvidence")).toObject()
+                    .value(QStringLiteral("outputContractHashSha256")).toString().size()
+                    == FingerprintHexLength);
+        const bool outputShapeReady =
+            candidate.value(QStringLiteral("probeEvidence")).toObject()
+                .value(QStringLiteral("outputShapeHashSha256")).toString().size()
+                == FingerprintHexLength;
+        const bool policyReady =
+            candidateEntrypointReady
+            && vectorContractReady
+            && outputShapeReady;
+        const bool noSensitiveExport =
+            !candidate.value(QStringLiteral("rawKeyExported")).toBool(true)
+            && !candidate.value(QStringLiteral("privateMaterialExported")).toBool(true)
+            && !candidate.value(QStringLiteral("sessionSecretExported")).toBool(true)
+            && !candidate.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
+            && !candidate.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true)
+            && !candidate.value(QStringLiteral("inputBytesCaptured")).toBool(true)
+            && !candidate.value(QStringLiteral("outputBytesCaptured")).toBool(true);
+        const bool handoffSanitized =
+            candidate.value(QStringLiteral("sanitized")).toBool(false)
+            && noSensitiveExport;
+        const bool readyHandoff =
+            candidateSourceCaptured
+            && candidateReady
+            && policyReady
+            && handoffSanitized;
+        const QString blockedReason =
+            providerReviewedCallHandoffBlockedReason(candidate,
+                                                     candidateSourceCaptured,
+                                                     handoffSanitized,
+                                                     policyReady);
+
+        QJsonObject handoff;
+        handoff[QStringLiteral("sequenceIndex")] = sequenceIndex;
+        handoff[QStringLiteral("operation")] = cryptoOperationName(operation);
+        handoff[QStringLiteral("backendId")] = descriptor.id;
+        handoff[QStringLiteral("providerId")] = descriptor.providerId;
+        handoff[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+        handoff[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(operation);
+        handoff[QStringLiteral("providerAbiSignature")] =
+            productionOperationProviderAbiSignature(operation);
+        handoff[QStringLiteral("executionEntrypoint")] =
+            QStringLiteral("qnc_e2e_provider_table_v1/%1")
+                .arg(productionOperationProviderSymbol(operation));
+        handoff[QStringLiteral("handoffFrameId")] =
+            QStringLiteral("reviewed-call-handoff/%1/%2")
+                .arg(spec.vectorSet, cryptoOperationName(operation));
+        handoff[QStringLiteral("vectorSet")] = spec.vectorSet;
+        handoff[QStringLiteral("knownAnswerVectorId")] =
+            candidate.value(QStringLiteral("knownAnswerVectorId")).toString(
+                QStringLiteral("%1/%2").arg(spec.vectorSet, cryptoOperationName(operation)));
+        handoff[QStringLiteral("knownAnswerFixtureId")] =
+            candidate.value(QStringLiteral("knownAnswerFixtureId")).toString(
+                QStringLiteral("probe-fixture/%1").arg(cryptoOperationName(operation)));
+        handoff[QStringLiteral("fixtureHashSha256")] =
+            candidate.value(QStringLiteral("fixtureHashSha256")).toString(
+                productionHarnessFixtureHash(spec));
+        handoff[QStringLiteral("candidate")] = candidate;
+        handoff[QStringLiteral("candidateState")] =
+            candidate.value(QStringLiteral("candidateState")).toString(
+                QStringLiteral("reviewed-provider-execution-candidate-blocked"));
+        handoff[QStringLiteral("candidateReady")] = candidateReady;
+        handoff[QStringLiteral("candidateNonReleaseGate")] =
+            candidate.value(QStringLiteral("candidateNonReleaseGate")).toBool(true);
+        handoff[QStringLiteral("candidateReleaseGate")] =
+            candidate.value(QStringLiteral("releaseGate")).toString(
+                QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate"));
+        handoff[QStringLiteral("candidateEntrypointReady")] = candidateEntrypointReady;
+        handoff[QStringLiteral("vectorContractReady")] = vectorContractReady;
+        handoff[QStringLiteral("outputShapeEvidenceReady")] = outputShapeReady;
+        handoff[QStringLiteral("handoffPolicyReady")] = policyReady;
+        handoff[QStringLiteral("handoffReady")] = readyHandoff;
+        handoff[QStringLiteral("handoffState")] = readyHandoff
+            ? QStringLiteral("ready-for-reviewed-provider-call-handoff")
+            : QStringLiteral("reviewed-provider-call-handoff-blocked");
+        handoff[QStringLiteral("failClosed")] = !readyHandoff;
+        handoff[QStringLiteral("blockedReason")] = blockedReason;
+        handoff[QStringLiteral("operatorAction")] = readyHandoff
+            ? QStringLiteral("audit-reviewed-call-handoff-before-release-gate")
+            : (candidateSourceCaptured
+                ? QStringLiteral("fix-reviewed-call-handoff-candidate-before-audit")
+                : QStringLiteral("run-reviewed-execution-candidate-probe-before-handoff"));
+        handoff[QStringLiteral("inputCapturePolicy")] =
+            QStringLiteral("size-and-class-only");
+        handoff[QStringLiteral("outputCapturePolicy")] =
+            QStringLiteral("size-and-class-only");
+        handoff[QStringLiteral("resultCapturePolicy")] =
+            QStringLiteral("status-class-and-size-only");
+        handoff[QStringLiteral("materialExportPolicy")] =
+            QStringLiteral("sizes-and-status-only-no-secret-bytes");
+        handoff[QStringLiteral("handoffNonReleaseGate")] = true;
+        handoff[QStringLiteral("releaseGate")] =
+            QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate");
+        handoff[QStringLiteral("operationInvokedByHandoff")] = false;
+        handoff[QStringLiteral("inputBytesCaptured")] = false;
+        handoff[QStringLiteral("outputBytesCaptured")] = false;
+        handoff[QStringLiteral("resultCaptured")] = false;
+        handoff[QStringLiteral("rawKeyExported")] = false;
+        handoff[QStringLiteral("privateMaterialExported")] = false;
+        handoff[QStringLiteral("sessionSecretExported")] = false;
+        handoff[QStringLiteral("privateIdentityMaterialExported")] = false;
+        handoff[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+        handoff[QStringLiteral("sanitized")] = handoffSanitized;
+        handoffs.append(handoff);
+
+        ++handoffCount;
+        if (readyHandoff) {
+            ++readyHandoffCount;
+        } else {
+            ++blockedHandoffCount;
+            ++failClosedHandoffCount;
+        }
+        if (handoffSanitized) {
+            ++sanitizedHandoffCount;
+        }
+        if (candidateReady) {
+            ++candidateReadyHandoffCount;
+        }
+        if (candidateEntrypointReady) {
+            ++entrypointReadyHandoffCount;
+        }
+        if (vectorContractReady) {
+            ++vectorContractHandoffCount;
+        }
+        if (outputShapeReady) {
+            ++outputShapeHandoffCount;
+        }
+        incrementSummaryCount(&blockedReasonSummary, blockedReason);
+        ++sequenceIndex;
+    }
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-call-handoff-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("accepted")] = false;
+    status[QStringLiteral("handoffNonReleaseGate")] = true;
+    status[QStringLiteral("releaseGate")] =
+        QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate");
+    status[QStringLiteral("candidateSourceCaptured")] = candidateSourceCaptured;
+    status[QStringLiteral("providerReviewedExecutionCandidate")] = reviewedExecutionCandidate;
+    status[QStringLiteral("providerReviewedExecutionCandidateReleaseGate")] =
+        reviewedExecutionCandidate.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedExecutionCandidateReadyCount")] =
+        reviewedExecutionCandidate.value(QStringLiteral("candidateReadyCount")).toInt();
+    status[QStringLiteral("handoffCount")] = handoffCount;
+    status[QStringLiteral("readyHandoffCount")] = readyHandoffCount;
+    status[QStringLiteral("blockedHandoffCount")] = blockedHandoffCount;
+    status[QStringLiteral("sanitizedHandoffCount")] = sanitizedHandoffCount;
+    status[QStringLiteral("candidateReadyHandoffCount")] = candidateReadyHandoffCount;
+    status[QStringLiteral("entrypointReadyHandoffCount")] = entrypointReadyHandoffCount;
+    status[QStringLiteral("vectorContractHandoffCount")] = vectorContractHandoffCount;
+    status[QStringLiteral("outputShapeHandoffCount")] = outputShapeHandoffCount;
+    status[QStringLiteral("failClosedHandoffCount")] = failClosedHandoffCount;
+    status[QStringLiteral("blockedReason")] = readyHandoffCount == handoffCount
+        && handoffCount == cryptoOperations().size()
+        ? QStringLiteral("production-provider-reviewed-call-handoffs-awaiting-audit-release-gate")
+        : (candidateSourceCaptured
+            ? QStringLiteral("production-provider-reviewed-call-handoff-evidence-blocked")
+            : QStringLiteral("production-provider-reviewed-call-handoff-awaiting-candidate"));
+    status[QStringLiteral("operatorAction")] =
+        QStringLiteral("promote-handoff-only-after-reviewed-provider-audit-and-release-gates");
+    status[QStringLiteral("blockedReasonSummary")] = blockedReasonSummary;
+    status[QStringLiteral("handoffs")] = handoffs;
+    status[QStringLiteral("operationInvokedByHandoff")] = false;
+    status[QStringLiteral("inputBytesCaptured")] = false;
+    status[QStringLiteral("outputBytesCaptured")] = false;
+    status[QStringLiteral("resultCaptured")] = false;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return status;
+}
+
+QJsonObject productionProviderReviewedCallHandoffStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor) {
+    return productionProviderReviewedCallHandoffStatusFromCandidate(
+        descriptor,
+        productionProviderReviewedExecutionCandidateStatusForDescriptor(descriptor));
+}
+
 QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
@@ -5348,6 +5599,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionProviderInvocationExecutionStatusForDescriptor(descriptor);
         evidence[QStringLiteral("providerReviewedExecutionCandidate")] =
             productionProviderReviewedExecutionCandidateStatusForDescriptor(descriptor);
+        evidence[QStringLiteral("providerReviewedCallHandoff")] =
+            productionProviderReviewedCallHandoffStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("implementedOperationCount")] = 0;
@@ -5453,6 +5706,8 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
         productionProviderInvocationExecutionStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedExecutionCandidate =
         productionProviderReviewedExecutionCandidateStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedCallHandoff =
+        productionProviderReviewedCallHandoffStatusForDescriptor(descriptor);
     appendCheck(QStringLiteral("provider-table-bound"),
                 !isProduction || providerTable.value(QStringLiteral("accepted")).toBool(false),
                 isProduction
@@ -5588,6 +5843,16 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                 isProduction
                     ? providerReviewedExecutionCandidate.value(QStringLiteral("operatorAction")).toString()
                     : QStringLiteral("none"));
+    appendCheck(QStringLiteral("provider-reviewed-call-handoff"),
+                !isProduction
+                    || providerReviewedCallHandoff.value(QStringLiteral("readyHandoffCount")).toInt()
+                        == cryptoOperations().size(),
+                isProduction
+                    ? providerReviewedCallHandoff.value(QStringLiteral("blockedReason")).toString()
+                    : QStringLiteral("not-production-provider"),
+                isProduction
+                    ? providerReviewedCallHandoff.value(QStringLiteral("operatorAction")).toString()
+                    : QStringLiteral("none"));
     return checks;
 }
 
@@ -5690,6 +5955,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         productionProviderInvocationExecutionStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedExecutionCandidate =
         productionProviderReviewedExecutionCandidateStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedCallHandoff =
+        productionProviderReviewedCallHandoffStatusForDescriptor(descriptor);
     const bool operationContractComplete =
         descriptor.operations.size() == cryptoOperations().size();
     const bool linked = descriptor.linked;
@@ -5738,6 +6005,11 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerInvocationVectorResult.value(QStringLiteral("accepted")).toBool(false);
     const bool providerInvocationExecutionAccepted =
         providerInvocationExecution.value(QStringLiteral("accepted")).toBool(false);
+    const bool providerReviewedCallHandoffReady =
+        providerReviewedCallHandoff.value(QStringLiteral("readyHandoffCount")).toInt()
+            == cryptoOperations().size()
+        && providerReviewedCallHandoff.value(QStringLiteral("handoffCount")).toInt()
+            == cryptoOperations().size();
     const bool accepted = linked
         && descriptor.productionReady
         && operationContractComplete
@@ -5761,7 +6033,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && providerExecutionPathAccepted
         && providerInvocationSandboxAccepted
         && providerInvocationVectorResultAccepted
-        && providerInvocationExecutionAccepted;
+        && providerInvocationExecutionAccepted
+        && providerReviewedCallHandoffReady;
 
     QString releaseGate;
     QString blockedReason;
@@ -5857,6 +6130,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-provider-invocation-execution-blocked");
         blockedReason = providerInvocationExecution.value(QStringLiteral("blockedReason")).toString();
         operatorAction = providerInvocationExecution.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerReviewedCallHandoffReady) {
+        releaseGate = QStringLiteral("production-provider-reviewed-call-handoff-blocked");
+        blockedReason = providerReviewedCallHandoff.value(QStringLiteral("blockedReason")).toString();
+        operatorAction = providerReviewedCallHandoff.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
@@ -5913,6 +6190,7 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
     status[QStringLiteral("providerInvocationExecution")] = providerInvocationExecution;
     status[QStringLiteral("providerReviewedExecutionCandidate")] =
         providerReviewedExecutionCandidate;
+    status[QStringLiteral("providerReviewedCallHandoff")] = providerReviewedCallHandoff;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] = 0;
@@ -6013,6 +6291,12 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedExecutionCandidate.value(QStringLiteral("blockedCandidateCount")).toInt();
     status[QStringLiteral("providerReviewedExecutionCandidateReleaseGate")] =
         providerReviewedExecutionCandidate.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedCallHandoffReadyCount")] =
+        providerReviewedCallHandoff.value(QStringLiteral("readyHandoffCount")).toInt();
+    status[QStringLiteral("providerReviewedCallHandoffBlockedCount")] =
+        providerReviewedCallHandoff.value(QStringLiteral("blockedHandoffCount")).toInt();
+    status[QStringLiteral("providerReviewedCallHandoffReleaseGate")] =
+        providerReviewedCallHandoff.value(QStringLiteral("releaseGate")).toString();
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -6540,6 +6824,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionProviderInvocationExecutionStatusForDescriptor(productionAdapterDescriptor());
     status["productionProviderReviewedExecutionCandidate"] =
         productionProviderReviewedExecutionCandidateStatusForDescriptor(productionAdapterDescriptor());
+    status["productionProviderReviewedCallHandoff"] =
+        productionProviderReviewedCallHandoffStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -6685,6 +6971,11 @@ QJsonObject e2eProductionCryptoProviderReviewedExecutionCandidateStatus() {
         .value(QStringLiteral("productionProviderReviewedExecutionCandidate")).toObject();
 }
 
+QJsonObject e2eProductionCryptoProviderReviewedCallHandoffStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionProviderReviewedCallHandoff")).toObject();
+}
+
 QJsonObject e2eProbeProductionCryptoProviderInvocationExecution() {
     return productionProviderInvocationExecutionProbeForDescriptor(productionAdapterDescriptor());
 }
@@ -6695,6 +6986,14 @@ QJsonObject e2eProbeProductionCryptoProviderReviewedExecutionCandidate() {
     return productionProviderReviewedExecutionCandidateStatusFromProbe(
         productionAdapterDescriptor(),
         invocationExecutionProbe);
+}
+
+QJsonObject e2eProbeProductionCryptoProviderReviewedCallHandoff() {
+    const QJsonObject reviewedCandidate =
+        e2eProbeProductionCryptoProviderReviewedExecutionCandidate();
+    return productionProviderReviewedCallHandoffStatusFromCandidate(
+        productionAdapterDescriptor(),
+        reviewedCandidate);
 }
 
 QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table) {

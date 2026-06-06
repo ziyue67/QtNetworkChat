@@ -6,10 +6,13 @@
 #include <QJsonObject>
 #include <QStringList>
 
+#include <cstdio>
+
 namespace {
 bool expect(bool condition, const char* message) {
     if (!condition) {
         qWarning() << message;
+        std::fprintf(stderr, "%s\n", message);
         return false;
     }
     return true;
@@ -530,7 +533,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 21
+                        .value("checks").toArray().size() == 22
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -552,7 +555,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 21
+                        .value("checks").toArray().size() == 22
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -612,6 +615,16 @@ int main() {
                         .value("providerReviewedExecutionCandidate").toObject()
                         .value("releaseGate").toString()
                             == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedCallHandoff").toObject()
+                        .value("handoffCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedCallHandoff").toObject()
+                        .value("blockedHandoffCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedCallHandoff").toObject()
+                        .value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
@@ -1111,10 +1124,43 @@ int main() {
                     && !reviewedCandidateProbe.value("privateMaterialExported").toBool(true)
                     && !reviewedCandidateProbe.value("sessionSecretExported").toBool(true),
                 "explicit reviewed provider execution candidates should map clean probes without becoming a release gate") && ok;
+    const QJsonObject reviewedCallHandoffProbe =
+        e2eProbeProductionCryptoProviderReviewedCallHandoff();
+    ok = expect(reviewedCallHandoffProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-call-handoff-v1")
+                    && !reviewedCallHandoffProbe.value("accepted").toBool(true)
+                    && reviewedCallHandoffProbe.value("handoffNonReleaseGate").toBool(false)
+                    && reviewedCallHandoffProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
+                    && reviewedCallHandoffProbe.value("candidateSourceCaptured").toBool(false)
+                    && reviewedCallHandoffProbe.value("handoffCount").toInt() == 8
+                    && reviewedCallHandoffProbe.value("readyHandoffCount").toInt() == 8
+                    && reviewedCallHandoffProbe.value("blockedHandoffCount").toInt() == 0
+                    && reviewedCallHandoffProbe.value("candidateReadyHandoffCount").toInt() == 8
+                    && reviewedCallHandoffProbe.value("entrypointReadyHandoffCount").toInt() == 8
+                    && reviewedCallHandoffProbe.value("vectorContractHandoffCount").toInt() == 8
+                    && reviewedCallHandoffProbe.value("outputShapeHandoffCount").toInt() == 8
+                    && reviewedCallHandoffProbe.value("sanitizedHandoffCount").toInt() == 8
+                    && reviewedCallHandoffProbe.value("failClosedHandoffCount").toInt() == 0
+                    && reviewedCallHandoffProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-call-handoffs-awaiting-audit-release-gate")
+                    && reviewedCallHandoffProbe.value("blockedReasonSummary").toObject()
+                        .value("production-provider-reviewed-call-handoff-awaiting-audit-release-gate").toInt() == 8
+                    && reviewedCallHandoffProbe.value("handoffs").toArray().size() == 8
+                    && g_probeInvocationCount == 24
+                    && !reviewedCallHandoffProbe.value("operationInvokedByHandoff").toBool(true)
+                    && !reviewedCallHandoffProbe.value("inputBytesCaptured").toBool(true)
+                    && !reviewedCallHandoffProbe.value("outputBytesCaptured").toBool(true)
+                    && !reviewedCallHandoffProbe.value("resultCaptured").toBool(true)
+                    && !reviewedCallHandoffProbe.value("rawKeyExported").toBool(true)
+                    && !reviewedCallHandoffProbe.value("privateMaterialExported").toBool(true),
+                "explicit reviewed provider call handoff should map clean candidates without becoming a release gate") && ok;
     const QJsonObject firstExecutionProbe =
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
     const QJsonObject firstReviewedCandidate =
         reviewedCandidateProbe.value("candidates").toArray().at(0).toObject();
+    const QJsonObject firstReviewedHandoff =
+        reviewedCallHandoffProbe.value("handoffs").toArray().at(0).toObject();
     ok = expect(firstReviewedCandidate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstReviewedCandidate.value("candidateState").toString()
@@ -1236,6 +1282,37 @@ int main() {
                     && !firstExecutionProbe.value("outputBytesCaptured").toBool(true)
                     && !firstExecutionProbe.value("rawKeyExported").toBool(true),
                 "explicit provider invocation probe should report only sanitized status and sizes") && ok;
+    ok = expect(firstReviewedHandoff.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstReviewedHandoff.value("handoffFrameId").toString()
+                        == QStringLiteral("reviewed-call-handoff/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedHandoff.value("handoffReady").toBool(false)
+                    && firstReviewedHandoff.value("handoffState").toString()
+                        == QStringLiteral("ready-for-reviewed-provider-call-handoff")
+                    && !firstReviewedHandoff.value("failClosed").toBool(true)
+                    && firstReviewedHandoff.value("candidateReady").toBool(false)
+                    && firstReviewedHandoff.value("candidateNonReleaseGate").toBool(false)
+                    && firstReviewedHandoff.value("candidateReleaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
+                    && firstReviewedHandoff.value("candidateEntrypointReady").toBool(false)
+                    && firstReviewedHandoff.value("vectorContractReady").toBool(false)
+                    && firstReviewedHandoff.value("outputShapeEvidenceReady").toBool(false)
+                    && firstReviewedHandoff.value("handoffPolicyReady").toBool(false)
+                    && firstReviewedHandoff.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-call-handoff-awaiting-audit-release-gate")
+                    && firstReviewedHandoff.value("inputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstReviewedHandoff.value("outputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstReviewedHandoff.value("resultCapturePolicy").toString()
+                        == QStringLiteral("status-class-and-size-only")
+                    && firstReviewedHandoff.value("materialExportPolicy").toString()
+                        == QStringLiteral("sizes-and-status-only-no-secret-bytes")
+                    && !firstReviewedHandoff.value("operationInvokedByHandoff").toBool(true)
+                    && !firstReviewedHandoff.value("inputBytesCaptured").toBool(true)
+                    && !firstReviewedHandoff.value("outputBytesCaptured").toBool(true)
+                    && !firstReviewedHandoff.value("rawKeyExported").toBool(true),
+                "reviewed call handoff frame should expose only sanitized candidate boundary metadata") && ok;
     const QJsonObject firstProbeExecutionFrame =
         firstExecutionProbe.value("probeExecutionFrame").toObject();
     ok = expect(firstProbeExecutionFrame.value("schema").toString()
