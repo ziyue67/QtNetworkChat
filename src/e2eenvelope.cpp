@@ -367,6 +367,84 @@ QStringList productionOperationOutputContract(E2ECryptoOperation operation) {
     return {};
 }
 
+QString productionProbeFixtureInputClass(E2ECryptoOperation operation) {
+    switch (operation) {
+    case E2ECryptoOperation::SessionKeyGeneration:
+    case E2ECryptoOperation::IdentityKeyGeneration:
+        return QStringLiteral("suite-bound-randomness-fixture");
+    case E2ECryptoOperation::PublicKeyDerivation:
+    case E2ECryptoOperation::AgreementSign:
+        return QStringLiteral("handle-and-transcript-fixture");
+    case E2ECryptoOperation::AgreementVerify:
+        return QStringLiteral("public-identity-signature-fixture");
+    case E2ECryptoOperation::SessionDerive:
+        return QStringLiteral("agreement-transcript-fixture");
+    case E2ECryptoOperation::PayloadEncrypt:
+        return QStringLiteral("payload-encrypt-fixture");
+    case E2ECryptoOperation::PayloadDecrypt:
+        return QStringLiteral("payload-decrypt-fixture");
+    }
+    return QStringLiteral("unknown-fixture");
+}
+
+QString productionProbeExpectedMaterialPolicyClass(E2ECryptoOperation operation) {
+    switch (operation) {
+    case E2ECryptoOperation::SessionKeyGeneration:
+    case E2ECryptoOperation::SessionDerive:
+        return QStringLiteral("handle-only");
+    case E2ECryptoOperation::IdentityKeyGeneration:
+    case E2ECryptoOperation::PublicKeyDerivation:
+    case E2ECryptoOperation::AgreementSign:
+    case E2ECryptoOperation::AgreementVerify:
+        return QStringLiteral("public-export-allowed");
+    case E2ECryptoOperation::PayloadEncrypt:
+    case E2ECryptoOperation::PayloadDecrypt:
+        return QStringLiteral("payload-bytes-allowed");
+    }
+    return QStringLiteral("unknown");
+}
+
+QJsonObject productionProviderProbeVectorContract(const E2ECryptoOperationSpec& spec) {
+    const QStringList inputContract = productionOperationInputContract(spec.operation);
+    const QStringList outputContract = productionOperationOutputContract(spec.operation);
+    const QString inputContractHash =
+        e2eFingerprint(inputContract.join(QLatin1Char('|')).toUtf8());
+    const QString outputContractHash =
+        e2eFingerprint(outputContract.join(QLatin1Char('|')).toUtf8());
+
+    QJsonObject contract;
+    contract[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-probe-vector-contract-v1");
+    contract[QStringLiteral("probeVectorSchema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-probe-vector-v1");
+    contract[QStringLiteral("operation")] = cryptoOperationName(spec.operation);
+    contract[QStringLiteral("vectorSet")] = spec.vectorSet;
+    contract[QStringLiteral("fixtureHashSha256")] = productionHarnessFixtureHash(spec);
+    contract[QStringLiteral("inputContract")] = QJsonArray::fromStringList(inputContract);
+    contract[QStringLiteral("outputContract")] = QJsonArray::fromStringList(outputContract);
+    contract[QStringLiteral("inputContractHashSha256")] = inputContractHash;
+    contract[QStringLiteral("outputContractHashSha256")] = outputContractHash;
+    contract[QStringLiteral("fixtureInputClass")] =
+        productionProbeFixtureInputClass(spec.operation);
+    contract[QStringLiteral("expectedStatusClass")] = QStringLiteral("ok");
+    contract[QStringLiteral("expectedMaterialPolicyClass")] =
+        productionProbeExpectedMaterialPolicyClass(spec.operation);
+    contract[QStringLiteral("expectedFailureClass")] = QStringLiteral("none");
+    contract[QStringLiteral("expectedVectorResultClass")] =
+        QStringLiteral("probe-vector-passed");
+    contract[QStringLiteral("materialExportPolicy")] =
+        QStringLiteral("sizes-and-status-only-no-secret-bytes");
+    contract[QStringLiteral("contractHashReady")] =
+        inputContractHash.size() == FingerprintHexLength
+        && outputContractHash.size() == FingerprintHexLength;
+    contract[QStringLiteral("rawKeyExported")] = false;
+    contract[QStringLiteral("privateMaterialExported")] = false;
+    contract[QStringLiteral("sessionSecretExported")] = false;
+    contract[QStringLiteral("privateIdentityMaterialExported")] = false;
+    contract[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return contract;
+}
+
 QString productionOperationSlotId(E2ECryptoOperation operation) {
     return QStringLiteral("openssl-reviewed-adapter-v1/%1-slot").arg(cryptoOperationName(operation));
 }
@@ -1468,11 +1546,18 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     int vectorPassCount = 0;
     int vectorFailCount = 0;
     int blockedProbeCount = 0;
+    int vectorContractCount = 0;
+    int vectorContractHashCount = 0;
+    int expectedStatusClassMatchCount = 0;
+    int expectedFailureClassMatchCount = 0;
+    int expectedMaterialPolicyClassMatchCount = 0;
     QJsonObject failureClassSummary;
     QJsonObject vectorResultSummary;
     int sequenceIndex = 0;
     for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
         const E2ECryptoOperation operation = spec.operation;
+        const QJsonObject vectorContract =
+            productionProviderProbeVectorContract(spec);
         const qnc_e2e_provider_operation_v1 callback =
             providerOperationPointer(registeredTable, operation);
         const bool pointerPresent = callback != nullptr;
@@ -1531,6 +1616,32 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             : (canInvoke
                 ? QStringLiteral("probe-vector-failed")
                 : QStringLiteral("probe-vector-not-invoked"));
+        const QString expectedStatusClass =
+            vectorContract.value(QStringLiteral("expectedStatusClass")).toString();
+        const QString expectedFailureClass =
+            vectorContract.value(QStringLiteral("expectedFailureClass")).toString();
+        const QString expectedMaterialPolicyClass =
+            vectorContract.value(QStringLiteral("expectedMaterialPolicyClass")).toString();
+        const QString materialPolicyClass = canInvoke
+            ? providerMaterialPolicyClass(output.material_policy)
+            : QStringLiteral("not-invoked");
+        const bool vectorContractReady =
+            vectorContract.value(QStringLiteral("contractHashReady")).toBool(false)
+            && vectorContract.value(QStringLiteral("fixtureHashSha256")).toString().size()
+                == FingerprintHexLength
+            && vectorContract.value(QStringLiteral("inputContract")).toArray().size()
+                == productionOperationInputContract(operation).size()
+            && vectorContract.value(QStringLiteral("outputContract")).toArray().size()
+                == productionOperationOutputContract(operation).size();
+        const bool expectedStatusMatched = canInvoke
+            && statusClass == expectedStatusClass
+            && outputStatusClass == expectedStatusClass;
+        const bool expectedFailureMatched = canInvoke
+            && failureClass == expectedFailureClass;
+        const bool expectedMaterialPolicyMatched = canInvoke
+            && (materialPolicyClass == expectedMaterialPolicyClass
+                || (expectedMaterialPolicyClass != QStringLiteral("handle-only")
+                    && materialPolicyClass == QStringLiteral("handle-only")));
 
         QJsonObject probe;
         probe[QStringLiteral("sequenceIndex")] = sequenceIndex;
@@ -1543,6 +1654,25 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             productionOperationProviderAbiSignature(operation);
         probe[QStringLiteral("vectorSet")] = spec.vectorSet;
         probe[QStringLiteral("fixtureHashSha256")] = productionHarnessFixtureHash(spec);
+        probe[QStringLiteral("probeVectorContract")] = vectorContract;
+        probe[QStringLiteral("probeVectorSchema")] =
+            vectorContract.value(QStringLiteral("probeVectorSchema")).toString();
+        probe[QStringLiteral("inputContractHashSha256")] =
+            vectorContract.value(QStringLiteral("inputContractHashSha256")).toString();
+        probe[QStringLiteral("outputContractHashSha256")] =
+            vectorContract.value(QStringLiteral("outputContractHashSha256")).toString();
+        probe[QStringLiteral("fixtureInputClass")] =
+            vectorContract.value(QStringLiteral("fixtureInputClass")).toString();
+        probe[QStringLiteral("expectedStatusClass")] = expectedStatusClass;
+        probe[QStringLiteral("expectedFailureClass")] = expectedFailureClass;
+        probe[QStringLiteral("expectedMaterialPolicyClass")] = expectedMaterialPolicyClass;
+        probe[QStringLiteral("expectedVectorResultClass")] =
+            vectorContract.value(QStringLiteral("expectedVectorResultClass")).toString();
+        probe[QStringLiteral("vectorContractReady")] = vectorContractReady;
+        probe[QStringLiteral("expectedStatusClassMatched")] = expectedStatusMatched;
+        probe[QStringLiteral("expectedFailureClassMatched")] = expectedFailureMatched;
+        probe[QStringLiteral("expectedMaterialPolicyClassMatched")] =
+            expectedMaterialPolicyMatched;
         probe[QStringLiteral("registered")] = registered;
         probe[QStringLiteral("tableValidationAccepted")] = tableValidationAccepted;
         probe[QStringLiteral("functionPointerPresent")] = pointerPresent;
@@ -1565,10 +1695,7 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
                 ? QStringLiteral("provider-status-consistent")
                 : QStringLiteral("not-invoked"));
         probe[QStringLiteral("sanitizedErrorClass")] = sanitizedErrorClass;
-        probe[QStringLiteral("materialPolicyClass")] =
-            canInvoke
-                ? providerMaterialPolicyClass(output.material_policy)
-                : QStringLiteral("not-invoked");
+        probe[QStringLiteral("materialPolicyClass")] = materialPolicyClass;
         probe[QStringLiteral("knownAnswerPassed")] = okStatus;
         probe[QStringLiteral("roundTripPassed")] = okStatus
             && (operation == E2ECryptoOperation::PayloadEncrypt
@@ -1611,6 +1738,21 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         if (statusMismatch) {
             ++statusMismatchCount;
         }
+        if (vectorContractReady) {
+            ++vectorContractCount;
+        }
+        if (vectorContract.value(QStringLiteral("contractHashReady")).toBool(false)) {
+            ++vectorContractHashCount;
+        }
+        if (expectedStatusMatched) {
+            ++expectedStatusClassMatchCount;
+        }
+        if (expectedFailureMatched) {
+            ++expectedFailureClassMatchCount;
+        }
+        if (expectedMaterialPolicyMatched) {
+            ++expectedMaterialPolicyClassMatchCount;
+        }
         if (okStatus) {
             ++vectorPassCount;
         } else {
@@ -1647,6 +1789,14 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     status[QStringLiteral("statusMismatchCount")] = statusMismatchCount;
     status[QStringLiteral("vectorPassCount")] = vectorPassCount;
     status[QStringLiteral("vectorFailCount")] = vectorFailCount;
+    status[QStringLiteral("vectorContractCount")] = vectorContractCount;
+    status[QStringLiteral("vectorContractHashCount")] = vectorContractHashCount;
+    status[QStringLiteral("expectedStatusClassMatchCount")] =
+        expectedStatusClassMatchCount;
+    status[QStringLiteral("expectedFailureClassMatchCount")] =
+        expectedFailureClassMatchCount;
+    status[QStringLiteral("expectedMaterialPolicyClassMatchCount")] =
+        expectedMaterialPolicyClassMatchCount;
     status[QStringLiteral("failureClassSummary")] = failureClassSummary;
     status[QStringLiteral("vectorResultSummary")] = vectorResultSummary;
     status[QStringLiteral("operatorAction")] =

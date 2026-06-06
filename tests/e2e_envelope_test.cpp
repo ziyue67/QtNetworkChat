@@ -921,6 +921,11 @@ int main() {
                     && invocationExecutionProbe.value("statusMismatchCount").toInt() == 0
                     && invocationExecutionProbe.value("vectorPassCount").toInt() == 8
                     && invocationExecutionProbe.value("vectorFailCount").toInt() == 0
+                    && invocationExecutionProbe.value("vectorContractCount").toInt() == 8
+                    && invocationExecutionProbe.value("vectorContractHashCount").toInt() == 8
+                    && invocationExecutionProbe.value("expectedStatusClassMatchCount").toInt() == 8
+                    && invocationExecutionProbe.value("expectedFailureClassMatchCount").toInt() == 8
+                    && invocationExecutionProbe.value("expectedMaterialPolicyClassMatchCount").toInt() == 8
                     && invocationExecutionProbe.value("failureClassSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("vectorResultSummary").toObject()
@@ -938,6 +943,24 @@ int main() {
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
     ok = expect(firstExecutionProbe.value("operation").toString()
                         == QStringLiteral("session-key-generation")
+                    && firstExecutionProbe.value("probeVectorSchema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-vector-v1")
+                    && firstExecutionProbe.value("inputContractHashSha256").toString().size() == 64
+                    && firstExecutionProbe.value("outputContractHashSha256").toString().size() == 64
+                    && firstExecutionProbe.value("fixtureInputClass").toString()
+                        == QStringLiteral("suite-bound-randomness-fixture")
+                    && firstExecutionProbe.value("expectedStatusClass").toString()
+                        == QStringLiteral("ok")
+                    && firstExecutionProbe.value("expectedFailureClass").toString()
+                        == QStringLiteral("none")
+                    && firstExecutionProbe.value("expectedMaterialPolicyClass").toString()
+                        == QStringLiteral("handle-only")
+                    && firstExecutionProbe.value("expectedVectorResultClass").toString()
+                        == QStringLiteral("probe-vector-passed")
+                    && firstExecutionProbe.value("vectorContractReady").toBool(false)
+                    && firstExecutionProbe.value("expectedStatusClassMatched").toBool(false)
+                    && firstExecutionProbe.value("expectedFailureClassMatched").toBool(false)
+                    && firstExecutionProbe.value("expectedMaterialPolicyClassMatched").toBool(false)
                     && firstExecutionProbe.value("operationInvoked").toBool(false)
                     && firstExecutionProbe.value("resultCaptured").toBool(false)
                     && firstExecutionProbe.value("callbackStatusClass").toString()
@@ -964,10 +987,29 @@ int main() {
                     && !firstExecutionProbe.value("outputBytesCaptured").toBool(true)
                     && !firstExecutionProbe.value("rawKeyExported").toBool(true),
                 "explicit provider invocation probe should report only sanitized status and sizes") && ok;
+    const QJsonObject firstProbeVectorContract =
+        firstExecutionProbe.value("probeVectorContract").toObject();
+    ok = expect(firstProbeVectorContract.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-vector-contract-v1")
+                    && firstProbeVectorContract.value("inputContract").toArray().contains(
+                        QStringLiteral("secure-random-source"))
+                    && firstProbeVectorContract.value("outputContract").toArray().contains(
+                        QStringLiteral("session-key-handle"))
+                    && firstProbeVectorContract.value("contractHashReady").toBool(false)
+                    && firstProbeVectorContract.value("materialExportPolicy").toString()
+                        == QStringLiteral("sizes-and-status-only-no-secret-bytes")
+                    && !firstProbeVectorContract.value("rawKeyExported").toBool(true)
+                    && !firstProbeVectorContract.value("privateMaterialExported").toBool(true),
+                "provider invocation probe vector contract should expose stable sanitized fixture schema") && ok;
     const QJsonObject agreementVerifyProbe =
         invocationExecutionProbe.value("probes").toArray().at(4).toObject();
     ok = expect(agreementVerifyProbe.value("operation").toString()
                         == QStringLiteral("agreement-verify")
+                    && agreementVerifyProbe.value("fixtureInputClass").toString()
+                        == QStringLiteral("public-identity-signature-fixture")
+                    && agreementVerifyProbe.value("expectedMaterialPolicyClass").toString()
+                        == QStringLiteral("public-export-allowed")
+                    && agreementVerifyProbe.value("expectedMaterialPolicyClassMatched").toBool(false)
                     && agreementVerifyProbe.value("knownAnswerPassed").toBool(false)
                     && agreementVerifyProbe.value("roundTripPassed").toBool(false)
                     && agreementVerifyProbe.value("vectorResultClass").toString()
