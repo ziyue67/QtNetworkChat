@@ -799,6 +799,24 @@ int main(int argc, char** argv) {
                         && !rotationProviderInvocationSandbox.value("outputBytesCaptured").toBool(true)
                         && !rotationProviderInvocationSandbox.value("resultCaptured").toBool(true),
                     "production rotation dry-run should embed provider invocation sandbox evidence") && ok;
+        const QJsonObject rotationProviderInvocationVectorResult =
+            rotationDryRun.value("productionProviderInvocationVectorResult").toObject();
+        ok = expect(rotationProviderInvocationVectorResult.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-vector-result-v1")
+                        && rotationProviderInvocationVectorResult.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-vector-result-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderInvocationVectorResultReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-vector-result-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderInvocationVectorResultAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderInvocationVectorResultBlockedVectorResultCount").toInt() == 8
+                        && rotationProviderInvocationVectorResult.value("vectorResults").toArray().size() == 8
+                        && rotationProviderInvocationVectorResult.value("providerInvocationSandboxReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-sandbox-blocked-not-linked")
+                        && !rotationProviderInvocationVectorResult.value("operationInvoked").toBool(true)
+                        && !rotationProviderInvocationVectorResult.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderInvocationVectorResult.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderInvocationVectorResult.value("resultCaptured").toBool(true),
+                    "production rotation dry-run should embed provider invocation vector result evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -1057,6 +1075,20 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderInvocationSandbox").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderInvocationSandbox").toObject()
+                            .value("resultCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationVectorResultReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-vector-result-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderInvocationVectorResultAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationVectorResultBlockedVectorResultCount").toInt() == 8
+                        && rotationExecute.value("productionProviderInvocationVectorResult").toObject()
+                            .value("vectorResults").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderInvocationVectorResult").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && !rotationExecute.value("productionProviderInvocationVectorResult").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderInvocationVectorResult").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderInvocationVectorResult").toObject()
                             .value("resultCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
