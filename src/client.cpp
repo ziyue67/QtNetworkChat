@@ -821,6 +821,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderReviewedExecutionCandidate")).toObject();
     const QJsonObject productionProviderReviewedCallHandoff =
         backendStatus.value(QStringLiteral("productionProviderReviewedCallHandoff")).toObject();
+    const QJsonObject productionProviderReviewedOperationStubBoundary =
+        backendStatus.value(QStringLiteral("productionProviderReviewedOperationStubBoundary")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -1040,6 +1042,16 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderReviewedCallHandoff.value(QStringLiteral("blockedHandoffCount")).toInt();
     dryRun[QStringLiteral("productionProviderReviewedCallHandoffNonReleaseGate")] =
         productionProviderReviewedCallHandoff.value(QStringLiteral("handoffNonReleaseGate")).toBool(false);
+    dryRun[QStringLiteral("productionProviderReviewedOperationStubBoundary")] =
+        productionProviderReviewedOperationStubBoundary;
+    dryRun[QStringLiteral("productionProviderReviewedOperationStubBoundaryReleaseGate")] =
+        productionProviderReviewedOperationStubBoundary.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderReviewedOperationStubBoundaryReadyCount")] =
+        productionProviderReviewedOperationStubBoundary.value(QStringLiteral("readyStubCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedOperationStubBoundaryBlockedCount")] =
+        productionProviderReviewedOperationStubBoundary.value(QStringLiteral("blockedStubCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedOperationStubBoundaryNonReleaseGate")] =
+        productionProviderReviewedOperationStubBoundary.value(QStringLiteral("stubNonReleaseGate")).toBool(false);
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1289,6 +1301,16 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderReviewedCallHandoffBlockedCount")).toInt();
     evidence[QStringLiteral("productionProviderReviewedCallHandoffNonReleaseGate")] =
         dryRun.value(QStringLiteral("productionProviderReviewedCallHandoffNonReleaseGate")).toBool(false);
+    evidence[QStringLiteral("productionProviderReviewedOperationStubBoundary")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationStubBoundary")).toObject();
+    evidence[QStringLiteral("productionProviderReviewedOperationStubBoundaryReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationStubBoundaryReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderReviewedOperationStubBoundaryReadyCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationStubBoundaryReadyCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedOperationStubBoundaryBlockedCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationStubBoundaryBlockedCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedOperationStubBoundaryNonReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationStubBoundaryNonReleaseGate")).toBool(false);
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

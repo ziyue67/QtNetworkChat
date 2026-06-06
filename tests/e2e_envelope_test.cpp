@@ -533,7 +533,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 22
+                        .value("checks").toArray().size() == 23
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -555,7 +555,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 22
+                        .value("checks").toArray().size() == 23
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -625,6 +625,16 @@ int main() {
                         .value("providerReviewedCallHandoff").toObject()
                         .value("releaseGate").toString()
                             == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedOperationStubBoundary").toObject()
+                        .value("stubCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedOperationStubBoundary").toObject()
+                        .value("blockedStubCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedOperationStubBoundary").toObject()
+                        .value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate")
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
@@ -1155,12 +1165,44 @@ int main() {
                     && !reviewedCallHandoffProbe.value("rawKeyExported").toBool(true)
                     && !reviewedCallHandoffProbe.value("privateMaterialExported").toBool(true),
                 "explicit reviewed provider call handoff should map clean candidates without becoming a release gate") && ok;
+    const QJsonObject reviewedOperationStubProbe =
+        e2eProbeProductionCryptoProviderReviewedOperationStubBoundary();
+    ok = expect(reviewedOperationStubProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-stub-boundary-v1")
+                    && !reviewedOperationStubProbe.value("accepted").toBool(true)
+                    && reviewedOperationStubProbe.value("stubNonReleaseGate").toBool(false)
+                    && reviewedOperationStubProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate")
+                    && reviewedOperationStubProbe.value("handoffSourceCaptured").toBool(false)
+                    && reviewedOperationStubProbe.value("stubCount").toInt() == 8
+                    && reviewedOperationStubProbe.value("readyStubCount").toInt() == 8
+                    && reviewedOperationStubProbe.value("blockedStubCount").toInt() == 0
+                    && reviewedOperationStubProbe.value("handoffReadyStubCount").toInt() == 8
+                    && reviewedOperationStubProbe.value("callableBoundaryCount").toInt() == 8
+                    && reviewedOperationStubProbe.value("contractHashStubCount").toInt() == 8
+                    && reviewedOperationStubProbe.value("sanitizedStubCount").toInt() == 8
+                    && reviewedOperationStubProbe.value("failClosedStubCount").toInt() == 0
+                    && reviewedOperationStubProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-stubs-awaiting-audit-release-gate")
+                    && reviewedOperationStubProbe.value("blockedReasonSummary").toObject()
+                        .value("production-provider-reviewed-operation-stubs-awaiting-audit-release-gate").toInt() == 8
+                    && reviewedOperationStubProbe.value("stubs").toArray().size() == 8
+                    && g_probeInvocationCount == 32
+                    && !reviewedOperationStubProbe.value("operationInvokedByStub").toBool(true)
+                    && !reviewedOperationStubProbe.value("inputBytesCaptured").toBool(true)
+                    && !reviewedOperationStubProbe.value("outputBytesCaptured").toBool(true)
+                    && !reviewedOperationStubProbe.value("resultCaptured").toBool(true)
+                    && !reviewedOperationStubProbe.value("rawKeyExported").toBool(true)
+                    && !reviewedOperationStubProbe.value("privateMaterialExported").toBool(true),
+                "explicit reviewed provider operation stubs should map clean handoffs without becoming a release gate") && ok;
     const QJsonObject firstExecutionProbe =
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
     const QJsonObject firstReviewedCandidate =
         reviewedCandidateProbe.value("candidates").toArray().at(0).toObject();
     const QJsonObject firstReviewedHandoff =
         reviewedCallHandoffProbe.value("handoffs").toArray().at(0).toObject();
+    const QJsonObject firstReviewedStub =
+        reviewedOperationStubProbe.value("stubs").toArray().at(0).toObject();
     ok = expect(firstReviewedCandidate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstReviewedCandidate.value("candidateState").toString()
@@ -1313,6 +1355,36 @@ int main() {
                     && !firstReviewedHandoff.value("outputBytesCaptured").toBool(true)
                     && !firstReviewedHandoff.value("rawKeyExported").toBool(true),
                 "reviewed call handoff frame should expose only sanitized candidate boundary metadata") && ok;
+    ok = expect(firstReviewedStub.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstReviewedStub.value("stubBoundaryId").toString()
+                        == QStringLiteral("reviewed-operation-stub/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedStub.value("stubReady").toBool(false)
+                    && firstReviewedStub.value("stubState").toString()
+                        == QStringLiteral("ready-for-reviewed-provider-operation-stub")
+                    && !firstReviewedStub.value("failClosed").toBool(true)
+                    && firstReviewedStub.value("handoffReady").toBool(false)
+                    && firstReviewedStub.value("handoffNonReleaseGate").toBool(false)
+                    && firstReviewedStub.value("callableBoundaryReady").toBool(false)
+                    && firstReviewedStub.value("contractHashReady").toBool(false)
+                    && firstReviewedStub.value("stubPolicyReady").toBool(false)
+                    && firstReviewedStub.value("inputContractHashSha256").toString().size() == 64
+                    && firstReviewedStub.value("outputContractHashSha256").toString().size() == 64
+                    && firstReviewedStub.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-stubs-awaiting-audit-release-gate")
+                    && firstReviewedStub.value("inputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstReviewedStub.value("outputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstReviewedStub.value("resultCapturePolicy").toString()
+                        == QStringLiteral("status-class-and-size-only")
+                    && firstReviewedStub.value("materialExportPolicy").toString()
+                        == QStringLiteral("sizes-and-status-only-no-secret-bytes")
+                    && !firstReviewedStub.value("operationInvokedByStub").toBool(true)
+                    && !firstReviewedStub.value("inputBytesCaptured").toBool(true)
+                    && !firstReviewedStub.value("outputBytesCaptured").toBool(true)
+                    && !firstReviewedStub.value("rawKeyExported").toBool(true),
+                "reviewed operation stub boundary should expose only sanitized callable metadata") && ok;
     const QJsonObject firstProbeExecutionFrame =
         firstExecutionProbe.value("probeExecutionFrame").toObject();
     ok = expect(firstProbeExecutionFrame.value("schema").toString()

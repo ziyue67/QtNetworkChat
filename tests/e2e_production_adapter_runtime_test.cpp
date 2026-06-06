@@ -115,6 +115,8 @@ int main() {
         status.value("productionProviderReviewedExecutionCandidate").toObject();
     const QJsonObject providerReviewedCallHandoff =
         status.value("productionProviderReviewedCallHandoff").toObject();
+    const QJsonObject providerReviewedOperationStubBoundary =
+        status.value("productionProviderReviewedOperationStubBoundary").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -641,6 +643,28 @@ int main() {
                     && !providerReviewedCallHandoff.value("privateMaterialExported").toBool(true)
                     && !providerReviewedCallHandoff.value("sessionSecretExported").toBool(true),
                 "production reviewed call handoff should stay blocked until reviewed candidates exist") && ok;
+    ok = expect(providerReviewedOperationStubBoundary.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-stub-boundary-v1")
+                    && providerReviewedOperationStubBoundary.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate")
+                    && !providerReviewedOperationStubBoundary.value("accepted").toBool(true)
+                    && providerReviewedOperationStubBoundary.value("stubNonReleaseGate").toBool(false)
+                    && !providerReviewedOperationStubBoundary.value("handoffSourceCaptured").toBool(true)
+                    && providerReviewedOperationStubBoundary.value("stubCount").toInt() == 8
+                    && providerReviewedOperationStubBoundary.value("readyStubCount").toInt() == 0
+                    && providerReviewedOperationStubBoundary.value("blockedStubCount").toInt() == 8
+                    && providerReviewedOperationStubBoundary.value("failClosedStubCount").toInt() == 8
+                    && providerReviewedOperationStubBoundary.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-stub-awaiting-handoff")
+                    && providerReviewedOperationStubBoundary.value("stubs").toArray().size() == 8
+                    && !providerReviewedOperationStubBoundary.value("operationInvokedByStub").toBool(true)
+                    && !providerReviewedOperationStubBoundary.value("inputBytesCaptured").toBool(true)
+                    && !providerReviewedOperationStubBoundary.value("outputBytesCaptured").toBool(true)
+                    && !providerReviewedOperationStubBoundary.value("resultCaptured").toBool(true)
+                    && !providerReviewedOperationStubBoundary.value("rawKeyExported").toBool(true)
+                    && !providerReviewedOperationStubBoundary.value("privateMaterialExported").toBool(true)
+                    && !providerReviewedOperationStubBoundary.value("sessionSecretExported").toBool(true),
+                "production reviewed operation stub boundary should stay blocked until handoff evidence exists") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

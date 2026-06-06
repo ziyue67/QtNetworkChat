@@ -874,6 +874,26 @@ int main(int argc, char** argv) {
                         && !rotationProviderReviewedCallHandoff.value("rawKeyExported").toBool(true)
                         && !rotationProviderReviewedCallHandoff.value("privateMaterialExported").toBool(true),
                     "production rotation dry-run should embed reviewed call handoff evidence without invoking provider callbacks") && ok;
+        const QJsonObject rotationProviderReviewedOperationStubBoundary =
+            rotationDryRun.value("productionProviderReviewedOperationStubBoundary").toObject();
+        ok = expect(rotationProviderReviewedOperationStubBoundary.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-stub-boundary-v1")
+                        && rotationProviderReviewedOperationStubBoundary.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedOperationStubBoundaryReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedOperationStubBoundaryNonReleaseGate").toBool(false)
+                        && rotationDryRun.value("productionProviderReviewedOperationStubBoundaryReadyCount").toInt() == 0
+                        && rotationDryRun.value("productionProviderReviewedOperationStubBoundaryBlockedCount").toInt() == 8
+                        && !rotationProviderReviewedOperationStubBoundary.value("handoffSourceCaptured").toBool(true)
+                        && rotationProviderReviewedOperationStubBoundary.value("stubs").toArray().size() == 8
+                        && !rotationProviderReviewedOperationStubBoundary.value("operationInvokedByStub").toBool(true)
+                        && !rotationProviderReviewedOperationStubBoundary.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedOperationStubBoundary.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedOperationStubBoundary.value("resultCaptured").toBool(true)
+                        && !rotationProviderReviewedOperationStubBoundary.value("rawKeyExported").toBool(true)
+                        && !rotationProviderReviewedOperationStubBoundary.value("privateMaterialExported").toBool(true),
+                    "production rotation dry-run should embed reviewed operation stub evidence without invoking provider callbacks") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -1190,6 +1210,21 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderReviewedCallHandoff").toObject()
                             .value("inputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderReviewedCallHandoff").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderReviewedOperationStubBoundaryReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate")
+                        && rotationExecute.value("productionProviderReviewedOperationStubBoundaryNonReleaseGate").toBool(false)
+                        && rotationExecute.value("productionProviderReviewedOperationStubBoundaryReadyCount").toInt() == 0
+                        && rotationExecute.value("productionProviderReviewedOperationStubBoundaryBlockedCount").toInt() == 8
+                        && rotationExecute.value("productionProviderReviewedOperationStubBoundary").toObject()
+                            .value("stubs").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderReviewedOperationStubBoundary").toObject()
+                            .value("handoffSourceCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedOperationStubBoundary").toObject()
+                            .value("operationInvokedByStub").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedOperationStubBoundary").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedOperationStubBoundary").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
