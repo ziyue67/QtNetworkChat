@@ -60,6 +60,29 @@ qnc_e2e_status_t dummyProviderOperation(const qnc_e2e_operation_input_v1*,
                                         qnc_e2e_operation_output_v1*) {
     return QNC_E2E_STATUS_UNSUPPORTED;
 }
+
+int g_probeInvocationCount = 0;
+
+qnc_e2e_status_t countingProviderOperation(const qnc_e2e_operation_input_v1* input,
+                                           qnc_e2e_operation_output_v1* output) {
+    if (!input || !output) {
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    if (input->operation < QNC_E2E_OPERATION_SESSION_KEY_GENERATION
+        || input->operation > QNC_E2E_OPERATION_PAYLOAD_DECRYPT
+        || !input->suite_id) {
+        output->status = QNC_E2E_STATUS_INVALID_INPUT;
+        output->sanitized_error_class = "invalid-input";
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    ++g_probeInvocationCount;
+    output->status = QNC_E2E_STATUS_OK;
+    output->material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+    output->public_output = {};
+    output->sealed_output = {};
+    output->sanitized_error_class = "ok";
+    return QNC_E2E_STATUS_OK;
+}
 }
 
 int main() {
@@ -870,6 +893,62 @@ int main() {
                         .value("allOperationPointersPresent").toBool(true),
                 "provider table registration should fail closed when a required operation pointer is missing") && ok;
     completeProviderTable.payload_decrypt = dummyProviderOperation;
+    qnc_e2e_provider_table_v1 countingProviderTable = completeProviderTable;
+    countingProviderTable.session_key_generation = countingProviderOperation;
+    countingProviderTable.identity_key_generation = countingProviderOperation;
+    countingProviderTable.public_key_derivation = countingProviderOperation;
+    countingProviderTable.agreement_sign = countingProviderOperation;
+    countingProviderTable.agreement_verify = countingProviderOperation;
+    countingProviderTable.session_derive = countingProviderOperation;
+    countingProviderTable.payload_encrypt = countingProviderOperation;
+    countingProviderTable.payload_decrypt = countingProviderOperation;
+    g_probeInvocationCount = 0;
+    const QJsonObject registeredCountingProviderTable =
+        e2eRegisterProductionProviderTable(&countingProviderTable);
+    const QJsonObject invocationExecutionProbe =
+        e2eProbeProductionCryptoProviderInvocationExecution();
+    ok = expect(registeredCountingProviderTable.value("registered").toBool(false)
+                    && registeredCountingProviderTable.value("tableValidationAccepted").toBool(false)
+                    && invocationExecutionProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-execution-probe-v1")
+                    && !invocationExecutionProbe.value("accepted").toBool(true)
+                    && invocationExecutionProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-invocation-execution-probe-not-release-gate")
+                    && invocationExecutionProbe.value("invokedOperationCount").toInt() == 8
+                    && invocationExecutionProbe.value("capturedResultCount").toInt() == 8
+                    && invocationExecutionProbe.value("sanitizedProbeCount").toInt() == 8
+                    && invocationExecutionProbe.value("okStatusCount").toInt() == 8
+                    && invocationExecutionProbe.value("blockedProbeCount").toInt() == 0
+                    && invocationExecutionProbe.value("probes").toArray().size() == 8
+                    && g_probeInvocationCount == 8
+                    && invocationExecutionProbe.value("providerInvocationExecutionAccepted").toBool(true) == false
+                    && !invocationExecutionProbe.value("inputBytesCaptured").toBool(true)
+                    && !invocationExecutionProbe.value("outputBytesCaptured").toBool(true)
+                    && !invocationExecutionProbe.value("rawKeyExported").toBool(true)
+                    && !invocationExecutionProbe.value("privateMaterialExported").toBool(true),
+                "explicit provider invocation execution probe should call registered stub operations without becoming a release gate") && ok;
+    const QJsonObject firstExecutionProbe =
+        invocationExecutionProbe.value("probes").toArray().at(0).toObject();
+    ok = expect(firstExecutionProbe.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstExecutionProbe.value("operationInvoked").toBool(false)
+                    && firstExecutionProbe.value("resultCaptured").toBool(false)
+                    && firstExecutionProbe.value("callbackStatusClass").toString()
+                        == QStringLiteral("ok")
+                    && firstExecutionProbe.value("outputStatusClass").toString()
+                        == QStringLiteral("ok")
+                    && firstExecutionProbe.value("sanitizedErrorClass").toString()
+                        == QStringLiteral("ok")
+                    && firstExecutionProbe.value("materialPolicyClass").toString()
+                        == QStringLiteral("handle-only")
+                    && firstExecutionProbe.value("probeState").toString()
+                        == QStringLiteral("invoked-through-registered-provider-table")
+                    && firstExecutionProbe.value("materialExportProof").toString()
+                        == QStringLiteral("sizes-and-status-only-no-secret-bytes")
+                    && !firstExecutionProbe.value("inputBytesCaptured").toBool(true)
+                    && !firstExecutionProbe.value("outputBytesCaptured").toBool(true)
+                    && !firstExecutionProbe.value("rawKeyExported").toBool(true),
+                "explicit provider invocation probe should report only sanitized status and sizes") && ok;
     completeProviderTable.abi = "bad-abi";
     const QJsonObject badAbiTable =
         e2eValidateProductionProviderTable(&completeProviderTable);
