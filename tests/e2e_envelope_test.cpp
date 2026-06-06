@@ -926,6 +926,9 @@ int main() {
                     && invocationExecutionProbe.value("expectedStatusClassMatchCount").toInt() == 8
                     && invocationExecutionProbe.value("expectedFailureClassMatchCount").toInt() == 8
                     && invocationExecutionProbe.value("expectedMaterialPolicyClassMatchCount").toInt() == 8
+                    && invocationExecutionProbe.value("executionFrameCount").toInt() == 8
+                    && invocationExecutionProbe.value("executionFrameSanitizedCount").toInt() == 8
+                    && invocationExecutionProbe.value("executionFrameResultCapturedCount").toInt() == 8
                     && invocationExecutionProbe.value("failureClassSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("vectorResultSummary").toObject()
@@ -945,6 +948,17 @@ int main() {
                         == QStringLiteral("session-key-generation")
                     && firstExecutionProbe.value("probeVectorSchema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-vector-v1")
+                    && firstExecutionProbe.value("probeExecutionFrameSchema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-execution-frame-v1")
+                    && firstExecutionProbe.value("probeExecutionEntryPoint").toString()
+                        == QStringLiteral("qnc_e2e_provider_table_v1/qnc_e2e_op_session_key_generation_v1")
+                    && firstExecutionProbe.value("probeExecutionInputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstExecutionProbe.value("probeExecutionOutputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstExecutionProbe.value("probeExecutionResultCapturePolicy").toString()
+                        == QStringLiteral("status-class-and-size-only")
+                    && firstExecutionProbe.value("probeExecutionFrameSanitized").toBool(false)
                     && firstExecutionProbe.value("inputContractHashSha256").toString().size() == 64
                     && firstExecutionProbe.value("outputContractHashSha256").toString().size() == 64
                     && firstExecutionProbe.value("fixtureInputClass").toString()
@@ -987,6 +1001,31 @@ int main() {
                     && !firstExecutionProbe.value("outputBytesCaptured").toBool(true)
                     && !firstExecutionProbe.value("rawKeyExported").toBool(true),
                 "explicit provider invocation probe should report only sanitized status and sizes") && ok;
+    const QJsonObject firstProbeExecutionFrame =
+        firstExecutionProbe.value("probeExecutionFrame").toObject();
+    ok = expect(firstProbeExecutionFrame.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-execution-frame-v1")
+                    && firstProbeExecutionFrame.value("operationInvoked").toBool(false)
+                    && firstProbeExecutionFrame.value("inputBytesAttached").toBool(false)
+                    && !firstProbeExecutionFrame.value("inputBytesCaptured").toBool(true)
+                    && !firstProbeExecutionFrame.value("outputBytesCaptured").toBool(true)
+                    && firstProbeExecutionFrame.value("resultCaptured").toBool(false)
+                    && firstProbeExecutionFrame.value("primaryInputSize").toInt() == 26
+                    && firstProbeExecutionFrame.value("secondaryInputSize").toInt() == 28
+                    && firstProbeExecutionFrame.value("aadInputSize").toInt() == 22
+                    && firstProbeExecutionFrame.value("timeoutPolicy").toString()
+                        == QStringLiteral("bounded-explicit-test-probe")
+                    && firstProbeExecutionFrame.value("errorPolicy").toString()
+                        == QStringLiteral("status-class-only")
+                    && firstProbeExecutionFrame.value("materialExportPolicy").toString()
+                        == QStringLiteral("sizes-and-status-only-no-secret-bytes")
+                    && firstProbeExecutionFrame.value("callbackStatusClass").toString()
+                        == QStringLiteral("ok")
+                    && firstProbeExecutionFrame.value("vectorResultClass").toString()
+                        == QStringLiteral("probe-vector-passed")
+                    && !firstProbeExecutionFrame.value("rawKeyExported").toBool(true)
+                    && !firstProbeExecutionFrame.value("sessionSecretExported").toBool(true),
+                "provider invocation probe execution frame should expose only sanitized call evidence") && ok;
     const QJsonObject firstProbeVectorContract =
         firstExecutionProbe.value("probeVectorContract").toObject();
     ok = expect(firstProbeVectorContract.value("schema").toString()

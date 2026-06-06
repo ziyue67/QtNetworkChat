@@ -297,6 +297,8 @@ QJsonObject productionProviderExecutionPathStatusForDescriptor(const E2ECryptoAd
 QJsonObject productionProviderInvocationSandboxStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
 QJsonObject productionProviderInvocationVectorResultStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
 QJsonObject productionProviderInvocationExecutionStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
+QString productionOperationProviderSymbol(E2ECryptoOperation operation);
+QString productionOperationProviderAbiSignature(E2ECryptoOperation operation);
 
 QStringList productionOperationInputContract(E2ECryptoOperation operation) {
     switch (operation) {
@@ -443,6 +445,79 @@ QJsonObject productionProviderProbeVectorContract(const E2ECryptoOperationSpec& 
     contract[QStringLiteral("privateIdentityMaterialExported")] = false;
     contract[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
     return contract;
+}
+
+QJsonObject productionProviderProbeExecutionFrame(const E2ECryptoOperationSpec& spec,
+                                                  const E2ECryptoAdapterDescriptor& descriptor,
+                                                  const QJsonObject& vectorContract,
+                                                  bool canInvoke,
+                                                  const QString& statusClass,
+                                                  const QString& outputStatusClass,
+                                                  const QString& failureClass,
+                                                  const QString& vectorResultClass,
+                                                  qint64 primarySize,
+                                                  qint64 secondarySize,
+                                                  qint64 aadSize,
+                                                  qint64 publicOutputSize,
+                                                  qint64 sealedOutputSize) {
+    QJsonObject frame;
+    frame[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-probe-execution-frame-v1");
+    frame[QStringLiteral("operation")] = cryptoOperationName(spec.operation);
+    frame[QStringLiteral("backendId")] = descriptor.id;
+    frame[QStringLiteral("providerId")] = descriptor.providerId;
+    frame[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    frame[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(spec.operation);
+    frame[QStringLiteral("providerAbiSignature")] =
+        productionOperationProviderAbiSignature(spec.operation);
+    frame[QStringLiteral("executionEntryPoint")] =
+        QStringLiteral("qnc_e2e_provider_table_v1/%1")
+            .arg(productionOperationProviderSymbol(spec.operation));
+    frame[QStringLiteral("probeVectorSchema")] =
+        vectorContract.value(QStringLiteral("probeVectorSchema")).toString();
+    frame[QStringLiteral("fixtureHashSha256")] = productionHarnessFixtureHash(spec);
+    frame[QStringLiteral("inputContractHashSha256")] =
+        vectorContract.value(QStringLiteral("inputContractHashSha256")).toString();
+    frame[QStringLiteral("outputContractHashSha256")] =
+        vectorContract.value(QStringLiteral("outputContractHashSha256")).toString();
+    frame[QStringLiteral("fixtureInputClass")] =
+        vectorContract.value(QStringLiteral("fixtureInputClass")).toString();
+    frame[QStringLiteral("suiteIdClass")] = QStringLiteral("advertised-suite-id");
+    frame[QStringLiteral("primaryInputClass")] = QStringLiteral("fixed-probe-primary-fixture");
+    frame[QStringLiteral("secondaryInputClass")] = QStringLiteral("fixed-probe-secondary-fixture");
+    frame[QStringLiteral("aadInputClass")] = QStringLiteral("fixed-probe-aad-fixture");
+    frame[QStringLiteral("primaryInputSize")] = primarySize;
+    frame[QStringLiteral("secondaryInputSize")] = secondarySize;
+    frame[QStringLiteral("aadInputSize")] = aadSize;
+    frame[QStringLiteral("publicOutputSize")] = publicOutputSize;
+    frame[QStringLiteral("sealedOutputSize")] = sealedOutputSize;
+    frame[QStringLiteral("timeoutPolicy")] = QStringLiteral("bounded-explicit-test-probe");
+    frame[QStringLiteral("errorPolicy")] = QStringLiteral("status-class-only");
+    frame[QStringLiteral("inputCapturePolicy")] = QStringLiteral("size-and-class-only");
+    frame[QStringLiteral("outputCapturePolicy")] = QStringLiteral("size-and-class-only");
+    frame[QStringLiteral("resultCapturePolicy")] = QStringLiteral("status-class-and-size-only");
+    frame[QStringLiteral("materialExportPolicy")] =
+        QStringLiteral("sizes-and-status-only-no-secret-bytes");
+    frame[QStringLiteral("operationInvoked")] = canInvoke;
+    frame[QStringLiteral("inputBytesAttached")] = canInvoke;
+    frame[QStringLiteral("inputBytesCaptured")] = false;
+    frame[QStringLiteral("outputBytesCaptured")] = false;
+    frame[QStringLiteral("resultCaptured")] = canInvoke;
+    frame[QStringLiteral("callbackStatusClass")] = statusClass;
+    frame[QStringLiteral("outputStatusClass")] = outputStatusClass;
+    frame[QStringLiteral("failureClass")] = failureClass;
+    frame[QStringLiteral("vectorResultClass")] = vectorResultClass;
+    frame[QStringLiteral("sanitized")] =
+        !statusClass.isEmpty()
+        && !outputStatusClass.isEmpty()
+        && !failureClass.isEmpty()
+        && !vectorResultClass.isEmpty();
+    frame[QStringLiteral("rawKeyExported")] = false;
+    frame[QStringLiteral("privateMaterialExported")] = false;
+    frame[QStringLiteral("sessionSecretExported")] = false;
+    frame[QStringLiteral("privateIdentityMaterialExported")] = false;
+    frame[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return frame;
 }
 
 QString productionOperationSlotId(E2ECryptoOperation operation) {
@@ -1551,6 +1626,9 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     int expectedStatusClassMatchCount = 0;
     int expectedFailureClassMatchCount = 0;
     int expectedMaterialPolicyClassMatchCount = 0;
+    int executionFrameCount = 0;
+    int executionFrameSanitizedCount = 0;
+    int executionFrameResultCapturedCount = 0;
     QJsonObject failureClassSummary;
     QJsonObject vectorResultSummary;
     int sequenceIndex = 0;
@@ -1642,6 +1720,24 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             && (materialPolicyClass == expectedMaterialPolicyClass
                 || (expectedMaterialPolicyClass != QStringLiteral("handle-only")
                     && materialPolicyClass == QStringLiteral("handle-only")));
+        const QJsonObject executionFrame =
+            productionProviderProbeExecutionFrame(spec,
+                                                  descriptor,
+                                                  vectorContract,
+                                                  canInvoke,
+                                                  statusClass,
+                                                  outputStatusClass,
+                                                  failureClass,
+                                                  vectorResultClass,
+                                                  static_cast<qint64>(input.primary.size),
+                                                  static_cast<qint64>(input.secondary.size),
+                                                  static_cast<qint64>(input.aad.size),
+                                                  canInvoke
+                                                      ? static_cast<qint64>(output.public_output.size)
+                                                      : 0,
+                                                  canInvoke
+                                                      ? static_cast<qint64>(output.sealed_output.size)
+                                                      : 0);
 
         QJsonObject probe;
         probe[QStringLiteral("sequenceIndex")] = sequenceIndex;
@@ -1655,6 +1751,19 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         probe[QStringLiteral("vectorSet")] = spec.vectorSet;
         probe[QStringLiteral("fixtureHashSha256")] = productionHarnessFixtureHash(spec);
         probe[QStringLiteral("probeVectorContract")] = vectorContract;
+        probe[QStringLiteral("probeExecutionFrame")] = executionFrame;
+        probe[QStringLiteral("probeExecutionFrameSchema")] =
+            executionFrame.value(QStringLiteral("schema")).toString();
+        probe[QStringLiteral("probeExecutionEntryPoint")] =
+            executionFrame.value(QStringLiteral("executionEntryPoint")).toString();
+        probe[QStringLiteral("probeExecutionInputCapturePolicy")] =
+            executionFrame.value(QStringLiteral("inputCapturePolicy")).toString();
+        probe[QStringLiteral("probeExecutionOutputCapturePolicy")] =
+            executionFrame.value(QStringLiteral("outputCapturePolicy")).toString();
+        probe[QStringLiteral("probeExecutionResultCapturePolicy")] =
+            executionFrame.value(QStringLiteral("resultCapturePolicy")).toString();
+        probe[QStringLiteral("probeExecutionFrameSanitized")] =
+            executionFrame.value(QStringLiteral("sanitized")).toBool(false);
         probe[QStringLiteral("probeVectorSchema")] =
             vectorContract.value(QStringLiteral("probeVectorSchema")).toString();
         probe[QStringLiteral("inputContractHashSha256")] =
@@ -1753,6 +1862,16 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         if (expectedMaterialPolicyMatched) {
             ++expectedMaterialPolicyClassMatchCount;
         }
+        if (executionFrame.value(QStringLiteral("schema")).toString()
+            == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-execution-frame-v1")) {
+            ++executionFrameCount;
+        }
+        if (executionFrame.value(QStringLiteral("sanitized")).toBool(false)) {
+            ++executionFrameSanitizedCount;
+        }
+        if (executionFrame.value(QStringLiteral("resultCaptured")).toBool(false)) {
+            ++executionFrameResultCapturedCount;
+        }
         if (okStatus) {
             ++vectorPassCount;
         } else {
@@ -1797,6 +1916,10 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         expectedFailureClassMatchCount;
     status[QStringLiteral("expectedMaterialPolicyClassMatchCount")] =
         expectedMaterialPolicyClassMatchCount;
+    status[QStringLiteral("executionFrameCount")] = executionFrameCount;
+    status[QStringLiteral("executionFrameSanitizedCount")] = executionFrameSanitizedCount;
+    status[QStringLiteral("executionFrameResultCapturedCount")] =
+        executionFrameResultCapturedCount;
     status[QStringLiteral("failureClassSummary")] = failureClassSummary;
     status[QStringLiteral("vectorResultSummary")] = vectorResultSummary;
     status[QStringLiteral("operatorAction")] =
