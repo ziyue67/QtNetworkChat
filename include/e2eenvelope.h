@@ -67,6 +67,7 @@ QJsonObject e2eProductionCryptoProviderInvocationDryRunStatus();
 QJsonObject e2eProductionCryptoProviderInvocationResultStatus();
 QJsonObject e2eProductionCryptoProviderExecutionDecisionStatus();
 QJsonObject e2eProductionCryptoProviderCallbackHarnessStatus();
+QJsonObject e2eProductionCryptoProviderVectorSelfTestStatus();
 QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table);
 QJsonObject e2eRegisterProductionProviderTable(const qnc_e2e_provider_table_v1* table);
 QByteArray generateE2ESessionKey();

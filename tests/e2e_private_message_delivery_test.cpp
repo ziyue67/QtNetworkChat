@@ -727,6 +727,24 @@ int main(int argc, char** argv) {
                         && !rotationProviderCallbackHarness.value("outputBytesCaptured").toBool(true)
                         && !rotationProviderCallbackHarness.value("resultCaptured").toBool(true),
                     "production rotation dry-run should embed provider callback harness evidence") && ok;
+        const QJsonObject rotationProviderVectorSelfTest =
+            rotationDryRun.value("productionProviderVectorSelfTest").toObject();
+        ok = expect(rotationProviderVectorSelfTest.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-vector-self-test-v1")
+                        && rotationProviderVectorSelfTest.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-vector-self-test-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderVectorSelfTestReleaseGate").toString()
+                            == QStringLiteral("production-provider-vector-self-test-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderVectorSelfTestAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderVectorSelfTestBlockedVectorCount").toInt() == 8
+                        && rotationProviderVectorSelfTest.value("tests").toArray().size() == 8
+                        && rotationProviderVectorSelfTest.value("providerCallbackHarnessReleaseGate").toString()
+                            == QStringLiteral("production-provider-callback-harness-blocked-not-linked")
+                        && !rotationProviderVectorSelfTest.value("operationInvoked").toBool(true)
+                        && !rotationProviderVectorSelfTest.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderVectorSelfTest.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderVectorSelfTest.value("resultCaptured").toBool(true),
+                    "production rotation dry-run should embed provider vector self-test evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -929,6 +947,20 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderCallbackHarness").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderCallbackHarness").toObject()
+                            .value("resultCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderVectorSelfTestReleaseGate").toString()
+                            == QStringLiteral("production-provider-vector-self-test-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderVectorSelfTestAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderVectorSelfTestBlockedVectorCount").toInt() == 8
+                        && rotationExecute.value("productionProviderVectorSelfTest").toObject()
+                            .value("tests").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderVectorSelfTest").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && !rotationExecute.value("productionProviderVectorSelfTest").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderVectorSelfTest").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderVectorSelfTest").toObject()
                             .value("resultCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)

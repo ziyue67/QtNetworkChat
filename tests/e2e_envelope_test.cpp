@@ -115,6 +115,8 @@ int main() {
         backendStatus.value("productionProviderExecutionDecision").toObject();
     const QJsonObject productionProviderCallbackHarness =
         backendStatus.value("productionProviderCallbackHarness").toObject();
+    const QJsonObject productionProviderVectorSelfTest =
+        backendStatus.value("productionProviderVectorSelfTest").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -312,6 +314,20 @@ int main() {
                     && !productionProviderCallbackHarness.value("inputBytesCaptured").toBool(true)
                     && !productionProviderCallbackHarness.value("outputBytesCaptured").toBool(true)
                     && !productionProviderCallbackHarness.value("resultCaptured").toBool(true)
+                    && productionProviderVectorSelfTest.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-vector-self-test-v1")
+                    && productionProviderVectorSelfTest.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-vector-self-test-blocked-not-linked")
+                    && productionProviderVectorSelfTest.value("blockedVectorCount").toInt() == 8
+                    && productionProviderVectorSelfTest.value("passedVectorCount").toInt() == 0
+                    && productionProviderVectorSelfTest.value("knownAnswerReadyCount").toInt() == 0
+                    && productionProviderVectorSelfTest.value("sanitizedVectorCount").toInt() == 8
+                    && productionProviderVectorSelfTest.value("materialExportProofCount").toInt() == 8
+                    && productionProviderVectorSelfTest.value("tests").toArray().size() == 8
+                    && !productionProviderVectorSelfTest.value("operationInvoked").toBool(true)
+                    && !productionProviderVectorSelfTest.value("inputBytesCaptured").toBool(true)
+                    && !productionProviderVectorSelfTest.value("outputBytesCaptured").toBool(true)
+                    && !productionProviderVectorSelfTest.value("resultCaptured").toBool(true)
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -323,7 +339,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 14
+                        .value("checks").toArray().size() == 15
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -345,7 +361,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 14
+                        .value("checks").toArray().size() == 15
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -503,6 +519,30 @@ int main() {
                     && !firstProviderCallback.value("rawKeyExported").toBool(true)
                     && !firstProviderCallback.value("privateMaterialExported").toBool(true),
                 "production provider callback harness should stay sanitized and fail closed") && ok;
+    const QJsonObject firstProviderVectorSelfTest =
+        productionProviderVectorSelfTest.value("tests").toArray().at(0).toObject();
+    ok = expect(firstProviderVectorSelfTest.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstProviderVectorSelfTest.value("vectorSet").toString()
+                        == QStringLiteral("production-session-key-generation-vectors-v1")
+                    && firstProviderVectorSelfTest.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstProviderVectorSelfTest.value("vectorExecutionState").toString()
+                        == QStringLiteral("blocked-not-linked")
+                    && firstProviderVectorSelfTest.value("providerCallbackHarnessReleaseGate").toString()
+                        == QStringLiteral("production-provider-callback-harness-blocked-not-linked")
+                    && !firstProviderVectorSelfTest.value("knownAnswerVectorReady").toBool(true)
+                    && !firstProviderVectorSelfTest.value("roundTripVectorReady").toBool(true)
+                    && !firstProviderVectorSelfTest.value("knownAnswerPassed").toBool(true)
+                    && !firstProviderVectorSelfTest.value("roundTripPassed").toBool(true)
+                    && !firstProviderVectorSelfTest.value("vectorPassed").toBool(true)
+                    && !firstProviderVectorSelfTest.value("operationInvoked").toBool(true)
+                    && !firstProviderVectorSelfTest.value("inputBytesCaptured").toBool(true)
+                    && !firstProviderVectorSelfTest.value("outputBytesCaptured").toBool(true)
+                    && !firstProviderVectorSelfTest.value("resultCaptured").toBool(true)
+                    && !firstProviderVectorSelfTest.value("rawKeyExported").toBool(true)
+                    && !firstProviderVectorSelfTest.value("privateMaterialExported").toBool(true),
+                "production provider vector self-test should expose fixtures without invoking provider callbacks") && ok;
     const QJsonObject firstProviderCallFrame =
         productionProviderCallFrame.value("frames").toArray().at(0).toObject();
     ok = expect(firstProviderCallFrame.value("operation").toString()

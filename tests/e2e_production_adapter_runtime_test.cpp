@@ -99,6 +99,8 @@ int main() {
         status.value("productionProviderExecutionDecision").toObject();
     const QJsonObject providerCallbackHarness =
         status.value("productionProviderCallbackHarness").toObject();
+    const QJsonObject providerVectorSelfTest =
+        status.value("productionProviderVectorSelfTest").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -440,6 +442,28 @@ int main() {
                     && !providerCallbackHarness.value("rawKeyExported").toBool(true)
                     && !providerCallbackHarness.value("privateMaterialExported").toBool(true),
                 "production provider callback harness should distinguish not-linked from linked-placeholder gates") && ok;
+    ok = expect(providerVectorSelfTest.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-vector-self-test-v1")
+                    && providerVectorSelfTest.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-vector-self-test-blocked-placeholder")
+                            : QStringLiteral("production-provider-vector-self-test-blocked-not-linked"))
+                    && !providerVectorSelfTest.value("accepted").toBool(true)
+                    && providerVectorSelfTest.value("passedVectorCount").toInt() == 0
+                    && providerVectorSelfTest.value("blockedVectorCount").toInt() == 8
+                    && providerVectorSelfTest.value("knownAnswerReadyCount").toInt() == 0
+                    && providerVectorSelfTest.value("sanitizedVectorCount").toInt() == 8
+                    && providerVectorSelfTest.value("materialExportProofCount").toInt() == 8
+                    && providerVectorSelfTest.value("tests").toArray().size() == 8
+                    && providerVectorSelfTest.value("providerCallbackHarnessReleaseGate").toString()
+                        == providerCallbackHarness.value("releaseGate").toString()
+                    && !providerVectorSelfTest.value("operationInvoked").toBool(true)
+                    && !providerVectorSelfTest.value("inputBytesCaptured").toBool(true)
+                    && !providerVectorSelfTest.value("outputBytesCaptured").toBool(true)
+                    && !providerVectorSelfTest.value("resultCaptured").toBool(true)
+                    && !providerVectorSelfTest.value("rawKeyExported").toBool(true)
+                    && !providerVectorSelfTest.value("privateMaterialExported").toBool(true),
+                "production provider vector self-test should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

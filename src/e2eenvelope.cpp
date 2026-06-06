@@ -291,6 +291,7 @@ QJsonObject productionProviderInvocationDryRunStatusForDescriptor(const E2ECrypt
 QJsonObject productionProviderInvocationResultStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
 QJsonObject productionProviderExecutionDecisionStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
 QJsonObject productionProviderCallbackHarnessStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
+QJsonObject productionProviderVectorSelfTestStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor);
 
 QStringList productionOperationInputContract(E2ECryptoOperation operation) {
     switch (operation) {
@@ -2420,6 +2421,183 @@ QJsonObject productionProviderCallbackHarnessStatusForDescriptor(const E2ECrypto
     return status;
 }
 
+QJsonObject productionProviderVectorSelfTestStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
+    const QJsonObject callbackHarness =
+        productionProviderCallbackHarnessStatusForDescriptor(descriptor);
+    const QJsonArray callbacks =
+        callbackHarness.value(QStringLiteral("callbacks")).toArray();
+
+    QJsonArray tests;
+    int passedVectorCount = 0;
+    int blockedVectorCount = 0;
+    int knownAnswerReadyCount = 0;
+    int roundTripReadyCount = 0;
+    int sanitizedVectorCount = 0;
+    int materialExportProofCount = 0;
+    int sequenceIndex = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const E2ECryptoOperation operation = spec.operation;
+        const QJsonObject callback = sequenceIndex < callbacks.size()
+            ? callbacks.at(sequenceIndex).toObject()
+            : QJsonObject();
+        const bool harnessAccepted =
+            callbackHarness.value(QStringLiteral("accepted")).toBool(false);
+        const bool callbackArmed =
+            callback.value(QStringLiteral("callbackHarnessArmed")).toBool(false);
+        const bool noSensitiveExport =
+            !callback.value(QStringLiteral("rawKeyExported")).toBool(true)
+            && !callback.value(QStringLiteral("privateMaterialExported")).toBool(true)
+            && !callback.value(QStringLiteral("sessionSecretExported")).toBool(true)
+            && !callback.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
+            && !callback.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true);
+        const bool knownAnswerReady = descriptor.productionReady
+            && harnessAccepted
+            && callbackArmed
+            && noSensitiveExport;
+        const bool roundTripReady = knownAnswerReady
+            && (operation == E2ECryptoOperation::PayloadEncrypt
+                || operation == E2ECryptoOperation::PayloadDecrypt
+                || operation == E2ECryptoOperation::SessionDerive
+                || operation == E2ECryptoOperation::AgreementVerify);
+        const bool vectorPassed = knownAnswerReady
+            && noSensitiveExport
+            && callback.value(QStringLiteral("providerSymbol")).toString()
+                == productionOperationProviderSymbol(operation);
+        const bool sanitized = noSensitiveExport;
+
+        QJsonObject test;
+        test[QStringLiteral("sequenceIndex")] = sequenceIndex;
+        test[QStringLiteral("operation")] = cryptoOperationName(operation);
+        test[QStringLiteral("backendId")] = descriptor.id;
+        test[QStringLiteral("providerId")] = descriptor.providerId;
+        test[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+        test[QStringLiteral("vectorSet")] = spec.vectorSet;
+        test[QStringLiteral("fixtureHashSha256")] =
+            callback.value(QStringLiteral("fixtureHashSha256")).toString(
+                productionHarnessFixtureHash(spec));
+        test[QStringLiteral("providerSymbol")] =
+            callback.value(QStringLiteral("providerSymbol")).toString(
+                productionOperationProviderSymbol(operation));
+        test[QStringLiteral("providerAbiSignature")] =
+            callback.value(QStringLiteral("providerAbiSignature")).toString(
+                productionOperationProviderAbiSignature(operation));
+        test[QStringLiteral("providerCallbackHarness")] = callback;
+        test[QStringLiteral("providerCallbackHarnessReleaseGate")] =
+            callbackHarness.value(QStringLiteral("releaseGate")).toString();
+        test[QStringLiteral("providerCallbackHarnessAccepted")] = harnessAccepted;
+        test[QStringLiteral("callbackHarnessArmed")] = callbackArmed;
+        test[QStringLiteral("knownAnswerVectorReady")] = knownAnswerReady;
+        test[QStringLiteral("roundTripVectorReady")] = roundTripReady;
+        test[QStringLiteral("knownAnswerPassed")] = false;
+        test[QStringLiteral("roundTripPassed")] = false;
+        test[QStringLiteral("vectorPassed")] = vectorPassed;
+        test[QStringLiteral("vectorExecutionState")] = vectorPassed
+            ? QStringLiteral("passed-reviewed-provider-vector")
+            : (descriptor.linked
+                ? QStringLiteral("blocked-linked-placeholder")
+                : QStringLiteral("blocked-not-linked"));
+        test[QStringLiteral("operationInvoked")] = false;
+        test[QStringLiteral("inputBytesCaptured")] = false;
+        test[QStringLiteral("outputBytesCaptured")] = false;
+        test[QStringLiteral("resultCaptured")] = false;
+        test[QStringLiteral("blockedReason")] = vectorPassed
+            ? QString()
+            : callback.value(QStringLiteral("blockedReason")).toString(
+                callbackHarness.value(QStringLiteral("blockedReason")).toString());
+        test[QStringLiteral("operatorAction")] = vectorPassed
+            ? QStringLiteral("none")
+            : (descriptor.linked
+                ? QStringLiteral("run-reviewed-provider-vector-self-tests")
+                : QStringLiteral("register-reviewed-provider-table-before-vector-self-test"));
+        test[QStringLiteral("sanitized")] = sanitized;
+        test[QStringLiteral("materialExportProof")] = noSensitiveExport
+            ? QStringLiteral("no-sensitive-material-export")
+            : QStringLiteral("sensitive-material-exported");
+        test[QStringLiteral("rawKeyExported")] = false;
+        test[QStringLiteral("privateMaterialExported")] = false;
+        test[QStringLiteral("sessionSecretExported")] = false;
+        test[QStringLiteral("privateIdentityMaterialExported")] = false;
+        test[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+        tests.append(test);
+
+        if (vectorPassed) {
+            ++passedVectorCount;
+        } else {
+            ++blockedVectorCount;
+        }
+        if (knownAnswerReady) {
+            ++knownAnswerReadyCount;
+        }
+        if (roundTripReady) {
+            ++roundTripReadyCount;
+        }
+        if (sanitized) {
+            ++sanitizedVectorCount;
+        }
+        if (noSensitiveExport) {
+            ++materialExportProofCount;
+        }
+        ++sequenceIndex;
+    }
+
+    const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
+        && descriptor.productionReady
+        && callbackHarness.value(QStringLiteral("accepted")).toBool(false)
+        && passedVectorCount == cryptoOperations().size()
+        && blockedVectorCount == 0
+        && knownAnswerReadyCount == cryptoOperations().size()
+        && sanitizedVectorCount == cryptoOperations().size()
+        && materialExportProofCount == cryptoOperations().size();
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-vector-self-test-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("providerCallbackHarness")] = callbackHarness;
+    status[QStringLiteral("providerCallbackHarnessReleaseGate")] =
+        callbackHarness.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerCallbackHarnessAccepted")] =
+        callbackHarness.value(QStringLiteral("accepted")).toBool(false);
+    status[QStringLiteral("accepted")] = accepted;
+    status[QStringLiteral("requiredVectorCount")] = cryptoOperations().size();
+    status[QStringLiteral("passedVectorCount")] = passedVectorCount;
+    status[QStringLiteral("blockedVectorCount")] = blockedVectorCount;
+    status[QStringLiteral("knownAnswerReadyCount")] = knownAnswerReadyCount;
+    status[QStringLiteral("roundTripReadyCount")] = roundTripReadyCount;
+    status[QStringLiteral("sanitizedVectorCount")] = sanitizedVectorCount;
+    status[QStringLiteral("materialExportProofCount")] = materialExportProofCount;
+    status[QStringLiteral("releaseGate")] = accepted
+        ? QStringLiteral("production-provider-vector-self-test-ready")
+        : (descriptor.linked
+            ? QStringLiteral("production-provider-vector-self-test-blocked-placeholder")
+            : QStringLiteral("production-provider-vector-self-test-blocked-not-linked"));
+    status[QStringLiteral("blockedReason")] = accepted
+        ? QString()
+        : callbackHarness.value(QStringLiteral("blockedReason")).toString(
+            descriptor.linked
+                ? QStringLiteral("production-provider-vector-self-test-placeholder")
+                : QStringLiteral("production-provider-table-not-registered"));
+    status[QStringLiteral("operatorAction")] = accepted
+        ? QStringLiteral("none")
+        : (descriptor.linked
+            ? QStringLiteral("replace-placeholder-with-reviewed-provider-vector-tests")
+            : QStringLiteral("register-reviewed-provider-table-before-vector-self-test"));
+    status[QStringLiteral("tests")] = tests;
+    status[QStringLiteral("operationInvoked")] = false;
+    status[QStringLiteral("inputBytesCaptured")] = false;
+    status[QStringLiteral("outputBytesCaptured")] = false;
+    status[QStringLiteral("resultCaptured")] = false;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return status;
+}
+
 QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
@@ -2975,6 +3153,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionProviderExecutionDecisionStatusForDescriptor(descriptor);
         evidence[QStringLiteral("providerCallbackHarness")] =
             productionProviderCallbackHarnessStatusForDescriptor(descriptor);
+        evidence[QStringLiteral("providerVectorSelfTest")] =
+            productionProviderVectorSelfTestStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("implementedOperationCount")] = 0;
@@ -3066,6 +3246,8 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
         productionProviderExecutionDecisionStatusForDescriptor(descriptor);
     const QJsonObject providerCallbackHarness =
         productionProviderCallbackHarnessStatusForDescriptor(descriptor);
+    const QJsonObject providerVectorSelfTest =
+        productionProviderVectorSelfTestStatusForDescriptor(descriptor);
     appendCheck(QStringLiteral("provider-table-bound"),
                 !isProduction || providerTable.value(QStringLiteral("accepted")).toBool(false),
                 isProduction
@@ -3136,6 +3318,15 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                     : QStringLiteral("not-production-provider"),
                 isProduction
                     ? providerCallbackHarness.value(QStringLiteral("operatorAction")).toString()
+                    : QStringLiteral("none"));
+    appendCheck(QStringLiteral("provider-vector-self-test"),
+                !isProduction
+                    || providerVectorSelfTest.value(QStringLiteral("accepted")).toBool(false),
+                isProduction
+                    ? providerVectorSelfTest.value(QStringLiteral("blockedReason")).toString()
+                    : QStringLiteral("not-production-provider"),
+                isProduction
+                    ? providerVectorSelfTest.value(QStringLiteral("operatorAction")).toString()
                     : QStringLiteral("none"));
     return checks;
 }
@@ -3225,6 +3416,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         productionProviderExecutionDecisionStatusForDescriptor(descriptor);
     const QJsonObject providerCallbackHarness =
         productionProviderCallbackHarnessStatusForDescriptor(descriptor);
+    const QJsonObject providerVectorSelfTest =
+        productionProviderVectorSelfTestStatusForDescriptor(descriptor);
     const bool operationContractComplete =
         descriptor.operations.size() == cryptoOperations().size();
     const bool linked = descriptor.linked;
@@ -3261,6 +3454,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerExecutionDecision.value(QStringLiteral("accepted")).toBool(false);
     const bool providerCallbackHarnessAccepted =
         providerCallbackHarness.value(QStringLiteral("accepted")).toBool(false);
+    const bool providerVectorSelfTestAccepted =
+        providerVectorSelfTest.value(QStringLiteral("accepted")).toBool(false);
     const bool accepted = linked
         && descriptor.productionReady
         && operationContractComplete
@@ -3278,7 +3473,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && providerInvocationDryRunAccepted
         && providerInvocationResultAccepted
         && providerExecutionDecisionAccepted
-        && providerCallbackHarnessAccepted;
+        && providerCallbackHarnessAccepted
+        && providerVectorSelfTestAccepted;
 
     QString releaseGate;
     QString blockedReason;
@@ -3350,6 +3546,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-provider-callback-harness-blocked");
         blockedReason = providerCallbackHarness.value(QStringLiteral("blockedReason")).toString();
         operatorAction = providerCallbackHarness.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerVectorSelfTestAccepted) {
+        releaseGate = QStringLiteral("production-provider-vector-self-test-blocked");
+        blockedReason = providerVectorSelfTest.value(QStringLiteral("blockedReason")).toString();
+        operatorAction = providerVectorSelfTest.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
@@ -3398,6 +3598,7 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
     status[QStringLiteral("providerInvocationResult")] = providerInvocationResult;
     status[QStringLiteral("providerExecutionDecision")] = providerExecutionDecision;
     status[QStringLiteral("providerCallbackHarness")] = providerCallbackHarness;
+    status[QStringLiteral("providerVectorSelfTest")] = providerVectorSelfTest;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] = 0;
@@ -3456,6 +3657,12 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerCallbackHarness.value(QStringLiteral("releaseGate")).toString();
     status[QStringLiteral("providerCallbackHarnessBlockedCallbackCount")] =
         providerCallbackHarness.value(QStringLiteral("blockedCallbackCount")).toInt();
+    status[QStringLiteral("providerVectorSelfTestAccepted")] =
+        providerVectorSelfTestAccepted;
+    status[QStringLiteral("providerVectorSelfTestReleaseGate")] =
+        providerVectorSelfTest.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerVectorSelfTestBlockedVectorCount")] =
+        providerVectorSelfTest.value(QStringLiteral("blockedVectorCount")).toInt();
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -3638,6 +3845,8 @@ QJsonObject backendDescriptor(const E2ECryptoAdapterDescriptor& descriptor,
             productionProviderExecutionDecisionStatusForDescriptor(descriptor);
         obj["providerCallbackHarness"] =
             productionProviderCallbackHarnessStatusForDescriptor(descriptor);
+        obj["providerVectorSelfTest"] =
+            productionProviderVectorSelfTestStatusForDescriptor(descriptor);
     }
     obj["linked"] = descriptor.linked;
     obj["productionReady"] = descriptor.productionReady;
@@ -3957,6 +4166,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionProviderExecutionDecisionStatusForDescriptor(productionAdapterDescriptor());
     status["productionProviderCallbackHarness"] =
         productionProviderCallbackHarnessStatusForDescriptor(productionAdapterDescriptor());
+    status["productionProviderVectorSelfTest"] =
+        productionProviderVectorSelfTestStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -4065,6 +4276,11 @@ QJsonObject e2eProductionCryptoProviderExecutionDecisionStatus() {
 QJsonObject e2eProductionCryptoProviderCallbackHarnessStatus() {
     return e2eCryptoBackendStatus()
         .value(QStringLiteral("productionProviderCallbackHarness")).toObject();
+}
+
+QJsonObject e2eProductionCryptoProviderVectorSelfTestStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionProviderVectorSelfTest")).toObject();
 }
 
 QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table) {

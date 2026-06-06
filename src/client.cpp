@@ -805,6 +805,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderExecutionDecision")).toObject();
     const QJsonObject productionProviderCallbackHarness =
         backendStatus.value(QStringLiteral("productionProviderCallbackHarness")).toObject();
+    const QJsonObject productionProviderVectorSelfTest =
+        backendStatus.value(QStringLiteral("productionProviderVectorSelfTest")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -956,6 +958,14 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderCallbackHarness.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionProviderCallbackHarnessBlockedCallbackCount")] =
         productionProviderCallbackHarness.value(QStringLiteral("blockedCallbackCount")).toInt();
+    dryRun[QStringLiteral("productionProviderVectorSelfTest")] =
+        productionProviderVectorSelfTest;
+    dryRun[QStringLiteral("productionProviderVectorSelfTestReleaseGate")] =
+        productionProviderVectorSelfTest.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderVectorSelfTestAccepted")] =
+        productionProviderVectorSelfTest.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionProviderVectorSelfTestBlockedVectorCount")] =
+        productionProviderVectorSelfTest.value(QStringLiteral("blockedVectorCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1137,6 +1147,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderCallbackHarnessAccepted")).toBool(false);
     evidence[QStringLiteral("productionProviderCallbackHarnessBlockedCallbackCount")] =
         dryRun.value(QStringLiteral("productionProviderCallbackHarnessBlockedCallbackCount")).toInt();
+    evidence[QStringLiteral("productionProviderVectorSelfTest")] =
+        dryRun.value(QStringLiteral("productionProviderVectorSelfTest")).toObject();
+    evidence[QStringLiteral("productionProviderVectorSelfTestReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderVectorSelfTestReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderVectorSelfTestAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderVectorSelfTestAccepted")).toBool(false);
+    evidence[QStringLiteral("productionProviderVectorSelfTestBlockedVectorCount")] =
+        dryRun.value(QStringLiteral("productionProviderVectorSelfTestBlockedVectorCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(
