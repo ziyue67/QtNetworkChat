@@ -965,6 +965,8 @@ int main() {
                     && invocationExecutionProbe.value("expectedOutputClassMatchCount").toInt() == 8
                     && invocationExecutionProbe.value("expectedOutputClassMismatchCount").toInt() == 0
                     && invocationExecutionProbe.value("outputEvidenceFailClosedCount").toInt() == 0
+                    && invocationExecutionProbe.value("providerVectorSetMatchedCount").toInt() == 8
+                    && invocationExecutionProbe.value("providerVectorSetMismatchCount").toInt() == 0
                     && invocationExecutionProbe.value("failureClassSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("vectorResultSummary").toObject()
@@ -979,6 +981,10 @@ int main() {
                         .value("payload-output-shape").toInt() == 1
                     && invocationExecutionProbe.value("outputEvidenceClassSummary").toObject()
                         .value("known-answer-output-shape-matched").toInt() == 8
+                    && invocationExecutionProbe.value("mismatchReasonSummary").toObject()
+                        .value("none").toInt() == 8
+                    && invocationExecutionProbe.value("mismatchSeveritySummary").toObject()
+                        .value("none").toInt() == 8
                     && invocationExecutionProbe.value("blockedProbeCount").toInt() == 0
                     && invocationExecutionProbe.value("probes").toArray().size() == 8
                     && g_probeInvocationCount == 8
@@ -994,6 +1000,10 @@ int main() {
                         == QStringLiteral("session-key-generation")
                     && firstExecutionProbe.value("probeVectorSchema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-vector-v1")
+                    && firstExecutionProbe.value("knownAnswerVectorId").toString()
+                        == QStringLiteral("production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstExecutionProbe.value("knownAnswerFixtureId").toString()
+                        == QStringLiteral("probe-fixture/session-key-generation")
                     && firstExecutionProbe.value("probeExecutionFrameSchema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-probe-execution-frame-v1")
                     && firstExecutionProbe.value("probeExecutionEntryPoint").toString()
@@ -1010,6 +1020,10 @@ int main() {
                     && firstExecutionProbe.value("expectedKnownAnswerOutputClass").toString()
                         == QStringLiteral("handle-status-output")
                     && firstExecutionProbe.value("observedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("handle-status-output")
+                    && firstExecutionProbe.value("expectedOutputShapeClass").toString()
+                        == QStringLiteral("handle-status-output")
+                    && firstExecutionProbe.value("observedOutputShapeClass").toString()
                         == QStringLiteral("handle-status-output")
                     && firstExecutionProbe.value("expectedOutputClassMatched").toBool(false)
                     && firstExecutionProbe.value("outputEvidenceClass").toString()
@@ -1033,6 +1047,11 @@ int main() {
                     && firstExecutionProbe.value("expectedStatusClassMatched").toBool(false)
                     && firstExecutionProbe.value("expectedFailureClassMatched").toBool(false)
                     && firstExecutionProbe.value("expectedMaterialPolicyClassMatched").toBool(false)
+                    && firstExecutionProbe.value("providerVectorSetMatched").toBool(false)
+                    && firstExecutionProbe.value("mismatchReason").toString()
+                        == QStringLiteral("none")
+                    && firstExecutionProbe.value("mismatchSeverity").toString()
+                        == QStringLiteral("none")
                     && firstExecutionProbe.value("operationInvoked").toBool(false)
                     && firstExecutionProbe.value("resultCaptured").toBool(false)
                     && firstExecutionProbe.value("callbackStatusClass").toString()
@@ -1149,10 +1168,20 @@ int main() {
                     && mismatchedOutputProbe.value("expectedOutputClassMatchCount").toInt() == 4
                     && mismatchedOutputProbe.value("expectedOutputClassMismatchCount").toInt() == 4
                     && mismatchedOutputProbe.value("outputEvidenceFailClosedCount").toInt() == 4
+                    && mismatchedOutputProbe.value("providerVectorSetMatchedCount").toInt() == 4
+                    && mismatchedOutputProbe.value("providerVectorSetMismatchCount").toInt() == 4
                     && mismatchedOutputProbe.value("outputEvidenceClassSummary").toObject()
                         .value("known-answer-output-shape-matched").toInt() == 4
                     && mismatchedOutputProbe.value("outputEvidenceClassSummary").toObject()
                         .value("known-answer-output-shape-mismatch").toInt() == 4
+                    && mismatchedOutputProbe.value("mismatchReasonSummary").toObject()
+                        .value("none").toInt() == 4
+                    && mismatchedOutputProbe.value("mismatchReasonSummary").toObject()
+                        .value("known-answer-material-policy-mismatch").toInt() == 4
+                    && mismatchedOutputProbe.value("mismatchSeveritySummary").toObject()
+                        .value("none").toInt() == 4
+                    && mismatchedOutputProbe.value("mismatchSeveritySummary").toObject()
+                        .value("fail-closed").toInt() == 4
                     && !mismatchedOutputProbe.value("accepted").toBool(true)
                     && g_probeInvocationCount == 8,
                 "provider invocation probe should fail closed on known-answer output shape mismatch") && ok;
@@ -1164,7 +1193,16 @@ int main() {
                         == QStringLiteral("handle-status-output")
                     && mismatchedSessionProbe.value("observedKnownAnswerOutputClass").toString()
                         == QStringLiteral("public-output-shape")
+                    && mismatchedSessionProbe.value("expectedOutputShapeClass").toString()
+                        == QStringLiteral("handle-status-output")
+                    && mismatchedSessionProbe.value("observedOutputShapeClass").toString()
+                        == QStringLiteral("public-output-shape")
                     && !mismatchedSessionProbe.value("expectedOutputClassMatched").toBool(true)
+                    && !mismatchedSessionProbe.value("providerVectorSetMatched").toBool(true)
+                    && mismatchedSessionProbe.value("mismatchReason").toString()
+                        == QStringLiteral("known-answer-material-policy-mismatch")
+                    && mismatchedSessionProbe.value("mismatchSeverity").toString()
+                        == QStringLiteral("fail-closed")
                     && mismatchedSessionProbe.value("outputEvidenceClass").toString()
                         == QStringLiteral("known-answer-output-shape-mismatch")
                     && mismatchedSessionProbe.value("outputEvidenceFailClosed").toBool(false)

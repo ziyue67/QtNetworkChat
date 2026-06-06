@@ -1700,6 +1700,44 @@ QString providerProbeFailureClass(bool canInvoke,
     return callbackStatusClass;
 }
 
+QString providerProbeMismatchReason(bool canInvoke,
+                                    bool expectedStatusMatched,
+                                    bool expectedFailureMatched,
+                                    bool expectedMaterialPolicyMatched,
+                                    bool expectedOutputClassMatched,
+                                    const QString& blockedReason) {
+    if (!canInvoke) {
+        return blockedReason.isEmpty()
+            ? QStringLiteral("production-provider-probe-not-invoked")
+            : blockedReason;
+    }
+    if (!expectedStatusMatched) {
+        return QStringLiteral("known-answer-status-mismatch");
+    }
+    if (!expectedFailureMatched) {
+        return QStringLiteral("known-answer-failure-class-mismatch");
+    }
+    if (!expectedMaterialPolicyMatched) {
+        return QStringLiteral("known-answer-material-policy-mismatch");
+    }
+    if (!expectedOutputClassMatched) {
+        return QStringLiteral("known-answer-output-shape-mismatch");
+    }
+    return QStringLiteral("none");
+}
+
+QString providerProbeMismatchSeverity(const QString& mismatchReason) {
+    if (mismatchReason == QStringLiteral("none")) {
+        return QStringLiteral("none");
+    }
+    if (mismatchReason == QStringLiteral("production-provider-table-not-registered")
+        || mismatchReason == QStringLiteral("production-provider-operation-pointer-missing")
+        || mismatchReason == QStringLiteral("production-provider-probe-not-invoked")) {
+        return QStringLiteral("blocked");
+    }
+    return QStringLiteral("fail-closed");
+}
+
 void incrementSummaryCount(QJsonObject* summary, const QString& key) {
     if (!summary) {
         return;
@@ -1748,10 +1786,14 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     int expectedOutputClassMatchCount = 0;
     int expectedOutputClassMismatchCount = 0;
     int outputEvidenceFailClosedCount = 0;
+    int providerVectorSetMatchedCount = 0;
+    int providerVectorSetMismatchCount = 0;
     QJsonObject failureClassSummary;
     QJsonObject vectorResultSummary;
     QJsonObject knownAnswerOutputClassSummary;
     QJsonObject outputEvidenceClassSummary;
+    QJsonObject mismatchReasonSummary;
+    QJsonObject mismatchSeveritySummary;
     int sequenceIndex = 0;
     for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
         const E2ECryptoOperation operation = spec.operation;
@@ -1873,6 +1915,24 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
                                                              materialPolicyClass,
                                                              publicOutputSize,
                                                              sealedOutputSize);
+        const bool expectedOutputClassMatched =
+            outputEvidence.value(QStringLiteral("expectedOutputClassMatched")).toBool(false);
+        const QString mismatchReason =
+            providerProbeMismatchReason(canInvoke,
+                                        expectedStatusMatched,
+                                        expectedFailureMatched,
+                                        expectedMaterialPolicyMatched,
+                                        expectedOutputClassMatched,
+                                        blockedReason);
+        const QString mismatchSeverity =
+            providerProbeMismatchSeverity(mismatchReason);
+        const bool providerVectorSetMatched =
+            canInvoke
+            && vectorContractReady
+            && expectedStatusMatched
+            && expectedFailureMatched
+            && expectedMaterialPolicyMatched
+            && expectedOutputClassMatched;
 
         QJsonObject probe;
         probe[QStringLiteral("sequenceIndex")] = sequenceIndex;
@@ -1884,6 +1944,10 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         probe[QStringLiteral("providerAbiSignature")] =
             productionOperationProviderAbiSignature(operation);
         probe[QStringLiteral("vectorSet")] = spec.vectorSet;
+        probe[QStringLiteral("knownAnswerVectorId")] =
+            QStringLiteral("%1/%2").arg(spec.vectorSet, cryptoOperationName(operation));
+        probe[QStringLiteral("knownAnswerFixtureId")] =
+            QStringLiteral("probe-fixture/%1").arg(cryptoOperationName(operation));
         probe[QStringLiteral("fixtureHashSha256")] = productionHarnessFixtureHash(spec);
         probe[QStringLiteral("probeVectorContract")] = vectorContract;
         probe[QStringLiteral("probeExecutionFrame")] = executionFrame;
@@ -1894,8 +1958,11 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             outputEvidence.value(QStringLiteral("expectedKnownAnswerOutputClass")).toString();
         probe[QStringLiteral("observedKnownAnswerOutputClass")] =
             outputEvidence.value(QStringLiteral("observedKnownAnswerOutputClass")).toString();
-        probe[QStringLiteral("expectedOutputClassMatched")] =
-            outputEvidence.value(QStringLiteral("expectedOutputClassMatched")).toBool(false);
+        probe[QStringLiteral("expectedOutputShapeClass")] =
+            outputEvidence.value(QStringLiteral("expectedKnownAnswerOutputClass")).toString();
+        probe[QStringLiteral("observedOutputShapeClass")] =
+            outputEvidence.value(QStringLiteral("observedKnownAnswerOutputClass")).toString();
+        probe[QStringLiteral("expectedOutputClassMatched")] = expectedOutputClassMatched;
         probe[QStringLiteral("outputEvidenceClass")] =
             outputEvidence.value(QStringLiteral("outputEvidenceClass")).toString();
         probe[QStringLiteral("outputEvidenceFailClosed")] =
@@ -1934,6 +2001,9 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         probe[QStringLiteral("expectedFailureClassMatched")] = expectedFailureMatched;
         probe[QStringLiteral("expectedMaterialPolicyClassMatched")] =
             expectedMaterialPolicyMatched;
+        probe[QStringLiteral("providerVectorSetMatched")] = providerVectorSetMatched;
+        probe[QStringLiteral("mismatchReason")] = mismatchReason;
+        probe[QStringLiteral("mismatchSeverity")] = mismatchSeverity;
         probe[QStringLiteral("registered")] = registered;
         probe[QStringLiteral("tableValidationAccepted")] = tableValidationAccepted;
         probe[QStringLiteral("functionPointerPresent")] = pointerPresent;
@@ -2032,15 +2102,19 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             == FingerprintHexLength) {
             ++knownAnswerOutputShapeHashCount;
         }
-        if (outputEvidence.value(QStringLiteral("expectedOutputClassMatched")).toBool(false)) {
+        if (expectedOutputClassMatched) {
             ++expectedOutputClassMatchCount;
         }
-        if (canInvoke
-            && !outputEvidence.value(QStringLiteral("expectedOutputClassMatched")).toBool(false)) {
+        if (canInvoke && !expectedOutputClassMatched) {
             ++expectedOutputClassMismatchCount;
         }
         if (outputEvidence.value(QStringLiteral("outputEvidenceFailClosed")).toBool(false)) {
             ++outputEvidenceFailClosedCount;
+        }
+        if (providerVectorSetMatched) {
+            ++providerVectorSetMatchedCount;
+        } else {
+            ++providerVectorSetMismatchCount;
         }
         if (okStatus) {
             ++vectorPassCount;
@@ -2053,6 +2127,8 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
                               outputEvidence.value(QStringLiteral("observedKnownAnswerOutputClass")).toString());
         incrementSummaryCount(&outputEvidenceClassSummary,
                               outputEvidence.value(QStringLiteral("outputEvidenceClass")).toString());
+        incrementSummaryCount(&mismatchReasonSummary, mismatchReason);
+        incrementSummaryCount(&mismatchSeveritySummary, mismatchSeverity);
         ++sequenceIndex;
     }
 
@@ -2104,12 +2180,18 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         expectedOutputClassMismatchCount;
     status[QStringLiteral("outputEvidenceFailClosedCount")] =
         outputEvidenceFailClosedCount;
+    status[QStringLiteral("providerVectorSetMatchedCount")] =
+        providerVectorSetMatchedCount;
+    status[QStringLiteral("providerVectorSetMismatchCount")] =
+        providerVectorSetMismatchCount;
     status[QStringLiteral("failureClassSummary")] = failureClassSummary;
     status[QStringLiteral("vectorResultSummary")] = vectorResultSummary;
     status[QStringLiteral("knownAnswerOutputClassSummary")] =
         knownAnswerOutputClassSummary;
     status[QStringLiteral("outputEvidenceClassSummary")] =
         outputEvidenceClassSummary;
+    status[QStringLiteral("mismatchReasonSummary")] = mismatchReasonSummary;
+    status[QStringLiteral("mismatchSeveritySummary")] = mismatchSeveritySummary;
     status[QStringLiteral("operatorAction")] =
         QStringLiteral("use-reviewed-provider-probe-results-as-test-evidence-only");
     status[QStringLiteral("probes")] = probes;
