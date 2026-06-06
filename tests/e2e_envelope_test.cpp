@@ -918,6 +918,13 @@ int main() {
                     && invocationExecutionProbe.value("capturedResultCount").toInt() == 8
                     && invocationExecutionProbe.value("sanitizedProbeCount").toInt() == 8
                     && invocationExecutionProbe.value("okStatusCount").toInt() == 8
+                    && invocationExecutionProbe.value("statusMismatchCount").toInt() == 0
+                    && invocationExecutionProbe.value("vectorPassCount").toInt() == 8
+                    && invocationExecutionProbe.value("vectorFailCount").toInt() == 0
+                    && invocationExecutionProbe.value("failureClassSummary").toObject()
+                        .value("none").toInt() == 8
+                    && invocationExecutionProbe.value("vectorResultSummary").toObject()
+                        .value("probe-vector-passed").toInt() == 8
                     && invocationExecutionProbe.value("blockedProbeCount").toInt() == 0
                     && invocationExecutionProbe.value("probes").toArray().size() == 8
                     && g_probeInvocationCount == 8
@@ -937,10 +944,18 @@ int main() {
                         == QStringLiteral("ok")
                     && firstExecutionProbe.value("outputStatusClass").toString()
                         == QStringLiteral("ok")
+                    && firstExecutionProbe.value("statusConsistencyClass").toString()
+                        == QStringLiteral("provider-status-consistent")
                     && firstExecutionProbe.value("sanitizedErrorClass").toString()
                         == QStringLiteral("ok")
                     && firstExecutionProbe.value("materialPolicyClass").toString()
                         == QStringLiteral("handle-only")
+                    && firstExecutionProbe.value("knownAnswerPassed").toBool(false)
+                    && !firstExecutionProbe.value("roundTripPassed").toBool(true)
+                    && firstExecutionProbe.value("vectorResultClass").toString()
+                        == QStringLiteral("probe-vector-passed")
+                    && firstExecutionProbe.value("failureClass").toString()
+                        == QStringLiteral("none")
                     && firstExecutionProbe.value("probeState").toString()
                         == QStringLiteral("invoked-through-registered-provider-table")
                     && firstExecutionProbe.value("materialExportProof").toString()
@@ -949,6 +964,15 @@ int main() {
                     && !firstExecutionProbe.value("outputBytesCaptured").toBool(true)
                     && !firstExecutionProbe.value("rawKeyExported").toBool(true),
                 "explicit provider invocation probe should report only sanitized status and sizes") && ok;
+    const QJsonObject agreementVerifyProbe =
+        invocationExecutionProbe.value("probes").toArray().at(4).toObject();
+    ok = expect(agreementVerifyProbe.value("operation").toString()
+                        == QStringLiteral("agreement-verify")
+                    && agreementVerifyProbe.value("knownAnswerPassed").toBool(false)
+                    && agreementVerifyProbe.value("roundTripPassed").toBool(false)
+                    && agreementVerifyProbe.value("vectorResultClass").toString()
+                        == QStringLiteral("probe-vector-passed"),
+                "round-trip eligible provider probe operations should expose pass classification separately") && ok;
     completeProviderTable.abi = "bad-abi";
     const QJsonObject badAbiTable =
         e2eValidateProductionProviderTable(&completeProviderTable);

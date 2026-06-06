@@ -1415,6 +1415,35 @@ QString providerMaterialPolicyClass(qnc_e2e_material_policy_t policy) {
     return QStringLiteral("unknown");
 }
 
+QString providerProbeFailureClass(bool canInvoke,
+                                  const QString& callbackStatusClass,
+                                  const QString& outputStatusClass,
+                                  const QString& blockedReason) {
+    if (!canInvoke) {
+        return blockedReason.isEmpty()
+            ? QStringLiteral("not-invoked")
+            : blockedReason;
+    }
+    if (callbackStatusClass != outputStatusClass) {
+        return QStringLiteral("provider-status-mismatch");
+    }
+    if (callbackStatusClass == QStringLiteral("ok")) {
+        return QStringLiteral("none");
+    }
+    return callbackStatusClass;
+}
+
+void incrementSummaryCount(QJsonObject* summary, const QString& key) {
+    if (!summary) {
+        return;
+    }
+    const QString normalizedKey = key.trimmed().isEmpty()
+        ? QStringLiteral("unknown")
+        : key.trimmed();
+    (*summary)[normalizedKey] =
+        summary->value(normalizedKey).toInt() + 1;
+}
+
 QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     const E2ECryptoAdapterDescriptor& descriptor) {
     const qnc_e2e_provider_table_v1* registeredTable = g_registeredProductionProviderTable;
@@ -1435,7 +1464,12 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     int capturedResultCount = 0;
     int sanitizedProbeCount = 0;
     int okStatusCount = 0;
+    int statusMismatchCount = 0;
+    int vectorPassCount = 0;
+    int vectorFailCount = 0;
     int blockedProbeCount = 0;
+    QJsonObject failureClassSummary;
+    QJsonObject vectorResultSummary;
     int sequenceIndex = 0;
     for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
         const E2ECryptoOperation operation = spec.operation;
@@ -1481,6 +1515,22 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         const bool okStatus =
             callbackStatus == QNC_E2E_STATUS_OK
             && output.status == QNC_E2E_STATUS_OK;
+        const bool statusMismatch =
+            canInvoke && statusClass != outputStatusClass;
+        const QString blockedReason = canInvoke
+            ? QString()
+            : (!registered
+                ? QStringLiteral("production-provider-table-not-registered")
+                : (!tableValidationAccepted
+                    ? registration.value(QStringLiteral("tableValidationBlockedReason")).toString()
+                    : QStringLiteral("production-provider-operation-pointer-missing")));
+        const QString failureClass =
+            providerProbeFailureClass(canInvoke, statusClass, outputStatusClass, blockedReason);
+        const QString vectorResultClass = okStatus
+            ? QStringLiteral("probe-vector-passed")
+            : (canInvoke
+                ? QStringLiteral("probe-vector-failed")
+                : QStringLiteral("probe-vector-not-invoked"));
 
         QJsonObject probe;
         probe[QStringLiteral("sequenceIndex")] = sequenceIndex;
@@ -1509,21 +1559,28 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             canInvoke ? static_cast<qint64>(output.sealed_output.size) : 0;
         probe[QStringLiteral("callbackStatusClass")] = statusClass;
         probe[QStringLiteral("outputStatusClass")] = outputStatusClass;
+        probe[QStringLiteral("statusConsistencyClass")] = statusMismatch
+            ? QStringLiteral("provider-status-mismatch")
+            : (canInvoke
+                ? QStringLiteral("provider-status-consistent")
+                : QStringLiteral("not-invoked"));
         probe[QStringLiteral("sanitizedErrorClass")] = sanitizedErrorClass;
         probe[QStringLiteral("materialPolicyClass")] =
             canInvoke
                 ? providerMaterialPolicyClass(output.material_policy)
                 : QStringLiteral("not-invoked");
+        probe[QStringLiteral("knownAnswerPassed")] = okStatus;
+        probe[QStringLiteral("roundTripPassed")] = okStatus
+            && (operation == E2ECryptoOperation::PayloadEncrypt
+                || operation == E2ECryptoOperation::PayloadDecrypt
+                || operation == E2ECryptoOperation::SessionDerive
+                || operation == E2ECryptoOperation::AgreementVerify);
+        probe[QStringLiteral("vectorResultClass")] = vectorResultClass;
+        probe[QStringLiteral("failureClass")] = failureClass;
         probe[QStringLiteral("probeState")] = canInvoke
             ? QStringLiteral("invoked-through-registered-provider-table")
             : QStringLiteral("blocked-before-provider-call");
-        probe[QStringLiteral("blockedReason")] = canInvoke
-            ? QString()
-            : (!registered
-                ? QStringLiteral("production-provider-table-not-registered")
-                : (!tableValidationAccepted
-                    ? registration.value(QStringLiteral("tableValidationBlockedReason")).toString()
-                    : QStringLiteral("production-provider-operation-pointer-missing")));
+        probe[QStringLiteral("blockedReason")] = blockedReason;
         probe[QStringLiteral("operatorAction")] = canInvoke
             ? QStringLiteral("none")
             : QStringLiteral("register-complete-reviewed-provider-table-before-probe");
@@ -1551,6 +1608,16 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         if (okStatus) {
             ++okStatusCount;
         }
+        if (statusMismatch) {
+            ++statusMismatchCount;
+        }
+        if (okStatus) {
+            ++vectorPassCount;
+        } else {
+            ++vectorFailCount;
+        }
+        incrementSummaryCount(&failureClassSummary, failureClass);
+        incrementSummaryCount(&vectorResultSummary, vectorResultClass);
         ++sequenceIndex;
     }
 
@@ -1577,6 +1644,11 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     status[QStringLiteral("capturedResultCount")] = capturedResultCount;
     status[QStringLiteral("sanitizedProbeCount")] = sanitizedProbeCount;
     status[QStringLiteral("okStatusCount")] = okStatusCount;
+    status[QStringLiteral("statusMismatchCount")] = statusMismatchCount;
+    status[QStringLiteral("vectorPassCount")] = vectorPassCount;
+    status[QStringLiteral("vectorFailCount")] = vectorFailCount;
+    status[QStringLiteral("failureClassSummary")] = failureClassSummary;
+    status[QStringLiteral("vectorResultSummary")] = vectorResultSummary;
     status[QStringLiteral("operatorAction")] =
         QStringLiteral("use-reviewed-provider-probe-results-as-test-evidence-only");
     status[QStringLiteral("probes")] = probes;
