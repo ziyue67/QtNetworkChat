@@ -848,6 +848,16 @@ int main(int argc, char** argv) {
                             .value("operationInvoked").toBool(true)
                         && !rotationExecute.value("productionProviderInvocationResult").toObject()
                             .value("resultCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderExecutionDecisionReleaseGate").toString()
+                            == QStringLiteral("production-provider-execution-decision-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderExecutionDecisionAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderExecutionDecisionBlockedDecisionCount").toInt() == 8
+                        && rotationExecute.value("productionProviderExecutionDecision").toObject()
+                            .value("decisions").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderExecutionDecision").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && !rotationExecute.value("productionProviderExecutionDecision").toObject()
+                            .value("resultCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),

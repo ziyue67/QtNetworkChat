@@ -93,6 +93,8 @@ int main() {
         status.value("productionProviderInvocationDryRun").toObject();
     const QJsonObject providerInvocationResult =
         status.value("productionProviderInvocationResult").toObject();
+    const QJsonObject providerExecutionDecision =
+        status.value("productionProviderExecutionDecision").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -372,6 +374,24 @@ int main() {
                     && !providerInvocationResult.value("rawKeyExported").toBool(true)
                     && !providerInvocationResult.value("privateMaterialExported").toBool(true),
                 "production provider invocation result capture should stay sanitized and non-executing") && ok;
+    ok = expect(providerExecutionDecision.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-execution-decision-v1")
+                    && providerExecutionDecision.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-execution-decision-blocked-placeholder")
+                            : QStringLiteral("production-provider-execution-decision-blocked-not-linked"))
+                    && !providerExecutionDecision.value("accepted").toBool(true)
+                    && providerExecutionDecision.value("allowedDecisionCount").toInt() == 0
+                    && providerExecutionDecision.value("blockedDecisionCount").toInt() == 8
+                    && providerExecutionDecision.value("sanitizedDecisionCount").toInt() == 8
+                    && providerExecutionDecision.value("decisions").toArray().size() == 8
+                    && providerExecutionDecision.value("providerInvocationResultReleaseGate").toString()
+                        == providerInvocationResult.value("releaseGate").toString()
+                    && !providerExecutionDecision.value("operationInvoked").toBool(true)
+                    && !providerExecutionDecision.value("resultCaptured").toBool(true)
+                    && !providerExecutionDecision.value("rawKeyExported").toBool(true)
+                    && !providerExecutionDecision.value("privateMaterialExported").toBool(true),
+                "production provider execution decision should block reviewed callbacks until result capture is accepted") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -497,6 +517,22 @@ int main() {
                     && !firstExecutionResult.value("privateMaterialExported").toBool(true)
                     && !firstExecutionResult.value("sessionSecretExported").toBool(true),
                 "production execution result contract should expose sanitized execution output boundaries") && ok;
+    const QJsonObject firstProviderDecision =
+        providerExecutionDecision.value("decisions").toArray().at(0).toObject();
+    ok = expect(firstProviderDecision.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstProviderDecision.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstProviderDecision.value("decisionState").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("blocked-linked-placeholder")
+                            : QStringLiteral("blocked-not-linked"))
+                    && !firstProviderDecision.value("reviewedProviderCallbackAllowed").toBool(true)
+                    && !firstProviderDecision.value("operationInvoked").toBool(true)
+                    && !firstProviderDecision.value("resultCaptured").toBool(true)
+                    && firstProviderDecision.value("noSensitiveMaterialExport").toBool(false)
+                    && !firstProviderDecision.value("rawKeyExported").toBool(true),
+                "production provider execution decision should keep linked placeholders non-callable") && ok;
     ok = expect(acceptance.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-crypto-acceptance-v1")
                     && acceptance.value("backendId").toString()
@@ -526,6 +562,10 @@ int main() {
                         .value("results").toArray().size() == 8
                     && !acceptance.value("operationExecutionResult").toObject()
                         .value("accepted").toBool(true)
+                    && acceptance.value("providerExecutionDecision").toObject()
+                        .value("decisions").toArray().size() == 8
+                    && !acceptance.value("providerExecutionDecisionAccepted").toBool(true)
+                    && acceptance.value("providerExecutionDecisionBlockedDecisionCount").toInt() == 8
                     && acceptance.value("passedExecutionResultCount").toInt() == 0
                     && acceptance.value("implementedOperationCount").toInt() == 0
                     && !acceptance.value("rawKeyExported").toBool(true)
