@@ -97,6 +97,8 @@ int main() {
         status.value("productionProviderInvocationResult").toObject();
     const QJsonObject providerExecutionDecision =
         status.value("productionProviderExecutionDecision").toObject();
+    const QJsonObject providerCallbackHarness =
+        status.value("productionProviderCallbackHarness").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -415,6 +417,29 @@ int main() {
                     && !providerExecutionDecision.value("rawKeyExported").toBool(true)
                     && !providerExecutionDecision.value("privateMaterialExported").toBool(true),
                 "production provider execution decision should block reviewed callbacks until result capture is accepted") && ok;
+    ok = expect(providerCallbackHarness.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-callback-harness-v1")
+                    && providerCallbackHarness.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-callback-harness-blocked-placeholder")
+                            : QStringLiteral("production-provider-callback-harness-blocked-not-linked"))
+                    && !providerCallbackHarness.value("accepted").toBool(true)
+                    && providerCallbackHarness.value("armedCallbackCount").toInt() == 0
+                    && providerCallbackHarness.value("blockedCallbackCount").toInt() == 8
+                    && providerCallbackHarness.value("sanitizedCallbackCount").toInt() == 8
+                    && providerCallbackHarness.value("inputCapturePolicyCount").toInt() == 8
+                    && providerCallbackHarness.value("outputCapturePolicyCount").toInt() == 8
+                    && providerCallbackHarness.value("resultCapturePolicyCount").toInt() == 8
+                    && providerCallbackHarness.value("callbacks").toArray().size() == 8
+                    && providerCallbackHarness.value("providerExecutionDecisionReleaseGate").toString()
+                        == providerExecutionDecision.value("releaseGate").toString()
+                    && !providerCallbackHarness.value("operationInvoked").toBool(true)
+                    && !providerCallbackHarness.value("inputBytesCaptured").toBool(true)
+                    && !providerCallbackHarness.value("outputBytesCaptured").toBool(true)
+                    && !providerCallbackHarness.value("resultCaptured").toBool(true)
+                    && !providerCallbackHarness.value("rawKeyExported").toBool(true)
+                    && !providerCallbackHarness.value("privateMaterialExported").toBool(true),
+                "production provider callback harness should distinguish not-linked from linked-placeholder gates") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

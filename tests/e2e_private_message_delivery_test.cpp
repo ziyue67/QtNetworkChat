@@ -695,6 +695,38 @@ int main(int argc, char** argv) {
                         && !rotationProviderInvocationResult.value("operationInvoked").toBool(true)
                         && !rotationProviderInvocationResult.value("resultCaptured").toBool(true),
                     "production rotation dry-run should embed provider invocation result evidence") && ok;
+        const QJsonObject rotationProviderExecutionDecision =
+            rotationDryRun.value("productionProviderExecutionDecision").toObject();
+        ok = expect(rotationProviderExecutionDecision.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-execution-decision-v1")
+                        && rotationProviderExecutionDecision.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-execution-decision-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderExecutionDecisionReleaseGate").toString()
+                            == QStringLiteral("production-provider-execution-decision-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderExecutionDecisionAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderExecutionDecisionBlockedDecisionCount").toInt() == 8
+                        && rotationProviderExecutionDecision.value("decisions").toArray().size() == 8
+                        && !rotationProviderExecutionDecision.value("operationInvoked").toBool(true)
+                        && !rotationProviderExecutionDecision.value("resultCaptured").toBool(true),
+                    "production rotation dry-run should embed provider execution decision evidence") && ok;
+        const QJsonObject rotationProviderCallbackHarness =
+            rotationDryRun.value("productionProviderCallbackHarness").toObject();
+        ok = expect(rotationProviderCallbackHarness.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-callback-harness-v1")
+                        && rotationProviderCallbackHarness.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-callback-harness-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderCallbackHarnessReleaseGate").toString()
+                            == QStringLiteral("production-provider-callback-harness-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderCallbackHarnessAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderCallbackHarnessBlockedCallbackCount").toInt() == 8
+                        && rotationProviderCallbackHarness.value("callbacks").toArray().size() == 8
+                        && rotationProviderCallbackHarness.value("providerExecutionDecisionReleaseGate").toString()
+                            == QStringLiteral("production-provider-execution-decision-blocked-not-linked")
+                        && !rotationProviderCallbackHarness.value("operationInvoked").toBool(true)
+                        && !rotationProviderCallbackHarness.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderCallbackHarness.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderCallbackHarness.value("resultCaptured").toBool(true),
+                    "production rotation dry-run should embed provider callback harness evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -883,6 +915,20 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderExecutionDecision").toObject()
                             .value("operationInvoked").toBool(true)
                         && !rotationExecute.value("productionProviderExecutionDecision").toObject()
+                            .value("resultCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderCallbackHarnessReleaseGate").toString()
+                            == QStringLiteral("production-provider-callback-harness-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderCallbackHarnessAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderCallbackHarnessBlockedCallbackCount").toInt() == 8
+                        && rotationExecute.value("productionProviderCallbackHarness").toObject()
+                            .value("callbacks").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderCallbackHarness").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && !rotationExecute.value("productionProviderCallbackHarness").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderCallbackHarness").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderCallbackHarness").toObject()
                             .value("resultCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)

@@ -113,6 +113,8 @@ int main() {
         backendStatus.value("productionProviderInvocationResult").toObject();
     const QJsonObject productionProviderExecutionDecision =
         backendStatus.value("productionProviderExecutionDecision").toObject();
+    const QJsonObject productionProviderCallbackHarness =
+        backendStatus.value("productionProviderCallbackHarness").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -295,6 +297,21 @@ int main() {
                     && productionProviderExecutionDecision.value("decisions").toArray().size() == 8
                     && !productionProviderExecutionDecision.value("operationInvoked").toBool(true)
                     && !productionProviderExecutionDecision.value("resultCaptured").toBool(true)
+                    && productionProviderCallbackHarness.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-callback-harness-v1")
+                    && productionProviderCallbackHarness.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-callback-harness-blocked-not-linked")
+                    && productionProviderCallbackHarness.value("blockedCallbackCount").toInt() == 8
+                    && productionProviderCallbackHarness.value("armedCallbackCount").toInt() == 0
+                    && productionProviderCallbackHarness.value("sanitizedCallbackCount").toInt() == 8
+                    && productionProviderCallbackHarness.value("inputCapturePolicyCount").toInt() == 8
+                    && productionProviderCallbackHarness.value("outputCapturePolicyCount").toInt() == 8
+                    && productionProviderCallbackHarness.value("resultCapturePolicyCount").toInt() == 8
+                    && productionProviderCallbackHarness.value("callbacks").toArray().size() == 8
+                    && !productionProviderCallbackHarness.value("operationInvoked").toBool(true)
+                    && !productionProviderCallbackHarness.value("inputBytesCaptured").toBool(true)
+                    && !productionProviderCallbackHarness.value("outputBytesCaptured").toBool(true)
+                    && !productionProviderCallbackHarness.value("resultCaptured").toBool(true)
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -306,7 +323,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 13
+                        .value("checks").toArray().size() == 14
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -328,7 +345,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 13
+                        .value("checks").toArray().size() == 14
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -461,6 +478,31 @@ int main() {
                     && !firstProviderExecutionDecision.value("rawKeyExported").toBool(true)
                     && !firstProviderExecutionDecision.value("privateMaterialExported").toBool(true),
                 "production provider execution decision should block callbacks until result capture is accepted") && ok;
+    const QJsonObject firstProviderCallback =
+        productionProviderCallbackHarness.value("callbacks").toArray().at(0).toObject();
+    ok = expect(firstProviderCallback.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstProviderCallback.value("providerSymbol").toString()
+                        == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                    && firstProviderCallback.value("callbackState").toString()
+                        == QStringLiteral("blocked-not-linked")
+                    && firstProviderCallback.value("executionDecisionReleaseGate").toString()
+                        == QStringLiteral("production-provider-execution-decision-blocked-not-linked")
+                    && !firstProviderCallback.value("reviewedProviderCallbackAllowed").toBool(true)
+                    && !firstProviderCallback.value("callbackHarnessArmed").toBool(true)
+                    && firstProviderCallback.value("inputCapturePolicy").toString()
+                        == QStringLiteral("sanitized-metadata-only-no-input-bytes")
+                    && firstProviderCallback.value("outputCapturePolicy").toString()
+                        == QStringLiteral("sanitized-contract-only-no-output-bytes")
+                    && firstProviderCallback.value("resultCapturePolicy").toString()
+                        == QStringLiteral("status-error-fixture-proof-only")
+                    && !firstProviderCallback.value("operationInvoked").toBool(true)
+                    && !firstProviderCallback.value("inputBytesCaptured").toBool(true)
+                    && !firstProviderCallback.value("outputBytesCaptured").toBool(true)
+                    && !firstProviderCallback.value("resultCaptured").toBool(true)
+                    && !firstProviderCallback.value("rawKeyExported").toBool(true)
+                    && !firstProviderCallback.value("privateMaterialExported").toBool(true),
+                "production provider callback harness should stay sanitized and fail closed") && ok;
     const QJsonObject firstProviderCallFrame =
         productionProviderCallFrame.value("frames").toArray().at(0).toObject();
     ok = expect(firstProviderCallFrame.value("operation").toString()
