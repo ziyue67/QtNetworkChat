@@ -114,6 +114,47 @@ qnc_e2e_status_t mismatchedShapeProviderOperation(const qnc_e2e_operation_input_
     output->sanitized_error_class = "ok";
     return QNC_E2E_STATUS_OK;
 }
+
+qnc_e2e_status_t statusMismatchProviderOperation(const qnc_e2e_operation_input_v1* input,
+                                                 qnc_e2e_operation_output_v1* output) {
+    if (!input || !output) {
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    ++g_probeInvocationCount;
+    output->status = QNC_E2E_STATUS_UNSUPPORTED;
+    output->material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+    output->public_output = {};
+    output->sealed_output = {};
+    output->sanitized_error_class = "unsupported";
+    return QNC_E2E_STATUS_OK;
+}
+
+qnc_e2e_status_t materialPolicyMismatchProviderOperation(const qnc_e2e_operation_input_v1* input,
+                                                         qnc_e2e_operation_output_v1* output) {
+    if (!input || !output) {
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    ++g_probeInvocationCount;
+    static const uint8_t publicOutputBytes[] = { 0x50, 0x55, 0x42, 0x2d };
+    static const uint8_t sealedOutputBytes[] = { 0x53, 0x45, 0x41, 0x4c };
+    static const uint8_t payloadOutputBytes[] = { 0x50, 0x41, 0x59, 0x4c };
+    output->status = QNC_E2E_STATUS_OK;
+    output->material_policy = QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED;
+    output->public_output = {};
+    output->sealed_output = {};
+    if (input->operation == QNC_E2E_OPERATION_IDENTITY_KEY_GENERATION
+        || input->operation == QNC_E2E_OPERATION_PUBLIC_KEY_DERIVATION
+        || input->operation == QNC_E2E_OPERATION_AGREEMENT_SIGN
+        || input->operation == QNC_E2E_OPERATION_AGREEMENT_VERIFY) {
+        output->public_output = { publicOutputBytes, sizeof(publicOutputBytes) };
+    } else if (input->operation == QNC_E2E_OPERATION_PAYLOAD_ENCRYPT) {
+        output->sealed_output = { sealedOutputBytes, sizeof(sealedOutputBytes) };
+    } else if (input->operation == QNC_E2E_OPERATION_PAYLOAD_DECRYPT) {
+        output->public_output = { payloadOutputBytes, sizeof(payloadOutputBytes) };
+    }
+    output->sanitized_error_class = "ok";
+    return QNC_E2E_STATUS_OK;
+}
 }
 
 int main() {
@@ -923,6 +964,32 @@ int main() {
                     && !missingPointerTable.value("tableValidation").toObject()
                         .value("allOperationPointersPresent").toBool(true),
                 "provider table registration should fail closed when a required operation pointer is missing") && ok;
+    const QJsonObject missingPointerProbe =
+        e2eProbeProductionCryptoProviderInvocationExecution();
+    const QJsonObject firstMissingPointerProbe =
+        missingPointerProbe.value("probes").toArray().at(0).toObject();
+    const QJsonObject lastMissingPointerProbe =
+        missingPointerProbe.value("probes").toArray().at(7).toObject();
+    ok = expect(missingPointerProbe.value("invokedOperationCount").toInt() == 0
+                    && missingPointerProbe.value("blockedProbeCount").toInt() == 8
+                    && missingPointerProbe.value("tableValidationBlockedProbeCount").toInt() == 8
+                    && missingPointerProbe.value("operationPointerMissingProbeCount").toInt() == 1
+                    && missingPointerProbe.value("mismatchReasonSummary").toObject()
+                        .value("production-provider-table-operation-pointer-missing").toInt() == 8
+                    && missingPointerProbe.value("mismatchSeveritySummary").toObject()
+                        .value("fail-closed").toInt() == 8
+                    && missingPointerProbe.value("mismatchScopeSummary").toObject()
+                        .value("provider-table-validation").toInt() == 8
+                    && firstMissingPointerProbe.value("tableValidationBlockedReason").toString()
+                        == QStringLiteral("production-provider-table-operation-pointer-missing")
+                    && firstMissingPointerProbe.value("functionPointerPresent").toBool(false)
+                    && !firstMissingPointerProbe.value("operationPointerMissing").toBool(true)
+                    && !firstMissingPointerProbe.value("operationInvoked").toBool(true)
+                    && firstMissingPointerProbe.value("mismatchScope").toString()
+                        == QStringLiteral("provider-table-validation")
+                    && !lastMissingPointerProbe.value("functionPointerPresent").toBool(true)
+                    && lastMissingPointerProbe.value("operationPointerMissing").toBool(false),
+                "provider invocation probe should expose pointer-missing table validation as blocked matrix evidence") && ok;
     completeProviderTable.payload_decrypt = dummyProviderOperation;
     qnc_e2e_provider_table_v1 countingProviderTable = completeProviderTable;
     countingProviderTable.session_key_generation = countingProviderOperation;
@@ -967,6 +1034,8 @@ int main() {
                     && invocationExecutionProbe.value("outputEvidenceFailClosedCount").toInt() == 0
                     && invocationExecutionProbe.value("providerVectorSetMatchedCount").toInt() == 8
                     && invocationExecutionProbe.value("providerVectorSetMismatchCount").toInt() == 0
+                    && invocationExecutionProbe.value("operationPointerMissingProbeCount").toInt() == 0
+                    && invocationExecutionProbe.value("tableValidationBlockedProbeCount").toInt() == 0
                     && invocationExecutionProbe.value("failureClassSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("vectorResultSummary").toObject()
@@ -984,6 +1053,8 @@ int main() {
                     && invocationExecutionProbe.value("mismatchReasonSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("mismatchSeveritySummary").toObject()
+                        .value("none").toInt() == 8
+                    && invocationExecutionProbe.value("mismatchScopeSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("blockedProbeCount").toInt() == 0
                     && invocationExecutionProbe.value("probes").toArray().size() == 8
@@ -1052,6 +1123,10 @@ int main() {
                         == QStringLiteral("none")
                     && firstExecutionProbe.value("mismatchSeverity").toString()
                         == QStringLiteral("none")
+                    && firstExecutionProbe.value("mismatchScope").toString()
+                        == QStringLiteral("none")
+                    && firstExecutionProbe.value("tableValidationBlockedReason").toString().isEmpty()
+                    && !firstExecutionProbe.value("operationPointerMissing").toBool(true)
                     && firstExecutionProbe.value("operationInvoked").toBool(false)
                     && firstExecutionProbe.value("resultCaptured").toBool(false)
                     && firstExecutionProbe.value("callbackStatusClass").toString()
@@ -1151,6 +1226,84 @@ int main() {
                     && payloadDecryptProbe.value("expectedOutputClassMatched").toBool(false)
                     && payloadDecryptProbe.value("publicOutputSize").toInt() == 5,
                 "provider invocation probe should classify encrypted and decrypted output shapes separately") && ok;
+    qnc_e2e_provider_table_v1 statusMismatchProviderTable = completeProviderTable;
+    statusMismatchProviderTable.session_key_generation = statusMismatchProviderOperation;
+    statusMismatchProviderTable.identity_key_generation = statusMismatchProviderOperation;
+    statusMismatchProviderTable.public_key_derivation = statusMismatchProviderOperation;
+    statusMismatchProviderTable.agreement_sign = statusMismatchProviderOperation;
+    statusMismatchProviderTable.agreement_verify = statusMismatchProviderOperation;
+    statusMismatchProviderTable.session_derive = statusMismatchProviderOperation;
+    statusMismatchProviderTable.payload_encrypt = statusMismatchProviderOperation;
+    statusMismatchProviderTable.payload_decrypt = statusMismatchProviderOperation;
+    g_probeInvocationCount = 0;
+    e2eRegisterProductionProviderTable(&statusMismatchProviderTable);
+    const QJsonObject statusMismatchProbe =
+        e2eProbeProductionCryptoProviderInvocationExecution();
+    const QJsonObject firstStatusMismatchProbe =
+        statusMismatchProbe.value("probes").toArray().at(0).toObject();
+    ok = expect(statusMismatchProbe.value("invokedOperationCount").toInt() == 8
+                    && statusMismatchProbe.value("statusMismatchCount").toInt() == 8
+                    && statusMismatchProbe.value("providerVectorSetMatchedCount").toInt() == 0
+                    && statusMismatchProbe.value("providerVectorSetMismatchCount").toInt() == 8
+                    && statusMismatchProbe.value("mismatchReasonSummary").toObject()
+                        .value("known-answer-status-mismatch").toInt() == 8
+                    && statusMismatchProbe.value("mismatchSeveritySummary").toObject()
+                        .value("fail-closed").toInt() == 8
+                    && statusMismatchProbe.value("mismatchScopeSummary").toObject()
+                        .value("known-answer-vector").toInt() == 8
+                    && firstStatusMismatchProbe.value("callbackStatusClass").toString()
+                        == QStringLiteral("ok")
+                    && firstStatusMismatchProbe.value("outputStatusClass").toString()
+                        == QStringLiteral("unsupported")
+                    && firstStatusMismatchProbe.value("statusConsistencyClass").toString()
+                        == QStringLiteral("provider-status-mismatch")
+                    && firstStatusMismatchProbe.value("mismatchReason").toString()
+                        == QStringLiteral("known-answer-status-mismatch")
+                    && firstStatusMismatchProbe.value("mismatchSeverity").toString()
+                        == QStringLiteral("fail-closed")
+                    && firstStatusMismatchProbe.value("mismatchScope").toString()
+                        == QStringLiteral("known-answer-vector")
+                    && g_probeInvocationCount == 8,
+                "provider invocation probe should classify status mismatches separately") && ok;
+    qnc_e2e_provider_table_v1 materialMismatchProviderTable = completeProviderTable;
+    materialMismatchProviderTable.session_key_generation = materialPolicyMismatchProviderOperation;
+    materialMismatchProviderTable.identity_key_generation = materialPolicyMismatchProviderOperation;
+    materialMismatchProviderTable.public_key_derivation = materialPolicyMismatchProviderOperation;
+    materialMismatchProviderTable.agreement_sign = materialPolicyMismatchProviderOperation;
+    materialMismatchProviderTable.agreement_verify = materialPolicyMismatchProviderOperation;
+    materialMismatchProviderTable.session_derive = materialPolicyMismatchProviderOperation;
+    materialMismatchProviderTable.payload_encrypt = materialPolicyMismatchProviderOperation;
+    materialMismatchProviderTable.payload_decrypt = materialPolicyMismatchProviderOperation;
+    g_probeInvocationCount = 0;
+    e2eRegisterProductionProviderTable(&materialMismatchProviderTable);
+    const QJsonObject materialMismatchProbe =
+        e2eProbeProductionCryptoProviderInvocationExecution();
+    const QJsonObject firstMaterialMismatchProbe =
+        materialMismatchProbe.value("probes").toArray().at(0).toObject();
+    ok = expect(materialMismatchProbe.value("invokedOperationCount").toInt() == 8
+                    && materialMismatchProbe.value("statusMismatchCount").toInt() == 0
+                    && materialMismatchProbe.value("providerVectorSetMatchedCount").toInt() == 4
+                    && materialMismatchProbe.value("providerVectorSetMismatchCount").toInt() == 4
+                    && materialMismatchProbe.value("mismatchReasonSummary").toObject()
+                        .value("none").toInt() == 4
+                    && materialMismatchProbe.value("mismatchReasonSummary").toObject()
+                        .value("known-answer-material-policy-mismatch").toInt() == 4
+                    && materialMismatchProbe.value("mismatchSeveritySummary").toObject()
+                        .value("fail-closed").toInt() == 4
+                    && materialMismatchProbe.value("mismatchScopeSummary").toObject()
+                        .value("known-answer-vector").toInt() == 4
+                    && firstMaterialMismatchProbe.value("materialPolicyClass").toString()
+                        == QStringLiteral("public-export-allowed")
+                    && firstMaterialMismatchProbe.value("observedOutputShapeClass").toString()
+                        == QStringLiteral("empty-output-shape")
+                    && firstMaterialMismatchProbe.value("mismatchReason").toString()
+                        == QStringLiteral("known-answer-material-policy-mismatch")
+                    && firstMaterialMismatchProbe.value("mismatchSeverity").toString()
+                        == QStringLiteral("fail-closed")
+                    && firstMaterialMismatchProbe.value("mismatchScope").toString()
+                        == QStringLiteral("known-answer-vector")
+                    && g_probeInvocationCount == 8,
+                "provider invocation probe should classify material policy mismatches separately") && ok;
     qnc_e2e_provider_table_v1 mismatchedProviderTable = completeProviderTable;
     mismatchedProviderTable.session_key_generation = mismatchedShapeProviderOperation;
     mismatchedProviderTable.identity_key_generation = mismatchedShapeProviderOperation;

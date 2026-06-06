@@ -1738,6 +1738,25 @@ QString providerProbeMismatchSeverity(const QString& mismatchReason) {
     return QStringLiteral("fail-closed");
 }
 
+QString providerProbeMismatchScope(bool canInvoke,
+                                   bool tableValidationAccepted,
+                                   bool pointerPresent,
+                                   const QString& mismatchReason) {
+    if (mismatchReason == QStringLiteral("none")) {
+        return QStringLiteral("none");
+    }
+    if (!tableValidationAccepted) {
+        return QStringLiteral("provider-table-validation");
+    }
+    if (!pointerPresent) {
+        return QStringLiteral("provider-operation-pointer");
+    }
+    if (!canInvoke) {
+        return QStringLiteral("provider-invocation");
+    }
+    return QStringLiteral("known-answer-vector");
+}
+
 void incrementSummaryCount(QJsonObject* summary, const QString& key) {
     if (!summary) {
         return;
@@ -1788,12 +1807,15 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     int outputEvidenceFailClosedCount = 0;
     int providerVectorSetMatchedCount = 0;
     int providerVectorSetMismatchCount = 0;
+    int operationPointerMissingProbeCount = 0;
+    int tableValidationBlockedProbeCount = 0;
     QJsonObject failureClassSummary;
     QJsonObject vectorResultSummary;
     QJsonObject knownAnswerOutputClassSummary;
     QJsonObject outputEvidenceClassSummary;
     QJsonObject mismatchReasonSummary;
     QJsonObject mismatchSeveritySummary;
+    QJsonObject mismatchScopeSummary;
     int sequenceIndex = 0;
     for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
         const E2ECryptoOperation operation = spec.operation;
@@ -1803,6 +1825,10 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             providerOperationPointer(registeredTable, operation);
         const bool pointerPresent = callback != nullptr;
         const bool canInvoke = registered && tableValidationAccepted && pointerPresent;
+        const bool operationPointerMissing = registered && !pointerPresent;
+        const QString tableValidationBlockedReason = tableValidationAccepted
+            ? QString()
+            : registration.value(QStringLiteral("tableValidationBlockedReason")).toString();
 
         qnc_e2e_operation_input_v1 input = {};
         input.operation = providerOperationEnum(operation);
@@ -1848,7 +1874,7 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             : (!registered
                 ? QStringLiteral("production-provider-table-not-registered")
                 : (!tableValidationAccepted
-                    ? registration.value(QStringLiteral("tableValidationBlockedReason")).toString()
+                    ? tableValidationBlockedReason
                     : QStringLiteral("production-provider-operation-pointer-missing")));
         const QString failureClass =
             providerProbeFailureClass(canInvoke, statusClass, outputStatusClass, blockedReason);
@@ -1926,6 +1952,11 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
                                         blockedReason);
         const QString mismatchSeverity =
             providerProbeMismatchSeverity(mismatchReason);
+        const QString mismatchScope =
+            providerProbeMismatchScope(canInvoke,
+                                       tableValidationAccepted,
+                                       pointerPresent,
+                                       mismatchReason);
         const bool providerVectorSetMatched =
             canInvoke
             && vectorContractReady
@@ -2004,9 +2035,12 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         probe[QStringLiteral("providerVectorSetMatched")] = providerVectorSetMatched;
         probe[QStringLiteral("mismatchReason")] = mismatchReason;
         probe[QStringLiteral("mismatchSeverity")] = mismatchSeverity;
+        probe[QStringLiteral("mismatchScope")] = mismatchScope;
         probe[QStringLiteral("registered")] = registered;
         probe[QStringLiteral("tableValidationAccepted")] = tableValidationAccepted;
+        probe[QStringLiteral("tableValidationBlockedReason")] = tableValidationBlockedReason;
         probe[QStringLiteral("functionPointerPresent")] = pointerPresent;
+        probe[QStringLiteral("operationPointerMissing")] = operationPointerMissing;
         probe[QStringLiteral("operationInvoked")] = canInvoke;
         probe[QStringLiteral("inputBytesCaptured")] = false;
         probe[QStringLiteral("outputBytesCaptured")] = false;
@@ -2116,6 +2150,12 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         } else {
             ++providerVectorSetMismatchCount;
         }
+        if (operationPointerMissing) {
+            ++operationPointerMissingProbeCount;
+        }
+        if (!tableValidationAccepted) {
+            ++tableValidationBlockedProbeCount;
+        }
         if (okStatus) {
             ++vectorPassCount;
         } else {
@@ -2129,6 +2169,7 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
                               outputEvidence.value(QStringLiteral("outputEvidenceClass")).toString());
         incrementSummaryCount(&mismatchReasonSummary, mismatchReason);
         incrementSummaryCount(&mismatchSeveritySummary, mismatchSeverity);
+        incrementSummaryCount(&mismatchScopeSummary, mismatchScope);
         ++sequenceIndex;
     }
 
@@ -2184,6 +2225,10 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         providerVectorSetMatchedCount;
     status[QStringLiteral("providerVectorSetMismatchCount")] =
         providerVectorSetMismatchCount;
+    status[QStringLiteral("operationPointerMissingProbeCount")] =
+        operationPointerMissingProbeCount;
+    status[QStringLiteral("tableValidationBlockedProbeCount")] =
+        tableValidationBlockedProbeCount;
     status[QStringLiteral("failureClassSummary")] = failureClassSummary;
     status[QStringLiteral("vectorResultSummary")] = vectorResultSummary;
     status[QStringLiteral("knownAnswerOutputClassSummary")] =
@@ -2192,6 +2237,7 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         outputEvidenceClassSummary;
     status[QStringLiteral("mismatchReasonSummary")] = mismatchReasonSummary;
     status[QStringLiteral("mismatchSeveritySummary")] = mismatchSeveritySummary;
+    status[QStringLiteral("mismatchScopeSummary")] = mismatchScopeSummary;
     status[QStringLiteral("operatorAction")] =
         QStringLiteral("use-reviewed-provider-probe-results-as-test-evidence-only");
     status[QStringLiteral("probes")] = probes;
