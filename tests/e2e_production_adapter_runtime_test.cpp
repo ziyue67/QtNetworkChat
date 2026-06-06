@@ -105,6 +105,8 @@ int main() {
         status.value("productionProviderExecutionSlotBinding").toObject();
     const QJsonObject providerExecutionPath =
         status.value("productionProviderExecutionPath").toObject();
+    const QJsonObject providerInvocationSandbox =
+        status.value("productionProviderInvocationSandbox").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -514,6 +516,30 @@ int main() {
                     && !providerExecutionPath.value("rawKeyExported").toBool(true)
                     && !providerExecutionPath.value("privateMaterialExported").toBool(true),
                 "production provider execution path should map registered function pointers only after slot binding") && ok;
+    ok = expect(providerInvocationSandbox.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-sandbox-v1")
+                    && providerInvocationSandbox.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-invocation-sandbox-blocked-placeholder")
+                            : QStringLiteral("production-provider-invocation-sandbox-blocked-not-linked"))
+                    && !providerInvocationSandbox.value("accepted").toBool(true)
+                    && providerInvocationSandbox.value("readySandboxCount").toInt() == 0
+                    && providerInvocationSandbox.value("blockedSandboxCount").toInt() == 8
+                    && providerInvocationSandbox.value("mappedPathCount").toInt() == 0
+                    && providerInvocationSandbox.value("sanitizedSandboxCount").toInt() == 8
+                    && providerInvocationSandbox.value("timeoutPolicyCount").toInt() == 8
+                    && providerInvocationSandbox.value("errorPolicyCount").toInt() == 8
+                    && providerInvocationSandbox.value("materialPolicyCount").toInt() == 8
+                    && providerInvocationSandbox.value("sandboxes").toArray().size() == 8
+                    && providerInvocationSandbox.value("providerExecutionPathReleaseGate").toString()
+                        == providerExecutionPath.value("releaseGate").toString()
+                    && !providerInvocationSandbox.value("operationInvoked").toBool(true)
+                    && !providerInvocationSandbox.value("inputBytesCaptured").toBool(true)
+                    && !providerInvocationSandbox.value("outputBytesCaptured").toBool(true)
+                    && !providerInvocationSandbox.value("resultCaptured").toBool(true)
+                    && !providerInvocationSandbox.value("rawKeyExported").toBool(true)
+                    && !providerInvocationSandbox.value("privateMaterialExported").toBool(true),
+                "production provider invocation sandbox should expose call policies without invoking placeholders") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

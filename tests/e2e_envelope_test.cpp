@@ -121,6 +121,8 @@ int main() {
         backendStatus.value("productionProviderExecutionSlotBinding").toObject();
     const QJsonObject productionProviderExecutionPath =
         backendStatus.value("productionProviderExecutionPath").toObject();
+    const QJsonObject productionProviderInvocationSandbox =
+        backendStatus.value("productionProviderInvocationSandbox").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -364,6 +366,24 @@ int main() {
                     && !productionProviderExecutionPath.value("inputBytesCaptured").toBool(true)
                     && !productionProviderExecutionPath.value("outputBytesCaptured").toBool(true)
                     && !productionProviderExecutionPath.value("resultCaptured").toBool(true)
+                    && productionProviderInvocationSandbox.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-sandbox-v1")
+                    && productionProviderInvocationSandbox.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-invocation-sandbox-blocked-not-linked")
+                    && productionProviderInvocationSandbox.value("readySandboxCount").toInt() == 0
+                    && productionProviderInvocationSandbox.value("blockedSandboxCount").toInt() == 8
+                    && productionProviderInvocationSandbox.value("mappedPathCount").toInt() == 0
+                    && productionProviderInvocationSandbox.value("sanitizedSandboxCount").toInt() == 8
+                    && productionProviderInvocationSandbox.value("timeoutPolicyCount").toInt() == 8
+                    && productionProviderInvocationSandbox.value("errorPolicyCount").toInt() == 8
+                    && productionProviderInvocationSandbox.value("materialPolicyCount").toInt() == 8
+                    && productionProviderInvocationSandbox.value("sandboxes").toArray().size() == 8
+                    && productionProviderInvocationSandbox.value("providerExecutionPathReleaseGate").toString()
+                        == QStringLiteral("production-provider-execution-path-blocked-not-linked")
+                    && !productionProviderInvocationSandbox.value("operationInvoked").toBool(true)
+                    && !productionProviderInvocationSandbox.value("inputBytesCaptured").toBool(true)
+                    && !productionProviderInvocationSandbox.value("outputBytesCaptured").toBool(true)
+                    && !productionProviderInvocationSandbox.value("resultCaptured").toBool(true)
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -375,7 +395,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 17
+                        .value("checks").toArray().size() == 18
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -397,7 +417,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 17
+                        .value("checks").toArray().size() == 18
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -717,6 +737,8 @@ int main() {
         backendStatusAfterRegistration.value("productionProviderInvocationResult").toObject();
     const QJsonObject executionPathAfterRegistration =
         backendStatusAfterRegistration.value("productionProviderExecutionPath").toObject();
+    const QJsonObject invocationSandboxAfterRegistration =
+        backendStatusAfterRegistration.value("productionProviderInvocationSandbox").toObject();
     ok = expect(!backendStatusAfterRegistration.value("productionReady").toBool(true)
                     && backendStatusAfterRegistration.value("productionProviderTableRegistration").toObject()
                         .value("registered").toBool(false)
@@ -764,7 +786,17 @@ int main() {
                     && !executionPathAfterRegistration.value("operationInvoked").toBool(true)
                     && !executionPathAfterRegistration.value("inputBytesCaptured").toBool(true)
                     && !executionPathAfterRegistration.value("outputBytesCaptured").toBool(true)
-                    && !executionPathAfterRegistration.value("resultCaptured").toBool(true),
+                    && !executionPathAfterRegistration.value("resultCaptured").toBool(true)
+                    && invocationSandboxAfterRegistration.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-sandbox-v1")
+                    && invocationSandboxAfterRegistration.value("readySandboxCount").toInt() == 0
+                    && invocationSandboxAfterRegistration.value("blockedSandboxCount").toInt() == 8
+                    && invocationSandboxAfterRegistration.value("mappedPathCount").toInt() == 0
+                    && invocationSandboxAfterRegistration.value("sandboxes").toArray().size() == 8
+                    && !invocationSandboxAfterRegistration.value("operationInvoked").toBool(true)
+                    && !invocationSandboxAfterRegistration.value("inputBytesCaptured").toBool(true)
+                    && !invocationSandboxAfterRegistration.value("outputBytesCaptured").toBool(true)
+                    && !invocationSandboxAfterRegistration.value("resultCaptured").toBool(true),
                 "registered provider table should remain fail-closed until production readiness and binding are enabled") && ok;
     completeProviderTable.payload_decrypt = nullptr;
     const QJsonObject missingPointerTable =

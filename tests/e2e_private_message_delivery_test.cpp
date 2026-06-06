@@ -781,6 +781,24 @@ int main(int argc, char** argv) {
                         && !rotationProviderExecutionPath.value("outputBytesCaptured").toBool(true)
                         && !rotationProviderExecutionPath.value("resultCaptured").toBool(true),
                     "production rotation dry-run should embed provider execution path evidence") && ok;
+        const QJsonObject rotationProviderInvocationSandbox =
+            rotationDryRun.value("productionProviderInvocationSandbox").toObject();
+        ok = expect(rotationProviderInvocationSandbox.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-sandbox-v1")
+                        && rotationProviderInvocationSandbox.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-sandbox-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderInvocationSandboxReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-sandbox-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderInvocationSandboxAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderInvocationSandboxBlockedSandboxCount").toInt() == 8
+                        && rotationProviderInvocationSandbox.value("sandboxes").toArray().size() == 8
+                        && rotationProviderInvocationSandbox.value("providerExecutionPathReleaseGate").toString()
+                            == QStringLiteral("production-provider-execution-path-blocked-not-linked")
+                        && !rotationProviderInvocationSandbox.value("operationInvoked").toBool(true)
+                        && !rotationProviderInvocationSandbox.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderInvocationSandbox.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderInvocationSandbox.value("resultCaptured").toBool(true),
+                    "production rotation dry-run should embed provider invocation sandbox evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -1025,6 +1043,20 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderExecutionPath").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderExecutionPath").toObject()
+                            .value("resultCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationSandboxReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-sandbox-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderInvocationSandboxAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationSandboxBlockedSandboxCount").toInt() == 8
+                        && rotationExecute.value("productionProviderInvocationSandbox").toObject()
+                            .value("sandboxes").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderInvocationSandbox").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && !rotationExecute.value("productionProviderInvocationSandbox").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderInvocationSandbox").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderInvocationSandbox").toObject()
                             .value("resultCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)

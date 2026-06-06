@@ -811,6 +811,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderExecutionSlotBinding")).toObject();
     const QJsonObject productionProviderExecutionPath =
         backendStatus.value(QStringLiteral("productionProviderExecutionPath")).toObject();
+    const QJsonObject productionProviderInvocationSandbox =
+        backendStatus.value(QStringLiteral("productionProviderInvocationSandbox")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -986,6 +988,14 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderExecutionPath.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionProviderExecutionPathBlockedPathCount")] =
         productionProviderExecutionPath.value(QStringLiteral("blockedPathCount")).toInt();
+    dryRun[QStringLiteral("productionProviderInvocationSandbox")] =
+        productionProviderInvocationSandbox;
+    dryRun[QStringLiteral("productionProviderInvocationSandboxReleaseGate")] =
+        productionProviderInvocationSandbox.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderInvocationSandboxAccepted")] =
+        productionProviderInvocationSandbox.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionProviderInvocationSandboxBlockedSandboxCount")] =
+        productionProviderInvocationSandbox.value(QStringLiteral("blockedSandboxCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1191,6 +1201,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderExecutionPathAccepted")).toBool(false);
     evidence[QStringLiteral("productionProviderExecutionPathBlockedPathCount")] =
         dryRun.value(QStringLiteral("productionProviderExecutionPathBlockedPathCount")).toInt();
+    evidence[QStringLiteral("productionProviderInvocationSandbox")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationSandbox")).toObject();
+    evidence[QStringLiteral("productionProviderInvocationSandboxReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationSandboxReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderInvocationSandboxAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationSandboxAccepted")).toBool(false);
+    evidence[QStringLiteral("productionProviderInvocationSandboxBlockedSandboxCount")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationSandboxBlockedSandboxCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(
