@@ -99,6 +99,21 @@ qnc_e2e_status_t countingProviderOperation(const qnc_e2e_operation_input_v1* inp
     output->sanitized_error_class = "ok";
     return QNC_E2E_STATUS_OK;
 }
+
+qnc_e2e_status_t mismatchedShapeProviderOperation(const qnc_e2e_operation_input_v1* input,
+                                                  qnc_e2e_operation_output_v1* output) {
+    if (!input || !output) {
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    ++g_probeInvocationCount;
+    static const uint8_t wrongShapeBytes[] = { 0x4d, 0x49, 0x53, 0x4d };
+    output->status = QNC_E2E_STATUS_OK;
+    output->material_policy = QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED;
+    output->public_output = { wrongShapeBytes, sizeof(wrongShapeBytes) };
+    output->sealed_output = {};
+    output->sanitized_error_class = "ok";
+    return QNC_E2E_STATUS_OK;
+}
 }
 
 int main() {
@@ -948,6 +963,8 @@ int main() {
                     && invocationExecutionProbe.value("knownAnswerOutputEvidenceCount").toInt() == 8
                     && invocationExecutionProbe.value("knownAnswerOutputShapeHashCount").toInt() == 8
                     && invocationExecutionProbe.value("expectedOutputClassMatchCount").toInt() == 8
+                    && invocationExecutionProbe.value("expectedOutputClassMismatchCount").toInt() == 0
+                    && invocationExecutionProbe.value("outputEvidenceFailClosedCount").toInt() == 0
                     && invocationExecutionProbe.value("failureClassSummary").toObject()
                         .value("none").toInt() == 8
                     && invocationExecutionProbe.value("vectorResultSummary").toObject()
@@ -960,6 +977,8 @@ int main() {
                         .value("sealed-output-shape").toInt() == 1
                     && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                         .value("payload-output-shape").toInt() == 1
+                    && invocationExecutionProbe.value("outputEvidenceClassSummary").toObject()
+                        .value("known-answer-output-shape-matched").toInt() == 8
                     && invocationExecutionProbe.value("blockedProbeCount").toInt() == 0
                     && invocationExecutionProbe.value("probes").toArray().size() == 8
                     && g_probeInvocationCount == 8
@@ -993,6 +1012,10 @@ int main() {
                     && firstExecutionProbe.value("observedKnownAnswerOutputClass").toString()
                         == QStringLiteral("handle-status-output")
                     && firstExecutionProbe.value("expectedOutputClassMatched").toBool(false)
+                    && firstExecutionProbe.value("outputEvidenceClass").toString()
+                        == QStringLiteral("known-answer-output-shape-matched")
+                    && !firstExecutionProbe.value("outputEvidenceFailClosed").toBool(true)
+                    && firstExecutionProbe.value("outputEvidenceBlockedReason").toString().isEmpty()
                     && firstExecutionProbe.value("outputShapeHashSha256").toString().size() == 64
                     && firstExecutionProbe.value("inputContractHashSha256").toString().size() == 64
                     && firstExecutionProbe.value("outputContractHashSha256").toString().size() == 64
@@ -1109,6 +1132,51 @@ int main() {
                     && payloadDecryptProbe.value("expectedOutputClassMatched").toBool(false)
                     && payloadDecryptProbe.value("publicOutputSize").toInt() == 5,
                 "provider invocation probe should classify encrypted and decrypted output shapes separately") && ok;
+    qnc_e2e_provider_table_v1 mismatchedProviderTable = completeProviderTable;
+    mismatchedProviderTable.session_key_generation = mismatchedShapeProviderOperation;
+    mismatchedProviderTable.identity_key_generation = mismatchedShapeProviderOperation;
+    mismatchedProviderTable.public_key_derivation = mismatchedShapeProviderOperation;
+    mismatchedProviderTable.agreement_sign = mismatchedShapeProviderOperation;
+    mismatchedProviderTable.agreement_verify = mismatchedShapeProviderOperation;
+    mismatchedProviderTable.session_derive = mismatchedShapeProviderOperation;
+    mismatchedProviderTable.payload_encrypt = mismatchedShapeProviderOperation;
+    mismatchedProviderTable.payload_decrypt = mismatchedShapeProviderOperation;
+    g_probeInvocationCount = 0;
+    e2eRegisterProductionProviderTable(&mismatchedProviderTable);
+    const QJsonObject mismatchedOutputProbe =
+        e2eProbeProductionCryptoProviderInvocationExecution();
+    ok = expect(mismatchedOutputProbe.value("invokedOperationCount").toInt() == 8
+                    && mismatchedOutputProbe.value("expectedOutputClassMatchCount").toInt() == 4
+                    && mismatchedOutputProbe.value("expectedOutputClassMismatchCount").toInt() == 4
+                    && mismatchedOutputProbe.value("outputEvidenceFailClosedCount").toInt() == 4
+                    && mismatchedOutputProbe.value("outputEvidenceClassSummary").toObject()
+                        .value("known-answer-output-shape-matched").toInt() == 4
+                    && mismatchedOutputProbe.value("outputEvidenceClassSummary").toObject()
+                        .value("known-answer-output-shape-mismatch").toInt() == 4
+                    && !mismatchedOutputProbe.value("accepted").toBool(true)
+                    && g_probeInvocationCount == 8,
+                "provider invocation probe should fail closed on known-answer output shape mismatch") && ok;
+    const QJsonObject mismatchedSessionProbe =
+        mismatchedOutputProbe.value("probes").toArray().at(0).toObject();
+    const QJsonObject mismatchedPayloadEncryptProbe =
+        mismatchedOutputProbe.value("probes").toArray().at(6).toObject();
+    ok = expect(mismatchedSessionProbe.value("expectedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("handle-status-output")
+                    && mismatchedSessionProbe.value("observedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("public-output-shape")
+                    && !mismatchedSessionProbe.value("expectedOutputClassMatched").toBool(true)
+                    && mismatchedSessionProbe.value("outputEvidenceClass").toString()
+                        == QStringLiteral("known-answer-output-shape-mismatch")
+                    && mismatchedSessionProbe.value("outputEvidenceFailClosed").toBool(false)
+                    && mismatchedSessionProbe.value("outputEvidenceBlockedReason").toString()
+                        == QStringLiteral("known-answer-output-shape-mismatch")
+                    && mismatchedSessionProbe.value("outputShapeHashSha256").toString().size() == 64
+                    && mismatchedPayloadEncryptProbe.value("expectedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("sealed-output-shape")
+                    && mismatchedPayloadEncryptProbe.value("observedKnownAnswerOutputClass").toString()
+                        == QStringLiteral("public-output-shape")
+                    && mismatchedPayloadEncryptProbe.value("outputEvidenceFailClosed").toBool(false),
+                "mismatched output evidence should remain sanitized and explain fail-closed reason") && ok;
     completeProviderTable.abi = "bad-abi";
     const QJsonObject badAbiTable =
         e2eValidateProductionProviderTable(&completeProviderTable);

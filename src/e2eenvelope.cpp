@@ -605,8 +605,19 @@ QJsonObject productionProviderProbeKnownAnswerOutputEvidence(const E2ECryptoOper
         vectorContract.value(QStringLiteral("outputContractHashSha256")).toString();
     evidence[QStringLiteral("expectedKnownAnswerOutputClass")] = expectedOutputClass;
     evidence[QStringLiteral("observedKnownAnswerOutputClass")] = observedOutputClass;
-    evidence[QStringLiteral("expectedOutputClassMatched")] =
-        canInvoke && observedOutputClass == expectedOutputClass;
+    const bool matched = canInvoke && observedOutputClass == expectedOutputClass;
+    evidence[QStringLiteral("expectedOutputClassMatched")] = matched;
+    evidence[QStringLiteral("outputEvidenceClass")] = matched
+        ? QStringLiteral("known-answer-output-shape-matched")
+        : (canInvoke
+            ? QStringLiteral("known-answer-output-shape-mismatch")
+            : QStringLiteral("known-answer-output-not-invoked"));
+    evidence[QStringLiteral("outputEvidenceFailClosed")] = !matched;
+    evidence[QStringLiteral("outputEvidenceBlockedReason")] = matched
+        ? QString()
+        : (canInvoke
+            ? QStringLiteral("known-answer-output-shape-mismatch")
+            : QStringLiteral("production-provider-probe-not-invoked"));
     evidence[QStringLiteral("outputShapeHashSha256")] = e2eFingerprint(shape);
     evidence[QStringLiteral("publicOutputSize")] = publicOutputSize;
     evidence[QStringLiteral("sealedOutputSize")] = sealedOutputSize;
@@ -1735,9 +1746,12 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     int knownAnswerOutputEvidenceCount = 0;
     int knownAnswerOutputShapeHashCount = 0;
     int expectedOutputClassMatchCount = 0;
+    int expectedOutputClassMismatchCount = 0;
+    int outputEvidenceFailClosedCount = 0;
     QJsonObject failureClassSummary;
     QJsonObject vectorResultSummary;
     QJsonObject knownAnswerOutputClassSummary;
+    QJsonObject outputEvidenceClassSummary;
     int sequenceIndex = 0;
     for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
         const E2ECryptoOperation operation = spec.operation;
@@ -1882,6 +1896,12 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
             outputEvidence.value(QStringLiteral("observedKnownAnswerOutputClass")).toString();
         probe[QStringLiteral("expectedOutputClassMatched")] =
             outputEvidence.value(QStringLiteral("expectedOutputClassMatched")).toBool(false);
+        probe[QStringLiteral("outputEvidenceClass")] =
+            outputEvidence.value(QStringLiteral("outputEvidenceClass")).toString();
+        probe[QStringLiteral("outputEvidenceFailClosed")] =
+            outputEvidence.value(QStringLiteral("outputEvidenceFailClosed")).toBool(false);
+        probe[QStringLiteral("outputEvidenceBlockedReason")] =
+            outputEvidence.value(QStringLiteral("outputEvidenceBlockedReason")).toString();
         probe[QStringLiteral("outputShapeHashSha256")] =
             outputEvidence.value(QStringLiteral("outputShapeHashSha256")).toString();
         probe[QStringLiteral("probeExecutionFrameSchema")] =
@@ -2015,6 +2035,13 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         if (outputEvidence.value(QStringLiteral("expectedOutputClassMatched")).toBool(false)) {
             ++expectedOutputClassMatchCount;
         }
+        if (canInvoke
+            && !outputEvidence.value(QStringLiteral("expectedOutputClassMatched")).toBool(false)) {
+            ++expectedOutputClassMismatchCount;
+        }
+        if (outputEvidence.value(QStringLiteral("outputEvidenceFailClosed")).toBool(false)) {
+            ++outputEvidenceFailClosedCount;
+        }
         if (okStatus) {
             ++vectorPassCount;
         } else {
@@ -2024,6 +2051,8 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         incrementSummaryCount(&vectorResultSummary, vectorResultClass);
         incrementSummaryCount(&knownAnswerOutputClassSummary,
                               outputEvidence.value(QStringLiteral("observedKnownAnswerOutputClass")).toString());
+        incrementSummaryCount(&outputEvidenceClassSummary,
+                              outputEvidence.value(QStringLiteral("outputEvidenceClass")).toString());
         ++sequenceIndex;
     }
 
@@ -2071,10 +2100,16 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         knownAnswerOutputShapeHashCount;
     status[QStringLiteral("expectedOutputClassMatchCount")] =
         expectedOutputClassMatchCount;
+    status[QStringLiteral("expectedOutputClassMismatchCount")] =
+        expectedOutputClassMismatchCount;
+    status[QStringLiteral("outputEvidenceFailClosedCount")] =
+        outputEvidenceFailClosedCount;
     status[QStringLiteral("failureClassSummary")] = failureClassSummary;
     status[QStringLiteral("vectorResultSummary")] = vectorResultSummary;
     status[QStringLiteral("knownAnswerOutputClassSummary")] =
         knownAnswerOutputClassSummary;
+    status[QStringLiteral("outputEvidenceClassSummary")] =
+        outputEvidenceClassSummary;
     status[QStringLiteral("operatorAction")] =
         QStringLiteral("use-reviewed-provider-probe-results-as-test-evidence-only");
     status[QStringLiteral("probes")] = probes;
