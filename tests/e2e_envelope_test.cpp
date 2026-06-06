@@ -530,7 +530,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 20
+                        .value("checks").toArray().size() == 21
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -552,7 +552,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 20
+                        .value("checks").toArray().size() == 21
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -602,6 +602,16 @@ int main() {
                         .value("blockedDecisionCount").toInt() == 8
                     && !productionBackend.value("providerExecutionDecision").toObject()
                         .value("operationInvoked").toBool(true)
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedExecutionCandidate").toObject()
+                        .value("candidateCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedExecutionCandidate").toObject()
+                        .value("blockedCandidateCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerReviewedExecutionCandidate").toObject()
+                        .value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
@@ -1065,8 +1075,81 @@ int main() {
                     && !invocationExecutionProbe.value("rawKeyExported").toBool(true)
                     && !invocationExecutionProbe.value("privateMaterialExported").toBool(true),
                 "explicit provider invocation execution probe should call registered stub operations without becoming a release gate") && ok;
+    const QJsonObject reviewedCandidateProbe =
+        e2eProbeProductionCryptoProviderReviewedExecutionCandidate();
+    ok = expect(reviewedCandidateProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-execution-candidate-v1")
+                    && !reviewedCandidateProbe.value("accepted").toBool(true)
+                    && reviewedCandidateProbe.value("candidateNonReleaseGate").toBool(false)
+                    && reviewedCandidateProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
+                    && reviewedCandidateProbe.value("probeSourceCaptured").toBool(false)
+                    && reviewedCandidateProbe.value("providerInvocationExecutionProbeReleaseGate").toString()
+                        == QStringLiteral("production-provider-invocation-execution-probe-not-release-gate")
+                    && reviewedCandidateProbe.value("candidateCount").toInt() == 8
+                    && reviewedCandidateProbe.value("candidateReadyCount").toInt() == 8
+                    && reviewedCandidateProbe.value("blockedCandidateCount").toInt() == 0
+                    && reviewedCandidateProbe.value("probeMatrixMatchedCount").toInt() == 8
+                    && reviewedCandidateProbe.value("candidateSanitizedCount").toInt() == 8
+                    && reviewedCandidateProbe.value("candidateEntrypointCount").toInt() == 8
+                    && reviewedCandidateProbe.value("candidateVectorContractHashCount").toInt() == 8
+                    && reviewedCandidateProbe.value("candidateOutputShapeHashCount").toInt() == 8
+                    && reviewedCandidateProbe.value("mismatchFreeCandidateCount").toInt() == 8
+                    && reviewedCandidateProbe.value("pointerPresentCandidateCount").toInt() == 8
+                    && reviewedCandidateProbe.value("tableValidationAcceptedCandidateCount").toInt() == 8
+                    && reviewedCandidateProbe.value("materialExportProofCount").toInt() == 8
+                    && reviewedCandidateProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-candidates-awaiting-audit-release-gate")
+                    && reviewedCandidateProbe.value("blockedReasonSummary").toObject()
+                        .value("none").toInt() == 8
+                    && reviewedCandidateProbe.value("candidates").toArray().size() == 8
+                    && g_probeInvocationCount == 16
+                    && !reviewedCandidateProbe.value("operationInvokedByCandidate").toBool(true)
+                    && !reviewedCandidateProbe.value("inputBytesCaptured").toBool(true)
+                    && !reviewedCandidateProbe.value("outputBytesCaptured").toBool(true)
+                    && !reviewedCandidateProbe.value("rawKeyExported").toBool(true)
+                    && !reviewedCandidateProbe.value("privateMaterialExported").toBool(true)
+                    && !reviewedCandidateProbe.value("sessionSecretExported").toBool(true),
+                "explicit reviewed provider execution candidates should map clean probes without becoming a release gate") && ok;
     const QJsonObject firstExecutionProbe =
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
+    const QJsonObject firstReviewedCandidate =
+        reviewedCandidateProbe.value("candidates").toArray().at(0).toObject();
+    ok = expect(firstReviewedCandidate.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstReviewedCandidate.value("candidateState").toString()
+                        == QStringLiteral("reviewed-provider-execution-candidate-ready")
+                    && firstReviewedCandidate.value("candidateReady").toBool(false)
+                    && firstReviewedCandidate.value("candidateNonReleaseGate").toBool(false)
+                    && firstReviewedCandidate.value("executionEntrypoint").toString()
+                        == QStringLiteral("qnc_e2e_provider_table_v1/qnc_e2e_op_session_key_generation_v1")
+                    && firstReviewedCandidate.value("probeMatrixMatched").toBool(false)
+                    && firstReviewedCandidate.value("mismatchFree").toBool(false)
+                    && firstReviewedCandidate.value("mismatchReason").toString()
+                        == QStringLiteral("none")
+                    && firstReviewedCandidate.value("mismatchSeverity").toString()
+                        == QStringLiteral("none")
+                    && firstReviewedCandidate.value("mismatchScope").toString()
+                        == QStringLiteral("none")
+                    && firstReviewedCandidate.value("tableValidationAccepted").toBool(false)
+                    && firstReviewedCandidate.value("operationPointerPresent").toBool(false)
+                    && firstReviewedCandidate.value("executionEvidenceReady").toBool(false)
+                    && firstReviewedCandidate.value("candidateEntrypointReady").toBool(false)
+                    && firstReviewedCandidate.value("knownAnswerVectorId").toString()
+                        == QStringLiteral("production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedCandidate.value("knownAnswerFixtureId").toString()
+                        == QStringLiteral("probe-fixture/session-key-generation")
+                    && firstReviewedCandidate.value("probeEvidence").toObject()
+                        .value("outputShapeHashSha256").toString().size() == 64
+                    && firstReviewedCandidate.value("structuralExecution").toObject()
+                        .value("executionEntryPoint").toString()
+                            == QStringLiteral("qnc_e2e_provider_table_v1/qnc_e2e_op_session_key_generation_v1")
+                    && !firstReviewedCandidate.value("operationInvokedByCandidate").toBool(true)
+                    && !firstReviewedCandidate.value("inputBytesCaptured").toBool(true)
+                    && !firstReviewedCandidate.value("outputBytesCaptured").toBool(true)
+                    && !firstReviewedCandidate.value("rawKeyExported").toBool(true)
+                    && !firstReviewedCandidate.value("sessionSecretExported").toBool(true),
+                "reviewed provider execution candidate should retain sanitized probe references and entrypoint evidence") && ok;
     ok = expect(firstExecutionProbe.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstExecutionProbe.value("probeVectorSchema").toString()

@@ -111,6 +111,8 @@ int main() {
         status.value("productionProviderInvocationVectorResult").toObject();
     const QJsonObject providerInvocationExecution =
         status.value("productionProviderInvocationExecution").toObject();
+    const QJsonObject providerReviewedExecutionCandidate =
+        status.value("productionProviderReviewedExecutionCandidate").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -592,6 +594,29 @@ int main() {
                     && !providerInvocationExecution.value("rawKeyExported").toBool(true)
                     && !providerInvocationExecution.value("privateMaterialExported").toBool(true),
                 "production provider invocation execution should expose controlled call entrypoints without invoking placeholders") && ok;
+    ok = expect(providerReviewedExecutionCandidate.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-execution-candidate-v1")
+                    && providerReviewedExecutionCandidate.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
+                    && !providerReviewedExecutionCandidate.value("accepted").toBool(true)
+                    && providerReviewedExecutionCandidate.value("candidateNonReleaseGate").toBool(false)
+                    && !providerReviewedExecutionCandidate.value("probeSourceCaptured").toBool(true)
+                    && providerReviewedExecutionCandidate.value("candidateCount").toInt() == 8
+                    && providerReviewedExecutionCandidate.value("candidateReadyCount").toInt() == 0
+                    && providerReviewedExecutionCandidate.value("blockedCandidateCount").toInt() == 8
+                    && providerReviewedExecutionCandidate.value("probeMatrixMatchedCount").toInt() == 0
+                    && providerReviewedExecutionCandidate.value("candidateSanitizedCount").toInt() == 0
+                    && providerReviewedExecutionCandidate.value("candidateEntrypointCount").toInt() == 0
+                    && providerReviewedExecutionCandidate.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-candidate-awaiting-explicit-probe")
+                    && providerReviewedExecutionCandidate.value("candidates").toArray().size() == 8
+                    && !providerReviewedExecutionCandidate.value("operationInvokedByCandidate").toBool(true)
+                    && !providerReviewedExecutionCandidate.value("inputBytesCaptured").toBool(true)
+                    && !providerReviewedExecutionCandidate.value("outputBytesCaptured").toBool(true)
+                    && !providerReviewedExecutionCandidate.value("rawKeyExported").toBool(true)
+                    && !providerReviewedExecutionCandidate.value("privateMaterialExported").toBool(true)
+                    && !providerReviewedExecutionCandidate.value("sessionSecretExported").toBool(true),
+                "production reviewed execution candidate should stay blocked until an explicit sanitized probe is captured") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

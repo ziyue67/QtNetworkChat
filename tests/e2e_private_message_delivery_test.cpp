@@ -835,6 +835,25 @@ int main(int argc, char** argv) {
                         && !rotationProviderInvocationExecution.value("outputBytesCaptured").toBool(true)
                         && !rotationProviderInvocationExecution.value("resultCaptured").toBool(true),
                     "production rotation dry-run should embed provider invocation execution evidence") && ok;
+        const QJsonObject rotationProviderReviewedExecutionCandidate =
+            rotationDryRun.value("productionProviderReviewedExecutionCandidate").toObject();
+        ok = expect(rotationProviderReviewedExecutionCandidate.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-execution-candidate-v1")
+                        && rotationProviderReviewedExecutionCandidate.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedExecutionCandidateReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedExecutionCandidateNonReleaseGate").toBool(false)
+                        && rotationDryRun.value("productionProviderReviewedExecutionCandidateReadyCount").toInt() == 0
+                        && rotationDryRun.value("productionProviderReviewedExecutionCandidateBlockedCount").toInt() == 8
+                        && !rotationProviderReviewedExecutionCandidate.value("probeSourceCaptured").toBool(true)
+                        && rotationProviderReviewedExecutionCandidate.value("candidates").toArray().size() == 8
+                        && !rotationProviderReviewedExecutionCandidate.value("operationInvokedByCandidate").toBool(true)
+                        && !rotationProviderReviewedExecutionCandidate.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedExecutionCandidate.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedExecutionCandidate.value("rawKeyExported").toBool(true)
+                        && !rotationProviderReviewedExecutionCandidate.value("privateMaterialExported").toBool(true),
+                    "production rotation dry-run should embed reviewed execution candidate evidence without invoking provider callbacks") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -1122,6 +1141,21 @@ int main(int argc, char** argv) {
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderInvocationExecution").toObject()
                             .value("resultCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderReviewedExecutionCandidateReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
+                        && rotationExecute.value("productionProviderReviewedExecutionCandidateNonReleaseGate").toBool(false)
+                        && rotationExecute.value("productionProviderReviewedExecutionCandidateReadyCount").toInt() == 0
+                        && rotationExecute.value("productionProviderReviewedExecutionCandidateBlockedCount").toInt() == 8
+                        && rotationExecute.value("productionProviderReviewedExecutionCandidate").toObject()
+                            .value("candidates").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderReviewedExecutionCandidate").toObject()
+                            .value("probeSourceCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedExecutionCandidate").toObject()
+                            .value("operationInvokedByCandidate").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedExecutionCandidate").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedExecutionCandidate").toObject()
+                            .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),
