@@ -109,6 +109,8 @@ int main() {
         status.value("productionProviderInvocationSandbox").toObject();
     const QJsonObject providerInvocationVectorResult =
         status.value("productionProviderInvocationVectorResult").toObject();
+    const QJsonObject providerInvocationExecution =
+        status.value("productionProviderInvocationExecution").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -566,6 +568,30 @@ int main() {
                     && !providerInvocationVectorResult.value("rawKeyExported").toBool(true)
                     && !providerInvocationVectorResult.value("privateMaterialExported").toBool(true),
                 "production provider invocation vector result should expose sanitized vector evidence without invoking placeholders") && ok;
+    ok = expect(providerInvocationExecution.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-execution-v1")
+                    && providerInvocationExecution.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-invocation-execution-blocked-placeholder")
+                            : QStringLiteral("production-provider-invocation-execution-blocked-not-linked"))
+                    && !providerInvocationExecution.value("accepted").toBool(true)
+                    && providerInvocationExecution.value("readyExecutionCount").toInt() == 0
+                    && providerInvocationExecution.value("blockedExecutionCount").toInt() == 8
+                    && providerInvocationExecution.value("vectorResultReadyCount").toInt() == 0
+                    && providerInvocationExecution.value("callableEntryPointCount").toInt() == 8
+                    && providerInvocationExecution.value("sanitizedExecutionCount").toInt() == 8
+                    && providerInvocationExecution.value("resultCapturePolicyCount").toInt() == 8
+                    && providerInvocationExecution.value("materialExportProofCount").toInt() == 8
+                    && providerInvocationExecution.value("executions").toArray().size() == 8
+                    && providerInvocationExecution.value("providerInvocationVectorResultReleaseGate").toString()
+                        == providerInvocationVectorResult.value("releaseGate").toString()
+                    && !providerInvocationExecution.value("operationInvoked").toBool(true)
+                    && !providerInvocationExecution.value("inputBytesCaptured").toBool(true)
+                    && !providerInvocationExecution.value("outputBytesCaptured").toBool(true)
+                    && !providerInvocationExecution.value("resultCaptured").toBool(true)
+                    && !providerInvocationExecution.value("rawKeyExported").toBool(true)
+                    && !providerInvocationExecution.value("privateMaterialExported").toBool(true),
+                "production provider invocation execution should expose controlled call entrypoints without invoking placeholders") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

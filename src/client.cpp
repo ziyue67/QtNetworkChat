@@ -815,6 +815,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderInvocationSandbox")).toObject();
     const QJsonObject productionProviderInvocationVectorResult =
         backendStatus.value(QStringLiteral("productionProviderInvocationVectorResult")).toObject();
+    const QJsonObject productionProviderInvocationExecution =
+        backendStatus.value(QStringLiteral("productionProviderInvocationExecution")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -1006,6 +1008,14 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderInvocationVectorResult.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionProviderInvocationVectorResultBlockedVectorResultCount")] =
         productionProviderInvocationVectorResult.value(QStringLiteral("blockedVectorResultCount")).toInt();
+    dryRun[QStringLiteral("productionProviderInvocationExecution")] =
+        productionProviderInvocationExecution;
+    dryRun[QStringLiteral("productionProviderInvocationExecutionReleaseGate")] =
+        productionProviderInvocationExecution.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderInvocationExecutionAccepted")] =
+        productionProviderInvocationExecution.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionProviderInvocationExecutionBlockedExecutionCount")] =
+        productionProviderInvocationExecution.value(QStringLiteral("blockedExecutionCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1227,6 +1237,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderInvocationVectorResultAccepted")).toBool(false);
     evidence[QStringLiteral("productionProviderInvocationVectorResultBlockedVectorResultCount")] =
         dryRun.value(QStringLiteral("productionProviderInvocationVectorResultBlockedVectorResultCount")).toInt();
+    evidence[QStringLiteral("productionProviderInvocationExecution")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationExecution")).toObject();
+    evidence[QStringLiteral("productionProviderInvocationExecutionReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationExecutionReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderInvocationExecutionAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationExecutionAccepted")).toBool(false);
+    evidence[QStringLiteral("productionProviderInvocationExecutionBlockedExecutionCount")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationExecutionBlockedExecutionCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

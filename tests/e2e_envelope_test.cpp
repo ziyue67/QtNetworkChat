@@ -125,6 +125,8 @@ int main() {
         backendStatus.value("productionProviderInvocationSandbox").toObject();
     const QJsonObject productionProviderInvocationVectorResult =
         backendStatus.value("productionProviderInvocationVectorResult").toObject();
+    const QJsonObject productionProviderInvocationExecution =
+        backendStatus.value("productionProviderInvocationExecution").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -404,6 +406,24 @@ int main() {
                     && !productionProviderInvocationVectorResult.value("inputBytesCaptured").toBool(true)
                     && !productionProviderInvocationVectorResult.value("outputBytesCaptured").toBool(true)
                     && !productionProviderInvocationVectorResult.value("resultCaptured").toBool(true)
+                    && productionProviderInvocationExecution.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-execution-v1")
+                    && productionProviderInvocationExecution.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-invocation-execution-blocked-not-linked")
+                    && productionProviderInvocationExecution.value("readyExecutionCount").toInt() == 0
+                    && productionProviderInvocationExecution.value("blockedExecutionCount").toInt() == 8
+                    && productionProviderInvocationExecution.value("vectorResultReadyCount").toInt() == 0
+                    && productionProviderInvocationExecution.value("callableEntryPointCount").toInt() == 8
+                    && productionProviderInvocationExecution.value("sanitizedExecutionCount").toInt() == 8
+                    && productionProviderInvocationExecution.value("resultCapturePolicyCount").toInt() == 8
+                    && productionProviderInvocationExecution.value("materialExportProofCount").toInt() == 8
+                    && productionProviderInvocationExecution.value("executions").toArray().size() == 8
+                    && productionProviderInvocationExecution.value("providerInvocationVectorResultReleaseGate").toString()
+                        == QStringLiteral("production-provider-invocation-vector-result-blocked-not-linked")
+                    && !productionProviderInvocationExecution.value("operationInvoked").toBool(true)
+                    && !productionProviderInvocationExecution.value("inputBytesCaptured").toBool(true)
+                    && !productionProviderInvocationExecution.value("outputBytesCaptured").toBool(true)
+                    && !productionProviderInvocationExecution.value("resultCaptured").toBool(true)
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -415,7 +435,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 19
+                        .value("checks").toArray().size() == 20
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -437,7 +457,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 19
+                        .value("checks").toArray().size() == 20
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -761,6 +781,8 @@ int main() {
         backendStatusAfterRegistration.value("productionProviderInvocationSandbox").toObject();
     const QJsonObject invocationVectorResultAfterRegistration =
         backendStatusAfterRegistration.value("productionProviderInvocationVectorResult").toObject();
+    const QJsonObject invocationExecutionAfterRegistration =
+        backendStatusAfterRegistration.value("productionProviderInvocationExecution").toObject();
     ok = expect(!backendStatusAfterRegistration.value("productionReady").toBool(true)
                     && backendStatusAfterRegistration.value("productionProviderTableRegistration").toObject()
                         .value("registered").toBool(false)
@@ -827,7 +849,16 @@ int main() {
                     && !invocationVectorResultAfterRegistration.value("operationInvoked").toBool(true)
                     && !invocationVectorResultAfterRegistration.value("inputBytesCaptured").toBool(true)
                     && !invocationVectorResultAfterRegistration.value("outputBytesCaptured").toBool(true)
-                    && !invocationVectorResultAfterRegistration.value("resultCaptured").toBool(true),
+                    && !invocationVectorResultAfterRegistration.value("resultCaptured").toBool(true)
+                    && invocationExecutionAfterRegistration.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-execution-v1")
+                    && invocationExecutionAfterRegistration.value("readyExecutionCount").toInt() == 0
+                    && invocationExecutionAfterRegistration.value("blockedExecutionCount").toInt() == 8
+                    && invocationExecutionAfterRegistration.value("executions").toArray().size() == 8
+                    && !invocationExecutionAfterRegistration.value("operationInvoked").toBool(true)
+                    && !invocationExecutionAfterRegistration.value("inputBytesCaptured").toBool(true)
+                    && !invocationExecutionAfterRegistration.value("outputBytesCaptured").toBool(true)
+                    && !invocationExecutionAfterRegistration.value("resultCaptured").toBool(true),
                 "registered provider table should remain fail-closed until production readiness and binding are enabled") && ok;
     completeProviderTable.payload_decrypt = nullptr;
     const QJsonObject missingPointerTable =
