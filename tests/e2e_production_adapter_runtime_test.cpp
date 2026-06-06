@@ -91,6 +91,8 @@ int main() {
         status.value("productionProviderOperationPreflight").toObject();
     const QJsonObject providerInvocationDryRun =
         status.value("productionProviderInvocationDryRun").toObject();
+    const QJsonObject providerInvocationResult =
+        status.value("productionProviderInvocationResult").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -349,6 +351,27 @@ int main() {
                     && !providerInvocationDryRun.value("rawKeyExported").toBool(true)
                     && !providerInvocationDryRun.value("privateMaterialExported").toBool(true),
                 "production provider invocation dry-run should expose sanitized call evidence without invoking crypto") && ok;
+    ok = expect(providerInvocationResult.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-result-v1")
+                    && providerInvocationResult.value("releaseGate").toString()
+                        == (adapterLinked
+                            ? QStringLiteral("production-provider-invocation-results-blocked-placeholder")
+                            : QStringLiteral("production-provider-invocation-results-blocked-not-linked"))
+                    && !providerInvocationResult.value("accepted").toBool(true)
+                    && providerInvocationResult.value("captureReadyCount").toInt() == 0
+                    && providerInvocationResult.value("blockedResultCount").toInt() == 8
+                    && providerInvocationResult.value("sanitizedResultCount").toInt() == 8
+                    && providerInvocationResult.value("outputContractProofCount").toInt() == 8
+                    && providerInvocationResult.value("fixtureProofCount").toInt() == 8
+                    && providerInvocationResult.value("materialExportProofCount").toInt() == 8
+                    && providerInvocationResult.value("results").toArray().size() == 8
+                    && providerInvocationResult.value("providerInvocationDryRunReleaseGate").toString()
+                        == providerInvocationDryRun.value("releaseGate").toString()
+                    && !providerInvocationResult.value("operationInvoked").toBool(true)
+                    && !providerInvocationResult.value("resultCaptured").toBool(true)
+                    && !providerInvocationResult.value("rawKeyExported").toBool(true)
+                    && !providerInvocationResult.value("privateMaterialExported").toBool(true),
+                "production provider invocation result capture should stay sanitized and non-executing") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

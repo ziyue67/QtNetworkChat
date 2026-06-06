@@ -1701,7 +1701,7 @@ void Server::handleE2EIdentityAnnouncement(const QJsonObject& obj, QTcpSocket* s
             targetSocket->flush();
             return;
         }
-        if (isRedisUserOnline(receiverId) && publishRedisE2EControlEvent(forwarded)) {
+        if (publishRedisE2EControlEvent(forwarded)) {
             return;
         }
         if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
@@ -1742,22 +1742,20 @@ void Server::handleE2EKeyRotation(const QJsonObject& obj, QTcpSocket* socket) {
 
     QTcpSocket* targetSocket = m_userSockets.value(receiverId);
     if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
-        if (isRedisUserOnline(receiverId)) {
-            QJsonObject forwarded;
-            forwarded["type"] = type;
-            forwarded["senderId"] = sender->id;
-            forwarded["senderName"] = sender->name;
-            forwarded["receiverId"] = receiverId;
-            forwarded["e2eKeyAgreement"] = agreement.toJson();
-            forwarded["reason"] = obj.value("reason").toString(type == QLatin1String("e2e_key_rotation_request")
-                ? QStringLiteral("manual-request")
-                : QStringLiteral("accepted"));
-            if (type == QLatin1String("e2e_key_rotation_response")) {
-                forwarded["accepted"] = obj.value("accepted").toBool(false);
-            }
-            if (publishRedisE2EControlEvent(forwarded)) {
-                return;
-            }
+        QJsonObject forwarded;
+        forwarded["type"] = type;
+        forwarded["senderId"] = sender->id;
+        forwarded["senderName"] = sender->name;
+        forwarded["receiverId"] = receiverId;
+        forwarded["e2eKeyAgreement"] = agreement.toJson();
+        forwarded["reason"] = obj.value("reason").toString(type == QLatin1String("e2e_key_rotation_request")
+            ? QStringLiteral("manual-request")
+            : QStringLiteral("accepted"));
+        if (type == QLatin1String("e2e_key_rotation_response")) {
+            forwarded["accepted"] = obj.value("accepted").toBool(false);
+        }
+        if (publishRedisE2EControlEvent(forwarded)) {
+            return;
         }
         sendSystemNotice(socket, QStringLiteral("端到端加密轮换失败：对方不在线，未缓存轮换材料"));
         return;

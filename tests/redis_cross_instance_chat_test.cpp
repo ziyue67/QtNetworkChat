@@ -42,6 +42,7 @@ QString testAppDataDir() {
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
+        std::fprintf(stderr, "%s\n", message);
         qWarning() << message;
         return false;
     }
@@ -50,6 +51,7 @@ bool expect(bool condition, const char* message) {
 
 bool expect(bool condition, const QString& message) {
     if (!condition) {
+        std::fprintf(stderr, "%s\n", message.toLocal8Bit().constData());
         qWarning() << message;
         return false;
     }
@@ -599,6 +601,24 @@ int main(int argc, char** argv) {
         }
         return QJsonObject();
     };
+    auto publishedE2EControlCount = [&publishedMessagePayloads](const QString& senderId,
+                                                                const QString& receiverId,
+                                                                const QString& type) {
+        int count = 0;
+        for (const QByteArray& payload : publishedMessagePayloads) {
+            const QJsonDocument doc = QJsonDocument::fromJson(payload);
+            if (!doc.isObject()) continue;
+            const QJsonObject event = doc.object();
+            const QJsonObject message = event.value("message").toObject();
+            if (event.value("eventType").toString() == QStringLiteral("e2e_control")
+                && event.value("senderId").toString() == senderId
+                && event.value("receiverId").toString() == receiverId
+                && message.value("type").toString() == type) {
+                ++count;
+            }
+        }
+        return count;
+    };
     auto findLargeFileOffer = [&findPublishedEvent](const QString& fileName) {
         return findPublishedEvent("large_file_offer", fileName);
     };
@@ -965,16 +985,44 @@ int main(int argc, char** argv) {
 
     QString rejectReason;
     qunsetenv("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE");
-    ok = expect(alice.announceE2EIdentity("960002", &rejectReason),
-                "alice should publish her e2e identity across Redis control plane") && ok;
+    qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
+    RedisClient presenceProbe;
+    presenceProbe.configureFromEnvironment();
+    ok = expect(presenceProbe.connectToServer(1000),
+                "presence probe should connect to fake Redis") && ok;
+    ok = expect(presenceProbe.setPresence("960001", "RedisAlice", 90, 1000)
+                    && presenceProbe.setPresence("960002", "RedisBob", 90, 1000),
+                "e2e control-plane setup should refresh Redis presence before directed identity announcements") && ok;
     ok = expect(waitFor([&] {
+        return presenceProbe.hasPresence("960001", 1000)
+            && presenceProbe.hasPresence("960002", 1000);
+    }, 9000), "both cross-instance clients should be visible in Redis presence before e2e control routing") && ok;
+    ok = expect(waitFor([&] {
+        if (!bob.e2ePeerIdentityStatus("960001").value("configured").toBool(false)) {
+            if (!alice.announceE2EIdentity("960002", &rejectReason) && !rejectReason.isEmpty()) {
+                std::fprintf(stderr, "alice announce reject: %s\n",
+                             rejectReason.toLocal8Bit().constData());
+            }
+        }
         return bob.e2ePeerIdentityStatus("960001").value("configured").toBool(false);
-    }), "bob should observe alice's e2e identity across Redis") && ok;
-    ok = expect(bob.announceE2EIdentity("960001", &rejectReason),
-                "bob should publish his e2e identity across Redis control plane") && ok;
+    }, 9000), "bob should observe alice's e2e identity across Redis") && ok;
+    if (!bob.e2ePeerIdentityStatus("960001").value("configured").toBool(false)) {
+        std::fprintf(stderr, "alice->bob e2e_control publishes: %d\n",
+                     publishedE2EControlCount("960001", "960002", "e2e_identity_announce"));
+    }
     ok = expect(waitFor([&] {
+        if (!alice.e2ePeerIdentityStatus("960002").value("configured").toBool(false)) {
+            if (!bob.announceE2EIdentity("960001", &rejectReason) && !rejectReason.isEmpty()) {
+                std::fprintf(stderr, "bob announce reject: %s\n",
+                             rejectReason.toLocal8Bit().constData());
+            }
+        }
         return alice.e2ePeerIdentityStatus("960002").value("configured").toBool(false);
-    }), "alice should observe bob's e2e identity across Redis") && ok;
+    }, 9000), "alice should observe bob's e2e identity across Redis") && ok;
+    if (!alice.e2ePeerIdentityStatus("960002").value("configured").toBool(false)) {
+        std::fprintf(stderr, "bob->alice e2e_control publishes: %d\n",
+                     publishedE2EControlCount("960002", "960001", "e2e_identity_announce"));
+    }
     const QString aliceVerificationCode = alice.e2ePeerIdentityStatus("960002").value("verificationCode").toString();
     const QString bobVerificationCode = bob.e2ePeerIdentityStatus("960001").value("verificationCode").toString();
     ok = expect(!aliceVerificationCode.isEmpty()

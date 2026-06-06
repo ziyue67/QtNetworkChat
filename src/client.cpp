@@ -797,6 +797,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderOperationPreflight")).toObject();
     const QJsonObject productionProviderInvocationDryRun =
         backendStatus.value(QStringLiteral("productionProviderInvocationDryRun")).toObject();
+    const QJsonObject productionProviderInvocationResult =
+        backendStatus.value(QStringLiteral("productionProviderInvocationResult")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -916,6 +918,14 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderInvocationDryRun.value(QStringLiteral("accepted")).toBool(false);
     dryRun[QStringLiteral("productionProviderInvocationDryRunBlockedInvocationCount")] =
         productionProviderInvocationDryRun.value(QStringLiteral("blockedInvocationCount")).toInt();
+    dryRun[QStringLiteral("productionProviderInvocationResult")] =
+        productionProviderInvocationResult;
+    dryRun[QStringLiteral("productionProviderInvocationResultReleaseGate")] =
+        productionProviderInvocationResult.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderInvocationResultAccepted")] =
+        productionProviderInvocationResult.value(QStringLiteral("accepted")).toBool(false);
+    dryRun[QStringLiteral("productionProviderInvocationResultBlockedResultCount")] =
+        productionProviderInvocationResult.value(QStringLiteral("blockedResultCount")).toInt();
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1065,6 +1075,14 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderInvocationDryRunAccepted")).toBool(false);
     evidence[QStringLiteral("productionProviderInvocationDryRunBlockedInvocationCount")] =
         dryRun.value(QStringLiteral("productionProviderInvocationDryRunBlockedInvocationCount")).toInt();
+    evidence[QStringLiteral("productionProviderInvocationResult")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationResult")).toObject();
+    evidence[QStringLiteral("productionProviderInvocationResultReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationResultReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderInvocationResultAccepted")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationResultAccepted")).toBool(false);
+    evidence[QStringLiteral("productionProviderInvocationResultBlockedResultCount")] =
+        dryRun.value(QStringLiteral("productionProviderInvocationResultBlockedResultCount")).toInt();
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(
@@ -1336,7 +1354,9 @@ bool Client::announceE2EIdentity(const QString& peerId, QString* rejectReason) {
     if (!normalizedPeerId.isEmpty()) {
         obj["receiverId"] = normalizedPeerId;
     }
-    obj["e2eIdentity"] = e2eIdentityJson(m_userId, m_e2eIdentityPublicKey);
+    QJsonObject identity = e2eIdentityJson(m_userId, m_e2eIdentityPublicKey);
+    identity.remove(QStringLiteral("cryptoBackend"));
+    obj["e2eIdentity"] = identity;
     return sendJson(obj);
 }
 
@@ -2906,10 +2926,24 @@ void Client::sendLogin() {
 bool Client::sendJson(const QJsonObject& obj) {
     if (!isConnected()) return false;
     QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    qint64 written = m_socket->write(data);
-    m_socket->write("\n");
+    data.append('\n');
+    qint64 totalWritten = 0;
+    while (totalWritten < data.size()) {
+        const qint64 written = m_socket->write(data.constData() + totalWritten,
+                                               data.size() - totalWritten);
+        if (written < 0) {
+            return false;
+        }
+        if (written == 0) {
+            if (!m_socket->waitForBytesWritten(100)) {
+                return false;
+            }
+            continue;
+        }
+        totalWritten += written;
+    }
     m_socket->flush();
-    return written > 0;
+    return true;
 }
 
 bool Client::sendFileChunkAck(const QString& transferId,

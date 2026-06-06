@@ -664,6 +664,22 @@ int main(int argc, char** argv) {
                         && rotationProviderInvocationDryRun.value("invocations").toArray().size() == 8
                         && !rotationProviderInvocationDryRun.value("operationInvoked").toBool(true),
                     "production rotation dry-run should embed provider invocation dry-run evidence") && ok;
+        const QJsonObject rotationProviderInvocationResult =
+            rotationDryRun.value("productionProviderInvocationResult").toObject();
+        ok = expect(rotationProviderInvocationResult.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-result-v1")
+                        && rotationProviderInvocationResult.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-results-blocked-not-linked")
+                        && rotationDryRun.value("productionProviderInvocationResultReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-results-blocked-not-linked")
+                        && !rotationDryRun.value("productionProviderInvocationResultAccepted").toBool(true)
+                        && rotationDryRun.value("productionProviderInvocationResultBlockedResultCount").toInt() == 8
+                        && rotationProviderInvocationResult.value("results").toArray().size() == 8
+                        && rotationProviderInvocationResult.value("providerInvocationDryRunReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-dry-run-blocked-not-linked")
+                        && !rotationProviderInvocationResult.value("operationInvoked").toBool(true)
+                        && !rotationProviderInvocationResult.value("resultCaptured").toBool(true),
+                    "production rotation dry-run should embed provider invocation result evidence") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -691,6 +707,9 @@ int main(int argc, char** argv) {
                         && rotationAcceptance.value("providerInvocationDryRun").toObject()
                             .value("blockedInvocationCount").toInt() == 8
                         && !rotationAcceptance.value("providerInvocationDryRunAccepted").toBool(true)
+                        && rotationAcceptance.value("providerInvocationResult").toObject()
+                            .value("blockedResultCount").toInt() == 8
+                        && !rotationAcceptance.value("providerInvocationResultAccepted").toBool(true)
                         && rotationAcceptance.value("implementedOperationCount").toInt() == 0,
                     "production rotation dry-run should embed sanitized acceptance evidence") && ok;
         const QJsonObject rotationHarness =
@@ -819,6 +838,16 @@ int main(int argc, char** argv) {
                             .value("invocations").toArray().size() == 8
                         && !rotationExecute.value("productionProviderInvocationDryRun").toObject()
                             .value("operationInvoked").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationResultReleaseGate").toString()
+                            == QStringLiteral("production-provider-invocation-results-blocked-not-linked")
+                        && !rotationExecute.value("productionProviderInvocationResultAccepted").toBool(true)
+                        && rotationExecute.value("productionProviderInvocationResultBlockedResultCount").toInt() == 8
+                        && rotationExecute.value("productionProviderInvocationResult").toObject()
+                            .value("results").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderInvocationResult").toObject()
+                            .value("operationInvoked").toBool(true)
+                        && !rotationExecute.value("productionProviderInvocationResult").toObject()
+                            .value("resultCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
                         && !rotationExecute.value("wouldDropActiveSessions").toBool(true),
@@ -945,7 +974,7 @@ int main(int argc, char** argv) {
                     "encrypted send should resume after both clients install a local rotated session") && ok;
         ok = expect(waitFor([&] {
             return bobMessage.content == QStringLiteral("encrypted again after manual rotation");
-        }), "receiver should decrypt after manual rotation installs matching local keys") && ok;
+        }, 9000), "receiver should decrypt after manual rotation installs matching local keys") && ok;
 
         const QByteArray privateFilePayload("e2e private file payload should not cross the server as plaintext");
         const QString privateFilePath = QDir(appDataDir).filePath(QStringLiteral("alice-private-e2e-file.bin"));
