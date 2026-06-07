@@ -2,6 +2,8 @@ param(
     [string]$MarkdownPath = "docs\automation-status.md",
     [string]$Head,
     [string]$OriginMain,
+    [string]$TrackedRemoteBranch = "origin/main",
+    [string]$TrackedRemoteHash,
     [string]$CiStatus = "unknown",
     [string]$CiRunId = "",
     [string]$BuildStatus = "unknown",
@@ -626,8 +628,20 @@ function Initialize-DefaultAutomationTasksIfNeeded {
 if ([string]::IsNullOrWhiteSpace($Head)) {
     $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
 }
+if ([string]::IsNullOrWhiteSpace($TrackedRemoteBranch)) {
+    $TrackedRemoteBranch = "origin/main"
+}
+if ([string]::IsNullOrWhiteSpace($TrackedRemoteHash)) {
+    $TrackedRemoteHash = if (-not [string]::IsNullOrWhiteSpace($OriginMain)) {
+        $OriginMain
+    } elseif ($PlanOnly) {
+        "unknown"
+    } else {
+        Invoke-GitText @("rev-parse", "--short=12", $TrackedRemoteBranch)
+    }
+}
 if ([string]::IsNullOrWhiteSpace($OriginMain)) {
-    $OriginMain = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/main") }
+    $OriginMain = $TrackedRemoteHash
 }
 
 Initialize-DefaultAutomationTasksIfNeeded
@@ -736,7 +750,8 @@ $lines.Add("## Current Baseline")
 $lines.Add("")
 $lines.Add('- Generated at: `' + $generatedAt + '`')
 $lines.Add('- HEAD: `' + $Head + '`')
-$lines.Add('- origin/main: `' + $OriginMain + '`')
+$lines.Add('- Tracked remote branch: `' + $TrackedRemoteBranch + '`')
+$lines.Add('- Tracked remote hash: `' + $TrackedRemoteHash + '`')
 $lines.Add('- GitHub Windows Build: `' + $CiStatus + '`')
 $lines.Add('- GitHub run id: `' + $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId }) + '`')
 $lines.Add('- Local MinGW build: `' + $BuildStatus + '`')
@@ -752,6 +767,7 @@ $lines.Add("- Use large cross-artifact slices; avoid tiny README-only or one-fie
 $lines.Add("- Keep PostgreSQL passwords, GPG passphrases, GitHub tokens, S3 credentials, and signed URLs out of source, docs, logs, previews, launchers, commits, and remote URLs.")
 $lines.Add("- Verify with the PowerShell timeout wrappers: build 600 seconds, CTest 900 seconds.")
 $lines.Add('- Use signed Conventional Commits and push `main` after verification.')
+$lines.Add('- Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.')
 $lines.Add("")
 $lines.Add("## Registered Preview Tasks")
 $lines.Add("")

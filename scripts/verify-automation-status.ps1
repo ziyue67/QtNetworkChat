@@ -285,7 +285,8 @@ $planOutput = & $ScriptPath `
 
 foreach ($expected in @(
     'HEAD: `def5678`',
-    'origin/main: `unknown`',
+    'Tracked remote branch: `origin/main`',
+    'Tracked remote hash: `unknown`',
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: `configured but history artifact unavailable`',
@@ -294,6 +295,13 @@ foreach ($expected in @(
     'Automation history artifacts: `history=missing'
 )) {
     Assert-Contains -Text $planOutput -Expected $expected
+}
+foreach ($forbidden in @(
+    'origin/codex/qt',
+    'fast-forward codex/qt',
+    'push main, then fast-forward codex/qt'
+)) {
+    Assert-NotContains -Text $planOutput -Forbidden $forbidden
 }
 
 $configuredMarkdownPath = Join-Path $configuredTempDir "automation-status.md"
@@ -599,6 +607,13 @@ foreach ($expected in @(
     'Task acknowledgement: acknowledged=`false`, by=`unknown`, at=`unknown`, reason=`unknown`'
 )) {
     Assert-Contains -Text $customMarkdown -Expected $expected
+}
+foreach ($forbidden in @(
+    'origin/codex/qt',
+    'fast-forward codex/qt',
+    'push main, then fast-forward codex/qt'
+)) {
+    Assert-NotContains -Text $customMarkdown -Forbidden $forbidden
 }
 
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
