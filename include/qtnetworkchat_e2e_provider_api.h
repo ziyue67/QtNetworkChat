@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define QNC_E2E_PROVIDER_TABLE_ABI "qtnetworkchat-e2e-provider-table-v1"
 #define QNC_E2E_OPERATION_CONTRACT_VERSION "qtnetworkchat-e2e-crypto-ops-v1"
 #define QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT 8
@@ -78,5 +82,11 @@ typedef struct qnc_e2e_provider_table_v1 {
     qnc_e2e_provider_operation_v1 payload_encrypt;
     qnc_e2e_provider_operation_v1 payload_decrypt;
 } qnc_e2e_provider_table_v1;
+
+const qnc_e2e_provider_table_v1* qnc_e2e_openssl_provider_table_v1(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // QTNETWORKCHAT_E2E_PROVIDER_API_H

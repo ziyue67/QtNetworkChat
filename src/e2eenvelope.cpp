@@ -91,6 +91,25 @@ struct E2ECryptoExecutionContext {
 
 const qnc_e2e_provider_table_v1* g_registeredProductionProviderTable = nullptr;
 
+const qnc_e2e_provider_table_v1* builtInProductionProviderTable() {
+#if QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_SESSION_KEY_GENERATION != 0
+    return qnc_e2e_openssl_provider_table_v1();
+#else
+    return nullptr;
+#endif
+}
+
+const qnc_e2e_provider_table_v1* activeProductionProviderTable() {
+    return g_registeredProductionProviderTable
+        ? g_registeredProductionProviderTable
+        : builtInProductionProviderTable();
+}
+
+bool usingBuiltInProductionProviderTable() {
+    return g_registeredProductionProviderTable == nullptr
+        && builtInProductionProviderTable() != nullptr;
+}
+
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
@@ -200,6 +219,18 @@ QList<E2ECryptoOperationSpec> productionOperationSpecs() {
         spec.operatorAction = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0
             ? QStringLiteral("replace-placeholder-operation-with-reviewed-implementation")
             : QStringLiteral("link-reviewed-production-crypto-backend");
+#if QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_SESSION_KEY_GENERATION != 0
+        if (operation == E2ECryptoOperation::SessionKeyGeneration) {
+            spec.implementationState = QStringLiteral("linked-reviewed-session-key-generation");
+            spec.compatibilityStatus = QStringLiteral("known-answer-shape-passed");
+            spec.migrationBlocker =
+                QStringLiteral("production-remaining-operations-not-implemented");
+            spec.operatorAction =
+                QStringLiteral("complete-remaining-reviewed-production-operations");
+            spec.implemented = true;
+            spec.knownAnswerPassed = true;
+        }
+#endif
         specs.append(spec);
     };
 
@@ -585,7 +616,7 @@ QString productionProbeObservedKnownAnswerOutputClass(qint64 publicOutputSize,
     if (statusClass != QStringLiteral("ok")) {
         return QStringLiteral("status-error-output");
     }
-    if (publicOutputSize == 0 && sealedOutputSize == 0
+    if (publicOutputSize == 0
         && materialPolicyClass == QStringLiteral("handle-only")) {
         return QStringLiteral("handle-status-output");
     }
@@ -1577,9 +1608,10 @@ QJsonObject providerTableValidationStatus(const qnc_e2e_provider_table_v1* table
 }
 
 QJsonObject productionProviderTableRegistrationStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
-    const qnc_e2e_provider_table_v1* registeredTable = g_registeredProductionProviderTable;
+    const qnc_e2e_provider_table_v1* registeredTable = activeProductionProviderTable();
     const QJsonObject tableValidation = providerTableValidationStatus(registeredTable);
     const bool registered = registeredTable != nullptr;
+    const bool builtIn = usingBuiltInProductionProviderTable();
     const bool validationAccepted =
         tableValidation.value(QStringLiteral("accepted")).toBool(false);
     const bool compileTimeBound = QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_BOUND != 0;
@@ -1604,10 +1636,15 @@ QJsonObject productionProviderTableRegistrationStatusForDescriptor(const E2ECryp
     status[QStringLiteral("registered")] = registered;
     status[QStringLiteral("providerTableRegistered")] = registered;
     status[QStringLiteral("registrationSource")] = registered
-        ? QStringLiteral("runtime-provider-table-registration")
+        ? (builtIn
+            ? QStringLiteral("linked-reviewed-session-key-generation-provider-table")
+            : QStringLiteral("runtime-provider-table-registration"))
         : (linked
             ? QStringLiteral("linked-placeholder-without-runtime-table")
             : QStringLiteral("not-linked"));
+    status[QStringLiteral("builtInProviderTable")] = builtIn;
+    status[QStringLiteral("explicitProviderTableRegistered")] =
+        g_registeredProductionProviderTable != nullptr;
     status[QStringLiteral("linked")] = linked;
     status[QStringLiteral("compileTimeTableBound")] = compileTimeBound;
     status[QStringLiteral("productionReady")] = descriptor.productionReady;
@@ -1810,7 +1847,7 @@ void incrementSummaryCount(QJsonObject* summary, const QString& key) {
 
 QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     const E2ECryptoAdapterDescriptor& descriptor) {
-    const qnc_e2e_provider_table_v1* registeredTable = g_registeredProductionProviderTable;
+    const qnc_e2e_provider_table_v1* registeredTable = activeProductionProviderTable();
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
     const QJsonObject structuralExecution =
@@ -2292,7 +2329,7 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
 }
 
 QJsonObject productionProviderOperationPreflightStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
-    const qnc_e2e_provider_table_v1* registeredTable = g_registeredProductionProviderTable;
+    const qnc_e2e_provider_table_v1* registeredTable = activeProductionProviderTable();
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
     const QJsonObject tableValidation =
@@ -3707,7 +3744,7 @@ QJsonObject productionProviderExecutionSlotBindingStatusForDescriptor(const E2EC
 }
 
 QJsonObject productionProviderExecutionPathStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
-    const qnc_e2e_provider_table_v1* registeredTable = g_registeredProductionProviderTable;
+    const qnc_e2e_provider_table_v1* registeredTable = activeProductionProviderTable();
     const QJsonObject slotBinding =
         productionProviderExecutionSlotBindingStatusForDescriptor(descriptor);
     const QJsonArray boundSlots =

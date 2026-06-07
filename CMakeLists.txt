@@ -26,6 +26,7 @@ set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED 0)
+set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_SESSION_KEY_GENERATION 0)
 set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON "production-backend-not-requested")
 set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-not-requested")
 set(QTNETWORKCHAT_E2E_PRODUCTION_REQUIRED_OPERATIONS "session-key-generation,identity-key-generation,public-key-derivation,agreement-sign,agreement-verify,session-derive,payload-encrypt,payload-decrypt")
@@ -37,8 +38,18 @@ set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REASON "production-provider-tabl
 if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER)
     set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 1)
     set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED 1)
+    if(NOT OpenSSL_ROOT_DIR AND EXISTS "D:/Qt/Tools/mingw1310_64/opt/include/openssl/rand.h")
+        set(OpenSSL_ROOT_DIR "D:/Qt/Tools/mingw1310_64/opt")
+    endif()
     set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-linked-placeholder")
     set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REASON "production-provider-table-linked-placeholder")
+    find_package(OpenSSL QUIET)
+    if(OpenSSL_FOUND)
+        set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_SESSION_KEY_GENERATION 1)
+        set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_BOUND 1)
+        set(QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-linked-session-key-generation")
+        set(QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REASON "production-provider-table-session-key-generation-bound")
+    endif()
 endif()
 if(QTNETWORKCHAT_E2E_ENABLE_PRODUCTION_CRYPTO)
     set(QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 1)
@@ -86,6 +97,11 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     include/qtnetworkchat_e2e_provider_api.h
 )
 
+set(QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES)
+if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
+    list(APPEND QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES src/e2e_openssl_provider.cpp)
+endif()
+
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
@@ -100,6 +116,7 @@ add_executable(QtNetworkChat
     src/heartbeatmonitor.cpp
     src/logincredentialstore.cpp
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
+    ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
     include/clientstorage.h
     include/historyservice.h
@@ -117,6 +134,9 @@ add_executable(QtNetworkChat
 
 target_include_directories(QtNetworkChat PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
 target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
+    target_link_libraries(QtNetworkChat PRIVATE OpenSSL::Crypto)
+endif()
 
 add_executable(sqlite_to_postgres_migrator
     tools/sqlite_to_postgres_migrator.cpp
@@ -133,29 +153,41 @@ if(BUILD_TESTING)
         tests/message_serialization_test.cpp
         src/message.cpp
         src/e2eenvelope.cpp
+        ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/message.h
         include/e2eenvelope.h
         include/qtnetworkchat_e2e_provider_api.h
     )
     qtnetworkchat_target_include_dirs(message_serialization_test)
     target_link_libraries(message_serialization_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
+        target_link_libraries(message_serialization_test PRIVATE OpenSSL::Crypto)
+    endif()
 
     add_executable(e2e_envelope_test
         tests/e2e_envelope_test.cpp
         src/e2eenvelope.cpp
+        ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
         include/qtnetworkchat_e2e_provider_api.h
     )
     qtnetworkchat_target_include_dirs(e2e_envelope_test)
     target_link_libraries(e2e_envelope_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
+        target_link_libraries(e2e_envelope_test PRIVATE OpenSSL::Crypto)
+    endif()
 
     add_executable(e2e_production_adapter_runtime_test
         tests/e2e_production_adapter_runtime_test.cpp
         src/e2eenvelope.cpp
+        ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
         include/e2eenvelope.h
     )
     qtnetworkchat_target_include_dirs(e2e_production_adapter_runtime_test)
     target_link_libraries(e2e_production_adapter_runtime_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
+        target_link_libraries(e2e_production_adapter_runtime_test PRIVATE OpenSSL::Crypto)
+    endif()
 
     add_executable(e2e_private_message_delivery_test
         tests/e2e_private_message_delivery_test.cpp
