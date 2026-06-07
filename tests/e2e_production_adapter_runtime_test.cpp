@@ -121,6 +121,8 @@ int main() {
         status.value("productionProviderReviewedCallableTableBridge").toObject();
     const QJsonObject providerReviewedOperationCallableInterface =
         status.value("productionProviderReviewedOperationCallableInterface").toObject();
+    const QJsonObject providerReviewedCallableRuntimePreflight =
+        status.value("productionProviderReviewedCallableRuntimePreflight").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -713,6 +715,28 @@ int main() {
                     && !providerReviewedOperationCallableInterface.value("privateMaterialExported").toBool(true)
                     && !providerReviewedOperationCallableInterface.value("sessionSecretExported").toBool(true),
                 "production reviewed operation callable interface should stay blocked until bridge evidence exists") && ok;
+    ok = expect(providerReviewedCallableRuntimePreflight.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-runtime-preflight-v1")
+                    && providerReviewedCallableRuntimePreflight.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-runtime-preflight-not-release-gate")
+                    && !providerReviewedCallableRuntimePreflight.value("accepted").toBool(true)
+                    && providerReviewedCallableRuntimePreflight.value("runtimePreflightNonReleaseGate").toBool(false)
+                    && !providerReviewedCallableRuntimePreflight.value("interfaceSourceCaptured").toBool(true)
+                    && providerReviewedCallableRuntimePreflight.value("preflightCount").toInt() == 8
+                    && providerReviewedCallableRuntimePreflight.value("readyPreflightCount").toInt() == 0
+                    && providerReviewedCallableRuntimePreflight.value("blockedPreflightCount").toInt() == 8
+                    && providerReviewedCallableRuntimePreflight.value("failClosedPreflightCount").toInt() == 8
+                    && providerReviewedCallableRuntimePreflight.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-runtime-preflight-awaiting-interface")
+                    && providerReviewedCallableRuntimePreflight.value("preflights").toArray().size() == 8
+                    && !providerReviewedCallableRuntimePreflight.value("operationInvokedByRuntimePreflight").toBool(true)
+                    && !providerReviewedCallableRuntimePreflight.value("inputBytesCaptured").toBool(true)
+                    && !providerReviewedCallableRuntimePreflight.value("outputBytesCaptured").toBool(true)
+                    && !providerReviewedCallableRuntimePreflight.value("resultCaptured").toBool(true)
+                    && !providerReviewedCallableRuntimePreflight.value("rawKeyExported").toBool(true)
+                    && !providerReviewedCallableRuntimePreflight.value("privateMaterialExported").toBool(true)
+                    && !providerReviewedCallableRuntimePreflight.value("sessionSecretExported").toBool(true),
+                "production reviewed callable runtime preflight should stay blocked until interface evidence exists") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

@@ -533,7 +533,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 25
+                        .value("checks").toArray().size() == 26
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -555,7 +555,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 25
+                        .value("checks").toArray().size() == 26
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -1256,6 +1256,38 @@ int main() {
                     && !reviewedCallableInterfaceProbe.value("rawKeyExported").toBool(true)
                     && !reviewedCallableInterfaceProbe.value("privateMaterialExported").toBool(true),
                 "explicit reviewed operation callable interface should map clean bridges without invoking provider operations") && ok;
+    const QJsonObject reviewedRuntimePreflightProbe =
+        e2eProbeProductionCryptoProviderReviewedCallableRuntimePreflight();
+    ok = expect(reviewedRuntimePreflightProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-runtime-preflight-v1")
+                    && !reviewedRuntimePreflightProbe.value("accepted").toBool(true)
+                    && reviewedRuntimePreflightProbe.value("runtimePreflightNonReleaseGate").toBool(false)
+                    && reviewedRuntimePreflightProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-runtime-preflight-not-release-gate")
+                    && reviewedRuntimePreflightProbe.value("interfaceSourceCaptured").toBool(false)
+                    && reviewedRuntimePreflightProbe.value("preflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("readyPreflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("blockedPreflightCount").toInt() == 0
+                    && reviewedRuntimePreflightProbe.value("interfaceReadyPreflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("abiPreflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("contractPreflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("policyPreflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("fixturePreflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("sanitizedPreflightCount").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("failClosedPreflightCount").toInt() == 0
+                    && reviewedRuntimePreflightProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate")
+                    && reviewedRuntimePreflightProbe.value("blockedReasonSummary").toObject()
+                        .value("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate").toInt() == 8
+                    && reviewedRuntimePreflightProbe.value("preflights").toArray().size() == 8
+                    && g_probeInvocationCount == 56
+                    && !reviewedRuntimePreflightProbe.value("operationInvokedByRuntimePreflight").toBool(true)
+                    && !reviewedRuntimePreflightProbe.value("inputBytesCaptured").toBool(true)
+                    && !reviewedRuntimePreflightProbe.value("outputBytesCaptured").toBool(true)
+                    && !reviewedRuntimePreflightProbe.value("resultCaptured").toBool(true)
+                    && !reviewedRuntimePreflightProbe.value("rawKeyExported").toBool(true)
+                    && !reviewedRuntimePreflightProbe.value("privateMaterialExported").toBool(true),
+                "explicit reviewed callable runtime preflight should map clean interfaces without invoking provider operations") && ok;
     const QJsonObject firstExecutionProbe =
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
     const QJsonObject firstReviewedCandidate =
@@ -1268,6 +1300,8 @@ int main() {
         reviewedCallableBridgeProbe.value("bridges").toArray().at(0).toObject();
     const QJsonObject firstReviewedInterface =
         reviewedCallableInterfaceProbe.value("interfaces").toArray().at(0).toObject();
+    const QJsonObject firstReviewedRuntimePreflight =
+        reviewedRuntimePreflightProbe.value("preflights").toArray().at(0).toObject();
     ok = expect(firstReviewedCandidate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstReviewedCandidate.value("candidateState").toString()
@@ -1518,6 +1552,41 @@ int main() {
                     && !firstReviewedInterface.value("outputBytesCaptured").toBool(true)
                     && !firstReviewedInterface.value("rawKeyExported").toBool(true),
                 "reviewed operation callable interface should expose only sanitized C ABI metadata") && ok;
+    ok = expect(firstReviewedRuntimePreflight.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstReviewedRuntimePreflight.value("runtimePreflightId").toString()
+                        == QStringLiteral("reviewed-callable-runtime-preflight/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedRuntimePreflight.value("callableInterfaceId").toString()
+                        == QStringLiteral("reviewed-operation-callable-interface/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedRuntimePreflight.value("runtimePreflightReady").toBool(false)
+                    && firstReviewedRuntimePreflight.value("runtimePreflightState").toString()
+                        == QStringLiteral("ready-for-reviewed-provider-runtime-preflight")
+                    && !firstReviewedRuntimePreflight.value("failClosed").toBool(true)
+                    && firstReviewedRuntimePreflight.value("interfaceReady").toBool(false)
+                    && firstReviewedRuntimePreflight.value("abiPreflightReady").toBool(false)
+                    && firstReviewedRuntimePreflight.value("contractPreflightReady").toBool(false)
+                    && firstReviewedRuntimePreflight.value("policyPreflightReady").toBool(false)
+                    && firstReviewedRuntimePreflight.value("fixturePreflightReady").toBool(false)
+                    && firstReviewedRuntimePreflight.value("functionPointerTypedef").toString()
+                        == QStringLiteral("qnc_e2e_provider_operation_v1")
+                    && firstReviewedRuntimePreflight.value("inputStructAbi").toString()
+                        == QStringLiteral("qnc_e2e_operation_input_v1")
+                    && firstReviewedRuntimePreflight.value("outputStructAbi").toString()
+                        == QStringLiteral("qnc_e2e_operation_output_v1")
+                    && firstReviewedRuntimePreflight.value("statusEnumAbi").toString()
+                        == QStringLiteral("qnc_e2e_status_t")
+                    && firstReviewedRuntimePreflight.value("materialPolicyEnumAbi").toString()
+                        == QStringLiteral("qnc_e2e_material_policy_t")
+                    && firstReviewedRuntimePreflight.value("operationEnumValue").toInt(-1) == 0
+                    && firstReviewedRuntimePreflight.value("inputContractHashSha256").toString().size() == 64
+                    && firstReviewedRuntimePreflight.value("outputContractHashSha256").toString().size() == 64
+                    && firstReviewedRuntimePreflight.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate")
+                    && !firstReviewedRuntimePreflight.value("operationInvokedByRuntimePreflight").toBool(true)
+                    && !firstReviewedRuntimePreflight.value("inputBytesCaptured").toBool(true)
+                    && !firstReviewedRuntimePreflight.value("outputBytesCaptured").toBool(true)
+                    && !firstReviewedRuntimePreflight.value("rawKeyExported").toBool(true),
+                "reviewed callable runtime preflight should expose only sanitized runtime ABI metadata") && ok;
     const QJsonObject firstProbeExecutionFrame =
         firstExecutionProbe.value("probeExecutionFrame").toObject();
     ok = expect(firstProbeExecutionFrame.value("schema").toString()

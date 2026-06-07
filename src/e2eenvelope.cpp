@@ -322,6 +322,11 @@ QJsonObject productionProviderReviewedOperationCallableInterfaceStatusForDescrip
 QJsonObject productionProviderReviewedOperationCallableInterfaceStatusFromBridge(
     const E2ECryptoAdapterDescriptor& descriptor,
     const QJsonObject& reviewedCallableTableBridge);
+QJsonObject productionProviderReviewedCallableRuntimePreflightStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor);
+QJsonObject productionProviderReviewedCallableRuntimePreflightStatusFromInterface(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedOperationCallableInterface);
 QString productionOperationProviderSymbol(E2ECryptoOperation operation);
 QString productionOperationProviderAbiSignature(E2ECryptoOperation operation);
 
@@ -5810,6 +5815,309 @@ QJsonObject productionProviderReviewedOperationCallableInterfaceStatusForDescrip
         productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor));
 }
 
+QString providerReviewedCallableRuntimePreflightBlockedReason(const QJsonObject& callableInterface,
+                                                              bool interfaceSourceCaptured,
+                                                              bool abiReady,
+                                                              bool contractReady,
+                                                              bool policyReady,
+                                                              bool fixtureReady,
+                                                              bool preflightSanitized) {
+    if (!interfaceSourceCaptured) {
+        return QStringLiteral("production-provider-reviewed-callable-runtime-preflight-awaiting-interface");
+    }
+    if (!callableInterface.value(QStringLiteral("callableInterfaceReady")).toBool(false)) {
+        return callableInterface.value(QStringLiteral("blockedReason")).toString(
+            QStringLiteral("production-provider-reviewed-operation-callable-interface-blocked"));
+    }
+    if (!abiReady) {
+        return QStringLiteral("production-provider-reviewed-callable-runtime-preflight-abi-blocked");
+    }
+    if (!contractReady) {
+        return QStringLiteral("production-provider-reviewed-callable-runtime-preflight-contract-blocked");
+    }
+    if (!policyReady) {
+        return QStringLiteral("production-provider-reviewed-callable-runtime-preflight-policy-blocked");
+    }
+    if (!fixtureReady) {
+        return QStringLiteral("production-provider-reviewed-callable-runtime-preflight-fixture-blocked");
+    }
+    if (!preflightSanitized) {
+        return QStringLiteral("production-provider-reviewed-callable-runtime-preflight-sensitive-export-blocked");
+    }
+    return QStringLiteral("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate");
+}
+
+QJsonObject productionProviderReviewedCallableRuntimePreflightStatusFromInterface(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedOperationCallableInterface) {
+    const QJsonArray interfaces =
+        reviewedOperationCallableInterface.value(QStringLiteral("interfaces")).toArray();
+    const bool interfaceSourceCaptured =
+        reviewedOperationCallableInterface.value(QStringLiteral("schema")).toString()
+            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-callable-interface-v1")
+        && reviewedOperationCallableInterface.value(QStringLiteral("bridgeSourceCaptured")).toBool(false);
+
+    QJsonArray preflights;
+    int preflightCount = 0;
+    int readyPreflightCount = 0;
+    int blockedPreflightCount = 0;
+    int interfaceReadyPreflightCount = 0;
+    int abiPreflightCount = 0;
+    int contractPreflightCount = 0;
+    int policyPreflightCount = 0;
+    int fixturePreflightCount = 0;
+    int sanitizedPreflightCount = 0;
+    int failClosedPreflightCount = 0;
+    QJsonObject blockedReasonSummary;
+
+    int sequenceIndex = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const E2ECryptoOperation operation = spec.operation;
+        const QString operationName = cryptoOperationName(operation);
+        const QJsonObject callableInterface = sequenceIndex < interfaces.size()
+            ? interfaces.at(sequenceIndex).toObject()
+            : QJsonObject();
+        const QString providerSymbol = productionOperationProviderSymbol(operation);
+        const QString providerTableSlot =
+            QStringLiteral("qnc_e2e_provider_table_v1/%1").arg(providerSymbol);
+        const bool interfaceReady =
+            callableInterface.value(QStringLiteral("callableInterfaceReady")).toBool(false);
+        const bool abiReady =
+            callableInterface.value(QStringLiteral("providerSymbol")).toString() == providerSymbol
+            && callableInterface.value(QStringLiteral("providerTableSlot")).toString()
+                == providerTableSlot
+            && callableInterface.value(QStringLiteral("providerAbiSignature")).toString()
+                == productionOperationProviderAbiSignature(operation)
+            && callableInterface.value(QStringLiteral("functionPointerTypedef")).toString()
+                == QStringLiteral("qnc_e2e_provider_operation_v1")
+            && callableInterface.value(QStringLiteral("inputStructAbi")).toString()
+                == QStringLiteral("qnc_e2e_operation_input_v1")
+            && callableInterface.value(QStringLiteral("outputStructAbi")).toString()
+                == QStringLiteral("qnc_e2e_operation_output_v1");
+        const bool contractReady =
+            callableInterface.value(QStringLiteral("inputContractHashSha256")).toString().size()
+                == FingerprintHexLength
+            && callableInterface.value(QStringLiteral("outputContractHashSha256")).toString().size()
+                == FingerprintHexLength
+            && callableInterface.value(QStringLiteral("operationEnumValue")).toInt(-1)
+                == sequenceIndex
+            && callableInterface.value(QStringLiteral("operationEnumMatchesHeader")).toBool(false)
+            && QString::fromLatin1(QNC_E2E_OPERATION_CONTRACT_VERSION)
+                == descriptor.operationContractVersion;
+        const bool policyReady =
+            callableInterface.value(QStringLiteral("inputCapturePolicy")).toString()
+                == QStringLiteral("size-and-class-only")
+            && callableInterface.value(QStringLiteral("outputCapturePolicy")).toString()
+                == QStringLiteral("size-and-class-only")
+            && callableInterface.value(QStringLiteral("resultCapturePolicy")).toString()
+                == QStringLiteral("status-class-and-size-only")
+            && callableInterface.value(QStringLiteral("materialExportPolicy")).toString()
+                == QStringLiteral("sizes-and-status-only-no-secret-bytes");
+        const bool fixtureReady =
+            callableInterface.value(QStringLiteral("knownAnswerVectorId")).toString()
+                == QStringLiteral("%1/%2").arg(spec.vectorSet, operationName)
+            && callableInterface.value(QStringLiteral("knownAnswerFixtureId")).toString()
+                == QStringLiteral("probe-fixture/%1").arg(operationName)
+            && callableInterface.value(QStringLiteral("fixtureHashSha256")).toString().size()
+                == FingerprintHexLength;
+        const bool preflightSanitized =
+            callableInterface.value(QStringLiteral("sanitized")).toBool(false)
+            && !callableInterface.value(QStringLiteral("operationInvokedByInterface")).toBool(true)
+            && !callableInterface.value(QStringLiteral("inputBytesCaptured")).toBool(true)
+            && !callableInterface.value(QStringLiteral("outputBytesCaptured")).toBool(true)
+            && !callableInterface.value(QStringLiteral("resultCaptured")).toBool(true)
+            && !callableInterface.value(QStringLiteral("rawKeyExported")).toBool(true)
+            && !callableInterface.value(QStringLiteral("privateMaterialExported")).toBool(true)
+            && !callableInterface.value(QStringLiteral("sessionSecretExported")).toBool(true)
+            && !callableInterface.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
+            && !callableInterface.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true);
+        const bool preflightReady =
+            interfaceSourceCaptured
+            && interfaceReady
+            && abiReady
+            && contractReady
+            && policyReady
+            && fixtureReady
+            && preflightSanitized;
+        const QString blockedReason =
+            providerReviewedCallableRuntimePreflightBlockedReason(callableInterface,
+                                                                  interfaceSourceCaptured,
+                                                                  abiReady,
+                                                                  contractReady,
+                                                                  policyReady,
+                                                                  fixtureReady,
+                                                                  preflightSanitized);
+
+        QJsonObject preflight;
+        preflight[QStringLiteral("sequenceIndex")] = sequenceIndex;
+        preflight[QStringLiteral("operation")] = operationName;
+        preflight[QStringLiteral("backendId")] = descriptor.id;
+        preflight[QStringLiteral("providerId")] = descriptor.providerId;
+        preflight[QStringLiteral("operationContractVersion")] =
+            descriptor.operationContractVersion;
+        preflight[QStringLiteral("runtimePreflightId")] =
+            QStringLiteral("reviewed-callable-runtime-preflight/%1/%2")
+                .arg(spec.vectorSet, operationName);
+        preflight[QStringLiteral("callableInterfaceId")] =
+            callableInterface.value(QStringLiteral("callableInterfaceId")).toString(
+                QStringLiteral("reviewed-operation-callable-interface/%1/%2")
+                    .arg(spec.vectorSet, operationName));
+        preflight[QStringLiteral("callableInterface")] = callableInterface;
+        preflight[QStringLiteral("providerSymbol")] = providerSymbol;
+        preflight[QStringLiteral("providerTableSlot")] = providerTableSlot;
+        preflight[QStringLiteral("providerAbiSignature")] =
+            productionOperationProviderAbiSignature(operation);
+        preflight[QStringLiteral("functionPointerTypedef")] =
+            QStringLiteral("qnc_e2e_provider_operation_v1");
+        preflight[QStringLiteral("inputStructAbi")] =
+            QStringLiteral("qnc_e2e_operation_input_v1");
+        preflight[QStringLiteral("outputStructAbi")] =
+            QStringLiteral("qnc_e2e_operation_output_v1");
+        preflight[QStringLiteral("statusEnumAbi")] =
+            QStringLiteral("qnc_e2e_status_t");
+        preflight[QStringLiteral("materialPolicyEnumAbi")] =
+            QStringLiteral("qnc_e2e_material_policy_t");
+        preflight[QStringLiteral("operationEnumValue")] = sequenceIndex;
+        preflight[QStringLiteral("interfaceReady")] = interfaceReady;
+        preflight[QStringLiteral("abiPreflightReady")] = abiReady;
+        preflight[QStringLiteral("contractPreflightReady")] = contractReady;
+        preflight[QStringLiteral("policyPreflightReady")] = policyReady;
+        preflight[QStringLiteral("fixturePreflightReady")] = fixtureReady;
+        preflight[QStringLiteral("runtimePreflightReady")] = preflightReady;
+        preflight[QStringLiteral("inputContractHashSha256")] =
+            callableInterface.value(QStringLiteral("inputContractHashSha256")).toString();
+        preflight[QStringLiteral("outputContractHashSha256")] =
+            callableInterface.value(QStringLiteral("outputContractHashSha256")).toString();
+        preflight[QStringLiteral("knownAnswerVectorId")] =
+            callableInterface.value(QStringLiteral("knownAnswerVectorId")).toString(
+                QStringLiteral("%1/%2").arg(spec.vectorSet, operationName));
+        preflight[QStringLiteral("knownAnswerFixtureId")] =
+            callableInterface.value(QStringLiteral("knownAnswerFixtureId")).toString(
+                QStringLiteral("probe-fixture/%1").arg(operationName));
+        preflight[QStringLiteral("fixtureHashSha256")] =
+            callableInterface.value(QStringLiteral("fixtureHashSha256")).toString(
+                productionHarnessFixtureHash(spec));
+        preflight[QStringLiteral("inputCapturePolicy")] =
+            QStringLiteral("size-and-class-only");
+        preflight[QStringLiteral("outputCapturePolicy")] =
+            QStringLiteral("size-and-class-only");
+        preflight[QStringLiteral("resultCapturePolicy")] =
+            QStringLiteral("status-class-and-size-only");
+        preflight[QStringLiteral("materialExportPolicy")] =
+            QStringLiteral("sizes-and-status-only-no-secret-bytes");
+        preflight[QStringLiteral("runtimePreflightState")] = preflightReady
+            ? QStringLiteral("ready-for-reviewed-provider-runtime-preflight")
+            : QStringLiteral("reviewed-provider-runtime-preflight-blocked");
+        preflight[QStringLiteral("failClosed")] = !preflightReady;
+        preflight[QStringLiteral("blockedReason")] = blockedReason;
+        preflight[QStringLiteral("operatorAction")] = preflightReady
+            ? QStringLiteral("audit-reviewed-runtime-preflight-before-release-gate")
+            : (interfaceSourceCaptured
+                ? QStringLiteral("fix-reviewed-runtime-preflight-before-audit")
+                : QStringLiteral("produce-reviewed-callable-interface-before-runtime-preflight"));
+        preflight[QStringLiteral("runtimePreflightNonReleaseGate")] = true;
+        preflight[QStringLiteral("releaseGate")] =
+            QStringLiteral("production-provider-reviewed-callable-runtime-preflight-not-release-gate");
+        preflight[QStringLiteral("operationInvokedByRuntimePreflight")] = false;
+        preflight[QStringLiteral("inputBytesCaptured")] = false;
+        preflight[QStringLiteral("outputBytesCaptured")] = false;
+        preflight[QStringLiteral("resultCaptured")] = false;
+        preflight[QStringLiteral("rawKeyExported")] = false;
+        preflight[QStringLiteral("privateMaterialExported")] = false;
+        preflight[QStringLiteral("sessionSecretExported")] = false;
+        preflight[QStringLiteral("privateIdentityMaterialExported")] = false;
+        preflight[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+        preflight[QStringLiteral("sanitized")] = preflightSanitized;
+        preflights.append(preflight);
+
+        ++preflightCount;
+        if (preflightReady) {
+            ++readyPreflightCount;
+        } else {
+            ++blockedPreflightCount;
+            ++failClosedPreflightCount;
+        }
+        if (interfaceReady) {
+            ++interfaceReadyPreflightCount;
+        }
+        if (abiReady) {
+            ++abiPreflightCount;
+        }
+        if (contractReady) {
+            ++contractPreflightCount;
+        }
+        if (policyReady) {
+            ++policyPreflightCount;
+        }
+        if (fixtureReady) {
+            ++fixturePreflightCount;
+        }
+        if (preflightSanitized) {
+            ++sanitizedPreflightCount;
+        }
+        incrementSummaryCount(&blockedReasonSummary, blockedReason);
+        ++sequenceIndex;
+    }
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-runtime-preflight-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("accepted")] = false;
+    status[QStringLiteral("runtimePreflightNonReleaseGate")] = true;
+    status[QStringLiteral("releaseGate")] =
+        QStringLiteral("production-provider-reviewed-callable-runtime-preflight-not-release-gate");
+    status[QStringLiteral("interfaceSourceCaptured")] = interfaceSourceCaptured;
+    status[QStringLiteral("providerReviewedOperationCallableInterface")] =
+        reviewedOperationCallableInterface;
+    status[QStringLiteral("providerReviewedOperationCallableInterfaceReleaseGate")] =
+        reviewedOperationCallableInterface.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedOperationCallableInterfaceReadyCount")] =
+        reviewedOperationCallableInterface.value(QStringLiteral("readyInterfaceCount")).toInt();
+    status[QStringLiteral("preflightCount")] = preflightCount;
+    status[QStringLiteral("readyPreflightCount")] = readyPreflightCount;
+    status[QStringLiteral("blockedPreflightCount")] = blockedPreflightCount;
+    status[QStringLiteral("interfaceReadyPreflightCount")] =
+        interfaceReadyPreflightCount;
+    status[QStringLiteral("abiPreflightCount")] = abiPreflightCount;
+    status[QStringLiteral("contractPreflightCount")] = contractPreflightCount;
+    status[QStringLiteral("policyPreflightCount")] = policyPreflightCount;
+    status[QStringLiteral("fixturePreflightCount")] = fixturePreflightCount;
+    status[QStringLiteral("sanitizedPreflightCount")] = sanitizedPreflightCount;
+    status[QStringLiteral("failClosedPreflightCount")] = failClosedPreflightCount;
+    status[QStringLiteral("blockedReason")] = readyPreflightCount == preflightCount
+        && preflightCount == cryptoOperations().size()
+        ? QStringLiteral("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate")
+        : (interfaceSourceCaptured
+            ? QStringLiteral("production-provider-reviewed-callable-runtime-preflight-evidence-blocked")
+            : QStringLiteral("production-provider-reviewed-callable-runtime-preflight-awaiting-interface"));
+    status[QStringLiteral("operatorAction")] =
+        QStringLiteral("promote-runtime-preflight-only-after-reviewed-provider-audit-and-release-gates");
+    status[QStringLiteral("blockedReasonSummary")] = blockedReasonSummary;
+    status[QStringLiteral("preflights")] = preflights;
+    status[QStringLiteral("operationInvokedByRuntimePreflight")] = false;
+    status[QStringLiteral("inputBytesCaptured")] = false;
+    status[QStringLiteral("outputBytesCaptured")] = false;
+    status[QStringLiteral("resultCaptured")] = false;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return status;
+}
+
+QJsonObject productionProviderReviewedCallableRuntimePreflightStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor) {
+    return productionProviderReviewedCallableRuntimePreflightStatusFromInterface(
+        descriptor,
+        productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(descriptor));
+}
+
 QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
@@ -6387,6 +6695,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
         evidence[QStringLiteral("providerReviewedOperationCallableInterface")] =
             productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(descriptor);
+        evidence[QStringLiteral("providerReviewedCallableRuntimePreflight")] =
+            productionProviderReviewedCallableRuntimePreflightStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("implementedOperationCount")] = 0;
@@ -6500,6 +6810,8 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
         productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedOperationCallableInterface =
         productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedCallableRuntimePreflight =
+        productionProviderReviewedCallableRuntimePreflightStatusForDescriptor(descriptor);
     appendCheck(QStringLiteral("provider-table-bound"),
                 !isProduction || providerTable.value(QStringLiteral("accepted")).toBool(false),
                 isProduction
@@ -6675,6 +6987,16 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                 isProduction
                     ? providerReviewedOperationCallableInterface.value(QStringLiteral("operatorAction")).toString()
                     : QStringLiteral("none"));
+    appendCheck(QStringLiteral("provider-reviewed-callable-runtime-preflight"),
+                !isProduction
+                    || providerReviewedCallableRuntimePreflight.value(QStringLiteral("readyPreflightCount")).toInt()
+                        == cryptoOperations().size(),
+                isProduction
+                    ? providerReviewedCallableRuntimePreflight.value(QStringLiteral("blockedReason")).toString()
+                    : QStringLiteral("not-production-provider"),
+                isProduction
+                    ? providerReviewedCallableRuntimePreflight.value(QStringLiteral("operatorAction")).toString()
+                    : QStringLiteral("none"));
     return checks;
 }
 
@@ -6785,6 +7107,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedOperationCallableInterface =
         productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedCallableRuntimePreflight =
+        productionProviderReviewedCallableRuntimePreflightStatusForDescriptor(descriptor);
     const bool operationContractComplete =
         descriptor.operations.size() == cryptoOperations().size();
     const bool linked = descriptor.linked;
@@ -6853,6 +7177,11 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
             == cryptoOperations().size()
         && providerReviewedOperationCallableInterface.value(QStringLiteral("interfaceCount")).toInt()
             == cryptoOperations().size();
+    const bool providerReviewedCallableRuntimePreflightReady =
+        providerReviewedCallableRuntimePreflight.value(QStringLiteral("readyPreflightCount")).toInt()
+            == cryptoOperations().size()
+        && providerReviewedCallableRuntimePreflight.value(QStringLiteral("preflightCount")).toInt()
+            == cryptoOperations().size();
     const bool accepted = linked
         && descriptor.productionReady
         && operationContractComplete
@@ -6880,7 +7209,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && providerReviewedCallHandoffReady
         && providerReviewedOperationStubBoundaryReady
         && providerReviewedCallableTableBridgeReady
-        && providerReviewedOperationCallableInterfaceReady;
+        && providerReviewedOperationCallableInterfaceReady
+        && providerReviewedCallableRuntimePreflightReady;
 
     QString releaseGate;
     QString blockedReason;
@@ -6992,6 +7322,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-provider-reviewed-operation-callable-interface-blocked");
         blockedReason = providerReviewedOperationCallableInterface.value(QStringLiteral("blockedReason")).toString();
         operatorAction = providerReviewedOperationCallableInterface.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerReviewedCallableRuntimePreflightReady) {
+        releaseGate = QStringLiteral("production-provider-reviewed-callable-runtime-preflight-blocked");
+        blockedReason = providerReviewedCallableRuntimePreflight.value(QStringLiteral("blockedReason")).toString();
+        operatorAction = providerReviewedCallableRuntimePreflight.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
@@ -7055,6 +7389,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedCallableTableBridge;
     status[QStringLiteral("providerReviewedOperationCallableInterface")] =
         providerReviewedOperationCallableInterface;
+    status[QStringLiteral("providerReviewedCallableRuntimePreflight")] =
+        providerReviewedCallableRuntimePreflight;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] = 0;
@@ -7179,6 +7515,12 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedOperationCallableInterface.value(QStringLiteral("blockedInterfaceCount")).toInt();
     status[QStringLiteral("providerReviewedOperationCallableInterfaceReleaseGate")] =
         providerReviewedOperationCallableInterface.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedCallableRuntimePreflightReadyCount")] =
+        providerReviewedCallableRuntimePreflight.value(QStringLiteral("readyPreflightCount")).toInt();
+    status[QStringLiteral("providerReviewedCallableRuntimePreflightBlockedCount")] =
+        providerReviewedCallableRuntimePreflight.value(QStringLiteral("blockedPreflightCount")).toInt();
+    status[QStringLiteral("providerReviewedCallableRuntimePreflightReleaseGate")] =
+        providerReviewedCallableRuntimePreflight.value(QStringLiteral("releaseGate")).toString();
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -7714,6 +8056,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionProviderReviewedCallableTableBridgeStatusForDescriptor(productionAdapterDescriptor());
     status["productionProviderReviewedOperationCallableInterface"] =
         productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(productionAdapterDescriptor());
+    status["productionProviderReviewedCallableRuntimePreflight"] =
+        productionProviderReviewedCallableRuntimePreflightStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -7879,6 +8223,11 @@ QJsonObject e2eProductionCryptoProviderReviewedOperationCallableInterfaceStatus(
         .value(QStringLiteral("productionProviderReviewedOperationCallableInterface")).toObject();
 }
 
+QJsonObject e2eProductionCryptoProviderReviewedCallableRuntimePreflightStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionProviderReviewedCallableRuntimePreflight")).toObject();
+}
+
 QJsonObject e2eProbeProductionCryptoProviderInvocationExecution() {
     return productionProviderInvocationExecutionProbeForDescriptor(productionAdapterDescriptor());
 }
@@ -7921,6 +8270,14 @@ QJsonObject e2eProbeProductionCryptoProviderReviewedOperationCallableInterface()
     return productionProviderReviewedOperationCallableInterfaceStatusFromBridge(
         productionAdapterDescriptor(),
         reviewedCallableTableBridge);
+}
+
+QJsonObject e2eProbeProductionCryptoProviderReviewedCallableRuntimePreflight() {
+    const QJsonObject reviewedOperationCallableInterface =
+        e2eProbeProductionCryptoProviderReviewedOperationCallableInterface();
+    return productionProviderReviewedCallableRuntimePreflightStatusFromInterface(
+        productionAdapterDescriptor(),
+        reviewedOperationCallableInterface);
 }
 
 QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table) {
