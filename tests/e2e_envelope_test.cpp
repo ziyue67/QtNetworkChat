@@ -92,6 +92,10 @@ qnc_e2e_status_t countingProviderOperation(const qnc_e2e_operation_input_v1* inp
         || input->operation == QNC_E2E_OPERATION_AGREEMENT_VERIFY) {
         output->material_policy = QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED;
         output->public_output = { publicOutputBytes, sizeof(publicOutputBytes) };
+        if (input->operation == QNC_E2E_OPERATION_IDENTITY_KEY_GENERATION) {
+            output->material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+            output->sealed_output = { sealedOutputBytes, sizeof(sealedOutputBytes) };
+        }
     } else if (input->operation == QNC_E2E_OPERATION_PAYLOAD_ENCRYPT) {
         output->material_policy = QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED;
         output->sealed_output = { sealedOutputBytes, sizeof(sealedOutputBytes) };
@@ -890,7 +894,7 @@ int main() {
                             == QStringLiteral("openssl-reviewed-provider-v1")
                     && !registeredProviderTable.value("accepted").toBool(true)
                     && registeredProviderTable.value("releaseGate").toString()
-                        == QStringLiteral("production-provider-table-registration-blocked-not-production-ready")
+                        == QStringLiteral("production-provider-table-registration-blocked-not-bound")
                     && registeredProviderTable.value("blockedReason").toString()
                         == QStringLiteral("production-provider-table-compile-binding-disabled"),
                 "runtime provider table registration should expose sanitized evidence without enabling production crypto") && ok;
@@ -1039,7 +1043,10 @@ int main() {
     const QJsonObject invocationExecutionProbe =
         e2eProbeProductionCryptoProviderInvocationExecution();
     ok = expect(registeredCountingProviderTable.value("registered").toBool(false)
+                    && !registeredCountingProviderTable.value("accepted").toBool(true)
                     && registeredCountingProviderTable.value("tableValidationAccepted").toBool(false)
+                    && registeredCountingProviderTable.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-table-compile-binding-disabled")
                     && invocationExecutionProbe.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-invocation-execution-probe-v1")
                     && !invocationExecutionProbe.value("accepted").toBool(true)
@@ -1076,9 +1083,11 @@ int main() {
                     && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                         .value("handle-status-output").toInt() == 2
                     && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
-                        .value("public-output-shape").toInt() == 4
+                        .value("public-sealed-output-shape").toInt() == 1
                     && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                         .value("sealed-output-shape").toInt() == 1
+                    && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                        .value("public-output-shape").toInt() == 3
                     && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                         .value("payload-output-shape").toInt() == 1
                     && invocationExecutionProbe.value("outputEvidenceClassSummary").toObject()
@@ -1846,16 +1855,18 @@ int main() {
         materialMismatchProbe.value("probes").toArray().at(0).toObject();
     ok = expect(materialMismatchProbe.value("invokedOperationCount").toInt() == 8
                     && materialMismatchProbe.value("statusMismatchCount").toInt() == 0
-                    && materialMismatchProbe.value("providerVectorSetMatchedCount").toInt() == 4
-                    && materialMismatchProbe.value("providerVectorSetMismatchCount").toInt() == 4
+                    && materialMismatchProbe.value("providerVectorSetMatchedCount").toInt() == 3
+                    && materialMismatchProbe.value("providerVectorSetMismatchCount").toInt() == 5
                     && materialMismatchProbe.value("mismatchReasonSummary").toObject()
-                        .value("none").toInt() == 4
+                        .value("none").toInt() == 3
                     && materialMismatchProbe.value("mismatchReasonSummary").toObject()
                         .value("known-answer-material-policy-mismatch").toInt() == 4
+                    && materialMismatchProbe.value("mismatchReasonSummary").toObject()
+                        .value("known-answer-output-shape-mismatch").toInt() == 1
                     && materialMismatchProbe.value("mismatchSeveritySummary").toObject()
-                        .value("fail-closed").toInt() == 4
+                        .value("fail-closed").toInt() == 5
                     && materialMismatchProbe.value("mismatchScopeSummary").toObject()
-                        .value("known-answer-vector").toInt() == 4
+                        .value("known-answer-vector").toInt() == 5
                     && firstMaterialMismatchProbe.value("materialPolicyClass").toString()
                         == QStringLiteral("public-export-allowed")
                     && firstMaterialMismatchProbe.value("observedOutputShapeClass").toString()
@@ -1882,23 +1893,25 @@ int main() {
     const QJsonObject mismatchedOutputProbe =
         e2eProbeProductionCryptoProviderInvocationExecution();
     ok = expect(mismatchedOutputProbe.value("invokedOperationCount").toInt() == 8
-                    && mismatchedOutputProbe.value("expectedOutputClassMatchCount").toInt() == 4
-                    && mismatchedOutputProbe.value("expectedOutputClassMismatchCount").toInt() == 4
-                    && mismatchedOutputProbe.value("outputEvidenceFailClosedCount").toInt() == 4
-                    && mismatchedOutputProbe.value("providerVectorSetMatchedCount").toInt() == 4
-                    && mismatchedOutputProbe.value("providerVectorSetMismatchCount").toInt() == 4
+                    && mismatchedOutputProbe.value("expectedOutputClassMatchCount").toInt() == 3
+                    && mismatchedOutputProbe.value("expectedOutputClassMismatchCount").toInt() == 5
+                    && mismatchedOutputProbe.value("outputEvidenceFailClosedCount").toInt() == 5
+                    && mismatchedOutputProbe.value("providerVectorSetMatchedCount").toInt() == 3
+                    && mismatchedOutputProbe.value("providerVectorSetMismatchCount").toInt() == 5
                     && mismatchedOutputProbe.value("outputEvidenceClassSummary").toObject()
-                        .value("known-answer-output-shape-matched").toInt() == 4
+                        .value("known-answer-output-shape-matched").toInt() == 3
                     && mismatchedOutputProbe.value("outputEvidenceClassSummary").toObject()
-                        .value("known-answer-output-shape-mismatch").toInt() == 4
+                        .value("known-answer-output-shape-mismatch").toInt() == 5
                     && mismatchedOutputProbe.value("mismatchReasonSummary").toObject()
-                        .value("none").toInt() == 4
+                        .value("none").toInt() == 3
                     && mismatchedOutputProbe.value("mismatchReasonSummary").toObject()
                         .value("known-answer-material-policy-mismatch").toInt() == 4
+                    && mismatchedOutputProbe.value("mismatchReasonSummary").toObject()
+                        .value("known-answer-output-shape-mismatch").toInt() == 1
                     && mismatchedOutputProbe.value("mismatchSeveritySummary").toObject()
-                        .value("none").toInt() == 4
+                        .value("none").toInt() == 3
                     && mismatchedOutputProbe.value("mismatchSeveritySummary").toObject()
-                        .value("fail-closed").toInt() == 4
+                        .value("fail-closed").toInt() == 5
                     && !mismatchedOutputProbe.value("accepted").toBool(true)
                     && g_probeInvocationCount == 8,
                 "provider invocation probe should fail closed on known-answer output shape mismatch") && ok;

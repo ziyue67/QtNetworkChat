@@ -58,7 +58,7 @@ endif()
 file(READ "${config_header}" config_content)
 string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 1" adapter_requested_pos)
 string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED 1" adapter_linked_pos)
-string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON \"production-adapter-linked-placeholder\"" adapter_reason_pos)
+string(FIND "${config_content}" "QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON \"production-adapter-linked-reviewed-operations\"" adapter_reason_pos)
 
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
@@ -66,7 +66,7 @@ if(adapter_requested_pos LESS 0 OR adapter_linked_pos LESS 0)
     message(FATAL_ERROR "Production adapter link probe should expose requested=1 and linked=1 in the sanitized config header")
 endif()
 if(adapter_reason_pos LESS 0)
-    message(FATAL_ERROR "Production adapter link probe should expose the linked placeholder reason without claiming production readiness")
+    message(FATAL_ERROR "Production adapter link probe should expose reviewed operation binding evidence without claiming production readiness")
 endif()
 
-message(STATUS "E2E production adapter linked-placeholder gate verified")
+message(STATUS "E2E production adapter reviewed-operation binding gate verified")

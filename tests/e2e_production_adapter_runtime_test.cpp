@@ -1186,13 +1186,15 @@ int main() {
                         && invocationExecutionProbe.value("vectorFailCount").toInt()
                             == remainingUnsupportedCount
                         && invocationExecutionProbe.value("providerVectorSetMatchedCount").toInt()
-                            == 7
+                            == 8
                         && invocationExecutionProbe.value("providerVectorSetMismatchCount").toInt()
-                            == 1
+                            == 0
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                             .value("handle-status-output").toInt() == 2
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
-                            .value("sealed-output-shape").toInt() == 2
+                            .value("public-sealed-output-shape").toInt() == 1
+                        && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                            .value("sealed-output-shape").toInt() == 1
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                             .value("public-output-shape").toInt() == 3
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
@@ -1225,7 +1227,11 @@ int main() {
                             == QStringLiteral("ok")
                         && secondProbe.value("publicOutputSize").toInt() == 32
                         && secondProbe.value("sealedOutputSize").toInt() == 32
-                        && secondProbe.value("providerVectorSetMatched").toBool(true) == false,
+                        && secondProbe.value("expectedKnownAnswerOutputClass").toString()
+                            == QStringLiteral("public-sealed-output-shape")
+                        && secondProbe.value("observedKnownAnswerOutputClass").toString()
+                            == QStringLiteral("public-sealed-output-shape")
+                        && secondProbe.value("providerVectorSetMatched").toBool(false),
                     "linked OpenSSL provider should expose a sanitized identity-key probe") && ok;
         ok = expect(thirdProbe.value("operation").toString()
                             == QStringLiteral("public-key-derivation")

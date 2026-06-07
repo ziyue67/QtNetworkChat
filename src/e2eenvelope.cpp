@@ -696,6 +696,7 @@ QString productionProbeExpectedKnownAnswerOutputClass(E2ECryptoOperation operati
     case E2ECryptoOperation::SessionDerive:
         return QStringLiteral("handle-status-output");
     case E2ECryptoOperation::IdentityKeyGeneration:
+        return QStringLiteral("public-sealed-output-shape");
     case E2ECryptoOperation::PublicKeyDerivation:
     case E2ECryptoOperation::AgreementSign:
     case E2ECryptoOperation::AgreementVerify:
@@ -718,6 +719,11 @@ QString productionProbeObservedKnownAnswerOutputClass(qint64 publicOutputSize,
     if (publicOutputSize == 0
         && materialPolicyClass == QStringLiteral("handle-only")) {
         return QStringLiteral("handle-status-output");
+    }
+    if (publicOutputSize > 0
+        && sealedOutputSize > 0
+        && materialPolicyClass == QStringLiteral("handle-only")) {
+        return QStringLiteral("public-sealed-output-shape");
     }
     if (sealedOutputSize > 0) {
         return QStringLiteral("sealed-output-shape");
