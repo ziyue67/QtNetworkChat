@@ -2,7 +2,6 @@ param(
     [string]$MarkdownPath = "docs\automation-status.md",
     [string]$Head,
     [string]$OriginMain,
-    [string]$OriginCodexQt,
     [string]$CiStatus = "unknown",
     [string]$CiRunId = "",
     [string]$BuildStatus = "unknown",
@@ -630,9 +629,6 @@ if ([string]::IsNullOrWhiteSpace($Head)) {
 if ([string]::IsNullOrWhiteSpace($OriginMain)) {
     $OriginMain = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/main") }
 }
-if ([string]::IsNullOrWhiteSpace($OriginCodexQt)) {
-    $OriginCodexQt = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "origin/codex/qt") }
-}
 
 Initialize-DefaultAutomationTasksIfNeeded
 
@@ -741,7 +737,6 @@ $lines.Add("")
 $lines.Add('- Generated at: `' + $generatedAt + '`')
 $lines.Add('- HEAD: `' + $Head + '`')
 $lines.Add('- origin/main: `' + $OriginMain + '`')
-$lines.Add('- origin/codex/qt: `' + $OriginCodexQt + '`')
 $lines.Add('- GitHub Windows Build: `' + $CiStatus + '`')
 $lines.Add('- GitHub run id: `' + $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId }) + '`')
 $lines.Add('- Local MinGW build: `' + $BuildStatus + '`')
@@ -756,7 +751,7 @@ $lines.Add('- Preserve `.polaris/`, `AGENTS.md`, `CLAUDE.md`, and unrelated user
 $lines.Add("- Use large cross-artifact slices; avoid tiny README-only or one-field patches.")
 $lines.Add("- Keep PostgreSQL passwords, GPG passphrases, GitHub tokens, S3 credentials, and signed URLs out of source, docs, logs, previews, launchers, commits, and remote URLs.")
 $lines.Add("- Verify with the PowerShell timeout wrappers: build 600 seconds, CTest 900 seconds.")
-$lines.Add('- Use signed Conventional Commits and push `main`, then fast-forward `codex/qt`.')
+$lines.Add('- Use signed Conventional Commits and push `main` after verification.')
 $lines.Add("")
 $lines.Add("## Registered Preview Tasks")
 $lines.Add("")

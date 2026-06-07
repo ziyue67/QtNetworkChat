@@ -146,7 +146,6 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
     -MarkdownPath $markdownPath `
     -Head "abc1234" `
     -OriginMain "abc1234" `
-    -OriginCodexQt "abc1234" `
     -CiStatus "success" `
     -CiRunId "26816554264" `
     -BuildStatus "passed" `
@@ -226,11 +225,11 @@ $defaultBootstrapMarkdownPath = Join-Path $tempDir "automation-status-default-bo
     -MarkdownPath $defaultBootstrapMarkdownPath `
     -Head "boot1234" `
     -OriginMain "boot1234" `
-    -OriginCodexQt "boot1234" `
     -CiStatus "success" `
     -BuildStatus "passed" `
     -CTestStatus "passed" `
     -CTestCount 69 `
+    -BootstrapDefaultTasks `
     -DefaultTaskOutputDir $defaultBootstrapDir `
     -TaskAckExpiryHours 24 `
     -TaskHistoryRetentionCount 5 `
@@ -287,7 +286,6 @@ $planOutput = & $ScriptPath `
 foreach ($expected in @(
     'HEAD: `def5678`',
     'origin/main: `unknown`',
-    'origin/codex/qt: `unknown`',
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: `configured but history artifact unavailable`',
@@ -349,7 +347,6 @@ Ensure-Directory -Path $configuredTempDir
     -MarkdownPath $configuredMarkdownPath `
     -Head "fedcba9" `
     -OriginMain "fedcba9" `
-    -OriginCodexQt "fedcba9" `
     -CiStatus "queued" `
     -BuildStatus "passed" `
     -CTestStatus "passed" `
@@ -387,7 +384,6 @@ Ensure-Directory -Path $configuredTempDir
     -MarkdownPath $invalidMarkdownPath `
     -Head "1122334" `
     -OriginMain "1122334" `
-    -OriginCodexQt "1122334" `
     -CiStatus "queued" `
     -BuildStatus "passed" `
     -CTestStatus "passed" `
@@ -412,7 +408,6 @@ Ensure-Directory -Path $configuredTempDir
     -MarkdownPath $genericMarkdownPath `
     -Head "5566778" `
     -OriginMain "5566778" `
-    -OriginCodexQt "5566778" `
     -CiStatus "success" `
     -BuildStatus "passed" `
     -CTestStatus "passed" `
@@ -576,7 +571,6 @@ Ensure-Directory -Path $configuredTempDir
     -MarkdownPath $customMarkdownPath `
     -Head "8899aa0" `
     -OriginMain "8899aa0" `
-    -OriginCodexQt "8899aa0" `
     -CiStatus "success" `
     -BuildStatus "passed" `
     -CTestStatus "passed" `
