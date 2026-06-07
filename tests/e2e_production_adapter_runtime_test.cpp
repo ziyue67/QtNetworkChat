@@ -123,6 +123,8 @@ int main() {
         status.value("productionProviderReviewedOperationCallableInterface").toObject();
     const QJsonObject providerReviewedCallableRuntimePreflight =
         status.value("productionProviderReviewedCallableRuntimePreflight").toObject();
+    const QJsonObject providerReviewedInvocationArming =
+        status.value("productionProviderReviewedInvocationArming").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -737,6 +739,28 @@ int main() {
                     && !providerReviewedCallableRuntimePreflight.value("privateMaterialExported").toBool(true)
                     && !providerReviewedCallableRuntimePreflight.value("sessionSecretExported").toBool(true),
                 "production reviewed callable runtime preflight should stay blocked until interface evidence exists") && ok;
+    ok = expect(providerReviewedInvocationArming.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-arming-v1")
+                    && providerReviewedInvocationArming.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-invocation-arming-not-release-gate")
+                    && !providerReviewedInvocationArming.value("accepted").toBool(true)
+                    && providerReviewedInvocationArming.value("invocationArmingNonReleaseGate").toBool(false)
+                    && !providerReviewedInvocationArming.value("runtimePreflightSourceCaptured").toBool(true)
+                    && providerReviewedInvocationArming.value("armingCount").toInt() == 8
+                    && providerReviewedInvocationArming.value("readyArmingCount").toInt() == 0
+                    && providerReviewedInvocationArming.value("blockedArmingCount").toInt() == 8
+                    && providerReviewedInvocationArming.value("failClosedArmingCount").toInt() == 8
+                    && providerReviewedInvocationArming.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-invocation-arming-awaiting-runtime-preflight")
+                    && providerReviewedInvocationArming.value("armings").toArray().size() == 8
+                    && !providerReviewedInvocationArming.value("operationInvokedByArming").toBool(true)
+                    && !providerReviewedInvocationArming.value("inputBytesCaptured").toBool(true)
+                    && !providerReviewedInvocationArming.value("outputBytesCaptured").toBool(true)
+                    && !providerReviewedInvocationArming.value("resultCaptured").toBool(true)
+                    && !providerReviewedInvocationArming.value("rawKeyExported").toBool(true)
+                    && !providerReviewedInvocationArming.value("privateMaterialExported").toBool(true)
+                    && !providerReviewedInvocationArming.value("sessionSecretExported").toBool(true),
+                "production reviewed invocation arming should stay blocked until runtime preflight evidence exists") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

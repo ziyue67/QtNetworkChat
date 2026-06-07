@@ -829,6 +829,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderReviewedOperationCallableInterface")).toObject();
     const QJsonObject productionProviderReviewedCallableRuntimePreflight =
         backendStatus.value(QStringLiteral("productionProviderReviewedCallableRuntimePreflight")).toObject();
+    const QJsonObject productionProviderReviewedInvocationArming =
+        backendStatus.value(QStringLiteral("productionProviderReviewedInvocationArming")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -1088,6 +1090,16 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderReviewedCallableRuntimePreflight.value(QStringLiteral("blockedPreflightCount")).toInt();
     dryRun[QStringLiteral("productionProviderReviewedCallableRuntimePreflightNonReleaseGate")] =
         productionProviderReviewedCallableRuntimePreflight.value(QStringLiteral("runtimePreflightNonReleaseGate")).toBool(false);
+    dryRun[QStringLiteral("productionProviderReviewedInvocationArming")] =
+        productionProviderReviewedInvocationArming;
+    dryRun[QStringLiteral("productionProviderReviewedInvocationArmingReleaseGate")] =
+        productionProviderReviewedInvocationArming.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderReviewedInvocationArmingReadyCount")] =
+        productionProviderReviewedInvocationArming.value(QStringLiteral("readyArmingCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedInvocationArmingBlockedCount")] =
+        productionProviderReviewedInvocationArming.value(QStringLiteral("blockedArmingCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedInvocationArmingNonReleaseGate")] =
+        productionProviderReviewedInvocationArming.value(QStringLiteral("invocationArmingNonReleaseGate")).toBool(false);
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1377,6 +1389,16 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderReviewedCallableRuntimePreflightBlockedCount")).toInt();
     evidence[QStringLiteral("productionProviderReviewedCallableRuntimePreflightNonReleaseGate")] =
         dryRun.value(QStringLiteral("productionProviderReviewedCallableRuntimePreflightNonReleaseGate")).toBool(false);
+    evidence[QStringLiteral("productionProviderReviewedInvocationArming")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedInvocationArming")).toObject();
+    evidence[QStringLiteral("productionProviderReviewedInvocationArmingReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedInvocationArmingReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderReviewedInvocationArmingReadyCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedInvocationArmingReadyCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedInvocationArmingBlockedCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedInvocationArmingBlockedCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedInvocationArmingNonReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedInvocationArmingNonReleaseGate")).toBool(false);
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

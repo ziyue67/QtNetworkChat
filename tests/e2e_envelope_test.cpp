@@ -533,7 +533,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 26
+                        .value("checks").toArray().size() == 27
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -555,7 +555,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 26
+                        .value("checks").toArray().size() == 27
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -1288,6 +1288,37 @@ int main() {
                     && !reviewedRuntimePreflightProbe.value("rawKeyExported").toBool(true)
                     && !reviewedRuntimePreflightProbe.value("privateMaterialExported").toBool(true),
                 "explicit reviewed callable runtime preflight should map clean interfaces without invoking provider operations") && ok;
+    const QJsonObject reviewedInvocationArmingProbe =
+        e2eProbeProductionCryptoProviderReviewedInvocationArming();
+    ok = expect(reviewedInvocationArmingProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-arming-v1")
+                    && !reviewedInvocationArmingProbe.value("accepted").toBool(true)
+                    && reviewedInvocationArmingProbe.value("invocationArmingNonReleaseGate").toBool(false)
+                    && reviewedInvocationArmingProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-invocation-arming-not-release-gate")
+                    && reviewedInvocationArmingProbe.value("runtimePreflightSourceCaptured").toBool(false)
+                    && reviewedInvocationArmingProbe.value("armingCount").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("readyArmingCount").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("blockedArmingCount").toInt() == 0
+                    && reviewedInvocationArmingProbe.value("runtimePreflightReadyArmingCount").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("callbackEntryArmingCount").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("sandboxPolicyArmingCount").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("resultPolicyArmingCount").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("sanitizedArmingCount").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("failClosedArmingCount").toInt() == 0
+                    && reviewedInvocationArmingProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-invocation-armings-awaiting-audit-release-gate")
+                    && reviewedInvocationArmingProbe.value("blockedReasonSummary").toObject()
+                        .value("production-provider-reviewed-invocation-armings-awaiting-audit-release-gate").toInt() == 8
+                    && reviewedInvocationArmingProbe.value("armings").toArray().size() == 8
+                    && g_probeInvocationCount == 64
+                    && !reviewedInvocationArmingProbe.value("operationInvokedByArming").toBool(true)
+                    && !reviewedInvocationArmingProbe.value("inputBytesCaptured").toBool(true)
+                    && !reviewedInvocationArmingProbe.value("outputBytesCaptured").toBool(true)
+                    && !reviewedInvocationArmingProbe.value("resultCaptured").toBool(true)
+                    && !reviewedInvocationArmingProbe.value("rawKeyExported").toBool(true)
+                    && !reviewedInvocationArmingProbe.value("privateMaterialExported").toBool(true),
+                "explicit reviewed invocation arming should map clean runtime preflights without invoking provider operations") && ok;
     const QJsonObject firstExecutionProbe =
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
     const QJsonObject firstReviewedCandidate =
@@ -1302,6 +1333,8 @@ int main() {
         reviewedCallableInterfaceProbe.value("interfaces").toArray().at(0).toObject();
     const QJsonObject firstReviewedRuntimePreflight =
         reviewedRuntimePreflightProbe.value("preflights").toArray().at(0).toObject();
+    const QJsonObject firstReviewedInvocationArming =
+        reviewedInvocationArmingProbe.value("armings").toArray().at(0).toObject();
     ok = expect(firstReviewedCandidate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstReviewedCandidate.value("candidateState").toString()
@@ -1587,6 +1620,37 @@ int main() {
                     && !firstReviewedRuntimePreflight.value("outputBytesCaptured").toBool(true)
                     && !firstReviewedRuntimePreflight.value("rawKeyExported").toBool(true),
                 "reviewed callable runtime preflight should expose only sanitized runtime ABI metadata") && ok;
+    ok = expect(firstReviewedInvocationArming.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstReviewedInvocationArming.value("invocationArmingId").toString()
+                        == QStringLiteral("reviewed-invocation-arming/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedInvocationArming.value("runtimePreflightId").toString()
+                        == QStringLiteral("reviewed-callable-runtime-preflight/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedInvocationArming.value("invocationArmingReady").toBool(false)
+                    && firstReviewedInvocationArming.value("armingState").toString()
+                        == QStringLiteral("ready-for-reviewed-provider-invocation-arming")
+                    && !firstReviewedInvocationArming.value("failClosed").toBool(true)
+                    && firstReviewedInvocationArming.value("runtimePreflightReady").toBool(false)
+                    && firstReviewedInvocationArming.value("callbackEntryReady").toBool(false)
+                    && firstReviewedInvocationArming.value("sandboxPolicyReady").toBool(false)
+                    && firstReviewedInvocationArming.value("resultPolicyReady").toBool(false)
+                    && firstReviewedInvocationArming.value("callbackEntrypoint").toString()
+                        == QStringLiteral("qnc_e2e_provider_table_v1/qnc_e2e_op_session_key_generation_v1")
+                    && firstReviewedInvocationArming.value("armingTokenId").toString()
+                        == QStringLiteral("reviewed-invocation-arming-token/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedInvocationArming.value("sandboxPolicy").toString()
+                        == QStringLiteral("reviewed-provider-call-boundary-no-secret-capture")
+                    && firstReviewedInvocationArming.value("resultPolicy").toString()
+                        == QStringLiteral("status-class-and-size-only-no-secret-bytes")
+                    && firstReviewedInvocationArming.value("inputContractHashSha256").toString().size() == 64
+                    && firstReviewedInvocationArming.value("outputContractHashSha256").toString().size() == 64
+                    && firstReviewedInvocationArming.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-invocation-armings-awaiting-audit-release-gate")
+                    && !firstReviewedInvocationArming.value("operationInvokedByArming").toBool(true)
+                    && !firstReviewedInvocationArming.value("inputBytesCaptured").toBool(true)
+                    && !firstReviewedInvocationArming.value("outputBytesCaptured").toBool(true)
+                    && !firstReviewedInvocationArming.value("rawKeyExported").toBool(true),
+                "reviewed invocation arming should expose only sanitized arming metadata") && ok;
     const QJsonObject firstProbeExecutionFrame =
         firstExecutionProbe.value("probeExecutionFrame").toObject();
     ok = expect(firstProbeExecutionFrame.value("schema").toString()
