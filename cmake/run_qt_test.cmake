@@ -8,6 +8,7 @@ endif()
 
 get_filename_component(TEST_WORK_DIR "${TEST_EXE}" DIRECTORY)
 set(TEST_RUNTIME_ROOT "${TEST_WORK_DIR}/qt_test_runtime")
+file(REMOVE_RECURSE "${TEST_RUNTIME_ROOT}")
 file(MAKE_DIRECTORY
     "${TEST_RUNTIME_ROOT}/AppData/Roaming"
     "${TEST_RUNTIME_ROOT}/AppData/Local"

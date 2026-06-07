@@ -884,6 +884,8 @@ int main(int argc, char** argv) {
             rotationDryRun.value("productionProviderReviewedCallableRuntimePreflight").toObject();
         const QJsonObject rotationProviderReviewedInvocationArming =
             rotationDryRun.value("productionProviderReviewedInvocationArming").toObject();
+        const QJsonObject rotationProviderReviewedInvocationExecutionAcceptance =
+            rotationDryRun.value("productionProviderReviewedInvocationExecutionAcceptance").toObject();
         ok = expect(rotationProviderReviewedOperationStubBoundary.value("schema").toString()
                             == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-stub-boundary-v1")
                         && rotationProviderReviewedOperationStubBoundary.value("releaseGate").toString()
@@ -974,6 +976,24 @@ int main(int argc, char** argv) {
                         && !rotationProviderReviewedInvocationArming.value("rawKeyExported").toBool(true)
                         && !rotationProviderReviewedInvocationArming.value("privateMaterialExported").toBool(true),
                     "production rotation dry-run should embed reviewed invocation arming evidence without invoking provider callbacks") && ok;
+        ok = expect(rotationProviderReviewedInvocationExecutionAcceptance.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-execution-acceptance-v1")
+                        && rotationProviderReviewedInvocationExecutionAcceptance.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedInvocationExecutionAcceptanceReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedInvocationExecutionAcceptanceNonReleaseGate").toBool(false)
+                        && rotationDryRun.value("productionProviderReviewedInvocationExecutionAcceptanceReadyCount").toInt() == 0
+                        && rotationDryRun.value("productionProviderReviewedInvocationExecutionAcceptanceBlockedCount").toInt() == 8
+                        && !rotationProviderReviewedInvocationExecutionAcceptance.value("armingSourceCaptured").toBool(true)
+                        && rotationProviderReviewedInvocationExecutionAcceptance.value("acceptances").toArray().size() == 8
+                        && !rotationProviderReviewedInvocationExecutionAcceptance.value("operationInvokedByExecutionAcceptance").toBool(true)
+                        && !rotationProviderReviewedInvocationExecutionAcceptance.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedInvocationExecutionAcceptance.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedInvocationExecutionAcceptance.value("resultCaptured").toBool(true)
+                        && !rotationProviderReviewedInvocationExecutionAcceptance.value("rawKeyExported").toBool(true)
+                        && !rotationProviderReviewedInvocationExecutionAcceptance.value("privateMaterialExported").toBool(true),
+                    "production rotation dry-run should embed reviewed invocation execution acceptance without invoking provider callbacks") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -1365,6 +1385,21 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderReviewedInvocationArming").toObject()
                             .value("inputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderReviewedInvocationArming").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptanceReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-not-release-gate")
+                        && rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptanceNonReleaseGate").toBool(false)
+                        && rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptanceReadyCount").toInt() == 0
+                        && rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptanceBlockedCount").toInt() == 8
+                        && rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptance").toObject()
+                            .value("acceptances").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptance").toObject()
+                            .value("armingSourceCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptance").toObject()
+                            .value("operationInvokedByExecutionAcceptance").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptance").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedInvocationExecutionAcceptance").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)
