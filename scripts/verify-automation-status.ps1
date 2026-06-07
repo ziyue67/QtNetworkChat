@@ -29,6 +29,32 @@ function Assert-NotContains {
     }
 }
 
+function Assert-DoesNotMatch {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text,
+        [Parameter(Mandatory = $true)]
+        [string]$Pattern
+    )
+    if ($Text -match $Pattern) {
+        throw "Automation status matched forbidden pattern: $Pattern"
+    }
+}
+
+function Assert-NoFixedMirrorBranchPolicy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+    foreach ($pattern in @(
+        'origin/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',
+        'fast-forward\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',
+        'push\s+main,\s+then\s+fast-forward\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+    )) {
+        Assert-DoesNotMatch -Text $Text -Pattern $pattern
+    }
+}
+
 function Ensure-Directory {
     param(
         [Parameter(Mandatory = $true)]
@@ -193,6 +219,7 @@ foreach ($expected in @(
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok`',
+    'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
     'E2E production crypto is the active automation lane again',
     'callable manifest',
@@ -218,6 +245,7 @@ foreach ($forbidden in @(
 )) {
     Assert-NotContains -Text $markdown -Forbidden $forbidden
 }
+Assert-NoFixedMirrorBranchPolicy -Text $markdown
 
 $defaultBootstrapDir = Join-Path $tempDir "default-bootstrap"
 $defaultBootstrapMarkdownPath = Join-Path $tempDir "automation-status-default-bootstrap.md"
@@ -252,7 +280,8 @@ foreach ($expected in @(
     'Task acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`bootstrap-default`',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
-    'Automation history artifacts: `history=ok; ack=ok`'
+    'Automation history artifacts: `history=ok; ack=ok`',
+    'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
     Assert-Contains -Text $defaultBootstrapMarkdown -Expected $expected
 }
@@ -271,6 +300,7 @@ foreach ($forbidden in @(
 )) {
     Assert-NotContains -Text $defaultBootstrapMarkdown -Forbidden $forbidden
 }
+Assert-NoFixedMirrorBranchPolicy -Text $defaultBootstrapMarkdown
 
 $planOutput = & $ScriptPath `
     -PlanOnly `
@@ -292,17 +322,12 @@ foreach ($expected in @(
     'Task history: `configured but history artifact unavailable`',
     'Database health artifacts: `preview=not-configured; status=missing',
     'Large-file governance artifacts: `preview=not-configured; status=missing',
-    'Automation history artifacts: `history=missing'
+    'Automation history artifacts: `history=missing',
+    'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
     Assert-Contains -Text $planOutput -Expected $expected
 }
-foreach ($forbidden in @(
-    'origin/codex/qt',
-    'fast-forward codex/qt',
-    'push main, then fast-forward codex/qt'
-)) {
-    Assert-NotContains -Text $planOutput -Forbidden $forbidden
-}
+Assert-NoFixedMirrorBranchPolicy -Text $planOutput
 
 $configuredMarkdownPath = Join-Path $configuredTempDir "automation-status.md"
 $configuredDbPreviewPath = Join-Path $configuredTempDir "database-health-task-preview.json"
@@ -604,17 +629,12 @@ foreach ($expected in @(
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: runs=`7`',
-    'Task acknowledgement: acknowledged=`false`, by=`unknown`, at=`unknown`, reason=`unknown`'
+    'Task acknowledgement: acknowledged=`false`, by=`unknown`, at=`unknown`, reason=`unknown`',
+    'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
     Assert-Contains -Text $customMarkdown -Expected $expected
 }
-foreach ($forbidden in @(
-    'origin/codex/qt',
-    'fast-forward codex/qt',
-    'push main, then fast-forward codex/qt'
-)) {
-    Assert-NotContains -Text $customMarkdown -Forbidden $forbidden
-}
+Assert-NoFixedMirrorBranchPolicy -Text $customMarkdown
 
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
 Write-Host "Automation status writer test passed"
