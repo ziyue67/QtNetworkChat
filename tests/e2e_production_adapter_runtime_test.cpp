@@ -35,24 +35,31 @@ int main() {
     const QString expectedReason = adapterLinked
         ? QStringLiteral("production-adapter-not-ready")
         : QStringLiteral("production-crypto-backend-unavailable");
-    const QString expectedAction = adapterLinked
-        ? QStringLiteral("complete-production-crypto-adapter-implementation-and-compatibility-tests")
-        : QStringLiteral("link-reviewed-production-crypto-backend");
-    const QString expectedDispatchState = adapterLinked
-        ? QStringLiteral("linked-placeholder-not-ready")
-        : QStringLiteral("not-linked");
-    const QString expectedReadinessGate = adapterLinked
-        ? QStringLiteral("production-operations-not-implemented")
-        : QStringLiteral("production-adapter-not-linked");
-    const QString expectedSelfTestStatus = adapterLinked
-        ? QStringLiteral("self-test-blocked-placeholder")
-        : QStringLiteral("self-test-blocked-not-linked");
-    const QString expectedCompatibilityStatus = adapterLinked
-        ? QStringLiteral("compatibility-blocked-placeholder")
-        : QStringLiteral("compatibility-blocked-not-linked");
-    const QString expectedCompatibilityGate = adapterLinked
-        ? QStringLiteral("production-operation-vectors-not-implemented")
-        : QStringLiteral("production-adapter-not-linked");
+    const QString expectedAction = reviewedProviderOperationsBound
+        ? QStringLiteral("capture-reviewed-provider-results-and-open-production-acceptance-gates")
+        : (adapterLinked
+            ? QStringLiteral("complete-production-crypto-adapter-implementation-and-compatibility-tests")
+            : QStringLiteral("link-reviewed-production-crypto-backend"));
+    const QString expectedDispatchState = reviewedProviderOperationsBound
+        ? QStringLiteral("reviewed-operations-bound-not-ready")
+        : (adapterLinked ? QStringLiteral("linked-placeholder-not-ready")
+                         : QStringLiteral("not-linked"));
+    const QString expectedReadinessGate = reviewedProviderOperationsBound
+        ? QStringLiteral("production-acceptance-gates-not-open")
+        : (adapterLinked ? QStringLiteral("production-operations-not-implemented")
+                         : QStringLiteral("production-adapter-not-linked"));
+    const QString expectedSelfTestStatus = reviewedProviderOperationsBound
+        ? QStringLiteral("self-test-blocked-acceptance-gates")
+        : (adapterLinked ? QStringLiteral("self-test-blocked-placeholder")
+                         : QStringLiteral("self-test-blocked-not-linked"));
+    const QString expectedCompatibilityStatus = reviewedProviderOperationsBound
+        ? QStringLiteral("compatibility-shape-passed-acceptance-blocked")
+        : (adapterLinked ? QStringLiteral("compatibility-blocked-placeholder")
+                         : QStringLiteral("compatibility-blocked-not-linked"));
+    const QString expectedCompatibilityGate = reviewedProviderOperationsBound
+        ? QStringLiteral("production-invocation-results-not-accepted")
+        : (adapterLinked ? QStringLiteral("production-operation-vectors-not-implemented")
+                         : QStringLiteral("production-adapter-not-linked"));
 
     ok = expect(status.value("requestedBackendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && status.value("selectionSource").toString() == QStringLiteral("environment")
@@ -71,10 +78,22 @@ int main() {
                     && status.value("selectedProviderCompatibility").toObject()
                         .value("gate").toString()
                             == expectedCompatibilityGate
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("knownAnswerPassed").toBool(!reviewedProviderOperationsBound)
+                            == reviewedProviderOperationsBound
                     && !status.value("selectedProviderCompatibility").toObject()
-                        .value("knownAnswerPassed").toBool(true)
+                        .value("roundTripPassed").toBool(true)
                     && status.value("selectedProviderCompatibility").toObject()
                         .value("requiredOperations").toArray().size() == 8
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("implementedOperationCount").toInt()
+                            == reviewedCandidateCount
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("blockedOperationCount").toInt()
+                            == remainingUnsupportedCount
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("reviewedOperationBound").toBool(!reviewedProviderOperationsBound)
+                            == reviewedProviderOperationsBound
                     && status.value("unavailableReason").toString() == expectedReason,
                 "production adapter runtime status should fail closed with a precise reason") && ok;
 
@@ -1084,7 +1103,7 @@ int main() {
                         == reviewedCandidateCount
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
-                "production acceptance status should summarize linked-placeholder gates without enabling crypto") && ok;
+                "production acceptance status should summarize reviewed operation gates without enabling crypto") && ok;
     const QJsonObject firstGate = acceptance.value("operationGates").toArray().at(0).toObject();
     ok = expect(firstGate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -1153,7 +1172,7 @@ int main() {
                     && payloadEncrypt.value("operatorAction").toString() == expectedAction
                     && payloadEncrypt.value("rawKeyExported").toBool(true) == false
                     && payloadEncrypt.value("privateMaterialExported").toBool(true) == false,
-                "production adapter operation should expose linked-placeholder evidence without enabling data-plane crypto") && ok;
+                "production adapter operation should expose reviewed operation evidence without enabling data-plane crypto") && ok;
 
     const QByteArray sessionKey = generateE2ESessionKey();
     ok = expect(sessionKey.isEmpty(),
