@@ -823,6 +823,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderReviewedCallHandoff")).toObject();
     const QJsonObject productionProviderReviewedOperationStubBoundary =
         backendStatus.value(QStringLiteral("productionProviderReviewedOperationStubBoundary")).toObject();
+    const QJsonObject productionProviderReviewedCallableTableBridge =
+        backendStatus.value(QStringLiteral("productionProviderReviewedCallableTableBridge")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -1052,6 +1054,16 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderReviewedOperationStubBoundary.value(QStringLiteral("blockedStubCount")).toInt();
     dryRun[QStringLiteral("productionProviderReviewedOperationStubBoundaryNonReleaseGate")] =
         productionProviderReviewedOperationStubBoundary.value(QStringLiteral("stubNonReleaseGate")).toBool(false);
+    dryRun[QStringLiteral("productionProviderReviewedCallableTableBridge")] =
+        productionProviderReviewedCallableTableBridge;
+    dryRun[QStringLiteral("productionProviderReviewedCallableTableBridgeReleaseGate")] =
+        productionProviderReviewedCallableTableBridge.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderReviewedCallableTableBridgeReadyCount")] =
+        productionProviderReviewedCallableTableBridge.value(QStringLiteral("readyBridgeCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedCallableTableBridgeBlockedCount")] =
+        productionProviderReviewedCallableTableBridge.value(QStringLiteral("blockedBridgeCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedCallableTableBridgeNonReleaseGate")] =
+        productionProviderReviewedCallableTableBridge.value(QStringLiteral("bridgeNonReleaseGate")).toBool(false);
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1311,6 +1323,16 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderReviewedOperationStubBoundaryBlockedCount")).toInt();
     evidence[QStringLiteral("productionProviderReviewedOperationStubBoundaryNonReleaseGate")] =
         dryRun.value(QStringLiteral("productionProviderReviewedOperationStubBoundaryNonReleaseGate")).toBool(false);
+    evidence[QStringLiteral("productionProviderReviewedCallableTableBridge")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedCallableTableBridge")).toObject();
+    evidence[QStringLiteral("productionProviderReviewedCallableTableBridgeReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedCallableTableBridgeReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderReviewedCallableTableBridgeReadyCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedCallableTableBridgeReadyCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedCallableTableBridgeBlockedCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedCallableTableBridgeBlockedCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedCallableTableBridgeNonReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedCallableTableBridgeNonReleaseGate")).toBool(false);
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(

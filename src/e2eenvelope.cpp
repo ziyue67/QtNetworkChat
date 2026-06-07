@@ -312,6 +312,11 @@ QJsonObject productionProviderReviewedOperationStubBoundaryStatusForDescriptor(
 QJsonObject productionProviderReviewedOperationStubBoundaryStatusFromHandoff(
     const E2ECryptoAdapterDescriptor& descriptor,
     const QJsonObject& reviewedCallHandoff);
+QJsonObject productionProviderReviewedCallableTableBridgeStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor);
+QJsonObject productionProviderReviewedCallableTableBridgeStatusFromStubBoundary(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedOperationStubBoundary);
 QString productionOperationProviderSymbol(E2ECryptoOperation operation);
 QString productionOperationProviderAbiSignature(E2ECryptoOperation operation);
 
@@ -5282,6 +5287,246 @@ QJsonObject productionProviderReviewedOperationStubBoundaryStatusForDescriptor(
         productionProviderReviewedCallHandoffStatusForDescriptor(descriptor));
 }
 
+QString providerReviewedCallableTableBridgeBlockedReason(const QJsonObject& stub,
+                                                         bool stubSourceCaptured,
+                                                         bool tableSlotReady,
+                                                         bool contractHashReady,
+                                                         bool bridgeSanitized) {
+    if (!stubSourceCaptured) {
+        return QStringLiteral("production-provider-reviewed-callable-table-bridge-awaiting-stub");
+    }
+    if (!stub.value(QStringLiteral("stubReady")).toBool(false)) {
+        return stub.value(QStringLiteral("blockedReason")).toString(
+            QStringLiteral("production-provider-reviewed-operation-stub-blocked"));
+    }
+    if (!tableSlotReady) {
+        return QStringLiteral("production-provider-reviewed-callable-table-slot-blocked");
+    }
+    if (!contractHashReady) {
+        return QStringLiteral("production-provider-reviewed-callable-table-contract-blocked");
+    }
+    if (!bridgeSanitized) {
+        return QStringLiteral("production-provider-reviewed-callable-table-sensitive-export-blocked");
+    }
+    return QStringLiteral("production-provider-reviewed-callable-table-bridges-awaiting-audit-release-gate");
+}
+
+QJsonObject productionProviderReviewedCallableTableBridgeStatusFromStubBoundary(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedOperationStubBoundary) {
+    const QJsonArray stubs =
+        reviewedOperationStubBoundary.value(QStringLiteral("stubs")).toArray();
+    const bool stubSourceCaptured =
+        reviewedOperationStubBoundary.value(QStringLiteral("schema")).toString()
+            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-stub-boundary-v1")
+        && reviewedOperationStubBoundary.value(QStringLiteral("handoffSourceCaptured")).toBool(false);
+
+    QJsonArray bridges;
+    int bridgeCount = 0;
+    int readyBridgeCount = 0;
+    int blockedBridgeCount = 0;
+    int sanitizedBridgeCount = 0;
+    int stubReadyBridgeCount = 0;
+    int functionPointerSlotCount = 0;
+    int contractHashBridgeCount = 0;
+    int failClosedBridgeCount = 0;
+    QJsonObject blockedReasonSummary;
+
+    int sequenceIndex = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const E2ECryptoOperation operation = spec.operation;
+        const QString operationName = cryptoOperationName(operation);
+        const QJsonObject stub = sequenceIndex < stubs.size()
+            ? stubs.at(sequenceIndex).toObject()
+            : QJsonObject();
+        const QString providerSymbol = productionOperationProviderSymbol(operation);
+        const QString expectedTableSlot =
+            QStringLiteral("qnc_e2e_provider_table_v1/%1").arg(providerSymbol);
+        const bool stubReady = stub.value(QStringLiteral("stubReady")).toBool(false);
+        const bool tableSlotReady =
+            stub.value(QStringLiteral("executionEntrypoint")).toString() == expectedTableSlot
+            && stub.value(QStringLiteral("providerSymbol")).toString() == providerSymbol
+            && stub.value(QStringLiteral("providerAbiSignature")).toString()
+                == productionOperationProviderAbiSignature(operation);
+        const bool contractHashReady =
+            stub.value(QStringLiteral("inputContractHashSha256")).toString().size()
+                == FingerprintHexLength
+            && stub.value(QStringLiteral("outputContractHashSha256")).toString().size()
+                == FingerprintHexLength;
+        const bool bridgeSanitized =
+            stub.value(QStringLiteral("sanitized")).toBool(false)
+            && !stub.value(QStringLiteral("rawKeyExported")).toBool(true)
+            && !stub.value(QStringLiteral("privateMaterialExported")).toBool(true)
+            && !stub.value(QStringLiteral("sessionSecretExported")).toBool(true)
+            && !stub.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
+            && !stub.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true)
+            && !stub.value(QStringLiteral("inputBytesCaptured")).toBool(true)
+            && !stub.value(QStringLiteral("outputBytesCaptured")).toBool(true)
+            && !stub.value(QStringLiteral("resultCaptured")).toBool(true);
+        const bool bridgeReady =
+            stubSourceCaptured
+            && stubReady
+            && tableSlotReady
+            && contractHashReady
+            && bridgeSanitized;
+        const QString blockedReason =
+            providerReviewedCallableTableBridgeBlockedReason(stub,
+                                                             stubSourceCaptured,
+                                                             tableSlotReady,
+                                                             contractHashReady,
+                                                             bridgeSanitized);
+
+        QJsonObject bridge;
+        bridge[QStringLiteral("sequenceIndex")] = sequenceIndex;
+        bridge[QStringLiteral("operation")] = operationName;
+        bridge[QStringLiteral("backendId")] = descriptor.id;
+        bridge[QStringLiteral("providerId")] = descriptor.providerId;
+        bridge[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+        bridge[QStringLiteral("bridgeId")] =
+            QStringLiteral("reviewed-callable-table-bridge/%1/%2")
+                .arg(spec.vectorSet, operationName);
+        bridge[QStringLiteral("stubBoundaryId")] =
+            stub.value(QStringLiteral("stubBoundaryId")).toString(
+                QStringLiteral("reviewed-operation-stub/%1/%2")
+                    .arg(spec.vectorSet, operationName));
+        bridge[QStringLiteral("providerSymbol")] = providerSymbol;
+        bridge[QStringLiteral("providerAbiSignature")] =
+            productionOperationProviderAbiSignature(operation);
+        bridge[QStringLiteral("executionEntrypoint")] = expectedTableSlot;
+        bridge[QStringLiteral("providerTableSlot")] = expectedTableSlot;
+        bridge[QStringLiteral("stub")] = stub;
+        bridge[QStringLiteral("stubReady")] = stubReady;
+        bridge[QStringLiteral("stubReleaseGate")] =
+            stub.value(QStringLiteral("releaseGate")).toString(
+                QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate"));
+        bridge[QStringLiteral("stubNonReleaseGate")] =
+            stub.value(QStringLiteral("stubNonReleaseGate")).toBool(true);
+        bridge[QStringLiteral("callableTableBridgeReady")] = bridgeReady;
+        bridge[QStringLiteral("tableSlotReady")] = tableSlotReady;
+        bridge[QStringLiteral("contractHashReady")] = contractHashReady;
+        bridge[QStringLiteral("inputContractHashSha256")] =
+            stub.value(QStringLiteral("inputContractHashSha256")).toString();
+        bridge[QStringLiteral("outputContractHashSha256")] =
+            stub.value(QStringLiteral("outputContractHashSha256")).toString();
+        bridge[QStringLiteral("knownAnswerVectorId")] =
+            stub.value(QStringLiteral("knownAnswerVectorId")).toString(
+                QStringLiteral("%1/%2").arg(spec.vectorSet, operationName));
+        bridge[QStringLiteral("knownAnswerFixtureId")] =
+            stub.value(QStringLiteral("knownAnswerFixtureId")).toString(
+                QStringLiteral("probe-fixture/%1").arg(operationName));
+        bridge[QStringLiteral("fixtureHashSha256")] =
+            stub.value(QStringLiteral("fixtureHashSha256")).toString(
+                productionHarnessFixtureHash(spec));
+        bridge[QStringLiteral("inputCapturePolicy")] = QStringLiteral("size-and-class-only");
+        bridge[QStringLiteral("outputCapturePolicy")] = QStringLiteral("size-and-class-only");
+        bridge[QStringLiteral("resultCapturePolicy")] =
+            QStringLiteral("status-class-and-size-only");
+        bridge[QStringLiteral("materialExportPolicy")] =
+            QStringLiteral("sizes-and-status-only-no-secret-bytes");
+        bridge[QStringLiteral("bridgeSanitized")] = bridgeSanitized;
+        bridge[QStringLiteral("bridgeState")] = bridgeReady
+            ? QStringLiteral("ready-for-reviewed-provider-callable-table-bridge")
+            : QStringLiteral("reviewed-provider-callable-table-bridge-blocked");
+        bridge[QStringLiteral("failClosed")] = !bridgeReady;
+        bridge[QStringLiteral("blockedReason")] = blockedReason;
+        bridge[QStringLiteral("operatorAction")] = bridgeReady
+            ? QStringLiteral("audit-reviewed-callable-table-bridge-before-release-gate")
+            : (stubSourceCaptured
+                ? QStringLiteral("fix-reviewed-callable-table-bridge-before-audit")
+                : QStringLiteral("produce-reviewed-operation-stub-before-callable-table-bridge"));
+        bridge[QStringLiteral("bridgeNonReleaseGate")] = true;
+        bridge[QStringLiteral("releaseGate")] =
+            QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate");
+        bridge[QStringLiteral("operationInvokedByBridge")] = false;
+        bridge[QStringLiteral("inputBytesCaptured")] = false;
+        bridge[QStringLiteral("outputBytesCaptured")] = false;
+        bridge[QStringLiteral("resultCaptured")] = false;
+        bridge[QStringLiteral("rawKeyExported")] = false;
+        bridge[QStringLiteral("privateMaterialExported")] = false;
+        bridge[QStringLiteral("sessionSecretExported")] = false;
+        bridge[QStringLiteral("privateIdentityMaterialExported")] = false;
+        bridge[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+        bridges.append(bridge);
+
+        ++bridgeCount;
+        if (bridgeReady) {
+            ++readyBridgeCount;
+        } else {
+            ++blockedBridgeCount;
+            ++failClosedBridgeCount;
+        }
+        if (bridgeSanitized) {
+            ++sanitizedBridgeCount;
+        }
+        if (stubReady) {
+            ++stubReadyBridgeCount;
+        }
+        if (tableSlotReady) {
+            ++functionPointerSlotCount;
+        }
+        if (contractHashReady) {
+            ++contractHashBridgeCount;
+        }
+        incrementSummaryCount(&blockedReasonSummary, blockedReason);
+        ++sequenceIndex;
+    }
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-table-bridge-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("accepted")] = false;
+    status[QStringLiteral("bridgeNonReleaseGate")] = true;
+    status[QStringLiteral("releaseGate")] =
+        QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate");
+    status[QStringLiteral("stubSourceCaptured")] = stubSourceCaptured;
+    status[QStringLiteral("providerReviewedOperationStubBoundary")] =
+        reviewedOperationStubBoundary;
+    status[QStringLiteral("providerReviewedOperationStubBoundaryReleaseGate")] =
+        reviewedOperationStubBoundary.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedOperationStubBoundaryReadyCount")] =
+        reviewedOperationStubBoundary.value(QStringLiteral("readyStubCount")).toInt();
+    status[QStringLiteral("bridgeCount")] = bridgeCount;
+    status[QStringLiteral("readyBridgeCount")] = readyBridgeCount;
+    status[QStringLiteral("blockedBridgeCount")] = blockedBridgeCount;
+    status[QStringLiteral("sanitizedBridgeCount")] = sanitizedBridgeCount;
+    status[QStringLiteral("stubReadyBridgeCount")] = stubReadyBridgeCount;
+    status[QStringLiteral("functionPointerSlotCount")] = functionPointerSlotCount;
+    status[QStringLiteral("contractHashBridgeCount")] = contractHashBridgeCount;
+    status[QStringLiteral("failClosedBridgeCount")] = failClosedBridgeCount;
+    status[QStringLiteral("blockedReason")] = readyBridgeCount == bridgeCount
+        && bridgeCount == cryptoOperations().size()
+        ? QStringLiteral("production-provider-reviewed-callable-table-bridges-awaiting-audit-release-gate")
+        : (stubSourceCaptured
+            ? QStringLiteral("production-provider-reviewed-callable-table-bridge-evidence-blocked")
+            : QStringLiteral("production-provider-reviewed-callable-table-bridge-awaiting-stub"));
+    status[QStringLiteral("operatorAction")] =
+        QStringLiteral("promote-bridge-only-after-reviewed-provider-audit-and-release-gates");
+    status[QStringLiteral("blockedReasonSummary")] = blockedReasonSummary;
+    status[QStringLiteral("bridges")] = bridges;
+    status[QStringLiteral("operationInvokedByBridge")] = false;
+    status[QStringLiteral("inputBytesCaptured")] = false;
+    status[QStringLiteral("outputBytesCaptured")] = false;
+    status[QStringLiteral("resultCaptured")] = false;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return status;
+}
+
+QJsonObject productionProviderReviewedCallableTableBridgeStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor) {
+    return productionProviderReviewedCallableTableBridgeStatusFromStubBoundary(
+        descriptor,
+        productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor));
+}
+
 QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
@@ -5855,6 +6100,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionProviderReviewedCallHandoffStatusForDescriptor(descriptor);
         evidence[QStringLiteral("providerReviewedOperationStubBoundary")] =
             productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor);
+        evidence[QStringLiteral("providerReviewedCallableTableBridge")] =
+            productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("implementedOperationCount")] = 0;
@@ -5964,6 +6211,8 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
         productionProviderReviewedCallHandoffStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedOperationStubBoundary =
         productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedCallableTableBridge =
+        productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
     appendCheck(QStringLiteral("provider-table-bound"),
                 !isProduction || providerTable.value(QStringLiteral("accepted")).toBool(false),
                 isProduction
@@ -6119,6 +6368,16 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                 isProduction
                     ? providerReviewedOperationStubBoundary.value(QStringLiteral("operatorAction")).toString()
                     : QStringLiteral("none"));
+    appendCheck(QStringLiteral("provider-reviewed-callable-table-bridge"),
+                !isProduction
+                    || providerReviewedCallableTableBridge.value(QStringLiteral("readyBridgeCount")).toInt()
+                        == cryptoOperations().size(),
+                isProduction
+                    ? providerReviewedCallableTableBridge.value(QStringLiteral("blockedReason")).toString()
+                    : QStringLiteral("not-production-provider"),
+                isProduction
+                    ? providerReviewedCallableTableBridge.value(QStringLiteral("operatorAction")).toString()
+                    : QStringLiteral("none"));
     return checks;
 }
 
@@ -6225,6 +6484,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         productionProviderReviewedCallHandoffStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedOperationStubBoundary =
         productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedCallableTableBridge =
+        productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
     const bool operationContractComplete =
         descriptor.operations.size() == cryptoOperations().size();
     const bool linked = descriptor.linked;
@@ -6283,6 +6544,11 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
             == cryptoOperations().size()
         && providerReviewedOperationStubBoundary.value(QStringLiteral("stubCount")).toInt()
             == cryptoOperations().size();
+    const bool providerReviewedCallableTableBridgeReady =
+        providerReviewedCallableTableBridge.value(QStringLiteral("readyBridgeCount")).toInt()
+            == cryptoOperations().size()
+        && providerReviewedCallableTableBridge.value(QStringLiteral("bridgeCount")).toInt()
+            == cryptoOperations().size();
     const bool accepted = linked
         && descriptor.productionReady
         && operationContractComplete
@@ -6308,7 +6574,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && providerInvocationVectorResultAccepted
         && providerInvocationExecutionAccepted
         && providerReviewedCallHandoffReady
-        && providerReviewedOperationStubBoundaryReady;
+        && providerReviewedOperationStubBoundaryReady
+        && providerReviewedCallableTableBridgeReady;
 
     QString releaseGate;
     QString blockedReason;
@@ -6412,6 +6679,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-provider-reviewed-operation-stub-blocked");
         blockedReason = providerReviewedOperationStubBoundary.value(QStringLiteral("blockedReason")).toString();
         operatorAction = providerReviewedOperationStubBoundary.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerReviewedCallableTableBridgeReady) {
+        releaseGate = QStringLiteral("production-provider-reviewed-callable-table-bridge-blocked");
+        blockedReason = providerReviewedCallableTableBridge.value(QStringLiteral("blockedReason")).toString();
+        operatorAction = providerReviewedCallableTableBridge.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
@@ -6471,6 +6742,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
     status[QStringLiteral("providerReviewedCallHandoff")] = providerReviewedCallHandoff;
     status[QStringLiteral("providerReviewedOperationStubBoundary")] =
         providerReviewedOperationStubBoundary;
+    status[QStringLiteral("providerReviewedCallableTableBridge")] =
+        providerReviewedCallableTableBridge;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] = 0;
@@ -6583,6 +6856,12 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedOperationStubBoundary.value(QStringLiteral("blockedStubCount")).toInt();
     status[QStringLiteral("providerReviewedOperationStubBoundaryReleaseGate")] =
         providerReviewedOperationStubBoundary.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedCallableTableBridgeReadyCount")] =
+        providerReviewedCallableTableBridge.value(QStringLiteral("readyBridgeCount")).toInt();
+    status[QStringLiteral("providerReviewedCallableTableBridgeBlockedCount")] =
+        providerReviewedCallableTableBridge.value(QStringLiteral("blockedBridgeCount")).toInt();
+    status[QStringLiteral("providerReviewedCallableTableBridgeReleaseGate")] =
+        providerReviewedCallableTableBridge.value(QStringLiteral("releaseGate")).toString();
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -7114,6 +7393,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionProviderReviewedCallHandoffStatusForDescriptor(productionAdapterDescriptor());
     status["productionProviderReviewedOperationStubBoundary"] =
         productionProviderReviewedOperationStubBoundaryStatusForDescriptor(productionAdapterDescriptor());
+    status["productionProviderReviewedCallableTableBridge"] =
+        productionProviderReviewedCallableTableBridgeStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -7269,6 +7550,11 @@ QJsonObject e2eProductionCryptoProviderReviewedOperationStubBoundaryStatus() {
         .value(QStringLiteral("productionProviderReviewedOperationStubBoundary")).toObject();
 }
 
+QJsonObject e2eProductionCryptoProviderReviewedCallableTableBridgeStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionProviderReviewedCallableTableBridge")).toObject();
+}
+
 QJsonObject e2eProbeProductionCryptoProviderInvocationExecution() {
     return productionProviderInvocationExecutionProbeForDescriptor(productionAdapterDescriptor());
 }
@@ -7295,6 +7581,14 @@ QJsonObject e2eProbeProductionCryptoProviderReviewedOperationStubBoundary() {
     return productionProviderReviewedOperationStubBoundaryStatusFromHandoff(
         productionAdapterDescriptor(),
         reviewedCallHandoff);
+}
+
+QJsonObject e2eProbeProductionCryptoProviderReviewedCallableTableBridge() {
+    const QJsonObject reviewedOperationStubBoundary =
+        e2eProbeProductionCryptoProviderReviewedOperationStubBoundary();
+    return productionProviderReviewedCallableTableBridgeStatusFromStubBoundary(
+        productionAdapterDescriptor(),
+        reviewedOperationStubBoundary);
 }
 
 QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table) {

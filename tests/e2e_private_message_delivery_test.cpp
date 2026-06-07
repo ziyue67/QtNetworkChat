@@ -876,6 +876,8 @@ int main(int argc, char** argv) {
                     "production rotation dry-run should embed reviewed call handoff evidence without invoking provider callbacks") && ok;
         const QJsonObject rotationProviderReviewedOperationStubBoundary =
             rotationDryRun.value("productionProviderReviewedOperationStubBoundary").toObject();
+        const QJsonObject rotationProviderReviewedCallableTableBridge =
+            rotationDryRun.value("productionProviderReviewedCallableTableBridge").toObject();
         ok = expect(rotationProviderReviewedOperationStubBoundary.value("schema").toString()
                             == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-stub-boundary-v1")
                         && rotationProviderReviewedOperationStubBoundary.value("releaseGate").toString()
@@ -894,6 +896,24 @@ int main(int argc, char** argv) {
                         && !rotationProviderReviewedOperationStubBoundary.value("rawKeyExported").toBool(true)
                         && !rotationProviderReviewedOperationStubBoundary.value("privateMaterialExported").toBool(true),
                     "production rotation dry-run should embed reviewed operation stub evidence without invoking provider callbacks") && ok;
+        ok = expect(rotationProviderReviewedCallableTableBridge.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-table-bridge-v1")
+                        && rotationProviderReviewedCallableTableBridge.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedCallableTableBridgeReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate")
+                        && rotationDryRun.value("productionProviderReviewedCallableTableBridgeNonReleaseGate").toBool(false)
+                        && rotationDryRun.value("productionProviderReviewedCallableTableBridgeReadyCount").toInt() == 0
+                        && rotationDryRun.value("productionProviderReviewedCallableTableBridgeBlockedCount").toInt() == 8
+                        && !rotationProviderReviewedCallableTableBridge.value("stubSourceCaptured").toBool(true)
+                        && rotationProviderReviewedCallableTableBridge.value("bridges").toArray().size() == 8
+                        && !rotationProviderReviewedCallableTableBridge.value("operationInvokedByBridge").toBool(true)
+                        && !rotationProviderReviewedCallableTableBridge.value("inputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedCallableTableBridge.value("outputBytesCaptured").toBool(true)
+                        && !rotationProviderReviewedCallableTableBridge.value("resultCaptured").toBool(true)
+                        && !rotationProviderReviewedCallableTableBridge.value("rawKeyExported").toBool(true)
+                        && !rotationProviderReviewedCallableTableBridge.value("privateMaterialExported").toBool(true),
+                    "production rotation dry-run should embed reviewed callable table bridge evidence without invoking provider callbacks") && ok;
         const QJsonObject rotationAcceptance =
             rotationDryRun.value("productionAcceptance").toObject();
         ok = expect(rotationAcceptance.value("schema").toString()
@@ -1225,6 +1245,21 @@ int main(int argc, char** argv) {
                         && !rotationExecute.value("productionProviderReviewedOperationStubBoundary").toObject()
                             .value("inputBytesCaptured").toBool(true)
                         && !rotationExecute.value("productionProviderReviewedOperationStubBoundary").toObject()
+                            .value("outputBytesCaptured").toBool(true)
+                        && rotationExecute.value("productionProviderReviewedCallableTableBridgeReleaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate")
+                        && rotationExecute.value("productionProviderReviewedCallableTableBridgeNonReleaseGate").toBool(false)
+                        && rotationExecute.value("productionProviderReviewedCallableTableBridgeReadyCount").toInt() == 0
+                        && rotationExecute.value("productionProviderReviewedCallableTableBridgeBlockedCount").toInt() == 8
+                        && rotationExecute.value("productionProviderReviewedCallableTableBridge").toObject()
+                            .value("bridges").toArray().size() == 8
+                        && !rotationExecute.value("productionProviderReviewedCallableTableBridge").toObject()
+                            .value("stubSourceCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedCallableTableBridge").toObject()
+                            .value("operationInvokedByBridge").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedCallableTableBridge").toObject()
+                            .value("inputBytesCaptured").toBool(true)
+                        && !rotationExecute.value("productionProviderReviewedCallableTableBridge").toObject()
                             .value("outputBytesCaptured").toBool(true)
                         && !rotationExecute.value("wouldClearLocalIdentityStore").toBool(true)
                         && !rotationExecute.value("wouldClearTrustPinStore").toBool(true)

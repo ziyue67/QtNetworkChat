@@ -117,6 +117,8 @@ int main() {
         status.value("productionProviderReviewedCallHandoff").toObject();
     const QJsonObject providerReviewedOperationStubBoundary =
         status.value("productionProviderReviewedOperationStubBoundary").toObject();
+    const QJsonObject providerReviewedCallableTableBridge =
+        status.value("productionProviderReviewedCallableTableBridge").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -665,6 +667,28 @@ int main() {
                     && !providerReviewedOperationStubBoundary.value("privateMaterialExported").toBool(true)
                     && !providerReviewedOperationStubBoundary.value("sessionSecretExported").toBool(true),
                 "production reviewed operation stub boundary should stay blocked until handoff evidence exists") && ok;
+    ok = expect(providerReviewedCallableTableBridge.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-table-bridge-v1")
+                    && providerReviewedCallableTableBridge.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate")
+                    && !providerReviewedCallableTableBridge.value("accepted").toBool(true)
+                    && providerReviewedCallableTableBridge.value("bridgeNonReleaseGate").toBool(false)
+                    && !providerReviewedCallableTableBridge.value("stubSourceCaptured").toBool(true)
+                    && providerReviewedCallableTableBridge.value("bridgeCount").toInt() == 8
+                    && providerReviewedCallableTableBridge.value("readyBridgeCount").toInt() == 0
+                    && providerReviewedCallableTableBridge.value("blockedBridgeCount").toInt() == 8
+                    && providerReviewedCallableTableBridge.value("failClosedBridgeCount").toInt() == 8
+                    && providerReviewedCallableTableBridge.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-table-bridge-awaiting-stub")
+                    && providerReviewedCallableTableBridge.value("bridges").toArray().size() == 8
+                    && !providerReviewedCallableTableBridge.value("operationInvokedByBridge").toBool(true)
+                    && !providerReviewedCallableTableBridge.value("inputBytesCaptured").toBool(true)
+                    && !providerReviewedCallableTableBridge.value("outputBytesCaptured").toBool(true)
+                    && !providerReviewedCallableTableBridge.value("resultCaptured").toBool(true)
+                    && !providerReviewedCallableTableBridge.value("rawKeyExported").toBool(true)
+                    && !providerReviewedCallableTableBridge.value("privateMaterialExported").toBool(true)
+                    && !providerReviewedCallableTableBridge.value("sessionSecretExported").toBool(true),
+                "production reviewed callable table bridge should stay blocked until stub evidence exists") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

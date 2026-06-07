@@ -533,7 +533,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 23
+                        .value("checks").toArray().size() == 24
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -555,7 +555,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 23
+                        .value("checks").toArray().size() == 24
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -1195,6 +1195,36 @@ int main() {
                     && !reviewedOperationStubProbe.value("rawKeyExported").toBool(true)
                     && !reviewedOperationStubProbe.value("privateMaterialExported").toBool(true),
                 "explicit reviewed provider operation stubs should map clean handoffs without becoming a release gate") && ok;
+    const QJsonObject reviewedCallableBridgeProbe =
+        e2eProbeProductionCryptoProviderReviewedCallableTableBridge();
+    ok = expect(reviewedCallableBridgeProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-table-bridge-v1")
+                    && !reviewedCallableBridgeProbe.value("accepted").toBool(true)
+                    && reviewedCallableBridgeProbe.value("bridgeNonReleaseGate").toBool(false)
+                    && reviewedCallableBridgeProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate")
+                    && reviewedCallableBridgeProbe.value("stubSourceCaptured").toBool(false)
+                    && reviewedCallableBridgeProbe.value("bridgeCount").toInt() == 8
+                    && reviewedCallableBridgeProbe.value("readyBridgeCount").toInt() == 8
+                    && reviewedCallableBridgeProbe.value("blockedBridgeCount").toInt() == 0
+                    && reviewedCallableBridgeProbe.value("stubReadyBridgeCount").toInt() == 8
+                    && reviewedCallableBridgeProbe.value("functionPointerSlotCount").toInt() == 8
+                    && reviewedCallableBridgeProbe.value("contractHashBridgeCount").toInt() == 8
+                    && reviewedCallableBridgeProbe.value("sanitizedBridgeCount").toInt() == 8
+                    && reviewedCallableBridgeProbe.value("failClosedBridgeCount").toInt() == 0
+                    && reviewedCallableBridgeProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-table-bridges-awaiting-audit-release-gate")
+                    && reviewedCallableBridgeProbe.value("blockedReasonSummary").toObject()
+                        .value("production-provider-reviewed-callable-table-bridges-awaiting-audit-release-gate").toInt() == 8
+                    && reviewedCallableBridgeProbe.value("bridges").toArray().size() == 8
+                    && g_probeInvocationCount == 40
+                    && !reviewedCallableBridgeProbe.value("operationInvokedByBridge").toBool(true)
+                    && !reviewedCallableBridgeProbe.value("inputBytesCaptured").toBool(true)
+                    && !reviewedCallableBridgeProbe.value("outputBytesCaptured").toBool(true)
+                    && !reviewedCallableBridgeProbe.value("resultCaptured").toBool(true)
+                    && !reviewedCallableBridgeProbe.value("rawKeyExported").toBool(true)
+                    && !reviewedCallableBridgeProbe.value("privateMaterialExported").toBool(true),
+                "explicit reviewed callable table bridge should map clean stubs without invoking provider operations") && ok;
     const QJsonObject firstExecutionProbe =
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
     const QJsonObject firstReviewedCandidate =
@@ -1203,6 +1233,8 @@ int main() {
         reviewedCallHandoffProbe.value("handoffs").toArray().at(0).toObject();
     const QJsonObject firstReviewedStub =
         reviewedOperationStubProbe.value("stubs").toArray().at(0).toObject();
+    const QJsonObject firstReviewedBridge =
+        reviewedCallableBridgeProbe.value("bridges").toArray().at(0).toObject();
     ok = expect(firstReviewedCandidate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstReviewedCandidate.value("candidateState").toString()
@@ -1385,6 +1417,39 @@ int main() {
                     && !firstReviewedStub.value("outputBytesCaptured").toBool(true)
                     && !firstReviewedStub.value("rawKeyExported").toBool(true),
                 "reviewed operation stub boundary should expose only sanitized callable metadata") && ok;
+    ok = expect(firstReviewedBridge.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstReviewedBridge.value("bridgeId").toString()
+                        == QStringLiteral("reviewed-callable-table-bridge/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedBridge.value("stubBoundaryId").toString()
+                        == QStringLiteral("reviewed-operation-stub/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedBridge.value("callableTableBridgeReady").toBool(false)
+                    && firstReviewedBridge.value("bridgeState").toString()
+                        == QStringLiteral("ready-for-reviewed-provider-callable-table-bridge")
+                    && !firstReviewedBridge.value("failClosed").toBool(true)
+                    && firstReviewedBridge.value("stubReady").toBool(false)
+                    && firstReviewedBridge.value("stubNonReleaseGate").toBool(false)
+                    && firstReviewedBridge.value("tableSlotReady").toBool(false)
+                    && firstReviewedBridge.value("contractHashReady").toBool(false)
+                    && firstReviewedBridge.value("inputContractHashSha256").toString().size() == 64
+                    && firstReviewedBridge.value("outputContractHashSha256").toString().size() == 64
+                    && firstReviewedBridge.value("providerTableSlot").toString()
+                        == QStringLiteral("qnc_e2e_provider_table_v1/qnc_e2e_op_session_key_generation_v1")
+                    && firstReviewedBridge.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-callable-table-bridges-awaiting-audit-release-gate")
+                    && firstReviewedBridge.value("inputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstReviewedBridge.value("outputCapturePolicy").toString()
+                        == QStringLiteral("size-and-class-only")
+                    && firstReviewedBridge.value("resultCapturePolicy").toString()
+                        == QStringLiteral("status-class-and-size-only")
+                    && firstReviewedBridge.value("materialExportPolicy").toString()
+                        == QStringLiteral("sizes-and-status-only-no-secret-bytes")
+                    && !firstReviewedBridge.value("operationInvokedByBridge").toBool(true)
+                    && !firstReviewedBridge.value("inputBytesCaptured").toBool(true)
+                    && !firstReviewedBridge.value("outputBytesCaptured").toBool(true)
+                    && !firstReviewedBridge.value("rawKeyExported").toBool(true),
+                "reviewed callable table bridge should expose only sanitized table slot metadata") && ok;
     const QJsonObject firstProbeExecutionFrame =
         firstExecutionProbe.value("probeExecutionFrame").toObject();
     ok = expect(firstProbeExecutionFrame.value("schema").toString()
