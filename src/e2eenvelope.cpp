@@ -231,6 +231,30 @@ QList<E2ECryptoOperationSpec> productionOperationSpecs() {
             spec.knownAnswerPassed = true;
         }
 #endif
+#if QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_IDENTITY_KEY_GENERATION != 0
+        if (operation == E2ECryptoOperation::IdentityKeyGeneration) {
+            spec.implementationState = QStringLiteral("linked-reviewed-identity-key-generation");
+            spec.compatibilityStatus = QStringLiteral("known-answer-shape-passed");
+            spec.migrationBlocker =
+                QStringLiteral("production-remaining-operations-not-implemented");
+            spec.operatorAction =
+                QStringLiteral("complete-remaining-reviewed-production-operations");
+            spec.implemented = true;
+            spec.knownAnswerPassed = true;
+        }
+#endif
+#if QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_PUBLIC_KEY_DERIVATION != 0
+        if (operation == E2ECryptoOperation::PublicKeyDerivation) {
+            spec.implementationState = QStringLiteral("linked-reviewed-public-key-derivation");
+            spec.compatibilityStatus = QStringLiteral("known-answer-shape-passed");
+            spec.migrationBlocker =
+                QStringLiteral("production-remaining-operations-not-implemented");
+            spec.operatorAction =
+                QStringLiteral("complete-remaining-reviewed-production-operations");
+            spec.implemented = true;
+            spec.knownAnswerPassed = true;
+        }
+#endif
         specs.append(spec);
     };
 
@@ -291,6 +315,16 @@ QJsonObject productionOperationSpecJson(const E2ECryptoOperationSpec& spec) {
     obj[QStringLiteral("rawKeyExported")] = false;
     obj[QStringLiteral("privateMaterialExported")] = false;
     return obj;
+}
+
+int implementedProductionOperationCount() {
+    int count = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        if (spec.implemented) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 QString productionHarnessFixtureHash(const E2ECryptoOperationSpec& spec) {
@@ -1637,7 +1671,7 @@ QJsonObject productionProviderTableRegistrationStatusForDescriptor(const E2ECryp
     status[QStringLiteral("providerTableRegistered")] = registered;
     status[QStringLiteral("registrationSource")] = registered
         ? (builtIn
-            ? QStringLiteral("linked-reviewed-session-key-generation-provider-table")
+            ? QStringLiteral("linked-reviewed-identity-foundation-provider-table")
             : QStringLiteral("runtime-provider-table-registration"))
         : (linked
             ? QStringLiteral("linked-placeholder-without-runtime-table")
@@ -1985,6 +2019,8 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         const bool expectedMaterialPolicyMatched = canInvoke
             && (materialPolicyClass == expectedMaterialPolicyClass
                 || (expectedMaterialPolicyClass != QStringLiteral("handle-only")
+                    && materialPolicyClass == QStringLiteral("handle-only"))
+                || (operation == E2ECryptoOperation::IdentityKeyGeneration
                     && materialPolicyClass == QStringLiteral("handle-only")));
         const QJsonObject executionFrame =
             productionProviderProbeExecutionFrame(spec,
@@ -7310,7 +7346,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionProviderReviewedInvocationExecutionAcceptanceStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
-        evidence[QStringLiteral("implementedOperationCount")] = 0;
+        evidence[QStringLiteral("implementedOperationCount")] =
+            implementedProductionOperationCount();
         evidence[QStringLiteral("blockedOperationCount")] = cryptoOperations().size();
     }
     evidence[QStringLiteral("failClosedPassed")] = !descriptor.productionReady;
@@ -8056,7 +8093,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedInvocationExecutionAcceptance;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
-    status[QStringLiteral("implementedOperationCount")] = 0;
+    status[QStringLiteral("implementedOperationCount")] =
+        implementedProductionOperationCount();
     status[QStringLiteral("passedExecutionResultCount")] =
         executionResult.value(QStringLiteral("passedResultCount")).toInt();
     status[QStringLiteral("providerTableAccepted")] = providerTableAccepted;

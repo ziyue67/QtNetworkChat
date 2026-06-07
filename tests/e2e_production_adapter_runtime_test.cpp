@@ -5,10 +5,13 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
+#include <cstdio>
+
 namespace {
 bool expect(bool condition, const char* message) {
     if (!condition) {
         qWarning() << message;
+        std::fprintf(stderr, "%s\n", message);
         return false;
     }
     return true;
@@ -22,9 +25,11 @@ int main() {
     QString reason;
     const QJsonObject status = e2eCryptoBackendStatus();
     const bool adapterLinked = status.value("productionAdapterLinked").toBool(false);
-    const bool sessionKeyProviderBound =
+    const bool identityFoundationProviderBound =
         status.value("productionAdapterReason").toString()
-        == QStringLiteral("production-adapter-linked-session-key-generation");
+        == QStringLiteral("production-adapter-linked-identity-foundation");
+    const int reviewedCandidateCount = identityFoundationProviderBound ? 3 : 0;
+    const int remainingUnsupportedCount = identityFoundationProviderBound ? 5 : 8;
     const QString expectedReason = adapterLinked
         ? QStringLiteral("production-adapter-not-ready")
         : QStringLiteral("production-crypto-backend-unavailable");
@@ -193,7 +198,8 @@ int main() {
                         ? QStringLiteral("production-operation-slots-not-reviewed")
                         : QStringLiteral("production-crypto-backend-unavailable"))
                     && !slotStatus.value("accepted").toBool(true)
-                    && slotStatus.value("reviewedSlotCount").toInt() == 0
+                    && slotStatus.value("reviewedSlotCount").toInt()
+                        == reviewedCandidateCount
                     && slotStatus.value("callableSlotCount").toInt() == 0
                     && slotStatus.value("blockedSlotCount").toInt() == 8
                     && slotStatus.value("slots").toArray().size() == 8
@@ -210,7 +216,8 @@ int main() {
                         ? QStringLiteral("production-operation-dispatch-bindings-not-reviewed")
                         : QStringLiteral("production-crypto-backend-unavailable"))
                     && !dispatchBindings.value("accepted").toBool(true)
-                    && dispatchBindings.value("reviewedBindingCount").toInt() == 0
+                    && dispatchBindings.value("reviewedBindingCount").toInt()
+                        == reviewedCandidateCount
                     && dispatchBindings.value("callableBindingCount").toInt() == 0
                     && dispatchBindings.value("blockedBindingCount").toInt() == 8
                     && dispatchBindings.value("bindings").toArray().size() == 8
@@ -271,7 +278,9 @@ int main() {
                         ? QStringLiteral("production-provider-table-placeholder")
                         : QStringLiteral("production-provider-table-not-bound"))
                     && providerTable.value("buildProbeReason").toString() == (adapterLinked
-                        ? QStringLiteral("production-provider-table-linked-placeholder")
+                        ? (identityFoundationProviderBound
+                            ? QStringLiteral("production-provider-table-identity-foundation-bound")
+                            : QStringLiteral("production-provider-table-linked-placeholder"))
                         : QStringLiteral("production-provider-table-not-requested"))
                     && providerTable.value("providerApiHeader").toString()
                         == QStringLiteral("include/qtnetworkchat_e2e_provider_api.h")
@@ -282,16 +291,16 @@ int main() {
                         == QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT
                     && providerTable.value("operationCountMatchesHeader").toBool(false)
                     && !providerTable.value("accepted").toBool(true)
-                    && providerTable.value("tableBound").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
+                    && providerTable.value("tableBound").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && providerTable.value("requiredSymbolCount").toInt() == 8
                     && providerTable.value("boundSymbolCount").toInt() == 0
                     && providerTable.value("missingSymbolCount").toInt() == 8
-                    && providerTable.value("providerTableRegistered").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
+                    && providerTable.value("providerTableRegistered").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && !providerTable.value("registrationAccepted").toBool(true)
                     && providerTable.value("registrationReleaseGate").toString()
-                        == (sessionKeyProviderBound
+                        == (identityFoundationProviderBound
                             ? QStringLiteral("production-provider-table-registration-blocked-not-production-ready")
                             : (adapterLinked
                                 ? QStringLiteral("production-provider-table-registration-blocked-placeholder")
@@ -315,19 +324,19 @@ int main() {
                     && providerTableBindingProbe.value("functionPointerSlotsComplete").toBool(false)
                     && providerTableBindingProbe.value("tableValidation").toObject()
                         .value("blockedReason").toString()
-                            == (sessionKeyProviderBound
+                            == (identityFoundationProviderBound
                                 ? QString()
                                 : QStringLiteral("production-provider-table-not-bound"))
-                    && providerTableBindingProbe.value("tableValidationAccepted").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
+                    && providerTableBindingProbe.value("tableValidationAccepted").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && !providerTableBindingProbe.value("accepted").toBool(true)
-                    && providerTableBindingProbe.value("tableBound").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
-                    && providerTableBindingProbe.value("providerTableRegistered").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
+                    && providerTableBindingProbe.value("tableBound").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
+                    && providerTableBindingProbe.value("providerTableRegistered").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && !providerTableBindingProbe.value("registrationAccepted").toBool(true)
                     && providerTableBindingProbe.value("registrationReleaseGate").toString()
-                        == (sessionKeyProviderBound
+                        == (identityFoundationProviderBound
                             ? QStringLiteral("production-provider-table-registration-blocked-not-production-ready")
                             : (adapterLinked
                                 ? QStringLiteral("production-provider-table-registration-blocked-placeholder")
@@ -344,49 +353,51 @@ int main() {
     ok = expect(providerTableRegistration.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-table-registration-v1")
                     && providerTableRegistration.value("releaseGate").toString()
-                        == (sessionKeyProviderBound
+                        == (identityFoundationProviderBound
                             ? QStringLiteral("production-provider-table-registration-blocked-not-production-ready")
                             : (adapterLinked
                                 ? QStringLiteral("production-provider-table-registration-blocked-placeholder")
                                 : QStringLiteral("production-provider-table-registration-blocked-not-linked")))
                     && providerTableRegistration.value("blockedReason").toString()
-                        == (sessionKeyProviderBound
+                        == (identityFoundationProviderBound
                             ? QStringLiteral("production-provider-table-registered-but-provider-not-ready")
                             : QStringLiteral("production-provider-table-not-registered"))
-                    && providerTableRegistration.value("registered").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
+                    && providerTableRegistration.value("registered").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && !providerTableRegistration.value("accepted").toBool(true)
                     && providerTableRegistration.value("registrationSource").toString()
-                        == (sessionKeyProviderBound
-                            ? QStringLiteral("linked-reviewed-session-key-generation-provider-table")
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("linked-reviewed-identity-foundation-provider-table")
                             : (adapterLinked
                                 ? QStringLiteral("linked-placeholder-without-runtime-table")
                                 : QStringLiteral("not-linked")))
                     && providerTableRegistration.value("tableValidation").toObject()
                         .value("blockedReason").toString()
-                            == (sessionKeyProviderBound
+                            == (identityFoundationProviderBound
                                 ? QString()
                                 : QStringLiteral("production-provider-table-not-bound"))
-                    && providerTableRegistration.value("tableValidationAccepted").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
+                    && providerTableRegistration.value("tableValidationAccepted").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && !providerTableRegistration.value("rawKeyExported").toBool(true)
                     && !providerTableRegistration.value("privateMaterialExported").toBool(true),
                 "production provider table registration should expose runtime binding evidence without enabling placeholders") && ok;
     ok = expect(providerOperationPreflight.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-provider-operation-preflight-v1")
                     && providerOperationPreflight.value("releaseGate").toString()
-                        == (adapterLinked
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("production-provider-operation-preflight-blocked-not-production-ready")
+                            : (adapterLinked
                             ? QStringLiteral("production-provider-operation-preflight-blocked-placeholder")
-                            : QStringLiteral("production-provider-operation-preflight-blocked-not-linked"))
+                            : QStringLiteral("production-provider-operation-preflight-blocked-not-linked")))
                     && providerOperationPreflight.value("blockedReason").toString()
-                        == (sessionKeyProviderBound
+                        == (identityFoundationProviderBound
                             ? QStringLiteral("production-provider-operations-not-ready")
                             : QStringLiteral("production-provider-table-not-registered"))
                     && !providerOperationPreflight.value("accepted").toBool(true)
-                    && providerOperationPreflight.value("providerTableRegistered").toBool(!sessionKeyProviderBound)
-                        == sessionKeyProviderBound
+                    && providerOperationPreflight.value("providerTableRegistered").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && providerOperationPreflight.value("presentOperationCount").toInt()
-                        == (sessionKeyProviderBound ? 8 : 0)
+                        == (identityFoundationProviderBound ? 8 : 0)
                     && providerOperationPreflight.value("blockedOperationCount").toInt() == 8
                     && providerOperationPreflight.value("abiMatchedOperationCount").toInt() == 8
                     && providerOperationPreflight.value("contractMatchedOperationCount").toInt() == 8
@@ -544,20 +555,26 @@ int main() {
     ok = expect(providerExecutionPath.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-execution-path-v1")
                     && providerExecutionPath.value("releaseGate").toString()
-                        == (adapterLinked
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("production-provider-execution-path-blocked-not-production-ready")
+                            : (adapterLinked
                             ? QStringLiteral("production-provider-execution-path-blocked-placeholder")
-                            : QStringLiteral("production-provider-execution-path-blocked-not-linked"))
+                            : QStringLiteral("production-provider-execution-path-blocked-not-linked")))
                     && !providerExecutionPath.value("accepted").toBool(true)
                     && providerExecutionPath.value("mappedPathCount").toInt() == 0
                     && providerExecutionPath.value("blockedPathCount").toInt() == 8
                     && providerExecutionPath.value("pointerPresentCount").toInt()
-                        == (sessionKeyProviderBound ? 8 : 0)
+                        == (identityFoundationProviderBound ? 8 : 0)
                     && providerExecutionPath.value("bindableSlotCount").toInt() == 0
                     && providerExecutionPath.value("capturePolicyCount").toInt() == 8
                     && providerExecutionPath.value("sanitizedPathCount").toInt() == 8
                     && providerExecutionPath.value("paths").toArray().size() == 8
                     && providerExecutionPath.value("providerExecutionSlotBindingReleaseGate").toString()
                         == providerExecutionSlotBinding.value("releaseGate").toString()
+                    && providerExecutionPath.value("blockedReason").toString()
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("production-provider-operations-not-ready")
+                            : QStringLiteral("production-provider-table-not-registered"))
                     && !providerExecutionPath.value("operationInvoked").toBool(true)
                     && !providerExecutionPath.value("inputBytesCaptured").toBool(true)
                     && !providerExecutionPath.value("outputBytesCaptured").toBool(true)
@@ -818,14 +835,18 @@ int main() {
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstHarnessOperation.value("implementationState").toString()
-                        == (adapterLinked
-                            ? QStringLiteral("linked-placeholder")
-                            : QStringLiteral("not-linked"))
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("linked-reviewed-session-key-generation")
+                            : (adapterLinked
+                                ? QStringLiteral("linked-placeholder")
+                                : QStringLiteral("not-linked")))
                     && firstHarnessOperation.value("fixtureHashSha256").toString().size() == 64
                     && firstHarnessOperation.value("vectorSet").toString()
                         == QStringLiteral("production-session-key-generation-vectors-v1")
                     && firstHarnessOperation.value("blockedReason").toString()
-                        == QStringLiteral("production-session-key-generation-not-implemented"),
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("production-remaining-operations-not-implemented")
+                            : QStringLiteral("production-session-key-generation-not-implemented")),
                 "production operation harness should expose sanitized fixture hashes for linked placeholder operations") && ok;
     const QJsonObject firstExecutionStep = executionPlan.value("steps").toArray().at(0).toObject();
     ok = expect(firstExecutionStep.value("sequenceIndex").toInt(-1) == 0
@@ -833,13 +854,17 @@ int main() {
                         == QStringLiteral("session-key-generation")
                     && firstExecutionStep.value("dispatchState").toString() == expectedDispatchState
                     && firstExecutionStep.value("implementationState").toString()
-                        == (adapterLinked
-                            ? QStringLiteral("linked-placeholder")
-                            : QStringLiteral("not-linked"))
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("linked-reviewed-session-key-generation")
+                            : (adapterLinked
+                                ? QStringLiteral("linked-placeholder")
+                                : QStringLiteral("not-linked")))
                     && firstExecutionStep.value("releaseGate").toString()
                         == harness.value("releaseGate").toString()
                     && firstExecutionStep.value("blockedReason").toString()
-                        == QStringLiteral("production-session-key-generation-not-implemented")
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("production-remaining-operations-not-implemented")
+                            : QStringLiteral("production-session-key-generation-not-implemented"))
                     && !firstExecutionStep.value("harnessRunnable").toBool(true),
                 "production execution plan should bind each ordered step to harness evidence") && ok;
     const QJsonObject firstInvocation = invocation.value("invocations").toArray().at(0).toObject();
@@ -863,12 +888,15 @@ int main() {
                     && firstSlot.value("providerSymbol").toString()
                         == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
                     && firstSlot.value("reviewState").toString()
-                        == (adapterLinked
-                            ? QStringLiteral("placeholder-linked")
-                            : QStringLiteral("not-linked"))
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("reviewed")
+                            : (adapterLinked
+                                ? QStringLiteral("placeholder-linked")
+                                : QStringLiteral("not-linked")))
                     && firstSlot.value("sideEffectPolicy").toString()
                         == QStringLiteral("may-create-key-handle")
-                    && !firstSlot.value("reviewed").toBool(true)
+                    && firstSlot.value("reviewed").toBool(!identityFoundationProviderBound)
+                        == identityFoundationProviderBound
                     && !firstSlot.value("callable").toBool(true),
                 "production slot registry should expose reviewed provider symbols without marking placeholders ready") && ok;
     const QJsonObject firstBinding = dispatchBindings.value("bindings").toArray().at(0).toObject();
@@ -1015,7 +1043,8 @@ int main() {
                     && !acceptance.value("providerExecutionDecisionAccepted").toBool(true)
                     && acceptance.value("providerExecutionDecisionBlockedDecisionCount").toInt() == 8
                     && acceptance.value("passedExecutionResultCount").toInt() == 0
-                    && acceptance.value("implementedOperationCount").toInt() == 0
+                    && acceptance.value("implementedOperationCount").toInt()
+                        == reviewedCandidateCount
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize linked-placeholder gates without enabling crypto") && ok;
@@ -1025,17 +1054,23 @@ int main() {
                     && firstGate.value("entrypoint").toString()
                         == QStringLiteral("production-adapter/session-key-generation")
                     && firstGate.value("implementationState").toString()
-                        == (adapterLinked
-                            ? QStringLiteral("linked-placeholder")
-                            : QStringLiteral("not-linked"))
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("linked-reviewed-session-key-generation")
+                            : (adapterLinked
+                                ? QStringLiteral("linked-placeholder")
+                                : QStringLiteral("not-linked")))
                     && firstGate.value("vectorSet").toString()
                         == QStringLiteral("production-session-key-generation-vectors-v1")
                     && firstGate.value("compatibilityStatus").toString()
-                        == (adapterLinked
-                            ? QStringLiteral("not-run-placeholder")
-                            : QStringLiteral("not-run-not-linked"))
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("known-answer-shape-passed")
+                            : (adapterLinked
+                                ? QStringLiteral("not-run-placeholder")
+                                : QStringLiteral("not-run-not-linked")))
                     && firstGate.value("migrationBlocker").toString()
-                        == QStringLiteral("production-session-key-generation-not-implemented")
+                        == (identityFoundationProviderBound
+                            ? QStringLiteral("production-remaining-operations-not-implemented")
+                            : QStringLiteral("production-session-key-generation-not-implemented"))
                     && !firstGate.value("available").toBool(true)
                     && firstGate.value("blockedReason").toString() == expectedReason
                     && firstGate.value("providerId").toString()
@@ -1083,28 +1118,42 @@ int main() {
     ok = expect(sessionKey.isEmpty(),
                 "production adapter runtime should not generate a session key until productionReady is true") && ok;
 
-    if (sessionKeyProviderBound) {
+    if (identityFoundationProviderBound) {
         const QJsonObject invocationExecutionProbe =
             e2eProbeProductionCryptoProviderInvocationExecution();
         const QJsonObject firstProbe =
             invocationExecutionProbe.value("probes").toArray().at(0).toObject();
         const QJsonObject secondProbe =
             invocationExecutionProbe.value("probes").toArray().at(1).toObject();
+        const QJsonObject thirdProbe =
+            invocationExecutionProbe.value("probes").toArray().at(2).toObject();
+        const QJsonObject fourthProbe =
+            invocationExecutionProbe.value("probes").toArray().at(3).toObject();
         ok = expect(invocationExecutionProbe.value("invokedOperationCount").toInt() == 8
-                        && invocationExecutionProbe.value("okStatusCount").toInt() == 1
-                        && invocationExecutionProbe.value("vectorPassCount").toInt() == 1
-                        && invocationExecutionProbe.value("vectorFailCount").toInt() == 7
-                        && invocationExecutionProbe.value("providerVectorSetMatchedCount").toInt() == 1
-                        && invocationExecutionProbe.value("providerVectorSetMismatchCount").toInt() == 7
+                        && invocationExecutionProbe.value("okStatusCount").toInt()
+                            == reviewedCandidateCount
+                        && invocationExecutionProbe.value("vectorPassCount").toInt()
+                            == reviewedCandidateCount
+                        && invocationExecutionProbe.value("vectorFailCount").toInt()
+                            == remainingUnsupportedCount
+                        && invocationExecutionProbe.value("providerVectorSetMatchedCount").toInt()
+                            == 2
+                        && invocationExecutionProbe.value("providerVectorSetMismatchCount").toInt()
+                            == 6
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                             .value("handle-status-output").toInt() == 1
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
-                            .value("status-error-output").toInt() == 7
+                            .value("sealed-output-shape").toInt() == 1
+                        && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                            .value("public-output-shape").toInt() == 1
+                        && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
+                            .value("status-error-output").toInt() == remainingUnsupportedCount
                         && invocationExecutionProbe.value("failureClassSummary").toObject()
-                            .value("none").toInt() == 1
+                            .value("none").toInt() == reviewedCandidateCount
                         && invocationExecutionProbe.value("failureClassSummary").toObject()
-                            .value("unsupported").toInt() == 7
-                        && firstProbe.value("operation").toString()
+                            .value("unsupported").toInt() == remainingUnsupportedCount,
+                    "linked OpenSSL provider probe summary should count three reviewed candidates") && ok;
+        ok = expect(firstProbe.value("operation").toString()
                             == QStringLiteral("session-key-generation")
                         && firstProbe.value("functionPointerPresent").toBool(false)
                         && firstProbe.value("operationInvoked").toBool(false)
@@ -1117,11 +1166,30 @@ int main() {
                         && firstProbe.value("materialExportProof").toString()
                             == QStringLiteral("sizes-and-status-only-no-secret-bytes")
                         && !firstProbe.value("outputBytesCaptured").toBool(true)
-                        && !firstProbe.value("rawKeyExported").toBool(true)
+                        && !firstProbe.value("rawKeyExported").toBool(true),
+                    "linked OpenSSL provider should expose a sanitized session-key probe") && ok;
+        ok = expect(secondProbe.value("operation").toString()
+                            == QStringLiteral("identity-key-generation")
                         && secondProbe.value("callbackStatusClass").toString()
-                            == QStringLiteral("unsupported")
+                            == QStringLiteral("ok")
+                        && secondProbe.value("publicOutputSize").toInt() == 32
+                        && secondProbe.value("sealedOutputSize").toInt() == 32
                         && secondProbe.value("providerVectorSetMatched").toBool(true) == false,
-                    "linked OpenSSL provider should expose one sanitized session-key generation probe while remaining non-production") && ok;
+                    "linked OpenSSL provider should expose a sanitized identity-key probe") && ok;
+        ok = expect(thirdProbe.value("operation").toString()
+                            == QStringLiteral("public-key-derivation")
+                        && thirdProbe.value("callbackStatusClass").toString()
+                            == QStringLiteral("ok")
+                        && thirdProbe.value("publicOutputSize").toInt() == 32
+                        && thirdProbe.value("sealedOutputSize").toInt() == 0
+                        && thirdProbe.value("providerVectorSetMatched").toBool(false),
+                    "linked OpenSSL provider should expose a sanitized public-key derivation probe") && ok;
+        ok = expect(fourthProbe.value("operation").toString()
+                            == QStringLiteral("agreement-sign")
+                        && fourthProbe.value("callbackStatusClass").toString()
+                            == QStringLiteral("unsupported")
+                        && fourthProbe.value("providerVectorSetMatched").toBool(true) == false,
+                    "linked OpenSSL provider should keep remaining operations unsupported") && ok;
     }
 
     const E2EEnvelope envelope = encryptE2EPayload(QStringLiteral("10001"),
