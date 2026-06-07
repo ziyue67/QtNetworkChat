@@ -1,6 +1,7 @@
 #include "qtnetworkchat_e2e_provider_api.h"
 
 #include <openssl/evp.h>
+#include <openssl/kdf.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 
@@ -14,6 +15,7 @@ constexpr std::size_t SessionKeyBytes = 32;
 constexpr std::size_t Ed25519SeedBytes = 32;
 constexpr std::size_t Ed25519PublicKeyBytes = 32;
 constexpr std::size_t Ed25519SignatureBytes = 64;
+constexpr std::size_t HkdfDigestBytes = 32;
 
 void clearOutput(qnc_e2e_operation_output_v1* output) {
     if (!output) {
@@ -130,6 +132,59 @@ bool verifyEd25519(const std::array<std::uint8_t, Ed25519PublicKeyBytes>& public
                             transcript.size) == 1;
     EVP_MD_CTX_free(ctx);
     EVP_PKEY_free(key);
+    return ok;
+}
+
+bool deriveSessionKey(const qnc_e2e_operation_input_v1* input,
+                      std::array<std::uint8_t, SessionKeyBytes>* sessionKey) {
+    if (!input || !sessionKey
+        || !input->primary.data || input->primary.size == 0
+        || !input->secondary.data || input->secondary.size == 0
+        || !input->aad.data || input->aad.size == 0) {
+        return false;
+    }
+
+    std::array<std::uint8_t, HkdfDigestBytes> salt = {};
+    SHA256_CTX saltCtx;
+    SHA256_Init(&saltCtx);
+    static const char saltDomain[] = "qtnetworkchat-e2e-openssl-session-salt-v1";
+    SHA256_Update(&saltCtx, saltDomain, sizeof(saltDomain) - 1);
+    if (input->suite_id) {
+        SHA256_Update(&saltCtx, input->suite_id, std::strlen(input->suite_id));
+    }
+    SHA256_Update(&saltCtx, input->aad.data, input->aad.size);
+    SHA256_Final(salt.data(), &saltCtx);
+
+    std::array<std::uint8_t, HkdfDigestBytes> info = {};
+    SHA256_CTX infoCtx;
+    SHA256_Init(&infoCtx);
+    static const char infoDomain[] = "qtnetworkchat-e2e-openssl-session-info-v1";
+    SHA256_Update(&infoCtx, infoDomain, sizeof(infoDomain) - 1);
+    SHA256_Update(&infoCtx, input->secondary.data, input->secondary.size);
+    SHA256_Update(&infoCtx, input->aad.data, input->aad.size);
+    SHA256_Final(info.data(), &infoCtx);
+
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, nullptr);
+    if (!ctx) {
+        return false;
+    }
+    const bool ok = EVP_PKEY_derive_init(ctx) == 1
+        && EVP_PKEY_CTX_set_hkdf_md(ctx, EVP_sha256()) == 1
+        && EVP_PKEY_CTX_set1_hkdf_salt(ctx,
+                                       salt.data(),
+                                       static_cast<int>(salt.size())) == 1
+        && EVP_PKEY_CTX_set1_hkdf_key(ctx,
+                                      input->primary.data,
+                                      static_cast<int>(input->primary.size)) == 1
+        && EVP_PKEY_CTX_add1_hkdf_info(ctx,
+                                       info.data(),
+                                       static_cast<int>(info.size())) == 1
+        && [&]() {
+            std::size_t outputSize = sessionKey->size();
+            return EVP_PKEY_derive(ctx, sessionKey->data(), &outputSize) == 1
+                && outputSize == sessionKey->size();
+        }();
+    EVP_PKEY_CTX_free(ctx);
     return ok;
 }
 
@@ -295,9 +350,23 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_agreement_verify_v1(
 }
 
 extern "C" qnc_e2e_status_t qnc_e2e_op_session_derive_v1(
-    const qnc_e2e_operation_input_v1*,
+    const qnc_e2e_operation_input_v1* input,
     qnc_e2e_operation_output_v1* output) {
-    return unsupportedOperation(output);
+    if (!hasBasicInput(input, output, QNC_E2E_OPERATION_SESSION_DERIVE)) {
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+
+    static thread_local std::array<std::uint8_t, SessionKeyBytes> sessionKey = {};
+    if (!deriveSessionKey(input, &sessionKey)) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-session-derive-input");
+    }
+
+    output->status = QNC_E2E_STATUS_OK;
+    output->material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+    output->public_output = {};
+    output->sealed_output = { sessionKey.data(), sessionKey.size() };
+    output->sanitized_error_class = "ok";
+    return QNC_E2E_STATUS_OK;
 }
 
 extern "C" qnc_e2e_status_t qnc_e2e_op_payload_encrypt_v1(

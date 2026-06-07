@@ -279,6 +279,18 @@ QList<E2ECryptoOperationSpec> productionOperationSpecs() {
             spec.knownAnswerPassed = true;
         }
 #endif
+#if QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_SESSION_DERIVE != 0
+        if (operation == E2ECryptoOperation::SessionDerive) {
+            spec.implementationState = QStringLiteral("linked-reviewed-session-derive");
+            spec.compatibilityStatus = QStringLiteral("known-answer-shape-passed");
+            spec.migrationBlocker =
+                QStringLiteral("production-remaining-operations-not-implemented");
+            spec.operatorAction =
+                QStringLiteral("complete-remaining-reviewed-production-operations");
+            spec.implemented = true;
+            spec.knownAnswerPassed = true;
+        }
+#endif
         specs.append(spec);
     };
 
@@ -1695,7 +1707,7 @@ QJsonObject productionProviderTableRegistrationStatusForDescriptor(const E2ECryp
     status[QStringLiteral("providerTableRegistered")] = registered;
     status[QStringLiteral("registrationSource")] = registered
         ? (builtIn
-            ? QStringLiteral("linked-reviewed-identity-agreement-foundation-provider-table")
+            ? QStringLiteral("linked-reviewed-identity-agreement-session-foundation-provider-table")
             : QStringLiteral("runtime-provider-table-registration"))
         : (linked
             ? QStringLiteral("linked-placeholder-without-runtime-table")

@@ -27,9 +27,9 @@ int main() {
     const bool adapterLinked = status.value("productionAdapterLinked").toBool(false);
     const bool identityAgreementFoundationProviderBound =
         status.value("productionAdapterReason").toString()
-        == QStringLiteral("production-adapter-linked-identity-agreement-foundation");
-    const int reviewedCandidateCount = identityAgreementFoundationProviderBound ? 5 : 0;
-    const int remainingUnsupportedCount = identityAgreementFoundationProviderBound ? 3 : 8;
+        == QStringLiteral("production-adapter-linked-identity-agreement-session-foundation");
+    const int reviewedCandidateCount = identityAgreementFoundationProviderBound ? 6 : 0;
+    const int remainingUnsupportedCount = identityAgreementFoundationProviderBound ? 2 : 8;
     const QString expectedReason = adapterLinked
         ? QStringLiteral("production-adapter-not-ready")
         : QStringLiteral("production-crypto-backend-unavailable");
@@ -279,7 +279,7 @@ int main() {
                         : QStringLiteral("production-provider-table-not-bound"))
                     && providerTable.value("buildProbeReason").toString() == (adapterLinked
                         ? (identityAgreementFoundationProviderBound
-                            ? QStringLiteral("production-provider-table-identity-agreement-foundation-bound")
+                            ? QStringLiteral("production-provider-table-identity-agreement-session-foundation-bound")
                             : QStringLiteral("production-provider-table-linked-placeholder"))
                         : QStringLiteral("production-provider-table-not-requested"))
                     && providerTable.value("providerApiHeader").toString()
@@ -367,7 +367,7 @@ int main() {
                     && !providerTableRegistration.value("accepted").toBool(true)
                     && providerTableRegistration.value("registrationSource").toString()
                         == (identityAgreementFoundationProviderBound
-                            ? QStringLiteral("linked-reviewed-identity-agreement-foundation-provider-table")
+                            ? QStringLiteral("linked-reviewed-identity-agreement-session-foundation-provider-table")
                             : (adapterLinked
                                 ? QStringLiteral("linked-placeholder-without-runtime-table")
                                 : QStringLiteral("not-linked")))
@@ -1133,6 +1133,8 @@ int main() {
             invocationExecutionProbe.value("probes").toArray().at(4).toObject();
         const QJsonObject sixthProbe =
             invocationExecutionProbe.value("probes").toArray().at(5).toObject();
+        const QJsonObject seventhProbe =
+            invocationExecutionProbe.value("probes").toArray().at(6).toObject();
         ok = expect(invocationExecutionProbe.value("invokedOperationCount").toInt() == 8
                         && invocationExecutionProbe.value("okStatusCount").toInt()
                             == reviewedCandidateCount
@@ -1141,11 +1143,11 @@ int main() {
                         && invocationExecutionProbe.value("vectorFailCount").toInt()
                             == remainingUnsupportedCount
                         && invocationExecutionProbe.value("providerVectorSetMatchedCount").toInt()
-                            == 4
+                            == 5
                         && invocationExecutionProbe.value("providerVectorSetMismatchCount").toInt()
-                            == 4
+                            == 3
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
-                            .value("handle-status-output").toInt() == 1
+                            .value("handle-status-output").toInt() == 2
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
                             .value("sealed-output-shape").toInt() == 1
                         && invocationExecutionProbe.value("knownAnswerOutputClassSummary").toObject()
@@ -1156,7 +1158,7 @@ int main() {
                             .value("none").toInt() == reviewedCandidateCount
                         && invocationExecutionProbe.value("failureClassSummary").toObject()
                             .value("unsupported").toInt() == remainingUnsupportedCount,
-                    "linked OpenSSL provider probe summary should count five reviewed candidates") && ok;
+                    "linked OpenSSL provider probe summary should count six reviewed candidates") && ok;
         ok = expect(firstProbe.value("operation").toString()
                             == QStringLiteral("session-key-generation")
                         && firstProbe.value("functionPointerPresent").toBool(false)
@@ -1207,9 +1209,19 @@ int main() {
         ok = expect(sixthProbe.value("operation").toString()
                             == QStringLiteral("session-derive")
                         && sixthProbe.value("callbackStatusClass").toString()
+                            == QStringLiteral("ok")
+                        && sixthProbe.value("publicOutputSize").toInt() == 0
+                        && sixthProbe.value("sealedOutputSize").toInt() == 32
+                        && sixthProbe.value("materialPolicyClass").toString()
+                            == QStringLiteral("handle-only")
+                        && sixthProbe.value("providerVectorSetMatched").toBool(false),
+                    "linked OpenSSL provider should expose a sanitized session-derive probe") && ok;
+        ok = expect(seventhProbe.value("operation").toString()
+                            == QStringLiteral("payload-encrypt")
+                        && seventhProbe.value("callbackStatusClass").toString()
                             == QStringLiteral("unsupported")
-                        && sixthProbe.value("providerVectorSetMatched").toBool(true) == false,
-                    "linked OpenSSL provider should keep remaining session and payload operations unsupported") && ok;
+                        && seventhProbe.value("providerVectorSetMatched").toBool(true) == false,
+                    "linked OpenSSL provider should keep remaining payload operations unsupported") && ok;
     }
 
     const E2EEnvelope envelope = encryptE2EPayload(QStringLiteral("10001"),
