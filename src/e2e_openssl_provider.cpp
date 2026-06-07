@@ -13,6 +13,7 @@ namespace {
 constexpr std::size_t SessionKeyBytes = 32;
 constexpr std::size_t Ed25519SeedBytes = 32;
 constexpr std::size_t Ed25519PublicKeyBytes = 32;
+constexpr std::size_t Ed25519SignatureBytes = 64;
 
 void clearOutput(qnc_e2e_operation_output_v1* output) {
     if (!output) {
@@ -66,6 +67,70 @@ bool deriveEd25519PublicKey(const std::array<std::uint8_t, Ed25519SeedBytes>& se
     const int ok = EVP_PKEY_get_raw_public_key(key, publicKey->data(), &publicSize);
     EVP_PKEY_free(key);
     return ok == 1 && publicSize == publicKey->size();
+}
+
+bool signEd25519(const std::array<std::uint8_t, Ed25519SeedBytes>& seed,
+                 const qnc_e2e_buffer_view_v1& transcript,
+                 std::array<std::uint8_t, Ed25519SignatureBytes>* signature) {
+    if (!signature || !transcript.data || transcript.size == 0) {
+        return false;
+    }
+    EVP_PKEY* key = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519,
+                                                 nullptr,
+                                                 seed.data(),
+                                                 seed.size());
+    if (!key) {
+        return false;
+    }
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx) {
+        EVP_PKEY_free(key);
+        return false;
+    }
+    bool ok = false;
+    std::size_t signatureSize = signature->size();
+    if (EVP_DigestSignInit(ctx, nullptr, nullptr, nullptr, key) == 1
+        && EVP_DigestSign(ctx,
+                          signature->data(),
+                          &signatureSize,
+                          transcript.data,
+                          transcript.size) == 1
+        && signatureSize == signature->size()) {
+        ok = true;
+    }
+    EVP_MD_CTX_free(ctx);
+    EVP_PKEY_free(key);
+    return ok;
+}
+
+bool verifyEd25519(const std::array<std::uint8_t, Ed25519PublicKeyBytes>& publicKey,
+                   const qnc_e2e_buffer_view_v1& transcript,
+                   const qnc_e2e_buffer_view_v1& signature) {
+    if (!transcript.data || transcript.size == 0
+        || !signature.data || signature.size != Ed25519SignatureBytes) {
+        return false;
+    }
+    EVP_PKEY* key = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519,
+                                                nullptr,
+                                                publicKey.data(),
+                                                publicKey.size());
+    if (!key) {
+        return false;
+    }
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx) {
+        EVP_PKEY_free(key);
+        return false;
+    }
+    const bool ok = EVP_DigestVerifyInit(ctx, nullptr, nullptr, nullptr, key) == 1
+        && EVP_DigestVerify(ctx,
+                            signature.data,
+                            signature.size,
+                            transcript.data,
+                            transcript.size) == 1;
+    EVP_MD_CTX_free(ctx);
+    EVP_PKEY_free(key);
+    return ok;
 }
 
 std::array<std::uint8_t, Ed25519SeedBytes> seedFromPrimary(
@@ -172,15 +237,61 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_public_key_derivation_v1(
 }
 
 extern "C" qnc_e2e_status_t qnc_e2e_op_agreement_sign_v1(
-    const qnc_e2e_operation_input_v1*,
+    const qnc_e2e_operation_input_v1* input,
     qnc_e2e_operation_output_v1* output) {
-    return unsupportedOperation(output);
+    if (!hasBasicInput(input, output, QNC_E2E_OPERATION_AGREEMENT_SIGN)) {
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    if (!input->primary.data || input->primary.size == 0
+        || !input->secondary.data || input->secondary.size == 0) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-signing-input");
+    }
+
+    static thread_local std::array<std::uint8_t, Ed25519SignatureBytes> signature = {};
+    const std::array<std::uint8_t, Ed25519SeedBytes> seed = seedFromPrimary(input);
+    if (!signEd25519(seed, input->secondary, &signature)) {
+        return reject(output, QNC_E2E_STATUS_REJECTED, "agreement-sign-failed");
+    }
+
+    output->status = QNC_E2E_STATUS_OK;
+    output->material_policy = QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED;
+    output->public_output = { signature.data(), signature.size() };
+    output->sealed_output = {};
+    output->sanitized_error_class = "ok";
+    return QNC_E2E_STATUS_OK;
 }
 
 extern "C" qnc_e2e_status_t qnc_e2e_op_agreement_verify_v1(
-    const qnc_e2e_operation_input_v1*,
+    const qnc_e2e_operation_input_v1* input,
     qnc_e2e_operation_output_v1* output) {
-    return unsupportedOperation(output);
+    if (!hasBasicInput(input, output, QNC_E2E_OPERATION_AGREEMENT_VERIFY)) {
+        return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    if (!input->primary.data || input->primary.size == 0
+        || !input->secondary.data || input->secondary.size == 0
+        || !input->aad.data || input->aad.size != Ed25519SignatureBytes) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-verification-input");
+    }
+
+    std::array<std::uint8_t, Ed25519PublicKeyBytes> publicKey = {};
+    if (input->primary.size == publicKey.size()) {
+        std::memcpy(publicKey.data(), input->primary.data, publicKey.size());
+    } else {
+        const std::array<std::uint8_t, Ed25519SeedBytes> seed = seedFromPrimary(input);
+        if (!deriveEd25519PublicKey(seed, &publicKey)) {
+            return reject(output, QNC_E2E_STATUS_REJECTED, "agreement-public-derivation-failed");
+        }
+    }
+    if (!verifyEd25519(publicKey, input->secondary, input->aad)) {
+        return reject(output, QNC_E2E_STATUS_REJECTED, "agreement-signature-invalid");
+    }
+
+    output->status = QNC_E2E_STATUS_OK;
+    output->material_policy = QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED;
+    output->public_output = { publicKey.data(), publicKey.size() };
+    output->sealed_output = {};
+    output->sanitized_error_class = "ok";
+    return QNC_E2E_STATUS_OK;
 }
 
 extern "C" qnc_e2e_status_t qnc_e2e_op_session_derive_v1(

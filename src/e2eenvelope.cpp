@@ -255,6 +255,30 @@ QList<E2ECryptoOperationSpec> productionOperationSpecs() {
             spec.knownAnswerPassed = true;
         }
 #endif
+#if QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_AGREEMENT_SIGN != 0
+        if (operation == E2ECryptoOperation::AgreementSign) {
+            spec.implementationState = QStringLiteral("linked-reviewed-agreement-sign");
+            spec.compatibilityStatus = QStringLiteral("known-answer-shape-passed");
+            spec.migrationBlocker =
+                QStringLiteral("production-remaining-operations-not-implemented");
+            spec.operatorAction =
+                QStringLiteral("complete-remaining-reviewed-production-operations");
+            spec.implemented = true;
+            spec.knownAnswerPassed = true;
+        }
+#endif
+#if QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_AGREEMENT_VERIFY != 0
+        if (operation == E2ECryptoOperation::AgreementVerify) {
+            spec.implementationState = QStringLiteral("linked-reviewed-agreement-verify");
+            spec.compatibilityStatus = QStringLiteral("known-answer-shape-passed");
+            spec.migrationBlocker =
+                QStringLiteral("production-remaining-operations-not-implemented");
+            spec.operatorAction =
+                QStringLiteral("complete-remaining-reviewed-production-operations");
+            spec.implemented = true;
+            spec.knownAnswerPassed = true;
+        }
+#endif
         specs.append(spec);
     };
 
@@ -1671,7 +1695,7 @@ QJsonObject productionProviderTableRegistrationStatusForDescriptor(const E2ECryp
     status[QStringLiteral("providerTableRegistered")] = registered;
     status[QStringLiteral("registrationSource")] = registered
         ? (builtIn
-            ? QStringLiteral("linked-reviewed-identity-foundation-provider-table")
+            ? QStringLiteral("linked-reviewed-identity-agreement-foundation-provider-table")
             : QStringLiteral("runtime-provider-table-registration"))
         : (linked
             ? QStringLiteral("linked-placeholder-without-runtime-table")
@@ -1893,6 +1917,54 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
     static const QByteArray primaryFixture("qnc-provider-probe-primary", 26);
     static const QByteArray secondaryFixture("qnc-provider-probe-secondary", 28);
     static const QByteArray aadFixture("qnc-provider-probe-aad", 22);
+    QByteArray verifyPublicFixture;
+    QByteArray verifySignatureFixture;
+    const qnc_e2e_provider_operation_v1 publicKeyDerivationCallback =
+        providerOperationPointer(registeredTable, E2ECryptoOperation::PublicKeyDerivation);
+    const qnc_e2e_provider_operation_v1 agreementSignCallback =
+        providerOperationPointer(registeredTable, E2ECryptoOperation::AgreementSign);
+    const bool prepareLinkedVerifyFixture =
+        usingBuiltInProductionProviderTable()
+        && registered
+        && tableValidationAccepted
+        && publicKeyDerivationCallback
+        && agreementSignCallback;
+    if (prepareLinkedVerifyFixture) {
+        qnc_e2e_operation_input_v1 publicInput = {};
+        publicInput.operation = providerOperationEnum(E2ECryptoOperation::PublicKeyDerivation);
+        publicInput.suite_id = E2EAdvertisedSuite;
+        publicInput.primary.data =
+            reinterpret_cast<const uint8_t*>(primaryFixture.constData());
+        publicInput.primary.size = static_cast<size_t>(primaryFixture.size());
+        qnc_e2e_operation_output_v1 publicOutput = {};
+        if (publicKeyDerivationCallback(&publicInput, &publicOutput) == QNC_E2E_STATUS_OK
+            && publicOutput.status == QNC_E2E_STATUS_OK
+            && publicOutput.public_output.data
+            && publicOutput.public_output.size > 0) {
+            verifyPublicFixture =
+                QByteArray(reinterpret_cast<const char*>(publicOutput.public_output.data),
+                           static_cast<qsizetype>(publicOutput.public_output.size));
+        }
+
+        qnc_e2e_operation_input_v1 signInput = {};
+        signInput.operation = providerOperationEnum(E2ECryptoOperation::AgreementSign);
+        signInput.suite_id = E2EAdvertisedSuite;
+        signInput.primary.data =
+            reinterpret_cast<const uint8_t*>(primaryFixture.constData());
+        signInput.primary.size = static_cast<size_t>(primaryFixture.size());
+        signInput.secondary.data =
+            reinterpret_cast<const uint8_t*>(secondaryFixture.constData());
+        signInput.secondary.size = static_cast<size_t>(secondaryFixture.size());
+        qnc_e2e_operation_output_v1 signOutput = {};
+        if (agreementSignCallback(&signInput, &signOutput) == QNC_E2E_STATUS_OK
+            && signOutput.status == QNC_E2E_STATUS_OK
+            && signOutput.public_output.data
+            && signOutput.public_output.size > 0) {
+            verifySignatureFixture =
+                QByteArray(reinterpret_cast<const char*>(signOutput.public_output.data),
+                           static_cast<qsizetype>(signOutput.public_output.size));
+        }
+    }
 
     QJsonArray probes;
     int invokedOperationCount = 0;
@@ -1950,6 +2022,16 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         input.secondary.size = static_cast<size_t>(secondaryFixture.size());
         input.aad.data = reinterpret_cast<const uint8_t*>(aadFixture.constData());
         input.aad.size = static_cast<size_t>(aadFixture.size());
+        if (operation == E2ECryptoOperation::AgreementVerify
+            && !verifyPublicFixture.isEmpty()
+            && !verifySignatureFixture.isEmpty()) {
+            input.primary.data =
+                reinterpret_cast<const uint8_t*>(verifyPublicFixture.constData());
+            input.primary.size = static_cast<size_t>(verifyPublicFixture.size());
+            input.aad.data =
+                reinterpret_cast<const uint8_t*>(verifySignatureFixture.constData());
+            input.aad.size = static_cast<size_t>(verifySignatureFixture.size());
+        }
         qnc_e2e_operation_output_v1 output = {};
         output.status = QNC_E2E_STATUS_UNSUPPORTED;
         output.material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
