@@ -533,7 +533,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 24
+                        .value("checks").toArray().size() == 25
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -555,7 +555,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 24
+                        .value("checks").toArray().size() == 25
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -1225,6 +1225,37 @@ int main() {
                     && !reviewedCallableBridgeProbe.value("rawKeyExported").toBool(true)
                     && !reviewedCallableBridgeProbe.value("privateMaterialExported").toBool(true),
                 "explicit reviewed callable table bridge should map clean stubs without invoking provider operations") && ok;
+    const QJsonObject reviewedCallableInterfaceProbe =
+        e2eProbeProductionCryptoProviderReviewedOperationCallableInterface();
+    ok = expect(reviewedCallableInterfaceProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-callable-interface-v1")
+                    && !reviewedCallableInterfaceProbe.value("accepted").toBool(true)
+                    && reviewedCallableInterfaceProbe.value("interfaceNonReleaseGate").toBool(false)
+                    && reviewedCallableInterfaceProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-callable-interface-not-release-gate")
+                    && reviewedCallableInterfaceProbe.value("bridgeSourceCaptured").toBool(false)
+                    && reviewedCallableInterfaceProbe.value("interfaceCount").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("readyInterfaceCount").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("blockedInterfaceCount").toInt() == 0
+                    && reviewedCallableInterfaceProbe.value("bridgeReadyInterfaceCount").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("functionPointerInterfaceCount").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("structContractInterfaceCount").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("materialPolicyInterfaceCount").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("sanitizedInterfaceCount").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("failClosedInterfaceCount").toInt() == 0
+                    && reviewedCallableInterfaceProbe.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-callable-interfaces-awaiting-audit-release-gate")
+                    && reviewedCallableInterfaceProbe.value("blockedReasonSummary").toObject()
+                        .value("production-provider-reviewed-operation-callable-interfaces-awaiting-audit-release-gate").toInt() == 8
+                    && reviewedCallableInterfaceProbe.value("interfaces").toArray().size() == 8
+                    && g_probeInvocationCount == 48
+                    && !reviewedCallableInterfaceProbe.value("operationInvokedByInterface").toBool(true)
+                    && !reviewedCallableInterfaceProbe.value("inputBytesCaptured").toBool(true)
+                    && !reviewedCallableInterfaceProbe.value("outputBytesCaptured").toBool(true)
+                    && !reviewedCallableInterfaceProbe.value("resultCaptured").toBool(true)
+                    && !reviewedCallableInterfaceProbe.value("rawKeyExported").toBool(true)
+                    && !reviewedCallableInterfaceProbe.value("privateMaterialExported").toBool(true),
+                "explicit reviewed operation callable interface should map clean bridges without invoking provider operations") && ok;
     const QJsonObject firstExecutionProbe =
         invocationExecutionProbe.value("probes").toArray().at(0).toObject();
     const QJsonObject firstReviewedCandidate =
@@ -1235,6 +1266,8 @@ int main() {
         reviewedOperationStubProbe.value("stubs").toArray().at(0).toObject();
     const QJsonObject firstReviewedBridge =
         reviewedCallableBridgeProbe.value("bridges").toArray().at(0).toObject();
+    const QJsonObject firstReviewedInterface =
+        reviewedCallableInterfaceProbe.value("interfaces").toArray().at(0).toObject();
     ok = expect(firstReviewedCandidate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
                     && firstReviewedCandidate.value("candidateState").toString()
@@ -1450,6 +1483,41 @@ int main() {
                     && !firstReviewedBridge.value("outputBytesCaptured").toBool(true)
                     && !firstReviewedBridge.value("rawKeyExported").toBool(true),
                 "reviewed callable table bridge should expose only sanitized table slot metadata") && ok;
+    ok = expect(firstReviewedInterface.value("operation").toString()
+                        == QStringLiteral("session-key-generation")
+                    && firstReviewedInterface.value("callableInterfaceId").toString()
+                        == QStringLiteral("reviewed-operation-callable-interface/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedInterface.value("bridgeId").toString()
+                        == QStringLiteral("reviewed-callable-table-bridge/production-session-key-generation-vectors-v1/session-key-generation")
+                    && firstReviewedInterface.value("callableInterfaceReady").toBool(false)
+                    && firstReviewedInterface.value("interfaceState").toString()
+                        == QStringLiteral("ready-for-reviewed-provider-operation-callable-interface")
+                    && !firstReviewedInterface.value("failClosed").toBool(true)
+                    && firstReviewedInterface.value("bridgeReady").toBool(false)
+                    && firstReviewedInterface.value("functionPointerReady").toBool(false)
+                    && firstReviewedInterface.value("structContractReady").toBool(false)
+                    && firstReviewedInterface.value("materialPolicyReady").toBool(false)
+                    && firstReviewedInterface.value("functionPointerTypedef").toString()
+                        == QStringLiteral("qnc_e2e_provider_operation_v1")
+                    && firstReviewedInterface.value("inputStructAbi").toString()
+                        == QStringLiteral("qnc_e2e_operation_input_v1")
+                    && firstReviewedInterface.value("outputStructAbi").toString()
+                        == QStringLiteral("qnc_e2e_operation_output_v1")
+                    && firstReviewedInterface.value("statusEnumAbi").toString()
+                        == QStringLiteral("qnc_e2e_status_t")
+                    && firstReviewedInterface.value("materialPolicyEnumAbi").toString()
+                        == QStringLiteral("qnc_e2e_material_policy_t")
+                    && firstReviewedInterface.value("operationEnumValue").toInt(-1) == 0
+                    && firstReviewedInterface.value("operationEnumMatchesHeader").toBool(false)
+                    && firstReviewedInterface.value("inputContractHashSha256").toString().size() == 64
+                    && firstReviewedInterface.value("outputContractHashSha256").toString().size() == 64
+                    && firstReviewedInterface.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-callable-interfaces-awaiting-audit-release-gate")
+                    && !firstReviewedInterface.value("operationInvokedByInterface").toBool(true)
+                    && !firstReviewedInterface.value("inputBytesCaptured").toBool(true)
+                    && !firstReviewedInterface.value("outputBytesCaptured").toBool(true)
+                    && !firstReviewedInterface.value("rawKeyExported").toBool(true),
+                "reviewed operation callable interface should expose only sanitized C ABI metadata") && ok;
     const QJsonObject firstProbeExecutionFrame =
         firstExecutionProbe.value("probeExecutionFrame").toObject();
     ok = expect(firstProbeExecutionFrame.value("schema").toString()

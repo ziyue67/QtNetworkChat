@@ -119,6 +119,8 @@ int main() {
         status.value("productionProviderReviewedOperationStubBoundary").toObject();
     const QJsonObject providerReviewedCallableTableBridge =
         status.value("productionProviderReviewedCallableTableBridge").toObject();
+    const QJsonObject providerReviewedOperationCallableInterface =
+        status.value("productionProviderReviewedOperationCallableInterface").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -689,6 +691,28 @@ int main() {
                     && !providerReviewedCallableTableBridge.value("privateMaterialExported").toBool(true)
                     && !providerReviewedCallableTableBridge.value("sessionSecretExported").toBool(true),
                 "production reviewed callable table bridge should stay blocked until stub evidence exists") && ok;
+    ok = expect(providerReviewedOperationCallableInterface.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-callable-interface-v1")
+                    && providerReviewedOperationCallableInterface.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-callable-interface-not-release-gate")
+                    && !providerReviewedOperationCallableInterface.value("accepted").toBool(true)
+                    && providerReviewedOperationCallableInterface.value("interfaceNonReleaseGate").toBool(false)
+                    && !providerReviewedOperationCallableInterface.value("bridgeSourceCaptured").toBool(true)
+                    && providerReviewedOperationCallableInterface.value("interfaceCount").toInt() == 8
+                    && providerReviewedOperationCallableInterface.value("readyInterfaceCount").toInt() == 0
+                    && providerReviewedOperationCallableInterface.value("blockedInterfaceCount").toInt() == 8
+                    && providerReviewedOperationCallableInterface.value("failClosedInterfaceCount").toInt() == 8
+                    && providerReviewedOperationCallableInterface.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-reviewed-operation-callable-interface-awaiting-bridge")
+                    && providerReviewedOperationCallableInterface.value("interfaces").toArray().size() == 8
+                    && !providerReviewedOperationCallableInterface.value("operationInvokedByInterface").toBool(true)
+                    && !providerReviewedOperationCallableInterface.value("inputBytesCaptured").toBool(true)
+                    && !providerReviewedOperationCallableInterface.value("outputBytesCaptured").toBool(true)
+                    && !providerReviewedOperationCallableInterface.value("resultCaptured").toBool(true)
+                    && !providerReviewedOperationCallableInterface.value("rawKeyExported").toBool(true)
+                    && !providerReviewedOperationCallableInterface.value("privateMaterialExported").toBool(true)
+                    && !providerReviewedOperationCallableInterface.value("sessionSecretExported").toBool(true),
+                "production reviewed operation callable interface should stay blocked until bridge evidence exists") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")

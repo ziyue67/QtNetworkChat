@@ -317,6 +317,11 @@ QJsonObject productionProviderReviewedCallableTableBridgeStatusForDescriptor(
 QJsonObject productionProviderReviewedCallableTableBridgeStatusFromStubBoundary(
     const E2ECryptoAdapterDescriptor& descriptor,
     const QJsonObject& reviewedOperationStubBoundary);
+QJsonObject productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor);
+QJsonObject productionProviderReviewedOperationCallableInterfaceStatusFromBridge(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedCallableTableBridge);
 QString productionOperationProviderSymbol(E2ECryptoOperation operation);
 QString productionOperationProviderAbiSignature(E2ECryptoOperation operation);
 
@@ -5527,6 +5532,284 @@ QJsonObject productionProviderReviewedCallableTableBridgeStatusForDescriptor(
         productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor));
 }
 
+QString providerReviewedOperationCallableInterfaceBlockedReason(const QJsonObject& bridge,
+                                                                bool bridgeSourceCaptured,
+                                                                bool functionPointerReady,
+                                                                bool structContractReady,
+                                                                bool materialPolicyReady,
+                                                                bool interfaceSanitized) {
+    if (!bridgeSourceCaptured) {
+        return QStringLiteral("production-provider-reviewed-operation-callable-interface-awaiting-bridge");
+    }
+    if (!bridge.value(QStringLiteral("callableTableBridgeReady")).toBool(false)) {
+        return bridge.value(QStringLiteral("blockedReason")).toString(
+            QStringLiteral("production-provider-reviewed-callable-table-bridge-blocked"));
+    }
+    if (!functionPointerReady) {
+        return QStringLiteral("production-provider-reviewed-operation-callable-interface-pointer-blocked");
+    }
+    if (!structContractReady) {
+        return QStringLiteral("production-provider-reviewed-operation-callable-interface-contract-blocked");
+    }
+    if (!materialPolicyReady) {
+        return QStringLiteral("production-provider-reviewed-operation-callable-interface-material-policy-blocked");
+    }
+    if (!interfaceSanitized) {
+        return QStringLiteral("production-provider-reviewed-operation-callable-interface-sensitive-export-blocked");
+    }
+    return QStringLiteral("production-provider-reviewed-operation-callable-interfaces-awaiting-audit-release-gate");
+}
+
+QJsonObject productionProviderReviewedOperationCallableInterfaceStatusFromBridge(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedCallableTableBridge) {
+    const QJsonArray bridges =
+        reviewedCallableTableBridge.value(QStringLiteral("bridges")).toArray();
+    const bool bridgeSourceCaptured =
+        reviewedCallableTableBridge.value(QStringLiteral("schema")).toString()
+            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-table-bridge-v1")
+        && reviewedCallableTableBridge.value(QStringLiteral("stubSourceCaptured")).toBool(false);
+
+    QJsonArray interfaces;
+    int interfaceCount = 0;
+    int readyInterfaceCount = 0;
+    int blockedInterfaceCount = 0;
+    int bridgeReadyInterfaceCount = 0;
+    int functionPointerInterfaceCount = 0;
+    int structContractInterfaceCount = 0;
+    int materialPolicyInterfaceCount = 0;
+    int sanitizedInterfaceCount = 0;
+    int failClosedInterfaceCount = 0;
+    QJsonObject blockedReasonSummary;
+
+    int sequenceIndex = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const E2ECryptoOperation operation = spec.operation;
+        const QString operationName = cryptoOperationName(operation);
+        const QJsonObject bridge = sequenceIndex < bridges.size()
+            ? bridges.at(sequenceIndex).toObject()
+            : QJsonObject();
+        const QString providerSymbol = productionOperationProviderSymbol(operation);
+        const QString expectedTableSlot =
+            QStringLiteral("qnc_e2e_provider_table_v1/%1").arg(providerSymbol);
+        const bool bridgeReady =
+            bridge.value(QStringLiteral("callableTableBridgeReady")).toBool(false);
+        const bool functionPointerReady =
+            bridge.value(QStringLiteral("providerTableSlot")).toString() == expectedTableSlot
+            && bridge.value(QStringLiteral("providerSymbol")).toString() == providerSymbol
+            && bridge.value(QStringLiteral("providerAbiSignature")).toString()
+                == productionOperationProviderAbiSignature(operation);
+        const bool structContractReady =
+            bridge.value(QStringLiteral("inputContractHashSha256")).toString().size()
+                == FingerprintHexLength
+            && bridge.value(QStringLiteral("outputContractHashSha256")).toString().size()
+                == FingerprintHexLength
+            && QString::fromLatin1(QNC_E2E_OPERATION_CONTRACT_VERSION)
+                == descriptor.operationContractVersion
+            && QNC_E2E_PROVIDER_REQUIRED_OPERATION_COUNT == cryptoOperations().size();
+        const bool materialPolicyReady =
+            bridge.value(QStringLiteral("inputCapturePolicy")).toString()
+                == QStringLiteral("size-and-class-only")
+            && bridge.value(QStringLiteral("outputCapturePolicy")).toString()
+                == QStringLiteral("size-and-class-only")
+            && bridge.value(QStringLiteral("resultCapturePolicy")).toString()
+                == QStringLiteral("status-class-and-size-only")
+            && bridge.value(QStringLiteral("materialExportPolicy")).toString()
+                == QStringLiteral("sizes-and-status-only-no-secret-bytes");
+        const bool interfaceSanitized =
+            bridge.value(QStringLiteral("bridgeSanitized")).toBool(false)
+            && !bridge.value(QStringLiteral("rawKeyExported")).toBool(true)
+            && !bridge.value(QStringLiteral("privateMaterialExported")).toBool(true)
+            && !bridge.value(QStringLiteral("sessionSecretExported")).toBool(true)
+            && !bridge.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
+            && !bridge.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true)
+            && !bridge.value(QStringLiteral("inputBytesCaptured")).toBool(true)
+            && !bridge.value(QStringLiteral("outputBytesCaptured")).toBool(true)
+            && !bridge.value(QStringLiteral("resultCaptured")).toBool(true);
+        const bool interfaceReady =
+            bridgeSourceCaptured
+            && bridgeReady
+            && functionPointerReady
+            && structContractReady
+            && materialPolicyReady
+            && interfaceSanitized;
+        const QString blockedReason =
+            providerReviewedOperationCallableInterfaceBlockedReason(bridge,
+                                                                    bridgeSourceCaptured,
+                                                                    functionPointerReady,
+                                                                    structContractReady,
+                                                                    materialPolicyReady,
+                                                                    interfaceSanitized);
+
+        QJsonObject callableInterface;
+        callableInterface[QStringLiteral("sequenceIndex")] = sequenceIndex;
+        callableInterface[QStringLiteral("operation")] = operationName;
+        callableInterface[QStringLiteral("backendId")] = descriptor.id;
+        callableInterface[QStringLiteral("providerId")] = descriptor.providerId;
+        callableInterface[QStringLiteral("operationContractVersion")] =
+            descriptor.operationContractVersion;
+        callableInterface[QStringLiteral("callableInterfaceId")] =
+            QStringLiteral("reviewed-operation-callable-interface/%1/%2")
+                .arg(spec.vectorSet, operationName);
+        callableInterface[QStringLiteral("bridgeId")] =
+            bridge.value(QStringLiteral("bridgeId")).toString(
+                QStringLiteral("reviewed-callable-table-bridge/%1/%2")
+                    .arg(spec.vectorSet, operationName));
+        callableInterface[QStringLiteral("bridge")] = bridge;
+        callableInterface[QStringLiteral("providerSymbol")] = providerSymbol;
+        callableInterface[QStringLiteral("providerAbiSignature")] =
+            productionOperationProviderAbiSignature(operation);
+        callableInterface[QStringLiteral("providerTableSlot")] = expectedTableSlot;
+        callableInterface[QStringLiteral("functionPointerTypedef")] =
+            QStringLiteral("qnc_e2e_provider_operation_v1");
+        callableInterface[QStringLiteral("inputStructAbi")] =
+            QStringLiteral("qnc_e2e_operation_input_v1");
+        callableInterface[QStringLiteral("outputStructAbi")] =
+            QStringLiteral("qnc_e2e_operation_output_v1");
+        callableInterface[QStringLiteral("statusEnumAbi")] =
+            QStringLiteral("qnc_e2e_status_t");
+        callableInterface[QStringLiteral("materialPolicyEnumAbi")] =
+            QStringLiteral("qnc_e2e_material_policy_t");
+        callableInterface[QStringLiteral("operationEnumValue")] = sequenceIndex;
+        callableInterface[QStringLiteral("operationEnumMatchesHeader")] =
+            static_cast<int>(static_cast<qnc_e2e_operation_t>(sequenceIndex)) == sequenceIndex;
+        callableInterface[QStringLiteral("bridgeReady")] = bridgeReady;
+        callableInterface[QStringLiteral("functionPointerReady")] = functionPointerReady;
+        callableInterface[QStringLiteral("structContractReady")] = structContractReady;
+        callableInterface[QStringLiteral("materialPolicyReady")] = materialPolicyReady;
+        callableInterface[QStringLiteral("callableInterfaceReady")] = interfaceReady;
+        callableInterface[QStringLiteral("inputContractHashSha256")] =
+            bridge.value(QStringLiteral("inputContractHashSha256")).toString();
+        callableInterface[QStringLiteral("outputContractHashSha256")] =
+            bridge.value(QStringLiteral("outputContractHashSha256")).toString();
+        callableInterface[QStringLiteral("knownAnswerVectorId")] =
+            bridge.value(QStringLiteral("knownAnswerVectorId")).toString(
+                QStringLiteral("%1/%2").arg(spec.vectorSet, operationName));
+        callableInterface[QStringLiteral("knownAnswerFixtureId")] =
+            bridge.value(QStringLiteral("knownAnswerFixtureId")).toString(
+                QStringLiteral("probe-fixture/%1").arg(operationName));
+        callableInterface[QStringLiteral("fixtureHashSha256")] =
+            bridge.value(QStringLiteral("fixtureHashSha256")).toString(
+                productionHarnessFixtureHash(spec));
+        callableInterface[QStringLiteral("inputCapturePolicy")] =
+            QStringLiteral("size-and-class-only");
+        callableInterface[QStringLiteral("outputCapturePolicy")] =
+            QStringLiteral("size-and-class-only");
+        callableInterface[QStringLiteral("resultCapturePolicy")] =
+            QStringLiteral("status-class-and-size-only");
+        callableInterface[QStringLiteral("materialExportPolicy")] =
+            QStringLiteral("sizes-and-status-only-no-secret-bytes");
+        callableInterface[QStringLiteral("interfaceState")] = interfaceReady
+            ? QStringLiteral("ready-for-reviewed-provider-operation-callable-interface")
+            : QStringLiteral("reviewed-provider-operation-callable-interface-blocked");
+        callableInterface[QStringLiteral("failClosed")] = !interfaceReady;
+        callableInterface[QStringLiteral("blockedReason")] = blockedReason;
+        callableInterface[QStringLiteral("operatorAction")] = interfaceReady
+            ? QStringLiteral("audit-reviewed-operation-callable-interface-before-release-gate")
+            : (bridgeSourceCaptured
+                ? QStringLiteral("fix-reviewed-operation-callable-interface-before-audit")
+                : QStringLiteral("produce-reviewed-callable-table-bridge-before-callable-interface"));
+        callableInterface[QStringLiteral("interfaceNonReleaseGate")] = true;
+        callableInterface[QStringLiteral("releaseGate")] =
+            QStringLiteral("production-provider-reviewed-operation-callable-interface-not-release-gate");
+        callableInterface[QStringLiteral("operationInvokedByInterface")] = false;
+        callableInterface[QStringLiteral("inputBytesCaptured")] = false;
+        callableInterface[QStringLiteral("outputBytesCaptured")] = false;
+        callableInterface[QStringLiteral("resultCaptured")] = false;
+        callableInterface[QStringLiteral("rawKeyExported")] = false;
+        callableInterface[QStringLiteral("privateMaterialExported")] = false;
+        callableInterface[QStringLiteral("sessionSecretExported")] = false;
+        callableInterface[QStringLiteral("privateIdentityMaterialExported")] = false;
+        callableInterface[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+        callableInterface[QStringLiteral("sanitized")] = interfaceSanitized;
+        interfaces.append(callableInterface);
+
+        ++interfaceCount;
+        if (interfaceReady) {
+            ++readyInterfaceCount;
+        } else {
+            ++blockedInterfaceCount;
+            ++failClosedInterfaceCount;
+        }
+        if (bridgeReady) {
+            ++bridgeReadyInterfaceCount;
+        }
+        if (functionPointerReady) {
+            ++functionPointerInterfaceCount;
+        }
+        if (structContractReady) {
+            ++structContractInterfaceCount;
+        }
+        if (materialPolicyReady) {
+            ++materialPolicyInterfaceCount;
+        }
+        if (interfaceSanitized) {
+            ++sanitizedInterfaceCount;
+        }
+        incrementSummaryCount(&blockedReasonSummary, blockedReason);
+        ++sequenceIndex;
+    }
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-callable-interface-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("accepted")] = false;
+    status[QStringLiteral("interfaceNonReleaseGate")] = true;
+    status[QStringLiteral("releaseGate")] =
+        QStringLiteral("production-provider-reviewed-operation-callable-interface-not-release-gate");
+    status[QStringLiteral("bridgeSourceCaptured")] = bridgeSourceCaptured;
+    status[QStringLiteral("providerReviewedCallableTableBridge")] =
+        reviewedCallableTableBridge;
+    status[QStringLiteral("providerReviewedCallableTableBridgeReleaseGate")] =
+        reviewedCallableTableBridge.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedCallableTableBridgeReadyCount")] =
+        reviewedCallableTableBridge.value(QStringLiteral("readyBridgeCount")).toInt();
+    status[QStringLiteral("interfaceCount")] = interfaceCount;
+    status[QStringLiteral("readyInterfaceCount")] = readyInterfaceCount;
+    status[QStringLiteral("blockedInterfaceCount")] = blockedInterfaceCount;
+    status[QStringLiteral("bridgeReadyInterfaceCount")] = bridgeReadyInterfaceCount;
+    status[QStringLiteral("functionPointerInterfaceCount")] =
+        functionPointerInterfaceCount;
+    status[QStringLiteral("structContractInterfaceCount")] =
+        structContractInterfaceCount;
+    status[QStringLiteral("materialPolicyInterfaceCount")] =
+        materialPolicyInterfaceCount;
+    status[QStringLiteral("sanitizedInterfaceCount")] = sanitizedInterfaceCount;
+    status[QStringLiteral("failClosedInterfaceCount")] = failClosedInterfaceCount;
+    status[QStringLiteral("blockedReason")] = readyInterfaceCount == interfaceCount
+        && interfaceCount == cryptoOperations().size()
+        ? QStringLiteral("production-provider-reviewed-operation-callable-interfaces-awaiting-audit-release-gate")
+        : (bridgeSourceCaptured
+            ? QStringLiteral("production-provider-reviewed-operation-callable-interface-evidence-blocked")
+            : QStringLiteral("production-provider-reviewed-operation-callable-interface-awaiting-bridge"));
+    status[QStringLiteral("operatorAction")] =
+        QStringLiteral("promote-interface-only-after-reviewed-provider-audit-and-release-gates");
+    status[QStringLiteral("blockedReasonSummary")] = blockedReasonSummary;
+    status[QStringLiteral("interfaces")] = interfaces;
+    status[QStringLiteral("operationInvokedByInterface")] = false;
+    status[QStringLiteral("inputBytesCaptured")] = false;
+    status[QStringLiteral("outputBytesCaptured")] = false;
+    status[QStringLiteral("resultCaptured")] = false;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return status;
+}
+
+QJsonObject productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor) {
+    return productionProviderReviewedOperationCallableInterfaceStatusFromBridge(
+        descriptor,
+        productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor));
+}
+
 QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
@@ -6102,6 +6385,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor);
         evidence[QStringLiteral("providerReviewedCallableTableBridge")] =
             productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
+        evidence[QStringLiteral("providerReviewedOperationCallableInterface")] =
+            productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("implementedOperationCount")] = 0;
@@ -6213,6 +6498,8 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
         productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedCallableTableBridge =
         productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedOperationCallableInterface =
+        productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(descriptor);
     appendCheck(QStringLiteral("provider-table-bound"),
                 !isProduction || providerTable.value(QStringLiteral("accepted")).toBool(false),
                 isProduction
@@ -6378,6 +6665,16 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                 isProduction
                     ? providerReviewedCallableTableBridge.value(QStringLiteral("operatorAction")).toString()
                     : QStringLiteral("none"));
+    appendCheck(QStringLiteral("provider-reviewed-operation-callable-interface"),
+                !isProduction
+                    || providerReviewedOperationCallableInterface.value(QStringLiteral("readyInterfaceCount")).toInt()
+                        == cryptoOperations().size(),
+                isProduction
+                    ? providerReviewedOperationCallableInterface.value(QStringLiteral("blockedReason")).toString()
+                    : QStringLiteral("not-production-provider"),
+                isProduction
+                    ? providerReviewedOperationCallableInterface.value(QStringLiteral("operatorAction")).toString()
+                    : QStringLiteral("none"));
     return checks;
 }
 
@@ -6486,6 +6783,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         productionProviderReviewedOperationStubBoundaryStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedCallableTableBridge =
         productionProviderReviewedCallableTableBridgeStatusForDescriptor(descriptor);
+    const QJsonObject providerReviewedOperationCallableInterface =
+        productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(descriptor);
     const bool operationContractComplete =
         descriptor.operations.size() == cryptoOperations().size();
     const bool linked = descriptor.linked;
@@ -6549,6 +6848,11 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
             == cryptoOperations().size()
         && providerReviewedCallableTableBridge.value(QStringLiteral("bridgeCount")).toInt()
             == cryptoOperations().size();
+    const bool providerReviewedOperationCallableInterfaceReady =
+        providerReviewedOperationCallableInterface.value(QStringLiteral("readyInterfaceCount")).toInt()
+            == cryptoOperations().size()
+        && providerReviewedOperationCallableInterface.value(QStringLiteral("interfaceCount")).toInt()
+            == cryptoOperations().size();
     const bool accepted = linked
         && descriptor.productionReady
         && operationContractComplete
@@ -6575,7 +6879,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && providerInvocationExecutionAccepted
         && providerReviewedCallHandoffReady
         && providerReviewedOperationStubBoundaryReady
-        && providerReviewedCallableTableBridgeReady;
+        && providerReviewedCallableTableBridgeReady
+        && providerReviewedOperationCallableInterfaceReady;
 
     QString releaseGate;
     QString blockedReason;
@@ -6683,6 +6988,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-provider-reviewed-callable-table-bridge-blocked");
         blockedReason = providerReviewedCallableTableBridge.value(QStringLiteral("blockedReason")).toString();
         operatorAction = providerReviewedCallableTableBridge.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerReviewedOperationCallableInterfaceReady) {
+        releaseGate = QStringLiteral("production-provider-reviewed-operation-callable-interface-blocked");
+        blockedReason = providerReviewedOperationCallableInterface.value(QStringLiteral("blockedReason")).toString();
+        operatorAction = providerReviewedOperationCallableInterface.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
@@ -6744,6 +7053,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedOperationStubBoundary;
     status[QStringLiteral("providerReviewedCallableTableBridge")] =
         providerReviewedCallableTableBridge;
+    status[QStringLiteral("providerReviewedOperationCallableInterface")] =
+        providerReviewedOperationCallableInterface;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] = 0;
@@ -6862,6 +7173,12 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedCallableTableBridge.value(QStringLiteral("blockedBridgeCount")).toInt();
     status[QStringLiteral("providerReviewedCallableTableBridgeReleaseGate")] =
         providerReviewedCallableTableBridge.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedOperationCallableInterfaceReadyCount")] =
+        providerReviewedOperationCallableInterface.value(QStringLiteral("readyInterfaceCount")).toInt();
+    status[QStringLiteral("providerReviewedOperationCallableInterfaceBlockedCount")] =
+        providerReviewedOperationCallableInterface.value(QStringLiteral("blockedInterfaceCount")).toInt();
+    status[QStringLiteral("providerReviewedOperationCallableInterfaceReleaseGate")] =
+        providerReviewedOperationCallableInterface.value(QStringLiteral("releaseGate")).toString();
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -7395,6 +7712,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionProviderReviewedOperationStubBoundaryStatusForDescriptor(productionAdapterDescriptor());
     status["productionProviderReviewedCallableTableBridge"] =
         productionProviderReviewedCallableTableBridgeStatusForDescriptor(productionAdapterDescriptor());
+    status["productionProviderReviewedOperationCallableInterface"] =
+        productionProviderReviewedOperationCallableInterfaceStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -7555,6 +7874,11 @@ QJsonObject e2eProductionCryptoProviderReviewedCallableTableBridgeStatus() {
         .value(QStringLiteral("productionProviderReviewedCallableTableBridge")).toObject();
 }
 
+QJsonObject e2eProductionCryptoProviderReviewedOperationCallableInterfaceStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionProviderReviewedOperationCallableInterface")).toObject();
+}
+
 QJsonObject e2eProbeProductionCryptoProviderInvocationExecution() {
     return productionProviderInvocationExecutionProbeForDescriptor(productionAdapterDescriptor());
 }
@@ -7589,6 +7913,14 @@ QJsonObject e2eProbeProductionCryptoProviderReviewedCallableTableBridge() {
     return productionProviderReviewedCallableTableBridgeStatusFromStubBoundary(
         productionAdapterDescriptor(),
         reviewedOperationStubBoundary);
+}
+
+QJsonObject e2eProbeProductionCryptoProviderReviewedOperationCallableInterface() {
+    const QJsonObject reviewedCallableTableBridge =
+        e2eProbeProductionCryptoProviderReviewedCallableTableBridge();
+    return productionProviderReviewedOperationCallableInterfaceStatusFromBridge(
+        productionAdapterDescriptor(),
+        reviewedCallableTableBridge);
 }
 
 QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table) {

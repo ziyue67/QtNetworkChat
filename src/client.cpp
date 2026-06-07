@@ -825,6 +825,8 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         backendStatus.value(QStringLiteral("productionProviderReviewedOperationStubBoundary")).toObject();
     const QJsonObject productionProviderReviewedCallableTableBridge =
         backendStatus.value(QStringLiteral("productionProviderReviewedCallableTableBridge")).toObject();
+    const QJsonObject productionProviderReviewedOperationCallableInterface =
+        backendStatus.value(QStringLiteral("productionProviderReviewedOperationCallableInterface")).toObject();
     const bool backendAvailable = backendStatus.value(QStringLiteral("available")).toBool(false);
     const bool productionReady = backendStatus.value(QStringLiteral("productionReady")).toBool(false);
     const bool migrationRequired = migrationPlan.value(QStringLiteral("migrationRequired")).toBool(false);
@@ -1064,6 +1066,16 @@ QJsonObject Client::planE2EProductionRotationDryRun() const {
         productionProviderReviewedCallableTableBridge.value(QStringLiteral("blockedBridgeCount")).toInt();
     dryRun[QStringLiteral("productionProviderReviewedCallableTableBridgeNonReleaseGate")] =
         productionProviderReviewedCallableTableBridge.value(QStringLiteral("bridgeNonReleaseGate")).toBool(false);
+    dryRun[QStringLiteral("productionProviderReviewedOperationCallableInterface")] =
+        productionProviderReviewedOperationCallableInterface;
+    dryRun[QStringLiteral("productionProviderReviewedOperationCallableInterfaceReleaseGate")] =
+        productionProviderReviewedOperationCallableInterface.value(QStringLiteral("releaseGate")).toString();
+    dryRun[QStringLiteral("productionProviderReviewedOperationCallableInterfaceReadyCount")] =
+        productionProviderReviewedOperationCallableInterface.value(QStringLiteral("readyInterfaceCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedOperationCallableInterfaceBlockedCount")] =
+        productionProviderReviewedOperationCallableInterface.value(QStringLiteral("blockedInterfaceCount")).toInt();
+    dryRun[QStringLiteral("productionProviderReviewedOperationCallableInterfaceNonReleaseGate")] =
+        productionProviderReviewedOperationCallableInterface.value(QStringLiteral("interfaceNonReleaseGate")).toBool(false);
     dryRun[QStringLiteral("migrationRequired")] = migrationRequired;
     dryRun[QStringLiteral("localIdentityMigrationRequired")] =
         migrationPlan.value(QStringLiteral("localIdentityMigrationRequired")).toBool(false);
@@ -1333,6 +1345,16 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         dryRun.value(QStringLiteral("productionProviderReviewedCallableTableBridgeBlockedCount")).toInt();
     evidence[QStringLiteral("productionProviderReviewedCallableTableBridgeNonReleaseGate")] =
         dryRun.value(QStringLiteral("productionProviderReviewedCallableTableBridgeNonReleaseGate")).toBool(false);
+    evidence[QStringLiteral("productionProviderReviewedOperationCallableInterface")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationCallableInterface")).toObject();
+    evidence[QStringLiteral("productionProviderReviewedOperationCallableInterfaceReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationCallableInterfaceReleaseGate")).toString();
+    evidence[QStringLiteral("productionProviderReviewedOperationCallableInterfaceReadyCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationCallableInterfaceReadyCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedOperationCallableInterfaceBlockedCount")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationCallableInterfaceBlockedCount")).toInt();
+    evidence[QStringLiteral("productionProviderReviewedOperationCallableInterfaceNonReleaseGate")] =
+        dryRun.value(QStringLiteral("productionProviderReviewedOperationCallableInterfaceNonReleaseGate")).toBool(false);
 
     if (!dryRun.value(QStringLiteral("canRotateInPlace")).toBool(false)) {
         const QString blockedReason = dryRun.value(QStringLiteral("blockedReason")).toString(
