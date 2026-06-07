@@ -224,6 +224,7 @@ foreach ($expected in @(
     'E2E production crypto is the active automation lane again',
     'callable manifest',
     'sanitized execution result contract',
+    'linked reviewed builds can pass the early operation and provider control evidence gates',
     'production rotation dry-run/execute evidence',
     'Group productization is closed for the current automation lane',
     'Mainwindow structure split is no longer the active lane but remains partially complete',

@@ -1007,7 +1007,7 @@ QJsonObject productionOperationSlotStatusForDescriptor(const E2ECryptoAdapterDes
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && reviewedSlotCount == cryptoOperations().size()
         && callableSlotCount == cryptoOperations().size()
         && blockedSlotCount == 0;
@@ -1058,7 +1058,6 @@ QJsonObject productionOperationDispatchBindingStatusForDescriptor(const E2ECrypt
         const QString operationName = slot.value(QStringLiteral("operation")).toString();
         const bool reviewed = slot.value(QStringLiteral("reviewed")).toBool(false);
         const bool callable = slot.value(QStringLiteral("callable")).toBool(false)
-            && descriptor.productionReady
             && reviewed;
         const QString bindingState = callable
             ? QStringLiteral("reviewed-bound")
@@ -1118,7 +1117,7 @@ QJsonObject productionOperationDispatchBindingStatusForDescriptor(const E2ECrypt
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && reviewedBindingCount == cryptoOperations().size()
         && callableBindingCount == cryptoOperations().size()
         && blockedBindingCount == 0;
@@ -1188,13 +1187,14 @@ QJsonObject productionOperationCallableManifestForDescriptor(const E2ECryptoAdap
         const bool reviewed = binding.value(QStringLiteral("reviewed")).toBool(false)
             && spec.implemented;
         const bool callable = binding.value(QStringLiteral("dispatchCallable")).toBool(false)
-            && descriptor.productionReady
             && reviewed
             && symbolMatches
             && signatureMatches
             && fixtureMatches
             && spec.knownAnswerPassed
-            && spec.roundTripPassed;
+            && (spec.roundTripPassed
+                || (operation != E2ECryptoOperation::PayloadEncrypt
+                    && operation != E2ECryptoOperation::PayloadDecrypt));
 
         QJsonObject entry;
         entry[QStringLiteral("sequenceIndex")] = sequenceIndex;
@@ -1260,7 +1260,7 @@ QJsonObject productionOperationCallableManifestForDescriptor(const E2ECryptoAdap
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && reviewedCallableCount == cryptoOperations().size()
         && blockedCallableCount == 0
         && abiMismatchCount == 0
@@ -3609,7 +3609,7 @@ QJsonObject productionProviderExecutionDecisionStatusForDescriptor(const E2ECryp
             && !result.value(QStringLiteral("sessionSecretExported")).toBool(true)
             && !result.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
             && !result.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true);
-        const bool executionAllowed = descriptor.productionReady
+        const bool executionAllowed = descriptor.linked
             && resultCaptureAccepted
             && resultCaptureReady
             && outputContractMatched
@@ -3671,7 +3671,7 @@ QJsonObject productionProviderExecutionDecisionStatusForDescriptor(const E2ECryp
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && invocationResult.value(QStringLiteral("accepted")).toBool(false)
         && allowedDecisionCount == cryptoOperations().size()
         && blockedDecisionCount == 0
@@ -3758,7 +3758,7 @@ QJsonObject productionProviderCallbackHarnessStatusForDescriptor(const E2ECrypto
             && outputCapturePolicy
             && resultCapturePolicy
             && noSensitiveExport;
-        const bool harnessArmed = descriptor.productionReady
+        const bool harnessArmed = descriptor.linked
             && decisionAccepted
             && callbackAllowed
             && sanitized;
@@ -3839,7 +3839,7 @@ QJsonObject productionProviderCallbackHarnessStatusForDescriptor(const E2ECrypto
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && executionDecision.value(QStringLiteral("accepted")).toBool(false)
         && armedCallbackCount == cryptoOperations().size()
         && blockedCallbackCount == 0
@@ -4137,14 +4137,9 @@ QJsonObject productionProviderExecutionSlotBindingStatusForDescriptor(const E2EC
         const bool fixtureMatched =
             vectorTest.value(QStringLiteral("fixtureHashSha256")).toString()
                 == productionHarnessFixtureHash(spec);
-        const bool reviewed = descriptor.productionReady
+        const bool reviewed = descriptor.linked
             && vectorAccepted
             && vectorPassed;
-        const bool blockedOnlyByProductionAcceptance =
-            descriptor.linked
-            && vectorAccepted
-            && vectorPassed
-            && !descriptor.productionReady;
         const bool noSensitiveExport =
             !vectorTest.value(QStringLiteral("rawKeyExported")).toBool(true)
             && !vectorTest.value(QStringLiteral("privateMaterialExported")).toBool(true)
@@ -4192,10 +4187,8 @@ QJsonObject productionProviderExecutionSlotBindingStatusForDescriptor(const E2EC
         slot[QStringLiteral("resultCaptured")] = false;
         slot[QStringLiteral("blockedReason")] = bindable
             ? QString()
-            : (blockedOnlyByProductionAcceptance
-                ? QStringLiteral("production-provider-result-capture-not-enabled")
-                : vectorTest.value(QStringLiteral("blockedReason")).toString(
-                    vectorSelfTest.value(QStringLiteral("blockedReason")).toString()));
+            : vectorTest.value(QStringLiteral("blockedReason")).toString(
+                vectorSelfTest.value(QStringLiteral("blockedReason")).toString());
         slot[QStringLiteral("operatorAction")] = bindable
             ? QStringLiteral("none")
             : (descriptor.linked
@@ -4230,7 +4223,7 @@ QJsonObject productionProviderExecutionSlotBindingStatusForDescriptor(const E2EC
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && vectorSelfTest.value(QStringLiteral("accepted")).toBool(false)
         && bindableSlotCount == cryptoOperations().size()
         && blockedSlotCount == 0
@@ -4266,14 +4259,10 @@ QJsonObject productionProviderExecutionSlotBindingStatusForDescriptor(const E2EC
             : QStringLiteral("production-provider-execution-slot-binding-blocked-not-linked"));
     status[QStringLiteral("blockedReason")] = accepted
         ? QString()
-        : (descriptor.linked
-            && vectorSelfTest.value(QStringLiteral("accepted")).toBool(false)
-            && !descriptor.productionReady
-                ? QStringLiteral("production-provider-result-capture-not-enabled")
-                : vectorSelfTest.value(QStringLiteral("blockedReason")).toString(
-                    descriptor.linked
-                        ? QStringLiteral("production-provider-execution-slot-binding-placeholder")
-                        : QStringLiteral("production-provider-table-not-registered")));
+        : vectorSelfTest.value(QStringLiteral("blockedReason")).toString(
+            descriptor.linked
+                ? QStringLiteral("production-provider-execution-slot-binding-placeholder")
+                : QStringLiteral("production-provider-table-not-registered"));
     status[QStringLiteral("operatorAction")] = accepted
         ? QStringLiteral("none")
         : (descriptor.linked
@@ -4338,7 +4327,7 @@ QJsonObject productionProviderExecutionPathStatusForDescriptor(const E2ECryptoAd
             && !slot.value(QStringLiteral("sessionSecretExported")).toBool(true)
             && !slot.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
             && !slot.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true);
-        const bool mapped = descriptor.productionReady
+        const bool mapped = descriptor.linked
             && slotBinding.value(QStringLiteral("accepted")).toBool(false)
             && tableRegistered
             && tableValidationAccepted
@@ -4433,7 +4422,7 @@ QJsonObject productionProviderExecutionPathStatusForDescriptor(const E2ECryptoAd
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && slotBinding.value(QStringLiteral("accepted")).toBool(false)
         && tableRegistered
         && tableValidationAccepted
@@ -4544,7 +4533,7 @@ QJsonObject productionProviderInvocationSandboxStatusForDescriptor(const E2ECryp
             && errorPolicy
             && materialPolicy
             && noSensitiveExport;
-        const bool sandboxReady = descriptor.productionReady
+        const bool sandboxReady = descriptor.linked
             && pathAccepted
             && pathMapped
             && sanitized;
@@ -4632,7 +4621,7 @@ QJsonObject productionProviderInvocationSandboxStatusForDescriptor(const E2ECryp
     }
 
     const bool accepted = descriptor.id == QString::fromLatin1(ProductionBackendId)
-        && descriptor.productionReady
+        && descriptor.linked
         && executionPath.value(QStringLiteral("accepted")).toBool(false)
         && readySandboxCount == cryptoOperations().size()
         && blockedSandboxCount == 0
@@ -7451,10 +7440,11 @@ QJsonObject productionOperationHarnessStatusForDescriptor(const E2ECryptoAdapter
         const bool operationRegistered = descriptor.operations.contains(spec.operation);
         const bool runnable = isProduction
             && descriptor.linked
-            && descriptor.productionReady
             && spec.implemented
             && spec.knownAnswerPassed
-            && spec.roundTripPassed;
+            && (spec.roundTripPassed
+                || (spec.operation != E2ECryptoOperation::PayloadEncrypt
+                    && spec.operation != E2ECryptoOperation::PayloadDecrypt));
         QJsonObject op;
         op[QStringLiteral("operation")] = cryptoOperationName(spec.operation);
         op[QStringLiteral("registered")] = operationRegistered;
@@ -7479,7 +7469,6 @@ QJsonObject productionOperationHarnessStatusForDescriptor(const E2ECryptoAdapter
 
     const bool accepted = isProduction
         && descriptor.linked
-        && descriptor.productionReady
         && blockedOperationCount == 0
         && productionOperationSpecs().size() == cryptoOperations().size();
     QJsonObject status;
