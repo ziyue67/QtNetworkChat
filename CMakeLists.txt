@@ -426,8 +426,10 @@ if(BUILD_TESTING)
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
         src/message.cpp
+        src/objectstore.cpp
         include/client.h
         include/message.h
+        include/objectstore.h
         include/chatuser.h
     )
     qtnetworkchat_target_include_dirs(file_chunk_retry_progress_test)

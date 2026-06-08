@@ -1,5 +1,6 @@
 #include "client.h"
 #include "e2eenvelope.h"
+#include "objectstore.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -44,6 +45,7 @@ const char kInvalidAckProgressFileName[] = "invalid-ack-progress.bin";
 const char kTransientRejectRetryFileName[] = "transient-reject-retry.bin";
 const char kHardRejectNoRetryFileName[] = "hard-reject-no-retry.bin";
 const char kE2ECacheResumeTransferId[] = "e2e-cache-resume-transfer";
+const char kE2EObjectResumeTransferId[] = "e2e-object-resume-transfer";
 
 QString testAppDataDir() {
     const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
@@ -198,6 +200,8 @@ public:
     int hardRejectAttempts() const { return m_hardRejectAttempts; }
     QVector<qint64> e2eCacheResumeChunkIndexes() const { return m_e2eCacheResumeChunkIndexes; }
     int e2eCacheResumeQueries() const { return m_e2eCacheResumeQueries; }
+    QVector<qint64> e2eObjectResumeChunkIndexes() const { return m_e2eObjectResumeChunkIndexes; }
+    int e2eObjectResumeQueries() const { return m_e2eObjectResumeQueries; }
     void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
         m_resumeFileSize = fileSize;
         m_resumeFileHash = fileHash;
@@ -209,6 +213,11 @@ public:
         m_e2eCacheResumeFileSize = fileSize;
         m_e2eCacheResumeChunkCount = chunkCount;
         m_e2eCacheResumeFileHash = fileHash;
+    }
+    void setE2EObjectResumeMetadata(qint64 fileSize, qint64 chunkCount, const QString& fileHash) {
+        m_e2eObjectResumeFileSize = fileSize;
+        m_e2eObjectResumeChunkCount = chunkCount;
+        m_e2eObjectResumeFileHash = fileHash;
     }
 
 private slots:
@@ -271,6 +280,27 @@ private:
                 response["chunkSize"] = QString::number(kClientChunkBytes);
                 response["chunkCount"] = QString::number(m_e2eCacheResumeChunkCount);
                 response["fileHash"] = m_e2eCacheResumeFileHash;
+                response["receivedChunks"] = e2eReceivedChunks;
+                response["reason"] = "";
+                writeJson(socket, response);
+                return;
+            }
+            if (transferId == QString::fromLatin1(kE2EObjectResumeTransferId)) {
+                ++m_e2eObjectResumeQueries;
+                QJsonArray e2eReceivedChunks;
+                e2eReceivedChunks.append(QString::number(0));
+                e2eReceivedChunks.append(QString::number(1));
+
+                QJsonObject response;
+                response["type"] = "file_transfer_resume_state";
+                response["transferId"] = transferId;
+                response["canResume"] = true;
+                response["confirmedBytes"] = QString::number(2 * kClientChunkBytes);
+                response["nextChunkIndex"] = QString::number(2);
+                response["fileSize"] = QString::number(m_e2eObjectResumeFileSize);
+                response["chunkSize"] = QString::number(kClientChunkBytes);
+                response["chunkCount"] = QString::number(m_e2eObjectResumeChunkCount);
+                response["fileHash"] = m_e2eObjectResumeFileHash;
                 response["receivedChunks"] = e2eReceivedChunks;
                 response["reason"] = "";
                 writeJson(socket, response);
@@ -590,6 +620,22 @@ private:
             writeJson(socket, ack);
             return;
         }
+        if (transferId == QString::fromLatin1(kE2EObjectResumeTransferId)) {
+            if (message.value("e2eFileEncrypted").toBool(false)
+                && message.value("e2eEnvelope").isObject()
+                && !message.value("e2eEnvelope").toObject().contains(QStringLiteral("ciphertext"))) {
+                m_e2eObjectResumeChunkIndexes.append(chunkIndex);
+            }
+            QJsonObject ack;
+            ack["type"] = "file_chunk_ack";
+            ack["transferId"] = transferId;
+            ack["chunkIndex"] = message["chunkIndex"].toString();
+            ack["accepted"] = true;
+            ack["reason"] = "";
+            ack["receivedBytes"] = QString::number(receivedBytes);
+            writeJson(socket, ack);
+            return;
+        }
 
         ++m_chunkAttempts;
         m_acknowledgedBytes = receivedBytes;
@@ -653,6 +699,11 @@ private:
     qint64 m_e2eCacheResumeFileSize = 0;
     qint64 m_e2eCacheResumeChunkCount = 0;
     QString m_e2eCacheResumeFileHash;
+    QVector<qint64> m_e2eObjectResumeChunkIndexes;
+    int m_e2eObjectResumeQueries = 0;
+    qint64 m_e2eObjectResumeFileSize = 0;
+    qint64 m_e2eObjectResumeChunkCount = 0;
+    QString m_e2eObjectResumeFileHash;
 };
 }
 
@@ -959,6 +1010,7 @@ int main(int argc, char** argv) {
     e2eObjectRecoveryHeader["aad"] = "file/private/v1;object-recovery";
     const QString e2eObjectWireHash =
         QStringLiteral("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    e2eObjectRecoveryHeader["ciphertextSha256"] = e2eObjectWireHash;
     QJsonObject e2eObjectRecoveryPolicy;
     e2eObjectRecoveryPolicy["recoveryMode"] = "resume";
     e2eObjectRecoveryPolicy["recoveryReason"] = "e2e-file-same-wire-cache-ready";
@@ -977,6 +1029,7 @@ int main(int argc, char** argv) {
     e2eObjectRecoveryPolicy["e2eFileObjectStoreType"] = "filesystem";
     e2eObjectRecoveryPolicy["e2eFileObjectStoreHash"] = e2eObjectWireHash;
     e2eObjectRecoveryPolicy["e2eFileObjectStoreSize"] = QString::number(resumeFileSize + 128);
+    qunsetenv("QTNETWORKCHAT_OBJECT_ROOT");
     ok = expect(sender.saveOutgoingTransferState("e2e-object-recovery-transfer",
                                                  resumeFilePath,
                                                  "960002",
@@ -996,10 +1049,10 @@ int main(int argc, char** argv) {
                     && e2eObjectRecoveryStatus["recoveryMode"].toString() == "resend"
                     && !e2eObjectRecoveryStatus["canAutoResume"].toBool()
                     && e2eObjectRecoveryStatus["reason"].toString()
-                        == "e2e-file-object-recovery-read-path-unavailable"
+                        == "e2e-file-object-recovery-store-unavailable"
                     && e2eObjectRecoveryStatus["action"].toString()
                         == "resend-or-wait-for-object-recovery",
-                "E2E object recovery candidate should remain fail-closed until object ciphertext readback exists") && ok;
+                "E2E object recovery candidate should remain fail-closed when object storage is unavailable") && ok;
     ok = expect(e2eObjectRecoveryStatus["e2eFileObjectStoreKey"].toString() == "safeObjectKey_123.bin"
                     && e2eObjectRecoveryStatus["e2eFileObjectStoreHash"].toString() == e2eObjectWireHash
                     && e2eObjectRecoveryStatus["e2eFileObjectStoreSize"].toVariant().toLongLong()
@@ -1020,8 +1073,8 @@ int main(int argc, char** argv) {
     QString e2eObjectRecoveryReason;
     ok = expect(!sender.resumeSavedOutgoingTransfer(&e2eObjectRecoveryReason, 5000),
                 "E2E object recovery candidate should refuse automatic resume") && ok;
-    ok = expect(e2eObjectRecoveryReason == "e2e-file-object-recovery-read-path-unavailable",
-                "E2E object recovery refusal should expose the fixed object-readback reason") && ok;
+    ok = expect(e2eObjectRecoveryReason == "e2e-file-object-recovery-store-unavailable",
+                "E2E object recovery refusal should expose the fixed store-unavailable reason") && ok;
     ok = expect(server.resumeQueries() == queriesBeforeE2eObjectRecovery
                     && server.resumedChunkIndexes().size() == chunksBeforeE2eObjectRecovery,
                 "E2E object recovery candidate should not query or send without readback support") && ok;
@@ -1168,7 +1221,81 @@ int main(int argc, char** argv) {
                 "successful E2E same-wire recovery should clear persisted state") && ok;
     ok = expect(!QFile::exists(e2eResumeCachePath(QString::fromLatin1(kE2ECacheResumeTransferId))),
                 "successful E2E same-wire recovery should clear cached wire payload") && ok;
+
+    const QString objectRoot = tempDir.filePath("e2e-object-recovery-store");
+    qputenv("QTNETWORKCHAT_OBJECT_ROOT", objectRoot.toUtf8());
+    FilesystemObjectStore objectStore(objectRoot);
+    QString objectKey;
+    QString objectHash;
+    QString objectError;
+    ok = expect(objectStore.writeObject(e2eWirePayload,
+                                        &objectKey,
+                                        &objectHash,
+                                        &objectError,
+                                        QStringLiteral("bin")),
+                "E2E object recovery test should persist ciphertext in filesystem ObjectStore") && ok;
+    ok = expect(objectHash == e2eWireHash,
+                "E2E object recovery test object hash should match wire ciphertext hash") && ok;
+
+    QJsonObject e2eObjectResumePolicy = e2eCacheRecoveryPolicy;
+    e2eObjectResumePolicy.remove("e2eFileResumeCache");
+    e2eObjectResumePolicy.remove("e2eFileResumeCacheFormat");
+    e2eObjectResumePolicy.remove("e2eFileResumeCacheSha256");
+    e2eObjectResumePolicy.remove("e2eFileResumeCacheSize");
+    e2eObjectResumePolicy["e2eFileObjectRecoveryCandidate"] = true;
+    e2eObjectResumePolicy["e2eFileObjectStoreKey"] = objectKey;
+    e2eObjectResumePolicy["e2eFileObjectStoreType"] = "filesystem";
+    e2eObjectResumePolicy["e2eFileObjectStoreHash"] = objectHash;
+    e2eObjectResumePolicy["e2eFileObjectStoreSize"] = QString::number(e2eWirePayload.size());
+    ok = expect(e2eRecoveredSender.saveOutgoingTransferState(QString::fromLatin1(kE2EObjectResumeTransferId),
+                                                             e2ePlainFilePath,
+                                                             "960002",
+                                                             MessageType::File,
+                                                             e2eWireHash,
+                                                             e2eWirePayload.size(),
+                                                             e2eWireChunkCount,
+                                                             e2eObjectResumePolicy),
+                "sender should persist E2E object recovery metadata with verified ciphertext object") && ok;
+    ok = expect(QFile::remove(e2ePlainFilePath),
+                "E2E object recovery should not depend on the original plaintext file") && ok;
+    server.setE2EObjectResumeMetadata(e2eWirePayload.size(), e2eWireChunkCount, e2eWireHash);
+    const QJsonObject e2eObjectReadyStatus =
+        e2eRecoveredSender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray e2eObjectReadyStatusJson =
+        QJsonDocument(e2eObjectReadyStatus).toJson(QJsonDocument::Compact);
+    ok = expect(e2eObjectReadyStatus["configured"].toBool()
+                    && e2eObjectReadyStatus["e2eFileEncrypted"].toBool()
+                    && e2eObjectReadyStatus["e2eFileObjectRecoveryCandidate"].toBool()
+                    && e2eObjectReadyStatus["e2eFileOfflineObjectRecoveryReady"].toBool()
+                    && e2eObjectReadyStatus["e2eFileRecoverySessionReady"].toBool()
+                    && e2eObjectReadyStatus["recoveryMode"].toString() == "resume"
+                    && e2eObjectReadyStatus["canAutoResume"].toBool()
+                    && e2eObjectReadyStatus["reason"].toString()
+                        == "e2e-file-object-recovery-ready"
+                    && e2eObjectReadyStatus["action"].toString()
+                        == "resume-object-wire-envelope",
+                "E2E object recovery should become auto-resumable after verified ciphertext readback") && ok;
+    ok = expect(!e2eObjectReadyStatusJson.contains("\"ciphertext\"")
+                    && !e2eObjectReadyStatusJson.contains(objectRoot.toUtf8())
+                    && !e2eObjectReadyStatusJson.contains("file://")
+                    && !e2eObjectReadyStatusJson.contains("privateKey")
+                    && !e2eObjectReadyStatusJson.contains("sessionKey"),
+                "E2E object recovery ready status should not export ciphertext, local paths, or secret material") && ok;
+    const int e2eObjectQueriesBefore = server.e2eObjectResumeQueries();
+    QString e2eObjectResumeReason;
+    ok = expect(e2eRecoveredSender.resumeSavedOutgoingTransfer(&e2eObjectResumeReason, 5000),
+                "E2E object recovery should resume encrypted file chunks from verified object ciphertext") && ok;
+    ok = expect(server.e2eObjectResumeQueries() == e2eObjectQueriesBefore + 1,
+                "E2E object recovery should query server resume state once") && ok;
+    const QVector<qint64> e2eObjectChunks = server.e2eObjectResumeChunkIndexes();
+    ok = expect(e2eObjectChunks.size() == 1 && e2eObjectChunks.last() == 2,
+                "E2E object recovery should send only the missing ciphertext chunk") && ok;
+    ok = expect(e2eObjectResumeReason.isEmpty(),
+                "successful E2E object recovery should not expose a reject reason") && ok;
+    ok = expect(!e2eRecoveredSender.loadOutgoingTransferState(nullptr),
+                "successful E2E object recovery should clear persisted state") && ok;
     e2eRecoveredSender.disconnectFromServer();
+    qunsetenv("QTNETWORKCHAT_OBJECT_ROOT");
 
     ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kMismatchResumeTransferId),
                                                  resumeFilePath,
