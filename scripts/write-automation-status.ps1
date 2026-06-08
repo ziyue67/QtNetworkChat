@@ -13,6 +13,7 @@ param(
     [string]$LocalVerificationStatusPath,
     [string]$CTestLogPath,
     [string]$GitHubWorkflow = "Windows Build",
+    [string]$GitHubWindowsBuildStatusPath,
     [string]$GitHubRunListJsonPath,
     [string]$E2ERolloutObservabilityJsonPath,
     [string]$E2ERolloutObservabilityMarkdownPath,
@@ -96,6 +97,57 @@ function Is-UnknownStatus([string]$Value) {
     [string]::IsNullOrWhiteSpace($Value) -or $Value.Trim().ToLowerInvariant() -eq "unknown"
 }
 
+function Get-GitHubWindowsBuildStatusArtifactReadback([string]$PathValue, [string]$HeadSha) {
+    $result = [ordered]@{
+        configured = $false
+        readable = $false
+        valid = $false
+        status = ""
+        runId = ""
+        source = "github-windows-build-status"
+        visibility = ""
+    }
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or $script:PlanOnly.IsPresent) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    try {
+        $resolved = Resolve-RepoPath $PathValue
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            return [pscustomobject]$result
+        }
+        $statusArtifact = Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        $result.readable = $true
+        if ((Get-JsonValue $statusArtifact "format" "") -ne "qtnetworkchat-github-windows-build-status-v1") {
+            $result.source = "github-windows-build-status-invalid-format"
+            return [pscustomobject]$result
+        }
+        $artifactHead = ([string](Get-JsonValue $statusArtifact "headSha" "")).Trim().ToLowerInvariant()
+        $normalizedHead = ([string]$HeadSha).Trim().ToLowerInvariant()
+        if (-not [string]::IsNullOrWhiteSpace($artifactHead) `
+                -and -not [string]::IsNullOrWhiteSpace($normalizedHead) `
+                -and $artifactHead -ne "unknown" `
+                -and $normalizedHead -ne "unknown" `
+                -and $artifactHead -ne $normalizedHead) {
+            $result.source = "github-windows-build-status-stale-head"
+            $result.status = "external-visibility-stale"
+            $result.visibility = "artifact-head-mismatch"
+            return [pscustomobject]$result
+        }
+        $result.valid = $true
+        $result.status = [string](Get-JsonValue $statusArtifact "status" "unknown")
+        $result.runId = [string](Get-JsonValue $statusArtifact "runId" "")
+        $result.source = [string](Get-JsonValue $statusArtifact "source" "github-windows-build-status")
+        if ([string]::IsNullOrWhiteSpace($result.source)) {
+            $result.source = "github-windows-build-status"
+        }
+        $result.visibility = [string](Get-JsonValue $statusArtifact "visibility" "")
+    } catch {
+        $result.source = "github-windows-build-status-unreadable"
+    }
+    [pscustomobject]$result
+}
+
 function Get-GitHubWindowsBuildReadback([string]$HeadSha) {
     $result = [ordered]@{
         status = "unknown"
@@ -118,6 +170,21 @@ function Get-GitHubWindowsBuildReadback([string]$HeadSha) {
             return [pscustomobject]$result
         }
     } else {
+        $statusArtifact = Get-GitHubWindowsBuildStatusArtifactReadback $script:GitHubWindowsBuildStatusPath $HeadSha
+        if ($statusArtifact.configured -and $statusArtifact.valid) {
+            $result.status = if ([string]::IsNullOrWhiteSpace($statusArtifact.status)) { "unknown" } else { $statusArtifact.status }
+            $result.runId = $statusArtifact.runId
+            $result.source = $statusArtifact.source
+            if (-not [string]::IsNullOrWhiteSpace($statusArtifact.visibility)) {
+                $result.source = $result.source + "/" + $statusArtifact.visibility
+            }
+            return [pscustomobject]$result
+        } elseif ($statusArtifact.configured -and $statusArtifact.readable) {
+            $result.status = if ([string]::IsNullOrWhiteSpace($statusArtifact.status)) { "unavailable" } else { $statusArtifact.status }
+            $result.source = $statusArtifact.source
+            return [pscustomobject]$result
+        }
+
         $runListJson = Invoke-ToolText "gh" @(
             "run", "list",
             "--workflow", $script:GitHubWorkflow,
@@ -1043,6 +1110,9 @@ if ([string]::IsNullOrWhiteSpace($OriginMain)) {
 
 if ([string]::IsNullOrWhiteSpace($LocalVerificationStatusPath)) {
     $LocalVerificationStatusPath = Join-Path $BuildDir "local-verification-status.json"
+}
+if ([string]::IsNullOrWhiteSpace($GitHubWindowsBuildStatusPath)) {
+    $GitHubWindowsBuildStatusPath = Join-Path $BuildDir "github-windows-build-status.json"
 }
 if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityJsonPath)) {
     $E2ERolloutObservabilityJsonPath = Join-Path $BuildDir "e2e_rollout_observability_evidence\e2e-rollout-observability.json"

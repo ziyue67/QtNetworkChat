@@ -386,6 +386,46 @@ foreach ($expected in @(
     Assert-Contains -Text $autoMarkdown -Expected $expected
 }
 
+$artifactCiStatusPath = Join-Path $tempDir "github-windows-build-status-auto.json"
+& (Join-Path $PSScriptRoot "write-github-windows-build-status.ps1") `
+    -OutputPath $artifactCiStatusPath `
+    -Head "auto1234567890abcdef" `
+    -RunListJsonPath $autoRunListPath `
+    -FailOnSensitive | Out-Null
+$artifactCiStatusJson = Get-Content -LiteralPath $artifactCiStatusPath -Raw -Encoding UTF8
+$artifactCiStatus = $artifactCiStatusJson | ConvertFrom-Json
+if ($artifactCiStatus.format -ne "qtnetworkchat-github-windows-build-status-v1" `
+        -or $artifactCiStatus.status -ne "success" `
+        -or $artifactCiStatus.runId -ne "99112233" `
+        -or $artifactCiStatus.visibility -ne "current-head-observed" `
+        -or [int]$artifactCiStatus.observedRunCount -ne 1 `
+        -or $artifactCiStatus.latestObserved.headSha -ne "auto1234567890abcdef") {
+    throw "GitHub Windows Build status artifact did not preserve the sanitized current-head readback contract."
+}
+Assert-NotContains -Text $artifactCiStatusJson -Forbidden "feat: auto status"
+
+$artifactCiMarkdownPath = Join-Path $tempDir "automation-status-ci-artifact-readback.md"
+& $ScriptPath `
+    -MarkdownPath $artifactCiMarkdownPath `
+    -Head "auto1234567890abcdef" `
+    -TrackedRemoteHash "auto1234567890abcdef" `
+    -BuildDir $tempDir `
+    -LocalVerificationStatusPath $localVerificationPath `
+    -GitHubWindowsBuildStatusPath $artifactCiStatusPath `
+    -CTestLogPath $autoCTestLogPath `
+    -AutomationTaskHistoryPath $taskHistoryPath `
+    -AutomationTaskAckPath $taskAckPath `
+    -FailOnSensitive
+$artifactCiMarkdown = Get-Content -LiteralPath $artifactCiMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'HEAD: `auto1234567890abcdef`',
+    'GitHub Windows Build: `success`',
+    'GitHub run id: `99112233`',
+    'Status readback: `ci=json-artifact/current-head-observed; build=local-verification-status; ctest=local-verification-status`'
+)) {
+    Assert-Contains -Text $artifactCiMarkdown -Expected $expected
+}
+
 $fallbackMarkdownPath = Join-Path $tempDir "automation-status-fallback-readback.md"
 & $ScriptPath `
     -MarkdownPath $fallbackMarkdownPath `
