@@ -2286,6 +2286,52 @@ bool productionProviderRuntimeReady(QString* reason = nullptr) {
         return fail(reason, QStringLiteral("production-payload-decrypt-negative-self-test-failed"));
     }
 
+    const QByteArray malformedIdentityHandle = identity.sealedOutput.left(SessionKeyBytes - 1);
+    const ProviderDispatchResult rejectedPublicDerivation =
+        dispatchProductionProviderOperation(E2ECryptoOperation::PublicKeyDerivation,
+                                            malformedIdentityHandle,
+                                            empty,
+                                            empty);
+    if (!rejectedPublicDerivation.invoked
+        || rejectedPublicDerivation.callbackStatus != QNC_E2E_STATUS_INVALID_INPUT
+        || rejectedPublicDerivation.outputStatus != QNC_E2E_STATUS_INVALID_INPUT) {
+        return fail(reason, QStringLiteral("production-public-key-derivation-malformed-handle-self-test-failed"));
+    }
+
+    const ProviderDispatchResult rejectedAgreementVerify =
+        dispatchProductionProviderOperation(E2ECryptoOperation::AgreementVerify,
+                                            publicKey.publicOutput.left(31),
+                                            transcript,
+                                            signature.publicOutput);
+    if (!rejectedAgreementVerify.invoked
+        || rejectedAgreementVerify.callbackStatus != QNC_E2E_STATUS_INVALID_INPUT
+        || rejectedAgreementVerify.outputStatus != QNC_E2E_STATUS_INVALID_INPUT) {
+        return fail(reason, QStringLiteral("production-agreement-verify-malformed-public-key-self-test-failed"));
+    }
+
+    const QByteArray malformedSessionKey = derived.sealedOutput.left(SessionKeyBytes - 1);
+    const ProviderDispatchResult rejectedPayloadEncrypt =
+        dispatchProductionProviderOperation(E2ECryptoOperation::PayloadEncrypt,
+                                            malformedSessionKey,
+                                            plaintext,
+                                            payloadAad);
+    if (!rejectedPayloadEncrypt.invoked
+        || rejectedPayloadEncrypt.callbackStatus != QNC_E2E_STATUS_INVALID_INPUT
+        || rejectedPayloadEncrypt.outputStatus != QNC_E2E_STATUS_INVALID_INPUT) {
+        return fail(reason, QStringLiteral("production-payload-encrypt-malformed-key-self-test-failed"));
+    }
+
+    const ProviderDispatchResult rejectedPayloadDecrypt =
+        dispatchProductionProviderOperation(E2ECryptoOperation::PayloadDecrypt,
+                                            malformedSessionKey,
+                                            encrypted.sealedOutput,
+                                            payloadAad);
+    if (!rejectedPayloadDecrypt.invoked
+        || rejectedPayloadDecrypt.callbackStatus != QNC_E2E_STATUS_INVALID_INPUT
+        || rejectedPayloadDecrypt.outputStatus != QNC_E2E_STATUS_INVALID_INPUT) {
+        return fail(reason, QStringLiteral("production-payload-decrypt-malformed-key-self-test-failed"));
+    }
+
     if (reason) {
         reason->clear();
     }
@@ -2506,7 +2552,7 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
         registration.value(QStringLiteral("tableValidationAccepted")).toBool(false);
     const bool providerInvocationAllowed = invokeProviderOperations;
 
-    static const QByteArray primaryFixture("qnc-provider-probe-primary", 26);
+    static const QByteArray primaryFixture(32, '\x42');
     static const QByteArray secondaryFixture("qnc-provider-probe-secondary", 28);
     static const QByteArray aadFixture("qnc-provider-probe-aad", 22);
     QByteArray verifyPublicFixture;
@@ -3427,6 +3473,65 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
                             false);
     }
 
+    if (identityKeyPassed) {
+        const QByteArray malformedIdentityHandle =
+            identityKey.sealedOutput.left(SessionKeyBytes - 1);
+        const ProviderRunResult malformedPublicDerivation =
+            invokeOperation(E2ECryptoOperation::PublicKeyDerivation,
+                            malformedIdentityHandle,
+                            empty,
+                            empty);
+        appendNegativeCheck(QStringLiteral("public-key-derivation-malformed-handle"),
+                            E2ECryptoOperation::PublicKeyDerivation,
+                            malformedPublicDerivation,
+                            malformedPublicDerivation.invoked
+                                && malformedPublicDerivation.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedPublicDerivation.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+
+        const ProviderRunResult malformedAgreementSign =
+            invokeOperation(E2ECryptoOperation::AgreementSign,
+                            malformedIdentityHandle,
+                            transcript,
+                            empty);
+        appendNegativeCheck(QStringLiteral("agreement-sign-malformed-handle"),
+                            E2ECryptoOperation::AgreementSign,
+                            malformedAgreementSign,
+                            malformedAgreementSign.invoked
+                                && malformedAgreementSign.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedAgreementSign.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("public-key-derivation-malformed-handle"),
+                            E2ECryptoOperation::PublicKeyDerivation,
+                            dependencyBlockedResult(E2ECryptoOperation::PublicKeyDerivation,
+                                                    QStringLiteral("identity-generation-not-ready")),
+                            false);
+        appendNegativeCheck(QStringLiteral("agreement-sign-malformed-handle"),
+                            E2ECryptoOperation::AgreementSign,
+                            dependencyBlockedResult(E2ECryptoOperation::AgreementSign,
+                                                    QStringLiteral("identity-generation-not-ready")),
+                            false);
+    }
+
+    if (signaturePassed) {
+        const ProviderRunResult malformedVerifyPublicKey =
+            invokeOperation(E2ECryptoOperation::AgreementVerify,
+                            publicKey.publicOutput.left(31),
+                            transcript,
+                            signature.publicOutput);
+        appendNegativeCheck(QStringLiteral("agreement-verify-malformed-public-key"),
+                            E2ECryptoOperation::AgreementVerify,
+                            malformedVerifyPublicKey,
+                            malformedVerifyPublicKey.invoked
+                                && malformedVerifyPublicKey.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedVerifyPublicKey.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("agreement-verify-malformed-public-key"),
+                            E2ECryptoOperation::AgreementVerify,
+                            dependencyBlockedResult(E2ECryptoOperation::AgreementVerify,
+                                                    QStringLiteral("agreement-signature-input-not-ready")),
+                            false);
+    }
+
     const ProviderRunResult derivedSession = sessionKeyPassed && publicKeyPassed
         ? invokeOperation(E2ECryptoOperation::SessionDerive,
                           sessionKey.sealedOutput,
@@ -3503,11 +3608,31 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
                             false);
     }
 
+    if (sessionDerivePassed) {
+        const ProviderRunResult malformedPayloadEncrypt =
+            invokeOperation(E2ECryptoOperation::PayloadEncrypt,
+                            derivedSession.sealedOutput.left(SessionKeyBytes - 1),
+                            payload,
+                            payloadAad);
+        appendNegativeCheck(QStringLiteral("payload-encrypt-malformed-key"),
+                            E2ECryptoOperation::PayloadEncrypt,
+                            malformedPayloadEncrypt,
+                            malformedPayloadEncrypt.invoked
+                                && malformedPayloadEncrypt.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedPayloadEncrypt.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("payload-encrypt-malformed-key"),
+                            E2ECryptoOperation::PayloadEncrypt,
+                            dependencyBlockedResult(E2ECryptoOperation::PayloadEncrypt,
+                                                    QStringLiteral("session-derive-not-ready")),
+                            false);
+    }
+
     const bool roundTripPassed = canUseTable
         && readyOperationCount == cryptoOperations().size()
         && invokedOperationCount == cryptoOperations().size()
         && statusConsistentOperationCount == cryptoOperations().size()
-        && negativeCheckCount == 2
+        && negativeCheckCount == 6
         && negativeCheckPassCount == negativeCheckCount;
 
     QJsonObject status;
@@ -8621,11 +8746,6 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
                         QStringLiteral("production-provider-table-validation-blocked"));
                 return result;
             }
-            if (!bridgeReady) {
-                result.blockedReason =
-                    QStringLiteral("production-data-plane-bridge-not-ready");
-                return result;
-            }
             if (!callback) {
                 result.blockedReason =
                     QStringLiteral("production-provider-operation-pointer-missing");
@@ -8980,6 +9100,65 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
                             false);
     }
 
+    if (identityKeyPassed) {
+        const QByteArray malformedIdentityHandle =
+            identityKey.sealedOutput.left(SessionKeyBytes - 1);
+        const ProviderRunResult malformedPublicDerivation =
+            invokeOperation(E2ECryptoOperation::PublicKeyDerivation,
+                            malformedIdentityHandle,
+                            empty,
+                            empty);
+        appendNegativeCheck(QStringLiteral("public-key-derivation-malformed-handle"),
+                            E2ECryptoOperation::PublicKeyDerivation,
+                            malformedPublicDerivation,
+                            malformedPublicDerivation.invoked
+                                && malformedPublicDerivation.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedPublicDerivation.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+
+        const ProviderRunResult malformedAgreementSign =
+            invokeOperation(E2ECryptoOperation::AgreementSign,
+                            malformedIdentityHandle,
+                            agreementTranscript,
+                            empty);
+        appendNegativeCheck(QStringLiteral("public-agreement-sign-malformed-handle"),
+                            E2ECryptoOperation::AgreementSign,
+                            malformedAgreementSign,
+                            malformedAgreementSign.invoked
+                                && malformedAgreementSign.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedAgreementSign.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("public-key-derivation-malformed-handle"),
+                            E2ECryptoOperation::PublicKeyDerivation,
+                            dependencyBlockedResult(E2ECryptoOperation::PublicKeyDerivation,
+                                                    QStringLiteral("identity-generation-not-ready")),
+                            false);
+        appendNegativeCheck(QStringLiteral("public-agreement-sign-malformed-handle"),
+                            E2ECryptoOperation::AgreementSign,
+                            dependencyBlockedResult(E2ECryptoOperation::AgreementSign,
+                                                    QStringLiteral("identity-generation-not-ready")),
+                            false);
+    }
+
+    if (signaturePassed) {
+        const ProviderRunResult malformedVerifyPublicKey =
+            invokeOperation(E2ECryptoOperation::AgreementVerify,
+                            publicKey.publicOutput.left(31),
+                            agreementTranscript,
+                            signature.publicOutput);
+        appendNegativeCheck(QStringLiteral("public-agreement-verify-malformed-public-key"),
+                            E2ECryptoOperation::AgreementVerify,
+                            malformedVerifyPublicKey,
+                            malformedVerifyPublicKey.invoked
+                                && malformedVerifyPublicKey.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedVerifyPublicKey.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("public-agreement-verify-malformed-public-key"),
+                            E2ECryptoOperation::AgreementVerify,
+                            dependencyBlockedResult(E2ECryptoOperation::AgreementVerify,
+                                                    QStringLiteral("agreement-signature-input-not-ready")),
+                            false);
+    }
+
     const ProviderRunResult derivedSession = sessionKeyPassed && publicKeyPassed
         ? invokeOperation(E2ECryptoOperation::SessionDerive,
                           sessionKey.sealedOutput,
@@ -9065,13 +9244,33 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
                             false);
     }
 
+    if (sessionDerivePassed) {
+        const ProviderRunResult malformedPayloadEncrypt =
+            invokeOperation(E2ECryptoOperation::PayloadEncrypt,
+                            derivedSession.sealedOutput.left(SessionKeyBytes - 1),
+                            plaintext,
+                            payloadAad);
+        appendNegativeCheck(QStringLiteral("public-payload-encrypt-malformed-key"),
+                            E2ECryptoOperation::PayloadEncrypt,
+                            malformedPayloadEncrypt,
+                            malformedPayloadEncrypt.invoked
+                                && malformedPayloadEncrypt.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedPayloadEncrypt.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("public-payload-encrypt-malformed-key"),
+                            E2ECryptoOperation::PayloadEncrypt,
+                            dependencyBlockedResult(E2ECryptoOperation::PayloadEncrypt,
+                                                    QStringLiteral("session-derive-not-ready")),
+                            false);
+    }
+
     const bool publicPrimitiveReady = canUseTable
         && readyOperationCount == cryptoOperations().size()
         && invokedOperationCount == cryptoOperations().size()
         && publicApiMappedOperationCount == cryptoOperations().size()
         && bridgeReadyOperationCount == cryptoOperations().size()
         && statusConsistentOperationCount == cryptoOperations().size()
-        && negativeCheckCount == 2
+        && negativeCheckCount == 6
         && negativeCheckPassCount == negativeCheckCount;
 
     QJsonObject status;

@@ -191,26 +191,19 @@ bool deriveSessionKey(const qnc_e2e_operation_input_v1* input,
     return ok;
 }
 
-std::array<std::uint8_t, SessionKeyBytes> payloadKeyFromPrimary(
-    const qnc_e2e_operation_input_v1* input) {
-    std::array<std::uint8_t, SessionKeyBytes> key = {};
-    if (input && input->primary.data && input->primary.size == key.size()) {
-        std::memcpy(key.data(), input->primary.data, key.size());
-        return key;
+bool copyExactBuffer(const qnc_e2e_buffer_view_v1& view,
+                     std::uint8_t* output,
+                     std::size_t outputSize) {
+    if (!view.data || !output || view.size != outputSize) {
+        return false;
     }
+    std::memcpy(output, view.data, outputSize);
+    return true;
+}
 
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
-    static const char domain[] = "qtnetworkchat-e2e-openssl-payload-key-v1";
-    SHA256_Update(&ctx, domain, sizeof(domain) - 1);
-    if (input && input->suite_id) {
-        SHA256_Update(&ctx, input->suite_id, std::strlen(input->suite_id));
-    }
-    if (input && input->primary.data && input->primary.size > 0) {
-        SHA256_Update(&ctx, input->primary.data, input->primary.size);
-    }
-    SHA256_Final(key.data(), &ctx);
-    return key;
+bool copySessionKeyFromPrimary(const qnc_e2e_operation_input_v1* input,
+                               std::array<std::uint8_t, SessionKeyBytes>* key) {
+    return input && key && copyExactBuffer(input->primary, key->data(), key->size());
 }
 
 bool nonceFromAad(const qnc_e2e_operation_input_v1* input,
@@ -321,26 +314,9 @@ bool aesGcmDecrypt(const std::array<std::uint8_t, SessionKeyBytes>& key,
     return ok;
 }
 
-std::array<std::uint8_t, Ed25519SeedBytes> seedFromPrimary(
-    const qnc_e2e_operation_input_v1* input) {
-    std::array<std::uint8_t, Ed25519SeedBytes> seed = {};
-    if (input && input->primary.data && input->primary.size == seed.size()) {
-        std::memcpy(seed.data(), input->primary.data, seed.size());
-        return seed;
-    }
-
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
-    static const char domain[] = "qtnetworkchat-e2e-openssl-ed25519-seed-v1";
-    SHA256_Update(&ctx, domain, sizeof(domain) - 1);
-    if (input && input->suite_id) {
-        SHA256_Update(&ctx, input->suite_id, std::strlen(input->suite_id));
-    }
-    if (input && input->primary.data && input->primary.size > 0) {
-        SHA256_Update(&ctx, input->primary.data, input->primary.size);
-    }
-    SHA256_Final(seed.data(), &ctx);
-    return seed;
+bool copySeedFromPrimary(const qnc_e2e_operation_input_v1* input,
+                         std::array<std::uint8_t, Ed25519SeedBytes>* seed) {
+    return input && seed && copyExactBuffer(input->primary, seed->data(), seed->size());
 }
 
 qnc_e2e_status_t unsupportedOperation(qnc_e2e_operation_output_v1* output) {
@@ -406,12 +382,15 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_public_key_derivation_v1(
     if (!hasBasicInput(input, output, QNC_E2E_OPERATION_PUBLIC_KEY_DERIVATION)) {
         return QNC_E2E_STATUS_INVALID_INPUT;
     }
-    if (!input->primary.data || input->primary.size == 0) {
+    if (!input->primary.data || input->primary.size != Ed25519SeedBytes) {
         return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-private-identity-handle");
     }
 
     static thread_local std::array<std::uint8_t, Ed25519PublicKeyBytes> derivedPublic = {};
-    const std::array<std::uint8_t, Ed25519SeedBytes> seed = seedFromPrimary(input);
+    std::array<std::uint8_t, Ed25519SeedBytes> seed = {};
+    if (!copySeedFromPrimary(input, &seed)) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "invalid-private-identity-handle");
+    }
     if (!deriveEd25519PublicKey(seed, &derivedPublic)) {
         return reject(output, QNC_E2E_STATUS_REJECTED, "public-key-derivation-failed");
     }
@@ -430,13 +409,16 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_agreement_sign_v1(
     if (!hasBasicInput(input, output, QNC_E2E_OPERATION_AGREEMENT_SIGN)) {
         return QNC_E2E_STATUS_INVALID_INPUT;
     }
-    if (!input->primary.data || input->primary.size == 0
+    if (!input->primary.data || input->primary.size != Ed25519SeedBytes
         || !input->secondary.data || input->secondary.size == 0) {
         return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-signing-input");
     }
 
     static thread_local std::array<std::uint8_t, Ed25519SignatureBytes> signature = {};
-    const std::array<std::uint8_t, Ed25519SeedBytes> seed = seedFromPrimary(input);
+    std::array<std::uint8_t, Ed25519SeedBytes> seed = {};
+    if (!copySeedFromPrimary(input, &seed)) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "invalid-signing-key-handle");
+    }
     if (!signEd25519(seed, input->secondary, &signature)) {
         return reject(output, QNC_E2E_STATUS_REJECTED, "agreement-sign-failed");
     }
@@ -455,20 +437,15 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_agreement_verify_v1(
     if (!hasBasicInput(input, output, QNC_E2E_OPERATION_AGREEMENT_VERIFY)) {
         return QNC_E2E_STATUS_INVALID_INPUT;
     }
-    if (!input->primary.data || input->primary.size == 0
+    if (!input->primary.data || input->primary.size != Ed25519PublicKeyBytes
         || !input->secondary.data || input->secondary.size == 0
         || !input->aad.data || input->aad.size != Ed25519SignatureBytes) {
         return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-verification-input");
     }
 
     std::array<std::uint8_t, Ed25519PublicKeyBytes> publicKey = {};
-    if (input->primary.size == publicKey.size()) {
-        std::memcpy(publicKey.data(), input->primary.data, publicKey.size());
-    } else {
-        const std::array<std::uint8_t, Ed25519SeedBytes> seed = seedFromPrimary(input);
-        if (!deriveEd25519PublicKey(seed, &publicKey)) {
-            return reject(output, QNC_E2E_STATUS_REJECTED, "agreement-public-derivation-failed");
-        }
+    if (!copyExactBuffer(input->primary, publicKey.data(), publicKey.size())) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "invalid-verification-public-key");
     }
     if (!verifyEd25519(publicKey, input->secondary, input->aad)) {
         return reject(output, QNC_E2E_STATUS_REJECTED, "agreement-signature-invalid");
@@ -508,7 +485,7 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_payload_encrypt_v1(
     if (!hasBasicInput(input, output, QNC_E2E_OPERATION_PAYLOAD_ENCRYPT)) {
         return QNC_E2E_STATUS_INVALID_INPUT;
     }
-    if (!input->primary.data || input->primary.size == 0
+    if (!input->primary.data || input->primary.size != SessionKeyBytes
         || !input->secondary.data || input->secondary.size == 0
         || !input->aad.data || input->aad.size == 0) {
         return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-payload-encrypt-input");
@@ -516,7 +493,10 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_payload_encrypt_v1(
 
     static thread_local std::array<std::uint8_t, AesGcmNonceBytes + AesGcmTagBytes + MaxProbePayloadBytes> sealed = {};
     static thread_local std::size_t sealedSize = 0;
-    const std::array<std::uint8_t, SessionKeyBytes> key = payloadKeyFromPrimary(input);
+    std::array<std::uint8_t, SessionKeyBytes> key = {};
+    if (!copySessionKeyFromPrimary(input, &key)) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "invalid-payload-key-handle");
+    }
     std::array<std::uint8_t, AesGcmNonceBytes> nonce = {};
     if (!nonceFromAad(input, &nonce)
         || !aesGcmEncrypt(key, nonce, input->secondary, input->aad, &sealed, &sealedSize)) {
@@ -537,7 +517,7 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_payload_decrypt_v1(
     if (!hasBasicInput(input, output, QNC_E2E_OPERATION_PAYLOAD_DECRYPT)) {
         return QNC_E2E_STATUS_INVALID_INPUT;
     }
-    if (!input->primary.data || input->primary.size == 0
+    if (!input->primary.data || input->primary.size != SessionKeyBytes
         || !input->secondary.data || input->secondary.size == 0
         || !input->aad.data || input->aad.size == 0) {
         return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-payload-decrypt-input");
@@ -545,7 +525,10 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_payload_decrypt_v1(
 
     static thread_local std::array<std::uint8_t, MaxProbePayloadBytes> plaintext = {};
     static thread_local std::size_t plaintextSize = 0;
-    const std::array<std::uint8_t, SessionKeyBytes> key = payloadKeyFromPrimary(input);
+    std::array<std::uint8_t, SessionKeyBytes> key = {};
+    if (!copySessionKeyFromPrimary(input, &key)) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "invalid-payload-key-handle");
+    }
     if (!aesGcmDecrypt(key, input->secondary, input->aad, &plaintext, &plaintextSize)) {
         return reject(output, QNC_E2E_STATUS_REJECTED, "payload-decrypt-failed");
     }

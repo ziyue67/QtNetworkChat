@@ -1785,7 +1785,7 @@ int main() {
                     && !firstProbeExecutionFrame.value("inputBytesCaptured").toBool(true)
                     && !firstProbeExecutionFrame.value("outputBytesCaptured").toBool(true)
                     && firstProbeExecutionFrame.value("resultCaptured").toBool(false)
-                    && firstProbeExecutionFrame.value("primaryInputSize").toInt() == 26
+                    && firstProbeExecutionFrame.value("primaryInputSize").toInt() == 32
                     && firstProbeExecutionFrame.value("secondaryInputSize").toInt() == 28
                     && firstProbeExecutionFrame.value("aadInputSize").toInt() == 22
                     && firstProbeExecutionFrame.value("timeoutPolicy").toString()
