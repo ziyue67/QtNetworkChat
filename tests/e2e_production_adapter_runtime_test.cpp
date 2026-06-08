@@ -36,6 +36,9 @@ int main() {
     const bool expectedStructuralGateAccepted = reviewedProviderOperationsBound;
     const bool expectedProviderProbeAccepted = reviewedProviderOperationsBound;
     const bool expectedProviderControlGateAccepted = reviewedProviderOperationsBound;
+    const int expectedReviewedEvidenceReadyCount = reviewedProviderOperationsBound ? 8 : 0;
+    const int expectedReviewedEvidenceBlockedCount = reviewedProviderOperationsBound ? 0 : 8;
+    const bool expectedReviewedEvidenceSourceCaptured = reviewedProviderOperationsBound;
     const bool expectedProductionReady = reviewedProviderOperationsBound;
     const bool expectedAvailable = reviewedProviderOperationsBound;
     const QString expectedReason = reviewedProviderOperationsBound
@@ -872,15 +875,24 @@ int main() {
                         == QStringLiteral("production-provider-reviewed-execution-candidate-not-release-gate")
                     && !providerReviewedExecutionCandidate.value("accepted").toBool(true)
                     && providerReviewedExecutionCandidate.value("candidateNonReleaseGate").toBool(false)
-                    && !providerReviewedExecutionCandidate.value("probeSourceCaptured").toBool(true)
+                    && providerReviewedExecutionCandidate.value("probeSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedExecutionCandidate.value("candidateCount").toInt() == 8
-                    && providerReviewedExecutionCandidate.value("candidateReadyCount").toInt() == 0
-                    && providerReviewedExecutionCandidate.value("blockedCandidateCount").toInt() == 8
-                    && providerReviewedExecutionCandidate.value("probeMatrixMatchedCount").toInt() == 0
-                    && providerReviewedExecutionCandidate.value("candidateSanitizedCount").toInt() == 0
-                    && providerReviewedExecutionCandidate.value("candidateEntrypointCount").toInt() == 0
+                    && providerReviewedExecutionCandidate.value("candidateReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedExecutionCandidate.value("blockedCandidateCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedExecutionCandidate.value("probeMatrixMatchedCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedExecutionCandidate.value("candidateSanitizedCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedExecutionCandidate.value("candidateEntrypointCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
                     && providerReviewedExecutionCandidate.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-candidate-awaiting-explicit-probe")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-candidates-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-candidate-awaiting-explicit-probe"))
                     && providerReviewedExecutionCandidate.value("candidates").toArray().size() == 8
                     && !providerReviewedExecutionCandidate.value("operationInvokedByCandidate").toBool(true)
                     && !providerReviewedExecutionCandidate.value("inputBytesCaptured").toBool(true)
@@ -888,20 +900,27 @@ int main() {
                     && !providerReviewedExecutionCandidate.value("rawKeyExported").toBool(true)
                     && !providerReviewedExecutionCandidate.value("privateMaterialExported").toBool(true)
                     && !providerReviewedExecutionCandidate.value("sessionSecretExported").toBool(true),
-                "production reviewed execution candidate should stay blocked until an explicit sanitized probe is captured") && ok;
+                "production reviewed execution candidate status should reflect sanitized provider probe evidence") && ok;
     ok = expect(providerReviewedCallHandoff.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-call-handoff-v1")
                     && providerReviewedCallHandoff.value("releaseGate").toString()
                         == QStringLiteral("production-provider-reviewed-call-handoff-not-release-gate")
                     && !providerReviewedCallHandoff.value("accepted").toBool(true)
                     && providerReviewedCallHandoff.value("handoffNonReleaseGate").toBool(false)
-                    && !providerReviewedCallHandoff.value("candidateSourceCaptured").toBool(true)
+                    && providerReviewedCallHandoff.value("candidateSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedCallHandoff.value("handoffCount").toInt() == 8
-                    && providerReviewedCallHandoff.value("readyHandoffCount").toInt() == 0
-                    && providerReviewedCallHandoff.value("blockedHandoffCount").toInt() == 8
-                    && providerReviewedCallHandoff.value("failClosedHandoffCount").toInt() == 8
+                    && providerReviewedCallHandoff.value("readyHandoffCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedCallHandoff.value("blockedHandoffCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedCallHandoff.value("failClosedHandoffCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerReviewedCallHandoff.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-call-handoff-awaiting-candidate")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-call-handoffs-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-call-handoff-awaiting-candidate"))
                     && providerReviewedCallHandoff.value("handoffs").toArray().size() == 8
                     && !providerReviewedCallHandoff.value("operationInvokedByHandoff").toBool(true)
                     && !providerReviewedCallHandoff.value("inputBytesCaptured").toBool(true)
@@ -910,20 +929,27 @@ int main() {
                     && !providerReviewedCallHandoff.value("rawKeyExported").toBool(true)
                     && !providerReviewedCallHandoff.value("privateMaterialExported").toBool(true)
                     && !providerReviewedCallHandoff.value("sessionSecretExported").toBool(true),
-                "production reviewed call handoff should stay blocked until reviewed candidates exist") && ok;
+                "production reviewed call handoff status should follow sanitized candidate evidence") && ok;
     ok = expect(providerReviewedOperationStubBoundary.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-stub-boundary-v1")
                     && providerReviewedOperationStubBoundary.value("releaseGate").toString()
                         == QStringLiteral("production-provider-reviewed-operation-stub-not-release-gate")
                     && !providerReviewedOperationStubBoundary.value("accepted").toBool(true)
                     && providerReviewedOperationStubBoundary.value("stubNonReleaseGate").toBool(false)
-                    && !providerReviewedOperationStubBoundary.value("handoffSourceCaptured").toBool(true)
+                    && providerReviewedOperationStubBoundary.value("handoffSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedOperationStubBoundary.value("stubCount").toInt() == 8
-                    && providerReviewedOperationStubBoundary.value("readyStubCount").toInt() == 0
-                    && providerReviewedOperationStubBoundary.value("blockedStubCount").toInt() == 8
-                    && providerReviewedOperationStubBoundary.value("failClosedStubCount").toInt() == 8
+                    && providerReviewedOperationStubBoundary.value("readyStubCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedOperationStubBoundary.value("blockedStubCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedOperationStubBoundary.value("failClosedStubCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerReviewedOperationStubBoundary.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-operation-stub-awaiting-handoff")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-operation-stubs-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-operation-stub-awaiting-handoff"))
                     && providerReviewedOperationStubBoundary.value("stubs").toArray().size() == 8
                     && !providerReviewedOperationStubBoundary.value("operationInvokedByStub").toBool(true)
                     && !providerReviewedOperationStubBoundary.value("inputBytesCaptured").toBool(true)
@@ -932,20 +958,27 @@ int main() {
                     && !providerReviewedOperationStubBoundary.value("rawKeyExported").toBool(true)
                     && !providerReviewedOperationStubBoundary.value("privateMaterialExported").toBool(true)
                     && !providerReviewedOperationStubBoundary.value("sessionSecretExported").toBool(true),
-                "production reviewed operation stub boundary should stay blocked until handoff evidence exists") && ok;
+                "production reviewed operation stub boundary should follow handoff evidence") && ok;
     ok = expect(providerReviewedCallableTableBridge.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-table-bridge-v1")
                     && providerReviewedCallableTableBridge.value("releaseGate").toString()
                         == QStringLiteral("production-provider-reviewed-callable-table-bridge-not-release-gate")
                     && !providerReviewedCallableTableBridge.value("accepted").toBool(true)
                     && providerReviewedCallableTableBridge.value("bridgeNonReleaseGate").toBool(false)
-                    && !providerReviewedCallableTableBridge.value("stubSourceCaptured").toBool(true)
+                    && providerReviewedCallableTableBridge.value("stubSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedCallableTableBridge.value("bridgeCount").toInt() == 8
-                    && providerReviewedCallableTableBridge.value("readyBridgeCount").toInt() == 0
-                    && providerReviewedCallableTableBridge.value("blockedBridgeCount").toInt() == 8
-                    && providerReviewedCallableTableBridge.value("failClosedBridgeCount").toInt() == 8
+                    && providerReviewedCallableTableBridge.value("readyBridgeCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedCallableTableBridge.value("blockedBridgeCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedCallableTableBridge.value("failClosedBridgeCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerReviewedCallableTableBridge.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-callable-table-bridge-awaiting-stub")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-callable-table-bridges-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-callable-table-bridge-awaiting-stub"))
                     && providerReviewedCallableTableBridge.value("bridges").toArray().size() == 8
                     && !providerReviewedCallableTableBridge.value("operationInvokedByBridge").toBool(true)
                     && !providerReviewedCallableTableBridge.value("inputBytesCaptured").toBool(true)
@@ -954,20 +987,27 @@ int main() {
                     && !providerReviewedCallableTableBridge.value("rawKeyExported").toBool(true)
                     && !providerReviewedCallableTableBridge.value("privateMaterialExported").toBool(true)
                     && !providerReviewedCallableTableBridge.value("sessionSecretExported").toBool(true),
-                "production reviewed callable table bridge should stay blocked until stub evidence exists") && ok;
+                "production reviewed callable table bridge should follow stub evidence") && ok;
     ok = expect(providerReviewedOperationCallableInterface.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-operation-callable-interface-v1")
                     && providerReviewedOperationCallableInterface.value("releaseGate").toString()
                         == QStringLiteral("production-provider-reviewed-operation-callable-interface-not-release-gate")
                     && !providerReviewedOperationCallableInterface.value("accepted").toBool(true)
                     && providerReviewedOperationCallableInterface.value("interfaceNonReleaseGate").toBool(false)
-                    && !providerReviewedOperationCallableInterface.value("bridgeSourceCaptured").toBool(true)
+                    && providerReviewedOperationCallableInterface.value("bridgeSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedOperationCallableInterface.value("interfaceCount").toInt() == 8
-                    && providerReviewedOperationCallableInterface.value("readyInterfaceCount").toInt() == 0
-                    && providerReviewedOperationCallableInterface.value("blockedInterfaceCount").toInt() == 8
-                    && providerReviewedOperationCallableInterface.value("failClosedInterfaceCount").toInt() == 8
+                    && providerReviewedOperationCallableInterface.value("readyInterfaceCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedOperationCallableInterface.value("blockedInterfaceCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedOperationCallableInterface.value("failClosedInterfaceCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerReviewedOperationCallableInterface.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-operation-callable-interface-awaiting-bridge")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-operation-callable-interfaces-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-operation-callable-interface-awaiting-bridge"))
                     && providerReviewedOperationCallableInterface.value("interfaces").toArray().size() == 8
                     && !providerReviewedOperationCallableInterface.value("operationInvokedByInterface").toBool(true)
                     && !providerReviewedOperationCallableInterface.value("inputBytesCaptured").toBool(true)
@@ -976,20 +1016,27 @@ int main() {
                     && !providerReviewedOperationCallableInterface.value("rawKeyExported").toBool(true)
                     && !providerReviewedOperationCallableInterface.value("privateMaterialExported").toBool(true)
                     && !providerReviewedOperationCallableInterface.value("sessionSecretExported").toBool(true),
-                "production reviewed operation callable interface should stay blocked until bridge evidence exists") && ok;
+                "production reviewed operation callable interface should follow table bridge evidence") && ok;
     ok = expect(providerReviewedCallableRuntimePreflight.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-runtime-preflight-v1")
                     && providerReviewedCallableRuntimePreflight.value("releaseGate").toString()
                         == QStringLiteral("production-provider-reviewed-callable-runtime-preflight-not-release-gate")
                     && !providerReviewedCallableRuntimePreflight.value("accepted").toBool(true)
                     && providerReviewedCallableRuntimePreflight.value("runtimePreflightNonReleaseGate").toBool(false)
-                    && !providerReviewedCallableRuntimePreflight.value("interfaceSourceCaptured").toBool(true)
+                    && providerReviewedCallableRuntimePreflight.value("interfaceSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedCallableRuntimePreflight.value("preflightCount").toInt() == 8
-                    && providerReviewedCallableRuntimePreflight.value("readyPreflightCount").toInt() == 0
-                    && providerReviewedCallableRuntimePreflight.value("blockedPreflightCount").toInt() == 8
-                    && providerReviewedCallableRuntimePreflight.value("failClosedPreflightCount").toInt() == 8
+                    && providerReviewedCallableRuntimePreflight.value("readyPreflightCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedCallableRuntimePreflight.value("blockedPreflightCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedCallableRuntimePreflight.value("failClosedPreflightCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerReviewedCallableRuntimePreflight.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-callable-runtime-preflight-awaiting-interface")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-callable-runtime-preflight-awaiting-interface"))
                     && providerReviewedCallableRuntimePreflight.value("preflights").toArray().size() == 8
                     && !providerReviewedCallableRuntimePreflight.value("operationInvokedByRuntimePreflight").toBool(true)
                     && !providerReviewedCallableRuntimePreflight.value("inputBytesCaptured").toBool(true)
@@ -998,20 +1045,27 @@ int main() {
                     && !providerReviewedCallableRuntimePreflight.value("rawKeyExported").toBool(true)
                     && !providerReviewedCallableRuntimePreflight.value("privateMaterialExported").toBool(true)
                     && !providerReviewedCallableRuntimePreflight.value("sessionSecretExported").toBool(true),
-                "production reviewed callable runtime preflight should stay blocked until interface evidence exists") && ok;
+                "production reviewed callable runtime preflight should follow callable interface evidence") && ok;
     ok = expect(providerReviewedInvocationArming.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-arming-v1")
                     && providerReviewedInvocationArming.value("releaseGate").toString()
                         == QStringLiteral("production-provider-reviewed-invocation-arming-not-release-gate")
                     && !providerReviewedInvocationArming.value("accepted").toBool(true)
                     && providerReviewedInvocationArming.value("invocationArmingNonReleaseGate").toBool(false)
-                    && !providerReviewedInvocationArming.value("runtimePreflightSourceCaptured").toBool(true)
+                    && providerReviewedInvocationArming.value("runtimePreflightSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedInvocationArming.value("armingCount").toInt() == 8
-                    && providerReviewedInvocationArming.value("readyArmingCount").toInt() == 0
-                    && providerReviewedInvocationArming.value("blockedArmingCount").toInt() == 8
-                    && providerReviewedInvocationArming.value("failClosedArmingCount").toInt() == 8
+                    && providerReviewedInvocationArming.value("readyArmingCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedInvocationArming.value("blockedArmingCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedInvocationArming.value("failClosedArmingCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerReviewedInvocationArming.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-invocation-arming-awaiting-runtime-preflight")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-invocation-armings-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-invocation-arming-awaiting-runtime-preflight"))
                     && providerReviewedInvocationArming.value("armings").toArray().size() == 8
                     && !providerReviewedInvocationArming.value("operationInvokedByArming").toBool(true)
                     && !providerReviewedInvocationArming.value("inputBytesCaptured").toBool(true)
@@ -1020,20 +1074,27 @@ int main() {
                     && !providerReviewedInvocationArming.value("rawKeyExported").toBool(true)
                     && !providerReviewedInvocationArming.value("privateMaterialExported").toBool(true)
                     && !providerReviewedInvocationArming.value("sessionSecretExported").toBool(true),
-                "production reviewed invocation arming should stay blocked until runtime preflight evidence exists") && ok;
+                "production reviewed invocation arming should follow runtime preflight evidence") && ok;
     ok = expect(providerReviewedInvocationExecutionAcceptance.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-execution-acceptance-v1")
                     && providerReviewedInvocationExecutionAcceptance.value("releaseGate").toString()
                         == QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-not-release-gate")
                     && !providerReviewedInvocationExecutionAcceptance.value("accepted").toBool(true)
                     && providerReviewedInvocationExecutionAcceptance.value("executionAcceptanceNonReleaseGate").toBool(false)
-                    && !providerReviewedInvocationExecutionAcceptance.value("armingSourceCaptured").toBool(true)
+                    && providerReviewedInvocationExecutionAcceptance.value("armingSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerReviewedInvocationExecutionAcceptance.value("acceptanceCount").toInt() == 8
-                    && providerReviewedInvocationExecutionAcceptance.value("readyAcceptanceCount").toInt() == 0
-                    && providerReviewedInvocationExecutionAcceptance.value("blockedAcceptanceCount").toInt() == 8
-                    && providerReviewedInvocationExecutionAcceptance.value("failClosedAcceptanceCount").toInt() == 8
+                    && providerReviewedInvocationExecutionAcceptance.value("readyAcceptanceCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerReviewedInvocationExecutionAcceptance.value("blockedAcceptanceCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerReviewedInvocationExecutionAcceptance.value("failClosedAcceptanceCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerReviewedInvocationExecutionAcceptance.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-awaiting-arming")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-invocation-execution-acceptances-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-awaiting-arming"))
                     && providerReviewedInvocationExecutionAcceptance.value("acceptances").toArray().size() == 8
                     && !providerReviewedInvocationExecutionAcceptance.value("operationInvokedByExecutionAcceptance").toBool(true)
                     && !providerReviewedInvocationExecutionAcceptance.value("inputBytesCaptured").toBool(true)
@@ -1042,21 +1103,28 @@ int main() {
                     && !providerReviewedInvocationExecutionAcceptance.value("rawKeyExported").toBool(true)
                     && !providerReviewedInvocationExecutionAcceptance.value("privateMaterialExported").toBool(true)
                     && !providerReviewedInvocationExecutionAcceptance.value("sessionSecretExported").toBool(true),
-                "production reviewed invocation execution acceptance should stay blocked until arming evidence exists") && ok;
+                "production reviewed invocation execution acceptance should follow arming evidence") && ok;
     ok = expect(providerDataPlaneBridge.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-data-plane-bridge-v1")
                     && providerDataPlaneBridge.value("releaseGate").toString()
                         == QStringLiteral("production-provider-data-plane-bridge-not-release-gate")
                     && !providerDataPlaneBridge.value("accepted").toBool(true)
                     && providerDataPlaneBridge.value("dataPlaneBridgeNonReleaseGate").toBool(false)
-                    && !providerDataPlaneBridge.value("acceptanceSourceCaptured").toBool(true)
+                    && providerDataPlaneBridge.value("acceptanceSourceCaptured")
+                        .toBool(!expectedReviewedEvidenceSourceCaptured)
+                            == expectedReviewedEvidenceSourceCaptured
                     && providerDataPlaneBridge.value("bridgeCount").toInt() == 8
-                    && providerDataPlaneBridge.value("readyBridgeCount").toInt() == 0
-                    && providerDataPlaneBridge.value("blockedBridgeCount").toInt() == 8
-                    && providerDataPlaneBridge.value("failClosedBridgeCount").toInt() == 8
+                    && providerDataPlaneBridge.value("readyBridgeCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerDataPlaneBridge.value("blockedBridgeCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerDataPlaneBridge.value("failClosedBridgeCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerDataPlaneBridge.value("bridges").toArray().size() == 8
                     && providerDataPlaneBridge.value("blockedReason").toString()
-                        == QStringLiteral("production-provider-data-plane-bridge-awaiting-execution-acceptance")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-data-plane-bridges-awaiting-audit-release-gate")
+                            : QStringLiteral("production-provider-data-plane-bridge-awaiting-execution-acceptance"))
                     && !providerDataPlaneBridge.value("publicApiInvoked").toBool(true)
                     && !providerDataPlaneBridge.value("providerInvokedByBridge").toBool(true)
                     && !providerDataPlaneBridge.value("inputBytesCaptured").toBool(true)
@@ -1065,7 +1133,7 @@ int main() {
                     && !providerDataPlaneBridge.value("rawKeyExported").toBool(true)
                     && !providerDataPlaneBridge.value("privateMaterialExported").toBool(true)
                     && !providerDataPlaneBridge.value("sessionSecretExported").toBool(true),
-                "production data-plane bridge should stay blocked until execution acceptance evidence exists") && ok;
+                "production data-plane bridge should follow reviewed execution acceptance evidence") && ok;
     ok = expect(providerPublicPrimitiveExecution.value("schema").toString()
                     == QStringLiteral("qtnetworkchat-e2e-production-provider-public-primitive-execution-v1")
                     && providerPublicPrimitiveExecution.value("releaseGate").toString()
@@ -1074,12 +1142,17 @@ int main() {
                     && providerPublicPrimitiveExecution.value("publicPrimitiveExecutionNonReleaseGate").toBool(false)
                     && providerPublicPrimitiveExecution.value("bridgeSourceCaptured").toBool(false)
                     && providerPublicPrimitiveExecution.value("executionCount").toInt() == 8
-                    && providerPublicPrimitiveExecution.value("readyExecutionCount").toInt() == 0
-                    && providerPublicPrimitiveExecution.value("blockedExecutionCount").toInt() == 8
-                    && providerPublicPrimitiveExecution.value("failClosedExecutionCount").toInt() == 8
+                    && providerPublicPrimitiveExecution.value("readyExecutionCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && providerPublicPrimitiveExecution.value("blockedExecutionCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && providerPublicPrimitiveExecution.value("failClosedExecutionCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && providerPublicPrimitiveExecution.value("executions").toArray().size() == 8
                     && providerPublicPrimitiveExecution.value("blockedReason").toString()
-                        == QStringLiteral("production-public-primitive-execution-evidence-blocked")
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-public-primitive-executions-awaiting-explicit-probe")
+                            : QStringLiteral("production-public-primitive-execution-evidence-blocked"))
                     && !providerPublicPrimitiveExecution.value("publicApiInvoked").toBool(true)
                     && !providerPublicPrimitiveExecution.value("providerInvokedByPublicPrimitive").toBool(true)
                     && !providerPublicPrimitiveExecution.value("inputBytesCaptured").toBool(true)
@@ -1088,7 +1161,7 @@ int main() {
                     && !providerPublicPrimitiveExecution.value("rawKeyExported").toBool(true)
                     && !providerPublicPrimitiveExecution.value("privateMaterialExported").toBool(true)
                     && !providerPublicPrimitiveExecution.value("sessionSecretExported").toBool(true),
-                "production public primitive execution should stay blocked until data-plane bridge evidence exists") && ok;
+                "production public primitive execution should follow data-plane bridge evidence") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -1305,16 +1378,17 @@ int main() {
                     && acceptance.value("linked").toBool(false) == adapterLinked
                     && acceptance.value("productionReady").toBool(!expectedProductionReady)
                         == expectedProductionReady
-                    && acceptance.value("accepted").toBool(true) == false
+                    && acceptance.value("accepted").toBool(!reviewedProviderOperationsBound)
+                        == reviewedProviderOperationsBound
                     && acceptance.value("releaseGate").toString()
                         == (reviewedProviderOperationsBound
-                            ? QStringLiteral("production-provider-reviewed-call-handoff-blocked")
+                            ? QStringLiteral("production-crypto-accepted")
                             : (adapterLinked
                             ? QStringLiteral("production-operations-not-ready")
                             : QStringLiteral("production-adapter-not-linked")))
                     && acceptance.value("blockedReason").toString()
                         == (reviewedProviderOperationsBound
-                            ? QStringLiteral("production-provider-reviewed-call-handoff-awaiting-candidate")
+                            ? QString()
                             : expectedReason)
                     && acceptance.value("operationContractComplete").toBool(false)
                     && acceptance.value("registeredOperationCount").toInt() == 8
@@ -1374,13 +1448,35 @@ int main() {
                         .toBool(!expectedProviderProbeAccepted) == expectedProviderProbeAccepted
                     && acceptance.value("implementedOperationCount").toInt()
                         == reviewedCandidateCount
-                    && acceptance.value("providerDataPlaneBridgeReadyCount").toInt() == 0
-                    && acceptance.value("providerDataPlaneBridgeBlockedCount").toInt() == 8
+                    && acceptance.value("providerReviewedExecutionCandidateReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerReviewedCallHandoffReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerReviewedOperationStubBoundaryReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerReviewedCallableTableBridgeReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerReviewedOperationCallableInterfaceReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerReviewedCallableRuntimePreflightReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerReviewedInvocationArmingReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerReviewedInvocationExecutionAcceptanceReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerDataPlaneBridgeReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerDataPlaneBridgeBlockedCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
                     && acceptance.value("providerDataPlaneBridge").toObject()
                         .value("bridges").toArray().size() == 8
-                    && acceptance.value("providerPublicPrimitiveExecutionReadyCount").toInt() == 0
-                    && acceptance.value("providerPublicPrimitiveExecutionBlockedCount").toInt() == 8
-                    && acceptance.value("providerPublicPrimitiveExecutionReady").toBool(true) == false
+                    && acceptance.value("providerPublicPrimitiveExecutionReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && acceptance.value("providerPublicPrimitiveExecutionBlockedCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && acceptance.value("providerPublicPrimitiveExecutionReady")
+                        .toBool(!reviewedProviderOperationsBound)
+                            == reviewedProviderOperationsBound
                     && acceptance.value("providerPublicPrimitiveExecution").toObject()
                         .value("executions").toArray().size() == 8
                     && !acceptance.value("rawKeyExported").toBool(true)

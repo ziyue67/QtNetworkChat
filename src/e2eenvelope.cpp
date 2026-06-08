@@ -6210,7 +6210,12 @@ QJsonObject productionProviderReviewedExecutionCandidateStatusFromProbe(
 
 QJsonObject productionProviderReviewedExecutionCandidateStatusForDescriptor(
     const E2ECryptoAdapterDescriptor& descriptor) {
-    return productionProviderReviewedExecutionCandidateStatusFromProbe(descriptor, QJsonObject());
+    const QJsonObject invocationExecutionProbe = descriptor.linked && descriptor.productionReady
+        ? productionProviderInvocationExecutionProbeForDescriptor(descriptor)
+        : QJsonObject();
+    return productionProviderReviewedExecutionCandidateStatusFromProbe(
+        descriptor,
+        invocationExecutionProbe);
 }
 
 QString providerReviewedCallHandoffBlockedReason(const QJsonObject& candidate,
@@ -10362,7 +10367,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && providerReviewedCallableRuntimePreflightReady
         && providerReviewedInvocationArmingReady
         && providerReviewedInvocationExecutionAcceptanceReady
-        && providerDataPlaneBridgeReady;
+        && providerDataPlaneBridgeReady
+        && providerPublicPrimitiveExecutionReady;
 
     QString releaseGate;
     QString blockedReason;
@@ -10494,6 +10500,12 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-provider-data-plane-bridge-blocked");
         blockedReason = providerDataPlaneBridge.value(QStringLiteral("blockedReason")).toString();
         operatorAction = providerDataPlaneBridge.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerPublicPrimitiveExecutionReady) {
+        releaseGate = QStringLiteral("production-provider-public-primitive-execution-blocked");
+        blockedReason =
+            providerPublicPrimitiveExecution.value(QStringLiteral("blockedReason")).toString();
+        operatorAction =
+            providerPublicPrimitiveExecution.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
