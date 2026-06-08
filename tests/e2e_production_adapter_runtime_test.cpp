@@ -160,6 +160,8 @@ int main() {
         status.value("productionProviderReviewedInvocationArming").toObject();
     const QJsonObject providerReviewedInvocationExecutionAcceptance =
         status.value("productionProviderReviewedInvocationExecutionAcceptance").toObject();
+    const QJsonObject providerDataPlaneBridge =
+        status.value("productionProviderDataPlaneBridge").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -1030,6 +1032,29 @@ int main() {
                     && !providerReviewedInvocationExecutionAcceptance.value("privateMaterialExported").toBool(true)
                     && !providerReviewedInvocationExecutionAcceptance.value("sessionSecretExported").toBool(true),
                 "production reviewed invocation execution acceptance should stay blocked until arming evidence exists") && ok;
+    ok = expect(providerDataPlaneBridge.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-data-plane-bridge-v1")
+                    && providerDataPlaneBridge.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-data-plane-bridge-not-release-gate")
+                    && !providerDataPlaneBridge.value("accepted").toBool(true)
+                    && providerDataPlaneBridge.value("dataPlaneBridgeNonReleaseGate").toBool(false)
+                    && !providerDataPlaneBridge.value("acceptanceSourceCaptured").toBool(true)
+                    && providerDataPlaneBridge.value("bridgeCount").toInt() == 8
+                    && providerDataPlaneBridge.value("readyBridgeCount").toInt() == 0
+                    && providerDataPlaneBridge.value("blockedBridgeCount").toInt() == 8
+                    && providerDataPlaneBridge.value("failClosedBridgeCount").toInt() == 8
+                    && providerDataPlaneBridge.value("bridges").toArray().size() == 8
+                    && providerDataPlaneBridge.value("blockedReason").toString()
+                        == QStringLiteral("production-provider-data-plane-bridge-awaiting-execution-acceptance")
+                    && !providerDataPlaneBridge.value("publicApiInvoked").toBool(true)
+                    && !providerDataPlaneBridge.value("providerInvokedByBridge").toBool(true)
+                    && !providerDataPlaneBridge.value("inputBytesCaptured").toBool(true)
+                    && !providerDataPlaneBridge.value("outputBytesCaptured").toBool(true)
+                    && !providerDataPlaneBridge.value("resultCaptured").toBool(true)
+                    && !providerDataPlaneBridge.value("rawKeyExported").toBool(true)
+                    && !providerDataPlaneBridge.value("privateMaterialExported").toBool(true)
+                    && !providerDataPlaneBridge.value("sessionSecretExported").toBool(true),
+                "production data-plane bridge should stay blocked until execution acceptance evidence exists") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -1309,6 +1334,10 @@ int main() {
                         .toBool(!expectedProviderProbeAccepted) == expectedProviderProbeAccepted
                     && acceptance.value("implementedOperationCount").toInt()
                         == reviewedCandidateCount
+                    && acceptance.value("providerDataPlaneBridgeReadyCount").toInt() == 0
+                    && acceptance.value("providerDataPlaneBridgeBlockedCount").toInt() == 8
+                    && acceptance.value("providerDataPlaneBridge").toObject()
+                        .value("bridges").toArray().size() == 8
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize reviewed operation gates without enabling crypto") && ok;
@@ -1521,6 +1550,8 @@ int main() {
             e2eProbeProductionCryptoProviderReviewedInvocationArming();
         const QJsonObject executionAcceptanceProbe =
             e2eProbeProductionCryptoProviderReviewedInvocationExecutionAcceptance();
+        const QJsonObject dataPlaneBridgeProbe =
+            e2eProbeProductionCryptoProviderDataPlaneBridge();
         ok = expect(runtimePreflightProbe.value("schema").toString()
                             == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-runtime-preflight-v1")
                         && runtimePreflightProbe.value("releaseGate").toString()
@@ -1645,6 +1676,60 @@ int main() {
                         && !firstExecutionAcceptance.value("outputBytesCaptured").toBool(true)
                         && !firstExecutionAcceptance.value("resultCaptured").toBool(true),
                     "explicit reviewed execution acceptance probe should keep the first acceptance non-invoking") && ok;
+        ok = expect(dataPlaneBridgeProbe.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-data-plane-bridge-v1")
+                        && dataPlaneBridgeProbe.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-data-plane-bridge-not-release-gate")
+                        && !dataPlaneBridgeProbe.value("accepted").toBool(true)
+                        && dataPlaneBridgeProbe.value("dataPlaneBridgeNonReleaseGate").toBool(false)
+                        && dataPlaneBridgeProbe.value("acceptanceSourceCaptured").toBool(false)
+                        && dataPlaneBridgeProbe.value("providerReviewedInvocationExecutionAcceptanceReadyCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("bridgeCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("readyBridgeCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("blockedBridgeCount").toInt() == 0
+                        && dataPlaneBridgeProbe.value("publicApiMappingCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("callbackMappingCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("contractBridgeCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("sanitizedBridgeCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("failClosedBridgeCount").toInt() == 0
+                        && dataPlaneBridgeProbe.value("executionAcceptanceReadyBridgeCount").toInt() == 8
+                        && dataPlaneBridgeProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-data-plane-bridges-awaiting-audit-release-gate")
+                        && dataPlaneBridgeProbe.value("bridges").toArray().size() == 8
+                        && !dataPlaneBridgeProbe.value("publicApiInvoked").toBool(true)
+                        && !dataPlaneBridgeProbe.value("providerInvokedByBridge").toBool(true)
+                        && !dataPlaneBridgeProbe.value("inputBytesCaptured").toBool(true)
+                        && !dataPlaneBridgeProbe.value("outputBytesCaptured").toBool(true)
+                        && !dataPlaneBridgeProbe.value("resultCaptured").toBool(true)
+                        && !dataPlaneBridgeProbe.value("rawKeyExported").toBool(true)
+                        && !dataPlaneBridgeProbe.value("privateMaterialExported").toBool(true)
+                        && !dataPlaneBridgeProbe.value("sessionSecretExported").toBool(true),
+                    "explicit production data-plane bridge probe should map eight public APIs without invoking them") && ok;
+        const QJsonObject firstDataPlaneBridge =
+            dataPlaneBridgeProbe.value("bridges").toArray().at(0).toObject();
+        ok = expect(firstDataPlaneBridge.value("operation").toString()
+                            == QStringLiteral("session-key-generation")
+                        && firstDataPlaneBridge.value("publicApi").toString()
+                            == QStringLiteral("generateE2ESessionKey")
+                        && firstDataPlaneBridge.value("publicDataPlaneBoundary").toString()
+                            == QStringLiteral("session-key-bootstrap")
+                        && firstDataPlaneBridge.value("callbackEntrypoint").toString()
+                            == QStringLiteral("qnc_e2e_provider_table_v1/qnc_e2e_op_session_key_generation_v1")
+                        && firstDataPlaneBridge.value("bridgeState").toString()
+                            == QStringLiteral("ready-for-reviewed-production-data-plane-bridge")
+                        && firstDataPlaneBridge.value("dataPlaneBridgeReady").toBool(false)
+                        && firstDataPlaneBridge.value("publicApiMapped").toBool(false)
+                        && firstDataPlaneBridge.value("callbackMapped").toBool(false)
+                        && firstDataPlaneBridge.value("contractReady").toBool(false)
+                        && firstDataPlaneBridge.value("bridgeSanitized").toBool(false)
+                        && firstDataPlaneBridge.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-data-plane-bridges-awaiting-audit-release-gate")
+                        && !firstDataPlaneBridge.value("publicApiInvoked").toBool(true)
+                        && !firstDataPlaneBridge.value("providerInvokedByBridge").toBool(true)
+                        && !firstDataPlaneBridge.value("inputBytesCaptured").toBool(true)
+                        && !firstDataPlaneBridge.value("outputBytesCaptured").toBool(true)
+                        && !firstDataPlaneBridge.value("resultCaptured").toBool(true),
+                    "explicit data-plane bridge should keep the first public primitive mapped but non-invoking") && ok;
     }
 
     const QJsonObject roundTripExecutionProbe =

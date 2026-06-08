@@ -485,6 +485,11 @@ QJsonObject productionProviderReviewedInvocationExecutionAcceptanceStatusForDesc
 QJsonObject productionProviderReviewedInvocationExecutionAcceptanceStatusFromArming(
     const E2ECryptoAdapterDescriptor& descriptor,
     const QJsonObject& reviewedInvocationArming);
+QJsonObject productionProviderDataPlaneBridgeStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor);
+QJsonObject productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedInvocationExecutionAcceptance);
 QString productionOperationProviderSymbol(E2ECryptoOperation operation);
 QString productionOperationProviderAbiSignature(E2ECryptoOperation operation);
 QJsonObject providerTableValidationStatus(const qnc_e2e_provider_table_v1* table);
@@ -877,6 +882,50 @@ QString productionOperationMigrationPhase(E2ECryptoOperation operation) {
     case E2ECryptoOperation::PayloadEncrypt:
     case E2ECryptoOperation::PayloadDecrypt:
         return QStringLiteral("payload-data-plane");
+    }
+    return QStringLiteral("unknown");
+}
+
+QString productionOperationPublicApi(E2ECryptoOperation operation) {
+    switch (operation) {
+    case E2ECryptoOperation::SessionKeyGeneration:
+        return QStringLiteral("generateE2ESessionKey");
+    case E2ECryptoOperation::IdentityKeyGeneration:
+        return QStringLiteral("generateE2EPrivateKey");
+    case E2ECryptoOperation::PublicKeyDerivation:
+        return QStringLiteral("e2ePublicKeyFromPrivateKey");
+    case E2ECryptoOperation::AgreementSign:
+        return QStringLiteral("signE2EKeyAgreement");
+    case E2ECryptoOperation::AgreementVerify:
+        return QStringLiteral("verifyE2EKeyAgreementSignature");
+    case E2ECryptoOperation::SessionDerive:
+        return QStringLiteral("deriveE2EAuthenticatedSessionKey");
+    case E2ECryptoOperation::PayloadEncrypt:
+        return QStringLiteral("encryptE2EPayload");
+    case E2ECryptoOperation::PayloadDecrypt:
+        return QStringLiteral("decryptE2EPayload");
+    }
+    return QStringLiteral("unknown");
+}
+
+QString productionOperationPublicDataPlaneBoundary(E2ECryptoOperation operation) {
+    switch (operation) {
+    case E2ECryptoOperation::SessionKeyGeneration:
+        return QStringLiteral("session-key-bootstrap");
+    case E2ECryptoOperation::IdentityKeyGeneration:
+        return QStringLiteral("local-identity-bootstrap");
+    case E2ECryptoOperation::PublicKeyDerivation:
+        return QStringLiteral("identity-public-announcement");
+    case E2ECryptoOperation::AgreementSign:
+        return QStringLiteral("authenticated-key-agreement-sign");
+    case E2ECryptoOperation::AgreementVerify:
+        return QStringLiteral("authenticated-key-agreement-verify");
+    case E2ECryptoOperation::SessionDerive:
+        return QStringLiteral("authenticated-session-derive");
+    case E2ECryptoOperation::PayloadEncrypt:
+        return QStringLiteral("payload-envelope-encrypt");
+    case E2ECryptoOperation::PayloadDecrypt:
+        return QStringLiteral("payload-envelope-decrypt");
     }
     return QStringLiteral("unknown");
 }
@@ -7766,6 +7815,265 @@ QJsonObject productionProviderReviewedInvocationExecutionAcceptanceStatusForDesc
         productionProviderReviewedInvocationArmingStatusForDescriptor(descriptor));
 }
 
+QString providerDataPlaneBridgeBlockedReason(const QJsonObject& executionAcceptance,
+                                             bool acceptanceSourceCaptured,
+                                             bool executionAcceptanceReady,
+                                             bool publicApiMapped,
+                                             bool contractReady,
+                                             bool bridgeSanitized) {
+    if (!acceptanceSourceCaptured) {
+        return QStringLiteral("production-provider-data-plane-bridge-awaiting-execution-acceptance");
+    }
+    if (!executionAcceptanceReady) {
+        return executionAcceptance.value(QStringLiteral("blockedReason")).toString(
+            QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-blocked"));
+    }
+    if (!publicApiMapped) {
+        return QStringLiteral("production-provider-data-plane-bridge-public-api-mapping-blocked");
+    }
+    if (!contractReady) {
+        return QStringLiteral("production-provider-data-plane-bridge-contract-blocked");
+    }
+    if (!bridgeSanitized) {
+        return QStringLiteral("production-provider-data-plane-bridge-sensitive-export-blocked");
+    }
+    return QStringLiteral("production-provider-data-plane-bridges-awaiting-audit-release-gate");
+}
+
+QJsonObject productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
+    const E2ECryptoAdapterDescriptor& descriptor,
+    const QJsonObject& reviewedInvocationExecutionAcceptance) {
+    const QJsonArray acceptances =
+        reviewedInvocationExecutionAcceptance.value(QStringLiteral("acceptances")).toArray();
+    const bool acceptanceSourceCaptured =
+        reviewedInvocationExecutionAcceptance.value(QStringLiteral("schema")).toString()
+            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-execution-acceptance-v1")
+        && reviewedInvocationExecutionAcceptance.value(QStringLiteral("armingSourceCaptured")).toBool(false);
+
+    QJsonArray bridges;
+    int bridgeCount = 0;
+    int readyBridgeCount = 0;
+    int blockedBridgeCount = 0;
+    int publicApiMappingCount = 0;
+    int callbackMappingCount = 0;
+    int contractBridgeCount = 0;
+    int sanitizedBridgeCount = 0;
+    int failClosedBridgeCount = 0;
+    int executionAcceptanceReadyBridgeCount = 0;
+    QJsonObject blockedReasonSummary;
+
+    int sequenceIndex = 0;
+    for (const E2ECryptoOperationSpec& spec : productionOperationSpecs()) {
+        const E2ECryptoOperation operation = spec.operation;
+        const QString operationName = cryptoOperationName(operation);
+        const QJsonObject executionAcceptance = sequenceIndex < acceptances.size()
+            ? acceptances.at(sequenceIndex).toObject()
+            : QJsonObject();
+        const QString publicApi = productionOperationPublicApi(operation);
+        const QString callbackEntrypoint =
+            QStringLiteral("qnc_e2e_provider_table_v1/%1")
+                .arg(productionOperationProviderSymbol(operation));
+        const bool executionAcceptanceReady =
+            executionAcceptance.value(QStringLiteral("executionAcceptanceReady")).toBool(false);
+        const bool publicApiMapped =
+            !publicApi.isEmpty()
+            && publicApi != QStringLiteral("unknown")
+            && executionAcceptance.value(QStringLiteral("operation")).toString() == operationName
+            && executionAcceptance.value(QStringLiteral("callbackEntrypoint")).toString()
+                == callbackEntrypoint;
+        const bool contractReady =
+            executionAcceptance.value(QStringLiteral("inputContractHashSha256")).toString().size()
+                == FingerprintHexLength
+            && executionAcceptance.value(QStringLiteral("outputContractHashSha256")).toString().size()
+                == FingerprintHexLength
+            && executionAcceptance.value(QStringLiteral("expectedStatusClass")).toString()
+                == QStringLiteral("ok")
+            && executionAcceptance.value(QStringLiteral("expectedFailureClass")).toString()
+                == QStringLiteral("none");
+        const bool bridgeSanitized =
+            executionAcceptance.value(QStringLiteral("sanitized")).toBool(false)
+            && !executionAcceptance.value(QStringLiteral("operationInvokedByExecutionAcceptance")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("inputBytesCaptured")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("outputBytesCaptured")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("resultCaptured")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("rawKeyExported")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("privateMaterialExported")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("sessionSecretExported")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("privateIdentityMaterialExported")).toBool(true)
+            && !executionAcceptance.value(QStringLiteral("fullPublicIdentityMaterialExported")).toBool(true);
+        const bool bridgeReady =
+            acceptanceSourceCaptured
+            && executionAcceptanceReady
+            && publicApiMapped
+            && contractReady
+            && bridgeSanitized;
+        const QString blockedReason =
+            providerDataPlaneBridgeBlockedReason(executionAcceptance,
+                                                 acceptanceSourceCaptured,
+                                                 executionAcceptanceReady,
+                                                 publicApiMapped,
+                                                 contractReady,
+                                                 bridgeSanitized);
+
+        QJsonObject bridge;
+        bridge[QStringLiteral("sequenceIndex")] = sequenceIndex;
+        bridge[QStringLiteral("operation")] = operationName;
+        bridge[QStringLiteral("backendId")] = descriptor.id;
+        bridge[QStringLiteral("providerId")] = descriptor.providerId;
+        bridge[QStringLiteral("operationContractVersion")] =
+            descriptor.operationContractVersion;
+        bridge[QStringLiteral("dataPlaneBridgeId")] =
+            QStringLiteral("production-data-plane-bridge/%1/%2")
+                .arg(spec.vectorSet, operationName);
+        bridge[QStringLiteral("publicApi")] = publicApi;
+        bridge[QStringLiteral("publicDataPlaneBoundary")] =
+            productionOperationPublicDataPlaneBoundary(operation);
+        bridge[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(operation);
+        bridge[QStringLiteral("callbackEntrypoint")] = callbackEntrypoint;
+        bridge[QStringLiteral("providerAbiSignature")] =
+            productionOperationProviderAbiSignature(operation);
+        bridge[QStringLiteral("reviewedInvocationExecutionAcceptance")] =
+            executionAcceptance;
+        bridge[QStringLiteral("executionAcceptanceId")] =
+            executionAcceptance.value(QStringLiteral("executionAcceptanceId")).toString(
+                QStringLiteral("reviewed-invocation-execution-acceptance/%1/%2")
+                    .arg(spec.vectorSet, operationName));
+        bridge[QStringLiteral("executionAcceptanceReady")] =
+            executionAcceptanceReady;
+        bridge[QStringLiteral("publicApiMapped")] = publicApiMapped;
+        bridge[QStringLiteral("callbackMapped")] =
+            executionAcceptance.value(QStringLiteral("callbackEntrypoint")).toString()
+                == callbackEntrypoint;
+        bridge[QStringLiteral("contractReady")] = contractReady;
+        bridge[QStringLiteral("inputContractHashSha256")] =
+            executionAcceptance.value(QStringLiteral("inputContractHashSha256")).toString();
+        bridge[QStringLiteral("outputContractHashSha256")] =
+            executionAcceptance.value(QStringLiteral("outputContractHashSha256")).toString();
+        bridge[QStringLiteral("expectedStatusClass")] =
+            executionAcceptance.value(QStringLiteral("expectedStatusClass")).toString(
+                QStringLiteral("ok"));
+        bridge[QStringLiteral("expectedFailureClass")] =
+            executionAcceptance.value(QStringLiteral("expectedFailureClass")).toString(
+                QStringLiteral("none"));
+        bridge[QStringLiteral("expectedVectorResultClass")] =
+            executionAcceptance.value(QStringLiteral("expectedVectorResultClass")).toString(
+                QStringLiteral("probe-vector-passed"));
+        bridge[QStringLiteral("resultCapturePolicy")] =
+            QStringLiteral("status-class-and-size-only");
+        bridge[QStringLiteral("materialExportPolicy")] =
+            QStringLiteral("sizes-and-status-only-no-secret-bytes");
+        bridge[QStringLiteral("bridgeState")] = bridgeReady
+            ? QStringLiteral("ready-for-reviewed-production-data-plane-bridge")
+            : QStringLiteral("production-data-plane-bridge-blocked");
+        bridge[QStringLiteral("dataPlaneBridgeReady")] = bridgeReady;
+        bridge[QStringLiteral("bridgeSanitized")] = bridgeSanitized;
+        bridge[QStringLiteral("failClosed")] = !bridgeReady;
+        bridge[QStringLiteral("blockedReason")] = blockedReason;
+        bridge[QStringLiteral("operatorAction")] = bridgeReady
+            ? QStringLiteral("audit-production-data-plane-bridge-before-release-gate")
+            : (acceptanceSourceCaptured
+                ? QStringLiteral("fix-production-data-plane-bridge-before-audit")
+                : QStringLiteral("produce-reviewed-execution-acceptance-before-data-plane-bridge"));
+        bridge[QStringLiteral("dataPlaneBridgeNonReleaseGate")] = true;
+        bridge[QStringLiteral("releaseGate")] =
+            QStringLiteral("production-provider-data-plane-bridge-not-release-gate");
+        bridge[QStringLiteral("publicApiInvoked")] = false;
+        bridge[QStringLiteral("providerInvokedByBridge")] = false;
+        bridge[QStringLiteral("inputBytesCaptured")] = false;
+        bridge[QStringLiteral("outputBytesCaptured")] = false;
+        bridge[QStringLiteral("resultCaptured")] = false;
+        bridge[QStringLiteral("rawKeyExported")] = false;
+        bridge[QStringLiteral("privateMaterialExported")] = false;
+        bridge[QStringLiteral("sessionSecretExported")] = false;
+        bridge[QStringLiteral("privateIdentityMaterialExported")] = false;
+        bridge[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+        bridges.append(bridge);
+
+        ++bridgeCount;
+        if (bridgeReady) {
+            ++readyBridgeCount;
+        } else {
+            ++blockedBridgeCount;
+            ++failClosedBridgeCount;
+        }
+        if (publicApiMapped) {
+            ++publicApiMappingCount;
+        }
+        if (bridge.value(QStringLiteral("callbackMapped")).toBool(false)) {
+            ++callbackMappingCount;
+        }
+        if (contractReady) {
+            ++contractBridgeCount;
+        }
+        if (bridgeSanitized) {
+            ++sanitizedBridgeCount;
+        }
+        if (executionAcceptanceReady) {
+            ++executionAcceptanceReadyBridgeCount;
+        }
+        incrementSummaryCount(&blockedReasonSummary, blockedReason);
+        ++sequenceIndex;
+    }
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-data-plane-bridge-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("accepted")] = false;
+    status[QStringLiteral("dataPlaneBridgeNonReleaseGate")] = true;
+    status[QStringLiteral("releaseGate")] =
+        QStringLiteral("production-provider-data-plane-bridge-not-release-gate");
+    status[QStringLiteral("acceptanceSourceCaptured")] = acceptanceSourceCaptured;
+    status[QStringLiteral("providerReviewedInvocationExecutionAcceptance")] =
+        reviewedInvocationExecutionAcceptance;
+    status[QStringLiteral("providerReviewedInvocationExecutionAcceptanceReleaseGate")] =
+        reviewedInvocationExecutionAcceptance.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerReviewedInvocationExecutionAcceptanceReadyCount")] =
+        reviewedInvocationExecutionAcceptance.value(QStringLiteral("readyAcceptanceCount")).toInt();
+    status[QStringLiteral("bridgeCount")] = bridgeCount;
+    status[QStringLiteral("readyBridgeCount")] = readyBridgeCount;
+    status[QStringLiteral("blockedBridgeCount")] = blockedBridgeCount;
+    status[QStringLiteral("publicApiMappingCount")] = publicApiMappingCount;
+    status[QStringLiteral("callbackMappingCount")] = callbackMappingCount;
+    status[QStringLiteral("contractBridgeCount")] = contractBridgeCount;
+    status[QStringLiteral("sanitizedBridgeCount")] = sanitizedBridgeCount;
+    status[QStringLiteral("failClosedBridgeCount")] = failClosedBridgeCount;
+    status[QStringLiteral("executionAcceptanceReadyBridgeCount")] =
+        executionAcceptanceReadyBridgeCount;
+    status[QStringLiteral("blockedReason")] = readyBridgeCount == bridgeCount
+        && bridgeCount == cryptoOperations().size()
+        ? QStringLiteral("production-provider-data-plane-bridges-awaiting-audit-release-gate")
+        : (acceptanceSourceCaptured
+            ? QStringLiteral("production-provider-data-plane-bridge-evidence-blocked")
+            : QStringLiteral("production-provider-data-plane-bridge-awaiting-execution-acceptance"));
+    status[QStringLiteral("operatorAction")] =
+        QStringLiteral("audit-production-data-plane-bridge-before-enabling-public-provider-dispatch");
+    status[QStringLiteral("blockedReasonSummary")] = blockedReasonSummary;
+    status[QStringLiteral("bridges")] = bridges;
+    status[QStringLiteral("publicApiInvoked")] = false;
+    status[QStringLiteral("providerInvokedByBridge")] = false;
+    status[QStringLiteral("inputBytesCaptured")] = false;
+    status[QStringLiteral("outputBytesCaptured")] = false;
+    status[QStringLiteral("resultCaptured")] = false;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    return status;
+}
+
+QJsonObject productionProviderDataPlaneBridgeStatusForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor) {
+    return productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
+        descriptor,
+        productionProviderReviewedInvocationExecutionAcceptanceStatusForDescriptor(descriptor));
+}
+
 QJsonObject productionProviderTableBindingProbeStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const QJsonObject registration =
         productionProviderTableRegistrationStatusForDescriptor(descriptor);
@@ -8364,6 +8672,8 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
             productionProviderReviewedInvocationArmingStatusForDescriptor(descriptor);
         evidence[QStringLiteral("providerReviewedInvocationExecutionAcceptance")] =
             productionProviderReviewedInvocationExecutionAcceptanceStatusForDescriptor(descriptor);
+        evidence[QStringLiteral("providerDataPlaneBridge")] =
+            productionProviderDataPlaneBridgeStatusForDescriptor(descriptor);
         evidence[QStringLiteral("operationManifestComplete")] =
             productionOperationSpecs().size() == cryptoOperations().size();
         evidence[QStringLiteral("reviewedOperationBound")] = productionShapePassed;
@@ -8490,6 +8800,8 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
         productionProviderReviewedInvocationArmingStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedInvocationExecutionAcceptance =
         productionProviderReviewedInvocationExecutionAcceptanceStatusForDescriptor(descriptor);
+    const QJsonObject providerDataPlaneBridge =
+        productionProviderDataPlaneBridgeStatusForDescriptor(descriptor);
     appendCheck(QStringLiteral("provider-table-bound"),
                 !isProduction || providerTable.value(QStringLiteral("accepted")).toBool(false),
                 isProduction
@@ -8695,6 +9007,16 @@ QJsonArray providerReadinessChecks(const E2ECryptoAdapterDescriptor& descriptor)
                 isProduction
                     ? providerReviewedInvocationExecutionAcceptance.value(QStringLiteral("operatorAction")).toString()
                     : QStringLiteral("none"));
+    appendCheck(QStringLiteral("provider-data-plane-bridge"),
+                !isProduction
+                    || providerDataPlaneBridge.value(QStringLiteral("readyBridgeCount")).toInt()
+                        == cryptoOperations().size(),
+                isProduction
+                    ? providerDataPlaneBridge.value(QStringLiteral("blockedReason")).toString()
+                    : QStringLiteral("not-production-provider"),
+                isProduction
+                    ? providerDataPlaneBridge.value(QStringLiteral("operatorAction")).toString()
+                    : QStringLiteral("none"));
     return checks;
 }
 
@@ -8811,6 +9133,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         productionProviderReviewedInvocationArmingStatusForDescriptor(descriptor);
     const QJsonObject providerReviewedInvocationExecutionAcceptance =
         productionProviderReviewedInvocationExecutionAcceptanceStatusForDescriptor(descriptor);
+    const QJsonObject providerDataPlaneBridge =
+        productionProviderDataPlaneBridgeStatusForDescriptor(descriptor);
     const bool operationContractComplete =
         descriptor.operations.size() == cryptoOperations().size();
     const bool linked = descriptor.linked;
@@ -8894,6 +9218,11 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
             == cryptoOperations().size()
         && providerReviewedInvocationExecutionAcceptance.value(QStringLiteral("acceptanceCount")).toInt()
             == cryptoOperations().size();
+    const bool providerDataPlaneBridgeReady =
+        providerDataPlaneBridge.value(QStringLiteral("readyBridgeCount")).toInt()
+            == cryptoOperations().size()
+        && providerDataPlaneBridge.value(QStringLiteral("bridgeCount")).toInt()
+            == cryptoOperations().size();
     const bool accepted = linked
         && descriptor.productionReady
         && operationContractComplete
@@ -8924,7 +9253,8 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         && providerReviewedOperationCallableInterfaceReady
         && providerReviewedCallableRuntimePreflightReady
         && providerReviewedInvocationArmingReady
-        && providerReviewedInvocationExecutionAcceptanceReady;
+        && providerReviewedInvocationExecutionAcceptanceReady
+        && providerDataPlaneBridgeReady;
 
     QString releaseGate;
     QString blockedReason;
@@ -9052,6 +9382,10 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         releaseGate = QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-blocked");
         blockedReason = providerReviewedInvocationExecutionAcceptance.value(QStringLiteral("blockedReason")).toString();
         operatorAction = providerReviewedInvocationExecutionAcceptance.value(QStringLiteral("operatorAction")).toString();
+    } else if (!providerDataPlaneBridgeReady) {
+        releaseGate = QStringLiteral("production-provider-data-plane-bridge-blocked");
+        blockedReason = providerDataPlaneBridge.value(QStringLiteral("blockedReason")).toString();
+        operatorAction = providerDataPlaneBridge.value(QStringLiteral("operatorAction")).toString();
     } else if (!noMaterialExport) {
         releaseGate = QStringLiteral("production-material-export-blocked");
         blockedReason = QStringLiteral("provider-exports-sensitive-material");
@@ -9121,6 +9455,7 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedInvocationArming;
     status[QStringLiteral("providerReviewedInvocationExecutionAcceptance")] =
         providerReviewedInvocationExecutionAcceptance;
+    status[QStringLiteral("providerDataPlaneBridge")] = providerDataPlaneBridge;
     status[QStringLiteral("operationManifestComplete")] =
         productionOperationSpecs().size() == cryptoOperations().size();
     status[QStringLiteral("implementedOperationCount")] =
@@ -9264,6 +9599,12 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
         providerReviewedInvocationExecutionAcceptance.value(QStringLiteral("blockedAcceptanceCount")).toInt();
     status[QStringLiteral("providerReviewedInvocationExecutionAcceptanceReleaseGate")] =
         providerReviewedInvocationExecutionAcceptance.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("providerDataPlaneBridgeReadyCount")] =
+        providerDataPlaneBridge.value(QStringLiteral("readyBridgeCount")).toInt();
+    status[QStringLiteral("providerDataPlaneBridgeBlockedCount")] =
+        providerDataPlaneBridge.value(QStringLiteral("blockedBridgeCount")).toInt();
+    status[QStringLiteral("providerDataPlaneBridgeReleaseGate")] =
+        providerDataPlaneBridge.value(QStringLiteral("releaseGate")).toString();
     status[QStringLiteral("readinessGate")] = descriptor.readinessGate;
     status[QStringLiteral("readinessPassed")] = readinessPassed;
     status[QStringLiteral("compatibilityGate")] =
@@ -9460,6 +9801,8 @@ QJsonObject backendDescriptor(const E2ECryptoAdapterDescriptor& descriptor,
             productionProviderInvocationVectorResultStatusForDescriptor(descriptor);
         obj["providerInvocationExecution"] =
             productionProviderInvocationExecutionStatusForDescriptor(descriptor);
+        obj["providerDataPlaneBridge"] =
+            productionProviderDataPlaneBridgeStatusForDescriptor(descriptor);
     }
     obj["linked"] = descriptor.linked;
     obj["productionReady"] = descriptor.productionReady;
@@ -9807,6 +10150,8 @@ QJsonObject e2eCryptoBackendStatus() {
         productionProviderReviewedInvocationArmingStatusForDescriptor(productionAdapterDescriptor());
     status["productionProviderReviewedInvocationExecutionAcceptance"] =
         productionProviderReviewedInvocationExecutionAcceptanceStatusForDescriptor(productionAdapterDescriptor());
+    status["productionProviderDataPlaneBridge"] =
+        productionProviderDataPlaneBridgeStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
     status["suite"] = e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
@@ -9987,6 +10332,11 @@ QJsonObject e2eProductionCryptoProviderReviewedInvocationExecutionAcceptanceStat
         .value(QStringLiteral("productionProviderReviewedInvocationExecutionAcceptance")).toObject();
 }
 
+QJsonObject e2eProductionCryptoProviderDataPlaneBridgeStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionProviderDataPlaneBridge")).toObject();
+}
+
 QJsonObject e2eProbeProductionCryptoProviderInvocationExecution() {
     return productionProviderInvocationExecutionProbeForDescriptor(productionAdapterDescriptor());
 }
@@ -10053,6 +10403,14 @@ QJsonObject e2eProbeProductionCryptoProviderReviewedInvocationExecutionAcceptanc
     return productionProviderReviewedInvocationExecutionAcceptanceStatusFromArming(
         productionAdapterDescriptor(),
         reviewedInvocationArming);
+}
+
+QJsonObject e2eProbeProductionCryptoProviderDataPlaneBridge() {
+    const QJsonObject reviewedInvocationExecutionAcceptance =
+        e2eProbeProductionCryptoProviderReviewedInvocationExecutionAcceptance();
+    return productionProviderDataPlaneBridgeStatusFromExecutionAcceptance(
+        productionAdapterDescriptor(),
+        reviewedInvocationExecutionAcceptance);
 }
 
 QJsonObject e2eProbeProductionCryptoProviderRoundTripExecution() {
