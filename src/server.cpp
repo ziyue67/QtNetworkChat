@@ -83,11 +83,17 @@ QString serverGroupFilePolicy(const QString& groupType) {
         : QStringLiteral("public-members-only");
 }
 
+bool e2eEnvelopeHeaderLooksSafe(const QJsonObject& header);
+
 void appendE2EFields(QJsonObject* obj, const Message& msg) {
     if (!obj) return;
     QString reason;
     if (msg.e2eEnvelope.isValid(&reason)) {
         (*obj)["e2eEnvelope"] = msg.e2eEnvelope.toJson();
+        (*obj)["isEncrypted"] = true;
+    } else if (!msg.e2eEnvelopeHeader.isEmpty()
+               && e2eEnvelopeHeaderLooksSafe(msg.e2eEnvelopeHeader)) {
+        (*obj)["e2eEnvelope"] = msg.e2eEnvelopeHeader;
         (*obj)["isEncrypted"] = true;
     }
     if (msg.e2eFileEncrypted) {
@@ -2449,10 +2455,19 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     msg.e2eFilePlainSize = obj["e2eFilePlainSize"].toVariant().toLongLong();
     msg.e2eFilePlainHash = obj["e2eFilePlainHash"].toString();
     if (obj.value("e2eEnvelope").isObject()) {
-        const E2EEnvelope envelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+        const QJsonObject envelopeObject = obj.value("e2eEnvelope").toObject();
+        const E2EEnvelope envelope = E2EEnvelope::fromJson(envelopeObject);
         if (envelope.isValid()) {
             msg.e2eEnvelope = envelope;
+        } else if (e2eEnvelopeHeaderLooksSafe(envelopeObject)) {
+            msg.e2eEnvelopeHeader = envelopeObject;
         }
+    }
+    if (msg.e2eFileEncrypted
+        && !msg.e2eEnvelope.isValid()
+        && msg.e2eEnvelopeHeader.isEmpty()) {
+        sendSystemNotice(socket, QStringLiteral("端到端加密文件转发失败：信封头无效"));
+        return;
     }
     const qint64 declaredChunkSize = obj["chunkSize"].toVariant().toLongLong();
     const qint64 declaredChunkCount = obj["chunkCount"].toVariant().toLongLong();
@@ -3177,7 +3192,13 @@ void Server::handleRedisLargeFileOffer(const QJsonObject& event) {
         msg.e2eFilePlainSize = event["e2eFilePlainSize"].toVariant().toLongLong();
         msg.e2eFilePlainHash = event["e2eFilePlainHash"].toString();
         if (event.value("e2eEnvelope").isObject()) {
-            msg.e2eEnvelope = E2EEnvelope::fromJson(event.value("e2eEnvelope").toObject());
+            const QJsonObject envelopeObject = event.value("e2eEnvelope").toObject();
+            const E2EEnvelope envelope = E2EEnvelope::fromJson(envelopeObject);
+            if (envelope.isValid()) {
+                msg.e2eEnvelope = envelope;
+            } else if (e2eEnvelopeHeaderLooksSafe(envelopeObject)) {
+                msg.e2eEnvelopeHeader = envelopeObject;
+            }
         }
         msg.timestamp = QDateTime::currentDateTime();
         emit newMessage(msg);

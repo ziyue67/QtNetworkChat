@@ -32,6 +32,7 @@ struct Message {
     MessageType type;
     QDateTime timestamp;
     E2EEnvelope e2eEnvelope;
+    QJsonObject e2eEnvelopeHeader;
     E2EKeyAgreement e2eKeyAgreement;
     QString e2eFileKeyId;
     QString e2eFileKeyFingerprint;

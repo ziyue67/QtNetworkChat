@@ -35,6 +35,9 @@ QByteArray Message::toJson() const {
     if (e2eEnvelope.isValid(&validationReason)) {
         obj["e2eEnvelope"] = e2eEnvelope.toJson();
         obj["isEncrypted"] = true;
+    } else if (!e2eEnvelopeHeader.isEmpty()) {
+        obj["e2eEnvelope"] = e2eEnvelopeHeader;
+        obj["isEncrypted"] = true;
     }
     if (e2eKeyAgreement.isValid(&validationReason)) {
         obj["e2eKeyAgreement"] = e2eKeyAgreement.toJson();
@@ -72,9 +75,12 @@ Message Message::fromJson(const QByteArray& json) {
     }
 
     if (obj.value("e2eEnvelope").isObject()) {
-        const E2EEnvelope envelope = E2EEnvelope::fromJson(obj.value("e2eEnvelope").toObject());
+        const QJsonObject envelopeObject = obj.value("e2eEnvelope").toObject();
+        const E2EEnvelope envelope = E2EEnvelope::fromJson(envelopeObject);
         if (envelope.isValid()) {
             msg.e2eEnvelope = envelope;
+        } else {
+            msg.e2eEnvelopeHeader = envelopeObject;
         }
     }
     if (obj.value("e2eKeyAgreement").isObject()) {

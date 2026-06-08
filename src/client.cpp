@@ -30,6 +30,9 @@ constexpr qint64 kTransferStaleTimeoutMs = 2LL * 60 * 1000;
 constexpr int kTransferCleanupIntervalMs = 30 * 1000;
 constexpr qint64 kOutgoingTransferStateMaxAgeMs = 24LL * 60 * 60 * 1000;
 const char kOutgoingTransferStateFileName[] = "outgoing_transfer_state.json";
+const char kE2EFileResumeCachePrefix[] = "e2e_file_resume_cache_";
+const char kE2EFileResumeCacheSuffix[] = ".bin";
+const char kE2EFileResumeCacheFormat[] = "qtnetworkchat-e2e-file-wire-cache-v1";
 const char kE2ETrustPinsFilePrefix[] = "e2e_trust_pins_";
 const char kE2EIdentityFilePrefix[] = "e2e_identity_";
 constexpr qsizetype kMaxE2EIdentityPublicKeyBytes = 4096;
@@ -194,6 +197,32 @@ QString outgoingTransferStateFilePath() {
     }
     QDir().mkpath(dir);
     return QDir(dir).filePath(QString::fromLatin1(kOutgoingTransferStateFileName));
+}
+
+QString safeLocalFileToken(const QString& value);
+
+QString e2eFileResumeCachePath(const QString& transferId) {
+    QString dir = appDataDir();
+    if (dir.isEmpty()) {
+        dir = QDir::currentPath();
+    }
+    QDir().mkpath(dir);
+    return QDir(dir).filePath(QString::fromLatin1(kE2EFileResumeCachePrefix)
+                              + safeLocalFileToken(transferId)
+                              + QString::fromLatin1(kE2EFileResumeCacheSuffix));
+}
+
+QString sha256Hex(const QByteArray& value) {
+    return QString::fromLatin1(QCryptographicHash::hash(value, QCryptographicHash::Sha256).toHex());
+}
+
+bool removeE2EFileResumeCache(const QString& transferId) {
+    const QString trimmedTransferId = transferId.trimmed();
+    if (trimmedTransferId.isEmpty()) {
+        return true;
+    }
+    const QString path = e2eFileResumeCachePath(trimmedTransferId);
+    return !QFile::exists(path) || QFile::remove(path);
 }
 
 QString safeLocalFileToken(const QString& value) {
@@ -400,6 +429,69 @@ bool e2eEnvelopeHeaderLooksSafe(const QJsonObject& header) {
         && tag.size() <= 128
         && header.value("aad").toString().size() <= 512
         && (!header.contains("ciphertextSha256") || isValidE2EFingerprint(header.value("ciphertextSha256").toString()));
+}
+
+QJsonObject e2eEnvelopeHeaderJson(const E2EEnvelope& envelope) {
+    QJsonObject header = envelope.toJson();
+    header.remove(QStringLiteral("ciphertext"));
+    return header;
+}
+
+bool writeE2EFileResumeCache(const QString& transferId,
+                             const QByteArray& wirePayload,
+                             const QString& expectedWireHash,
+                             QString* cachePath = nullptr) {
+    if (cachePath) cachePath->clear();
+    const QString trimmedTransferId = transferId.trimmed();
+    const QString trimmedWireHash = expectedWireHash.trimmed().toLower();
+    if (trimmedTransferId.isEmpty()
+        || wirePayload.isEmpty()
+        || !isValidE2EFingerprint(trimmedWireHash)
+        || sha256Hex(wirePayload).compare(trimmedWireHash, Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+
+    const QString path = e2eFileResumeCachePath(trimmedTransferId);
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    if (file.write(wirePayload) != wirePayload.size() || !file.commit()) {
+        return false;
+    }
+    if (cachePath) *cachePath = path;
+    return true;
+}
+
+bool loadE2EFileResumeCache(const QString& transferId,
+                            const QString& expectedWireHash,
+                            qint64 expectedWireSize,
+                            QByteArray* wirePayload,
+                            QString* rejectReason = nullptr) {
+    if (wirePayload) wirePayload->clear();
+    if (rejectReason) rejectReason->clear();
+    const QString trimmedTransferId = transferId.trimmed();
+    const QString trimmedWireHash = expectedWireHash.trimmed().toLower();
+    if (trimmedTransferId.isEmpty()
+        || expectedWireSize <= 0
+        || !isValidE2EFingerprint(trimmedWireHash)) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-resume-cache-invalid");
+        return false;
+    }
+
+    QFile file(e2eFileResumeCachePath(trimmedTransferId));
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-resume-cache-missing");
+        return false;
+    }
+    const QByteArray payload = file.readAll();
+    if (payload.size() != expectedWireSize
+        || sha256Hex(payload).compare(trimmedWireHash, Qt::CaseInsensitive) != 0) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-resume-cache-mismatch");
+        return false;
+    }
+    if (wirePayload) *wirePayload = payload;
+    return true;
 }
 
 QJsonObject e2eIdentityJson(const QString& userId, const QByteArray& publicKey) {
@@ -2551,15 +2643,50 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
         return false;
     }
 
+    const QString trimmedTransferId = transferId.trimmed();
+    QJsonObject savedState;
+    const bool hasSavedState = loadOutgoingTransferState(&savedState)
+        && savedState.value("transferId").toString().trimmed() == trimmedTransferId;
+    const bool savedE2EWireResume =
+        hasSavedState
+        && savedState.value("e2eFileEncrypted").toBool(false)
+        && savedState.value("recoveryMode").toString().trimmed().toLower() == QLatin1String("resume");
+
     qint64 localFileSize = 0;
     qint64 localChunkCount = 0;
     QString localFileHash;
-    if (!collectFileTransferMetadata(filePath, &localFileSize, &localChunkCount, &localFileHash)) {
+    if (savedE2EWireResume) {
+        localFileSize = savedState.value("e2eFileWireSize").toVariant().toLongLong();
+        localChunkCount = savedState.value("chunkCount").toVariant().toLongLong();
+        localFileHash = savedState.value("e2eFileWireHash").toString();
+        QByteArray cachedWirePayload;
+        QString cacheRejectReason;
+        if (!loadE2EFileResumeCache(trimmedTransferId,
+                                    localFileHash,
+                                    localFileSize,
+                                    &cachedWirePayload,
+                                    &cacheRejectReason)
+            || !e2eEnvelopeHeaderLooksSafe(savedState.value("e2eFileEnvelopeHeader").toObject())) {
+            if (rejectReason) {
+                *rejectReason = cacheRejectReason.isEmpty()
+                    ? QStringLiteral("e2e-file-resume-cache-unavailable")
+                    : cacheRejectReason;
+            }
+            return false;
+        }
+        const auto sessionIt = m_e2eSessions.constFind(savedState.value("receiverId").toString().trimmed());
+        const QString keyFingerprint = savedState.value("e2eFileKeyFingerprintSha256").toString().trimmed();
+        if (sessionIt == m_e2eSessions.constEnd()
+            || sessionIt->keyId != savedState.value("e2eFileKeyId").toString().trimmed()
+            || e2eFingerprint(sessionIt->sessionKey).compare(keyFingerprint, Qt::CaseInsensitive) != 0) {
+            if (rejectReason) *rejectReason = QStringLiteral("e2e-file-session-mismatch");
+            return false;
+        }
+    } else if (!collectFileTransferMetadata(filePath, &localFileSize, &localChunkCount, &localFileHash)) {
         if (rejectReason) *rejectReason = "本地续传文件不可用";
         return false;
     }
 
-    const QString trimmedTransferId = transferId.trimmed();
     qint64 confirmedBytes = 0;
     qint64 nextChunkIndex = 0;
     QVector<qint64> receivedChunks;
@@ -2712,6 +2839,10 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
             .toString(QStringLiteral("resend-file"));
     } else {
         state["canAutoResume"] = true;
+        state["recoveryReason"] = recoveryPolicy.value(QStringLiteral("recoveryReason"))
+            .toString(QStringLiteral("can-query-resume-state"));
+        state["recoveryAction"] = recoveryPolicy.value(QStringLiteral("recoveryAction"))
+            .toString(QStringLiteral("resume-transfer"));
     }
     if (recoveryPolicy.value(QStringLiteral("e2eFileEncrypted")).toBool(false)) {
         state["e2eFileEncrypted"] = true;
@@ -2721,6 +2852,21 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
         state["e2eFilePlainHash"] = recoveryPolicy.value(QStringLiteral("e2eFilePlainHash")).toString();
         state["e2eFileWireHash"] = recoveryPolicy.value(QStringLiteral("e2eFileWireHash")).toString();
         state["e2eFileWireSize"] = QString::number(recoveryPolicy.value(QStringLiteral("e2eFileWireSize")).toVariant().toLongLong());
+        if (recoveryPolicy.value(QStringLiteral("e2eFileResumeCache")).toBool(false)) {
+            state["e2eFileResumeCache"] = true;
+            state["e2eFileResumeCacheFormat"] =
+                recoveryPolicy.value(QStringLiteral("e2eFileResumeCacheFormat"))
+                    .toString(QString::fromLatin1(kE2EFileResumeCacheFormat));
+            state["e2eFileResumeCacheSha256"] =
+                recoveryPolicy.value(QStringLiteral("e2eFileResumeCacheSha256")).toString();
+            state["e2eFileResumeCacheSize"] =
+                QString::number(recoveryPolicy.value(QStringLiteral("e2eFileResumeCacheSize"))
+                                    .toVariant().toLongLong());
+            if (recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).isObject()) {
+                state["e2eFileEnvelopeHeader"] =
+                    recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).toObject();
+            }
+        }
     }
 
     QSaveFile file(outgoingTransferStateFilePath());
@@ -2764,6 +2910,7 @@ bool Client::loadOutgoingTransferState(QJsonObject* state) const {
             || updatedAt.msecsTo(QDateTime::currentDateTimeUtc()) > kOutgoingTransferStateMaxAgeMs) {
             file.close();
             QFile::remove(path);
+            removeE2EFileResumeCache(obj.value("transferId").toString());
             return false;
         }
     }
@@ -2805,24 +2952,69 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
         status["e2eFilePlainHash"] = state.value("e2eFilePlainHash").toString();
         status["e2eFileWireHash"] = state.value("e2eFileWireHash").toString();
         status["e2eFileWireSize"] = state.value("e2eFileWireSize").toString();
+        status["e2eFileResumeCache"] = state.value("e2eFileResumeCache").toBool(false);
+        status["e2eFileResumeCacheFormat"] = state.value("e2eFileResumeCacheFormat").toString();
+        status["e2eFileResumeCacheSha256"] = state.value("e2eFileResumeCacheSha256").toString();
+        status["e2eFileResumeCacheSize"] = state.value("e2eFileResumeCacheSize").toString();
+        if (state.value("e2eFileEnvelopeHeader").isObject()) {
+            QJsonObject header = state.value("e2eFileEnvelopeHeader").toObject();
+            header.remove(QStringLiteral("ciphertext"));
+            status["e2eFileEnvelopeHeader"] = header;
+        }
     }
 
-    if (recoveryMode == QLatin1String("resend") || e2eFileEncrypted) {
+    const bool e2eResumeCacheEvidenceReady =
+        e2eFileEncrypted
+        && recoveryMode == QLatin1String("resume")
+        && state.value("e2eFileResumeCache").toBool(false)
+        && state.value("e2eFileResumeCacheFormat").toString()
+            == QString::fromLatin1(kE2EFileResumeCacheFormat)
+        && state.value("e2eFileResumeCacheSha256").toString().trimmed().compare(
+               state.value("e2eFileWireHash").toString().trimmed(), Qt::CaseInsensitive) == 0
+        && state.value("e2eFileResumeCacheSize").toVariant().toLongLong()
+            == state.value("e2eFileWireSize").toVariant().toLongLong()
+        && e2eEnvelopeHeaderLooksSafe(state.value("e2eFileEnvelopeHeader").toObject());
+    bool e2eResumeCacheReady = e2eResumeCacheEvidenceReady;
+    if (e2eResumeCacheEvidenceReady) {
+        QByteArray cachedWirePayload;
+        e2eResumeCacheReady = loadE2EFileResumeCache(state.value("transferId").toString(),
+                                                     state.value("e2eFileWireHash").toString(),
+                                                     state.value("e2eFileWireSize").toVariant().toLongLong(),
+                                                     &cachedWirePayload);
+    }
+
+    if (e2eResumeCacheReady) {
+        status["recoveryMode"] = QStringLiteral("resume");
+        status["canAutoResume"] = true;
+        status["reason"] = state.value("recoveryReason")
+            .toString(QStringLiteral("e2e-file-same-wire-cache-ready"));
+        status["action"] = state.value("recoveryAction")
+            .toString(QStringLiteral("resume-same-wire-envelope"));
+    } else if (recoveryMode == QLatin1String("resend") || e2eFileEncrypted) {
         status["recoveryMode"] = QStringLiteral("resend");
         status["canAutoResume"] = false;
-        status["reason"] = state.value("recoveryReason").toString(QStringLiteral("e2e-file-resend-required"));
-        status["action"] = state.value("recoveryAction").toString(QStringLiteral("resend-file"));
+        status["reason"] = e2eFileEncrypted && recoveryMode == QLatin1String("resume")
+            ? QStringLiteral("e2e-file-resume-cache-unavailable")
+            : state.value("recoveryReason").toString(QStringLiteral("e2e-file-resend-required"));
+        status["action"] = e2eFileEncrypted && recoveryMode == QLatin1String("resume")
+            ? QStringLiteral("resend-file")
+            : state.value("recoveryAction").toString(QStringLiteral("resend-file"));
     } else {
         status["recoveryMode"] = QStringLiteral("resume");
         status["canAutoResume"] = true;
-        status["reason"] = QStringLiteral("can-query-resume-state");
-        status["action"] = QStringLiteral("resume-transfer");
+        status["reason"] = state.value("recoveryReason").toString(QStringLiteral("can-query-resume-state"));
+        status["action"] = state.value("recoveryAction").toString(QStringLiteral("resume-transfer"));
     }
     return status;
 }
 
 bool Client::clearOutgoingTransferState() {
     const QString path = outgoingTransferStateFilePath();
+    QJsonObject state;
+    const bool hadState = loadOutgoingTransferState(&state);
+    if (hadState) {
+        removeE2EFileResumeCache(state.value("transferId").toString());
+    }
     if (!QFile::exists(path)) {
         return true;
     }
@@ -2852,16 +3044,50 @@ bool Client::resumeSavedOutgoingTransfer(QString* rejectReason, int timeoutMs) {
     }
 
     const MessageType messageType = static_cast<MessageType>(state["messageType"].toInt(-1));
-    qint64 localFileSize = 0;
-    qint64 localChunkCount = 0;
-    QString localFileHash;
-    if (!collectFileTransferMetadata(state["filePath"].toString(), &localFileSize, &localChunkCount, &localFileHash)
-        || state["fileSize"].toVariant().toLongLong() != localFileSize
-        || state["chunkSize"].toVariant().toLongLong() != kTransferChunkBytes
-        || state["chunkCount"].toVariant().toLongLong() != localChunkCount
-        || state["fileHash"].toString().trimmed().compare(localFileHash, Qt::CaseInsensitive) != 0) {
-        if (rejectReason) *rejectReason = "保存的发送任务与本地文件不一致";
-        return false;
+    const bool e2eFileEncrypted = state.value("e2eFileEncrypted").toBool(false);
+    if (e2eFileEncrypted) {
+        const QString wireHash = state.value("e2eFileWireHash").toString().trimmed();
+        const qint64 wireSize = state.value("e2eFileWireSize").toVariant().toLongLong();
+        const qint64 wireChunkCount = state.value("chunkCount").toVariant().toLongLong();
+        QByteArray cachedWirePayload;
+        QString cacheRejectReason;
+        if (!loadE2EFileResumeCache(state.value("transferId").toString(),
+                                    wireHash,
+                                    wireSize,
+                                    &cachedWirePayload,
+                                    &cacheRejectReason)
+            || state.value("fileHash").toString().trimmed().compare(wireHash, Qt::CaseInsensitive) != 0
+            || state.value("fileSize").toVariant().toLongLong() != wireSize
+            || state.value("chunkSize").toVariant().toLongLong() != kTransferChunkBytes
+            || wireChunkCount != (wireSize + kTransferChunkBytes - 1) / kTransferChunkBytes
+            || !e2eEnvelopeHeaderLooksSafe(state.value("e2eFileEnvelopeHeader").toObject())) {
+            if (rejectReason) {
+                *rejectReason = cacheRejectReason.isEmpty()
+                    ? QStringLiteral("e2e-file-resume-cache-unavailable")
+                    : cacheRejectReason;
+            }
+            return false;
+        }
+        const QString keyFingerprint = state.value("e2eFileKeyFingerprintSha256").toString().trimmed();
+        const auto sessionIt = m_e2eSessions.constFind(state.value("receiverId").toString().trimmed());
+        if (sessionIt == m_e2eSessions.constEnd()
+            || sessionIt->keyId != state.value("e2eFileKeyId").toString().trimmed()
+            || e2eFingerprint(sessionIt->sessionKey).compare(keyFingerprint, Qt::CaseInsensitive) != 0) {
+            if (rejectReason) *rejectReason = QStringLiteral("e2e-file-session-mismatch");
+            return false;
+        }
+    } else {
+        qint64 localFileSize = 0;
+        qint64 localChunkCount = 0;
+        QString localFileHash;
+        if (!collectFileTransferMetadata(state["filePath"].toString(), &localFileSize, &localChunkCount, &localFileHash)
+            || state["fileSize"].toVariant().toLongLong() != localFileSize
+            || state["chunkSize"].toVariant().toLongLong() != kTransferChunkBytes
+            || state["chunkCount"].toVariant().toLongLong() != localChunkCount
+            || state["fileHash"].toString().trimmed().compare(localFileHash, Qt::CaseInsensitive) != 0) {
+            if (rejectReason) *rejectReason = "保存的发送任务与本地文件不一致";
+            return false;
+        }
     }
 
     QString resumeReason;
@@ -2978,48 +3204,94 @@ bool Client::sendFilePayload(const QString& filePath,
     const QString e2eFileKeyFingerprint = e2eFileRequired && e2eFileSession ? e2eFingerprint(e2eFileSession->sessionKey) : QString();
     QByteArray e2eWirePayload;
     E2EEnvelope e2eFileEnvelope;
+    QJsonObject e2eFileEnvelopeHeader;
     QString wireFileHash = fileHash;
     qint64 wireFileSize = fileInfo.size();
     qint64 wireChunkCount = chunkCount;
     if (e2eFileRequired) {
         if (resumeMode) {
-            emit connectionError(QStringLiteral("端到端加密文件续传失败：需要重新发送以保持认证信封一致"));
-            file.close();
-            return false;
+            QJsonObject savedState;
+            QString cacheRejectReason;
+            if (!loadOutgoingTransferState(&savedState)
+                || savedState.value("transferId").toString().trimmed() != transferId
+                || !savedState.value("e2eFileEncrypted").toBool(false)
+                || savedState.value("e2eFileKeyId").toString().trimmed() != e2eFileKeyId
+                || savedState.value("e2eFileKeyFingerprintSha256").toString().trimmed()
+                    .compare(e2eFileKeyFingerprint, Qt::CaseInsensitive) != 0
+                || savedState.value("e2eFilePlainSize").toVariant().toLongLong() != fileInfo.size()
+                || savedState.value("e2eFilePlainHash").toString().trimmed()
+                    .compare(fileHash, Qt::CaseInsensitive) != 0) {
+                emit connectionError(QStringLiteral("端到端加密文件续传失败：恢复状态与当前会话不匹配"));
+                file.close();
+                return false;
+            }
+            wireFileSize = savedState.value("e2eFileWireSize").toVariant().toLongLong();
+            wireChunkCount = savedState.value("chunkCount").toVariant().toLongLong();
+            wireFileHash = savedState.value("e2eFileWireHash").toString().trimmed();
+            if (!loadE2EFileResumeCache(transferId,
+                                        wireFileHash,
+                                        wireFileSize,
+                                        &e2eWirePayload,
+                                        &cacheRejectReason)) {
+                emit connectionError(QStringLiteral("端到端加密文件续传失败：%1").arg(cacheRejectReason));
+                file.close();
+                return false;
+            }
+            e2eFileEnvelopeHeader = savedState.value("e2eFileEnvelopeHeader").toObject();
+            if (!e2eEnvelopeHeaderLooksSafe(e2eFileEnvelopeHeader)) {
+                emit connectionError(QStringLiteral("端到端加密文件续传失败：信封恢复证据无效"));
+                file.close();
+                return false;
+            }
+            e2eFileEnvelope = E2EEnvelope::fromJson(e2eFileEnvelopeHeader);
+            e2eFileEnvelope.ciphertext = e2eWirePayload;
+            QString envelopeReason;
+            if (!e2eFileEnvelope.isValid(&envelopeReason)
+                || e2eFileEnvelope.senderId != m_userId
+                || e2eFileEnvelope.receiverId != receiverId.trimmed()
+                || e2eFileEnvelope.keyId != e2eFileKeyId
+                || e2eFileEnvelopeHeader.value("ciphertextSha256").toString().trimmed()
+                    .compare(wireFileHash, Qt::CaseInsensitive) != 0) {
+                emit connectionError(QStringLiteral("端到端加密文件续传失败：信封恢复证据不匹配"));
+                file.close();
+                return false;
+            }
+        } else {
+            QFile plainFile(fileInfo.absoluteFilePath());
+            if (!plainFile.open(QIODevice::ReadOnly)) {
+                file.close();
+                return false;
+            }
+            const QByteArray plainPayload = plainFile.readAll();
+            plainFile.close();
+            if (plainPayload.size() != fileInfo.size()) {
+                file.close();
+                return false;
+            }
+            const QString aad = QStringLiteral("file/private/v1;%1;%2;%3;%4")
+                .arg(transferId,
+                     QString::number(fileInfo.size()),
+                     fileHash,
+                     fileInfo.fileName());
+            QString encryptReason;
+            e2eFileEnvelope = encryptE2EPayload(m_userId,
+                                                receiverId.trimmed(),
+                                                e2eFileKeyId,
+                                                e2eFileSession->sessionKey,
+                                                plainPayload,
+                                                aad,
+                                                &encryptReason);
+            if (!e2eFileEnvelope.isValid(&encryptReason)) {
+                emit connectionError(QStringLiteral("端到端加密文件发送失败：%1").arg(encryptReason));
+                file.close();
+                return false;
+            }
+            e2eWirePayload = e2eFileEnvelope.ciphertext;
+            wireFileSize = e2eWirePayload.size();
+            wireChunkCount = (wireFileSize + kTransferChunkBytes - 1) / kTransferChunkBytes;
+            wireFileHash = sha256Hex(e2eWirePayload);
+            e2eFileEnvelopeHeader = e2eEnvelopeHeaderJson(e2eFileEnvelope);
         }
-        QFile plainFile(fileInfo.absoluteFilePath());
-        if (!plainFile.open(QIODevice::ReadOnly)) {
-            file.close();
-            return false;
-        }
-        const QByteArray plainPayload = plainFile.readAll();
-        plainFile.close();
-        if (plainPayload.size() != fileInfo.size()) {
-            file.close();
-            return false;
-        }
-        const QString aad = QStringLiteral("file/private/v1;%1;%2;%3;%4")
-            .arg(transferId,
-                 QString::number(fileInfo.size()),
-                 fileHash,
-                 fileInfo.fileName());
-        QString encryptReason;
-        e2eFileEnvelope = encryptE2EPayload(m_userId,
-                                            receiverId.trimmed(),
-                                            e2eFileKeyId,
-                                            e2eFileSession->sessionKey,
-                                            plainPayload,
-                                            aad,
-                                            &encryptReason);
-        if (!e2eFileEnvelope.isValid(&encryptReason)) {
-            emit connectionError(QStringLiteral("端到端加密文件发送失败：%1").arg(encryptReason));
-            file.close();
-            return false;
-        }
-        e2eWirePayload = e2eFileEnvelope.ciphertext;
-        wireFileSize = e2eWirePayload.size();
-        wireChunkCount = (wireFileSize + kTransferChunkBytes - 1) / kTransferChunkBytes;
-        wireFileHash = QString::fromLatin1(QCryptographicHash::hash(e2eWirePayload, QCryptographicHash::Sha256).toHex());
     }
     QSet<qint64> receivedChunkIndexes;
     qint64 resolvedResumeNextChunkIndex = resumeNextChunkIndex;
@@ -3033,13 +3305,13 @@ bool Client::sendFilePayload(const QString& filePath,
         if (!resolveResumeProgress(resumeConfirmedBytes,
                                    resumeNextChunkIndex,
                                    resumeProgressChunks,
-                                   fileInfo.size(),
-                                   chunkCount,
+                                   wireFileSize,
+                                   wireChunkCount,
                                    &receivedChunkIndexes,
                                    &resolvedResumeNextChunkIndex)) {
             return false;
         }
-        if (resolvedResumeNextChunkIndex == chunkCount && resumeConfirmedBytes != fileInfo.size()) {
+        if (resolvedResumeNextChunkIndex == wireChunkCount && resumeConfirmedBytes != wireFileSize) {
             return false;
         }
     }
@@ -3066,11 +3338,18 @@ bool Client::sendFilePayload(const QString& filePath,
         file.close();
         return false;
     }
-    if (e2eFileRequired) {
+    if (e2eFileRequired && !resumeMode) {
         QJsonObject recoveryPolicy;
-        recoveryPolicy["recoveryMode"] = QStringLiteral("resend");
-        recoveryPolicy["recoveryReason"] = QStringLiteral("e2e-file-resend-required");
-        recoveryPolicy["recoveryAction"] = QStringLiteral("resend-file");
+        QString cachePath;
+        const bool cacheReady =
+            writeE2EFileResumeCache(transferId, e2eWirePayload, wireFileHash, &cachePath);
+        recoveryPolicy["recoveryMode"] = cacheReady ? QStringLiteral("resume") : QStringLiteral("resend");
+        recoveryPolicy["recoveryReason"] = cacheReady
+            ? QStringLiteral("e2e-file-same-wire-cache-ready")
+            : QStringLiteral("e2e-file-resend-required");
+        recoveryPolicy["recoveryAction"] = cacheReady
+            ? QStringLiteral("resume-same-wire-envelope")
+            : QStringLiteral("resend-file");
         recoveryPolicy["e2eFileEncrypted"] = true;
         recoveryPolicy["e2eFileKeyId"] = e2eFileKeyId;
         recoveryPolicy["e2eFileKeyFingerprintSha256"] = e2eFileKeyFingerprint;
@@ -3078,6 +3357,14 @@ bool Client::sendFilePayload(const QString& filePath,
         recoveryPolicy["e2eFilePlainHash"] = fileHash;
         recoveryPolicy["e2eFileWireSize"] = QString::number(wireFileSize);
         recoveryPolicy["e2eFileWireHash"] = wireFileHash;
+        if (cacheReady) {
+            recoveryPolicy["e2eFileResumeCache"] = true;
+            recoveryPolicy["e2eFileResumeCacheFormat"] =
+                QString::fromLatin1(kE2EFileResumeCacheFormat);
+            recoveryPolicy["e2eFileResumeCacheSha256"] = wireFileHash;
+            recoveryPolicy["e2eFileResumeCacheSize"] = QString::number(wireFileSize);
+            recoveryPolicy["e2eFileEnvelopeHeader"] = e2eFileEnvelopeHeader;
+        }
         if (!saveOutgoingTransferState(transferId,
                                        fileInfo.absoluteFilePath(),
                                        receiverId,
@@ -3086,6 +3373,7 @@ bool Client::sendFilePayload(const QString& filePath,
                                        wireFileSize,
                                        wireChunkCount,
                                        recoveryPolicy)) {
+            removeE2EFileResumeCache(transferId);
             file.close();
             return false;
         }
@@ -3151,7 +3439,7 @@ bool Client::sendFilePayload(const QString& filePath,
         obj["chunkIndex"] = QString::number(chunkIndex);
         obj["content"] = contentPrefix + fileInfo.fileName();
         if (e2eFileRequired) {
-            obj["e2eEnvelope"] = e2eFileEnvelope.toJson();
+            obj["e2eEnvelope"] = e2eFileEnvelopeHeader;
             obj["isEncrypted"] = true;
             obj["e2eFileEncrypted"] = true;
             obj["e2eFileKeyId"] = e2eFileKeyId;
