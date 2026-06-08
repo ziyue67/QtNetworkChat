@@ -315,6 +315,7 @@ foreach ($expected in @(
     'Sensitive export proof: noSensitiveExport=`false`, suppressed=`true`',
     'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-ci-head-not-observed`, inputs=`4`',
     'Evidence CI/local: ciStatus=`external-visibility-stale`, ciVisibility=`head-not-observed`, localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`',
+    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`auto1234567890abcdef`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
@@ -431,6 +432,9 @@ if ($artifactCiStatus.format -ne "qtnetworkchat-github-windows-build-status-v1" 
         -or $artifactCiStatus.status -ne "success" `
         -or $artifactCiStatus.runId -ne "99112233" `
         -or $artifactCiStatus.visibility -ne "current-head-observed" `
+        -or -not $artifactCiStatus.currentHeadObserved `
+        -or $artifactCiStatus.externalBlocker -ne "none" `
+        -or $artifactCiStatus.releaseGate -ne "github-windows-build-current-head-success" `
         -or [int]$artifactCiStatus.observedRunCount -ne 1 `
         -or $artifactCiStatus.latestObserved.headSha -ne "auto1234567890abcdef") {
     throw "GitHub Windows Build status artifact did not preserve the sanitized current-head readback contract."
@@ -528,6 +532,23 @@ foreach ($expected in @(
     'Status readback: `ci=json-artifact; build=local-verification-status; ctest=local-verification-status`'
 )) {
     Assert-Contains -Text $staleOutput -Expected $expected
+}
+
+$staleCiStatusPath = Join-Path $tempDir "github-windows-build-status-stale.json"
+& (Join-Path $PSScriptRoot "write-github-windows-build-status.ps1") `
+    -OutputPath $staleCiStatusPath `
+    -Head "newer1234567890abcdef" `
+    -RunListJsonPath $staleRunListPath `
+    -FailOnSensitive | Out-Null
+$staleCiStatusJson = Get-Content -LiteralPath $staleCiStatusPath -Raw -Encoding UTF8
+$staleCiStatus = $staleCiStatusJson | ConvertFrom-Json
+if ($staleCiStatus.status -ne "external-visibility-stale" `
+        -or $staleCiStatus.visibility -ne "head-not-observed" `
+        -or $staleCiStatus.currentHeadObserved `
+        -or $staleCiStatus.externalBlocker -ne "github-windows-build-current-head-not-observed" `
+        -or $staleCiStatus.releaseGate -ne "blocked-ci-head-not-observed" `
+        -or $staleCiStatus.latestObserved.headSha -ne "older1234567890abcdef") {
+    throw "GitHub Windows Build stale status artifact did not preserve the external visibility blocker evidence."
 }
 
 $bootstrapPlanOutput = & powershell -ExecutionPolicy Bypass -File $bootstrapScriptPath `

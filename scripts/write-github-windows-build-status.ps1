@@ -61,6 +61,24 @@ function New-StatusPayload(
         $latestConclusion = [string]$latestRun.conclusion
         $latestCreatedAt = [string]$latestRun.createdAt
     }
+    $externalBlocker = "none"
+    $releaseGate = "github-windows-build-status-unknown"
+    $operatorAction = "inspect GitHub Windows Build status before release"
+    if ($Status -eq "success") {
+        $releaseGate = "github-windows-build-current-head-success"
+        $operatorAction = "continue release evidence review"
+    } elseif ($Visibility -eq "head-not-observed" -or $Visibility -eq "no-runs") {
+        $externalBlocker = "github-windows-build-current-head-not-observed"
+        $releaseGate = "blocked-ci-head-not-observed"
+        $operatorAction = "wait for GitHub Windows Build to observe the current head or resolve external Actions visibility"
+    } elseif ($Visibility -eq "run-list-unavailable" -or $Visibility -eq "run-list-invalid-json" -or $Visibility -eq "run-list-unreadable") {
+        $externalBlocker = "github-windows-build-run-list-unavailable"
+        $releaseGate = "blocked-ci-run-list-unavailable"
+        $operatorAction = "restore sanitized GitHub Actions run-list readback before release"
+    } elseif (-not [string]::IsNullOrWhiteSpace($Status) -and $Status -ne "unknown") {
+        $releaseGate = "blocked-ci-" + $Status
+        $operatorAction = "review current-head GitHub Windows Build result before release"
+    }
     [ordered]@{
         format = "qtnetworkchat-github-windows-build-status-v1"
         generatedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -72,6 +90,10 @@ function New-StatusPayload(
         visibility = $Visibility
         runMatched = -not [string]::IsNullOrWhiteSpace($RunId)
         observedRunCount = $Runs.Count
+        currentHeadObserved = -not [string]::IsNullOrWhiteSpace($RunId)
+        externalBlocker = $externalBlocker
+        releaseGate = $releaseGate
+        operatorAction = $operatorAction
         latestObserved = [ordered]@{
             headSha = Format-StatusValue $latestHeadSha
             status = Format-StatusValue $latestStatus

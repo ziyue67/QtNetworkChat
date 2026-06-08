@@ -770,6 +770,10 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
         inputCount = 0
         ciStatus = "unknown"
         ciVisibility = "unknown"
+        ciCurrentHeadObserved = "unknown"
+        ciExternalBlocker = "unknown"
+        ciReleaseGate = "unknown"
+        ciLatestObservedHead = "unknown"
         localBuildStatus = "unknown"
         localCTestStatus = "unknown"
         localCTestCount = 0
@@ -806,6 +810,12 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
     $result.inputCount = [int](Get-JsonValue $manifest "inputCount" 0)
     $result.ciStatus = Format-StatusValue (Get-JsonValue $ci "status" "unknown")
     $result.ciVisibility = Format-StatusValue (Get-JsonValue $ci "visibility" "unknown")
+    $result.ciCurrentHeadObserved =
+        Format-StatusValue (Get-JsonValue $ci "currentHeadObserved" "unknown")
+    $result.ciExternalBlocker = Format-StatusValue (Get-JsonValue $ci "externalBlocker" "unknown")
+    $result.ciReleaseGate = Format-StatusValue (Get-JsonValue $ci "releaseGate" "unknown")
+    $result.ciLatestObservedHead =
+        Format-StatusValue (Get-JsonValue $ci "latestObservedHead" "unknown")
     $result.localBuildStatus = Format-StatusValue (Get-JsonValue $local "buildStatus" "unknown")
     $result.localCTestStatus = Format-StatusValue (Get-JsonValue $local "ctestStatus" "unknown")
     $result.localCTestCount = [int](Get-JsonValue $local "ctestCount" 0)
@@ -1782,6 +1792,11 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
+    $lines.Add(('  Evidence CI gate: currentHeadObserved=`{0}`, externalBlocker=`{1}`, releaseGate=`{2}`, latestObservedHead=`{3}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciCurrentHeadObserved), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciReleaseGate), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciLatestObservedHead)))
 }
 $lines.Add("")
 $lines.Add("## Automation Guardrails")
