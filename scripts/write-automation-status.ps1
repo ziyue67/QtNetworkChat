@@ -1034,6 +1034,58 @@ function Get-AutomationTaskAckGateReadback([object]$HistoryState, [object]$AckSt
     [pscustomobject]$result
 }
 
+function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate) {
+    $totalCount = @($PreviewRecords).Count
+    $result = [ordered]@{
+        configured = $totalCount -gt 0
+        state = "not-configured"
+        taskCount = $totalCount
+        registeredCount = 0
+        previewOnlyCount = 0
+        invalidPreviewCount = 0
+        releaseGate = "automation-watch-not-configured"
+        action = "configure automation task previews before release"
+    }
+    if ($totalCount -le 0) {
+        return [pscustomobject]$result
+    }
+
+    foreach ($previewRecord in $PreviewRecords) {
+        if ($null -eq $previewRecord -or $null -eq $previewRecord.state -or $previewRecord.state.state -ne "ok") {
+            $result.invalidPreviewCount++
+            continue
+        }
+        if (Convert-StatusBoolean $previewRecord.register $false) {
+            $result.registeredCount++
+        } else {
+            $result.previewOnlyCount++
+        }
+    }
+
+    if ($result.invalidPreviewCount -gt 0) {
+        $result.state = "preview-unavailable"
+        $result.releaseGate = "automation-watch-preview-unavailable"
+        $result.action = "regenerate automation task previews before release"
+    } elseif ($result.previewOnlyCount -gt 0) {
+        $result.state = "preview-only"
+        $result.releaseGate = "blocked-preview-only-automation-watch"
+        $result.action = "register scheduled tasks with -Register or provide registered task artifacts before release"
+    } elseif ($result.registeredCount -le 0) {
+        $result.state = "no-registered-tasks"
+        $result.releaseGate = "automation-watch-not-registered"
+        $result.action = "register at least one automation task before release"
+    } elseif ($null -ne $AckGate -and $AckGate.configured -and $AckGate.releaseGate -ne "passing") {
+        $result.state = "registered-ack-gated"
+        $result.releaseGate = $AckGate.releaseGate
+        $result.action = $AckGate.action
+    } else {
+        $result.state = "registered"
+        $result.releaseGate = "automation-watch-registered"
+        $result.action = "verify scheduler run history stays fresh before release"
+    }
+    [pscustomobject]$result
+}
+
 function Format-PreviewDescriptor([object]$PreviewRecord) {
     $parts = New-Object System.Collections.Generic.List[string]
     $parts.Add(('label=`{0}`' -f (Format-StatusValue $PreviewRecord.label)))
@@ -1339,6 +1391,7 @@ $automationTaskAckGateConfigured = Has-ConfigurationHint @(
     $normalizedTaskPreviewPaths
 )
 $automationTaskAckGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
+$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate
 
 $databaseHealthStatus = $databaseHealthStatusState.value
 $databaseHealthLastRun = Read-LastRunSummary $databaseHealthLastRunState
@@ -1451,6 +1504,16 @@ if ($previewRecords.Count -eq 0) {
             $lines.Add('  Summary: `' + $previewRecord.taskSummary + '`')
         }
     }
+}
+if ($automationTaskWatchGate.configured) {
+    $lines.Add(('- Automation watch gate: state=`{0}`, tasks=`{1}`, registered=`{2}`, previewOnly=`{3}`, invalid=`{4}`, releaseGate=`{5}`, action=`{6}`' -f `
+            (Format-StatusValue $automationTaskWatchGate.state), `
+            (Format-StatusValue $automationTaskWatchGate.taskCount), `
+            (Format-StatusValue $automationTaskWatchGate.registeredCount), `
+            (Format-StatusValue $automationTaskWatchGate.previewOnlyCount), `
+            (Format-StatusValue $automationTaskWatchGate.invalidPreviewCount), `
+            (Format-StatusValue $automationTaskWatchGate.releaseGate), `
+            (Format-StatusValue $automationTaskWatchGate.action)))
 }
 $lines.Add("")
 $lines.Add("## Generic Task Readback")
