@@ -336,7 +336,9 @@ foreach ($expected in @(
     'Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`',
     'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
-    'Task acknowledgement gate: state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
+    'Task acknowledgement gate: state=`failed-acknowledged`, failed=`2`, acknowledged=`true`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
+    'Task ack gate: kind=`database-health`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
+    'Task ack gate: kind=`large-file-governance`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
     'Task acknowledgement reminder: state=`acknowledged`, expiryHours=`72`, ageHours=`1.5`, remainingHours=`70.5`, overdueHours=`0`, expiresAt=`2026-06-06T03:30:00.0000000Z`, action=`none`',
     'Artifact Diagnostics',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
@@ -602,7 +604,7 @@ foreach ($expected in @(
     'Large-file governance: status=`configured`, ok=`true`, warnings=`0`, alerts=`0`, actionableS3Gaps=`0`',
     'Task history: runs=`1`, failed=`0`, latestAt=`',
     'Task acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`bootstrap-default`',
-    'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, releaseGate=`passing`, action=`none`',
+    'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`3`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok`',
@@ -669,7 +671,7 @@ foreach ($expected in @(
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: `configured but history artifact unavailable`',
-    'Task acknowledgement gate: state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
+    'Task acknowledgement gate: state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
     'Database health artifacts: `preview=not-configured; status=missing',
     'Large-file governance artifacts: `preview=not-configured; status=missing',
     'Automation history artifacts: `history=missing',
@@ -747,7 +749,9 @@ foreach ($expected in @(
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: `configured but history artifact unavailable`',
     'Task acknowledgement: `configured but ack artifact unavailable`',
-    'Task acknowledgement gate: state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
+    'Task acknowledgement gate: state=`history-unavailable`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
+    'Task ack gate: kind=`database-health`, name=`unknown`, state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`',
+    'Task ack gate: kind=`large-file-governance`, name=`unknown`, state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`',
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`',
     'Database health artifacts: `preview=ok; status=missing',
@@ -892,7 +896,10 @@ Ensure-Directory -Path $configuredTempDir
 '2026-06-03T06:10:00.0000000Z exitCode=0' | Set-Content -LiteralPath $pgsqlSmokeLastRunPath -Encoding UTF8
 @'
 {
-  "runCount":3
+  "runCount":3,
+  "failedRunCount":0,
+  "acknowledged":true,
+  "ackExpired":false
 }
 '@ | Set-Content -LiteralPath $pgsqlSmokeHistoryPath -Encoding UTF8
 @'
@@ -933,7 +940,10 @@ Ensure-Directory -Path $configuredTempDir
 '2026-06-03T06:20:00.0000000Z exitCode=2' | Set-Content -LiteralPath $pgsqlMigrationLastRunPath -Encoding UTF8
 @'
 {
-  "runCount":5
+  "runCount":5,
+  "failedRunCount":0,
+  "acknowledged":false,
+  "ackExpired":false
 }
 '@ | Set-Content -LiteralPath $pgsqlMigrationHistoryPath -Encoding UTF8
 @'
@@ -1023,7 +1033,10 @@ foreach ($expected in @(
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: runs=`7`',
     'Task acknowledgement: acknowledged=`false`, by=`unknown`, at=`unknown`, reason=`unknown`',
-    'Task acknowledgement gate: state=`failed-unacknowledged`, failed=`1`, acknowledged=`false`, ackExpired=`false`, releaseGate=`blocked-unacknowledged-failure`, action=`acknowledge failed automation task before release`',
+    'Task acknowledgement gate: state=`failed-unacknowledged`, failed=`1`, acknowledged=`false`, ackExpired=`false`, tasks=`3`, blocked=`1`, source=`aggregate`, releaseGate=`blocked-unacknowledged-failure`, action=`acknowledge failed automation task before release`',
+    'Task ack gate: kind=`custom-ops`, name=`CustomOpsTask`, state=`failed-unacknowledged`, failed=`1`, acknowledged=`false`, ackExpired=`false`, releaseGate=`blocked-unacknowledged-failure`',
+    'Task ack gate: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, state=`passing`, failed=`0`, acknowledged=`true`, ackExpired=`false`, releaseGate=`passing`',
+    'Task ack gate: kind=`pgsql-migration`, name=`PgsqlMigrationTask`, state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, releaseGate=`passing`',
     'Task acknowledgement reminder: state=`acknowledge-required`, expiryHours=`72`, ageHours=`unknown`, remainingHours=`unknown`, overdueHours=`unknown`, expiresAt=`unknown`, action=`acknowledge failed automation task before release`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
@@ -1163,7 +1176,7 @@ $expiredMarkdown = Get-Content -LiteralPath $expiredMarkdownPath -Raw -Encoding 
 foreach ($expected in @(
     'Task history: runs=`2`, failed=`1`, latestAt=`2026-06-03T07:00:00.0000000Z`, latestExitCode=`2`, acknowledged=`false`, ackExpired=`true`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-01T07:00:00.0000000Z`, reason=`expired sample`',
-    'Task acknowledgement gate: state=`failed-ack-expired`, failed=`1`, acknowledged=`false`, ackExpired=`true`, releaseGate=`blocked-ack-expired`, action=`renew task acknowledgement before release`',
+    'Task acknowledgement gate: state=`failed-ack-expired`, failed=`1`, acknowledged=`false`, ackExpired=`true`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`blocked-ack-expired`, action=`renew task acknowledgement before release`',
     'Task acknowledgement reminder: state=`renew-required`, expiryHours=`72`, ageHours=`96`, remainingHours=`0`, overdueHours=`24`, expiresAt=`2026-06-04T07:00:00.0000000Z`, action=`renew expired automation task acknowledgement before release`'
 )) {
     Assert-Contains -Text $expiredMarkdown -Expected $expected

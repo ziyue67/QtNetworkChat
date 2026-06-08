@@ -1087,6 +1087,130 @@ function Get-AutomationTaskAckGateReadback([object]$HistoryState, [object]$AckSt
     [pscustomobject]$result
 }
 
+function Get-AutomationTaskHistoryAckPairReadback([object]$PreviewRecord) {
+    $historyConfig = Get-PreviewArtifactConfiguration $PreviewRecord.state @("historyArtifactPath", "historyPath") "history"
+    $ackConfig = Get-PreviewArtifactConfiguration $PreviewRecord.state @("ackArtifactPath", "ackPath") "ack"
+    $historyState = Get-ArtifactState -PathValue $historyConfig.path -ExpectJson
+    $ackState = Get-ArtifactState -PathValue $ackConfig.path -ExpectJson
+    $configured = -not [string]::IsNullOrWhiteSpace($historyConfig.path) `
+        -or -not [string]::IsNullOrWhiteSpace($ackConfig.path)
+    $gate = Get-AutomationTaskAckGateReadback $historyState $ackState $configured
+    $reminder = Get-AckReminderReadback $historyState $configured
+    [pscustomobject]@{
+        taskKind = Format-StatusValue $PreviewRecord.taskKind
+        taskName = Format-StatusValue $PreviewRecord.taskName
+        historyPath = $historyConfig.path
+        ackPath = $ackConfig.path
+        historyState = $historyState
+        ackState = $ackState
+        gate = $gate
+        reminder = $reminder
+    }
+}
+
+function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [object]$FallbackGate, [bool]$Configured) {
+    $result = [ordered]@{
+        configured = $Configured
+        state = "not-configured"
+        failedRunCount = "unknown"
+        acknowledged = "unknown"
+        ackExpired = "unknown"
+        releaseGate = "not-configured"
+        action = "none"
+        taskCount = 0
+        blockedTaskCount = 0
+        source = "aggregate"
+        details = @()
+    }
+    $usablePairs = @($TaskPairs | Where-Object { $null -ne $_ -and $null -ne $_.gate -and $_.gate.configured })
+    if ($usablePairs.Count -le 0) {
+        if ($null -ne $FallbackGate) {
+            $result.configured = $FallbackGate.configured
+            $result.state = $FallbackGate.state
+            $result.failedRunCount = $FallbackGate.failedRunCount
+            $result.acknowledged = $FallbackGate.acknowledged
+            $result.ackExpired = $FallbackGate.ackExpired
+            $result.releaseGate = $FallbackGate.releaseGate
+            $result.action = $FallbackGate.action
+            $result.taskCount = if ($FallbackGate.configured) { 1 } else { 0 }
+            $result.blockedTaskCount = if ($FallbackGate.configured -and $FallbackGate.releaseGate -ne "passing") { 1 } else { 0 }
+            $result.source = "single"
+        }
+        return [pscustomobject]$result
+    }
+
+    $failedTotal = 0
+    $anyExpired = $false
+    $anyUnacknowledged = $false
+    $anyAcknowledgedReview = $false
+    $anyUnavailable = $false
+    $anyUnparseable = $false
+    $blockedCount = 0
+    $details = New-Object System.Collections.Generic.List[object]
+    foreach ($pair in $usablePairs) {
+        $gate = $pair.gate
+        $failed = 0
+        [void][int]::TryParse((Format-StatusValue $gate.failedRunCount), [ref]$failed)
+        $failedTotal += $failed
+        if ($gate.releaseGate -ne "passing") {
+            $blockedCount++
+        }
+        if ($gate.releaseGate -eq "blocked-ack-expired") {
+            $anyExpired = $true
+        } elseif ($gate.releaseGate -eq "blocked-unacknowledged-failure") {
+            $anyUnacknowledged = $true
+        } elseif ($gate.releaseGate -eq "acknowledged-failure-review-gated") {
+            $anyAcknowledgedReview = $true
+        } elseif ($gate.releaseGate -eq "automation-task-history-unparseable") {
+            $anyUnparseable = $true
+        } elseif ($gate.releaseGate -ne "passing") {
+            $anyUnavailable = $true
+        }
+        $details.Add([pscustomobject]@{
+                taskKind = $pair.taskKind
+                taskName = $pair.taskName
+                state = Format-StatusValue $gate.state
+                failedRunCount = Format-StatusValue $gate.failedRunCount
+                acknowledged = Format-StatusValue $gate.acknowledged
+                ackExpired = Format-StatusValue $gate.ackExpired
+                releaseGate = Format-StatusValue $gate.releaseGate
+            })
+    }
+
+    $result.taskCount = $usablePairs.Count
+    $result.blockedTaskCount = $blockedCount
+    $result.failedRunCount = $failedTotal
+    $result.acknowledged = if ($failedTotal -le 0) { "false" } else { (-not ($anyExpired -or $anyUnacknowledged -or $anyUnavailable -or $anyUnparseable)).ToString().ToLowerInvariant() }
+    $result.ackExpired = $anyExpired.ToString().ToLowerInvariant()
+    $result.details = [object[]]$details.ToArray()
+    if ($anyUnavailable) {
+        $result.state = "history-unavailable"
+        $result.releaseGate = "automation-task-history-unavailable"
+        $result.action = "restore automation task history artifact before release"
+    } elseif ($anyUnparseable) {
+        $result.state = "history-unparseable"
+        $result.releaseGate = "automation-task-history-unparseable"
+        $result.action = "regenerate automation task history with failedRunCount before release"
+    } elseif ($anyExpired) {
+        $result.state = "failed-ack-expired"
+        $result.releaseGate = "blocked-ack-expired"
+        $result.action = "renew task acknowledgement before release"
+    } elseif ($anyUnacknowledged) {
+        $result.state = "failed-unacknowledged"
+        $result.releaseGate = "blocked-unacknowledged-failure"
+        $result.action = "acknowledge failed automation task before release"
+    } elseif ($anyAcknowledgedReview) {
+        $result.state = "failed-acknowledged"
+        $result.releaseGate = "acknowledged-failure-review-gated"
+        $result.action = "continue remediation; keep release review gate until failures clear"
+    } else {
+        $result.state = "passing"
+        $result.releaseGate = "passing"
+        $result.action = "none"
+    }
+    [pscustomobject]$result
+}
+
 function Read-ScheduledTaskReadbackArtifact([string]$PathValue) {
     $result = [ordered]@{
         configured = $false
@@ -1692,6 +1816,7 @@ $largeFileGovernanceStatusState = Get-ArtifactState -PathValue $LargeFileGoverna
 $largeFileGovernanceLastRunState = Get-ArtifactState -PathValue $LargeFileGovernanceLastRunPath
 $automationTaskHistoryState = Get-ArtifactState -PathValue $AutomationTaskHistoryPath -ExpectJson
 $automationTaskAckState = Get-ArtifactState -PathValue $AutomationTaskAckPath -ExpectJson
+$automationTaskHistoryAckPairs = @($previewRecords | ForEach-Object { Get-AutomationTaskHistoryAckPairReadback $_ })
 $automationTaskAckGateConfigured = Has-ConfigurationHint @(
     $AutomationTaskHistoryPath,
     $AutomationTaskAckPath,
@@ -1699,7 +1824,8 @@ $automationTaskAckGateConfigured = Has-ConfigurationHint @(
     $LargeFileGovernanceTaskPreviewPath,
     $normalizedTaskPreviewPaths
 )
-$automationTaskAckGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
+$automationTaskAckSingleGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
+$automationTaskAckGate = Get-AutomationTaskAckGateAggregateReadback $automationTaskHistoryAckPairs $automationTaskAckSingleGate $automationTaskAckGateConfigured
 $scheduledTaskRegistryReadback = Get-ScheduledTaskRegistryReadback @($previewRecords) $ScheduledTaskReadbackJsonPath
 $automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback
 $automationTaskAckReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured
@@ -2001,13 +2127,26 @@ if ($automationTaskAckState.state -ne "ok") {
             (Format-StatusValue (Get-JsonValue $automationTaskAck "reason" "unknown"))))
 }
 if ($automationTaskAckGate.configured) {
-    $lines.Add(('- Task acknowledgement gate: state=`{0}`, failed=`{1}`, acknowledged=`{2}`, ackExpired=`{3}`, releaseGate=`{4}`, action=`{5}`' -f
+    $lines.Add(('- Task acknowledgement gate: state=`{0}`, failed=`{1}`, acknowledged=`{2}`, ackExpired=`{3}`, tasks=`{4}`, blocked=`{5}`, source=`{6}`, releaseGate=`{7}`, action=`{8}`' -f
             (Format-StatusValue $automationTaskAckGate.state),
             (Format-StatusValue $automationTaskAckGate.failedRunCount),
             (Format-StatusValue $automationTaskAckGate.acknowledged),
             (Format-StatusValue $automationTaskAckGate.ackExpired),
+            (Format-StatusValue $automationTaskAckGate.taskCount),
+            (Format-StatusValue $automationTaskAckGate.blockedTaskCount),
+            (Format-StatusValue $automationTaskAckGate.source),
             (Format-StatusValue $automationTaskAckGate.releaseGate),
             (Format-StatusValue $automationTaskAckGate.action)))
+    foreach ($ackDetail in @($automationTaskAckGate.details)) {
+        $lines.Add(('  Task ack gate: kind=`{0}`, name=`{1}`, state=`{2}`, failed=`{3}`, acknowledged=`{4}`, ackExpired=`{5}`, releaseGate=`{6}`' -f
+                (Format-StatusValue $ackDetail.taskKind),
+                (Format-StatusValue $ackDetail.taskName),
+                (Format-StatusValue $ackDetail.state),
+                (Format-StatusValue $ackDetail.failedRunCount),
+                (Format-StatusValue $ackDetail.acknowledged),
+                (Format-StatusValue $ackDetail.ackExpired),
+                (Format-StatusValue $ackDetail.releaseGate)))
+    }
 }
 if ($automationTaskAckReminder.configured) {
     $lines.Add(('- Task acknowledgement reminder: state=`{0}`, expiryHours=`{1}`, ageHours=`{2}`, remainingHours=`{3}`, overdueHours=`{4}`, expiresAt=`{5}`, action=`{6}`' -f
