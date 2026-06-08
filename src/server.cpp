@@ -1136,6 +1136,7 @@ Server::Server(QObject* parent)
 
     // Configure heartbeat monitor
     m_heartbeatMonitor->setTimeoutMs(90000); // 90 seconds timeout
+    m_heartbeatMonitor->setEventLoopStallGraceMs(60000);
     m_heartbeatMonitor->setTimeoutCallback([this](const QString& clientId) {
         QTcpSocket* socket = m_userSockets.value(clientId);
         if (socket) {
@@ -1385,6 +1386,11 @@ void Server::onClientReadyRead() {
 
         QJsonObject obj = doc.object();
         QString type = obj["type"].toString();
+        if (ChatUser* user = findUserBySocket(socket)) {
+            user->lastActive = QDateTime::currentDateTime();
+            refreshRedisPresence(*user);
+            m_heartbeatMonitor->updateClientActivity(user->id);
+        }
 
         if (type == "login") {
             handleLogin(obj, socket);
@@ -1423,12 +1429,7 @@ void Server::onClientReadyRead() {
         } else if (type == "friend_request" || type == "friend_response" || type == "friend_search") {
             handleFriendEvent(obj, socket);
         } else if (type == "heartbeat") {
-            ChatUser* user = findUserBySocket(socket);
-            if (user) {
-                user->lastActive = QDateTime::currentDateTime();
-                refreshRedisPresence(*user);
-                m_heartbeatMonitor->updateClientActivity(user->id);
-            }
+            // Activity was refreshed when the frame was accepted.
         }
     }
 

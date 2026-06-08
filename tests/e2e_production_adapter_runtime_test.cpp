@@ -162,6 +162,8 @@ int main() {
         status.value("productionProviderReviewedInvocationExecutionAcceptance").toObject();
     const QJsonObject providerDataPlaneBridge =
         status.value("productionProviderDataPlaneBridge").toObject();
+    const QJsonObject providerPublicPrimitiveExecution =
+        status.value("productionProviderPublicPrimitiveExecution").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -1055,6 +1057,29 @@ int main() {
                     && !providerDataPlaneBridge.value("privateMaterialExported").toBool(true)
                     && !providerDataPlaneBridge.value("sessionSecretExported").toBool(true),
                 "production data-plane bridge should stay blocked until execution acceptance evidence exists") && ok;
+    ok = expect(providerPublicPrimitiveExecution.value("schema").toString()
+                    == QStringLiteral("qtnetworkchat-e2e-production-provider-public-primitive-execution-v1")
+                    && providerPublicPrimitiveExecution.value("releaseGate").toString()
+                        == QStringLiteral("production-public-primitive-execution-not-release-gate")
+                    && !providerPublicPrimitiveExecution.value("accepted").toBool(true)
+                    && providerPublicPrimitiveExecution.value("publicPrimitiveExecutionNonReleaseGate").toBool(false)
+                    && providerPublicPrimitiveExecution.value("bridgeSourceCaptured").toBool(false)
+                    && providerPublicPrimitiveExecution.value("executionCount").toInt() == 8
+                    && providerPublicPrimitiveExecution.value("readyExecutionCount").toInt() == 0
+                    && providerPublicPrimitiveExecution.value("blockedExecutionCount").toInt() == 8
+                    && providerPublicPrimitiveExecution.value("failClosedExecutionCount").toInt() == 8
+                    && providerPublicPrimitiveExecution.value("executions").toArray().size() == 8
+                    && providerPublicPrimitiveExecution.value("blockedReason").toString()
+                        == QStringLiteral("production-public-primitive-execution-evidence-blocked")
+                    && !providerPublicPrimitiveExecution.value("publicApiInvoked").toBool(true)
+                    && !providerPublicPrimitiveExecution.value("providerInvokedByPublicPrimitive").toBool(true)
+                    && !providerPublicPrimitiveExecution.value("inputBytesCaptured").toBool(true)
+                    && !providerPublicPrimitiveExecution.value("outputBytesCaptured").toBool(true)
+                    && !providerPublicPrimitiveExecution.value("resultBytesCaptured").toBool(true)
+                    && !providerPublicPrimitiveExecution.value("rawKeyExported").toBool(true)
+                    && !providerPublicPrimitiveExecution.value("privateMaterialExported").toBool(true)
+                    && !providerPublicPrimitiveExecution.value("sessionSecretExported").toBool(true),
+                "production public primitive execution should stay blocked until data-plane bridge evidence exists") && ok;
     const QJsonObject firstHarnessOperation = harness.value("operations").toArray().at(0).toObject();
     ok = expect(firstHarnessOperation.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -1338,6 +1363,11 @@ int main() {
                     && acceptance.value("providerDataPlaneBridgeBlockedCount").toInt() == 8
                     && acceptance.value("providerDataPlaneBridge").toObject()
                         .value("bridges").toArray().size() == 8
+                    && acceptance.value("providerPublicPrimitiveExecutionReadyCount").toInt() == 0
+                    && acceptance.value("providerPublicPrimitiveExecutionBlockedCount").toInt() == 8
+                    && acceptance.value("providerPublicPrimitiveExecutionReady").toBool(true) == false
+                    && acceptance.value("providerPublicPrimitiveExecution").toObject()
+                        .value("executions").toArray().size() == 8
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize reviewed operation gates without enabling crypto") && ok;
@@ -1813,6 +1843,102 @@ int main() {
                         && roundTripExecutionProbe.value("blockedReason").toString()
                             == QStringLiteral("production-provider-table-not-registered"),
                     "not-linked production provider round-trip probe should stay fully blocked") && ok;
+    }
+
+    const QJsonObject publicPrimitiveProbe =
+        e2eProbeProductionCryptoProviderPublicPrimitiveExecution();
+    ok = expect(publicPrimitiveProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-public-primitive-execution-probe-v1")
+                    && publicPrimitiveProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-public-primitive-execution-probe-not-release-gate")
+                    && !publicPrimitiveProbe.value("accepted").toBool(true)
+                    && publicPrimitiveProbe.value("publicPrimitiveExecutionNonReleaseGate").toBool(false)
+                    && publicPrimitiveProbe.value("requiredOperationCount").toInt() == 8
+                    && publicPrimitiveProbe.value("operations").toArray().size() == 8
+                    && publicPrimitiveProbe.value("negativeChecks").toArray().size() == 2
+                    && !publicPrimitiveProbe.value("publicApiInvoked").toBool(true)
+                    && !publicPrimitiveProbe.value("inputBytesCaptured").toBool(true)
+                    && !publicPrimitiveProbe.value("outputBytesCaptured").toBool(true)
+                    && !publicPrimitiveProbe.value("resultBytesCaptured").toBool(true)
+                    && !publicPrimitiveProbe.value("rawKeyExported").toBool(true)
+                    && !publicPrimitiveProbe.value("privateMaterialExported").toBool(true)
+                    && !publicPrimitiveProbe.value("sessionSecretExported").toBool(true)
+                    && !publicPrimitiveProbe.value("privateIdentityMaterialExported").toBool(true)
+                    && !publicPrimitiveProbe.value("plaintextExported").toBool(true)
+                    && !publicPrimitiveProbe.value("ciphertextExported").toBool(true),
+                "production public primitive execution probe should stay a sanitized non-release gate") && ok;
+    if (reviewedProviderOperationsBound) {
+        const QJsonObject firstPublicPrimitiveOperation =
+            publicPrimitiveProbe.value("operations").toArray().at(0).toObject();
+        const QJsonObject lastPublicPrimitiveOperation =
+            publicPrimitiveProbe.value("operations").toArray().at(7).toObject();
+        const QJsonObject firstPublicPrimitiveNegative =
+            publicPrimitiveProbe.value("negativeChecks").toArray().at(0).toObject();
+        const QJsonObject secondPublicPrimitiveNegative =
+            publicPrimitiveProbe.value("negativeChecks").toArray().at(1).toObject();
+        ok = expect(publicPrimitiveProbe.value("providerTableRegistered").toBool(false)
+                        && publicPrimitiveProbe.value("tableValidationAccepted").toBool(false)
+                        && publicPrimitiveProbe.value("providerDataPlaneBridgeReady").toBool(false)
+                        && publicPrimitiveProbe.value("publicPrimitiveReady").toBool(false)
+                        && publicPrimitiveProbe.value("publicPrimitivePassed").toBool(false)
+                        && publicPrimitiveProbe.value("invokedOperationCount").toInt() == 8
+                        && publicPrimitiveProbe.value("readyOperationCount").toInt() == 8
+                        && publicPrimitiveProbe.value("blockedOperationCount").toInt() == 0
+                        && publicPrimitiveProbe.value("publicApiMappedOperationCount").toInt() == 8
+                        && publicPrimitiveProbe.value("bridgeReadyOperationCount").toInt() == 8
+                        && publicPrimitiveProbe.value("statusConsistentOperationCount").toInt() == 8
+                        && publicPrimitiveProbe.value("sanitizedOperationCount").toInt() == 8
+                        && publicPrimitiveProbe.value("materialPolicyMatchedCount").toInt() == 8
+                        && publicPrimitiveProbe.value("outputShapeHashCount").toInt() == 8
+                        && publicPrimitiveProbe.value("negativeCheckCount").toInt() == 2
+                        && publicPrimitiveProbe.value("negativeCheckPassCount").toInt() == 2
+                        && publicPrimitiveProbe.value("tamperRejectedCount").toInt() == 2
+                        && publicPrimitiveProbe.value("identityPublicDerivationMatched").toBool(false)
+                        && publicPrimitiveProbe.value("agreementSignatureVerified").toBool(false)
+                        && publicPrimitiveProbe.value("sessionDerivePassed").toBool(false)
+                        && publicPrimitiveProbe.value("payloadRoundTripPassed").toBool(false)
+                        && publicPrimitiveProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-public-primitive-execution-awaiting-audit-release-gate")
+                        && firstPublicPrimitiveOperation.value("operation").toString()
+                            == QStringLiteral("session-key-generation")
+                        && firstPublicPrimitiveOperation.value("publicApi").toString()
+                            == QStringLiteral("generateE2ESessionKey")
+                        && firstPublicPrimitiveOperation.value("operationInvoked").toBool(false)
+                        && firstPublicPrimitiveOperation.value("providerInvokedByPublicPrimitive").toBool(false)
+                        && firstPublicPrimitiveOperation.value("sealedOutputSize").toInt() == 32
+                        && firstPublicPrimitiveOperation.value("outputShapeHashSha256").toString().size() == 64
+                        && !firstPublicPrimitiveOperation.value("publicApiInvoked").toBool(true)
+                        && !firstPublicPrimitiveOperation.value("outputBytesCaptured").toBool(true)
+                        && firstPublicPrimitiveOperation.value("publicPrimitiveStepPassed").toBool(false)
+                        && lastPublicPrimitiveOperation.value("operation").toString()
+                            == QStringLiteral("payload-decrypt")
+                        && lastPublicPrimitiveOperation.value("publicApi").toString()
+                            == QStringLiteral("decryptE2EPayload")
+                        && lastPublicPrimitiveOperation.value("operationInvoked").toBool(false)
+                        && lastPublicPrimitiveOperation.value("publicOutputSize").toInt()
+                            == QByteArray("public-primitive-provider-payload", 33).size()
+                        && lastPublicPrimitiveOperation.value("publicPrimitiveStepPassed").toBool(false)
+                        && firstPublicPrimitiveNegative.value("checkId").toString()
+                            == QStringLiteral("public-agreement-verify-tamper")
+                        && firstPublicPrimitiveNegative.value("rejectedAsExpected").toBool(false)
+                        && secondPublicPrimitiveNegative.value("checkId").toString()
+                            == QStringLiteral("public-payload-decrypt-tamper")
+                        && secondPublicPrimitiveNegative.value("rejectedAsExpected").toBool(false),
+                    "linked OpenSSL provider public primitive probe should exercise all public primitive callbacks without releasing production") && ok;
+    } else {
+        ok = expect(!publicPrimitiveProbe.value("providerTableRegistered").toBool(true)
+                        && !publicPrimitiveProbe.value("tableValidationAccepted").toBool(true)
+                        && !publicPrimitiveProbe.value("providerDataPlaneBridgeReady").toBool(true)
+                        && !publicPrimitiveProbe.value("publicPrimitiveReady").toBool(true)
+                        && !publicPrimitiveProbe.value("publicPrimitivePassed").toBool(true)
+                        && publicPrimitiveProbe.value("invokedOperationCount").toInt() == 0
+                        && publicPrimitiveProbe.value("readyOperationCount").toInt() == 0
+                        && publicPrimitiveProbe.value("blockedOperationCount").toInt() == 8
+                        && publicPrimitiveProbe.value("negativeCheckCount").toInt() == 2
+                        && publicPrimitiveProbe.value("negativeCheckPassCount").toInt() == 0
+                        && publicPrimitiveProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-table-not-registered"),
+                    "not-linked production public primitive probe should stay fully blocked") && ok;
     }
 
     const E2EEnvelope envelope = encryptE2EPayload(QStringLiteral("10001"),

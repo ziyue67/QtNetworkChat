@@ -34,6 +34,8 @@ public:
 
     void setTimeoutMs(int timeoutMs) { m_timeoutMs = timeoutMs; }
     int timeoutMs() const { return m_timeoutMs; }
+    void setEventLoopStallGraceMs(int graceMs) { m_eventLoopStallGraceMs = graceMs; }
+    int eventLoopStallGraceMs() const { return m_eventLoopStallGraceMs; }
 
     HeartbeatStats stats() const;
     void resetStats();
@@ -52,8 +54,11 @@ private:
     QTimer* m_checkTimer;
     QMap<QString, QDateTime> m_clientActivity;
     int m_timeoutMs;
+    int m_checkIntervalMs;
+    int m_eventLoopStallGraceMs;
     int m_totalChecks;
     int m_totalTimedOut;
+    QDateTime m_lastCheckTime;
     TimeoutCallback m_timeoutCallback;
 };
 

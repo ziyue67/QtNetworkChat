@@ -6,6 +6,8 @@ HeartbeatMonitor::HeartbeatMonitor(QObject* parent)
     : QObject(parent)
     , m_checkTimer(nullptr)
     , m_timeoutMs(60000) // Default 60 seconds timeout
+    , m_checkIntervalMs(10000)
+    , m_eventLoopStallGraceMs(0)
     , m_totalChecks(0)
     , m_totalTimedOut(0)
 {
@@ -19,6 +21,8 @@ void HeartbeatMonitor::start(int checkIntervalMs) {
 
     m_checkTimer = new QTimer(this);
     connect(m_checkTimer, &QTimer::timeout, this, &HeartbeatMonitor::checkClients);
+    m_checkIntervalMs = checkIntervalMs;
+    m_lastCheckTime = QDateTime::currentDateTime();
     m_checkTimer->start(checkIntervalMs);
 
     qDebug() << "HeartbeatMonitor started with interval:" << checkIntervalMs << "ms, timeout:" << m_timeoutMs << "ms";
@@ -93,6 +97,21 @@ void HeartbeatMonitor::resetStats() {
 void HeartbeatMonitor::checkClients() {
     m_totalChecks++;
     QDateTime now = QDateTime::currentDateTime();
+    const qint64 elapsedSinceLastCheck =
+        m_lastCheckTime.isValid() ? m_lastCheckTime.msecsTo(now) : 0;
+    m_lastCheckTime = now;
+    if (m_eventLoopStallGraceMs > 0
+        && elapsedSinceLastCheck > m_checkIntervalMs + m_eventLoopStallGraceMs) {
+        for (auto it = m_clientActivity.begin(); it != m_clientActivity.end(); ++it) {
+            it.value() = now;
+        }
+        HeartbeatStats currentStats = stats();
+        currentStats.lastCheckTime = now;
+        emit statsUpdated(currentStats);
+        qDebug() << "Heartbeat check skipped after event-loop stall:"
+                 << elapsedSinceLastCheck << "ms";
+        return;
+    }
     QStringList timedOutClients;
 
     for (auto it = m_clientActivity.begin(); it != m_clientActivity.end(); ++it) {

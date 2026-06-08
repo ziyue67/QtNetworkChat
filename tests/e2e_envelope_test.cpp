@@ -231,6 +231,8 @@ int main() {
         backendStatus.value("productionProviderInvocationExecution").toObject();
     const QJsonObject productionProviderDataPlaneBridge =
         backendStatus.value("productionProviderDataPlaneBridge").toObject();
+    const QJsonObject productionProviderPublicPrimitiveExecution =
+        backendStatus.value("productionProviderPublicPrimitiveExecution").toObject();
     ok = expect(backendStatus.value("backendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("compiledBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
                     && backendStatus.value("requestedBackendId").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -542,6 +544,20 @@ int main() {
                     && !productionProviderDataPlaneBridge.value("inputBytesCaptured").toBool(true)
                     && !productionProviderDataPlaneBridge.value("outputBytesCaptured").toBool(true)
                     && !productionProviderDataPlaneBridge.value("resultCaptured").toBool(true)
+                    && productionProviderPublicPrimitiveExecution.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-public-primitive-execution-v1")
+                    && productionProviderPublicPrimitiveExecution.value("releaseGate").toString()
+                        == QStringLiteral("production-public-primitive-execution-not-release-gate")
+                    && productionProviderPublicPrimitiveExecution.value("readyExecutionCount").toInt() == 0
+                    && productionProviderPublicPrimitiveExecution.value("blockedExecutionCount").toInt() == 8
+                    && productionProviderPublicPrimitiveExecution.value("executions").toArray().size() == 8
+                    && productionProviderPublicPrimitiveExecution.value("blockedReason").toString()
+                        == QStringLiteral("production-public-primitive-execution-evidence-blocked")
+                    && !productionProviderPublicPrimitiveExecution.value("publicApiInvoked").toBool(true)
+                    && !productionProviderPublicPrimitiveExecution.value("providerInvokedByPublicPrimitive").toBool(true)
+                    && !productionProviderPublicPrimitiveExecution.value("inputBytesCaptured").toBool(true)
+                    && !productionProviderPublicPrimitiveExecution.value("outputBytesCaptured").toBool(true)
+                    && !productionProviderPublicPrimitiveExecution.value("resultBytesCaptured").toBool(true)
                     && backendStatus.value("available").toBool(false),
                 "default e2e backend status should explicitly identify the draft backend") && ok;
     ok = expect(draftBackend.value("id").toString() == QStringLiteral("draft-qt-hmac-stream-v1")
@@ -553,7 +569,7 @@ int main() {
                     && draftBackend.value("providerReadinessGate").toString()
                         == QStringLiteral("draft-provider-not-production")
                     && draftBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 29
+                        .value("checks").toArray().size() == 30
                     && draftBackend.value("providerCompatibilityStatus").toString()
                         == QStringLiteral("development-known-answer-passed")
                     && draftBackend.value("providerCompatibilityEvidence").toObject()
@@ -575,7 +591,7 @@ int main() {
                     && !productionBackend.value("productionReady").toBool(true)
                     && productionBackend.value("reason").toString() == QStringLiteral("production-backend-not-requested")
                     && productionBackend.value("providerReadiness").toObject()
-                        .value("checks").toArray().size() == 29
+                        .value("checks").toArray().size() == 30
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("operationManifest").toArray().size() == 8
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
@@ -664,6 +680,15 @@ int main() {
                     && productionBackend.value("providerDataPlaneBridge").toObject()
                         .value("releaseGate").toString()
                             == QStringLiteral("production-provider-data-plane-bridge-not-release-gate")
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerPublicPrimitiveExecution").toObject()
+                        .value("executionCount").toInt() == 8
+                    && productionBackend.value("providerCompatibilityEvidence").toObject()
+                        .value("providerPublicPrimitiveExecution").toObject()
+                        .value("blockedExecutionCount").toInt() == 8
+                    && productionBackend.value("providerPublicPrimitiveExecution").toObject()
+                        .value("releaseGate").toString()
+                            == QStringLiteral("production-public-primitive-execution-not-release-gate")
                     && productionBackend.value("providerCompatibilityEvidence").toObject()
                         .value("blockedOperationCount").toInt() == 8
                     && productionBackend.value("operations").toArray().size() == 8,
