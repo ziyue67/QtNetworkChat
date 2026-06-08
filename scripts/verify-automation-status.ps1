@@ -124,7 +124,13 @@ Ensure-Directory -Path $e2eReleaseEvidenceDir
   "failedRunCount":1,
   "latestRun":{"timestamp":"2026-06-03T03:02:03.0000000Z","exitCode":0},
   "acknowledged":true,
-  "ackExpired":false
+  "ackExpired":false,
+  "ackExpiryHours":72,
+  "ackAgeHours":1.5,
+  "ackExpiresAt":"2026-06-06T03:30:00.0000000Z",
+  "ackHoursRemaining":70.5,
+  "ackHoursOverdue":0,
+  "ackReminder":"acknowledged"
 }
 '@ | Set-Content -LiteralPath $taskHistoryPath -Encoding UTF8
 @'
@@ -326,6 +332,7 @@ foreach ($expected in @(
     'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
     'Task acknowledgement gate: state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
+    'Task acknowledgement reminder: state=`acknowledged`, expiryHours=`72`, ageHours=`1.5`, remainingHours=`70.5`, overdueHours=`0`, expiresAt=`2026-06-06T03:30:00.0000000Z`, action=`none`',
     'Artifact Diagnostics',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
@@ -766,7 +773,13 @@ Ensure-Directory -Path $configuredTempDir
   "runCount":7,
   "failedRunCount":1,
   "acknowledged":false,
-  "ackExpired":false
+  "ackExpired":false,
+  "ackReminder":"acknowledge-required",
+  "ackExpiryHours":72,
+  "ackAgeHours":"unknown",
+  "ackHoursRemaining":"unknown",
+  "ackHoursOverdue":"unknown",
+  "ackExpiresAt":"unknown"
 }
 '@ | Set-Content -LiteralPath $customHistoryPath -Encoding UTF8
 @'
@@ -910,6 +923,7 @@ foreach ($expected in @(
     'Task history: runs=`7`',
     'Task acknowledgement: acknowledged=`false`, by=`unknown`, at=`unknown`, reason=`unknown`',
     'Task acknowledgement gate: state=`failed-unacknowledged`, failed=`1`, acknowledged=`false`, ackExpired=`false`, releaseGate=`blocked-unacknowledged-failure`, action=`acknowledge failed automation task before release`',
+    'Task acknowledgement reminder: state=`acknowledge-required`, expiryHours=`72`, ageHours=`unknown`, remainingHours=`unknown`, overdueHours=`unknown`, expiresAt=`unknown`, action=`acknowledge failed automation task before release`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
     Assert-Contains -Text $customMarkdown -Expected $expected
@@ -926,7 +940,13 @@ $expiredMarkdownPath = Join-Path $configuredTempDir "automation-status-expired-a
   "failedRunCount":1,
   "latestRun":{"timestamp":"2026-06-03T07:00:00.0000000Z","exitCode":2},
   "acknowledged":false,
-  "ackExpired":true
+  "ackExpired":true,
+  "ackReminder":"renew-required",
+  "ackExpiryHours":72,
+  "ackAgeHours":96,
+  "ackHoursRemaining":0,
+  "ackHoursOverdue":24,
+  "ackExpiresAt":"2026-06-04T07:00:00.0000000Z"
 }
 '@ | Set-Content -LiteralPath $expiredHistoryPath -Encoding UTF8
 @'
@@ -955,7 +975,8 @@ $expiredMarkdown = Get-Content -LiteralPath $expiredMarkdownPath -Raw -Encoding 
 foreach ($expected in @(
     'Task history: runs=`2`, failed=`1`, latestAt=`2026-06-03T07:00:00.0000000Z`, latestExitCode=`2`, acknowledged=`false`, ackExpired=`true`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-01T07:00:00.0000000Z`, reason=`expired sample`',
-    'Task acknowledgement gate: state=`failed-ack-expired`, failed=`1`, acknowledged=`false`, ackExpired=`true`, releaseGate=`blocked-ack-expired`, action=`renew task acknowledgement before release`'
+    'Task acknowledgement gate: state=`failed-ack-expired`, failed=`1`, acknowledged=`false`, ackExpired=`true`, releaseGate=`blocked-ack-expired`, action=`renew task acknowledgement before release`',
+    'Task acknowledgement reminder: state=`renew-required`, expiryHours=`72`, ageHours=`96`, remainingHours=`0`, overdueHours=`24`, expiresAt=`2026-06-04T07:00:00.0000000Z`, action=`renew expired automation task acknowledgement before release`'
 )) {
     Assert-Contains -Text $expiredMarkdown -Expected $expected
 }

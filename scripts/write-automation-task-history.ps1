@@ -104,6 +104,13 @@ function Parse-UtcDate([string]$Value) {
     $null
 }
 
+function Format-HourNumber([double]$Value) {
+    if ($Value -lt 0) {
+        $Value = 0
+    }
+    [math]::Round($Value, 2)
+}
+
 $normalizedLastRunPaths = @()
 foreach ($path in $LastRunPath) {
     foreach ($part in ([string]$path -split ",")) {
@@ -139,13 +146,38 @@ $acknowledgedBy = [string](Get-JsonValue $ack "acknowledgedBy" "")
 $acknowledgedAt = [string](Get-JsonValue $ack "acknowledgedAt" "")
 $ackReason = [string](Get-JsonValue $ack "reason" "")
 $ackExpired = $false
+$ackTime = $null
+$ackAgeHours = "unknown"
+$ackExpiresAt = "unknown"
+$ackHoursRemaining = "unknown"
+$ackHoursOverdue = "unknown"
 
 if ($RetentionCount -gt 0 -and $runs.Count -gt $RetentionCount) {
     $runs = @($runs | Sort-Object timestamp -Descending | Select-Object -First $RetentionCount)
 }
 
-if ($AckExpiryHours -gt 0 -and $acknowledged) {
+if ($acknowledged) {
     $ackTime = Parse-UtcDate $acknowledgedAt
+    if ($null -ne $ackTime) {
+        $nowUtc = (Get-Date).ToUniversalTime()
+        $expiryAge = ($nowUtc - $ackTime.UtcDateTime).TotalHours
+        $ackAgeHours = Format-HourNumber $expiryAge
+        if ($AckExpiryHours -gt 0) {
+            $expiresAtUtc = $ackTime.UtcDateTime.AddHours($AckExpiryHours)
+            $ackExpiresAt = $expiresAtUtc.ToString("o")
+            $remainingHours = ($expiresAtUtc - $nowUtc).TotalHours
+            if ($remainingHours -ge 0) {
+                $ackHoursRemaining = Format-HourNumber $remainingHours
+                $ackHoursOverdue = 0
+            } else {
+                $ackHoursRemaining = 0
+                $ackHoursOverdue = Format-HourNumber (-$remainingHours)
+            }
+        }
+    }
+}
+
+if ($AckExpiryHours -gt 0 -and $acknowledged) {
     if ($null -eq $ackTime) {
         $ackExpired = $true
     } else {
@@ -174,6 +206,21 @@ $safeAcknowledgedAt = if ([string]::IsNullOrWhiteSpace($acknowledgedAt)) { "unkn
 $safeAckReason = if ([string]::IsNullOrWhiteSpace($ackReason)) { "unknown" } else { $ackReason }
 $safeSensitiveHits = @($sensitiveHits)
 $safeRuns = @($runs)
+$ackReminder = "not-required"
+if ($failedRuns.Count -gt 0) {
+    if ($ackExpired) {
+        $ackReminder = "renew-required"
+    } elseif (-not $acknowledged) {
+        $ackReminder = "acknowledge-required"
+    } else {
+        $remainingReminderHours = 0.0
+        if ([double]::TryParse([string]$ackHoursRemaining, [ref]$remainingReminderHours) -and $remainingReminderHours -le 24) {
+            $ackReminder = "renew-soon"
+        } else {
+            $ackReminder = "acknowledged"
+        }
+    }
+}
 
 $summary = [ordered]@{
     format = "qtnetworkchat-automation-task-history-v1"
@@ -186,6 +233,12 @@ $summary = [ordered]@{
     acknowledgedBy = $safeAcknowledgedBy
     acknowledgedAt = $safeAcknowledgedAt
     ackReason = $safeAckReason
+    ackExpiryHours = $AckExpiryHours
+    ackAgeHours = $ackAgeHours
+    ackExpiresAt = $ackExpiresAt
+    ackHoursRemaining = $ackHoursRemaining
+    ackHoursOverdue = $ackHoursOverdue
+    ackReminder = $ackReminder
     sensitiveHits = $safeSensitiveHits
     runs = $safeRuns
 }
@@ -214,6 +267,10 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(('- Ack expired: `{0}`' -f $summary.ackExpired.ToString().ToLowerInvariant()))
     $lines.Add(('- Acknowledged by: `{0}`' -f $summary.acknowledgedBy))
     $lines.Add(('- Acknowledged at: `{0}`' -f $summary.acknowledgedAt))
+    $lines.Add(('- Ack reminder: `{0}`' -f $summary.ackReminder))
+    $lines.Add(('- Ack expiry hours: `{0}`' -f $summary.ackExpiryHours))
+    $lines.Add(('- Ack hours remaining: `{0}`' -f $summary.ackHoursRemaining))
+    $lines.Add(('- Ack hours overdue: `{0}`' -f $summary.ackHoursOverdue))
     $lines.Add("")
     $lines.Add("| Source | Timestamp | Exit Code | OK |")
     $lines.Add("| --- | --- | ---: | --- |")

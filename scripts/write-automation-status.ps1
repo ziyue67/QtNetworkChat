@@ -413,6 +413,46 @@ function Convert-StatusBoolean([object]$Value, [bool]$DefaultValue) {
     $DefaultValue
 }
 
+function Get-AckReminderReadback([object]$HistoryState, [bool]$Configured) {
+    $result = [ordered]@{
+        configured = $Configured
+        state = "not-configured"
+        expiryHours = "unknown"
+        ageHours = "unknown"
+        remainingHours = "unknown"
+        overdueHours = "unknown"
+        expiresAt = "unknown"
+        action = "none"
+    }
+    if (-not $Configured) {
+        return [pscustomobject]$result
+    }
+    if ($null -eq $HistoryState -or $HistoryState.state -ne "ok") {
+        $result.state = "history-unavailable"
+        $result.action = "restore automation task history artifact before release"
+        return [pscustomobject]$result
+    }
+    $history = $HistoryState.value
+    $result.state = Format-StatusValue (Get-JsonValue $history "ackReminder" "unknown")
+    $result.expiryHours = Format-StatusValue (Get-JsonValue $history "ackExpiryHours" "unknown")
+    $result.ageHours = Format-StatusValue (Get-JsonValue $history "ackAgeHours" "unknown")
+    $result.remainingHours = Format-StatusValue (Get-JsonValue $history "ackHoursRemaining" "unknown")
+    $result.overdueHours = Format-StatusValue (Get-JsonValue $history "ackHoursOverdue" "unknown")
+    $result.expiresAt = Format-StatusValue (Get-JsonValue $history "ackExpiresAt" "unknown")
+    if ($result.state -eq "acknowledge-required") {
+        $result.action = "acknowledge failed automation task before release"
+    } elseif ($result.state -eq "renew-required") {
+        $result.action = "renew expired automation task acknowledgement before release"
+    } elseif ($result.state -eq "renew-soon") {
+        $result.action = "renew automation task acknowledgement before it expires"
+    } elseif ($result.state -eq "history-unavailable") {
+        $result.action = "restore automation task history artifact before release"
+    } else {
+        $result.action = "none"
+    }
+    [pscustomobject]$result
+}
+
 function Has-ConfigurationHint([string[]]$Values) {
     foreach ($value in $Values) {
         if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
@@ -1392,6 +1432,7 @@ $automationTaskAckGateConfigured = Has-ConfigurationHint @(
 )
 $automationTaskAckGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
 $automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate
+$automationTaskAckReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured
 
 $databaseHealthStatus = $databaseHealthStatusState.value
 $databaseHealthLastRun = Read-LastRunSummary $databaseHealthLastRunState
@@ -1668,6 +1709,16 @@ if ($automationTaskAckGate.configured) {
             (Format-StatusValue $automationTaskAckGate.ackExpired),
             (Format-StatusValue $automationTaskAckGate.releaseGate),
             (Format-StatusValue $automationTaskAckGate.action)))
+}
+if ($automationTaskAckReminder.configured) {
+    $lines.Add(('- Task acknowledgement reminder: state=`{0}`, expiryHours=`{1}`, ageHours=`{2}`, remainingHours=`{3}`, overdueHours=`{4}`, expiresAt=`{5}`, action=`{6}`' -f
+            (Format-StatusValue $automationTaskAckReminder.state),
+            (Format-StatusValue $automationTaskAckReminder.expiryHours),
+            (Format-StatusValue $automationTaskAckReminder.ageHours),
+            (Format-StatusValue $automationTaskAckReminder.remainingHours),
+            (Format-StatusValue $automationTaskAckReminder.overdueHours),
+            (Format-StatusValue $automationTaskAckReminder.expiresAt),
+            (Format-StatusValue $automationTaskAckReminder.action)))
 }
 $lines.Add("")
 $lines.Add("## Artifact Diagnostics")

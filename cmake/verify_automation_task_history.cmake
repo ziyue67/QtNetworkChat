@@ -1,6 +1,9 @@
 if(NOT DEFINED SCRIPT_PATH OR NOT EXISTS "${SCRIPT_PATH}")
     message(FATAL_ERROR "SCRIPT_PATH does not exist: ${SCRIPT_PATH}")
 endif()
+if(POLICY CMP0054)
+    cmake_policy(SET CMP0054 NEW)
+endif()
 
 set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/automation_task_history_sample")
 set(LAST_RUN_A "${TEMP_DIR}/database-last-run.log")
@@ -62,6 +65,9 @@ string(JSON latest_exit_code GET "${json_content}" "latestRun" "exitCode")
 string(JSON acknowledged GET "${json_content}" "acknowledged")
 string(JSON ack_expired GET "${json_content}" "ackExpired")
 string(JSON acknowledged_by GET "${json_content}" "acknowledgedBy")
+string(JSON ack_reminder GET "${json_content}" "ackReminder")
+string(JSON ack_expiry_hours GET "${json_content}" "ackExpiryHours")
+string(JSON ack_hours_remaining GET "${json_content}" "ackHoursRemaining")
 if(NOT format STREQUAL "qtnetworkchat-automation-task-history-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected history format: ${format}")
@@ -78,6 +84,10 @@ if(NOT acknowledged OR ack_expired OR NOT acknowledged_by STREQUAL "operator-ci"
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected acknowledged operator-ci state")
 endif()
+if(NOT "${ack_reminder}" STREQUAL "acknowledged" OR NOT "${ack_expiry_hours}" STREQUAL "240" OR "${ack_hours_remaining}" STREQUAL "unknown")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected acknowledged reminder details, got ${ack_reminder}/${ack_expiry_hours}/${ack_hours_remaining}")
+endif()
 
 file(READ "${MD_PATH}" markdown_content)
 foreach(expected_text
@@ -86,6 +96,8 @@ foreach(expected_text
         "Failed runs: `1`"
         "Acknowledged: `true`"
         "Ack expired: `false`"
+        "Ack reminder: `acknowledged`"
+        "Ack expiry hours: `240`"
         "operator-ci")
     string(FIND "${markdown_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
@@ -134,7 +146,9 @@ file(READ "${JSON_PATH}" expired_json_content)
 string(JSON expired_ack GET "${expired_json_content}" "acknowledged")
 string(JSON expired_flag GET "${expired_json_content}" "ackExpired")
 string(JSON expired_reason GET "${expired_json_content}" "ackReason")
-if(expired_ack OR NOT expired_flag OR expired_reason EQUAL "")
+string(JSON expired_reminder GET "${expired_json_content}" "ackReminder")
+string(JSON expired_overdue GET "${expired_json_content}" "ackHoursOverdue")
+if(expired_ack OR NOT expired_flag OR expired_reason STREQUAL "" OR NOT "${expired_reminder}" STREQUAL "renew-required" OR "${expired_overdue}" STREQUAL "unknown")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expired ack should be downgraded and marked expired")
 endif()
