@@ -67,5 +67,45 @@ if(NOT route_lines EQUAL 3)
     message(FATAL_ERROR "Expected routeLineCount=3, got ${route_lines}")
 endif()
 
+set(EMPTY_ROUTE_LOG "${TEMP_DIR}/empty-route.log")
+set(EMPTY_QUEUE_LOG "${TEMP_DIR}/empty-queue.jsonl")
+set(EMPTY_OUTPUT_DIR "${TEMP_DIR}/empty-out")
+file(WRITE "${EMPTY_ROUTE_LOG}" "")
+file(WRITE "${EMPTY_QUEUE_LOG}" "")
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -RouteLogPath "${EMPTY_ROUTE_LOG}"
+        -QueuePath "${EMPTY_QUEUE_LOG}"
+        -SourceInstanceId "${SOURCE_INSTANCE}"
+        -OutputDir "${EMPTY_OUTPUT_DIR}"
+        -NoFailOnSensitive
+    RESULT_VARIABLE empty_result
+    OUTPUT_VARIABLE empty_output
+    ERROR_VARIABLE empty_error_output
+)
+
+if(NOT empty_output STREQUAL "")
+    message(STATUS "${empty_output}")
+endif()
+if(NOT empty_error_output STREQUAL "")
+    message(STATUS "${empty_error_output}")
+endif()
+
+if(NOT empty_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Empty run-large-file-delivery-reconcile.ps1 exited with code ${empty_result}")
+endif()
+
+foreach(empty_expected
+        "${EMPTY_OUTPUT_DIR}/receipts.jsonl"
+        "${EMPTY_OUTPUT_DIR}/fallbacks.jsonl"
+        "${EMPTY_OUTPUT_DIR}/reconcile.log")
+    if(NOT EXISTS "${empty_expected}")
+        file(REMOVE_RECURSE "${TEMP_DIR}")
+        message(FATAL_ERROR "Expected empty reconciliation output was not created: ${empty_expected}")
+    endif()
+endforeach()
+
 file(REMOVE_RECURSE "${TEMP_DIR}")
 message(STATUS "Reconcile runner S3 analysis test passed: s3Lines=${s3_lines} routeLines=${route_lines}")

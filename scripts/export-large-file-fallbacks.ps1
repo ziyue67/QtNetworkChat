@@ -188,7 +188,8 @@ if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
     if (-not [string]::IsNullOrWhiteSpace($parent)) {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
-    $fallbacks | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+    $fallbackLines = @($fallbacks | ForEach-Object { $_ | ConvertTo-Json -Compress })
+    Set-Content -LiteralPath $OutputPath -Value $fallbackLines -Encoding UTF8
 }
 
 Write-Host "large file fallback export"

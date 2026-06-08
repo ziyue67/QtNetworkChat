@@ -259,6 +259,8 @@ $dbOutputDir = Join-Path $resolvedOutputDir "database-health"
 $dbTaskDir = Join-Path $dbOutputDir "database-health-task"
 $govOutputDir = Join-Path $resolvedOutputDir "large-file-governance"
 $govTaskDir = Join-Path $govOutputDir "scheduled-task"
+$govRouteLogPath = Join-Path $govOutputDir "route-log.ndjson"
+$govQueuePath = Join-Path $govOutputDir "offline-queue.jsonl"
 $pgsqlOutputDir = Join-Path $resolvedOutputDir "pgsql-release-acceptance"
 $pgsqlTaskDir = Join-Path $pgsqlOutputDir "pgsql-release-acceptance-task"
 $registrationResults = New-Object System.Collections.Generic.List[object]
@@ -287,8 +289,8 @@ if (-not $Register.IsPresent -and [int]$dbRegistrationResult.exitCode -ne 0) {
 $govRegisterArgs = @(
     "-ExecutionPolicy", "Bypass",
     "-File", $registerLargeFileGovernanceScript,
-    "-RouteLogPath", (Join-Path $govOutputDir "route-log.ndjson"),
-    "-QueuePath", (Join-Path $govOutputDir "offline-queue"),
+    "-RouteLogPath", $govRouteLogPath,
+    "-QueuePath", $govQueuePath,
     "-SourceInstanceId", "bootstrap-instance",
     "-OutputDir", $govOutputDir,
     "-TaskDir", $govTaskDir,
@@ -305,6 +307,12 @@ $govRegistrationResult = Invoke-AutomationTaskHelper "large-file-governance" "Qt
 $registrationResults.Add($govRegistrationResult)
 if (-not $Register.IsPresent -and [int]$govRegistrationResult.exitCode -ne 0) {
     throw "large-file governance task preview bootstrap failed with exit code $($govRegistrationResult.exitCode)"
+}
+if (-not (Test-Path -LiteralPath $govQueuePath -PathType Leaf)) {
+    Write-TextFile $govQueuePath ""
+}
+if (-not (Test-Path -LiteralPath $govRouteLogPath -PathType Leaf)) {
+    Write-TextFile $govRouteLogPath ""
 }
 
 $pgsqlRegisterArgs = @(

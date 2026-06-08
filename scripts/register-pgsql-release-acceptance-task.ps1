@@ -250,7 +250,7 @@ Add-ScalarArg $lines "PostgresUser" $PostgresUser
 if ($PlanOnly.IsPresent) {
     Add-SwitchArg $lines "PlanOnly" $true
 } else {
-    [void]$lines.Add("    -PostgresPassword `$env:QTNETWORKCHAT_PGPASSWORD ``")
+    [void]$lines.Add("    -PostgresPassword ([string]`$env:QTNETWORKCHAT_PGPASSWORD) ``")
 }
 Add-ScalarArg $lines "SQLitePath" $SQLitePath
 Add-SwitchArg $lines "FailOnUnhealthy" $FailOnUnhealthy.IsPresent
@@ -310,7 +310,7 @@ Add-ScalarArg $lines "PostgresUser" $PostgresUser
 if ($PlanOnly.IsPresent) {
     Add-SwitchArg $lines "PlanOnly" $true
 } else {
-    [void]$lines.Add("    -PostgresPassword `$env:QTNETWORKCHAT_PGPASSWORD ``")
+    [void]$lines.Add("    -PostgresPassword ([string]`$env:QTNETWORKCHAT_PGPASSWORD) ``")
 }
 Add-ScalarArg $lines "AppDataDir" $AppDataDir
 Add-SwitchArg $lines "EnsureDatabase" $EnsureDatabase.IsPresent
@@ -336,7 +336,7 @@ Add-IntArg $lines "PostgresPort" $PostgresPort
 Add-ScalarArg $lines "PostgresDatabase" $PostgresDatabase
 Add-ScalarArg $lines "PostgresUser" $PostgresUser
 if ($MigrationMode -ne "plan") {
-    [void]$lines.Add("    -PostgresPassword `$env:QTNETWORKCHAT_PGPASSWORD ``")
+    [void]$lines.Add("    -PostgresPassword ([string]`$env:QTNETWORKCHAT_PGPASSWORD) ``")
 }
 Add-ScalarArg $lines "Mode" $MigrationMode
 Add-ScalarArg $lines "JsonPath" $MigrationJsonPath

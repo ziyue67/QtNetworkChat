@@ -164,7 +164,8 @@ if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
     if (-not [string]::IsNullOrWhiteSpace($parent)) {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
-    $receipts | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+    $receiptLines = @($receipts | ForEach-Object { $_ | ConvertTo-Json -Compress })
+    Set-Content -LiteralPath $OutputPath -Value $receiptLines -Encoding UTF8
 }
 
 Write-Host "large file receipt export"

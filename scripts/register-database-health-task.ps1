@@ -206,7 +206,7 @@ Add-ScalarArg $lines "PostgresHost" $PostgresHost
 Add-IntArg $lines "PostgresPort" $PostgresPort
 Add-ScalarArg $lines "PostgresDatabase" $PostgresDatabase
 Add-ScalarArg $lines "PostgresUser" $PostgresUser
-Add-RawArg $lines "PostgresPassword" '$env:QTNETWORKCHAT_PGPASSWORD'
+Add-RawArg $lines "PostgresPassword" '([string]$env:QTNETWORKCHAT_PGPASSWORD)'
 Add-ScalarArg $lines "SQLitePath" $SQLitePath
 Add-SwitchArg $lines "PlanOnly" $PlanOnly.IsPresent
 Add-SwitchArg $lines "FailOnUnhealthy" $FailOnUnhealthy.IsPresent

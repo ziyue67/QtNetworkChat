@@ -62,7 +62,7 @@ foreach(expected_text
         "write-database-health-dashboard.ps1"
         "write-automation-task-history.ps1"
         "-Driver 'postgres'"
-        "-PostgresPassword $env:QTNETWORKCHAT_PGPASSWORD"
+        "-PostgresPassword ([string]$env:QTNETWORKCHAT_PGPASSWORD)"
         "-PlanOnly"
         "-FailOnUnhealthy"
         "-MarkdownPath"
