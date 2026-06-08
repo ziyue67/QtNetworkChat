@@ -97,9 +97,16 @@ bool isS3OfflineE2EObjectRecoveryStore(const QString& storeType) {
     return storeType == QLatin1String("s3") || storeType == QLatin1String("offline");
 }
 
+bool e2eS3ObjectRecoveryReviewedEnabled() {
+    return envEnabled("QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED");
+}
+
 QString e2eObjectRecoveryScopeForStoreType(const QString& storeType) {
     if (storeType == QLatin1String("filesystem")) {
         return QStringLiteral("filesystem-object-ciphertext-readback");
+    }
+    if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("s3-object-ciphertext-readback");
     }
     if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
         return QStringLiteral("s3-offline-auto-readback");
@@ -114,6 +121,9 @@ QString e2eObjectRecoveryReviewGateForStoreType(const QString& storeType, bool o
     if (storeType == QLatin1String("filesystem")) {
         return QStringLiteral("filesystem-object-ciphertext-readback-reviewed");
     }
+    if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("s3-object-ciphertext-readback-reviewed");
+    }
     if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
         return QStringLiteral("s3-offline-auto-readback-not-reviewed");
     }
@@ -124,6 +134,9 @@ QString e2eObjectRecoveryDefaultReasonForStoreType(const QString& storeType, boo
     if (!objectKeySafe) {
         return QStringLiteral("e2e-file-object-recovery-evidence-invalid");
     }
+    if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("e2e-file-object-recovery-read-path-unavailable");
+    }
     if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
         return QStringLiteral("e2e-file-s3-offline-auto-readback-not-reviewed");
     }
@@ -133,6 +146,9 @@ QString e2eObjectRecoveryDefaultReasonForStoreType(const QString& storeType, boo
 QString e2eObjectRecoveryDefaultActionForStoreType(const QString& storeType, bool objectKeySafe) {
     if (!objectKeySafe) {
         return QStringLiteral("suppress-object-key-and-resend");
+    }
+    if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("resend-or-wait-for-object-recovery");
     }
     if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
         return QStringLiteral("keep-s3-offline-auto-readback-fail-closed-until-reviewed");
@@ -609,16 +625,22 @@ bool loadE2EFileObjectRecoveryPayload(const QJsonObject& state,
         return false;
     }
 
-    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+    if (storeType == QLatin1String("s3") && !e2eS3ObjectRecoveryReviewedEnabled()) {
         if (rejectReason) *rejectReason = QStringLiteral("e2e-file-s3-offline-auto-readback-not-reviewed");
         return false;
     }
-    if (storeType != QLatin1String("filesystem")) {
+    if (storeType == QLatin1String("offline")) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-s3-offline-auto-readback-not-reviewed");
+        return false;
+    }
+    if (storeType != QLatin1String("filesystem") && storeType != QLatin1String("s3")) {
         if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-store-unavailable");
         return false;
     }
 
-    const QString rootDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_ROOT")).trimmed();
+    const QString rootDir = storeType == QLatin1String("filesystem")
+        ? QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_OBJECT_ROOT")).trimmed()
+        : QString();
     QString storeError;
     std::unique_ptr<ObjectStore> objectStore =
         createObjectStore(storeType, rootDir, &storeError);
@@ -3217,8 +3239,10 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
             status["e2eFileObjectStoreType"] = storeType;
             status["e2eFileObjectStoreHash"] = state.value("e2eFileObjectStoreHash").toString();
             status["e2eFileObjectStoreSize"] = state.value("e2eFileObjectStoreSize").toString();
-            const bool forceDefaultRecoveryDecision =
-                !objectKeySafe || isS3OfflineE2EObjectRecoveryStore(storeType);
+            const bool s3OfflineNotReviewed =
+                isS3OfflineE2EObjectRecoveryStore(storeType)
+                && !(storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled());
+            const bool forceDefaultRecoveryDecision = !objectKeySafe || s3OfflineNotReviewed;
             status["e2eFileObjectRecoveryScope"] = forceDefaultRecoveryDecision
                 ? e2eObjectRecoveryScopeForStoreType(storeType)
                 : state.value("e2eFileObjectRecoveryScope")

@@ -883,6 +883,34 @@ int main() {
     ok = expect(!s3GetMismatchValidation.ok
                     && s3GetMismatchValidation.error.contains(QString::fromUtf8("大小不一致")),
                 "s3 validation should reject mismatched GET body and not trust ETag or HEAD hash alone") && ok;
+    bool sawNativeHead = false;
+    bool sawGetAfterHead = false;
+    S3ObjectStore s3NativeHeadStore(envS3Config,
+                                    [&envS3Config, expectedS3Hash, &sawNativeHead, &sawGetAfterHead](
+                                        const S3SignedObjectRequest& request,
+                                        const QByteArray& body) {
+        S3RequestExecutionResult result;
+        if (request.method == QByteArrayLiteral("HEAD")) {
+            sawNativeHead = body.isEmpty();
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.headers.insert(QStringLiteral("Content-Length"), QStringLiteral("7"));
+            result.headers.insert(QStringLiteral("X-Amz-Meta-Sha256"), expectedS3Hash);
+        } else if (request.method == QByteArrayLiteral("GET")) {
+            sawGetAfterHead = sawNativeHead;
+            result.result = s3RequestResultFromReply(envS3Config, 200);
+            result.body = QByteArrayLiteral("payload");
+        } else {
+            result.result = s3RequestResultFromReply(envS3Config, 405);
+        }
+        return result;
+    });
+    const ObjectStore::ValidationResult s3NativeHeadValidation =
+        s3NativeHeadStore.validateObject(QStringLiteral("abcdef1234567890.bin"), 7, expectedS3Hash);
+    ok = expect(s3NativeHeadValidation.ok
+                    && sawNativeHead
+                    && sawGetAfterHead
+                    && s3NativeHeadValidation.fileHash == expectedS3Hash,
+                "s3 validation should perform native HEAD metadata validation before verified GET body readback") && ok;
     S3ObjectStore s3FailedHeadStore(envS3Config,
                                     [&envS3Config](const S3SignedObjectRequest& request, const QByteArray& body) {
         Q_UNUSED(request);

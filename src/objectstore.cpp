@@ -988,7 +988,14 @@ S3RequestExecutionResult executeS3ObjectRequest(const S3ObjectStoreConfig& confi
     }
 
     QNetworkAccessManager manager;
-    QNetworkReply* reply = manager.sendCustomRequest(request.request, request.method, body);
+    QNetworkReply* reply = nullptr;
+    if (request.method == QByteArrayLiteral("HEAD")) {
+        reply = manager.head(request.request);
+    } else if (request.method == QByteArrayLiteral("GET")) {
+        reply = manager.get(request.request);
+    } else {
+        reply = manager.sendCustomRequest(request.request, request.method, body);
+    }
     QEventLoop loop;
     QTimer timeoutTimer;
     timeoutTimer.setSingleShot(true);

@@ -705,6 +705,116 @@ private:
     qint64 m_e2eObjectResumeChunkCount = 0;
     QString m_e2eObjectResumeFileHash;
 };
+
+class LoopbackS3ReadbackServer : public QObject {
+    Q_OBJECT
+
+public:
+    explicit LoopbackS3ReadbackServer(const QByteArray& payload, const QString& objectKey, QObject* parent = nullptr)
+        : QObject(parent),
+          m_payload(payload),
+          m_objectKey(objectKey),
+          m_hash(bytesSha256(payload)) {
+    }
+
+    bool start() {
+        connect(&m_server, &QTcpServer::newConnection, this, &LoopbackS3ReadbackServer::onNewConnection);
+        return m_server.listen(QHostAddress::LocalHost, 0);
+    }
+
+    quint16 port() const { return m_server.serverPort(); }
+    int headCount() const { return m_headCount; }
+    int getCount() const { return m_getCount; }
+
+private slots:
+    void onNewConnection() {
+        QTcpSocket* socket = m_server.nextPendingConnection();
+        if (!socket) return;
+        m_buffers.insert(socket, QByteArray());
+        connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
+            QByteArray& buffer = m_buffers[socket];
+            buffer.append(socket->readAll());
+            if (!buffer.contains("\r\n\r\n")) {
+                return;
+            }
+            const QByteArray request = buffer;
+            buffer.clear();
+            handleRequest(socket, request);
+        });
+        connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+            m_buffers.remove(socket);
+            socket->deleteLater();
+        });
+    }
+
+private:
+    void writeHttpResponse(QTcpSocket* socket,
+                           int status,
+                           const QByteArray& reason,
+                           const QByteArray& body,
+                           const QList<QByteArray>& extraHeaders = {},
+                           qint64 contentLengthOverride = -1) {
+        QByteArray response;
+        response += "HTTP/1.1 " + QByteArray::number(status) + " " + reason + "\r\n";
+        response += "Connection: close\r\n";
+        const qint64 contentLength = contentLengthOverride >= 0 ? contentLengthOverride : body.size();
+        response += "Content-Length: " + QByteArray::number(contentLength) + "\r\n";
+        for (const QByteArray& header : extraHeaders) {
+            response += header + "\r\n";
+        }
+        response += "\r\n";
+        response += body;
+        socket->write(response);
+        socket->flush();
+        socket->disconnectFromHost();
+    }
+
+    void handleRequest(QTcpSocket* socket, const QByteArray& request) {
+        const QList<QByteArray> lines = request.split('\n');
+        const QByteArray requestLine = lines.isEmpty() ? QByteArray() : lines.first().trimmed();
+        const QList<QByteArray> parts = requestLine.split(' ');
+        const QByteArray method = parts.size() >= 1 ? parts.at(0).trimmed() : QByteArray();
+        const QByteArray path = parts.size() >= 2 ? parts.at(1).trimmed() : QByteArray();
+        const QByteArray expectedPath = QByteArray("/qtchat-e2e-test-bucket/") + m_objectKey.toUtf8();
+        if (path != expectedPath) {
+            writeHttpResponse(socket, 404, QByteArrayLiteral("Not Found"), QByteArray());
+            return;
+        }
+        if (method == QByteArrayLiteral("HEAD")) {
+            ++m_headCount;
+            writeHttpResponse(socket,
+                              200,
+                              QByteArrayLiteral("OK"),
+                              QByteArray(),
+                              {
+                                  QByteArrayLiteral("x-amz-meta-sha256: ") + m_hash.toLatin1(),
+                                  QByteArrayLiteral("ETag: \"not-trusted\""),
+                              },
+                              m_payload.size());
+            return;
+        }
+        if (method == QByteArrayLiteral("GET")) {
+            ++m_getCount;
+            writeHttpResponse(socket,
+                              200,
+                              QByteArrayLiteral("OK"),
+                              m_payload,
+                              {
+                                  QByteArrayLiteral("x-amz-meta-sha256: ") + m_hash.toLatin1(),
+                              });
+            return;
+        }
+        writeHttpResponse(socket, 405, QByteArrayLiteral("Method Not Allowed"), QByteArray());
+    }
+
+    QTcpServer m_server;
+    QMap<QTcpSocket*, QByteArray> m_buffers;
+    QByteArray m_payload;
+    QString m_objectKey;
+    QString m_hash;
+    int m_headCount = 0;
+    int m_getCount = 0;
+};
 }
 
 int main(int argc, char** argv) {
@@ -1397,6 +1507,123 @@ int main(int argc, char** argv) {
                 "successful E2E object recovery should clear persisted state") && ok;
     e2eRecoveredSender.disconnectFromServer();
     qunsetenv("QTNETWORKCHAT_OBJECT_ROOT");
+
+    Client e2eS3RecoveredSender;
+    e2eS3RecoveredSender.setUserInfo("950001", "RetrySender");
+    e2eS3RecoveredSender.setAccountInfo("950001", "secret", false);
+    ok = expect(e2eS3RecoveredSender.connectToServer("127.0.0.1", server.port()),
+                "E2E S3 recovered sender should connect before reviewed S3 readback") && ok;
+    ok = expect(e2eS3RecoveredSender.waitForLoginResult(5000),
+                "E2E S3 recovered sender should log in before reviewed S3 readback") && ok;
+    ok = expect(waitFor([&] {
+        return e2eS3RecoveredSender.e2ePeerIdentityStatus("960002")
+            .value("publicKeyFingerprintSha256").toString() == e2eFingerprint(peerPublicKey);
+    }, 5000), "E2E S3 recovered sender should observe the peer identity before reviewed S3 readback") && ok;
+    const QString e2eS3VerificationCode =
+        e2eS3RecoveredSender.e2ePeerIdentityStatus("960002").value("verificationCode").toString();
+    ok = expect(e2eS3RecoveredSender.pinE2EPeerIdentity("960002", e2eFingerprint(peerPublicKey))
+                    && e2eS3RecoveredSender.verifyAndPinE2EPeerIdentity("960002", e2eS3VerificationCode),
+                "E2E S3 recovered sender should trust the peer identity before reviewed S3 readback") && ok;
+    e2eS3RecoveredSender.setE2ESessionKey("960002", "e2e-file-cache-session", e2eSessionKey);
+
+    const QString s3ObjectKey = QStringLiteral("safeS3Object_456.bin");
+    LoopbackS3ReadbackServer s3ReadbackServer(e2eWirePayload, s3ObjectKey);
+    ok = expect(s3ReadbackServer.start(),
+                "loopback S3 readback server should start for reviewed E2E S3 recovery") && ok;
+    qputenv("QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED", "1");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ENABLE", "1");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT",
+            QStringLiteral("http://127.0.0.1:%1").arg(s3ReadbackServer.port()).toUtf8());
+    qputenv("QTNETWORKCHAT_OBJECT_S3_BUCKET", "qtchat-e2e-test-bucket");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_REGION", "local");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY", "e2e-user-id");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY", "e2e-user-material");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY", "0");
+    qputenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS", "5000");
+
+    QJsonObject e2eS3ResumePolicy = e2eCacheRecoveryPolicy;
+    e2eS3ResumePolicy.remove("e2eFileResumeCache");
+    e2eS3ResumePolicy.remove("e2eFileResumeCacheFormat");
+    e2eS3ResumePolicy.remove("e2eFileResumeCacheSha256");
+    e2eS3ResumePolicy.remove("e2eFileResumeCacheSize");
+    e2eS3ResumePolicy["e2eFileObjectRecoveryCandidate"] = true;
+    e2eS3ResumePolicy["e2eFileObjectStoreKey"] = s3ObjectKey;
+    e2eS3ResumePolicy["e2eFileObjectStoreType"] = "s3";
+    e2eS3ResumePolicy["e2eFileObjectStoreHash"] = e2eWireHash;
+    e2eS3ResumePolicy["e2eFileObjectStoreSize"] = QString::number(e2eWirePayload.size());
+    ok = expect(e2eS3RecoveredSender.saveOutgoingTransferState(QString::fromLatin1(kE2EObjectResumeTransferId),
+                                                               e2ePlainFilePath,
+                                                               "960002",
+                                                               MessageType::File,
+                                                               e2eWireHash,
+                                                               e2eWirePayload.size(),
+                                                               e2eWireChunkCount,
+                                                               e2eS3ResumePolicy),
+                "sender should persist E2E S3 recovery metadata with reviewed ciphertext object") && ok;
+    server.setE2EObjectResumeMetadata(e2eWirePayload.size(), e2eWireChunkCount, e2eWireHash);
+    const QJsonObject e2eS3ReadyStatus =
+        e2eS3RecoveredSender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray e2eS3ReadyStatusJson =
+        QJsonDocument(e2eS3ReadyStatus).toJson(QJsonDocument::Compact);
+    ok = expect(e2eS3ReadyStatus["configured"].toBool()
+                    && e2eS3ReadyStatus["e2eFileEncrypted"].toBool()
+                    && e2eS3ReadyStatus["e2eFileObjectRecoveryCandidate"].toBool()
+                    && e2eS3ReadyStatus["e2eFileObjectStoreType"].toString() == "s3"
+                    && e2eS3ReadyStatus["e2eFileObjectRecoveryScope"].toString()
+                        == "s3-object-ciphertext-readback"
+                    && e2eS3ReadyStatus["e2eFileObjectRecoveryReviewGate"].toString()
+                        == "s3-object-ciphertext-readback-reviewed"
+                    && e2eS3ReadyStatus["e2eFileOfflineObjectRecoveryReady"].toBool()
+                    && e2eS3ReadyStatus["recoveryMode"].toString() == "resume"
+                    && e2eS3ReadyStatus["canAutoResume"].toBool()
+                    && e2eS3ReadyStatus["reason"].toString()
+                        == "e2e-file-object-recovery-ready"
+                    && e2eS3ReadyStatus["action"].toString()
+                        == "resume-object-wire-envelope",
+                "E2E reviewed S3 object recovery should become auto-resumable after verified ciphertext readback") && ok;
+    ok = expect(!e2eS3ReadyStatusJson.contains("qtchat-e2e-test-bucket")
+                    && !e2eS3ReadyStatusJson.contains("127.0.0.1")
+                    && !e2eS3ReadyStatusJson.contains("Authorization")
+                    && !e2eS3ReadyStatusJson.contains("e2e-user-id")
+                    && !e2eS3ReadyStatusJson.contains("e2e-user-material")
+                    && !e2eS3ReadyStatusJson.contains("\"ciphertext\"")
+                    && !e2eS3ReadyStatusJson.contains("privateKey")
+                    && !e2eS3ReadyStatusJson.contains("sessionKey"),
+                "E2E reviewed S3 ready status should not export endpoints, buckets, credentials, ciphertext, or secret material") && ok;
+    ok = expect(s3ReadbackServer.headCount() >= 1 && s3ReadbackServer.getCount() >= 1,
+                "E2E reviewed S3 recovery status should validate and read ciphertext through HEAD/GET") && ok;
+    const int e2eS3ObjectQueriesBefore = server.e2eObjectResumeQueries();
+    const int e2eS3HeadBeforeResume = s3ReadbackServer.headCount();
+    const int e2eS3GetBeforeResume = s3ReadbackServer.getCount();
+    QString e2eS3ObjectResumeReason;
+    ok = expect(e2eS3RecoveredSender.resumeSavedOutgoingTransfer(&e2eS3ObjectResumeReason, 5000),
+                "E2E reviewed S3 object recovery should resume encrypted file chunks from verified ciphertext") && ok;
+    ok = expect(server.e2eObjectResumeQueries() == e2eS3ObjectQueriesBefore + 1,
+                "E2E reviewed S3 object recovery should query server resume state once") && ok;
+    const QVector<qint64> e2eS3ObjectChunks = server.e2eObjectResumeChunkIndexes();
+    ok = expect(!e2eS3ObjectChunks.isEmpty() && e2eS3ObjectChunks.last() == 2,
+                "E2E reviewed S3 object recovery should send only the missing ciphertext chunk") && ok;
+    ok = expect(e2eS3ObjectResumeReason.isEmpty(),
+                "successful E2E reviewed S3 recovery should not expose a reject reason") && ok;
+    ok = expect(s3ReadbackServer.headCount() >= e2eS3HeadBeforeResume + 1
+                    && s3ReadbackServer.getCount() >= e2eS3GetBeforeResume + 1,
+                "E2E reviewed S3 recovery execution should revalidate and read ciphertext before sending") && ok;
+    ok = expect(!e2eS3RecoveredSender.loadOutgoingTransferState(nullptr),
+                "successful E2E reviewed S3 recovery should clear persisted state") && ok;
+    e2eS3RecoveredSender.disconnectFromServer();
+    qunsetenv("QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_ENABLE");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_ENDPOINT");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_BUCKET");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_REGION");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_SECRET_KEY");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_SESSION_TOKEN");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
+    qunsetenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS");
 
     ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kMismatchResumeTransferId),
                                                  resumeFilePath,
