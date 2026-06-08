@@ -51,6 +51,7 @@ bool e2eProductionCryptoRequired();
 bool e2eCryptoBackendAvailable(QString* reason = nullptr);
 QJsonObject e2eCryptoBackendStatus();
 QJsonObject e2eProductionCryptoAcceptanceStatus();
+QJsonObject e2eProductionCryptoRolloutObservabilityStatus();
 QJsonObject e2eProductionCryptoOperationHarnessStatus();
 QJsonObject e2eProductionCryptoOperationExecutionPlanStatus();
 QJsonObject e2eProductionCryptoOperationInvocationStatus();

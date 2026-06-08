@@ -10756,6 +10756,136 @@ QJsonObject productionAcceptanceStatusForDescriptor(const E2ECryptoAdapterDescri
     return status;
 }
 
+QJsonObject productionRolloutObservabilityStatusForAcceptance(const QJsonObject& acceptance) {
+    const int requiredOperationCount =
+        acceptance.value(QStringLiteral("requiredOperationCount")).toInt(cryptoOperations().size());
+    const bool acceptanceAccepted =
+        acceptance.value(QStringLiteral("accepted")).toBool(false);
+    const bool linked = acceptance.value(QStringLiteral("linked")).toBool(false);
+    const bool productionReady =
+        acceptance.value(QStringLiteral("productionReady")).toBool(false);
+    const bool noMaterialExport =
+        !acceptance.value(QStringLiteral("rawKeyExported")).toBool(true)
+        && !acceptance.value(QStringLiteral("privateMaterialExported")).toBool(true);
+    const QJsonObject invocationResult =
+        acceptance.value(QStringLiteral("providerInvocationResult")).toObject();
+    const QJsonObject invocationExecution =
+        acceptance.value(QStringLiteral("providerInvocationExecution")).toObject();
+    const QJsonObject publicPrimitiveExecution =
+        acceptance.value(QStringLiteral("providerPublicPrimitiveExecution")).toObject();
+    const int materialExportProofCount =
+        invocationResult.value(QStringLiteral("materialExportProofCount")).toInt();
+    const int outputShapeProofCount =
+        invocationExecution.value(QStringLiteral("materialExportProofCount")).toInt();
+    const int publicPrimitiveReadyCount =
+        publicPrimitiveExecution.value(QStringLiteral("readyExecutionCount")).toInt();
+    const int publicPrimitiveBlockedCount =
+        publicPrimitiveExecution.value(QStringLiteral("blockedExecutionCount")).toInt();
+    const bool noSensitiveExportProof =
+        acceptanceAccepted
+        && noMaterialExport
+        && materialExportProofCount == requiredOperationCount
+        && outputShapeProofCount == requiredOperationCount;
+    const bool releaseRunObservable =
+        acceptanceAccepted
+        && noSensitiveExportProof
+        && publicPrimitiveReadyCount == requiredOperationCount
+        && publicPrimitiveBlockedCount == 0;
+
+    QString releaseGate;
+    QString blockedReason;
+    QString operatorAction;
+    QString userRecoveryPrompt;
+    if (releaseRunObservable) {
+        releaseGate = QStringLiteral("production-rollout-observability-ready");
+        operatorAction = QStringLiteral("none");
+        userRecoveryPrompt = QStringLiteral("none");
+    } else if (!linked) {
+        releaseGate = QStringLiteral("production-rollout-observability-blocked-not-linked");
+        blockedReason = QStringLiteral("production-crypto-backend-unavailable");
+        operatorAction = QStringLiteral("link-reviewed-production-crypto-backend");
+        userRecoveryPrompt = QStringLiteral("retry-after-operator-links-production-crypto-backend");
+    } else if (!productionReady) {
+        releaseGate = QStringLiteral("production-rollout-observability-blocked-not-ready");
+        blockedReason = QStringLiteral("production-adapter-not-ready");
+        operatorAction = QStringLiteral("complete-reviewed-production-operations-and-compatibility-tests");
+        userRecoveryPrompt = QStringLiteral("keep-existing-e2e-state-and-wait-for-production-crypto-readiness");
+    } else if (!acceptanceAccepted) {
+        releaseGate = QStringLiteral("production-rollout-observability-blocked-acceptance");
+        blockedReason = acceptance.value(QStringLiteral("releaseGate")).toString(
+            QStringLiteral("production-acceptance-incomplete"));
+        operatorAction = acceptance.value(QStringLiteral("operatorAction")).toString(
+            QStringLiteral("complete-production-crypto-acceptance-gates"));
+        userRecoveryPrompt = QStringLiteral("do-not-clear-local-e2e-state-until-production-acceptance-passes");
+    } else if (!noMaterialExport) {
+        releaseGate = QStringLiteral("production-rollout-observability-blocked-sensitive-export");
+        blockedReason = QStringLiteral("provider-exports-sensitive-material");
+        operatorAction = QStringLiteral("remove-production-provider-sensitive-material-export");
+        userRecoveryPrompt = QStringLiteral("stop-production-rollout-and-rotate-any-exposed-test-material");
+    } else {
+        releaseGate = QStringLiteral("production-rollout-observability-blocked-proof");
+        blockedReason = QStringLiteral("production-rollout-observability-proof-incomplete");
+        operatorAction =
+            QStringLiteral("capture-release-run-observability-and-no-sensitive-export-proof");
+        userRecoveryPrompt =
+            QStringLiteral("keep-existing-e2e-state-and-use-draft-recovery-paths-until-proof-is-complete");
+    }
+
+    QJsonArray operatorPrompts;
+    operatorPrompts.append(releaseRunObservable
+        ? QStringLiteral("verify-production-required-run-uses-linked-reviewed-provider")
+        : operatorAction);
+    operatorPrompts.append(QStringLiteral("archive-sanitized-release-run-status-without-key-or-payload-bytes"));
+    operatorPrompts.append(QStringLiteral("review-object-level-encrypted-file-recovery-before-full-file-resume-release"));
+
+    QJsonArray userPrompts;
+    userPrompts.append(userRecoveryPrompt);
+    userPrompts.append(QStringLiteral("show-verification-required-when-trust-pins-are-rebound"));
+    userPrompts.append(QStringLiteral("show-resend-required-when-encrypted-file-resume-cache-is-unavailable"));
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-rollout-observability-v1");
+    status[QStringLiteral("backendId")] = acceptance.value(QStringLiteral("backendId")).toString();
+    status[QStringLiteral("providerId")] = acceptance.value(QStringLiteral("providerId")).toString();
+    status[QStringLiteral("operationContractVersion")] =
+        acceptance.value(QStringLiteral("operationContractVersion")).toString();
+    status[QStringLiteral("linked")] = linked;
+    status[QStringLiteral("productionReady")] = productionReady;
+    status[QStringLiteral("productionAcceptanceAccepted")] = acceptanceAccepted;
+    status[QStringLiteral("productionAcceptanceReleaseGate")] =
+        acceptance.value(QStringLiteral("releaseGate")).toString();
+    status[QStringLiteral("accepted")] = releaseRunObservable;
+    status[QStringLiteral("releaseGate")] = releaseGate;
+    status[QStringLiteral("blockedReason")] = blockedReason;
+    status[QStringLiteral("operatorAction")] = operatorAction;
+    status[QStringLiteral("releaseRunObservable")] = releaseRunObservable;
+    status[QStringLiteral("requiredOperationCount")] = requiredOperationCount;
+    status[QStringLiteral("materialExportProofCount")] = materialExportProofCount;
+    status[QStringLiteral("outputShapeProofCount")] = outputShapeProofCount;
+    status[QStringLiteral("publicPrimitiveReadyCount")] = publicPrimitiveReadyCount;
+    status[QStringLiteral("publicPrimitiveBlockedCount")] = publicPrimitiveBlockedCount;
+    status[QStringLiteral("noSensitiveExportProof")] = noSensitiveExportProof;
+    status[QStringLiteral("sensitiveFieldsSuppressed")] = noMaterialExport;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    status[QStringLiteral("plaintextBytesExported")] = false;
+    status[QStringLiteral("ciphertextBytesExported")] = false;
+    status[QStringLiteral("statusCapturePolicy")] =
+        QStringLiteral("status-counts-release-gates-and-actions-only");
+    status[QStringLiteral("evidenceRetention")] =
+        QStringLiteral("operator-may-archive-sanitized-json-no-private-paths-or-material");
+    status[QStringLiteral("operatorRecoveryPrompts")] = operatorPrompts;
+    status[QStringLiteral("userRecoveryPrompts")] = userPrompts;
+    status[QStringLiteral("offlineObjectRecoveryReady")] = false;
+    status[QStringLiteral("offlineObjectRecoveryAction")] =
+        QStringLiteral("implement-object-level-encrypted-file-resume-before-claiming-full-file-recovery");
+    return status;
+}
+
 E2ECryptoExecutionContext cryptoExecutionContext(E2ECryptoOperation operation,
                                                  const QString& requested,
                                                  bool productionRequired) {
@@ -11296,8 +11426,11 @@ QJsonObject e2eCryptoBackendStatus() {
                                   true);
     }
     status["operations"] = operations;
-    status["productionAcceptance"] =
+    const QJsonObject productionAcceptance =
         productionAcceptanceStatusForDescriptor(productionAdapterDescriptor(), productionOperations);
+    status["productionAcceptance"] = productionAcceptance;
+    status["productionRolloutObservability"] =
+        productionRolloutObservabilityStatusForAcceptance(productionAcceptance);
     status["productionOperationHarness"] =
         productionOperationHarnessStatusForDescriptor(productionAdapterDescriptor());
     status["productionOperationExecutionPlan"] =
@@ -11399,6 +11532,11 @@ QJsonObject e2eCryptoBackendStatus() {
 
 QJsonObject e2eProductionCryptoAcceptanceStatus() {
     return e2eCryptoBackendStatus().value(QStringLiteral("productionAcceptance")).toObject();
+}
+
+QJsonObject e2eProductionCryptoRolloutObservabilityStatus() {
+    return e2eCryptoBackendStatus()
+        .value(QStringLiteral("productionRolloutObservability")).toObject();
 }
 
 QJsonObject e2eProductionCryptoOperationHarnessStatus() {

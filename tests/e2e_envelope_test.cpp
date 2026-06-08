@@ -2280,6 +2280,8 @@ int main() {
     const QJsonObject productionRequestedStatus = e2eCryptoBackendStatus();
     const QJsonObject productionRequestedAcceptance =
         e2eProductionCryptoAcceptanceStatus();
+    const QJsonObject productionRequestedRolloutObservability =
+        e2eProductionCryptoRolloutObservabilityStatus();
     const QJsonObject productionRequestedHarness =
         e2eProductionCryptoOperationHarnessStatus();
     const QJsonObject productionRequestedExecutionPlan =
@@ -2319,6 +2321,35 @@ int main() {
                     && !productionRequestedAcceptance.value("rawKeyExported").toBool(true)
                     && !productionRequestedAcceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize the not-linked release gate") && ok;
+    ok = expect(productionRequestedStatus.value("productionRolloutObservability").toObject()
+                        .value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-rollout-observability-v1")
+                    && productionRequestedRolloutObservability.value("releaseGate").toString()
+                        == QStringLiteral("production-rollout-observability-blocked-not-linked")
+                    && productionRequestedRolloutObservability.value("blockedReason").toString()
+                        == QStringLiteral("production-crypto-backend-unavailable")
+                    && productionRequestedRolloutObservability.value("operatorAction").toString()
+                        == QStringLiteral("link-reviewed-production-crypto-backend")
+                    && !productionRequestedRolloutObservability.value("accepted").toBool(true)
+                    && !productionRequestedRolloutObservability.value("releaseRunObservable").toBool(true)
+                    && !productionRequestedRolloutObservability.value("noSensitiveExportProof").toBool(true)
+                    && productionRequestedRolloutObservability.value("sensitiveFieldsSuppressed").toBool(false)
+                    && !productionRequestedRolloutObservability.value("productionAcceptanceAccepted").toBool(true)
+                    && productionRequestedRolloutObservability.value("productionAcceptanceReleaseGate").toString()
+                        == QStringLiteral("production-adapter-not-linked")
+                    && productionRequestedRolloutObservability.value("requiredOperationCount").toInt() == 8
+                    && productionRequestedRolloutObservability.value("publicPrimitiveBlockedCount").toInt() == 8
+                    && productionRequestedRolloutObservability.value("operatorRecoveryPrompts").toArray()
+                        .contains(QStringLiteral("link-reviewed-production-crypto-backend"))
+                    && productionRequestedRolloutObservability.value("userRecoveryPrompts").toArray()
+                        .contains(QStringLiteral("retry-after-operator-links-production-crypto-backend"))
+                    && !productionRequestedRolloutObservability.value("rawKeyExported").toBool(true)
+                    && !productionRequestedRolloutObservability.value("privateMaterialExported").toBool(true)
+                    && !productionRequestedRolloutObservability.value("sessionSecretExported").toBool(true)
+                    && !productionRequestedRolloutObservability.value("plaintextBytesExported").toBool(true)
+                    && !productionRequestedRolloutObservability.value("ciphertextBytesExported").toBool(true)
+                    && !productionRequestedRolloutObservability.value("offlineObjectRecoveryReady").toBool(true),
+                "production rollout observability should fail closed until a linked provider is accepted") && ok;
     ok = expect(productionRequestedHarness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && productionRequestedHarness.value("releaseGate").toString()

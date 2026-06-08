@@ -176,6 +176,8 @@ int main() {
         status.value("productionProviderDataPlaneBridge").toObject();
     const QJsonObject providerPublicPrimitiveExecution =
         status.value("productionProviderPublicPrimitiveExecution").toObject();
+    const QJsonObject rolloutObservability =
+        status.value("productionRolloutObservability").toObject();
     ok = expect(harness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
                     && harness.value("releaseGate").toString()
@@ -1482,6 +1484,63 @@ int main() {
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
                 "production acceptance status should summarize reviewed operation gates and execution evidence") && ok;
+    ok = expect(rolloutObservability.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-rollout-observability-v1")
+                    && rolloutObservability.value("backendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && rolloutObservability.value("providerId").toString()
+                        == QStringLiteral("openssl-reviewed-provider-v1")
+                    && rolloutObservability.value("linked").toBool(false) == adapterLinked
+                    && rolloutObservability.value("productionReady").toBool(!expectedProductionReady)
+                        == expectedProductionReady
+                    && rolloutObservability.value("productionAcceptanceAccepted")
+                        .toBool(!reviewedProviderOperationsBound) == reviewedProviderOperationsBound
+                    && rolloutObservability.value("productionAcceptanceReleaseGate").toString()
+                        == acceptance.value("releaseGate").toString()
+                    && rolloutObservability.value("accepted")
+                        .toBool(!reviewedProviderOperationsBound) == reviewedProviderOperationsBound
+                    && rolloutObservability.value("releaseRunObservable")
+                        .toBool(!reviewedProviderOperationsBound) == reviewedProviderOperationsBound
+                    && rolloutObservability.value("releaseGate").toString()
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-rollout-observability-ready")
+                            : (adapterLinked
+                                ? QStringLiteral("production-rollout-observability-blocked-not-ready")
+                                : QStringLiteral("production-rollout-observability-blocked-not-linked")))
+                    && rolloutObservability.value("blockedReason").toString()
+                        == (reviewedProviderOperationsBound ? QString() : expectedReason)
+                    && rolloutObservability.value("operatorAction").toString()
+                        == (reviewedProviderOperationsBound ? QStringLiteral("none") : expectedAction)
+                    && rolloutObservability.value("requiredOperationCount").toInt() == 8
+                    && rolloutObservability.value("materialExportProofCount").toInt()
+                        == 8
+                    && rolloutObservability.value("outputShapeProofCount").toInt()
+                        == 8
+                    && rolloutObservability.value("publicPrimitiveReadyCount").toInt()
+                        == expectedReviewedEvidenceReadyCount
+                    && rolloutObservability.value("publicPrimitiveBlockedCount").toInt()
+                        == expectedReviewedEvidenceBlockedCount
+                    && rolloutObservability.value("noSensitiveExportProof")
+                        .toBool(!reviewedProviderOperationsBound) == reviewedProviderOperationsBound
+                    && rolloutObservability.value("sensitiveFieldsSuppressed").toBool(false)
+                    && rolloutObservability.value("statusCapturePolicy").toString()
+                        == QStringLiteral("status-counts-release-gates-and-actions-only")
+                    && rolloutObservability.value("operatorRecoveryPrompts").toArray().size() == 3
+                    && rolloutObservability.value("userRecoveryPrompts").toArray()
+                        .contains(reviewedProviderOperationsBound
+                            ? QStringLiteral("none")
+                            : (adapterLinked
+                                ? QStringLiteral("keep-existing-e2e-state-and-wait-for-production-crypto-readiness")
+                                : QStringLiteral("retry-after-operator-links-production-crypto-backend")))
+                    && !rolloutObservability.value("rawKeyExported").toBool(true)
+                    && !rolloutObservability.value("privateMaterialExported").toBool(true)
+                    && !rolloutObservability.value("sessionSecretExported").toBool(true)
+                    && !rolloutObservability.value("privateIdentityMaterialExported").toBool(true)
+                    && !rolloutObservability.value("fullPublicIdentityMaterialExported").toBool(true)
+                    && !rolloutObservability.value("plaintextBytesExported").toBool(true)
+                    && !rolloutObservability.value("ciphertextBytesExported").toBool(true)
+                    && !rolloutObservability.value("offlineObjectRecoveryReady").toBool(true),
+                "production rollout observability should become ready only after linked acceptance and no-sensitive-export proof") && ok;
     const QJsonObject firstGate = acceptance.value("operationGates").toArray().at(0).toObject();
     ok = expect(firstGate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
