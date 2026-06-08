@@ -132,6 +132,84 @@ bool writeTextFile(const QString& path, const QByteArray& content) {
     }
     return file.write(content) == content.size();
 }
+
+bool runProductionRotationLocalRebindScenario() {
+    bool ok = true;
+    QString rejectReason;
+    const QString appDataDir = testAppDataDir();
+    if (!appDataDir.isEmpty()) {
+        QDir(appDataDir).removeRecursively();
+        QDir().mkpath(appDataDir);
+    }
+
+    qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
+    Client alice;
+    alice.setUserInfo(QStringLiteral("alice-production-rotate"),
+                      QStringLiteral("Alice Production Rotate"));
+    const QString peerId = QStringLiteral("bob-production-rotate");
+    const QString draftIdentityFingerprint =
+        alice.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+    alice.setE2ESessionKey(peerId,
+                           QStringLiteral("draft-session-before-production-rotation"),
+                           generateE2ESessionKey());
+    ok = expect(draftIdentityFingerprint.size() == 64
+                    && alice.e2eLocalIdentityStatus().value("backendId").toString()
+                        == QStringLiteral("draft-qt-hmac-stream-v1")
+                    && alice.e2eSessionStatus(peerId).value("state").toString()
+                        == QStringLiteral("ready"),
+                "test should create draft local identity and session before production rotation") && ok;
+
+    qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "production");
+    const QJsonObject backendStatus = e2eCryptoBackendStatus();
+    ok = expect(backendStatus.value("productionReady").toBool(false)
+                    && backendStatus.value("productionAcceptance").toObject()
+                        .value("accepted").toBool(false),
+                "linked production provider should be ready before local rotation execution") && ok;
+    const QJsonObject dryRun = alice.planE2EProductionRotationDryRun();
+    ok = expect(dryRun.value("canRotateInPlace").toBool(false)
+                    && dryRun.value("blockedStageCount").toInt(-1) == 0
+                    && dryRun.value("migrationRequired").toBool(false)
+                    && dryRun.value("sessionMigrationCount").toInt() == 1
+                    && dryRun.value("releaseGate").toString()
+                        == QStringLiteral("can-rotate-e2e-state-to-production-backend"),
+                "production rotation dry-run should be executable once linked provider gates pass") && ok;
+
+    const QJsonObject execution = alice.executeE2EProductionRotation(&rejectReason);
+    const QJsonObject afterMigration = alice.planE2EBackendMigration();
+    const QJsonObject identityStatus = alice.e2eLocalIdentityStatus();
+    const QByteArray executionJson = QJsonDocument(execution).toJson(QJsonDocument::Compact);
+    ok = expect(rejectReason.isEmpty()
+                    && execution.value("executed").toBool(false)
+                    && execution.value("releaseGate").toString()
+                        == QStringLiteral("production-rotation-local-state-rebound")
+                    && execution.value("rotatedBackendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && execution.value("rotatedIdentityPersisted").toBool(false)
+                    && execution.value("identityFingerprintChanged").toBool(false)
+                    && execution.value("clearedSessionCount").toInt() == 1
+                    && execution.value("newSessionCount").toInt(-1) == 0
+                    && execution.value("rebindingRequired").toBool(false)
+                    && !execution.value("rawKeyExported").toBool(true)
+                    && !execution.value("privateMaterialExported").toBool(true)
+                    && !execution.value("sessionSecretExported").toBool(true)
+                    && !execution.value("publicKeyExported").toBool(true)
+                    && identityStatus.value("backendId").toString()
+                        == QStringLiteral("openssl-reviewed-adapter-v1")
+                    && identityStatus.value("publicKeyFingerprintSha256").toString().size() == 64
+                    && identityStatus.value("publicKeyFingerprintSha256").toString()
+                        != draftIdentityFingerprint
+                    && identityStatus.value("agreementSigning").toBool(false)
+                    && !afterMigration.value("migrationRequired").toBool(true)
+                    && alice.e2eSessionStatus(peerId).value("state").toString()
+                        == QStringLiteral("missing-session"),
+                "production rotation execute should generate production identity and clear draft sessions for rebind") && ok;
+    ok = expect(!executionJson.contains("privateKey")
+                    && !executionJson.contains("sessionKey")
+                    && !executionJson.contains("publicKey\"")
+                    && !executionJson.contains(draftIdentityFingerprint.toUtf8()),
+                "production rotation local rebind evidence should stay sanitized") && ok;
+    return ok;
+}
 }
 
 int main(int argc, char** argv) {
@@ -144,6 +222,10 @@ int main(int argc, char** argv) {
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
         QDir().mkpath(appDataDir);
+    }
+
+    if (qgetenv("QTNETWORKCHAT_E2E_TEST_PRODUCTION_ROTATION_REBIND").trimmed() == "1") {
+        return runProductionRotationLocalRebindScenario() ? 0 : 1;
     }
 
     const quint16 port = freeLocalPort();

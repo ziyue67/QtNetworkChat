@@ -64,6 +64,19 @@ if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "Production adapter runtime probe should build e2e_production_adapter_runtime_test")
 endif()
 
+execute_process(
+    COMMAND "${CMAKE_EXE}" --build "${PROBE_BUILD_DIR}" --target e2e_private_message_delivery_test
+        --config "${CONFIGURATION}"
+    RESULT_VARIABLE client_build_result
+    OUTPUT_VARIABLE client_build_stdout
+    ERROR_VARIABLE client_build_stderr
+)
+if(NOT client_build_result EQUAL 0)
+    file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
+    message(STATUS "Captured production client rotation build output: ${client_build_stdout}\n${client_build_stderr}")
+    message(FATAL_ERROR "Production adapter runtime probe should build e2e_private_message_delivery_test")
+endif()
+
 set(path_separator ":")
 if(WIN32)
     set(path_separator ";")
@@ -90,6 +103,22 @@ execute_process(
     ERROR_VARIABLE test_stderr
 )
 
+set(client_test_args --test-dir "${PROBE_BUILD_DIR}" -R "^E2EPrivateMessageDelivery$" --output-on-failure)
+if(DEFINED CONFIGURATION AND NOT "${CONFIGURATION}" STREQUAL "")
+    list(APPEND client_test_args -C "${CONFIGURATION}")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "PATH=${probe_path}"
+        "QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production"
+        "QTNETWORKCHAT_E2E_TEST_PRODUCTION_ROTATION_REBIND=1"
+        "${CMAKE_CTEST_COMMAND}" ${client_test_args}
+    RESULT_VARIABLE client_test_result
+    OUTPUT_VARIABLE client_test_stdout
+    ERROR_VARIABLE client_test_stderr
+)
+
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
 if(NOT test_result EQUAL 0)
@@ -97,4 +126,9 @@ if(NOT test_result EQUAL 0)
     message(FATAL_ERROR "Production adapter runtime should pass OpenSSL provider dispatch under production backend selection")
 endif()
 
-message(STATUS "E2E production adapter runtime provider dispatch gate verified")
+if(NOT client_test_result EQUAL 0)
+    message(STATUS "Captured production client rotation test output: ${client_test_stdout}\n${client_test_stderr}")
+    message(FATAL_ERROR "Production client rotation should generate production identity and clear draft sessions under linked provider gates")
+endif()
+
+message(STATUS "E2E production adapter runtime provider dispatch and client rotation gate verified")

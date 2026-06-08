@@ -1431,11 +1431,119 @@ QJsonObject Client::executeE2EProductionRotation(QString* rejectReason) {
         return evidence;
     }
 
-    if (rejectReason) *rejectReason = QStringLiteral("production-rotation-implementation-pending");
-    evidence[QStringLiteral("blockedReason")] = QStringLiteral("production-rotation-implementation-pending");
-    evidence[QStringLiteral("releaseGate")] = QStringLiteral("production-rotation-implementation-pending");
+    const QString currentBackend = e2eCurrentBackendId();
+    const QByteArray previousPrivateKey = m_e2eIdentityPrivateKey;
+    const QByteArray previousPublicKey = m_e2eIdentityPublicKey;
+    const QString previousBackendId = m_e2eIdentityBackendId;
+    const QString previousIdentityFingerprint =
+        !m_e2eIdentityFingerprint.trimmed().isEmpty()
+            ? m_e2eIdentityFingerprint.trimmed().toLower()
+            : (previousPublicKey.isEmpty() ? QString() : e2eFingerprint(previousPublicKey));
+    const QStringList affectedSessionPeers = m_e2eSessions.keys();
+    const QStringList affectedPeerIds = m_e2ePeerIdentities.keys();
+    const int previousStoredPinCount = m_e2eStoredTrustPins.size();
+    const int previousPendingOutgoingCount = m_e2ePendingOutgoingAgreements.size();
+    const int previousPendingIncomingCount = m_e2ePendingIncomingAgreements.size();
+
+    const QByteArray rotatedPrivateKey = generateE2EPrivateKey();
+    const QByteArray rotatedPublicKey = e2ePublicKeyFromPrivateKey(rotatedPrivateKey);
+    if (rotatedPrivateKey.isEmpty() || rotatedPublicKey.isEmpty()) {
+        if (rejectReason) *rejectReason = QStringLiteral("production-identity-generation-failed");
+        evidence[QStringLiteral("blockedReason")] =
+            QStringLiteral("production-identity-generation-failed");
+        evidence[QStringLiteral("releaseGate")] =
+            QStringLiteral("production-rotation-identity-generation-blocked");
+        evidence[QStringLiteral("operatorAction")] =
+            QStringLiteral("retry-production-rotation-after-provider-identity-generation-recovers");
+        evidence[QStringLiteral("completedAt")] =
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        return evidence;
+    }
+
+    m_e2eIdentityPrivateKey = rotatedPrivateKey;
+    m_e2eIdentityPublicKey = rotatedPublicKey;
+    m_e2eIdentityBackendId = currentBackend;
+    m_e2eIdentityFingerprint = e2eFingerprint(rotatedPublicKey);
+    QString saveReason;
+    if (!saveE2ELocalIdentity(&saveReason)) {
+        m_e2eIdentityPrivateKey = previousPrivateKey;
+        m_e2eIdentityPublicKey = previousPublicKey;
+        m_e2eIdentityBackendId = previousBackendId;
+        m_e2eIdentityFingerprint = previousIdentityFingerprint;
+        if (rejectReason) *rejectReason = saveReason.isEmpty()
+            ? QStringLiteral("identity-store-write-failed")
+            : saveReason;
+        evidence[QStringLiteral("blockedReason")] = rejectReason ? *rejectReason : saveReason;
+        evidence[QStringLiteral("releaseGate")] =
+            QStringLiteral("production-rotation-identity-store-blocked");
+        evidence[QStringLiteral("operatorAction")] =
+            QStringLiteral("fix-local-identity-store-before-production-rotation");
+        evidence[QStringLiteral("completedAt")] =
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        return evidence;
+    }
+
+    m_e2eStoredTrustPins.clear();
+    m_e2ePendingOutgoingAgreements.clear();
+    m_e2ePendingIncomingAgreements.clear();
+    m_e2eSessions.clear();
+
+    for (auto it = m_e2ePeerIdentities.begin(); it != m_e2ePeerIdentities.end(); ++it) {
+        it->pinned = false;
+        it->pinnedFingerprint.clear();
+        it->verified = false;
+        it->verifiedAtMs = 0;
+        it->fingerprintMismatch = false;
+        it->verificationCode = formatE2EVerificationCode(m_e2eIdentityFingerprint, it->fingerprint);
+        emit e2eIdentityStateChanged(it.key(), e2ePeerIdentityStatus(it.key()));
+    }
+    for (const QString& peerId : affectedSessionPeers) {
+        emit e2eSessionStateChanged(peerId, e2eSessionStatus(peerId));
+    }
+    QString trustPinSaveReason;
+    const bool trustPinRebindPersisted = saveE2ETrustPins(&trustPinSaveReason);
+
+    evidence[QStringLiteral("executed")] = true;
+    evidence[QStringLiteral("executedStage")] =
+        QStringLiteral("local-production-identity-rebind");
+    evidence[QStringLiteral("releaseGate")] =
+        QStringLiteral("production-rotation-local-state-rebound");
     evidence[QStringLiteral("operatorAction")] =
-        QStringLiteral("implement-reviewed-production-key-signature-session-rotation");
+        QStringLiteral("announce-production-identity-and-repin-peers-before-new-sessions");
+    evidence[QStringLiteral("blockedReason")] = QString();
+    evidence[QStringLiteral("rotatedBackendId")] = currentBackend;
+    evidence[QStringLiteral("previousIdentityFingerprintSummary")] =
+        shortE2EFingerprint(previousIdentityFingerprint);
+    evidence[QStringLiteral("rotatedIdentityFingerprintSummary")] =
+        shortE2EFingerprint(m_e2eIdentityFingerprint);
+    evidence[QStringLiteral("identityFingerprintChanged")] =
+        isValidE2EFingerprint(previousIdentityFingerprint)
+        && previousIdentityFingerprint != m_e2eIdentityFingerprint;
+    evidence[QStringLiteral("rotatedIdentityPersisted")] =
+        !m_userId.trimmed().isEmpty() && QFile::exists(e2eIdentityFilePath(m_userId));
+    evidence[QStringLiteral("rebindingRequired")] = true;
+    evidence[QStringLiteral("trustPinsClearedForRebind")] = previousStoredPinCount;
+    evidence[QStringLiteral("trustPinRebindPersisted")] = trustPinRebindPersisted;
+    if (!trustPinRebindPersisted) {
+        evidence[QStringLiteral("trustPinRebindPersistReason")] =
+            trustPinSaveReason.isEmpty()
+                ? QStringLiteral("pin-store-write-failed")
+                : trustPinSaveReason;
+    }
+    evidence[QStringLiteral("clearedSessionCount")] = affectedSessionPeers.size();
+    evidence[QStringLiteral("sessionRotationCompleted")] = false;
+    evidence[QStringLiteral("requiresPeerReverification")] = true;
+    evidence[QStringLiteral("requiresNewSessionAgreement")] = true;
+    evidence[QStringLiteral("clearedPendingOutgoingAgreementCount")] =
+        previousPendingOutgoingCount;
+    evidence[QStringLiteral("clearedPendingIncomingAgreementCount")] =
+        previousPendingIncomingCount;
+    evidence[QStringLiteral("peerIdentityReverificationCount")] = affectedPeerIds.size();
+    evidence[QStringLiteral("newSessionCount")] = m_e2eSessions.size();
+    evidence[QStringLiteral("privateMaterialExported")] = false;
+    evidence[QStringLiteral("rawKeyExported")] = false;
+    evidence[QStringLiteral("sessionSecretExported")] = false;
+    evidence[QStringLiteral("publicKeyExported")] = false;
     evidence[QStringLiteral("completedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     return evidence;
 }
