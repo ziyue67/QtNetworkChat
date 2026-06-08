@@ -83,6 +83,63 @@ bool isSafeObjectStoreKeyToken(const QString& value) {
     return true;
 }
 
+QString normalizedE2EObjectRecoveryStoreType(const QString& value) {
+    const QString storeType = value.trimmed().toLower();
+    if (storeType == QLatin1String("filesystem")
+        || storeType == QLatin1String("s3")
+        || storeType == QLatin1String("offline")) {
+        return storeType;
+    }
+    return QStringLiteral("unsupported");
+}
+
+bool isS3OfflineE2EObjectRecoveryStore(const QString& storeType) {
+    return storeType == QLatin1String("s3") || storeType == QLatin1String("offline");
+}
+
+QString e2eObjectRecoveryScopeForStoreType(const QString& storeType) {
+    if (storeType == QLatin1String("filesystem")) {
+        return QStringLiteral("filesystem-object-ciphertext-readback");
+    }
+    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+        return QStringLiteral("s3-offline-auto-readback");
+    }
+    return QStringLiteral("unsupported-object-store-readback");
+}
+
+QString e2eObjectRecoveryReviewGateForStoreType(const QString& storeType, bool objectKeySafe) {
+    if (!objectKeySafe) {
+        return QStringLiteral("object-store-key-token-invalid");
+    }
+    if (storeType == QLatin1String("filesystem")) {
+        return QStringLiteral("filesystem-object-ciphertext-readback-reviewed");
+    }
+    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+        return QStringLiteral("s3-offline-auto-readback-not-reviewed");
+    }
+    return QStringLiteral("object-store-type-unsupported");
+}
+
+QString e2eObjectRecoveryDefaultReasonForStoreType(const QString& storeType, bool objectKeySafe) {
+    if (!objectKeySafe) {
+        return QStringLiteral("e2e-file-object-recovery-evidence-invalid");
+    }
+    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+        return QStringLiteral("e2e-file-s3-offline-auto-readback-not-reviewed");
+    }
+    return QStringLiteral("e2e-file-object-recovery-read-path-unavailable");
+}
+
+QString e2eObjectRecoveryDefaultActionForStoreType(const QString& storeType, bool objectKeySafe) {
+    if (!objectKeySafe) {
+        return QStringLiteral("suppress-object-key-and-resend");
+    }
+    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+        return QStringLiteral("keep-s3-offline-auto-readback-fail-closed-until-reviewed");
+    }
+    return QStringLiteral("resend-or-wait-for-object-recovery");
+}
+
 bool isRetriableFileChunkRejectReason(const QString& reason) {
     const QString trimmed = reason.trimmed();
     if (trimmed.isEmpty()) {
@@ -531,15 +588,8 @@ bool loadE2EFileObjectRecoveryPayload(const QJsonObject& state,
     if (wirePayload) wirePayload->clear();
     if (rejectReason) rejectReason->clear();
 
-    const QString storeType = state.value(QStringLiteral("e2eFileObjectStoreType"))
-        .toString()
-        .trimmed()
-        .toLower();
-    if (storeType != QLatin1String("filesystem")) {
-        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-store-unavailable");
-        return false;
-    }
-
+    const QString storeType = normalizedE2EObjectRecoveryStoreType(
+        state.value(QStringLiteral("e2eFileObjectStoreType")).toString(QStringLiteral("filesystem")));
     const QString objectKey = state.value(QStringLiteral("e2eFileObjectStoreKey")).toString().trimmed();
     const QString objectHash = state.value(QStringLiteral("e2eFileObjectStoreHash")).toString().trimmed().toLower();
     const qint64 objectSize = state.value(QStringLiteral("e2eFileObjectStoreSize")).toVariant().toLongLong();
@@ -556,6 +606,15 @@ bool loadE2EFileObjectRecoveryPayload(const QJsonObject& state,
         || envelopeHeader.value(QStringLiteral("ciphertextSha256")).toString().trimmed()
                .compare(objectHash, Qt::CaseInsensitive) != 0) {
         if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-evidence-invalid");
+        return false;
+    }
+
+    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-s3-offline-auto-readback-not-reviewed");
+        return false;
+    }
+    if (storeType != QLatin1String("filesystem")) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-store-unavailable");
         return false;
     }
 
@@ -3003,8 +3062,8 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
             .toLongLong();
         const QString storeType = recoveryPolicy.value(QStringLiteral("e2eFileObjectStoreType"))
             .toString(QStringLiteral("filesystem"))
-            .trimmed()
-            .toLower();
+            .trimmed();
+        const QString normalizedStoreType = normalizedE2EObjectRecoveryStoreType(storeType);
         const bool objectEvidenceReady =
             recoveryPolicy.value(QStringLiteral("e2eFileObjectRecoveryCandidate")).toBool(false)
             && isSafeObjectStoreKeyToken(objectKey)
@@ -3012,7 +3071,8 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
             && objectHash.compare(state.value(QStringLiteral("e2eFileWireHash")).toString(),
                                   Qt::CaseInsensitive) == 0
             && objectSize == state.value(QStringLiteral("e2eFileWireSize")).toVariant().toLongLong()
-            && (storeType == QLatin1String("filesystem") || storeType == QLatin1String("s3"))
+            && (normalizedStoreType == QLatin1String("filesystem")
+                || isS3OfflineE2EObjectRecoveryStore(normalizedStoreType))
             && recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).isObject()
             && e2eEnvelopeHeaderLooksSafe(
                 recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).toObject())
@@ -3025,14 +3085,18 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
         if (objectEvidenceReady) {
             state["e2eFileObjectRecoveryCandidate"] = true;
             state["e2eFileObjectStoreKey"] = objectKey;
-            state["e2eFileObjectStoreType"] = storeType;
+            state["e2eFileObjectStoreType"] = normalizedStoreType;
             state["e2eFileObjectStoreHash"] = objectHash;
             state["e2eFileObjectStoreSize"] = QString::number(objectSize);
             state["e2eFileOfflineObjectRecoveryReady"] = false;
+            state["e2eFileObjectRecoveryScope"] =
+                e2eObjectRecoveryScopeForStoreType(normalizedStoreType);
+            state["e2eFileObjectRecoveryReviewGate"] =
+                e2eObjectRecoveryReviewGateForStoreType(normalizedStoreType, true);
             state["e2eFileObjectRecoveryReason"] =
-                QStringLiteral("e2e-file-object-recovery-read-path-unavailable");
+                e2eObjectRecoveryDefaultReasonForStoreType(normalizedStoreType, true);
             state["e2eFileObjectRecoveryAction"] =
-                QStringLiteral("resend-or-wait-for-object-recovery");
+                e2eObjectRecoveryDefaultActionForStoreType(normalizedStoreType, true);
             state["e2eFileObjectRecoveryMaterialPolicy"] =
                 QStringLiteral("object-ciphertext-only-no-secret-export");
             if (!state.contains(QStringLiteral("e2eFileEnvelopeHeader"))) {
@@ -3140,16 +3204,38 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
         status["e2eFileOfflineObjectRecoveryReady"] =
             state.value("e2eFileOfflineObjectRecoveryReady").toBool(false);
         if (objectRecoveryCandidate) {
-            status["e2eFileObjectStoreKey"] = state.value("e2eFileObjectStoreKey").toString();
-            status["e2eFileObjectStoreType"] = state.value("e2eFileObjectStoreType").toString();
+            const QString objectKey = state.value("e2eFileObjectStoreKey").toString().trimmed();
+            const bool objectKeySafe = isSafeObjectStoreKeyToken(objectKey);
+            const QString storeType = normalizedE2EObjectRecoveryStoreType(
+                state.value("e2eFileObjectStoreType").toString(QStringLiteral("filesystem")));
+            if (objectKeySafe) {
+                status["e2eFileObjectStoreKey"] = objectKey;
+            } else {
+                status["e2eFileObjectStoreKeySuppressed"] = true;
+            }
+            status["e2eFileObjectStoreKeySafe"] = objectKeySafe;
+            status["e2eFileObjectStoreType"] = storeType;
             status["e2eFileObjectStoreHash"] = state.value("e2eFileObjectStoreHash").toString();
             status["e2eFileObjectStoreSize"] = state.value("e2eFileObjectStoreSize").toString();
-            status["e2eFileObjectRecoveryReason"] =
-                state.value("e2eFileObjectRecoveryReason")
-                    .toString(QStringLiteral("e2e-file-object-recovery-read-path-unavailable"));
-            status["e2eFileObjectRecoveryAction"] =
-                state.value("e2eFileObjectRecoveryAction")
-                    .toString(QStringLiteral("resend-or-wait-for-object-recovery"));
+            const bool forceDefaultRecoveryDecision =
+                !objectKeySafe || isS3OfflineE2EObjectRecoveryStore(storeType);
+            status["e2eFileObjectRecoveryScope"] = forceDefaultRecoveryDecision
+                ? e2eObjectRecoveryScopeForStoreType(storeType)
+                : state.value("e2eFileObjectRecoveryScope")
+                      .toString(e2eObjectRecoveryScopeForStoreType(storeType));
+            status["e2eFileObjectRecoveryReviewGate"] = forceDefaultRecoveryDecision
+                ? e2eObjectRecoveryReviewGateForStoreType(storeType, objectKeySafe)
+                : state.value("e2eFileObjectRecoveryReviewGate")
+                      .toString(e2eObjectRecoveryReviewGateForStoreType(storeType, objectKeySafe));
+            status["e2eFileObjectRecoveryNoSensitiveLocatorExport"] = true;
+            status["e2eFileObjectRecoveryReason"] = forceDefaultRecoveryDecision
+                ? e2eObjectRecoveryDefaultReasonForStoreType(storeType, objectKeySafe)
+                : state.value("e2eFileObjectRecoveryReason")
+                      .toString(e2eObjectRecoveryDefaultReasonForStoreType(storeType, objectKeySafe));
+            status["e2eFileObjectRecoveryAction"] = forceDefaultRecoveryDecision
+                ? e2eObjectRecoveryDefaultActionForStoreType(storeType, objectKeySafe)
+                : state.value("e2eFileObjectRecoveryAction")
+                      .toString(e2eObjectRecoveryDefaultActionForStoreType(storeType, objectKeySafe));
             status["e2eFileObjectRecoveryMaterialPolicy"] =
                 state.value("e2eFileObjectRecoveryMaterialPolicy")
                     .toString(QStringLiteral("object-ciphertext-only-no-secret-export"));

@@ -1081,6 +1081,107 @@ int main(int argc, char** argv) {
     ok = expect(sender.clearOutgoingTransferState(),
                 "sender should clear E2E object recovery state before continuing the test") && ok;
 
+    QJsonObject e2eS3RecoveryPolicy = e2eObjectRecoveryPolicy;
+    e2eS3RecoveryPolicy["e2eFileObjectStoreKey"] = "safeS3Object_123.bin";
+    e2eS3RecoveryPolicy["e2eFileObjectStoreType"] = "s3";
+    ok = expect(sender.saveOutgoingTransferState("e2e-s3-recovery-transfer",
+                                                 resumeFilePath,
+                                                 "960002",
+                                                 MessageType::File,
+                                                 e2eObjectWireHash,
+                                                 resumeFileSize + 128,
+                                                 resumeChunkCount + 1,
+                                                 e2eS3RecoveryPolicy),
+                "sender should persist E2E S3 object recovery candidate metadata") && ok;
+    const QJsonObject e2eS3RecoveryStatus = sender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray e2eS3RecoveryStatusJson =
+        QJsonDocument(e2eS3RecoveryStatus).toJson(QJsonDocument::Compact);
+    ok = expect(e2eS3RecoveryStatus["configured"].toBool()
+                    && e2eS3RecoveryStatus["e2eFileObjectRecoveryCandidate"].toBool()
+                    && e2eS3RecoveryStatus["e2eFileObjectStoreKeySafe"].toBool(false)
+                    && e2eS3RecoveryStatus["e2eFileObjectStoreKey"].toString()
+                        == "safeS3Object_123.bin"
+                    && e2eS3RecoveryStatus["e2eFileObjectStoreType"].toString() == "s3"
+                    && e2eS3RecoveryStatus["e2eFileObjectRecoveryScope"].toString()
+                        == "s3-offline-auto-readback"
+                    && e2eS3RecoveryStatus["e2eFileObjectRecoveryReviewGate"].toString()
+                        == "s3-offline-auto-readback-not-reviewed"
+                    && e2eS3RecoveryStatus["reason"].toString()
+                        == "e2e-file-s3-offline-auto-readback-not-reviewed"
+                    && e2eS3RecoveryStatus["action"].toString()
+                        == "keep-s3-offline-auto-readback-fail-closed-until-reviewed"
+                    && !e2eS3RecoveryStatus["canAutoResume"].toBool(),
+                "E2E S3 object recovery candidate should stay fail-closed behind reviewed auto-readback gate") && ok;
+    ok = expect(e2eS3RecoveryStatus["e2eFileObjectRecoveryNoSensitiveLocatorExport"].toBool(false)
+                    && !e2eS3RecoveryStatus["e2eFileOfflineObjectRecoveryReady"].toBool(true)
+                    && !e2eS3RecoveryStatusJson.contains("https://")
+                    && !e2eS3RecoveryStatusJson.contains("object://")
+                    && !e2eS3RecoveryStatusJson.contains("bucket")
+                    && !e2eS3RecoveryStatusJson.contains("endpoint")
+                    && !e2eS3RecoveryStatusJson.contains("signature")
+                    && !e2eS3RecoveryStatusJson.contains("privateKey")
+                    && !e2eS3RecoveryStatusJson.contains("sessionKey"),
+                "E2E S3 recovery status should expose only safe token evidence") && ok;
+    const int queriesBeforeE2eS3Recovery = server.resumeQueries();
+    const int chunksBeforeE2eS3Recovery = server.resumedChunkIndexes().size();
+    QString e2eS3RecoveryReason;
+    ok = expect(!sender.resumeSavedOutgoingTransfer(&e2eS3RecoveryReason, 5000),
+                "E2E S3 object recovery candidate should refuse automatic resume before review") && ok;
+    ok = expect(e2eS3RecoveryReason == "e2e-file-s3-offline-auto-readback-not-reviewed",
+                "E2E S3 recovery refusal should expose the fixed not-reviewed reason") && ok;
+    ok = expect(server.resumeQueries() == queriesBeforeE2eS3Recovery
+                    && server.resumedChunkIndexes().size() == chunksBeforeE2eS3Recovery,
+                "E2E S3 recovery candidate should not query or send while fail-closed") && ok;
+
+    QJsonObject legacyUnsafeS3State;
+    ok = expect(sender.loadOutgoingTransferState(&legacyUnsafeS3State),
+                "test should load E2E S3 recovery state before legacy mutation") && ok;
+    legacyUnsafeS3State["e2eFileObjectStoreKey"] =
+        QStringLiteral("https://") + QStringLiteral("s3.example.invalid")
+        + QStringLiteral("/private/path.bin?") + QStringLiteral("signature=")
+        + QStringLiteral("secret");
+    legacyUnsafeS3State["e2eFileObjectRecoveryReason"] = "resume-object-wire-envelope";
+    legacyUnsafeS3State["e2eFileObjectRecoveryAction"] = "resume-object-wire-envelope";
+    ok = expect(writeOutgoingTransferState(legacyUnsafeS3State),
+                "test should write legacy unsafe E2E S3 recovery metadata") && ok;
+    const QJsonObject legacyUnsafeS3Status = sender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray legacyUnsafeS3StatusJson =
+        QJsonDocument(legacyUnsafeS3Status).toJson(QJsonDocument::Compact);
+    ok = expect(legacyUnsafeS3Status["configured"].toBool()
+                    && legacyUnsafeS3Status["e2eFileObjectRecoveryCandidate"].toBool()
+                    && !legacyUnsafeS3Status["e2eFileObjectStoreKeySafe"].toBool(true)
+                    && legacyUnsafeS3Status["e2eFileObjectStoreKeySuppressed"].toBool(false)
+                    && !legacyUnsafeS3Status.contains("e2eFileObjectStoreKey")
+                    && legacyUnsafeS3Status["e2eFileObjectRecoveryReviewGate"].toString()
+                        == "object-store-key-token-invalid"
+                    && legacyUnsafeS3Status["reason"].toString()
+                        == "e2e-file-object-recovery-evidence-invalid"
+                    && legacyUnsafeS3Status["action"].toString()
+                        == "suppress-object-key-and-resend"
+                    && !legacyUnsafeS3Status["canAutoResume"].toBool(),
+                "legacy unsafe E2E S3 object locator should be suppressed and fail closed") && ok;
+    const QByteArray unsafeScheme = QByteArrayLiteral("https://");
+    const QByteArray unsafeHost = QByteArrayLiteral("s3.example.invalid");
+    const QByteArray unsafeSigToken = QByteArrayLiteral("signature=") + QByteArrayLiteral("secret");
+    ok = expect(!legacyUnsafeS3StatusJson.contains(unsafeScheme)
+                    && !legacyUnsafeS3StatusJson.contains(unsafeHost)
+                    && !legacyUnsafeS3StatusJson.contains(unsafeSigToken)
+                    && !legacyUnsafeS3StatusJson.contains("private/path")
+                    && !legacyUnsafeS3StatusJson.contains("resume-object-wire-envelope"),
+                "legacy unsafe E2E S3 status should not export URL-like object locators or stale resume actions") && ok;
+    const int queriesBeforeLegacyUnsafeS3 = server.resumeQueries();
+    const int chunksBeforeLegacyUnsafeS3 = server.resumedChunkIndexes().size();
+    QString legacyUnsafeS3Reason;
+    ok = expect(!sender.resumeSavedOutgoingTransfer(&legacyUnsafeS3Reason, 5000),
+                "legacy unsafe E2E S3 recovery state should refuse automatic resume") && ok;
+    ok = expect(legacyUnsafeS3Reason == "e2e-file-object-recovery-evidence-invalid",
+                "legacy unsafe E2E S3 recovery refusal should expose the fixed evidence-invalid reason") && ok;
+    ok = expect(server.resumeQueries() == queriesBeforeLegacyUnsafeS3
+                    && server.resumedChunkIndexes().size() == chunksBeforeLegacyUnsafeS3,
+                "legacy unsafe E2E S3 recovery state should not query or send") && ok;
+    ok = expect(sender.clearOutgoingTransferState(),
+                "sender should clear E2E S3 recovery state before continuing the test") && ok;
+
     const QByteArray e2eSessionKey = generateE2ESessionKey();
     const QByteArray peerPrivateKey = generateE2EPrivateKey();
     const QByteArray peerPublicKey = e2ePublicKeyFromPrivateKey(peerPrivateKey);
