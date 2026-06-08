@@ -328,6 +328,23 @@ function Format-StatusValue([object]$Value) {
     $text
 }
 
+function Convert-StatusBoolean([object]$Value, [bool]$DefaultValue) {
+    if ($null -eq $Value) {
+        return $DefaultValue
+    }
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+    $text = ([string]$Value).Trim().ToLowerInvariant()
+    if ($text -eq "true" -or $text -eq "1" -or $text -eq "yes") {
+        return $true
+    }
+    if ($text -eq "false" -or $text -eq "0" -or $text -eq "no") {
+        return $false
+    }
+    $DefaultValue
+}
+
 function Has-ConfigurationHint([string[]]$Values) {
     foreach ($value in $Values) {
         if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
@@ -832,6 +849,69 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
     }
 }
 
+function Get-AutomationTaskAckGateReadback([object]$HistoryState, [object]$AckState, [bool]$Configured) {
+    $result = [ordered]@{
+        configured = $Configured
+        state = "not-configured"
+        failedRunCount = "unknown"
+        acknowledged = "unknown"
+        ackExpired = "unknown"
+        releaseGate = "not-configured"
+        action = "none"
+    }
+    if (-not $Configured) {
+        return [pscustomobject]$result
+    }
+    if ($null -eq $HistoryState -or $HistoryState.state -ne "ok") {
+        $result.state = "history-unavailable"
+        $result.releaseGate = "automation-task-history-unavailable"
+        $result.action = "restore automation task history artifact before release"
+        return [pscustomobject]$result
+    }
+
+    $failedRaw = Get-JsonValue $HistoryState.value "failedRunCount" "unknown"
+    $failedText = Format-StatusValue $failedRaw
+    $failedCount = 0
+    if (-not [int]::TryParse($failedText, [ref]$failedCount)) {
+        $result.state = "history-unparseable"
+        $result.failedRunCount = $failedText
+        $result.releaseGate = "automation-task-history-unparseable"
+        $result.action = "regenerate automation task history with failedRunCount before release"
+        return [pscustomobject]$result
+    }
+
+    $acknowledgedRaw = Get-JsonValue $HistoryState.value "acknowledged" $null
+    if ($null -eq $acknowledgedRaw -and $null -ne $AckState -and $AckState.state -eq "ok") {
+        $acknowledgedRaw = Get-JsonValue $AckState.value "acknowledged" $null
+    }
+    $ackExpiredRaw = Get-JsonValue $HistoryState.value "ackExpired" $null
+
+    $acknowledged = Convert-StatusBoolean $acknowledgedRaw $false
+    $ackExpired = Convert-StatusBoolean $ackExpiredRaw $false
+    $result.failedRunCount = $failedCount
+    $result.acknowledged = $acknowledged.ToString().ToLowerInvariant()
+    $result.ackExpired = $ackExpired.ToString().ToLowerInvariant()
+
+    if ($failedCount -le 0) {
+        $result.state = "passing"
+        $result.releaseGate = "passing"
+        $result.action = "none"
+    } elseif ($ackExpired) {
+        $result.state = "failed-ack-expired"
+        $result.releaseGate = "blocked-ack-expired"
+        $result.action = "renew task acknowledgement before release"
+    } elseif (-not $acknowledged) {
+        $result.state = "failed-unacknowledged"
+        $result.releaseGate = "blocked-unacknowledged-failure"
+        $result.action = "acknowledge failed automation task before release"
+    } else {
+        $result.state = "failed-acknowledged"
+        $result.releaseGate = "acknowledged-failure-review-gated"
+        $result.action = "continue remediation; keep release review gate until failures clear"
+    }
+    [pscustomobject]$result
+}
+
 function Format-PreviewDescriptor([object]$PreviewRecord) {
     $parts = New-Object System.Collections.Generic.List[string]
     $parts.Add(('label=`{0}`' -f (Format-StatusValue $PreviewRecord.label)))
@@ -1121,6 +1201,14 @@ $largeFileGovernanceStatusState = Get-ArtifactState -PathValue $LargeFileGoverna
 $largeFileGovernanceLastRunState = Get-ArtifactState -PathValue $LargeFileGovernanceLastRunPath
 $automationTaskHistoryState = Get-ArtifactState -PathValue $AutomationTaskHistoryPath -ExpectJson
 $automationTaskAckState = Get-ArtifactState -PathValue $AutomationTaskAckPath -ExpectJson
+$automationTaskAckGateConfigured = Has-ConfigurationHint @(
+    $AutomationTaskHistoryPath,
+    $AutomationTaskAckPath,
+    $DatabaseHealthTaskPreviewPath,
+    $LargeFileGovernanceTaskPreviewPath,
+    $normalizedTaskPreviewPaths
+)
+$automationTaskAckGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
 
 $databaseHealthStatus = $databaseHealthStatusState.value
 $databaseHealthLastRun = Read-LastRunSummary $databaseHealthLastRunState
@@ -1357,6 +1445,15 @@ if ($automationTaskAckState.state -ne "ok") {
             (Format-StatusValue (Get-JsonValue $automationTaskAck "acknowledgedBy" "unknown")),
             (Format-StatusValue (Get-JsonValue $automationTaskAck "acknowledgedAt" "unknown")),
             (Format-StatusValue (Get-JsonValue $automationTaskAck "reason" "unknown"))))
+}
+if ($automationTaskAckGate.configured) {
+    $lines.Add(('- Task acknowledgement gate: state=`{0}`, failed=`{1}`, acknowledged=`{2}`, ackExpired=`{3}`, releaseGate=`{4}`, action=`{5}`' -f
+            (Format-StatusValue $automationTaskAckGate.state),
+            (Format-StatusValue $automationTaskAckGate.failedRunCount),
+            (Format-StatusValue $automationTaskAckGate.acknowledged),
+            (Format-StatusValue $automationTaskAckGate.ackExpired),
+            (Format-StatusValue $automationTaskAckGate.releaseGate),
+            (Format-StatusValue $automationTaskAckGate.action)))
 }
 $lines.Add("")
 $lines.Add("## Artifact Diagnostics")

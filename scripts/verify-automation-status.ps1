@@ -304,6 +304,7 @@ foreach ($expected in @(
     'Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`',
     'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
+    'Task acknowledgement gate: state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
     'Artifact Diagnostics',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
@@ -487,6 +488,7 @@ foreach ($expected in @(
     'Large-file governance: status=`configured`, ok=`true`, warnings=`0`, alerts=`0`, actionableS3Gaps=`0`',
     'Task history: runs=`1`, failed=`0`, latestAt=`',
     'Task acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`bootstrap-default`',
+    'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, releaseGate=`passing`, action=`none`',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok`',
@@ -529,6 +531,7 @@ foreach ($expected in @(
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: `configured but history artifact unavailable`',
+    'Task acknowledgement gate: state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
     'Database health artifacts: `preview=not-configured; status=missing',
     'Large-file governance artifacts: `preview=not-configured; status=missing',
     'Automation history artifacts: `history=missing',
@@ -603,6 +606,7 @@ foreach ($expected in @(
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: `configured but history artifact unavailable`',
     'Task acknowledgement: `configured but ack artifact unavailable`',
+    'Task acknowledgement gate: state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`',
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`',
     'Database health artifacts: `preview=ok; status=missing',
@@ -697,7 +701,10 @@ Ensure-Directory -Path $configuredTempDir
 '2026-06-03T06:00:00.0000000Z exitCode=5' | Set-Content -LiteralPath $customLastRunPath -Encoding UTF8
 @'
 {
-  "runCount":7
+  "runCount":7,
+  "failedRunCount":1,
+  "acknowledged":false,
+  "ackExpired":false
 }
 '@ | Set-Content -LiteralPath $customHistoryPath -Encoding UTF8
 @'
@@ -839,11 +846,57 @@ foreach ($expected in @(
     'Large-file governance: `configured but status artifact unavailable`',
     'Task history: runs=`7`',
     'Task acknowledgement: acknowledged=`false`, by=`unknown`, at=`unknown`, reason=`unknown`',
+    'Task acknowledgement gate: state=`failed-unacknowledged`, failed=`1`, acknowledged=`false`, ackExpired=`false`, releaseGate=`blocked-unacknowledged-failure`, action=`acknowledge failed automation task before release`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
     Assert-Contains -Text $customMarkdown -Expected $expected
 }
 Assert-NoFixedMirrorBranchPolicy -Text $customMarkdown
+
+$expiredHistoryPath = Join-Path $configuredTempDir "expired-task-history.json"
+$expiredAckPath = Join-Path $configuredTempDir "expired-task-ack.json"
+$expiredMarkdownPath = Join-Path $configuredTempDir "automation-status-expired-ack.md"
+@'
+{
+  "format":"qtnetworkchat-automation-task-history-v1",
+  "runCount":2,
+  "failedRunCount":1,
+  "latestRun":{"timestamp":"2026-06-03T07:00:00.0000000Z","exitCode":2},
+  "acknowledged":false,
+  "ackExpired":true
+}
+'@ | Set-Content -LiteralPath $expiredHistoryPath -Encoding UTF8
+@'
+{
+  "format":"qtnetworkchat-automation-task-ack-v1",
+  "acknowledged":true,
+  "acknowledgedBy":"oncall",
+  "acknowledgedAt":"2026-06-01T07:00:00.0000000Z",
+  "reason":"expired sample"
+}
+'@ | Set-Content -LiteralPath $expiredAckPath -Encoding UTF8
+
+& $ScriptPath `
+    -MarkdownPath $expiredMarkdownPath `
+    -Head "aabbcc0" `
+    -OriginMain "aabbcc0" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -AutomationTaskHistoryPath $expiredHistoryPath `
+    -AutomationTaskAckPath $expiredAckPath `
+    -FailOnSensitive
+
+$expiredMarkdown = Get-Content -LiteralPath $expiredMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Task history: runs=`2`, failed=`1`, latestAt=`2026-06-03T07:00:00.0000000Z`, latestExitCode=`2`, acknowledged=`false`, ackExpired=`true`',
+    'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-01T07:00:00.0000000Z`, reason=`expired sample`',
+    'Task acknowledgement gate: state=`failed-ack-expired`, failed=`1`, acknowledged=`false`, ackExpired=`true`, releaseGate=`blocked-ack-expired`, action=`renew task acknowledgement before release`'
+)) {
+    Assert-Contains -Text $expiredMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $expiredMarkdown
 
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
 Write-Host "Automation status writer test passed"
