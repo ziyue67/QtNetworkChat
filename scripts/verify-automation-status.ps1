@@ -225,6 +225,7 @@ foreach ($expected in @(
     'callable manifest',
     'sanitized execution result contract',
     'linked reviewed builds can pass the early operation, provider control, and explicit reviewed tail probe evidence gates',
+    'real public API chain directly for identity generation, public derivation, agreement sign/verify, session derivation, payload encrypt/decrypt, and tamper rejection',
     'explicit reviewed runtime-preflight/arming/execution-acceptance probe readiness',
     'production rotation dry-run/execute evidence',
     'e2e_rollout_observability_exporter now persists sanitized rollout observability JSON/Markdown',

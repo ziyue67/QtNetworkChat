@@ -1642,6 +1642,126 @@ int main() {
                 "production adapter runtime should generate a session key only after productionReady") && ok;
 
     if (reviewedProviderOperationsBound) {
+        const QByteArray aliceIdentityPrivateKey = generateE2EPrivateKey();
+        const QByteArray bobIdentityPrivateKey = generateE2EPrivateKey();
+        const QByteArray aliceAgreementPrivateKey = generateE2EPrivateKey();
+        const QByteArray bobAgreementPrivateKey = generateE2EPrivateKey();
+        const QByteArray aliceIdentityPublicKey =
+            e2ePublicKeyFromPrivateKey(aliceIdentityPrivateKey);
+        const QByteArray bobIdentityPublicKey =
+            e2ePublicKeyFromPrivateKey(bobIdentityPrivateKey);
+        const QByteArray aliceAgreementPublicKey =
+            e2ePublicKeyFromPrivateKey(aliceAgreementPrivateKey);
+        const QByteArray bobAgreementPublicKey =
+            e2ePublicKeyFromPrivateKey(bobAgreementPrivateKey);
+        E2EKeyAgreement aliceAgreement;
+        aliceAgreement.protocol = QStringLiteral("qtnetworkchat-e2e-v1");
+        aliceAgreement.suite = e2eDefaultSuite();
+        aliceAgreement.senderId = QStringLiteral("10001");
+        aliceAgreement.receiverId = QStringLiteral("10002");
+        aliceAgreement.keyId = QStringLiteral("production-public-api-alice");
+        aliceAgreement.publicKey = aliceAgreementPublicKey;
+        aliceAgreement.senderIdentityFingerprint = e2eFingerprint(aliceIdentityPublicKey);
+        aliceAgreement.receiverIdentityFingerprint = e2eFingerprint(bobIdentityPublicKey);
+        E2EKeyAgreement bobAgreement;
+        bobAgreement.protocol = aliceAgreement.protocol;
+        bobAgreement.suite = aliceAgreement.suite;
+        bobAgreement.senderId = aliceAgreement.receiverId;
+        bobAgreement.receiverId = aliceAgreement.senderId;
+        bobAgreement.keyId = QStringLiteral("production-public-api-bob");
+        bobAgreement.publicKey = bobAgreementPublicKey;
+        bobAgreement.senderIdentityFingerprint = aliceAgreement.receiverIdentityFingerprint;
+        bobAgreement.receiverIdentityFingerprint = aliceAgreement.senderIdentityFingerprint;
+        ok = expect(aliceIdentityPrivateKey.size() == 32
+                        && bobIdentityPrivateKey.size() == 32
+                        && aliceAgreementPrivateKey.size() == 32
+                        && bobAgreementPrivateKey.size() == 32
+                        && aliceIdentityPublicKey.size() == 32
+                        && bobIdentityPublicKey.size() == 32
+                        && aliceAgreementPublicKey.size() == 32
+                        && bobAgreementPublicKey.size() == 32
+                        && aliceAgreement.suite
+                            == QStringLiteral("x25519-hkdf-sha256-aes-256-gcm"),
+                    "linked OpenSSL public API chain should generate identity and agreement key material") && ok;
+        ok = expect(signE2EKeyAgreement(&aliceAgreement, aliceIdentityPrivateKey, &reason)
+                        && aliceAgreement.signature.size() == 64
+                        && reason.isEmpty()
+                        && signE2EKeyAgreement(&bobAgreement, bobIdentityPrivateKey, &reason)
+                        && bobAgreement.signature.size() == 64
+                        && reason.isEmpty(),
+                    "linked OpenSSL public API chain should sign both agreements") && ok;
+        ok = expect(verifyE2EKeyAgreementSignature(aliceAgreement,
+                                                   aliceIdentityPublicKey,
+                                                   &reason)
+                        && reason.isEmpty()
+                        && verifyE2EKeyAgreementSignature(bobAgreement,
+                                                          bobIdentityPublicKey,
+                                                          &reason)
+                        && reason.isEmpty(),
+                    "linked OpenSSL public API chain should verify both agreement signatures") && ok;
+        E2EKeyAgreement tamperedAgreement = aliceAgreement;
+        tamperedAgreement.publicKey = bobAgreementPublicKey;
+        ok = expect(!verifyE2EKeyAgreementSignature(tamperedAgreement,
+                                                    aliceIdentityPublicKey,
+                                                    &reason)
+                        && reason == QStringLiteral("agreement-signature-invalid"),
+                    "linked OpenSSL public API chain should reject tampered agreement material") && ok;
+        E2EKeyAgreement tamperedSignatureAgreement = bobAgreement;
+        tamperedSignatureAgreement.signature[0] =
+            static_cast<char>(tamperedSignatureAgreement.signature.at(0) ^ 0x01);
+        ok = expect(!verifyE2EKeyAgreementSignature(tamperedSignatureAgreement,
+                                                    bobIdentityPublicKey,
+                                                    &reason)
+                        && reason == QStringLiteral("agreement-signature-invalid"),
+                    "linked OpenSSL public API chain should reject tampered signatures") && ok;
+        const QByteArray aliceDerived =
+            deriveE2EAuthenticatedSessionKey(aliceAgreementPrivateKey,
+                                             aliceAgreement,
+                                             bobAgreement,
+                                             &reason);
+        ok = expect(aliceDerived.size() == 32 && reason.isEmpty(),
+                    "linked OpenSSL public API chain should derive Alice session material") && ok;
+        const QByteArray bobDerived =
+            deriveE2EAuthenticatedSessionKey(bobAgreementPrivateKey,
+                                             bobAgreement,
+                                             aliceAgreement,
+                                             &reason);
+        ok = expect(bobDerived.size() == 32
+                        && bobDerived == aliceDerived
+                        && reason.isEmpty(),
+                    "linked OpenSSL public API chain should derive matching Bob session material") && ok;
+        const QByteArray productionPlaintext("production-public-api-payload", 29);
+        const E2EEnvelope productionEnvelope =
+            encryptE2EPayload(aliceAgreement.senderId,
+                              bobAgreement.senderId,
+                              QStringLiteral("production-public-api-session"),
+                              aliceDerived,
+                              productionPlaintext,
+                              QStringLiteral("production-public-api-runtime-v1"),
+                              &reason);
+        QByteArray productionDecrypted;
+        ok = expect(productionEnvelope.isValid()
+                        && productionEnvelope.suite == aliceAgreement.suite
+                        && productionEnvelope.ciphertext.size() == productionPlaintext.size()
+                        && productionEnvelope.tag.size() >= 16
+                        && reason.isEmpty()
+                        && decryptE2EPayload(productionEnvelope,
+                                             bobDerived,
+                                             &productionDecrypted,
+                                             &reason)
+                        && productionDecrypted == productionPlaintext
+                        && reason.isEmpty(),
+                    "linked OpenSSL public API chain should encrypt and decrypt payloads with derived sessions") && ok;
+        E2EEnvelope tamperedProductionEnvelope = productionEnvelope;
+        tamperedProductionEnvelope.tag[0] =
+            static_cast<char>(tamperedProductionEnvelope.tag.at(0) ^ 0x01);
+        ok = expect(!decryptE2EPayload(tamperedProductionEnvelope,
+                                       bobDerived,
+                                       &productionDecrypted,
+                                       &reason)
+                        && reason == QStringLiteral("payload-decrypt-failed"),
+                    "linked OpenSSL public API chain should reject tampered payload tags") && ok;
+
         const QJsonObject invocationExecutionProbe =
             e2eProbeProductionCryptoProviderInvocationExecution();
         const QJsonObject firstProbe =
