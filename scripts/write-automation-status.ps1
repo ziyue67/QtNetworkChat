@@ -17,6 +17,7 @@ param(
     [string]$GitHubRunListJsonPath,
     [string]$E2ERolloutObservabilityJsonPath,
     [string]$E2ERolloutObservabilityMarkdownPath,
+    [string]$E2EReleaseEvidenceManifestPath,
     [string]$DatabaseHealthStatusPath,
     [string]$DatabaseHealthLastRunPath,
     [string]$DatabaseHealthTaskPreviewPath,
@@ -716,6 +717,60 @@ function Get-E2ERolloutObservabilityReadback(
     [pscustomobject]$result
 }
 
+function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
+    $result = [ordered]@{
+        configured = $false
+        state = "not-configured"
+        ok = "unknown"
+        releaseReady = "unknown"
+        releaseGate = "unknown"
+        inputCount = 0
+        ciStatus = "unknown"
+        ciVisibility = "unknown"
+        localBuildStatus = "unknown"
+        localCTestStatus = "unknown"
+        localCTestCount = 0
+        noSensitiveExportProof = "unknown"
+        packageArtifact = "not-configured"
+    }
+    if ($null -ne $ManifestState -and $ManifestState.configured) {
+        $result.configured = $true
+        $result.packageArtifact = $ManifestState.state
+    }
+    if (-not $result.configured) {
+        return [pscustomobject]$result
+    }
+    if ($null -eq $ManifestState -or $ManifestState.state -ne "ok") {
+        $result.state = if ($null -ne $ManifestState) { $ManifestState.state } else { "missing-manifest" }
+        $result.releaseGate = "e2e-release-evidence-unavailable"
+        return [pscustomobject]$result
+    }
+
+    $manifest = $ManifestState.value
+    if ((Get-JsonValue $manifest "format" "") -ne "qtnetworkchat-e2e-release-evidence-package-v1") {
+        $result.state = "invalid-format"
+        $result.releaseGate = "e2e-release-evidence-invalid-format"
+        return [pscustomobject]$result
+    }
+
+    $ci = Get-JsonValue $manifest "ci" $null
+    $local = Get-JsonValue $manifest "localVerification" $null
+    $proof = Get-JsonValue $manifest "sensitiveExportProof" $null
+    $result.state = "ok"
+    $result.ok = Format-StatusValue (Get-JsonValue $manifest "ok" "unknown")
+    $result.releaseReady = Format-StatusValue (Get-JsonValue $manifest "releaseReady" "unknown")
+    $result.releaseGate = Format-StatusValue (Get-JsonValue $manifest "releaseGate" "unknown")
+    $result.inputCount = [int](Get-JsonValue $manifest "inputCount" 0)
+    $result.ciStatus = Format-StatusValue (Get-JsonValue $ci "status" "unknown")
+    $result.ciVisibility = Format-StatusValue (Get-JsonValue $ci "visibility" "unknown")
+    $result.localBuildStatus = Format-StatusValue (Get-JsonValue $local "buildStatus" "unknown")
+    $result.localCTestStatus = Format-StatusValue (Get-JsonValue $local "ctestStatus" "unknown")
+    $result.localCTestCount = [int](Get-JsonValue $local "ctestCount" 0)
+    $result.noSensitiveExportProof =
+        Format-StatusValue (Get-JsonValue $proof "noSensitiveExportProof" "unknown")
+    [pscustomobject]$result
+}
+
 function New-PreviewRecord([string]$Label, [string]$PathValue) {
     $state = Get-ArtifactState -PathValue $PathValue -ExpectJson
     $taskKind = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskKind" "unknown") } else { "unknown" }
@@ -1120,6 +1175,9 @@ if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityJsonPath)) {
 if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityMarkdownPath)) {
     $E2ERolloutObservabilityMarkdownPath = Join-Path $BuildDir "e2e_rollout_observability_evidence\e2e-rollout-observability.md"
 }
+if ([string]::IsNullOrWhiteSpace($E2EReleaseEvidenceManifestPath)) {
+    $E2EReleaseEvidenceManifestPath = Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence-manifest.json"
+}
 $localVerificationReadback = Get-LocalVerificationStatusReadback $LocalVerificationStatusPath
 
 $ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
@@ -1173,6 +1231,8 @@ if ((Is-UnknownStatus $CTestStatus) -or $CTestCount -le 0) {
 $e2eRolloutJsonState = Get-ArtifactState -PathValue $E2ERolloutObservabilityJsonPath -ExpectJson
 $e2eRolloutMarkdownState = Get-ArtifactState -PathValue $E2ERolloutObservabilityMarkdownPath
 $e2eRolloutReadback = Get-E2ERolloutObservabilityReadback $e2eRolloutJsonState $e2eRolloutMarkdownState
+$e2eReleaseEvidenceManifestState = Get-ArtifactState -PathValue $E2EReleaseEvidenceManifestPath -ExpectJson
+$e2eReleaseEvidenceReadback = Get-E2EReleaseEvidenceReadback $e2eReleaseEvidenceManifestState
 if ($e2eRolloutReadback.state -eq "ok") {
     $e2eRolloutReadback.ciStatus = Format-StatusValue $CiStatus
     $e2eRolloutReadback.ciRunId = Format-StatusValue $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId })
@@ -1347,6 +1407,27 @@ if (-not $e2eRolloutReadback.configured) {
     $lines.Add(('  Sensitive export proof: noSensitiveExport=`{0}`, suppressed=`{1}`' -f `
             (Format-StatusValue $e2eRolloutReadback.noSensitiveExportProof), `
             (Format-StatusValue $e2eRolloutReadback.sensitiveFieldsSuppressed)))
+}
+if (-not $e2eReleaseEvidenceReadback.configured) {
+    $lines.Add('- E2E release evidence package: `not configured`')
+} elseif ($e2eReleaseEvidenceReadback.state -ne "ok") {
+    $lines.Add(('- E2E release evidence package: state=`{0}`, releaseGate=`{1}`, artifact=`{2}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.state), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.packageArtifact)))
+} else {
+    $lines.Add(('- E2E release evidence package: ok=`{0}`, releaseReady=`{1}`, releaseGate=`{2}`, inputs=`{3}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ok), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.releaseReady), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.inputCount)))
+    $lines.Add(('  Evidence CI/local: ciStatus=`{0}`, ciVisibility=`{1}`, localBuild=`{2}`, localCTest=`{3}`, count=`{4}`, noSensitiveExport=`{5}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciStatus), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciVisibility), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.localBuildStatus), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
 }
 $lines.Add("")
 $lines.Add("## Automation Guardrails")
@@ -1547,10 +1628,15 @@ $e2eRolloutDiagnostics = @(
     ('markdown={0}' -f (Format-StatusValue $e2eRolloutReadback.markdownArtifact)),
     ('bundle={0}' -f (Format-StatusValue $e2eRolloutReadback.bundle))
 ) -join "; "
+$e2eReleaseEvidenceDiagnostics = @(
+    ('manifest={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.packageArtifact)),
+    ('releaseGate={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate))
+) -join "; "
 $lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
 $lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnostics + '`')
 $lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics + '`')
 $lines.Add('- E2E rollout observability artifacts: `' + $e2eRolloutDiagnostics + '`')
+$lines.Add('- E2E release evidence artifacts: `' + $e2eReleaseEvidenceDiagnostics + '`')
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")

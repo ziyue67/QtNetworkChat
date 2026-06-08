@@ -63,8 +63,9 @@ function Ensure-Directory {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
-$tempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\automation_status_sample"))
-$configuredTempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\automation_status_configured_missing_sample"))
+$sampleRunId = "{0}-{1}" -f $PID, ([guid]::NewGuid().ToString("N"))
+$tempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ("..\automation_status_sample_{0}" -f $sampleRunId)))
+$configuredTempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ("..\automation_status_configured_missing_sample_{0}" -f $sampleRunId)))
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
 Ensure-Directory -Path $tempDir
 Ensure-Directory -Path $configuredTempDir
@@ -79,12 +80,16 @@ $govPreviewPath = Join-Path $tempDir "large-file-governance-task-preview.json"
 $taskHistoryPath = Join-Path $tempDir "automation-task-history.json"
 $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
 $autoRunListPath = Join-Path $tempDir "gh-run-list.json"
+$releaseCiStatusPath = Join-Path $tempDir "github-windows-build-status-release.json"
 $autoCTestLogPath = Join-Path $tempDir "LastTest.log"
 $localVerificationPath = Join-Path $tempDir "local-verification-status.json"
 $e2eRolloutDir = Join-Path $tempDir "e2e_rollout_observability_evidence"
 $e2eRolloutJsonPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.json"
 $e2eRolloutMarkdownPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.md"
+$e2eReleaseEvidenceDir = Join-Path $tempDir "e2e_release_evidence"
+$e2eReleaseEvidenceManifestPath = Join-Path $e2eReleaseEvidenceDir "e2e-release-evidence-manifest.json"
 Ensure-Directory -Path $e2eRolloutDir
+Ensure-Directory -Path $e2eReleaseEvidenceDir
 
 @'
 {
@@ -144,6 +149,11 @@ Ensure-Directory -Path $e2eRolloutDir
   }
 ]
 '@ | Set-Content -LiteralPath $autoRunListPath -Encoding UTF8
+& (Join-Path $PSScriptRoot "write-github-windows-build-status.ps1") `
+    -OutputPath $releaseCiStatusPath `
+    -Head "missing-release-head" `
+    -RunListJsonPath $autoRunListPath `
+    -FailOnSensitive | Out-Null
 @'
 Start testing: Jun 03 04:00
 ----------------------------------------------------------
@@ -204,6 +214,13 @@ End testing: Jun 03 04:01
 - Release gate: `production-rollout-observability-blocked-not-linked`
 - Offline/object recovery gate: `e2e-offline-ciphertext-readback-reviewed-opt-in`
 '@ | Set-Content -LiteralPath $e2eRolloutMarkdownPath -Encoding UTF8
+& (Join-Path $PSScriptRoot "package-e2e-release-evidence.ps1") `
+    -OutputDir $e2eReleaseEvidenceDir `
+    -RolloutJsonPath $e2eRolloutJsonPath `
+    -RolloutMarkdownPath $e2eRolloutMarkdownPath `
+    -GitHubWindowsBuildStatusPath $releaseCiStatusPath `
+    -LocalVerificationStatusPath $localVerificationPath `
+    -FailOnSensitive | Out-Null
 
 ([ordered]@{
     format = "qtnetworkchat-database-health-task-preview-v1"
@@ -260,6 +277,7 @@ End testing: Jun 03 04:01
     -CTestCount 51 `
     -E2ERolloutObservabilityJsonPath $e2eRolloutJsonPath `
     -E2ERolloutObservabilityMarkdownPath $e2eRolloutMarkdownPath `
+    -E2EReleaseEvidenceManifestPath $e2eReleaseEvidenceManifestPath `
     -DatabaseHealthStatusPath $dbStatusPath `
     -DatabaseHealthLastRunPath $dbLastRunPath `
     -DatabaseHealthTaskPreviewPath $dbPreviewPath `
@@ -288,6 +306,8 @@ foreach ($expected in @(
     'CI: status=`success`, runId=`26816554264`, source=`parameter`; localBuild=`passed`, localCTest=`passed`, count=`51`',
     'Recovery gates: filesystemReady=`true`, filesystemGate=`e2e-filesystem-object-ciphertext-readback-ready`, offlineReady=`true`, offlineGate=`e2e-offline-ciphertext-readback-reviewed-opt-in`',
     'Sensitive export proof: noSensitiveExport=`false`, suppressed=`true`',
+    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-ci-head-not-observed`, inputs=`4`',
+    'Evidence CI/local: ciStatus=`external-visibility-stale`, ciVisibility=`head-not-observed`, localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
@@ -310,6 +330,7 @@ foreach ($expected in @(
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
+    'E2E release evidence artifacts: `manifest=ok; releaseGate=blocked-ci-head-not-observed`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
     'E2E production crypto is the active automation lane again',

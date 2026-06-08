@@ -1,0 +1,120 @@
+if(NOT DEFINED SCRIPT_PATH OR NOT EXISTS "${SCRIPT_PATH}")
+    message(FATAL_ERROR "SCRIPT_PATH does not exist: ${SCRIPT_PATH}")
+endif()
+
+set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/e2e_release_evidence_package")
+set(OUTPUT_DIR "${TEMP_DIR}/out")
+file(REMOVE_RECURSE "${TEMP_DIR}")
+file(MAKE_DIRECTORY "${TEMP_DIR}")
+
+set(ROLLOUT_JSON "${TEMP_DIR}/e2e-rollout-observability.json")
+set(ROLLOUT_MD "${TEMP_DIR}/e2e-rollout-observability.md")
+set(CI_JSON "${TEMP_DIR}/github-windows-build-status.json")
+set(LOCAL_JSON "${TEMP_DIR}/local-verification-status.json")
+set(AUTO_MD "${TEMP_DIR}/automation-status.md")
+
+file(WRITE "${ROLLOUT_JSON}" "{\n  \"format\":\"qtnetworkchat-e2e-production-rollout-observability-evidence-v1\",\n  \"status\":\"blocked\",\n  \"ok\":false,\n  \"summary\":{\"readiness\":\"blocked\"},\n  \"auditSummary\":{\"releaseGate\":\"production-rollout-observability-blocked-not-linked\"},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":false,\"sensitiveFieldsSuppressed\":true}\n}\n")
+file(WRITE "${ROLLOUT_MD}" "# E2E Rollout\n\n- Status: `blocked`\n")
+file(WRITE "${CI_JSON}" "{\n  \"format\":\"qtnetworkchat-github-windows-build-status-v1\",\n  \"headSha\":\"abc123\",\n  \"status\":\"external-visibility-stale\",\n  \"runId\":\"\",\n  \"source\":\"json-artifact\",\n  \"visibility\":\"head-not-observed\",\n  \"observedRunCount\":20,\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
+file(WRITE "${LOCAL_JSON}" "{\n  \"format\":\"qtnetworkchat-local-verification-status-v1\",\n  \"ok\":true,\n  \"build\":{\"status\":\"passed\"},\n  \"ctest\":{\"status\":\"passed\",\"count\":70},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
+file(WRITE "${AUTO_MD}" "# Automation Status\n\n- GitHub Windows Build: `external-visibility-stale`\n")
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}"
+        -RolloutJsonPath "${ROLLOUT_JSON}"
+        -RolloutMarkdownPath "${ROLLOUT_MD}"
+        -GitHubWindowsBuildStatusPath "${CI_JSON}"
+        -LocalVerificationStatusPath "${LOCAL_JSON}"
+        -AutomationStatusPath "${AUTO_MD}"
+    RESULT_VARIABLE result
+    OUTPUT_VARIABLE output
+    ERROR_VARIABLE error_output
+)
+
+if(NOT output STREQUAL "")
+    message(STATUS "${output}")
+endif()
+if(NOT error_output STREQUAL "")
+    message(STATUS "${error_output}")
+endif()
+if(NOT result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "package-e2e-release-evidence.ps1 exited with code ${result}")
+endif()
+
+set(PACKAGE_PATH "${OUTPUT_DIR}/e2e-release-evidence.zip")
+set(MANIFEST_PATH "${OUTPUT_DIR}/e2e-release-evidence-manifest.json")
+if(NOT EXISTS "${PACKAGE_PATH}" OR NOT EXISTS "${MANIFEST_PATH}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected E2E release evidence package and manifest were not created")
+endif()
+
+file(READ "${MANIFEST_PATH}" manifest_content)
+string(JSON format GET "${manifest_content}" "format")
+string(JSON ok GET "${manifest_content}" "ok")
+string(JSON release_ready GET "${manifest_content}" "releaseReady")
+string(JSON release_gate GET "${manifest_content}" "releaseGate")
+string(JSON input_count GET "${manifest_content}" "inputCount")
+string(JSON ci_status GET "${manifest_content}" "ci" "status")
+string(JSON ci_visibility GET "${manifest_content}" "ci" "visibility")
+string(JSON local_ctest_count GET "${manifest_content}" "localVerification" "ctestCount")
+string(JSON proof_no_sensitive GET "${manifest_content}" "sensitiveExportProof" "noSensitiveExportProof")
+
+if(NOT format STREQUAL "qtnetworkchat-e2e-release-evidence-package-v1")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected E2E evidence manifest format: ${format}")
+endif()
+if(NOT ok OR release_ready OR NOT release_gate STREQUAL "blocked-ci-head-not-observed")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence should package cleanly but stay blocked by stale CI")
+endif()
+if(NOT input_count EQUAL 5 OR NOT ci_status STREQUAL "external-visibility-stale" OR NOT ci_visibility STREQUAL "head-not-observed")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence manifest did not preserve CI readback")
+endif()
+if(NOT local_ctest_count EQUAL 70 OR NOT proof_no_sensitive)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence manifest did not preserve local verification/no-sensitive proof")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}/missing-ci"
+        -RolloutJsonPath "${ROLLOUT_JSON}"
+        -RolloutMarkdownPath "${ROLLOUT_MD}"
+        -LocalVerificationStatusPath "${LOCAL_JSON}"
+    RESULT_VARIABLE missing_ci_result
+    OUTPUT_VARIABLE missing_ci_output
+    ERROR_VARIABLE missing_ci_error
+)
+if(NOT missing_ci_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence packager should emit a blocked manifest for missing CI, not fail")
+endif()
+file(READ "${OUTPUT_DIR}/missing-ci/e2e-release-evidence-manifest.json" missing_ci_manifest)
+string(JSON missing_ci_ok GET "${missing_ci_manifest}" "ok")
+string(JSON missing_ci_gate GET "${missing_ci_manifest}" "releaseGate")
+if(missing_ci_ok OR NOT missing_ci_gate STREQUAL "blocked-missing-github-windows-build-status")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Missing CI should produce a blocked E2E release evidence manifest")
+endif()
+
+set(BAD "${TEMP_DIR}/bad-rollout.json")
+file(WRITE "${BAD}" "{\"password\":\"plain-secret\"}\n")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}/bad"
+        -RolloutJsonPath "${BAD}"
+        -GitHubWindowsBuildStatusPath "${CI_JSON}"
+        -LocalVerificationStatusPath "${LOCAL_JSON}"
+    RESULT_VARIABLE bad_result
+    OUTPUT_VARIABLE bad_output
+    ERROR_VARIABLE bad_error
+)
+if(bad_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence packager should reject sensitive inputs")
+endif()
+
+file(REMOVE_RECURSE "${TEMP_DIR}")
