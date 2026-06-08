@@ -52,7 +52,11 @@ string(JSON rollout_private_material GET "${evidence_content}" "sensitiveExportP
 string(JSON rollout_session_secret GET "${evidence_content}" "sensitiveExportProof" "sessionSecretExported")
 string(JSON rollout_plaintext GET "${evidence_content}" "sensitiveExportProof" "plaintextBytesExported")
 string(JSON rollout_ciphertext GET "${evidence_content}" "sensitiveExportProof" "ciphertextBytesExported")
+string(JSON filesystem_ready GET "${evidence_content}" "summary" "filesystemObjectRecoveryReady")
+string(JSON filesystem_gate GET "${evidence_content}" "summary" "filesystemObjectRecoveryReleaseGate")
+string(JSON filesystem_no_sensitive GET "${evidence_content}" "summary" "filesystemObjectRecoveryNoSensitiveExportProof")
 string(JSON offline_ready GET "${evidence_content}" "summary" "offlineObjectRecoveryReady")
+string(JSON offline_scope GET "${evidence_content}" "summary" "offlineObjectRecoveryScope")
 string(JSON audit_focus0 GET "${evidence_content}" "auditSummary" "auditFocus" 0)
 string(JSON evidence_bundle0 GET "${evidence_content}" "auditSummary" "evidenceBundle" 0)
 
@@ -71,8 +75,16 @@ endif()
 if(rollout_raw_key OR rollout_private_material OR rollout_session_secret OR rollout_plaintext OR rollout_ciphertext)
     message(FATAL_ERROR "Rollout evidence must not export sensitive material flags as true")
 endif()
+if(NOT filesystem_ready
+    OR NOT filesystem_gate STREQUAL "e2e-filesystem-object-ciphertext-readback-ready"
+    OR NOT filesystem_no_sensitive)
+    message(FATAL_ERROR "Filesystem object ciphertext readback should be ready and sanitized")
+endif()
 if(offline_ready)
-    message(FATAL_ERROR "Offline/object recovery should remain explicitly not ready")
+    message(FATAL_ERROR "S3/offline object recovery should remain explicitly not ready")
+endif()
+if(NOT offline_scope STREQUAL "s3-offline-auto-readback")
+    message(FATAL_ERROR "Offline/object recovery scope should stay limited to S3/offline auto-readback")
 endif()
 if(NOT audit_focus0 STREQUAL "production-crypto-acceptance")
     message(FATAL_ERROR "Rollout audit focus should include production crypto acceptance")
@@ -86,7 +98,10 @@ foreach(expected_text IN ITEMS
     "Status: `blocked`"
     "Release gate: `production-rollout-observability-blocked-not-linked`"
     "Sensitive export proof: noSensitiveExport=`false`, rawKey=`false`, privateMaterial=`false`, sessionSecret=`false`, plaintext=`false`, ciphertext=`false`"
+    "Filesystem object recovery ready: `true`"
+    "Filesystem object recovery gate: `e2e-filesystem-object-ciphertext-readback-ready`"
     "Offline/object recovery ready: `false`"
+    "Offline/object recovery scope: `s3-offline-auto-readback`"
 )
     string(FIND "${markdown_content}" "${expected_text}" expected_index)
     if(expected_index EQUAL -1)

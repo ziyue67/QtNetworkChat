@@ -169,7 +169,10 @@ if(evidence_result EQUAL 0 AND EXISTS "${evidence_json}" AND EXISTS "${evidence_
     string(JSON evidence_ciphertext GET "${evidence_content}" "sensitiveExportProof" "ciphertextBytesExported")
     string(JSON evidence_ready_count GET "${evidence_content}" "productionRolloutObservability" "publicPrimitiveReadyCount")
     string(JSON evidence_blocked_count GET "${evidence_content}" "productionRolloutObservability" "publicPrimitiveBlockedCount")
+    string(JSON evidence_filesystem_ready GET "${evidence_content}" "summary" "filesystemObjectRecoveryReady")
+    string(JSON evidence_filesystem_gate GET "${evidence_content}" "summary" "filesystemObjectRecoveryReleaseGate")
     string(JSON evidence_offline_ready GET "${evidence_content}" "summary" "offlineObjectRecoveryReady")
+    string(JSON evidence_offline_scope GET "${evidence_content}" "summary" "offlineObjectRecoveryScope")
 elseif(evidence_result EQUAL 0)
     set(evidence_result 4)
     set(evidence_stderr "production-rollout-observability-evidence-files-missing")
@@ -200,8 +203,13 @@ if(NOT evidence_format STREQUAL "qtnetworkchat-e2e-production-rollout-observabil
     OR evidence_ciphertext
     OR NOT evidence_ready_count EQUAL 8
     OR NOT evidence_blocked_count EQUAL 0
+    OR NOT evidence_filesystem_ready
+    OR NOT evidence_filesystem_gate STREQUAL "e2e-filesystem-object-ciphertext-readback-ready"
     OR evidence_offline_ready)
-    message(FATAL_ERROR "Production rollout observability evidence should be sanitized, accepted, and keep offline/object recovery not-ready")
+    message(FATAL_ERROR "Production rollout observability evidence should be sanitized, accepted, keep filesystem object recovery ready, and keep S3/offline recovery not-ready")
+endif()
+if(NOT evidence_offline_scope STREQUAL "s3-offline-auto-readback")
+    message(FATAL_ERROR "Production rollout observability evidence should keep S3/offline auto-readback as the remaining recovery gap")
 endif()
 foreach(forbidden_text IN ITEMS
     "privateKey"

@@ -10836,12 +10836,12 @@ QJsonObject productionRolloutObservabilityStatusForAcceptance(const QJsonObject&
         ? QStringLiteral("verify-production-required-run-uses-linked-reviewed-provider")
         : operatorAction);
     operatorPrompts.append(QStringLiteral("archive-sanitized-release-run-status-without-key-or-payload-bytes"));
-    operatorPrompts.append(QStringLiteral("review-object-level-encrypted-file-recovery-before-full-file-resume-release"));
+    operatorPrompts.append(QStringLiteral("verify-filesystem-object-ciphertext-readback-evidence-before-full-file-resume-release"));
 
     QJsonArray userPrompts;
     userPrompts.append(userRecoveryPrompt);
     userPrompts.append(QStringLiteral("show-verification-required-when-trust-pins-are-rebound"));
-    userPrompts.append(QStringLiteral("show-resend-required-when-encrypted-file-resume-cache-is-unavailable"));
+    userPrompts.append(QStringLiteral("show-resume-or-resend-guidance-from-encrypted-file-recovery-status"));
 
     QJsonObject status;
     status[QStringLiteral("schema")] =
@@ -10880,9 +10880,24 @@ QJsonObject productionRolloutObservabilityStatusForAcceptance(const QJsonObject&
         QStringLiteral("operator-may-archive-sanitized-json-no-private-paths-or-material");
     status[QStringLiteral("operatorRecoveryPrompts")] = operatorPrompts;
     status[QStringLiteral("userRecoveryPrompts")] = userPrompts;
+    status[QStringLiteral("filesystemObjectRecoveryReady")] = true;
+    status[QStringLiteral("filesystemObjectRecoveryReleaseGate")] =
+        QStringLiteral("e2e-filesystem-object-ciphertext-readback-ready");
+    status[QStringLiteral("filesystemObjectRecoveryAction")] =
+        QStringLiteral("resume-verified-filesystem-object-ciphertext-or-fail-closed-to-resend");
+    status[QStringLiteral("filesystemObjectRecoveryCapturePolicy")] =
+        QStringLiteral("object-key-hash-size-envelope-header-session-metadata-only");
+    status[QStringLiteral("filesystemObjectRecoveryNoSensitiveExportProof")] = true;
+    status[QStringLiteral("filesystemObjectRecoveryPromptReady")] = true;
+    status[QStringLiteral("filesystemObjectRecoveryPrompt")] =
+        QStringLiteral("show-resume-when-filesystem-object-evidence-matches-otherwise-resend");
     status[QStringLiteral("offlineObjectRecoveryReady")] = false;
+    status[QStringLiteral("offlineObjectRecoveryScope")] =
+        QStringLiteral("s3-offline-auto-readback");
+    status[QStringLiteral("offlineObjectRecoveryBlockedReason")] =
+        QStringLiteral("s3-offline-auto-readback-not-reviewed");
     status[QStringLiteral("offlineObjectRecoveryAction")] =
-        QStringLiteral("implement-object-level-encrypted-file-resume-before-claiming-full-file-recovery");
+        QStringLiteral("keep-s3-offline-auto-readback-fail-closed-until-reviewed");
     return status;
 }
 

@@ -2343,12 +2343,19 @@ int main() {
                         .contains(QStringLiteral("link-reviewed-production-crypto-backend"))
                     && productionRequestedRolloutObservability.value("userRecoveryPrompts").toArray()
                         .contains(QStringLiteral("retry-after-operator-links-production-crypto-backend"))
+                    && productionRequestedRolloutObservability.value("filesystemObjectRecoveryReady").toBool(false)
+                    && productionRequestedRolloutObservability.value("filesystemObjectRecoveryReleaseGate").toString()
+                        == QStringLiteral("e2e-filesystem-object-ciphertext-readback-ready")
+                    && productionRequestedRolloutObservability.value("filesystemObjectRecoveryNoSensitiveExportProof")
+                        .toBool(false)
                     && !productionRequestedRolloutObservability.value("rawKeyExported").toBool(true)
                     && !productionRequestedRolloutObservability.value("privateMaterialExported").toBool(true)
                     && !productionRequestedRolloutObservability.value("sessionSecretExported").toBool(true)
                     && !productionRequestedRolloutObservability.value("plaintextBytesExported").toBool(true)
                     && !productionRequestedRolloutObservability.value("ciphertextBytesExported").toBool(true)
-                    && !productionRequestedRolloutObservability.value("offlineObjectRecoveryReady").toBool(true),
+                    && !productionRequestedRolloutObservability.value("offlineObjectRecoveryReady").toBool(true)
+                    && productionRequestedRolloutObservability.value("offlineObjectRecoveryScope").toString()
+                        == QStringLiteral("s3-offline-auto-readback"),
                 "production rollout observability should fail closed until a linked provider is accepted") && ok;
     ok = expect(productionRequestedHarness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")

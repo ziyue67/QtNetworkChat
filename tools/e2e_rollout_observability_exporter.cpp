@@ -116,8 +116,20 @@ QJsonObject buildEvidence(const QJsonObject& backendStatus) {
         rollout.value(QStringLiteral("releaseRunObservable")).toBool(false);
     summary[QStringLiteral("statusCapturePolicy")] =
         rollout.value(QStringLiteral("statusCapturePolicy")).toString();
+    summary[QStringLiteral("filesystemObjectRecoveryReady")] =
+        rollout.value(QStringLiteral("filesystemObjectRecoveryReady")).toBool(false);
+    summary[QStringLiteral("filesystemObjectRecoveryReleaseGate")] =
+        rollout.value(QStringLiteral("filesystemObjectRecoveryReleaseGate")).toString();
+    summary[QStringLiteral("filesystemObjectRecoveryAction")] =
+        rollout.value(QStringLiteral("filesystemObjectRecoveryAction")).toString();
+    summary[QStringLiteral("filesystemObjectRecoveryNoSensitiveExportProof")] =
+        rollout.value(QStringLiteral("filesystemObjectRecoveryNoSensitiveExportProof")).toBool(false);
     summary[QStringLiteral("offlineObjectRecoveryReady")] =
         rollout.value(QStringLiteral("offlineObjectRecoveryReady")).toBool(false);
+    summary[QStringLiteral("offlineObjectRecoveryScope")] =
+        rollout.value(QStringLiteral("offlineObjectRecoveryScope")).toString();
+    summary[QStringLiteral("offlineObjectRecoveryBlockedReason")] =
+        rollout.value(QStringLiteral("offlineObjectRecoveryBlockedReason")).toString();
     summary[QStringLiteral("offlineObjectRecoveryAction")] =
         rollout.value(QStringLiteral("offlineObjectRecoveryAction")).toString();
 
@@ -128,7 +140,8 @@ QJsonObject buildEvidence(const QJsonObject& backendStatus) {
         "rollout-observability",
         "no-sensitive-export-proof",
         "public-primitive-execution",
-        "offline-object-recovery-gap",
+        "filesystem-object-ciphertext-readback",
+        "s3-offline-auto-readback-gap",
     });
     auditSummary[QStringLiteral("evidenceBundle")] = stringArray({
         "e2e-rollout-observability.json",
@@ -273,9 +286,22 @@ QString renderMarkdown(const QJsonObject& evidence) {
     stream << "- User prompts: "
            << inlineArray(rollout.value(QStringLiteral("userRecoveryPrompts")).toArray())
            << "\n";
+    stream << "- Filesystem object recovery ready: `"
+           << (summary.value(QStringLiteral("filesystemObjectRecoveryReady")).toBool(false)
+                   ? "true"
+                   : "false")
+           << "`\n";
+    stream << "- Filesystem object recovery gate: `"
+           << summary.value(QStringLiteral("filesystemObjectRecoveryReleaseGate")).toString()
+           << "`\n";
+    stream << "- Filesystem object recovery action: `"
+           << summary.value(QStringLiteral("filesystemObjectRecoveryAction")).toString()
+           << "`\n";
     stream << "- Offline/object recovery ready: `"
            << (summary.value(QStringLiteral("offlineObjectRecoveryReady")).toBool(false) ? "true" : "false")
            << "`\n";
+    stream << "- Offline/object recovery scope: `"
+           << summary.value(QStringLiteral("offlineObjectRecoveryScope")).toString() << "`\n";
     stream << "- Offline/object recovery action: `"
            << summary.value(QStringLiteral("offlineObjectRecoveryAction")).toString() << "`\n";
     return output;

@@ -1532,6 +1532,18 @@ int main() {
                             : (adapterLinked
                                 ? QStringLiteral("keep-existing-e2e-state-and-wait-for-production-crypto-readiness")
                                 : QStringLiteral("retry-after-operator-links-production-crypto-backend")))
+                    && rolloutObservability.value("operatorRecoveryPrompts").toArray()
+                        .contains(QStringLiteral("verify-filesystem-object-ciphertext-readback-evidence-before-full-file-resume-release"))
+                    && rolloutObservability.value("userRecoveryPrompts").toArray()
+                        .contains(QStringLiteral("show-resume-or-resend-guidance-from-encrypted-file-recovery-status"))
+                    && rolloutObservability.value("filesystemObjectRecoveryReady").toBool(false)
+                    && rolloutObservability.value("filesystemObjectRecoveryReleaseGate").toString()
+                        == QStringLiteral("e2e-filesystem-object-ciphertext-readback-ready")
+                    && rolloutObservability.value("filesystemObjectRecoveryAction").toString()
+                        == QStringLiteral("resume-verified-filesystem-object-ciphertext-or-fail-closed-to-resend")
+                    && rolloutObservability.value("filesystemObjectRecoveryNoSensitiveExportProof")
+                        .toBool(false)
+                    && rolloutObservability.value("filesystemObjectRecoveryPromptReady").toBool(false)
                     && !rolloutObservability.value("rawKeyExported").toBool(true)
                     && !rolloutObservability.value("privateMaterialExported").toBool(true)
                     && !rolloutObservability.value("sessionSecretExported").toBool(true)
@@ -1539,7 +1551,11 @@ int main() {
                     && !rolloutObservability.value("fullPublicIdentityMaterialExported").toBool(true)
                     && !rolloutObservability.value("plaintextBytesExported").toBool(true)
                     && !rolloutObservability.value("ciphertextBytesExported").toBool(true)
-                    && !rolloutObservability.value("offlineObjectRecoveryReady").toBool(true),
+                    && !rolloutObservability.value("offlineObjectRecoveryReady").toBool(true)
+                    && rolloutObservability.value("offlineObjectRecoveryScope").toString()
+                        == QStringLiteral("s3-offline-auto-readback")
+                    && rolloutObservability.value("offlineObjectRecoveryBlockedReason").toString()
+                        == QStringLiteral("s3-offline-auto-readback-not-reviewed"),
                 "production rollout observability should become ready only after linked acceptance and no-sensitive-export proof") && ok;
     const QJsonObject firstGate = acceptance.value("operationGates").toArray().at(0).toObject();
     ok = expect(firstGate.value("operation").toString()
