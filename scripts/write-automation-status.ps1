@@ -29,6 +29,7 @@ param(
     [string]$AutomationTaskHistoryPath,
     [string]$AutomationTaskAckPath,
     [string]$ScheduledTaskRegistrationAttemptPath,
+    [string]$ScheduledTaskRegistrationAckPath,
     [switch]$BootstrapDefaultTasks,
     [string]$DefaultTaskOutputDir = "build-qt6-mingw\automation-tasks",
     [switch]$RegisterDefaultTasks,
@@ -1448,6 +1449,83 @@ function Get-ScheduledTaskRegistrationAttemptReadback([string]$PathValue) {
     [pscustomobject]$result
 }
 
+function Get-ScheduledTaskRegistrationAckGateReadback([object]$RegistrationAttempt, [object]$AckState, [int]$AckExpiryHours, [System.DateTimeOffset]$NowUtc) {
+    $result = [ordered]@{
+        configured = $false
+        state = "not-configured"
+        failedCount = "unknown"
+        acknowledged = "unknown"
+        ackExpired = "unknown"
+        ageHours = "unknown"
+        remainingHours = "unknown"
+        overdueHours = "unknown"
+        expiresAt = "unknown"
+        releaseGate = "not-configured"
+        action = "none"
+    }
+    if ($null -eq $RegistrationAttempt -or -not $RegistrationAttempt.configured) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    $result.failedCount = Format-StatusValue $RegistrationAttempt.failedCount
+    if ($RegistrationAttempt.failedCount -le 0) {
+        $result.state = "passing"
+        $result.acknowledged = "false"
+        $result.ackExpired = "false"
+        $result.releaseGate = "passing"
+        return [pscustomobject]$result
+    }
+
+    $acknowledged = $false
+    $ackExpired = $false
+    $ackAt = $null
+    if ($null -ne $AckState -and $AckState.state -eq "ok") {
+        $acknowledged = Convert-StatusBoolean (Get-JsonValue $AckState.value "acknowledged" $null) $false
+        $ackAt = Convert-ToUtcDateTimeOffset (Get-JsonValue $AckState.value "acknowledgedAt" $null)
+    }
+    if ($acknowledged) {
+        if ($null -eq $ackAt) {
+            $ackExpired = $true
+        } else {
+            $ageValue = ($NowUtc - $ackAt).TotalHours
+            if ($ageValue -lt 0) {
+                $ageValue = 0
+            }
+            $result.ageHours = [math]::Round($ageValue, 1)
+            $expiresAt = $ackAt.AddHours($AckExpiryHours)
+            $result.expiresAt = $expiresAt.UtcDateTime.ToString("o")
+            $remainingValue = ($expiresAt - $NowUtc).TotalHours
+            if ($remainingValue -lt 0) {
+                $ackExpired = $true
+                $result.remainingHours = 0
+                $result.overdueHours = [math]::Round(-$remainingValue, 1)
+            } else {
+                $result.remainingHours = [math]::Round($remainingValue, 1)
+                $result.overdueHours = 0
+            }
+        }
+    }
+    if ($ackExpired) {
+        $acknowledged = $false
+    }
+    $result.acknowledged = $acknowledged.ToString().ToLowerInvariant()
+    $result.ackExpired = $ackExpired.ToString().ToLowerInvariant()
+    if ($ackExpired) {
+        $result.state = "failed-ack-expired"
+        $result.releaseGate = "blocked-registration-ack-expired"
+        $result.action = "renew scheduled task registration failure acknowledgement before release"
+    } elseif (-not $acknowledged) {
+        $result.state = "failed-unacknowledged"
+        $result.releaseGate = "blocked-registration-unacknowledged-failure"
+        $result.action = "acknowledge scheduled task registration failures before release"
+    } else {
+        $result.state = "failed-acknowledged"
+        $result.releaseGate = "acknowledged-registration-failure-review-gated"
+        $result.action = "continue scheduled task registration remediation before release"
+    }
+    [pscustomobject]$result
+}
+
 function Read-ScheduledTaskState([string]$TaskName, [object]$InjectedReadback) {
     if ($null -ne $InjectedReadback -and $InjectedReadback.configured) {
         if ($InjectedReadback.state -ne "ok") {
@@ -1642,7 +1720,7 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
     [pscustomobject]$result
 }
 
-function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate, [object]$SchedulerReadback, [object]$FreshnessGate) {
+function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate, [object]$SchedulerReadback, [object]$RegistrationAckGate, [object]$FreshnessGate) {
     $totalCount = @($PreviewRecords).Count
     $result = [ordered]@{
         configured = $totalCount -gt 0
@@ -1683,9 +1761,17 @@ function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]
         $result.releaseGate = "automation-watch-not-registered"
         $result.action = "register at least one automation task before release"
     } elseif ($null -ne $SchedulerReadback -and $SchedulerReadback.configured -and $SchedulerReadback.releaseGate -ne "scheduled-task-readback-registered") {
-        $result.state = $SchedulerReadback.state
-        $result.releaseGate = $SchedulerReadback.releaseGate
-        $result.action = $SchedulerReadback.action
+        if ($SchedulerReadback.releaseGate -eq "blocked-scheduled-task-registration-failed" -and
+            $null -ne $RegistrationAckGate -and $RegistrationAckGate.configured -and
+            $RegistrationAckGate.releaseGate -ne "passing") {
+            $result.state = "registration-failed-ack-gated"
+            $result.releaseGate = $RegistrationAckGate.releaseGate
+            $result.action = $RegistrationAckGate.action
+        } else {
+            $result.state = $SchedulerReadback.state
+            $result.releaseGate = $SchedulerReadback.releaseGate
+            $result.action = $SchedulerReadback.action
+        }
     } elseif ($null -ne $AckGate -and $AckGate.configured -and $AckGate.releaseGate -ne "passing") {
         $result.state = "registered-ack-gated"
         $result.releaseGate = $AckGate.releaseGate
@@ -1766,13 +1852,15 @@ function Initialize-DefaultAutomationTasksIfNeeded {
     $bootstrapOutputDir = Resolve-DefaultTaskPath $script:DefaultTaskOutputDir
     $defaultScheduledTaskReadbackPath = Join-Path $bootstrapOutputDir "scheduled-task-readback.json"
     $defaultRegistrationAttemptPath = Join-Path $bootstrapOutputDir "scheduled-task-registration-attempt.json"
+    $defaultRegistrationAckPath = Join-Path $bootstrapOutputDir "scheduled-task-registration-ack.json"
     if (-not $script:PlanOnly.IsPresent) {
         $bootstrapArguments = @(
             "-ExecutionPolicy", "Bypass",
             "-File", $bootstrapScript,
             "-OutputDir", $bootstrapOutputDir,
             "-AckExpiryHours", $script:TaskAckExpiryHours,
-            "-HistoryRetentionCount", $script:TaskHistoryRetentionCount
+            "-HistoryRetentionCount", $script:TaskHistoryRetentionCount,
+            "-RegistrationAckPath", $defaultRegistrationAckPath
         )
         if ($script:RegisterDefaultTasks.IsPresent) {
             $bootstrapArguments += @("-Register", "-User", $script:DefaultTaskUser)
@@ -1820,6 +1908,9 @@ function Initialize-DefaultAutomationTasksIfNeeded {
     }
     if ([string]::IsNullOrWhiteSpace($script:ScheduledTaskRegistrationAttemptPath)) {
         $script:ScheduledTaskRegistrationAttemptPath = $defaultRegistrationAttemptPath
+    }
+    if ([string]::IsNullOrWhiteSpace($script:ScheduledTaskRegistrationAckPath)) {
+        $script:ScheduledTaskRegistrationAckPath = $defaultRegistrationAckPath
     }
 }
 
@@ -2014,6 +2105,7 @@ $largeFileGovernanceStatusState = Get-ArtifactState -PathValue $LargeFileGoverna
 $largeFileGovernanceLastRunState = Get-ArtifactState -PathValue $LargeFileGovernanceLastRunPath
 $automationTaskHistoryState = Get-ArtifactState -PathValue $AutomationTaskHistoryPath -ExpectJson
 $automationTaskAckState = Get-ArtifactState -PathValue $AutomationTaskAckPath -ExpectJson
+$scheduledTaskRegistrationAckState = Get-ArtifactState -PathValue $ScheduledTaskRegistrationAckPath -ExpectJson
 $automationTaskHistoryAckPairs = @($previewRecords | ForEach-Object { Get-AutomationTaskHistoryAckPairReadback $_ })
 $automationTaskAckGateConfigured = Has-ConfigurationHint @(
     $AutomationTaskHistoryPath,
@@ -2026,8 +2118,9 @@ $automationTaskAckSingleGate = Get-AutomationTaskAckGateReadback $automationTask
 $automationTaskAckGate = Get-AutomationTaskAckGateAggregateReadback $automationTaskHistoryAckPairs $automationTaskAckSingleGate $automationTaskAckGateConfigured
 $scheduledTaskRegistryReadback = Get-ScheduledTaskRegistryReadback @($previewRecords) $ScheduledTaskReadbackJsonPath
 $scheduledTaskRegistrationAttemptReadback = Get-ScheduledTaskRegistrationAttemptReadback $ScheduledTaskRegistrationAttemptPath
+$scheduledTaskRegistrationAckGate = Get-ScheduledTaskRegistrationAckGateReadback $scheduledTaskRegistrationAttemptReadback $scheduledTaskRegistrationAckState $TaskAckExpiryHours $statusNow
 $automationTaskHistoryFreshnessGate = Get-AutomationTaskHistoryFreshnessReadback $automationTaskHistoryAckPairs $scheduledTaskRegistryReadback $TaskHistoryFreshnessHours $statusNow
-$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback $automationTaskHistoryFreshnessGate
+$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback $scheduledTaskRegistrationAckGate $automationTaskHistoryFreshnessGate
 $automationTaskAckReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured
 
 $databaseHealthStatus = $databaseHealthStatusState.value
@@ -2200,6 +2293,31 @@ if ($scheduledTaskRegistrationAttemptReadback.configured) {
                 (Format-StatusValue $registrationAttempt.failureClass), `
                 (Format-StatusValue $registrationAttempt.outputLineCount)))
     }
+}
+if ($scheduledTaskRegistrationAckState.configured) {
+    if ($scheduledTaskRegistrationAckState.state -eq "ok") {
+        $lines.Add(('- Scheduled task registration acknowledgement: acknowledged=`{0}`, by=`{1}`, at=`{2}`, reason=`{3}`' -f `
+                (Format-StatusValue (Get-JsonValue $scheduledTaskRegistrationAckState.value "acknowledged" $null)), `
+                (Format-StatusValue (Get-JsonValue $scheduledTaskRegistrationAckState.value "acknowledgedBy" "unknown")), `
+                (Format-StatusValue (Get-JsonValue $scheduledTaskRegistrationAckState.value "acknowledgedAt" "unknown")), `
+                (Format-StatusValue (Get-JsonValue $scheduledTaskRegistrationAckState.value "reason" "unknown"))))
+    } else {
+        $lines.Add(('- Scheduled task registration acknowledgement: state=`{0}`' -f `
+                (Format-StatusValue $scheduledTaskRegistrationAckState.state)))
+    }
+}
+if ($scheduledTaskRegistrationAckGate.configured) {
+    $lines.Add(('- Scheduled task registration ack gate: state=`{0}`, failed=`{1}`, acknowledged=`{2}`, ackExpired=`{3}`, ageHours=`{4}`, remainingHours=`{5}`, overdueHours=`{6}`, expiresAt=`{7}`, releaseGate=`{8}`, action=`{9}`' -f `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.state), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.failedCount), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.acknowledged), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.ackExpired), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.ageHours), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.remainingHours), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.overdueHours), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.expiresAt), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.releaseGate), `
+            (Format-StatusValue $scheduledTaskRegistrationAckGate.action)))
 }
 if ($automationTaskHistoryFreshnessGate.configured) {
     $lines.Add(('- Task history freshness gate: state=`{0}`, tasks=`{1}`, fresh=`{2}`, stale=`{3}`, unavailable=`{4}`, unparseable=`{5}`, thresholdHours=`{6}`, releaseGate=`{7}`, action=`{8}`' -f `
@@ -2415,7 +2533,8 @@ $largeFileGovernanceDiagnostics = @(
 ) -join "; "
 $automationHistoryDiagnostics = @(
     (Get-ArtifactIssueText "history" $automationTaskHistoryState $automationTaskHistoryPreviewState $automationTaskHistoryConfig),
-    (Get-ArtifactIssueText "ack" $automationTaskAckState $automationTaskAckPreviewState $automationTaskAckConfig)
+    (Get-ArtifactIssueText "ack" $automationTaskAckState $automationTaskAckPreviewState $automationTaskAckConfig),
+    (Get-ArtifactIssueText "registrationAck" $scheduledTaskRegistrationAckState $null $null)
 ) -join "; "
 $e2eRolloutDiagnostics = @(
     ('json={0}' -f (Format-StatusValue $e2eRolloutReadback.jsonArtifact)),

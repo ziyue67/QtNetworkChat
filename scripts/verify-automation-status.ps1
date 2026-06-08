@@ -343,7 +343,7 @@ foreach ($expected in @(
     'Artifact Diagnostics',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
-    'Automation history artifacts: `history=ok; ack=ok`',
+    'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence artifacts: `manifest=ok; releaseGate=blocked-ci-head-not-observed`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
@@ -602,6 +602,8 @@ foreach ($expected in @(
     'Registration attempt task: kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, requested=`false`, status=`preview-generated`, exitCode=`0`, failureClass=`none`',
     'Registration attempt task: kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, requested=`false`, status=`preview-generated`, exitCode=`0`, failureClass=`none`',
     'Registration attempt task: kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, requested=`false`, status=`preview-generated`, exitCode=`0`, failureClass=`none`',
+    'Scheduled task registration acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`bootstrap-registration-default`',
+    'Scheduled task registration ack gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, ageHours=`unknown`, remainingHours=`unknown`, overdueHours=`unknown`, expiresAt=`unknown`, releaseGate=`passing`, action=`none`',
     'Generic task readback: `typed task readback active; no unclassified generic tasks`',
     'PostgreSQL release acceptance: name=`QtNetworkChatPgsqlReleaseAcceptance`, status=`configured/ok=true`, lastRun=`0`, history=`runs=1`, ack=`ack=false`, evidence=`ok`',
     'Database health: status=`configured`, ok=`true`, driver=`QPSQL`, checks=`0`, failedChecks=`0`, slowQueries=`0`, queryFailures=`0`',
@@ -611,7 +613,7 @@ foreach ($expected in @(
     'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`3`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
-    'Automation history artifacts: `history=ok; ack=ok`',
+    'Automation history artifacts: `history=ok; ack=ok; registrationAck=ok`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
     Assert-Contains -Text $defaultBootstrapMarkdown -Expected $expected
@@ -692,6 +694,8 @@ $registeredTaskReadbackPath = Join-Path $configuredTempDir "registered-task-read
 $missingTaskReadbackPath = Join-Path $configuredTempDir "missing-task-readback.json"
 $registrationFailedReadbackPath = Join-Path $configuredTempDir "registration-failed-task-readback.json"
 $registrationFailedAttemptPath = Join-Path $configuredTempDir "registration-failed-attempt.json"
+$registrationFailedAckPath = Join-Path $configuredTempDir "registration-failed-ack.json"
+$registrationExpiredAckPath = Join-Path $configuredTempDir "registration-expired-ack.json"
 Ensure-Directory -Path $configuredTempDir
 
 ([ordered]@{
@@ -793,7 +797,7 @@ $invalidMarkdown = Get-Content -LiteralPath $invalidMarkdownPath -Raw -Encoding 
 foreach ($expected in @(
     'Database health artifacts: `preview=ok; status=preview-role-without-path; lastRun=preview-role-without-path`',
     'Large-file governance artifacts: `preview=invalid-json; status=preview-invalid-json; lastRun=preview-invalid-json`',
-    'Automation history artifacts: `history=invalid-json; ack=preview-invalid-json`'
+    'Automation history artifacts: `history=invalid-json; ack=preview-invalid-json; registrationAck=not-configured`'
 )) {
     Assert-Contains -Text $invalidMarkdown -Expected $expected
 }
@@ -819,7 +823,7 @@ foreach ($expected in @(
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`',
     'Gate: readiness=`verified`, releaseGate=`review-query-failures`, action=`Investigate query failures before promoting this database health snapshot.`, auditFocus=`query-failures, slow-queries`',
     'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',
-    'Automation history artifacts: `history=ok; ack=ok`'
+    'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`'
 )) {
     Assert-Contains -Text $genericMarkdown -Expected $expected
 }
@@ -1196,6 +1200,14 @@ Assert-NoFixedMirrorBranchPolicy -Text $missingTaskMarkdown
         }
     )
 } | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $registrationFailedAttemptPath -Encoding UTF8
+@'
+{
+  "acknowledged":false,
+  "acknowledgedBy":"cleared",
+  "acknowledgedAt":"",
+  "reason":"registration failed sample"
+}
+'@ | Set-Content -LiteralPath $registrationFailedAckPath -Encoding UTF8
 $registrationFailedMarkdownPath = Join-Path $configuredTempDir "automation-status-registration-failed.md"
 & $ScriptPath `
     -MarkdownPath $registrationFailedMarkdownPath `
@@ -1208,21 +1220,59 @@ $registrationFailedMarkdownPath = Join-Path $configuredTempDir "automation-statu
     -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath) `
     -ScheduledTaskReadbackJsonPath $registrationFailedReadbackPath `
     -ScheduledTaskRegistrationAttemptPath $registrationFailedAttemptPath `
+    -ScheduledTaskRegistrationAckPath $registrationFailedAckPath `
     -FailOnSensitive
 
 $registrationFailedMarkdown = Get-Content -LiteralPath $registrationFailedMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Automation watch gate: state=`registration-failed`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-scheduled-task-registration-failed`, action=`review scheduled task registration attempt evidence before release`',
+    'Automation watch gate: state=`registration-failed-ack-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-registration-unacknowledged-failure`, action=`acknowledge scheduled task registration failures before release`',
     'Scheduled task registry readback: state=`registration-failed`, tasks=`2`, expectedRegistered=`2`, found=`0`, missing=`0`, registrationFailed=`2`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-scheduled-task-registration-failed`, action=`review scheduled task registration attempt evidence before release`',
     'Scheduler task: kind=`custom-ops`, name=`CustomOpsTask`, expectedRegistered=`true`, readback=`registration-failed`, schedulerState=`unknown`, taskPath=`unknown`, source=`registration-attempt+Get-ScheduledTask`',
     'Scheduler task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, expectedRegistered=`true`, readback=`registration-failed`, schedulerState=`unknown`, taskPath=`unknown`, source=`registration-attempt+Get-ScheduledTask`',
     'Scheduled task registration attempt: state=`failed`, requested=`true`, user=`SYSTEM`, tasks=`2`, failed=`2`, releaseGate=`blocked-scheduled-task-registration-attempt-failed`, action=`review scheduled task registration attempt failures before release`',
     'Registration attempt task: kind=`custom-ops`, name=`CustomOpsTask`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`4`',
-    'Registration attempt task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`4`'
+    'Registration attempt task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`4`',
+    'Scheduled task registration acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`registration failed sample`',
+    'Scheduled task registration ack gate: state=`failed-unacknowledged`, failed=`2`, acknowledged=`false`, ackExpired=`false`, ageHours=`unknown`, remainingHours=`unknown`, overdueHours=`unknown`, expiresAt=`unknown`, releaseGate=`blocked-registration-unacknowledged-failure`, action=`acknowledge scheduled task registration failures before release`'
 )) {
     Assert-Contains -Text $registrationFailedMarkdown -Expected $expected
 }
 Assert-NoFixedMirrorBranchPolicy -Text $registrationFailedMarkdown
+
+@'
+{
+  "acknowledged":true,
+  "acknowledgedBy":"oncall",
+  "acknowledgedAt":"2026-06-01T07:00:00.0000000Z",
+  "reason":"registration expired sample"
+}
+'@ | Set-Content -LiteralPath $registrationExpiredAckPath -Encoding UTF8
+$registrationExpiredMarkdownPath = Join-Path $configuredTempDir "automation-status-registration-expired-ack.md"
+& $ScriptPath `
+    -MarkdownPath $registrationExpiredMarkdownPath `
+    -Head "8899ac3" `
+    -OriginMain "8899ac3" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath) `
+    -ScheduledTaskReadbackJsonPath $registrationFailedReadbackPath `
+    -ScheduledTaskRegistrationAttemptPath $registrationFailedAttemptPath `
+    -ScheduledTaskRegistrationAckPath $registrationExpiredAckPath `
+    -TaskAckExpiryHours 72 `
+    -StatusNowUtc "2026-06-05T07:00:00.0000000Z" `
+    -FailOnSensitive
+
+$registrationExpiredMarkdown = Get-Content -LiteralPath $registrationExpiredMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Automation watch gate: state=`registration-failed-ack-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-registration-ack-expired`, action=`renew scheduled task registration failure acknowledgement before release`',
+    'Scheduled task registration acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-01T07:00:00.0000000Z`, reason=`registration expired sample`',
+    'Scheduled task registration ack gate: state=`failed-ack-expired`, failed=`2`, acknowledged=`false`, ackExpired=`true`, ageHours=`96`, remainingHours=`0`, overdueHours=`24`, expiresAt=`2026-06-04T07:00:00.0000000Z`, releaseGate=`blocked-registration-ack-expired`, action=`renew scheduled task registration failure acknowledgement before release`'
+)) {
+    Assert-Contains -Text $registrationExpiredMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $registrationExpiredMarkdown
 
 $expiredHistoryPath = Join-Path $configuredTempDir "expired-task-history.json"
 $expiredAckPath = Join-Path $configuredTempDir "expired-task-ack.json"

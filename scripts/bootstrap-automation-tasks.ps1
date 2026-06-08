@@ -13,6 +13,8 @@ param(
 
     [string]$RegistrationAttemptPath,
 
+    [string]$RegistrationAckPath,
+
     [switch]$FailOnRegistrationFailure,
 
     [switch]$PlanOnly,
@@ -215,6 +217,12 @@ if ([string]::IsNullOrWhiteSpace($RegistrationAttemptPath)) {
     Assert-NoSensitiveText "RegistrationAttemptPath" @($RegistrationAttemptPath)
     $RegistrationAttemptPath = Resolve-RepoPath $RegistrationAttemptPath
 }
+if ([string]::IsNullOrWhiteSpace($RegistrationAckPath)) {
+    $RegistrationAckPath = Join-Path $resolvedOutputDir "scheduled-task-registration-ack.json"
+} else {
+    Assert-NoSensitiveText "RegistrationAckPath" @($RegistrationAckPath)
+    $RegistrationAckPath = Resolve-RepoPath $RegistrationAckPath
+}
 $registerDatabaseHealthScript = Join-Path $PSScriptRoot "register-database-health-task.ps1"
 $registerLargeFileGovernanceScript = Join-Path $PSScriptRoot "register-large-file-governance-task.ps1"
 $registerPgsqlReleaseScript = Join-Path $PSScriptRoot "register-pgsql-release-acceptance-task.ps1"
@@ -237,6 +245,7 @@ if ($PlanOnly.IsPresent) {
         user = $User
         scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
         registrationAttemptPath = Convert-ToRepoRelativePath $RegistrationAttemptPath
+        registrationAckPath = Convert-ToRepoRelativePath $RegistrationAckPath
         failOnRegistrationFailure = $FailOnRegistrationFailure.IsPresent
         readOnly = $true
     }
@@ -443,6 +452,11 @@ Write-RegistrationAttempt `
     -RegistrationResults ([object[]]$registrationResults.ToArray()) `
     -RegistrationRequested $Register.IsPresent `
     -UserValue $User
+& powershell -ExecutionPolicy Bypass -File $ackScript `
+    -AckPath $RegistrationAckPath `
+    -Clear `
+    -Reason "bootstrap-registration-default"
+if ($LASTEXITCODE -ne 0) { throw "scheduled task registration ack bootstrap failed with exit code $LASTEXITCODE" }
 
 $summaryPath = Join-Path $resolvedOutputDir "automation-task-bootstrap.json"
 $summary = [ordered]@{
@@ -455,6 +469,7 @@ $summary = [ordered]@{
     user = $User
     scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
     registrationAttemptPath = Convert-ToRepoRelativePath $RegistrationAttemptPath
+    registrationAckPath = Convert-ToRepoRelativePath $RegistrationAckPath
     databaseHealth = [ordered]@{
         previewPath = Convert-ToRepoRelativePath (Join-Path $dbTaskDir "database-health-task-preview.json")
         statusPath = Convert-ToRepoRelativePath $dbStatusPath
