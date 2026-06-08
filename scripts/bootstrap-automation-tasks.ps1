@@ -5,6 +5,12 @@ param(
 
     [int]$HistoryRetentionCount = 30,
 
+    [switch]$Register,
+
+    [string]$User = "SYSTEM",
+
+    [string]$ScheduledTaskReadbackPath,
+
     [switch]$PlanOnly,
 
     [switch]$FailOnSensitive
@@ -70,9 +76,60 @@ function Write-TextFile([string]$PathValue, [string]$Text) {
     $Text | Set-Content -LiteralPath $PathValue -Encoding UTF8
 }
 
+function New-ScheduledTaskReadbackEntry([string]$TaskName, [bool]$RegistrationRequested) {
+    $entry = [ordered]@{
+        taskName = $TaskName
+        registered = $false
+        state = "missing"
+        schedulerState = "unknown"
+        taskPath = "unknown"
+        source = "Get-ScheduledTask"
+        registrationRequested = $RegistrationRequested
+    }
+
+    $command = Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        $entry.state = "scheduler-readback-unavailable"
+        $entry.source = "Get-ScheduledTask-unavailable"
+        return [pscustomobject]$entry
+    }
+
+    try {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $task) {
+            $entry.registered = $true
+            $entry.state = "registered"
+            $entry.schedulerState = [string]$task.State
+            $entry.taskPath = [string]$task.TaskPath
+        }
+    } catch {
+        $entry.state = "scheduler-readback-unavailable"
+        $entry.source = "Get-ScheduledTask-error"
+    }
+
+    [pscustomobject]$entry
+}
+
+function Write-ScheduledTaskReadback([string]$PathValue, [string[]]$TaskNames, [bool]$RegistrationRequested) {
+    $readback = [ordered]@{
+        format = "qtnetworkchat-scheduled-task-readback-v1"
+        generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+        registrationRequested = $RegistrationRequested
+        tasks = @($TaskNames | ForEach-Object { New-ScheduledTaskReadbackEntry $_ $RegistrationRequested })
+    }
+    Write-JsonFile $PathValue $readback 8
+}
+
 Assert-NoSensitiveText "OutputDir" @($OutputDir)
+Assert-NoSensitiveText "User" @($User)
 $resolvedOutputDir = Resolve-RepoPath $OutputDir
 $generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+if ([string]::IsNullOrWhiteSpace($ScheduledTaskReadbackPath)) {
+    $ScheduledTaskReadbackPath = Join-Path $resolvedOutputDir "scheduled-task-readback.json"
+} else {
+    Assert-NoSensitiveText "ScheduledTaskReadbackPath" @($ScheduledTaskReadbackPath)
+    $ScheduledTaskReadbackPath = Resolve-RepoPath $ScheduledTaskReadbackPath
+}
 $registerDatabaseHealthScript = Join-Path $PSScriptRoot "register-database-health-task.ps1"
 $registerLargeFileGovernanceScript = Join-Path $PSScriptRoot "register-large-file-governance-task.ps1"
 $registerPgsqlReleaseScript = Join-Path $PSScriptRoot "register-pgsql-release-acceptance-task.ps1"
@@ -91,6 +148,9 @@ if ($PlanOnly.IsPresent) {
         tasks = @("database-health", "large-file-governance", "pgsql-release-acceptance")
         ackExpiryHours = $AckExpiryHours
         historyRetentionCount = $HistoryRetentionCount
+        register = $Register.IsPresent
+        user = $User
+        scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
         readOnly = $true
     }
     $summary | ConvertTo-Json -Depth 6
@@ -106,32 +166,54 @@ $govTaskDir = Join-Path $govOutputDir "scheduled-task"
 $pgsqlOutputDir = Join-Path $resolvedOutputDir "pgsql-release-acceptance"
 $pgsqlTaskDir = Join-Path $pgsqlOutputDir "pgsql-release-acceptance-task"
 
-& powershell -ExecutionPolicy Bypass -File $registerDatabaseHealthScript `
-    -OutputDir $dbOutputDir `
-    -TaskDir $dbTaskDir `
-    -Driver postgres `
-    -PlanOnly `
-    -WriteMarkdown `
-    -WriteDashboard
+$dbRegisterArgs = @(
+    "-ExecutionPolicy", "Bypass",
+    "-File", $registerDatabaseHealthScript,
+    "-OutputDir", $dbOutputDir,
+    "-TaskDir", $dbTaskDir,
+    "-Driver", "postgres",
+    "-WriteMarkdown",
+    "-WriteDashboard"
+)
+if ($Register.IsPresent) {
+    $dbRegisterArgs += @("-Register", "-User", $User)
+} else {
+    $dbRegisterArgs += "-PlanOnly"
+}
+& powershell @dbRegisterArgs
 if ($LASTEXITCODE -ne 0) { throw "database health task preview bootstrap failed with exit code $LASTEXITCODE" }
 
-& powershell -ExecutionPolicy Bypass -File $registerLargeFileGovernanceScript `
-    -RouteLogPath (Join-Path $govOutputDir "route-log.ndjson") `
-    -QueuePath (Join-Path $govOutputDir "offline-queue") `
-    -SourceInstanceId "bootstrap-instance" `
-    -OutputDir $govOutputDir `
-    -TaskDir $govTaskDir `
-    -WriteDashboard `
-    -WriteReport `
-    -PackageDiagnostics `
-    -NoFailOnWarning
+$govRegisterArgs = @(
+    "-ExecutionPolicy", "Bypass",
+    "-File", $registerLargeFileGovernanceScript,
+    "-RouteLogPath", (Join-Path $govOutputDir "route-log.ndjson"),
+    "-QueuePath", (Join-Path $govOutputDir "offline-queue"),
+    "-SourceInstanceId", "bootstrap-instance",
+    "-OutputDir", $govOutputDir,
+    "-TaskDir", $govTaskDir,
+    "-WriteDashboard",
+    "-WriteReport",
+    "-PackageDiagnostics",
+    "-NoFailOnWarning"
+)
+if ($Register.IsPresent) {
+    $govRegisterArgs += @("-Register", "-User", $User)
+}
+& powershell @govRegisterArgs
 if ($LASTEXITCODE -ne 0) { throw "large-file governance task preview bootstrap failed with exit code $LASTEXITCODE" }
 
-& powershell -ExecutionPolicy Bypass -File $registerPgsqlReleaseScript `
-    -OutputDir $pgsqlOutputDir `
-    -TaskDir $pgsqlTaskDir `
-    -PlanOnly `
-    -SkipEvidencePackage
+$pgsqlRegisterArgs = @(
+    "-ExecutionPolicy", "Bypass",
+    "-File", $registerPgsqlReleaseScript,
+    "-OutputDir", $pgsqlOutputDir,
+    "-TaskDir", $pgsqlTaskDir
+)
+if ($Register.IsPresent) {
+    $pgsqlRegisterArgs += @("-Register", "-User", $User)
+} else {
+    $pgsqlRegisterArgs += @("-PlanOnly", "-SkipEvidencePackage")
+}
+& powershell @pgsqlRegisterArgs
 if ($LASTEXITCODE -ne 0) { throw "PostgreSQL release acceptance task preview bootstrap failed with exit code $LASTEXITCODE" }
 
 $dbStatusPath = Join-Path $dbOutputDir "database-health-status.json"
@@ -249,6 +331,12 @@ foreach ($task in @(
     if ($LASTEXITCODE -ne 0) { throw "automation history bootstrap failed with exit code $LASTEXITCODE" }
 }
 
+Write-ScheduledTaskReadback $ScheduledTaskReadbackPath @(
+    "QtNetworkChatDatabaseHealth",
+    "QtNetworkChatLargeFileGovernance",
+    "QtNetworkChatPgsqlReleaseAcceptance"
+) $Register.IsPresent
+
 $summaryPath = Join-Path $resolvedOutputDir "automation-task-bootstrap.json"
 $summary = [ordered]@{
     format = "qtnetworkchat-automation-task-bootstrap-v1"
@@ -256,6 +344,9 @@ $summary = [ordered]@{
     outputDir = Convert-ToRepoRelativePath $resolvedOutputDir
     ackExpiryHours = $AckExpiryHours
     historyRetentionCount = $HistoryRetentionCount
+    register = $Register.IsPresent
+    user = $User
+    scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
     databaseHealth = [ordered]@{
         previewPath = Convert-ToRepoRelativePath (Join-Path $dbTaskDir "database-health-task-preview.json")
         statusPath = Convert-ToRepoRelativePath $dbStatusPath

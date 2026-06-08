@@ -88,6 +88,7 @@ $e2eRolloutJsonPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.json"
 $e2eRolloutMarkdownPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.md"
 $e2eReleaseEvidenceDir = Join-Path $tempDir "e2e_release_evidence"
 $e2eReleaseEvidenceManifestPath = Join-Path $e2eReleaseEvidenceDir "e2e-release-evidence-manifest.json"
+$bootstrapScriptPath = Join-Path $PSScriptRoot "bootstrap-automation-tasks.ps1"
 Ensure-Directory -Path $e2eRolloutDir
 Ensure-Directory -Path $e2eReleaseEvidenceDir
 
@@ -529,6 +530,22 @@ foreach ($expected in @(
     Assert-Contains -Text $staleOutput -Expected $expected
 }
 
+$bootstrapPlanOutput = & powershell -ExecutionPolicy Bypass -File $bootstrapScriptPath `
+    -OutputDir (Join-Path $tempDir "bootstrap-plan") `
+    -ScheduledTaskReadbackPath (Join-Path $tempDir "bootstrap-plan\scheduled-task-readback.json") `
+    -Register `
+    -User "SYSTEM" `
+    -PlanOnly `
+    -FailOnSensitive
+foreach ($expected in @(
+    '"format":  "qtnetworkchat-automation-task-bootstrap-plan-v1"',
+    '"register":  true',
+    '"user":  "SYSTEM"',
+    '"scheduledTaskReadbackPath":'
+)) {
+    Assert-Contains -Text ($bootstrapPlanOutput -join "`n") -Expected $expected
+}
+
 $defaultBootstrapDir = Join-Path $tempDir "default-bootstrap"
 $defaultBootstrapMarkdownPath = Join-Path $tempDir "automation-status-default-bootstrap.md"
 & $ScriptPath `
@@ -554,7 +571,7 @@ foreach ($expected in @(
     'Preview task: label=`database-health`, kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`, path=`',
     'Preview task: label=`generic`, kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, display=`PostgreSQL release acceptance`, state=`ok`, format=`qtnetworkchat-pgsql-release-acceptance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@04:45`, path=`',
-    'Scheduled task registry readback: state=`preview-only`, tasks=`3`, expectedRegistered=`0`, found=`0`, missing=`0`, previewOnly=`3`, unreadable=`0`, source=`Get-ScheduledTask`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
+    'Scheduled task registry readback: state=`preview-only`, tasks=`3`, expectedRegistered=`0`, found=`0`, missing=`0`, previewOnly=`3`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
     'Generic task readback: `typed task readback active; no unclassified generic tasks`',
     'PostgreSQL release acceptance: name=`QtNetworkChatPgsqlReleaseAcceptance`, status=`configured/ok=true`, lastRun=`0`, history=`runs=1`, ack=`ack=false`, evidence=`ok`',
     'Database health: status=`configured`, ok=`true`, driver=`QPSQL`, checks=`0`, failedChecks=`0`, slowQueries=`0`, queryFailures=`0`',

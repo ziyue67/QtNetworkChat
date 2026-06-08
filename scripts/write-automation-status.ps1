@@ -30,6 +30,8 @@ param(
     [string]$AutomationTaskAckPath,
     [switch]$BootstrapDefaultTasks,
     [string]$DefaultTaskOutputDir = "build-qt6-mingw\automation-tasks",
+    [switch]$RegisterDefaultTasks,
+    [string]$DefaultTaskUser = "SYSTEM",
     [int]$TaskAckExpiryHours = 72,
     [int]$TaskHistoryRetentionCount = 30,
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
@@ -1431,6 +1433,7 @@ function Initialize-DefaultAutomationTasksIfNeeded {
         throw "Default automation task bootstrap script not found: $bootstrapScript"
     }
     $bootstrapOutputDir = Resolve-DefaultTaskPath $script:DefaultTaskOutputDir
+    $defaultScheduledTaskReadbackPath = Join-Path $bootstrapOutputDir "scheduled-task-readback.json"
     if (-not $script:PlanOnly.IsPresent) {
         $bootstrapArguments = @(
             "-ExecutionPolicy", "Bypass",
@@ -1439,6 +1442,9 @@ function Initialize-DefaultAutomationTasksIfNeeded {
             "-AckExpiryHours", $script:TaskAckExpiryHours,
             "-HistoryRetentionCount", $script:TaskHistoryRetentionCount
         )
+        if ($script:RegisterDefaultTasks.IsPresent) {
+            $bootstrapArguments += @("-Register", "-User", $script:DefaultTaskUser)
+        }
         if ($script:FailOnSensitive.IsPresent) {
             $bootstrapArguments += "-FailOnSensitive"
         }
@@ -1476,6 +1482,9 @@ function Initialize-DefaultAutomationTasksIfNeeded {
     }
     if ([string]::IsNullOrWhiteSpace($script:AutomationTaskAckPath)) {
         $script:AutomationTaskAckPath = Join-Path $bootstrapOutputDir "database-health\database-health-task\automation-task-ack.json"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:ScheduledTaskReadbackJsonPath)) {
+        $script:ScheduledTaskReadbackJsonPath = $defaultScheduledTaskReadbackPath
     }
 }
 
