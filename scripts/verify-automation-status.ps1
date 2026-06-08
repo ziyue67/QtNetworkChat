@@ -598,6 +598,10 @@ foreach ($expected in @(
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`, path=`',
     'Preview task: label=`generic`, kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, display=`PostgreSQL release acceptance`, state=`ok`, format=`qtnetworkchat-pgsql-release-acceptance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@04:45`, path=`',
     'Scheduled task registry readback: state=`preview-only`, tasks=`3`, expectedRegistered=`0`, found=`0`, missing=`0`, registrationFailed=`0`, previewOnly=`3`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
+    'Scheduled task registration attempt: state=`preview`, requested=`false`, user=`SYSTEM`, tasks=`3`, failed=`0`, releaseGate=`scheduled-task-registration-preview`, action=`run bootstrap with -Register to create or update scheduled tasks`',
+    'Registration attempt task: kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, requested=`false`, status=`preview-generated`, exitCode=`0`, failureClass=`none`',
+    'Registration attempt task: kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, requested=`false`, status=`preview-generated`, exitCode=`0`, failureClass=`none`',
+    'Registration attempt task: kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, requested=`false`, status=`preview-generated`, exitCode=`0`, failureClass=`none`',
     'Generic task readback: `typed task readback active; no unclassified generic tasks`',
     'PostgreSQL release acceptance: name=`QtNetworkChatPgsqlReleaseAcceptance`, status=`configured/ok=true`, lastRun=`0`, history=`runs=1`, ack=`ack=false`, evidence=`ok`',
     'Database health: status=`configured`, ok=`true`, driver=`QPSQL`, checks=`0`, failedChecks=`0`, slowQueries=`0`, queryFailures=`0`',
@@ -687,6 +691,7 @@ $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-
 $registeredTaskReadbackPath = Join-Path $configuredTempDir "registered-task-readback.json"
 $missingTaskReadbackPath = Join-Path $configuredTempDir "missing-task-readback.json"
 $registrationFailedReadbackPath = Join-Path $configuredTempDir "registration-failed-task-readback.json"
+$registrationFailedAttemptPath = Join-Path $configuredTempDir "registration-failed-attempt.json"
 Ensure-Directory -Path $configuredTempDir
 
 ([ordered]@{
@@ -1164,6 +1169,33 @@ Assert-NoFixedMirrorBranchPolicy -Text $missingTaskMarkdown
         }
     )
 } | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $registrationFailedReadbackPath -Encoding UTF8
+([ordered]@{
+    format = "qtnetworkchat-scheduled-task-registration-attempt-v1"
+    registrationRequested = $true
+    user = "SYSTEM"
+    taskCount = 2
+    failedCount = 2
+    tasks = @(
+        [ordered]@{
+            taskKind = "custom-ops"
+            taskName = "CustomOpsTask"
+            registrationRequested = $true
+            exitCode = 1
+            status = "registration-failed"
+            failureClass = "permission-denied"
+            outputLineCount = 4
+        },
+        [ordered]@{
+            taskKind = "pgsql-smoke"
+            taskName = "PgsqlSmokeTask"
+            registrationRequested = $true
+            exitCode = 1
+            status = "registration-failed"
+            failureClass = "permission-denied"
+            outputLineCount = 4
+        }
+    )
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $registrationFailedAttemptPath -Encoding UTF8
 $registrationFailedMarkdownPath = Join-Path $configuredTempDir "automation-status-registration-failed.md"
 & $ScriptPath `
     -MarkdownPath $registrationFailedMarkdownPath `
@@ -1175,6 +1207,7 @@ $registrationFailedMarkdownPath = Join-Path $configuredTempDir "automation-statu
     -CTestCount 54 `
     -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath) `
     -ScheduledTaskReadbackJsonPath $registrationFailedReadbackPath `
+    -ScheduledTaskRegistrationAttemptPath $registrationFailedAttemptPath `
     -FailOnSensitive
 
 $registrationFailedMarkdown = Get-Content -LiteralPath $registrationFailedMarkdownPath -Raw -Encoding UTF8
@@ -1182,7 +1215,10 @@ foreach ($expected in @(
     'Automation watch gate: state=`registration-failed`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-scheduled-task-registration-failed`, action=`review scheduled task registration attempt evidence before release`',
     'Scheduled task registry readback: state=`registration-failed`, tasks=`2`, expectedRegistered=`2`, found=`0`, missing=`0`, registrationFailed=`2`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-scheduled-task-registration-failed`, action=`review scheduled task registration attempt evidence before release`',
     'Scheduler task: kind=`custom-ops`, name=`CustomOpsTask`, expectedRegistered=`true`, readback=`registration-failed`, schedulerState=`unknown`, taskPath=`unknown`, source=`registration-attempt+Get-ScheduledTask`',
-    'Scheduler task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, expectedRegistered=`true`, readback=`registration-failed`, schedulerState=`unknown`, taskPath=`unknown`, source=`registration-attempt+Get-ScheduledTask`'
+    'Scheduler task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, expectedRegistered=`true`, readback=`registration-failed`, schedulerState=`unknown`, taskPath=`unknown`, source=`registration-attempt+Get-ScheduledTask`',
+    'Scheduled task registration attempt: state=`failed`, requested=`true`, user=`SYSTEM`, tasks=`2`, failed=`2`, releaseGate=`blocked-scheduled-task-registration-attempt-failed`, action=`review scheduled task registration attempt failures before release`',
+    'Registration attempt task: kind=`custom-ops`, name=`CustomOpsTask`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`4`',
+    'Registration attempt task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`4`'
 )) {
     Assert-Contains -Text $registrationFailedMarkdown -Expected $expected
 }

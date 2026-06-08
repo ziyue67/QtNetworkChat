@@ -28,6 +28,7 @@ param(
     [string]$ScheduledTaskReadbackJsonPath,
     [string]$AutomationTaskHistoryPath,
     [string]$AutomationTaskAckPath,
+    [string]$ScheduledTaskRegistrationAttemptPath,
     [switch]$BootstrapDefaultTasks,
     [string]$DefaultTaskOutputDir = "build-qt6-mingw\automation-tasks",
     [switch]$RegisterDefaultTasks,
@@ -1383,6 +1384,70 @@ function Read-ScheduledTaskReadbackArtifact([string]$PathValue) {
     [pscustomobject]$result
 }
 
+function Get-ScheduledTaskRegistrationAttemptReadback([string]$PathValue) {
+    $result = [ordered]@{
+        configured = $false
+        state = "not-configured"
+        registrationRequested = "unknown"
+        user = "unknown"
+        taskCount = 0
+        failedCount = 0
+        releaseGate = "not-configured"
+        action = "none"
+        details = @()
+    }
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    $state = Get-ArtifactState -PathValue $PathValue -ExpectJson
+    if ($state.state -ne "ok") {
+        $result.state = $state.state
+        $result.releaseGate = "scheduled-task-registration-attempt-unavailable"
+        $result.action = "restore scheduled task registration attempt artifact before release"
+        return [pscustomobject]$result
+    }
+    $payload = $state.value
+    $result.registrationRequested = Format-StatusValue (Get-JsonValue $payload "registrationRequested" "unknown")
+    $result.user = Format-StatusValue (Get-JsonValue $payload "user" "unknown")
+    $taskCountText = Format-StatusValue (Get-JsonValue $payload "taskCount" "0")
+    $failedCountText = Format-StatusValue (Get-JsonValue $payload "failedCount" "0")
+    $taskCount = 0
+    $failedCount = 0
+    [void][int]::TryParse($taskCountText, [ref]$taskCount)
+    [void][int]::TryParse($failedCountText, [ref]$failedCount)
+    $result.taskCount = $taskCount
+    $result.failedCount = $failedCount
+
+    $details = New-Object System.Collections.Generic.List[object]
+    foreach ($task in @((Get-JsonValue $payload "tasks" @()))) {
+        $details.Add([pscustomobject]@{
+                taskKind = Format-StatusValue (Get-JsonValue $task "taskKind" "unknown")
+                taskName = Format-StatusValue (Get-JsonValue $task "taskName" "unknown")
+                registrationRequested = Format-StatusValue (Get-JsonValue $task "registrationRequested" $result.registrationRequested)
+                status = Format-StatusValue (Get-JsonValue $task "status" "unknown")
+                exitCode = Format-StatusValue (Get-JsonValue $task "exitCode" "unknown")
+                failureClass = Format-StatusValue (Get-JsonValue $task "failureClass" "unknown")
+                outputLineCount = Format-StatusValue (Get-JsonValue $task "outputLineCount" "unknown")
+            })
+    }
+    $result.details = [object[]]$details.ToArray()
+    if ($result.failedCount -gt 0) {
+        $result.state = "failed"
+        $result.releaseGate = "blocked-scheduled-task-registration-attempt-failed"
+        $result.action = "review scheduled task registration attempt failures before release"
+    } elseif (Convert-StatusBoolean $result.registrationRequested $false) {
+        $result.state = "requested"
+        $result.releaseGate = "scheduled-task-registration-attempt-requested"
+        $result.action = "verify scheduler readback and task history after registration"
+    } else {
+        $result.state = "preview"
+        $result.releaseGate = "scheduled-task-registration-preview"
+        $result.action = "run bootstrap with -Register to create or update scheduled tasks"
+    }
+    [pscustomobject]$result
+}
+
 function Read-ScheduledTaskState([string]$TaskName, [object]$InjectedReadback) {
     if ($null -ne $InjectedReadback -and $InjectedReadback.configured) {
         if ($InjectedReadback.state -ne "ok") {
@@ -1700,6 +1765,7 @@ function Initialize-DefaultAutomationTasksIfNeeded {
     }
     $bootstrapOutputDir = Resolve-DefaultTaskPath $script:DefaultTaskOutputDir
     $defaultScheduledTaskReadbackPath = Join-Path $bootstrapOutputDir "scheduled-task-readback.json"
+    $defaultRegistrationAttemptPath = Join-Path $bootstrapOutputDir "scheduled-task-registration-attempt.json"
     if (-not $script:PlanOnly.IsPresent) {
         $bootstrapArguments = @(
             "-ExecutionPolicy", "Bypass",
@@ -1751,6 +1817,9 @@ function Initialize-DefaultAutomationTasksIfNeeded {
     }
     if ([string]::IsNullOrWhiteSpace($script:ScheduledTaskReadbackJsonPath)) {
         $script:ScheduledTaskReadbackJsonPath = $defaultScheduledTaskReadbackPath
+    }
+    if ([string]::IsNullOrWhiteSpace($script:ScheduledTaskRegistrationAttemptPath)) {
+        $script:ScheduledTaskRegistrationAttemptPath = $defaultRegistrationAttemptPath
     }
 }
 
@@ -1956,6 +2025,7 @@ $automationTaskAckGateConfigured = Has-ConfigurationHint @(
 $automationTaskAckSingleGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
 $automationTaskAckGate = Get-AutomationTaskAckGateAggregateReadback $automationTaskHistoryAckPairs $automationTaskAckSingleGate $automationTaskAckGateConfigured
 $scheduledTaskRegistryReadback = Get-ScheduledTaskRegistryReadback @($previewRecords) $ScheduledTaskReadbackJsonPath
+$scheduledTaskRegistrationAttemptReadback = Get-ScheduledTaskRegistrationAttemptReadback $ScheduledTaskRegistrationAttemptPath
 $automationTaskHistoryFreshnessGate = Get-AutomationTaskHistoryFreshnessReadback $automationTaskHistoryAckPairs $scheduledTaskRegistryReadback $TaskHistoryFreshnessHours $statusNow
 $automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback $automationTaskHistoryFreshnessGate
 $automationTaskAckReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured
@@ -2109,6 +2179,26 @@ if ($scheduledTaskRegistryReadback.configured) {
                 (Format-StatusValue $taskReadback.schedulerState), `
                 (Format-StatusValue $taskReadback.taskPath), `
                 (Format-StatusValue $taskReadback.source)))
+    }
+}
+if ($scheduledTaskRegistrationAttemptReadback.configured) {
+    $lines.Add(('- Scheduled task registration attempt: state=`{0}`, requested=`{1}`, user=`{2}`, tasks=`{3}`, failed=`{4}`, releaseGate=`{5}`, action=`{6}`' -f `
+            (Format-StatusValue $scheduledTaskRegistrationAttemptReadback.state), `
+            (Format-StatusValue $scheduledTaskRegistrationAttemptReadback.registrationRequested), `
+            (Format-StatusValue $scheduledTaskRegistrationAttemptReadback.user), `
+            (Format-StatusValue $scheduledTaskRegistrationAttemptReadback.taskCount), `
+            (Format-StatusValue $scheduledTaskRegistrationAttemptReadback.failedCount), `
+            (Format-StatusValue $scheduledTaskRegistrationAttemptReadback.releaseGate), `
+            (Format-StatusValue $scheduledTaskRegistrationAttemptReadback.action)))
+    foreach ($registrationAttempt in @($scheduledTaskRegistrationAttemptReadback.details)) {
+        $lines.Add(('  Registration attempt task: kind=`{0}`, name=`{1}`, requested=`{2}`, status=`{3}`, exitCode=`{4}`, failureClass=`{5}`, outputLines=`{6}`' -f `
+                (Format-StatusValue $registrationAttempt.taskKind), `
+                (Format-StatusValue $registrationAttempt.taskName), `
+                (Format-StatusValue $registrationAttempt.registrationRequested), `
+                (Format-StatusValue $registrationAttempt.status), `
+                (Format-StatusValue $registrationAttempt.exitCode), `
+                (Format-StatusValue $registrationAttempt.failureClass), `
+                (Format-StatusValue $registrationAttempt.outputLineCount)))
     }
 }
 if ($automationTaskHistoryFreshnessGate.configured) {
