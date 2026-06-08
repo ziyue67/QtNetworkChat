@@ -78,6 +78,8 @@ $govLastRunPath = Join-Path $tempDir "large-file-governance-last-run.log"
 $govPreviewPath = Join-Path $tempDir "large-file-governance-task-preview.json"
 $taskHistoryPath = Join-Path $tempDir "automation-task-history.json"
 $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
+$autoRunListPath = Join-Path $tempDir "gh-run-list.json"
+$autoCTestLogPath = Join-Path $tempDir "LastTest.log"
 
 @'
 {
@@ -123,6 +125,29 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
   "reason":"reviewed"
 }
 '@ | Set-Content -LiteralPath $taskAckPath -Encoding UTF8
+
+@'
+[
+  {
+    "databaseId": 99112233,
+    "headSha": "auto1234567890abcdef",
+    "status": "completed",
+    "conclusion": "success",
+    "createdAt": "2026-06-03T04:00:00Z",
+    "displayTitle": "feat: auto status",
+    "workflowName": "Windows Build"
+  }
+]
+'@ | Set-Content -LiteralPath $autoRunListPath -Encoding UTF8
+@'
+Start testing: Jun 03 04:00
+----------------------------------------------------------
+1/2 Testing: One
+Test Passed.
+2/2 Testing: Two
+Test Passed.
+End testing: Jun 03 04:01
+'@ | Set-Content -LiteralPath $autoCTestLogPath -Encoding UTF8
 
 ([ordered]@{
     format = "qtnetworkchat-database-health-task-preview-v1"
@@ -199,6 +224,7 @@ foreach ($expected in @(
     'GitHub Windows Build: `success`',
     'Local CTest count: `51`',
     'Protected untracked entries: `.polaris/, AGENTS.md`',
+    'Status readback: `ci=parameter; build=parameter; ctest=parameter`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
@@ -262,6 +288,77 @@ foreach ($forbidden in @(
     Assert-NotContains -Text $markdown -Forbidden $forbidden
 }
 Assert-NoFixedMirrorBranchPolicy -Text $markdown
+
+$autoMarkdownPath = Join-Path $tempDir "automation-status-auto-readback.md"
+& $ScriptPath `
+    -MarkdownPath $autoMarkdownPath `
+    -Head "auto1234567890abcdef" `
+    -TrackedRemoteHash "auto1234567890abcdef" `
+    -BuildDir $tempDir `
+    -GitHubRunListJsonPath $autoRunListPath `
+    -CTestLogPath $autoCTestLogPath `
+    -DatabaseHealthStatusPath $dbStatusPath `
+    -DatabaseHealthLastRunPath $dbLastRunPath `
+    -DatabaseHealthTaskPreviewPath $dbPreviewPath `
+    -LargeFileGovernanceStatusPath $govStatusPath `
+    -LargeFileGovernanceLastRunPath $govLastRunPath `
+    -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
+    -AutomationTaskHistoryPath $taskHistoryPath `
+    -AutomationTaskAckPath $taskAckPath `
+    -FailOnSensitive
+$autoMarkdown = Get-Content -LiteralPath $autoMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'HEAD: `auto1234567890abcdef`',
+    'GitHub Windows Build: `success`',
+    'GitHub run id: `99112233`',
+    'Local MinGW build: `missing-executable`',
+    'Local CTest: `passed`',
+    'Local CTest count: `2`',
+    'Status readback: `ci=json-artifact; build=auto-build-artifact; ctest=auto-ctest-last-log`'
+)) {
+    Assert-Contains -Text $autoMarkdown -Expected $expected
+}
+
+$staleRunListPath = Join-Path $tempDir "gh-run-list-stale.json"
+@'
+[
+  {
+    "databaseId": 99112234,
+    "headSha": "older1234567890abcdef",
+    "status": "completed",
+    "conclusion": "failure",
+    "createdAt": "2026-06-03T03:00:00Z",
+    "displayTitle": "feat: stale",
+    "workflowName": "Windows Build"
+  }
+]
+'@ | Set-Content -LiteralPath $staleRunListPath -Encoding UTF8
+$staleMarkdownPath = Join-Path $tempDir "automation-status-stale-ci.md"
+& $ScriptPath `
+    -MarkdownPath $staleMarkdownPath `
+    -Head "newer1234567890abcdef" `
+    -TrackedRemoteHash "newer1234567890abcdef" `
+    -GitHubRunListJsonPath $staleRunListPath `
+    -CTestLogPath $autoCTestLogPath `
+    -BuildDir $tempDir `
+    -DatabaseHealthStatusPath $dbStatusPath `
+    -DatabaseHealthLastRunPath $dbLastRunPath `
+    -DatabaseHealthTaskPreviewPath $dbPreviewPath `
+    -LargeFileGovernanceStatusPath $govStatusPath `
+    -LargeFileGovernanceLastRunPath $govLastRunPath `
+    -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
+    -AutomationTaskHistoryPath $taskHistoryPath `
+    -AutomationTaskAckPath $taskAckPath `
+    -FailOnSensitive
+$staleOutput = Get-Content -LiteralPath $staleMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'HEAD: `newer1234567890abcdef`',
+    'GitHub Windows Build: `external-visibility-stale`',
+    'GitHub run id: `unknown`',
+    'Status readback: `ci=json-artifact; build=auto-build-artifact; ctest=auto-ctest-last-log`'
+)) {
+    Assert-Contains -Text $staleOutput -Expected $expected
+}
 
 $defaultBootstrapDir = Join-Path $tempDir "default-bootstrap"
 $defaultBootstrapMarkdownPath = Join-Path $tempDir "automation-status-default-bootstrap.md"

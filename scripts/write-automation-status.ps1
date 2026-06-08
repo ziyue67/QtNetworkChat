@@ -9,6 +9,10 @@ param(
     [string]$BuildStatus = "unknown",
     [string]$CTestStatus = "unknown",
     [int]$CTestCount = 0,
+    [string]$BuildDir = "build-qt6-mingw",
+    [string]$CTestLogPath,
+    [string]$GitHubWorkflow = "Windows Build",
+    [string]$GitHubRunListJsonPath,
     [string]$DatabaseHealthStatusPath,
     [string]$DatabaseHealthLastRunPath,
     [string]$DatabaseHealthTaskPreviewPath,
@@ -68,6 +72,188 @@ function Invoke-GitText([string[]]$Arguments) {
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
+}
+
+function Invoke-ToolText([string]$CommandName, [string[]]$Arguments) {
+    try {
+        $output = & $CommandName @Arguments 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            $global:LASTEXITCODE = 0
+            return ""
+        }
+        $global:LASTEXITCODE = 0
+        return ((@($output) -join "`n").Trim())
+    } catch {
+        $global:LASTEXITCODE = 0
+        return ""
+    }
+}
+
+function Is-UnknownStatus([string]$Value) {
+    [string]::IsNullOrWhiteSpace($Value) -or $Value.Trim().ToLowerInvariant() -eq "unknown"
+}
+
+function Get-GitHubWindowsBuildReadback([string]$HeadSha) {
+    $result = [ordered]@{
+        status = "unknown"
+        runId = ""
+        source = "auto-gh-run-list-unavailable"
+    }
+    if ($script:PlanOnly.IsPresent) {
+        $result.source = "plan-only"
+        return [pscustomobject]$result
+    }
+
+    $runListJson = ""
+    if (-not [string]::IsNullOrWhiteSpace($script:GitHubRunListJsonPath)) {
+        try {
+            $runListJson = Get-Content -LiteralPath (Resolve-RepoPath $script:GitHubRunListJsonPath) -Raw -Encoding UTF8
+            $result.source = "json-artifact"
+        } catch {
+            $result.status = "unavailable"
+            $result.source = "json-artifact-unreadable"
+            return [pscustomobject]$result
+        }
+    } else {
+        $runListJson = Invoke-ToolText "gh" @(
+            "run", "list",
+            "--workflow", $script:GitHubWorkflow,
+            "--limit", "20",
+            "--json", "databaseId,headSha,status,conclusion,createdAt,displayTitle,workflowName"
+        )
+        if ([string]::IsNullOrWhiteSpace($runListJson)) {
+            $result.status = "unavailable"
+            return [pscustomobject]$result
+        }
+        $result.source = "auto-gh-run-list"
+    }
+
+    try {
+        $runs = @($runListJson | ConvertFrom-Json -ErrorAction Stop)
+    } catch {
+        $result.status = "unavailable"
+        $result.source = $result.source + "-invalid-json"
+        return [pscustomobject]$result
+    }
+    if ($runs.Count -eq 0) {
+        $result.status = "external-visibility-stale"
+        $result.source = $result.source + "-empty"
+        return [pscustomobject]$result
+    }
+
+    $normalizedHead = ([string]$HeadSha).Trim().ToLowerInvariant()
+    $matchingRun = $null
+    if (-not [string]::IsNullOrWhiteSpace($normalizedHead) -and $normalizedHead -ne "unknown") {
+        foreach ($run in $runs) {
+            $runHead = ([string]$run.headSha).Trim().ToLowerInvariant()
+            $headMatches = -not [string]::IsNullOrWhiteSpace($runHead)
+            if ($headMatches) {
+                $headMatches = $runHead -eq $normalizedHead `
+                    -or $runHead.StartsWith($normalizedHead) `
+                    -or $normalizedHead.StartsWith($runHead)
+            }
+            if ($headMatches) {
+                $matchingRun = $run
+                break
+            }
+        }
+    }
+
+    if ($null -eq $matchingRun) {
+        $result.status = "external-visibility-stale"
+        return [pscustomobject]$result
+    }
+
+    $runStatus = ([string]$matchingRun.status).Trim().ToLowerInvariant()
+    $runConclusion = ([string]$matchingRun.conclusion).Trim().ToLowerInvariant()
+    if ($runStatus -eq "completed" -and -not [string]::IsNullOrWhiteSpace($runConclusion)) {
+        $result.status = $runConclusion
+    } elseif (-not [string]::IsNullOrWhiteSpace($runStatus)) {
+        $result.status = $runStatus
+    } else {
+        $result.status = "unknown"
+    }
+    $result.runId = [string]$matchingRun.databaseId
+    [pscustomobject]$result
+}
+
+function Get-LocalBuildReadback([string]$BuildDirectory) {
+    $result = [ordered]@{
+        status = "unknown"
+        source = "auto-build-artifact"
+    }
+    if ($script:PlanOnly.IsPresent) {
+        $result.source = "plan-only"
+        return [pscustomobject]$result
+    }
+    try {
+        $resolvedBuildDir = Resolve-RepoPath $BuildDirectory
+    } catch {
+        $result.status = "not-configured"
+        return [pscustomobject]$result
+    }
+    if (-not (Test-Path -LiteralPath $resolvedBuildDir -PathType Container)) {
+        $result.status = "not-run"
+        return [pscustomobject]$result
+    }
+    $exePath = Join-Path $resolvedBuildDir "QtNetworkChat.exe"
+    if (Test-Path -LiteralPath $exePath -PathType Leaf) {
+        $result.status = "artifact-present"
+    } else {
+        $result.status = "missing-executable"
+    }
+    [pscustomobject]$result
+}
+
+function Get-CTestReadback([string]$BuildDirectory, [string]$ExplicitLogPath) {
+    $result = [ordered]@{
+        status = "unknown"
+        count = 0
+        source = "auto-ctest-last-log"
+    }
+    if ($script:PlanOnly.IsPresent) {
+        $result.source = "plan-only"
+        return [pscustomobject]$result
+    }
+    try {
+        $logPath = if ([string]::IsNullOrWhiteSpace($ExplicitLogPath)) {
+            Join-Path (Resolve-RepoPath $BuildDirectory) "Testing\Temporary\LastTest.log"
+        } else {
+            Resolve-RepoPath $ExplicitLogPath
+        }
+    } catch {
+        $result.status = "not-configured"
+        return [pscustomobject]$result
+    }
+    if (-not (Test-Path -LiteralPath $logPath -PathType Leaf)) {
+        $result.status = "not-run"
+        return [pscustomobject]$result
+    }
+    try {
+        $raw = Get-Content -LiteralPath $logPath -Raw -Encoding UTF8
+    } catch {
+        $result.status = "unreadable"
+        return [pscustomobject]$result
+    }
+    $matches = [regex]::Matches($raw, '(?m)^\s*(\d+)\/(\d+)\s+Testing:')
+    $total = 0
+    foreach ($match in $matches) {
+        $candidate = [int]$match.Groups[2].Value
+        if ($candidate -gt $total) {
+            $total = $candidate
+        }
+    }
+    $result.count = $total
+    $hasFailure = $raw -match '(?m)^\s*Test Failed\.' -or $raw -match '\*\*\*Failed' -or $raw -match 'Errors while running CTest'
+    $hasEnd = $raw -match '(?m)^\s*End testing:'
+    if ($total -gt 0 -and -not $hasFailure -and $hasEnd) {
+        $result.status = "passed"
+    } elseif ($total -gt 0 -and $hasFailure) {
+        $result.status = "failed"
+    } else {
+        $result.status = "incomplete"
+    }
+    [pscustomobject]$result
 }
 
 function Find-SensitiveHits([string[]]$Lines) {
@@ -626,7 +812,7 @@ function Initialize-DefaultAutomationTasksIfNeeded {
 }
 
 if ([string]::IsNullOrWhiteSpace($Head)) {
-    $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "--short=12", "HEAD") }
+    $Head = if ($PlanOnly) { "unknown" } else { Invoke-GitText @("rev-parse", "HEAD") }
 }
 if ([string]::IsNullOrWhiteSpace($TrackedRemoteBranch)) {
     $TrackedRemoteBranch = "origin/main"
@@ -637,11 +823,40 @@ if ([string]::IsNullOrWhiteSpace($TrackedRemoteHash)) {
     } elseif ($PlanOnly) {
         "unknown"
     } else {
-        Invoke-GitText @("rev-parse", "--short=12", $TrackedRemoteBranch)
+        Invoke-GitText @("rev-parse", $TrackedRemoteBranch)
     }
 }
 if ([string]::IsNullOrWhiteSpace($OriginMain)) {
     $OriginMain = $TrackedRemoteHash
+}
+
+$ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
+if (Is-UnknownStatus $CiStatus) {
+    $ciReadback = Get-GitHubWindowsBuildReadback $Head
+    $CiStatus = $ciReadback.status
+    if ([string]::IsNullOrWhiteSpace($CiRunId)) {
+        $CiRunId = $ciReadback.runId
+    }
+    $ciReadbackSource = $ciReadback.source
+}
+
+$buildReadbackSource = if (Is-UnknownStatus $BuildStatus) { "auto" } else { "parameter" }
+if (Is-UnknownStatus $BuildStatus) {
+    $buildReadback = Get-LocalBuildReadback $BuildDir
+    $BuildStatus = $buildReadback.status
+    $buildReadbackSource = $buildReadback.source
+}
+
+$ctestReadbackSource = if ((Is-UnknownStatus $CTestStatus) -or $CTestCount -le 0) { "auto" } else { "parameter" }
+if ((Is-UnknownStatus $CTestStatus) -or $CTestCount -le 0) {
+    $ctestReadback = Get-CTestReadback $BuildDir $CTestLogPath
+    if (Is-UnknownStatus $CTestStatus) {
+        $CTestStatus = $ctestReadback.status
+    }
+    if ($CTestCount -le 0) {
+        $CTestCount = [int]$ctestReadback.count
+    }
+    $ctestReadbackSource = $ctestReadback.source
 }
 
 Initialize-DefaultAutomationTasksIfNeeded
@@ -766,6 +981,9 @@ $lines.Add('- Local MinGW build: `' + $BuildStatus + '`')
 $lines.Add('- Local CTest: `' + $CTestStatus + '`')
 $lines.Add('- Local CTest count: `' + $CTestCount + '`')
 $lines.Add('- Protected untracked entries: `' + $protectedText + '`')
+$lines.Add('- Status readback: `ci=' + (Format-StatusValue $ciReadbackSource) +
+    '; build=' + (Format-StatusValue $buildReadbackSource) +
+    '; ctest=' + (Format-StatusValue $ctestReadbackSource) + '`')
 $lines.Add("")
 $lines.Add("## Automation Guardrails")
 $lines.Add("")
