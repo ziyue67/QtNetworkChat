@@ -80,6 +80,7 @@ $taskHistoryPath = Join-Path $tempDir "automation-task-history.json"
 $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
 $autoRunListPath = Join-Path $tempDir "gh-run-list.json"
 $autoCTestLogPath = Join-Path $tempDir "LastTest.log"
+$localVerificationPath = Join-Path $tempDir "local-verification-status.json"
 
 @'
 {
@@ -148,6 +149,16 @@ Test Passed.
 Test Passed.
 End testing: Jun 03 04:01
 '@ | Set-Content -LiteralPath $autoCTestLogPath -Encoding UTF8
+
+& (Join-Path $PSScriptRoot "write-local-verification-status.ps1") `
+    -OutputPath $localVerificationPath `
+    -BuildStatus passed `
+    -BuildExitCode 0 `
+    -CTestStatus passed `
+    -CTestExitCode 0 `
+    -CTestCount 2 `
+    -CTestLogPath $autoCTestLogPath `
+    -FailOnSensitive | Out-Null
 
 ([ordered]@{
     format = "qtnetworkchat-database-health-task-preview-v1"
@@ -295,6 +306,7 @@ $autoMarkdownPath = Join-Path $tempDir "automation-status-auto-readback.md"
     -Head "auto1234567890abcdef" `
     -TrackedRemoteHash "auto1234567890abcdef" `
     -BuildDir $tempDir `
+    -LocalVerificationStatusPath $localVerificationPath `
     -GitHubRunListJsonPath $autoRunListPath `
     -CTestLogPath $autoCTestLogPath `
     -DatabaseHealthStatusPath $dbStatusPath `
@@ -311,12 +323,41 @@ foreach ($expected in @(
     'HEAD: `auto1234567890abcdef`',
     'GitHub Windows Build: `success`',
     'GitHub run id: `99112233`',
+    'Local MinGW build: `passed`',
+    'Local CTest: `passed`',
+    'Local CTest count: `2`',
+    'Status readback: `ci=json-artifact; build=local-verification-status; ctest=local-verification-status`'
+)) {
+    Assert-Contains -Text $autoMarkdown -Expected $expected
+}
+
+$fallbackMarkdownPath = Join-Path $tempDir "automation-status-fallback-readback.md"
+& $ScriptPath `
+    -MarkdownPath $fallbackMarkdownPath `
+    -Head "fallback1234567890abcdef" `
+    -TrackedRemoteHash "fallback1234567890abcdef" `
+    -BuildDir $tempDir `
+    -LocalVerificationStatusPath (Join-Path $tempDir "missing-local-verification-status.json") `
+    -GitHubRunListJsonPath $autoRunListPath `
+    -CTestLogPath $autoCTestLogPath `
+    -DatabaseHealthStatusPath $dbStatusPath `
+    -DatabaseHealthLastRunPath $dbLastRunPath `
+    -DatabaseHealthTaskPreviewPath $dbPreviewPath `
+    -LargeFileGovernanceStatusPath $govStatusPath `
+    -LargeFileGovernanceLastRunPath $govLastRunPath `
+    -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
+    -AutomationTaskHistoryPath $taskHistoryPath `
+    -AutomationTaskAckPath $taskAckPath `
+    -FailOnSensitive
+$fallbackMarkdown = Get-Content -LiteralPath $fallbackMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'HEAD: `fallback1234567890abcdef`',
     'Local MinGW build: `missing-executable`',
     'Local CTest: `passed`',
     'Local CTest count: `2`',
     'Status readback: `ci=json-artifact; build=auto-build-artifact; ctest=auto-ctest-last-log`'
 )) {
-    Assert-Contains -Text $autoMarkdown -Expected $expected
+    Assert-Contains -Text $fallbackMarkdown -Expected $expected
 }
 
 $staleRunListPath = Join-Path $tempDir "gh-run-list-stale.json"
@@ -339,6 +380,7 @@ $staleMarkdownPath = Join-Path $tempDir "automation-status-stale-ci.md"
     -Head "newer1234567890abcdef" `
     -TrackedRemoteHash "newer1234567890abcdef" `
     -GitHubRunListJsonPath $staleRunListPath `
+    -LocalVerificationStatusPath $localVerificationPath `
     -CTestLogPath $autoCTestLogPath `
     -BuildDir $tempDir `
     -DatabaseHealthStatusPath $dbStatusPath `
@@ -355,7 +397,7 @@ foreach ($expected in @(
     'HEAD: `newer1234567890abcdef`',
     'GitHub Windows Build: `external-visibility-stale`',
     'GitHub run id: `unknown`',
-    'Status readback: `ci=json-artifact; build=auto-build-artifact; ctest=auto-ctest-last-log`'
+    'Status readback: `ci=json-artifact; build=local-verification-status; ctest=local-verification-status`'
 )) {
     Assert-Contains -Text $staleOutput -Expected $expected
 }

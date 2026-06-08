@@ -10,6 +10,7 @@ param(
     [string]$CTestStatus = "unknown",
     [int]$CTestCount = 0,
     [string]$BuildDir = "build-qt6-mingw",
+    [string]$LocalVerificationStatusPath,
     [string]$CTestLogPath,
     [string]$GitHubWorkflow = "Windows Build",
     [string]$GitHubRunListJsonPath,
@@ -201,6 +202,39 @@ function Get-LocalBuildReadback([string]$BuildDirectory) {
         $result.status = "artifact-present"
     } else {
         $result.status = "missing-executable"
+    }
+    [pscustomobject]$result
+}
+
+function Get-LocalVerificationStatusReadback([string]$PathValue) {
+    $result = [ordered]@{
+        configured = $false
+        readable = $false
+        buildStatus = ""
+        ctestStatus = ""
+        ctestCount = 0
+        source = "local-verification-status"
+    }
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or $script:PlanOnly.IsPresent) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    try {
+        $resolved = Resolve-RepoPath $PathValue
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            return [pscustomobject]$result
+        }
+        $status = Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        if ((Get-JsonValue $status "format" "") -ne "qtnetworkchat-local-verification-status-v1") {
+            return [pscustomobject]$result
+        }
+        $buildNode = Get-JsonValue $status "build" $null
+        $ctestNode = Get-JsonValue $status "ctest" $null
+        $result.readable = $true
+        $result.buildStatus = [string](Get-JsonValue $buildNode "status" "")
+        $result.ctestStatus = [string](Get-JsonValue $ctestNode "status" "")
+        $result.ctestCount = [int](Get-JsonValue $ctestNode "count" 0)
+    } catch {
     }
     [pscustomobject]$result
 }
@@ -830,6 +864,11 @@ if ([string]::IsNullOrWhiteSpace($OriginMain)) {
     $OriginMain = $TrackedRemoteHash
 }
 
+if ([string]::IsNullOrWhiteSpace($LocalVerificationStatusPath)) {
+    $LocalVerificationStatusPath = Join-Path $BuildDir "local-verification-status.json"
+}
+$localVerificationReadback = Get-LocalVerificationStatusReadback $LocalVerificationStatusPath
+
 $ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
 if (Is-UnknownStatus $CiStatus) {
     $ciReadback = Get-GitHubWindowsBuildReadback $Head
@@ -842,21 +881,40 @@ if (Is-UnknownStatus $CiStatus) {
 
 $buildReadbackSource = if (Is-UnknownStatus $BuildStatus) { "auto" } else { "parameter" }
 if (Is-UnknownStatus $BuildStatus) {
-    $buildReadback = Get-LocalBuildReadback $BuildDir
-    $BuildStatus = $buildReadback.status
-    $buildReadbackSource = $buildReadback.source
+    if ($localVerificationReadback.readable -and -not [string]::IsNullOrWhiteSpace($localVerificationReadback.buildStatus)) {
+        $BuildStatus = $localVerificationReadback.buildStatus
+        $buildReadbackSource = $localVerificationReadback.source
+    } else {
+        $buildReadback = Get-LocalBuildReadback $BuildDir
+        $BuildStatus = $buildReadback.status
+        $buildReadbackSource = $buildReadback.source
+    }
 }
 
 $ctestReadbackSource = if ((Is-UnknownStatus $CTestStatus) -or $CTestCount -le 0) { "auto" } else { "parameter" }
 if ((Is-UnknownStatus $CTestStatus) -or $CTestCount -le 0) {
-    $ctestReadback = Get-CTestReadback $BuildDir $CTestLogPath
-    if (Is-UnknownStatus $CTestStatus) {
-        $CTestStatus = $ctestReadback.status
+    $hasLocalVerificationCTestStatus = -not [string]::IsNullOrWhiteSpace($localVerificationReadback.ctestStatus)
+    $hasLocalVerificationCTestCount = $localVerificationReadback.ctestCount -gt 0
+    $hasLocalVerificationCTest = $localVerificationReadback.readable -and ($hasLocalVerificationCTestStatus -or $hasLocalVerificationCTestCount)
+    if ($hasLocalVerificationCTest) {
+        $ctestStatusUnknown = Is-UnknownStatus $CTestStatus
+        if ($ctestStatusUnknown -and $hasLocalVerificationCTestStatus) {
+            $CTestStatus = $localVerificationReadback.ctestStatus
+        }
+        if ($CTestCount -le 0 -and $hasLocalVerificationCTestCount) {
+            $CTestCount = [int]$localVerificationReadback.ctestCount
+        }
+        $ctestReadbackSource = $localVerificationReadback.source
+    } else {
+        $ctestReadback = Get-CTestReadback $BuildDir $CTestLogPath
+        if (Is-UnknownStatus $CTestStatus) {
+            $CTestStatus = $ctestReadback.status
+        }
+        if ($CTestCount -le 0) {
+            $CTestCount = [int]$ctestReadback.count
+        }
+        $ctestReadbackSource = $ctestReadback.source
     }
-    if ($CTestCount -le 0) {
-        $CTestCount = [int]$ctestReadback.count
-    }
-    $ctestReadbackSource = $ctestReadback.source
 }
 
 Initialize-DefaultAutomationTasksIfNeeded
