@@ -948,6 +948,86 @@ int main(int argc, char** argv) {
     ok = expect(sender.clearOutgoingTransferState(),
                 "sender should clear E2E resend recovery state before continuing the test") && ok;
 
+    QJsonObject e2eObjectRecoveryHeader;
+    e2eObjectRecoveryHeader["protocol"] = "qtnetworkchat-e2e-v1";
+    e2eObjectRecoveryHeader["suite"] = e2eDefaultSuite();
+    e2eObjectRecoveryHeader["senderId"] = "950001";
+    e2eObjectRecoveryHeader["receiverId"] = "960002";
+    e2eObjectRecoveryHeader["keyId"] = "e2e-file-object-session";
+    e2eObjectRecoveryHeader["nonce"] = base64Url(QByteArray("object-nonce-123"));
+    e2eObjectRecoveryHeader["tag"] = base64Url(QByteArray("object-tag-123456"));
+    e2eObjectRecoveryHeader["aad"] = "file/private/v1;object-recovery";
+    const QString e2eObjectWireHash =
+        QStringLiteral("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    QJsonObject e2eObjectRecoveryPolicy;
+    e2eObjectRecoveryPolicy["recoveryMode"] = "resume";
+    e2eObjectRecoveryPolicy["recoveryReason"] = "e2e-file-same-wire-cache-ready";
+    e2eObjectRecoveryPolicy["recoveryAction"] = "resume-same-wire-envelope";
+    e2eObjectRecoveryPolicy["e2eFileEncrypted"] = true;
+    e2eObjectRecoveryPolicy["e2eFileKeyId"] = "e2e-file-object-session";
+    e2eObjectRecoveryPolicy["e2eFileKeyFingerprintSha256"] =
+        QStringLiteral("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+    e2eObjectRecoveryPolicy["e2eFilePlainSize"] = QString::number(resumeFileSize);
+    e2eObjectRecoveryPolicy["e2eFilePlainHash"] = resumeFileHash;
+    e2eObjectRecoveryPolicy["e2eFileWireSize"] = QString::number(resumeFileSize + 128);
+    e2eObjectRecoveryPolicy["e2eFileWireHash"] = e2eObjectWireHash;
+    e2eObjectRecoveryPolicy["e2eFileEnvelopeHeader"] = e2eObjectRecoveryHeader;
+    e2eObjectRecoveryPolicy["e2eFileObjectRecoveryCandidate"] = true;
+    e2eObjectRecoveryPolicy["e2eFileObjectStoreKey"] = "safeObjectKey_123.bin";
+    e2eObjectRecoveryPolicy["e2eFileObjectStoreType"] = "filesystem";
+    e2eObjectRecoveryPolicy["e2eFileObjectStoreHash"] = e2eObjectWireHash;
+    e2eObjectRecoveryPolicy["e2eFileObjectStoreSize"] = QString::number(resumeFileSize + 128);
+    ok = expect(sender.saveOutgoingTransferState("e2e-object-recovery-transfer",
+                                                 resumeFilePath,
+                                                 "960002",
+                                                 MessageType::File,
+                                                 e2eObjectWireHash,
+                                                 resumeFileSize + 128,
+                                                 resumeChunkCount + 1,
+                                                 e2eObjectRecoveryPolicy),
+                "sender should persist E2E object recovery candidate metadata") && ok;
+    const QJsonObject e2eObjectRecoveryStatus = sender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray e2eObjectRecoveryStatusJson =
+        QJsonDocument(e2eObjectRecoveryStatus).toJson(QJsonDocument::Compact);
+    ok = expect(e2eObjectRecoveryStatus["configured"].toBool()
+                    && e2eObjectRecoveryStatus["e2eFileEncrypted"].toBool()
+                    && e2eObjectRecoveryStatus["e2eFileObjectRecoveryCandidate"].toBool()
+                    && !e2eObjectRecoveryStatus["e2eFileOfflineObjectRecoveryReady"].toBool(true)
+                    && e2eObjectRecoveryStatus["recoveryMode"].toString() == "resend"
+                    && !e2eObjectRecoveryStatus["canAutoResume"].toBool()
+                    && e2eObjectRecoveryStatus["reason"].toString()
+                        == "e2e-file-object-recovery-read-path-unavailable"
+                    && e2eObjectRecoveryStatus["action"].toString()
+                        == "resend-or-wait-for-object-recovery",
+                "E2E object recovery candidate should remain fail-closed until object ciphertext readback exists") && ok;
+    ok = expect(e2eObjectRecoveryStatus["e2eFileObjectStoreKey"].toString() == "safeObjectKey_123.bin"
+                    && e2eObjectRecoveryStatus["e2eFileObjectStoreHash"].toString() == e2eObjectWireHash
+                    && e2eObjectRecoveryStatus["e2eFileObjectStoreSize"].toVariant().toLongLong()
+                        == resumeFileSize + 128
+                    && e2eObjectRecoveryStatus["e2eFileObjectRecoveryMaterialPolicy"].toString()
+                        == "object-ciphertext-only-no-secret-export",
+                "E2E object recovery status should expose only sanitized object evidence") && ok;
+    ok = expect(!e2eObjectRecoveryStatusJson.contains("\"ciphertext\"")
+                    && !e2eObjectRecoveryStatusJson.contains("ciphertextBytes")
+                    && !e2eObjectRecoveryStatusJson.contains("rawCiphertext")
+                    && !e2eObjectRecoveryStatusJson.contains("object://")
+                    && !e2eObjectRecoveryStatusJson.contains("file://")
+                    && !e2eObjectRecoveryStatusJson.contains("privateKey")
+                    && !e2eObjectRecoveryStatusJson.contains("sessionKey"),
+                "E2E object recovery status should not export sensitive payloads or local paths") && ok;
+    const int queriesBeforeE2eObjectRecovery = server.resumeQueries();
+    const int chunksBeforeE2eObjectRecovery = server.resumedChunkIndexes().size();
+    QString e2eObjectRecoveryReason;
+    ok = expect(!sender.resumeSavedOutgoingTransfer(&e2eObjectRecoveryReason, 5000),
+                "E2E object recovery candidate should refuse automatic resume") && ok;
+    ok = expect(e2eObjectRecoveryReason == "e2e-file-object-recovery-read-path-unavailable",
+                "E2E object recovery refusal should expose the fixed object-readback reason") && ok;
+    ok = expect(server.resumeQueries() == queriesBeforeE2eObjectRecovery
+                    && server.resumedChunkIndexes().size() == chunksBeforeE2eObjectRecovery,
+                "E2E object recovery candidate should not query or send without readback support") && ok;
+    ok = expect(sender.clearOutgoingTransferState(),
+                "sender should clear E2E object recovery state before continuing the test") && ok;
+
     const QByteArray e2eSessionKey = generateE2ESessionKey();
     const QByteArray peerPrivateKey = generateE2EPrivateKey();
     const QByteArray peerPublicKey = e2ePublicKeyFromPrivateKey(peerPrivateKey);

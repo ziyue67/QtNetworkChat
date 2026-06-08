@@ -1,8 +1,10 @@
 #include "client.h"
+#include "e2eenvelope.h"
 #include "message.h"
 #include "server.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -97,6 +99,10 @@ bool writeSmallFile(const QString& filePath, QByteArray* payloadOut) {
     if (file.write(payload) != payload.size()) return false;
     if (payloadOut) *payloadOut = payload;
     return true;
+}
+
+QString base64Url(const QByteArray& value) {
+    return QString::fromLatin1(value.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
 }
 
 int offlineAttachmentFileCount(const QString& appDataDir) {
@@ -215,6 +221,66 @@ bool insertOfflineAttachmentQueue(const QString& appDataDir,
 
     bool inserted = false;
     const QString connectionName = "offline_missing_insert_" + QString::number(QCoreApplication::applicationPid());
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(dbPath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare("INSERT INTO offline_messages(receiver_id, payload, created_at) VALUES(?, ?, datetime('now'))");
+            query.addBindValue(receiverId);
+            query.addBindValue(QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+            inserted = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return inserted;
+}
+
+bool insertE2EOfflineAttachmentQueue(const QString& appDataDir,
+                                     const QString& senderId,
+                                     const QString& senderName,
+                                     const QString& receiverId,
+                                     const QString& fileName,
+                                     const QString& attachmentPath,
+                                     const QByteArray& ciphertext,
+                                     const QByteArray& plaintext,
+                                     const QJsonObject& envelopeHeader,
+                                     const QString& keyId,
+                                     const QString& keyFingerprint) {
+    const QString dbPath = appDataDir + "/accounts.sqlite3";
+    if (!QFile::exists(dbPath) || ciphertext.isEmpty() || plaintext.isEmpty()) return false;
+
+    const qint64 chunkSize = 256 * 1024;
+    const QString wireHash =
+        QString::fromLatin1(QCryptographicHash::hash(ciphertext, QCryptographicHash::Sha256).toHex());
+    const QString plainHash =
+        QString::fromLatin1(QCryptographicHash::hash(plaintext, QCryptographicHash::Sha256).toHex());
+
+    QJsonObject payload;
+    payload["type"] = "file";
+    payload["messageType"] = static_cast<int>(MessageType::File);
+    payload["senderId"] = senderId;
+    payload["senderName"] = senderName;
+    payload["receiverId"] = receiverId;
+    payload["content"] = QString("发送了文件: %1").arg(fileName);
+    payload["fileName"] = fileName;
+    payload["fileSize"] = QString::number(ciphertext.size());
+    payload["fileHash"] = wireHash;
+    payload["chunkSize"] = QString::number(chunkSize);
+    payload["chunkCount"] = QString::number((ciphertext.size() + chunkSize - 1) / chunkSize);
+    payload["offlineFilePath"] = attachmentPath;
+    payload["offlineFileStoredOnDisk"] = true;
+    payload["e2eEnvelope"] = envelopeHeader;
+    payload["isEncrypted"] = true;
+    payload["e2eFileEncrypted"] = true;
+    payload["e2eFileKeyId"] = keyId;
+    payload["e2eFileKeyFingerprintSha256"] = keyFingerprint;
+    payload["e2eFilePlainSize"] = QString::number(plaintext.size());
+    payload["e2eFilePlainHash"] = plainHash;
+
+    bool inserted = false;
+    const QString connectionName = "offline_e2e_insert_" + QString::number(QCoreApplication::applicationPid());
     {
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
         db.setDatabaseName(dbPath);
@@ -956,6 +1022,96 @@ int main(int argc, char** argv) {
     cleanupReceiver.disconnectFromServer();
     ok = expect(waitFor([&] { return cleanupReceiverDisconnected; }),
                 "server should observe cleanup receiver disconnect after replay") && ok;
+
+    const QString e2eOfflineReceiverId = "970024";
+    const QString e2eOfflineSenderId = "970001";
+    const QString e2eOfflineKeyId = "offline-e2e-file-session";
+    const QByteArray e2eOfflineSessionKey = generateE2ESessionKey();
+    const QByteArray e2eOfflinePlaintext("offline e2e attachment should decrypt after replay");
+    const QString e2eOfflineFileName = "offline-e2e-attachment.bin";
+    QString e2eOfflineEncryptReason;
+    const E2EEnvelope e2eOfflineEnvelope =
+        encryptE2EPayload(e2eOfflineSenderId,
+                          e2eOfflineReceiverId,
+                          e2eOfflineKeyId,
+                          e2eOfflineSessionKey,
+                          e2eOfflinePlaintext,
+                          QStringLiteral("file/private/v1;offline-e2e-replay;%1;%2")
+                              .arg(QString::number(e2eOfflinePlaintext.size()),
+                                   e2eOfflineFileName),
+                          &e2eOfflineEncryptReason);
+    ok = expect(e2eOfflineEnvelope.isValid(&e2eOfflineEncryptReason),
+                "E2E offline attachment envelope should be valid") && ok;
+    QJsonObject e2eOfflineEnvelopeHeader = e2eOfflineEnvelope.toJson();
+    e2eOfflineEnvelopeHeader.remove(QStringLiteral("ciphertext"));
+    const QByteArray e2eOfflineCiphertext = e2eOfflineEnvelope.ciphertext;
+    const QString e2eOfflineDirPath = appDataDir + "/offline_files/e2e_offline";
+    ok = expect(QDir().mkpath(e2eOfflineDirPath),
+                "E2E offline attachment directory should be created") && ok;
+    const QString e2eOfflinePath = e2eOfflineDirPath + "/payload.bin";
+    QFile e2eOfflineFile(e2eOfflinePath);
+    ok = expect(e2eOfflineFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+                "E2E offline ciphertext attachment should be writable") && ok;
+    if (ok) {
+        ok = expect(e2eOfflineFile.write(e2eOfflineCiphertext) == e2eOfflineCiphertext.size(),
+                    "E2E offline ciphertext attachment should be stored on disk") && ok;
+        e2eOfflineFile.close();
+    }
+    Client e2eOfflineReceiverSeed;
+    bool e2eOfflineReceiverDisconnected = false;
+    QObject::connect(&server, &Server::clientDisconnected, &app, [&](const QString& userId) {
+        if (userId == e2eOfflineReceiverId) e2eOfflineReceiverDisconnected = true;
+    });
+    ok = expect(loginClient(e2eOfflineReceiverSeed, e2eOfflineReceiverId, "E2EOfflineReceiver", port, true),
+                "E2E offline receiver should register before queue seeding") && ok;
+    e2eOfflineReceiverSeed.disconnectFromServer();
+    ok = expect(waitFor([&] { return e2eOfflineReceiverDisconnected; }),
+                "server should observe E2E offline receiver disconnect before queue seeding") && ok;
+    ok = expect(insertE2EOfflineAttachmentQueue(appDataDir,
+                                               e2eOfflineSenderId,
+                                               "QuotaSender",
+                                               e2eOfflineReceiverId,
+                                               e2eOfflineFileName,
+                                               e2eOfflinePath,
+                                               e2eOfflineCiphertext,
+                                               e2eOfflinePlaintext,
+                                               e2eOfflineEnvelopeHeader,
+                                               e2eOfflineKeyId,
+                                               e2eFingerprint(e2eOfflineSessionKey)),
+                "E2E offline attachment queue row should be inserted with sanitized envelope evidence") && ok;
+
+    Client e2eOfflineReceiver;
+    e2eOfflineReceiver.setE2ESessionKey(e2eOfflineSenderId,
+                                        e2eOfflineKeyId,
+                                        e2eOfflineSessionKey);
+    QVector<Message> e2eOfflineReplayMessages;
+    QObject::connect(&e2eOfflineReceiver, &Client::newMessage, &app, [&](const Message& msg) {
+        e2eOfflineReplayMessages.append(msg);
+    });
+    ok = expect(loginClient(e2eOfflineReceiver, e2eOfflineReceiverId, "E2EOfflineReceiver", port, false),
+                "E2E offline receiver should log in for encrypted replay") && ok;
+    ok = expect(waitFor([&] {
+        for (const Message& msg : e2eOfflineReplayMessages) {
+            if (msg.type == MessageType::File
+                && msg.fileName == e2eOfflineFileName
+                && msg.fileData == e2eOfflinePlaintext
+                && msg.e2eFileEncrypted
+                && msg.e2eFilePlainSize == e2eOfflinePlaintext.size()
+                && msg.fileHash == msg.e2eFilePlainHash
+                && msg.content.contains(QStringLiteral("端到端加密"))) {
+                return true;
+            }
+        }
+        return false;
+    }, 7000), "E2E offline attachment should replay ciphertext and decrypt locally") && ok;
+    ok = expect(waitFor([&] {
+        return offlineQueueCount(appDataDir, e2eOfflineReceiverId) == 0
+            && !QFile::exists(e2eOfflinePath);
+    }, 3000), "delivered E2E offline attachment should clear queue and ciphertext file") && ok;
+    e2eOfflineReceiverDisconnected = false;
+    e2eOfflineReceiver.disconnectFromServer();
+    ok = expect(waitFor([&] { return e2eOfflineReceiverDisconnected; }),
+                "server should observe E2E offline receiver disconnect after replay") && ok;
 
     const QString missingReceiverId = "970004";
     Client missingReceiverSeed;

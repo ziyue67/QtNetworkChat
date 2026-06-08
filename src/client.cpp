@@ -52,6 +52,36 @@ QString appDataDir() {
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 }
 
+bool isSafeObjectStoreKeyToken(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed != value || trimmed.isEmpty() || trimmed.size() > 97) {
+        return false;
+    }
+    const int dotIndex = trimmed.indexOf(QLatin1Char('.'));
+    const QString keyBody = dotIndex < 0 ? trimmed : trimmed.left(dotIndex);
+    const QString extension = dotIndex < 0 ? QString() : trimmed.mid(dotIndex + 1);
+    if (keyBody.size() < 8 || keyBody.size() > 64 || extension.size() > 32) {
+        return false;
+    }
+    for (const QChar ch : keyBody) {
+        const ushort code = ch.unicode();
+        const bool alpha = (code >= 'a' && code <= 'z') || (code >= 'A' && code <= 'Z');
+        const bool digit = code >= '0' && code <= '9';
+        if (!alpha && !digit && ch != QLatin1Char('_') && ch != QLatin1Char('-')) {
+            return false;
+        }
+    }
+    for (const QChar ch : extension) {
+        const ushort code = ch.unicode();
+        const bool alpha = (code >= 'a' && code <= 'z') || (code >= 'A' && code <= 'Z');
+        const bool digit = code >= '0' && code <= '9';
+        if (!alpha && !digit && ch != QLatin1Char('_') && ch != QLatin1Char('-')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool isRetriableFileChunkRejectReason(const QString& reason) {
     const QString trimmed = reason.trimmed();
     if (trimmed.isEmpty()) {
@@ -2867,6 +2897,49 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
                     recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).toObject();
             }
         }
+        const QString objectKey = recoveryPolicy.value(QStringLiteral("e2eFileObjectStoreKey"))
+            .toString()
+            .trimmed();
+        const QString objectHash = recoveryPolicy.value(QStringLiteral("e2eFileObjectStoreHash"))
+            .toString()
+            .trimmed()
+            .toLower();
+        const qint64 objectSize = recoveryPolicy.value(QStringLiteral("e2eFileObjectStoreSize"))
+            .toVariant()
+            .toLongLong();
+        const QString storeType = recoveryPolicy.value(QStringLiteral("e2eFileObjectStoreType"))
+            .toString(QStringLiteral("filesystem"))
+            .trimmed()
+            .toLower();
+        const bool objectEvidenceReady =
+            recoveryPolicy.value(QStringLiteral("e2eFileObjectRecoveryCandidate")).toBool(false)
+            && isSafeObjectStoreKeyToken(objectKey)
+            && isValidE2EFingerprint(objectHash)
+            && objectHash.compare(state.value(QStringLiteral("e2eFileWireHash")).toString(),
+                                  Qt::CaseInsensitive) == 0
+            && objectSize == state.value(QStringLiteral("e2eFileWireSize")).toVariant().toLongLong()
+            && (storeType == QLatin1String("filesystem") || storeType == QLatin1String("s3"))
+            && recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).isObject()
+            && e2eEnvelopeHeaderLooksSafe(
+                recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).toObject());
+        if (objectEvidenceReady) {
+            state["e2eFileObjectRecoveryCandidate"] = true;
+            state["e2eFileObjectStoreKey"] = objectKey;
+            state["e2eFileObjectStoreType"] = storeType;
+            state["e2eFileObjectStoreHash"] = objectHash;
+            state["e2eFileObjectStoreSize"] = QString::number(objectSize);
+            state["e2eFileOfflineObjectRecoveryReady"] = false;
+            state["e2eFileObjectRecoveryReason"] =
+                QStringLiteral("e2e-file-object-recovery-read-path-unavailable");
+            state["e2eFileObjectRecoveryAction"] =
+                QStringLiteral("resend-or-wait-for-object-recovery");
+            state["e2eFileObjectRecoveryMaterialPolicy"] =
+                QStringLiteral("object-ciphertext-only-no-secret-export");
+            if (!state.contains(QStringLiteral("e2eFileEnvelopeHeader"))) {
+                state["e2eFileEnvelopeHeader"] =
+                    recoveryPolicy.value(QStringLiteral("e2eFileEnvelopeHeader")).toObject();
+            }
+        }
     }
 
     QSaveFile file(outgoingTransferStateFilePath());
@@ -2961,6 +3034,26 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
             header.remove(QStringLiteral("ciphertext"));
             status["e2eFileEnvelopeHeader"] = header;
         }
+        const bool objectRecoveryCandidate =
+            state.value("e2eFileObjectRecoveryCandidate").toBool(false);
+        status["e2eFileObjectRecoveryCandidate"] = objectRecoveryCandidate;
+        status["e2eFileOfflineObjectRecoveryReady"] =
+            state.value("e2eFileOfflineObjectRecoveryReady").toBool(false);
+        if (objectRecoveryCandidate) {
+            status["e2eFileObjectStoreKey"] = state.value("e2eFileObjectStoreKey").toString();
+            status["e2eFileObjectStoreType"] = state.value("e2eFileObjectStoreType").toString();
+            status["e2eFileObjectStoreHash"] = state.value("e2eFileObjectStoreHash").toString();
+            status["e2eFileObjectStoreSize"] = state.value("e2eFileObjectStoreSize").toString();
+            status["e2eFileObjectRecoveryReason"] =
+                state.value("e2eFileObjectRecoveryReason")
+                    .toString(QStringLiteral("e2e-file-object-recovery-read-path-unavailable"));
+            status["e2eFileObjectRecoveryAction"] =
+                state.value("e2eFileObjectRecoveryAction")
+                    .toString(QStringLiteral("resend-or-wait-for-object-recovery"));
+            status["e2eFileObjectRecoveryMaterialPolicy"] =
+                state.value("e2eFileObjectRecoveryMaterialPolicy")
+                    .toString(QStringLiteral("object-ciphertext-only-no-secret-export"));
+        }
     }
 
     const bool e2eResumeCacheEvidenceReady =
@@ -2990,6 +3083,14 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
             .toString(QStringLiteral("e2e-file-same-wire-cache-ready"));
         status["action"] = state.value("recoveryAction")
             .toString(QStringLiteral("resume-same-wire-envelope"));
+    } else if (e2eFileEncrypted
+               && state.value("e2eFileObjectRecoveryCandidate").toBool(false)) {
+        status["recoveryMode"] = QStringLiteral("resend");
+        status["canAutoResume"] = false;
+        status["reason"] = state.value("e2eFileObjectRecoveryReason")
+            .toString(QStringLiteral("e2e-file-object-recovery-read-path-unavailable"));
+        status["action"] = state.value("e2eFileObjectRecoveryAction")
+            .toString(QStringLiteral("resend-or-wait-for-object-recovery"));
     } else if (recoveryMode == QLatin1String("resend") || e2eFileEncrypted) {
         status["recoveryMode"] = QStringLiteral("resend");
         status["canAutoResume"] = false;

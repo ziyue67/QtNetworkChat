@@ -1023,6 +1023,18 @@ OfflineAttachmentValidationResult validateOfflineAttachmentForReplay(const QJson
         }
     }
 
+    if (obj["e2eFileEncrypted"].toBool(false)) {
+        QJsonObject e2eEvidence;
+        appendE2EFileFields(&e2eEvidence, obj);
+        if (!e2eEvidence.value("e2eFileEncrypted").toBool(false)
+            || !e2eEvidence.value("e2eEnvelope").isObject()) {
+            return sendOfflineAttachmentBadStateNotice(socket,
+                                                       filePath,
+                                                       fileName,
+                                                       "端到端加密离线文件恢复证据无效");
+        }
+    }
+
     return OfflineAttachmentValidationResult::Ready;
 }
 
@@ -4791,13 +4803,7 @@ bool Server::sendOfflineAttachmentToSocket(const QJsonObject& obj, const QString
         chunkObj["chunkCount"] = QString::number(chunkCount);
         chunkObj["chunkIndex"] = QString::number(index);
         chunkObj["fileData"] = QString::fromLatin1(chunk.toBase64());
-        if (obj["e2eFileEncrypted"].toBool(false)) {
-            chunkObj["e2eFileEncrypted"] = true;
-            chunkObj["e2eFileKeyId"] = obj["e2eFileKeyId"].toString();
-            chunkObj["e2eFileKeyFingerprintSha256"] = obj["e2eFileKeyFingerprintSha256"].toString();
-            chunkObj["e2eFilePlainSize"] = obj["e2eFilePlainSize"].toString();
-            chunkObj["e2eFilePlainHash"] = obj["e2eFilePlainHash"].toString();
-        }
+        appendE2EFileFields(&chunkObj, obj);
 
         QString ackRejectReason;
         qint64 ackReceivedBytes = 0;
