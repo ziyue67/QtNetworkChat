@@ -1514,6 +1514,137 @@ int main() {
                             == QStringLiteral("payload-bytes-allowed")
                         && eighthProbe.value("providerVectorSetMatched").toBool(false),
                     "linked OpenSSL provider should expose a sanitized payload-decrypt probe") && ok;
+
+        const QJsonObject runtimePreflightProbe =
+            e2eProbeProductionCryptoProviderReviewedCallableRuntimePreflight();
+        const QJsonObject invocationArmingProbe =
+            e2eProbeProductionCryptoProviderReviewedInvocationArming();
+        const QJsonObject executionAcceptanceProbe =
+            e2eProbeProductionCryptoProviderReviewedInvocationExecutionAcceptance();
+        ok = expect(runtimePreflightProbe.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-callable-runtime-preflight-v1")
+                        && runtimePreflightProbe.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-callable-runtime-preflight-not-release-gate")
+                        && !runtimePreflightProbe.value("accepted").toBool(true)
+                        && runtimePreflightProbe.value("runtimePreflightNonReleaseGate").toBool(false)
+                        && runtimePreflightProbe.value("interfaceSourceCaptured").toBool(false)
+                        && runtimePreflightProbe.value("providerReviewedOperationCallableInterfaceReadyCount").toInt() == 8
+                        && runtimePreflightProbe.value("preflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("readyPreflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("blockedPreflightCount").toInt() == 0
+                        && runtimePreflightProbe.value("failClosedPreflightCount").toInt() == 0
+                        && runtimePreflightProbe.value("interfaceReadyPreflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("abiPreflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("contractPreflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("policyPreflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("fixturePreflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("sanitizedPreflightCount").toInt() == 8
+                        && runtimePreflightProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate")
+                        && runtimePreflightProbe.value("preflights").toArray().size() == 8
+                        && !runtimePreflightProbe.value("operationInvokedByRuntimePreflight").toBool(true)
+                        && !runtimePreflightProbe.value("inputBytesCaptured").toBool(true)
+                        && !runtimePreflightProbe.value("outputBytesCaptured").toBool(true)
+                        && !runtimePreflightProbe.value("resultCaptured").toBool(true)
+                        && !runtimePreflightProbe.value("rawKeyExported").toBool(true)
+                        && !runtimePreflightProbe.value("privateMaterialExported").toBool(true)
+                        && !runtimePreflightProbe.value("sessionSecretExported").toBool(true),
+                    "explicit reviewed runtime preflight probe should produce eight ready non-release preflights") && ok;
+        const QJsonObject firstRuntimePreflight =
+            runtimePreflightProbe.value("preflights").toArray().at(0).toObject();
+        ok = expect(firstRuntimePreflight.value("operation").toString()
+                            == QStringLiteral("session-key-generation")
+                        && firstRuntimePreflight.value("runtimePreflightState").toString()
+                            == QStringLiteral("ready-for-reviewed-provider-runtime-preflight")
+                        && firstRuntimePreflight.value("runtimePreflightReady").toBool(false)
+                        && firstRuntimePreflight.value("providerSymbol").toString()
+                            == QStringLiteral("qnc_e2e_op_session_key_generation_v1")
+                        && firstRuntimePreflight.value("inputContractHashSha256").toString().size() == 64
+                        && firstRuntimePreflight.value("outputContractHashSha256").toString().size() == 64
+                        && firstRuntimePreflight.value("fixtureHashSha256").toString().size() == 64
+                        && firstRuntimePreflight.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-reviewed-callable-runtime-preflights-awaiting-audit-release-gate")
+                        && !firstRuntimePreflight.value("operationInvokedByRuntimePreflight").toBool(true)
+                        && !firstRuntimePreflight.value("inputBytesCaptured").toBool(true)
+                        && !firstRuntimePreflight.value("outputBytesCaptured").toBool(true)
+                        && !firstRuntimePreflight.value("resultCaptured").toBool(true),
+                    "explicit reviewed runtime preflight probe should keep the first preflight sanitized") && ok;
+        ok = expect(invocationArmingProbe.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-arming-v1")
+                        && invocationArmingProbe.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-arming-not-release-gate")
+                        && !invocationArmingProbe.value("accepted").toBool(true)
+                        && invocationArmingProbe.value("invocationArmingNonReleaseGate").toBool(false)
+                        && invocationArmingProbe.value("runtimePreflightSourceCaptured").toBool(false)
+                        && invocationArmingProbe.value("providerReviewedCallableRuntimePreflightReadyCount").toInt() == 8
+                        && invocationArmingProbe.value("armingCount").toInt() == 8
+                        && invocationArmingProbe.value("readyArmingCount").toInt() == 8
+                        && invocationArmingProbe.value("blockedArmingCount").toInt() == 0
+                        && invocationArmingProbe.value("failClosedArmingCount").toInt() == 0
+                        && invocationArmingProbe.value("runtimePreflightReadyArmingCount").toInt() == 8
+                        && invocationArmingProbe.value("callbackEntryArmingCount").toInt() == 8
+                        && invocationArmingProbe.value("sandboxPolicyArmingCount").toInt() == 8
+                        && invocationArmingProbe.value("resultPolicyArmingCount").toInt() == 8
+                        && invocationArmingProbe.value("sanitizedArmingCount").toInt() == 8
+                        && invocationArmingProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-armings-awaiting-audit-release-gate")
+                        && invocationArmingProbe.value("armings").toArray().size() == 8
+                        && !invocationArmingProbe.value("operationInvokedByArming").toBool(true)
+                        && !invocationArmingProbe.value("inputBytesCaptured").toBool(true)
+                        && !invocationArmingProbe.value("outputBytesCaptured").toBool(true)
+                        && !invocationArmingProbe.value("resultCaptured").toBool(true)
+                        && !invocationArmingProbe.value("rawKeyExported").toBool(true)
+                        && !invocationArmingProbe.value("privateMaterialExported").toBool(true)
+                        && !invocationArmingProbe.value("sessionSecretExported").toBool(true),
+                    "explicit reviewed invocation arming probe should produce eight ready non-release armings") && ok;
+        ok = expect(executionAcceptanceProbe.value("schema").toString()
+                            == QStringLiteral("qtnetworkchat-e2e-production-provider-reviewed-invocation-execution-acceptance-v1")
+                        && executionAcceptanceProbe.value("releaseGate").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-execution-acceptance-not-release-gate")
+                        && !executionAcceptanceProbe.value("accepted").toBool(true)
+                        && executionAcceptanceProbe.value("executionAcceptanceNonReleaseGate").toBool(false)
+                        && executionAcceptanceProbe.value("armingSourceCaptured").toBool(false)
+                        && executionAcceptanceProbe.value("providerReviewedInvocationArmingReadyCount").toInt() == 8
+                        && executionAcceptanceProbe.value("acceptanceCount").toInt() == 8
+                        && executionAcceptanceProbe.value("readyAcceptanceCount").toInt() == 8
+                        && executionAcceptanceProbe.value("blockedAcceptanceCount").toInt() == 0
+                        && executionAcceptanceProbe.value("failClosedAcceptanceCount").toInt() == 0
+                        && executionAcceptanceProbe.value("armingReadyAcceptanceCount").toInt() == 8
+                        && executionAcceptanceProbe.value("executionContractAcceptanceCount").toInt() == 8
+                        && executionAcceptanceProbe.value("vectorEvidenceAcceptanceCount").toInt() == 8
+                        && executionAcceptanceProbe.value("resultPolicyAcceptanceCount").toInt() == 8
+                        && executionAcceptanceProbe.value("sanitizedAcceptanceCount").toInt() == 8
+                        && executionAcceptanceProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-execution-acceptances-awaiting-audit-release-gate")
+                        && executionAcceptanceProbe.value("acceptances").toArray().size() == 8
+                        && !executionAcceptanceProbe.value("operationInvokedByExecutionAcceptance").toBool(true)
+                        && !executionAcceptanceProbe.value("inputBytesCaptured").toBool(true)
+                        && !executionAcceptanceProbe.value("outputBytesCaptured").toBool(true)
+                        && !executionAcceptanceProbe.value("resultCaptured").toBool(true)
+                        && !executionAcceptanceProbe.value("rawKeyExported").toBool(true)
+                        && !executionAcceptanceProbe.value("privateMaterialExported").toBool(true)
+                        && !executionAcceptanceProbe.value("sessionSecretExported").toBool(true),
+                    "explicit reviewed execution acceptance probe should produce eight ready non-release acceptances") && ok;
+        const QJsonObject firstExecutionAcceptance =
+            executionAcceptanceProbe.value("acceptances").toArray().at(0).toObject();
+        ok = expect(firstExecutionAcceptance.value("operation").toString()
+                            == QStringLiteral("session-key-generation")
+                        && firstExecutionAcceptance.value("executionAcceptanceState").toString()
+                            == QStringLiteral("ready-for-reviewed-provider-invocation-execution-acceptance")
+                        && firstExecutionAcceptance.value("executionAcceptanceReady").toBool(false)
+                        && firstExecutionAcceptance.value("expectedVectorResultClass").toString()
+                            == QStringLiteral("probe-vector-passed")
+                        && firstExecutionAcceptance.value("expectedFailureClass").toString()
+                            == QStringLiteral("none")
+                        && firstExecutionAcceptance.value("expectedStatusClass").toString()
+                            == QStringLiteral("ok")
+                        && firstExecutionAcceptance.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-reviewed-invocation-execution-acceptances-awaiting-audit-release-gate")
+                        && !firstExecutionAcceptance.value("operationInvokedByExecutionAcceptance").toBool(true)
+                        && !firstExecutionAcceptance.value("inputBytesCaptured").toBool(true)
+                        && !firstExecutionAcceptance.value("outputBytesCaptured").toBool(true)
+                        && !firstExecutionAcceptance.value("resultCaptured").toBool(true),
+                    "explicit reviewed execution acceptance probe should keep the first acceptance non-invoking") && ok;
     }
 
     const E2EEnvelope envelope = encryptE2EPayload(QStringLiteral("10001"),
