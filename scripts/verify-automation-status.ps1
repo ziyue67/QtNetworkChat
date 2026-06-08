@@ -322,7 +322,7 @@ foreach ($expected in @(
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
     'Summary: `Read-only governance sweep that writes redacted dashboard, reports, diagnostics, last-run, and task history artifacts.`',
     'Automation watch gate: state=`preview-only`, tasks=`2`, registered=`0`, previewOnly=`2`, invalid=`0`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
-    'Scheduled task registry readback: state=`preview-only`, tasks=`2`, expectedRegistered=`0`, found=`0`, missing=`0`, previewOnly=`2`, unreadable=`0`, source=`Get-ScheduledTask`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
+    'Scheduled task registry readback: state=`preview-only`, tasks=`2`, expectedRegistered=`0`, found=`0`, missing=`0`, registrationFailed=`0`, previewOnly=`2`, unreadable=`0`, source=`Get-ScheduledTask`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
     'Scheduler task: kind=`database-health`, name=`unknown`, expectedRegistered=`false`, readback=`preview-only`, schedulerState=`unknown`, taskPath=`unknown`, source=`preview`',
     'Scheduler task: kind=`large-file-governance`, name=`unknown`, expectedRegistered=`false`, readback=`preview-only`, schedulerState=`unknown`, taskPath=`unknown`, source=`preview`',
     'Generic Task Readback',
@@ -536,12 +536,15 @@ $bootstrapPlanOutput = & powershell -ExecutionPolicy Bypass -File $bootstrapScri
     -Register `
     -User "SYSTEM" `
     -PlanOnly `
+    -FailOnRegistrationFailure `
     -FailOnSensitive
 foreach ($expected in @(
     '"format":  "qtnetworkchat-automation-task-bootstrap-plan-v1"',
     '"register":  true',
     '"user":  "SYSTEM"',
-    '"scheduledTaskReadbackPath":'
+    '"scheduledTaskReadbackPath":',
+    '"registrationAttemptPath":',
+    '"failOnRegistrationFailure":  true'
 )) {
     Assert-Contains -Text ($bootstrapPlanOutput -join "`n") -Expected $expected
 }
@@ -571,7 +574,7 @@ foreach ($expected in @(
     'Preview task: label=`database-health`, kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
     'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`, path=`',
     'Preview task: label=`generic`, kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, display=`PostgreSQL release acceptance`, state=`ok`, format=`qtnetworkchat-pgsql-release-acceptance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@04:45`, path=`',
-    'Scheduled task registry readback: state=`preview-only`, tasks=`3`, expectedRegistered=`0`, found=`0`, missing=`0`, previewOnly=`3`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
+    'Scheduled task registry readback: state=`preview-only`, tasks=`3`, expectedRegistered=`0`, found=`0`, missing=`0`, registrationFailed=`0`, previewOnly=`3`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
     'Generic task readback: `typed task readback active; no unclassified generic tasks`',
     'PostgreSQL release acceptance: name=`QtNetworkChatPgsqlReleaseAcceptance`, status=`configured/ok=true`, lastRun=`0`, history=`runs=1`, ack=`ack=false`, evidence=`ok`',
     'Database health: status=`configured`, ok=`true`, driver=`QPSQL`, checks=`0`, failedChecks=`0`, slowQueries=`0`, queryFailures=`0`',
@@ -602,6 +605,30 @@ foreach ($forbidden in @(
     Assert-NotContains -Text $defaultBootstrapMarkdown -Forbidden $forbidden
 }
 Assert-NoFixedMirrorBranchPolicy -Text $defaultBootstrapMarkdown
+
+$defaultRegistrationAttemptPath = Join-Path $defaultBootstrapDir "scheduled-task-registration-attempt.json"
+if (-not (Test-Path -LiteralPath $defaultRegistrationAttemptPath -PathType Leaf)) {
+    throw "Default bootstrap registration attempt artifact was not created"
+}
+$defaultRegistrationAttempt = Get-Content -LiteralPath $defaultRegistrationAttemptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+foreach ($expected in @(
+    "qtnetworkchat-scheduled-task-registration-attempt-v1",
+    $false,
+    3,
+    0
+)) {
+    if (@($defaultRegistrationAttempt.format, $defaultRegistrationAttempt.registrationRequested, $defaultRegistrationAttempt.taskCount, $defaultRegistrationAttempt.failedCount) -notcontains $expected) {
+        throw "Default bootstrap registration attempt artifact missing expected value: $expected"
+    }
+}
+foreach ($task in @($defaultRegistrationAttempt.tasks)) {
+    if ($task.status -ne "preview-generated") {
+        throw "Default bootstrap registration attempt task was not preview-generated: $($task.taskName)"
+    }
+    if ($task.failureClass -ne "none") {
+        throw "Default bootstrap registration attempt task has unexpected failure class: $($task.taskName) => $($task.failureClass)"
+    }
+}
 
 $planOutput = & $ScriptPath `
     -PlanOnly `
@@ -636,6 +663,7 @@ $configuredDbPreviewPath = Join-Path $configuredTempDir "database-health-task-pr
 $configuredGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-task-preview.json"
 $registeredTaskReadbackPath = Join-Path $configuredTempDir "registered-task-readback.json"
 $missingTaskReadbackPath = Join-Path $configuredTempDir "missing-task-readback.json"
+$registrationFailedReadbackPath = Join-Path $configuredTempDir "registration-failed-task-readback.json"
 Ensure-Directory -Path $configuredTempDir
 
 ([ordered]@{
@@ -956,7 +984,7 @@ foreach ($expected in @(
     'Preview task: label=`generic`, kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, display=`PostgreSQL smoke`, state=`ok`, format=`qtnetworkchat-pgsql-smoke-task-preview-v1`, readOnly=`true`, register=`true`, schedule=`Hourly/6 h@04:20`, path=`',
     'Preview task: label=`generic`, kind=`pgsql-migration`, name=`PgsqlMigrationTask`, display=`PostgreSQL migration`, state=`ok`, format=`qtnetworkchat-pgsql-migration-task-preview-v1`, readOnly=`true`, register=`true`, schedule=`Daily@06:40`, path=`',
     'Automation watch gate: state=`registered-ack-gated`, tasks=`3`, registered=`3`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-unacknowledged-failure`, action=`acknowledge failed automation task before release`',
-    'Scheduled task registry readback: state=`registered`, tasks=`3`, expectedRegistered=`3`, found=`3`, missing=`0`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`scheduled-task-readback-registered`, action=`verify scheduler run history stays fresh before release`',
+    'Scheduled task registry readback: state=`registered`, tasks=`3`, expectedRegistered=`3`, found=`3`, missing=`0`, registrationFailed=`0`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`scheduled-task-readback-registered`, action=`verify scheduler run history stays fresh before release`',
     'Scheduler task: kind=`custom-ops`, name=`CustomOpsTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Ready`, taskPath=`\QtNetworkChat\`, source=`artifact`',
     'Scheduler task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Ready`, taskPath=`\QtNetworkChat\`, source=`artifact`',
     'Scheduler task: kind=`pgsql-migration`, name=`PgsqlMigrationTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Disabled`, taskPath=`\QtNetworkChat\`, source=`artifact`',
@@ -1009,13 +1037,65 @@ $missingTaskMarkdownPath = Join-Path $configuredTempDir "automation-status-missi
 $missingTaskMarkdown = Get-Content -LiteralPath $missingTaskMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'Automation watch gate: state=`registered-missing`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-scheduled-task-missing`, action=`restore missing scheduled tasks before release`',
-    'Scheduled task registry readback: state=`registered-missing`, tasks=`2`, expectedRegistered=`2`, found=`1`, missing=`1`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-scheduled-task-missing`, action=`restore missing scheduled tasks before release`',
+    'Scheduled task registry readback: state=`registered-missing`, tasks=`2`, expectedRegistered=`2`, found=`1`, missing=`1`, registrationFailed=`0`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-scheduled-task-missing`, action=`restore missing scheduled tasks before release`',
     'Scheduler task: kind=`custom-ops`, name=`CustomOpsTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Ready`, taskPath=`\QtNetworkChat\`, source=`artifact`',
     'Scheduler task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, expectedRegistered=`true`, readback=`missing`, schedulerState=`unknown`, taskPath=`unknown`, source=`artifact`'
 )) {
     Assert-Contains -Text $missingTaskMarkdown -Expected $expected
 }
 Assert-NoFixedMirrorBranchPolicy -Text $missingTaskMarkdown
+
+([ordered]@{
+    format = "qtnetworkchat-scheduled-task-readback-v1"
+    registrationRequested = $true
+    tasks = @(
+        [ordered]@{
+            taskName = "CustomOpsTask"
+            registered = $false
+            state = "registration-failed"
+            schedulerState = "unknown"
+            taskPath = "unknown"
+            source = "registration-attempt+Get-ScheduledTask"
+            registrationStatus = "registration-failed"
+            registrationExitCode = "1"
+            registrationFailureClass = "permission-denied"
+        },
+        [ordered]@{
+            taskName = "PgsqlSmokeTask"
+            registered = $false
+            state = "registration-failed"
+            schedulerState = "unknown"
+            taskPath = "unknown"
+            source = "registration-attempt+Get-ScheduledTask"
+            registrationStatus = "registration-failed"
+            registrationExitCode = "1"
+            registrationFailureClass = "permission-denied"
+        }
+    )
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $registrationFailedReadbackPath -Encoding UTF8
+$registrationFailedMarkdownPath = Join-Path $configuredTempDir "automation-status-registration-failed.md"
+& $ScriptPath `
+    -MarkdownPath $registrationFailedMarkdownPath `
+    -Head "8899ac2" `
+    -OriginMain "8899ac2" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath) `
+    -ScheduledTaskReadbackJsonPath $registrationFailedReadbackPath `
+    -FailOnSensitive
+
+$registrationFailedMarkdown = Get-Content -LiteralPath $registrationFailedMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Automation watch gate: state=`registration-failed`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-scheduled-task-registration-failed`, action=`review scheduled task registration attempt evidence before release`',
+    'Scheduled task registry readback: state=`registration-failed`, tasks=`2`, expectedRegistered=`2`, found=`0`, missing=`0`, registrationFailed=`2`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-scheduled-task-registration-failed`, action=`review scheduled task registration attempt evidence before release`',
+    'Scheduler task: kind=`custom-ops`, name=`CustomOpsTask`, expectedRegistered=`true`, readback=`registration-failed`, schedulerState=`unknown`, taskPath=`unknown`, source=`registration-attempt+Get-ScheduledTask`',
+    'Scheduler task: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, expectedRegistered=`true`, readback=`registration-failed`, schedulerState=`unknown`, taskPath=`unknown`, source=`registration-attempt+Get-ScheduledTask`'
+)) {
+    Assert-Contains -Text $registrationFailedMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $registrationFailedMarkdown
 
 $expiredHistoryPath = Join-Path $configuredTempDir "expired-task-history.json"
 $expiredAckPath = Join-Path $configuredTempDir "expired-task-ack.json"

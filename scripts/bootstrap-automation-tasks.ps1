@@ -11,6 +11,10 @@ param(
 
     [string]$ScheduledTaskReadbackPath,
 
+    [string]$RegistrationAttemptPath,
+
+    [switch]$FailOnRegistrationFailure,
+
     [switch]$PlanOnly,
 
     [switch]$FailOnSensitive
@@ -76,7 +80,56 @@ function Write-TextFile([string]$PathValue, [string]$Text) {
     $Text | Set-Content -LiteralPath $PathValue -Encoding UTF8
 }
 
-function New-ScheduledTaskReadbackEntry([string]$TaskName, [bool]$RegistrationRequested) {
+function Get-RegistrationFailureClass([int]$ExitCode, [string[]]$Lines) {
+    if ($ExitCode -eq 0) {
+        return "none"
+    }
+    $text = (@($Lines) -join "`n").ToLowerInvariant()
+    if ($text -match "access is denied" -or $text -match "拒绝访问" -or $text -match "0x80070005") {
+        return "permission-denied"
+    }
+    if ($text -match "register-scheduledtask" -or $text -match "scheduled task" -or $text -match "scheduledtask") {
+        return "scheduler-error"
+    }
+    "helper-failed"
+}
+
+function Invoke-AutomationTaskHelper([string]$TaskKind, [string]$TaskName, [string[]]$Arguments, [bool]$RegistrationRequested) {
+    $output = @()
+    $exitCode = 0
+    try {
+        $output = @(& powershell @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } catch {
+        $output = @([string]$_.Exception.Message)
+        $exitCode = 1
+    }
+    $status = if ($exitCode -eq 0) {
+        if ($RegistrationRequested) { "registration-command-succeeded" } else { "preview-generated" }
+    } else {
+        if ($RegistrationRequested) { "registration-failed" } else { "preview-failed" }
+    }
+    [pscustomobject]@{
+        taskKind = $TaskKind
+        taskName = $TaskName
+        registrationRequested = $RegistrationRequested
+        exitCode = $exitCode
+        status = $status
+        failureClass = Get-RegistrationFailureClass $exitCode $output
+        outputLineCount = @($output).Count
+    }
+}
+
+function Find-RegistrationResult([object[]]$RegistrationResults, [string]$TaskName) {
+    foreach ($result in @($RegistrationResults)) {
+        if ([string]$result.taskName -eq $TaskName) {
+            return $result
+        }
+    }
+    $null
+}
+
+function New-ScheduledTaskReadbackEntry([string]$TaskName, [bool]$RegistrationRequested, [object[]]$RegistrationResults) {
     $entry = [ordered]@{
         taskName = $TaskName
         registered = $false
@@ -85,6 +138,15 @@ function New-ScheduledTaskReadbackEntry([string]$TaskName, [bool]$RegistrationRe
         taskPath = "unknown"
         source = "Get-ScheduledTask"
         registrationRequested = $RegistrationRequested
+        registrationStatus = "not-requested"
+        registrationExitCode = "unknown"
+        registrationFailureClass = "none"
+    }
+    $registrationResult = Find-RegistrationResult $RegistrationResults $TaskName
+    if ($null -ne $registrationResult) {
+        $entry.registrationStatus = [string]$registrationResult.status
+        $entry.registrationExitCode = [string]$registrationResult.exitCode
+        $entry.registrationFailureClass = [string]$registrationResult.failureClass
     }
 
     $command = Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue
@@ -101,6 +163,9 @@ function New-ScheduledTaskReadbackEntry([string]$TaskName, [bool]$RegistrationRe
             $entry.state = "registered"
             $entry.schedulerState = [string]$task.State
             $entry.taskPath = [string]$task.TaskPath
+        } elseif ($RegistrationRequested -and $null -ne $registrationResult -and [int]$registrationResult.exitCode -ne 0) {
+            $entry.state = "registration-failed"
+            $entry.source = "registration-attempt+Get-ScheduledTask"
         }
     } catch {
         $entry.state = "scheduler-readback-unavailable"
@@ -110,14 +175,28 @@ function New-ScheduledTaskReadbackEntry([string]$TaskName, [bool]$RegistrationRe
     [pscustomobject]$entry
 }
 
-function Write-ScheduledTaskReadback([string]$PathValue, [string[]]$TaskNames, [bool]$RegistrationRequested) {
+function Write-ScheduledTaskReadback([string]$PathValue, [string[]]$TaskNames, [bool]$RegistrationRequested, [object[]]$RegistrationResults) {
     $readback = [ordered]@{
         format = "qtnetworkchat-scheduled-task-readback-v1"
         generatedAt = (Get-Date).ToUniversalTime().ToString("o")
         registrationRequested = $RegistrationRequested
-        tasks = @($TaskNames | ForEach-Object { New-ScheduledTaskReadbackEntry $_ $RegistrationRequested })
+        tasks = @($TaskNames | ForEach-Object { New-ScheduledTaskReadbackEntry $_ $RegistrationRequested $RegistrationResults })
     }
     Write-JsonFile $PathValue $readback 8
+}
+
+function Write-RegistrationAttempt([string]$PathValue, [object[]]$RegistrationResults, [bool]$RegistrationRequested, [string]$UserValue) {
+    $failed = @($RegistrationResults | Where-Object { [int]$_.exitCode -ne 0 })
+    $payload = [ordered]@{
+        format = "qtnetworkchat-scheduled-task-registration-attempt-v1"
+        generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+        registrationRequested = $RegistrationRequested
+        user = $UserValue
+        taskCount = @($RegistrationResults).Count
+        failedCount = @($failed).Count
+        tasks = @($RegistrationResults)
+    }
+    Write-JsonFile $PathValue $payload 8
 }
 
 Assert-NoSensitiveText "OutputDir" @($OutputDir)
@@ -129,6 +208,12 @@ if ([string]::IsNullOrWhiteSpace($ScheduledTaskReadbackPath)) {
 } else {
     Assert-NoSensitiveText "ScheduledTaskReadbackPath" @($ScheduledTaskReadbackPath)
     $ScheduledTaskReadbackPath = Resolve-RepoPath $ScheduledTaskReadbackPath
+}
+if ([string]::IsNullOrWhiteSpace($RegistrationAttemptPath)) {
+    $RegistrationAttemptPath = Join-Path $resolvedOutputDir "scheduled-task-registration-attempt.json"
+} else {
+    Assert-NoSensitiveText "RegistrationAttemptPath" @($RegistrationAttemptPath)
+    $RegistrationAttemptPath = Resolve-RepoPath $RegistrationAttemptPath
 }
 $registerDatabaseHealthScript = Join-Path $PSScriptRoot "register-database-health-task.ps1"
 $registerLargeFileGovernanceScript = Join-Path $PSScriptRoot "register-large-file-governance-task.ps1"
@@ -151,6 +236,8 @@ if ($PlanOnly.IsPresent) {
         register = $Register.IsPresent
         user = $User
         scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
+        registrationAttemptPath = Convert-ToRepoRelativePath $RegistrationAttemptPath
+        failOnRegistrationFailure = $FailOnRegistrationFailure.IsPresent
         readOnly = $true
     }
     $summary | ConvertTo-Json -Depth 6
@@ -165,6 +252,7 @@ $govOutputDir = Join-Path $resolvedOutputDir "large-file-governance"
 $govTaskDir = Join-Path $govOutputDir "scheduled-task"
 $pgsqlOutputDir = Join-Path $resolvedOutputDir "pgsql-release-acceptance"
 $pgsqlTaskDir = Join-Path $pgsqlOutputDir "pgsql-release-acceptance-task"
+$registrationResults = New-Object System.Collections.Generic.List[object]
 
 $dbRegisterArgs = @(
     "-ExecutionPolicy", "Bypass",
@@ -180,8 +268,11 @@ if ($Register.IsPresent) {
 } else {
     $dbRegisterArgs += "-PlanOnly"
 }
-& powershell @dbRegisterArgs
-if ($LASTEXITCODE -ne 0) { throw "database health task preview bootstrap failed with exit code $LASTEXITCODE" }
+$dbRegistrationResult = Invoke-AutomationTaskHelper "database-health" "QtNetworkChatDatabaseHealth" $dbRegisterArgs $Register.IsPresent
+$registrationResults.Add($dbRegistrationResult)
+if (-not $Register.IsPresent -and [int]$dbRegistrationResult.exitCode -ne 0) {
+    throw "database health task preview bootstrap failed with exit code $($dbRegistrationResult.exitCode)"
+}
 
 $govRegisterArgs = @(
     "-ExecutionPolicy", "Bypass",
@@ -199,8 +290,11 @@ $govRegisterArgs = @(
 if ($Register.IsPresent) {
     $govRegisterArgs += @("-Register", "-User", $User)
 }
-& powershell @govRegisterArgs
-if ($LASTEXITCODE -ne 0) { throw "large-file governance task preview bootstrap failed with exit code $LASTEXITCODE" }
+$govRegistrationResult = Invoke-AutomationTaskHelper "large-file-governance" "QtNetworkChatLargeFileGovernance" $govRegisterArgs $Register.IsPresent
+$registrationResults.Add($govRegistrationResult)
+if (-not $Register.IsPresent -and [int]$govRegistrationResult.exitCode -ne 0) {
+    throw "large-file governance task preview bootstrap failed with exit code $($govRegistrationResult.exitCode)"
+}
 
 $pgsqlRegisterArgs = @(
     "-ExecutionPolicy", "Bypass",
@@ -213,8 +307,11 @@ if ($Register.IsPresent) {
 } else {
     $pgsqlRegisterArgs += @("-PlanOnly", "-SkipEvidencePackage")
 }
-& powershell @pgsqlRegisterArgs
-if ($LASTEXITCODE -ne 0) { throw "PostgreSQL release acceptance task preview bootstrap failed with exit code $LASTEXITCODE" }
+$pgsqlRegistrationResult = Invoke-AutomationTaskHelper "pgsql-release-acceptance" "QtNetworkChatPgsqlReleaseAcceptance" $pgsqlRegisterArgs $Register.IsPresent
+$registrationResults.Add($pgsqlRegistrationResult)
+if (-not $Register.IsPresent -and [int]$pgsqlRegistrationResult.exitCode -ne 0) {
+    throw "PostgreSQL release acceptance task preview bootstrap failed with exit code $($pgsqlRegistrationResult.exitCode)"
+}
 
 $dbStatusPath = Join-Path $dbOutputDir "database-health-status.json"
 $dbLastRunPath = Join-Path $dbTaskDir "last-run.log"
@@ -331,11 +428,21 @@ foreach ($task in @(
     if ($LASTEXITCODE -ne 0) { throw "automation history bootstrap failed with exit code $LASTEXITCODE" }
 }
 
-Write-ScheduledTaskReadback $ScheduledTaskReadbackPath @(
+$defaultTaskNames = @(
     "QtNetworkChatDatabaseHealth",
     "QtNetworkChatLargeFileGovernance",
     "QtNetworkChatPgsqlReleaseAcceptance"
-) $Register.IsPresent
+)
+Write-ScheduledTaskReadback `
+    -PathValue $ScheduledTaskReadbackPath `
+    -TaskNames $defaultTaskNames `
+    -RegistrationRequested $Register.IsPresent `
+    -RegistrationResults ([object[]]$registrationResults.ToArray())
+Write-RegistrationAttempt `
+    -PathValue $RegistrationAttemptPath `
+    -RegistrationResults ([object[]]$registrationResults.ToArray()) `
+    -RegistrationRequested $Register.IsPresent `
+    -UserValue $User
 
 $summaryPath = Join-Path $resolvedOutputDir "automation-task-bootstrap.json"
 $summary = [ordered]@{
@@ -347,6 +454,7 @@ $summary = [ordered]@{
     register = $Register.IsPresent
     user = $User
     scheduledTaskReadbackPath = Convert-ToRepoRelativePath $ScheduledTaskReadbackPath
+    registrationAttemptPath = Convert-ToRepoRelativePath $RegistrationAttemptPath
     databaseHealth = [ordered]@{
         previewPath = Convert-ToRepoRelativePath (Join-Path $dbTaskDir "database-health-task-preview.json")
         statusPath = Convert-ToRepoRelativePath $dbStatusPath
@@ -376,4 +484,10 @@ $summary | ConvertTo-Json -Depth 8
 if ($FailOnSensitive) {
     $raw = Get-Content -LiteralPath $summaryPath -Raw -Encoding UTF8
     Assert-NoSensitiveText "bootstrap summary" @($raw)
+}
+
+$registrationFailures = @($registrationResults | Where-Object { [int]$_.exitCode -ne 0 })
+if ($Register.IsPresent -and $FailOnRegistrationFailure.IsPresent -and $registrationFailures.Count -gt 0) {
+    Write-Host ("scheduled task registration failed for {0} task(s); evidence: {1}" -f $registrationFailures.Count, $RegistrationAttemptPath)
+    exit 3
 }

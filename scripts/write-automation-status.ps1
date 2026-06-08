@@ -1120,7 +1120,7 @@ function Read-ScheduledTaskReadbackArtifact([string]$PathValue) {
             state = $readbackState
             schedulerState = $schedulerState
             taskPath = $taskPath
-            source = "artifact"
+            source = Format-StatusValue (Get-JsonValue $entry "source" "artifact")
         }
     }
     $result.state = "ok"
@@ -1219,6 +1219,7 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
         expectedRegisteredCount = 0
         registeredFoundCount = 0
         registeredMissingCount = 0
+        registrationFailedCount = 0
         previewOnlyCount = 0
         unreadableCount = 0
         releaseGate = "scheduled-task-readback-not-configured"
@@ -1270,6 +1271,8 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
         $taskState = Format-StatusValue $taskReadback.state
         if (Convert-StatusBoolean $taskReadback.registered $false) {
             $result.registeredFoundCount++
+        } elseif ($taskState -eq "registration-failed") {
+            $result.registrationFailedCount++
         } elseif ($taskState -eq "missing") {
             $result.registeredMissingCount++
         } else {
@@ -1295,6 +1298,10 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
         $result.state = "no-registered-tasks"
         $result.releaseGate = "automation-watch-not-registered"
         $result.action = "register at least one automation task before release"
+    } elseif ($result.registrationFailedCount -gt 0) {
+        $result.state = "registration-failed"
+        $result.releaseGate = "blocked-scheduled-task-registration-failed"
+        $result.action = "review scheduled task registration attempt evidence before release"
     } elseif ($result.registeredMissingCount -gt 0) {
         $result.state = "registered-missing"
         $result.releaseGate = "blocked-scheduled-task-missing"
@@ -1810,12 +1817,13 @@ if ($automationTaskWatchGate.configured) {
             (Format-StatusValue $automationTaskWatchGate.action)))
 }
 if ($scheduledTaskRegistryReadback.configured) {
-    $lines.Add(('- Scheduled task registry readback: state=`{0}`, tasks=`{1}`, expectedRegistered=`{2}`, found=`{3}`, missing=`{4}`, previewOnly=`{5}`, unreadable=`{6}`, source=`{7}`, releaseGate=`{8}`, action=`{9}`' -f `
+    $lines.Add(('- Scheduled task registry readback: state=`{0}`, tasks=`{1}`, expectedRegistered=`{2}`, found=`{3}`, missing=`{4}`, registrationFailed=`{5}`, previewOnly=`{6}`, unreadable=`{7}`, source=`{8}`, releaseGate=`{9}`, action=`{10}`' -f `
             (Format-StatusValue $scheduledTaskRegistryReadback.state), `
             (Format-StatusValue $scheduledTaskRegistryReadback.taskCount), `
             (Format-StatusValue $scheduledTaskRegistryReadback.expectedRegisteredCount), `
             (Format-StatusValue $scheduledTaskRegistryReadback.registeredFoundCount), `
             (Format-StatusValue $scheduledTaskRegistryReadback.registeredMissingCount), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.registrationFailedCount), `
             (Format-StatusValue $scheduledTaskRegistryReadback.previewOnlyCount), `
             (Format-StatusValue $scheduledTaskRegistryReadback.unreadableCount), `
             (Format-StatusValue $scheduledTaskRegistryReadback.source), `
