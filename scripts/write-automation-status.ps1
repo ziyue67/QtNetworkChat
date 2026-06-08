@@ -34,6 +34,8 @@ param(
     [string]$DefaultTaskUser = "SYSTEM",
     [int]$TaskAckExpiryHours = 72,
     [int]$TaskHistoryRetentionCount = 30,
+    [int]$TaskHistoryFreshnessHours = 24,
+    [string]$StatusNowUtc = "",
     [string[]]$ProtectedUntracked = @(".polaris/", "AGENTS.md"),
     [switch]$PlanOnly,
     [switch]$FailOnSensitive
@@ -414,6 +416,21 @@ function Convert-StatusBoolean([object]$Value, [bool]$DefaultValue) {
         return $false
     }
     $DefaultValue
+}
+
+function Convert-ToUtcDateTimeOffset([object]$Value) {
+    $text = Format-StatusValue $Value
+    if ($text -eq "unknown") {
+        return $null
+    }
+    try {
+        return [System.DateTimeOffset]::Parse(
+            $text,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal)
+    } catch {
+        return $null
+    }
 }
 
 function Get-AckReminderReadback([object]$HistoryState, [bool]$Configured) {
@@ -1211,6 +1228,110 @@ function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [objec
     [pscustomobject]$result
 }
 
+function Get-AutomationTaskHistoryFreshnessReadback([object[]]$TaskPairs, [object]$SchedulerReadback, [int]$FreshnessHours, [System.DateTimeOffset]$NowUtc) {
+    $result = [ordered]@{
+        configured = $false
+        state = "not-configured"
+        taskCount = 0
+        freshTaskCount = 0
+        staleTaskCount = 0
+        unavailableTaskCount = 0
+        unparseableTaskCount = 0
+        thresholdHours = $FreshnessHours
+        releaseGate = "not-configured"
+        action = "none"
+        details = @()
+    }
+    if ($FreshnessHours -le 0) {
+        $result.state = "disabled"
+        $result.releaseGate = "disabled"
+        return [pscustomobject]$result
+    }
+    if ($null -eq $SchedulerReadback -or -not $SchedulerReadback.configured -or
+        $SchedulerReadback.releaseGate -ne "scheduled-task-readback-registered") {
+        return [pscustomobject]$result
+    }
+
+    $registeredNames = @{}
+    foreach ($taskReadback in @($SchedulerReadback.details)) {
+        if ($taskReadback.expectedRegistered -eq "true" -and $taskReadback.readback -eq "registered") {
+            $registeredNames[(Format-StatusValue $taskReadback.taskName)] = $true
+        }
+    }
+    $registeredPairs = @($TaskPairs | Where-Object {
+            $null -ne $_ -and $registeredNames.ContainsKey((Format-StatusValue $_.taskName))
+        })
+    if ($registeredPairs.Count -le 0) {
+        return [pscustomobject]$result
+    }
+
+    $result.configured = $true
+    $details = New-Object System.Collections.Generic.List[object]
+    foreach ($pair in $registeredPairs) {
+        $state = "fresh"
+        $latestAt = "unknown"
+        $ageHours = "unknown"
+        $releaseGate = "fresh"
+        if ($null -eq $pair.historyState -or $pair.historyState.state -ne "ok") {
+            $state = "history-unavailable"
+            $releaseGate = "automation-task-history-unavailable"
+            $result.unavailableTaskCount++
+        } else {
+            $latestRun = Get-JsonValue $pair.historyState.value "latestRun" $null
+            $latestTime = Convert-ToUtcDateTimeOffset (Get-JsonValue $latestRun "timestamp" $null)
+            if ($null -eq $latestTime) {
+                $state = "history-unparseable"
+                $releaseGate = "automation-task-history-timestamp-unparseable"
+                $result.unparseableTaskCount++
+            } else {
+                $ageValue = ($NowUtc - $latestTime).TotalHours
+                if ($ageValue -lt 0) {
+                    $ageValue = 0
+                }
+                $ageHours = [math]::Round($ageValue, 1)
+                $latestAt = $latestTime.UtcDateTime.ToString("o")
+                if ($ageValue -gt $FreshnessHours) {
+                    $state = "history-stale"
+                    $releaseGate = "blocked-stale-automation-task-history"
+                    $result.staleTaskCount++
+                } else {
+                    $result.freshTaskCount++
+                }
+            }
+        }
+        $details.Add([pscustomobject]@{
+                taskKind = $pair.taskKind
+                taskName = $pair.taskName
+                state = $state
+                latestAt = $latestAt
+                ageHours = $ageHours
+                thresholdHours = $FreshnessHours
+                releaseGate = $releaseGate
+            })
+    }
+
+    $result.taskCount = $registeredPairs.Count
+    $result.details = [object[]]$details.ToArray()
+    if ($result.unavailableTaskCount -gt 0) {
+        $result.state = "history-unavailable"
+        $result.releaseGate = "automation-task-history-unavailable"
+        $result.action = "restore registered automation task history artifacts before release"
+    } elseif ($result.unparseableTaskCount -gt 0) {
+        $result.state = "history-unparseable"
+        $result.releaseGate = "automation-task-history-timestamp-unparseable"
+        $result.action = "regenerate automation task history with latestRun.timestamp before release"
+    } elseif ($result.staleTaskCount -gt 0) {
+        $result.state = "history-stale"
+        $result.releaseGate = "blocked-stale-automation-task-history"
+        $result.action = "run registered automation tasks and refresh history before release"
+    } else {
+        $result.state = "fresh"
+        $result.releaseGate = "fresh"
+        $result.action = "none"
+    }
+    [pscustomobject]$result
+}
+
 function Read-ScheduledTaskReadbackArtifact([string]$PathValue) {
     $result = [ordered]@{
         configured = $false
@@ -1456,7 +1577,7 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
     [pscustomobject]$result
 }
 
-function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate, [object]$SchedulerReadback) {
+function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate, [object]$SchedulerReadback, [object]$FreshnessGate) {
     $totalCount = @($PreviewRecords).Count
     $result = [ordered]@{
         configured = $totalCount -gt 0
@@ -1504,10 +1625,14 @@ function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]
         $result.state = "registered-ack-gated"
         $result.releaseGate = $AckGate.releaseGate
         $result.action = $AckGate.action
+    } elseif ($null -ne $FreshnessGate -and $FreshnessGate.configured -and $FreshnessGate.releaseGate -ne "fresh") {
+        $result.state = "registered-history-gated"
+        $result.releaseGate = $FreshnessGate.releaseGate
+        $result.action = $FreshnessGate.action
     } else {
         $result.state = "registered"
         $result.releaseGate = "automation-watch-registered"
-        $result.action = "verify scheduler run history stays fresh before release"
+        $result.action = "none"
     }
     [pscustomobject]$result
 }
@@ -1787,7 +1912,11 @@ foreach ($entry in $ProtectedUntracked) {
     }
 }
 $protectedText = if ($normalizedProtectedUntracked.Count -gt 0) { $normalizedProtectedUntracked -join ", " } else { "none" }
-$generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+$statusNow = Convert-ToUtcDateTimeOffset $StatusNowUtc
+if ($null -eq $statusNow) {
+    $statusNow = [System.DateTimeOffset]::UtcNow
+}
+$generatedAt = $statusNow.UtcDateTime.ToString("o")
 $databaseHealthPreviewRecord = @($databaseHealthPreviewCandidates | Select-Object -First 1)[0]
 $largeFileGovernancePreviewRecord = @($largeFileGovernancePreviewCandidates | Select-Object -First 1)[0]
 $databaseHealthStatusConfigMatch = Find-PreviewRecordForArtifact $databaseHealthPreviewCandidates @("statusArtifactPath", "statusPath") "status"
@@ -1827,7 +1956,8 @@ $automationTaskAckGateConfigured = Has-ConfigurationHint @(
 $automationTaskAckSingleGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
 $automationTaskAckGate = Get-AutomationTaskAckGateAggregateReadback $automationTaskHistoryAckPairs $automationTaskAckSingleGate $automationTaskAckGateConfigured
 $scheduledTaskRegistryReadback = Get-ScheduledTaskRegistryReadback @($previewRecords) $ScheduledTaskReadbackJsonPath
-$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback
+$automationTaskHistoryFreshnessGate = Get-AutomationTaskHistoryFreshnessReadback $automationTaskHistoryAckPairs $scheduledTaskRegistryReadback $TaskHistoryFreshnessHours $statusNow
+$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback $automationTaskHistoryFreshnessGate
 $automationTaskAckReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured
 
 $databaseHealthStatus = $databaseHealthStatusState.value
@@ -1979,6 +2109,28 @@ if ($scheduledTaskRegistryReadback.configured) {
                 (Format-StatusValue $taskReadback.schedulerState), `
                 (Format-StatusValue $taskReadback.taskPath), `
                 (Format-StatusValue $taskReadback.source)))
+    }
+}
+if ($automationTaskHistoryFreshnessGate.configured) {
+    $lines.Add(('- Task history freshness gate: state=`{0}`, tasks=`{1}`, fresh=`{2}`, stale=`{3}`, unavailable=`{4}`, unparseable=`{5}`, thresholdHours=`{6}`, releaseGate=`{7}`, action=`{8}`' -f `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.state), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.taskCount), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.freshTaskCount), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.staleTaskCount), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.unavailableTaskCount), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.unparseableTaskCount), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.thresholdHours), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.releaseGate), `
+            (Format-StatusValue $automationTaskHistoryFreshnessGate.action)))
+    foreach ($freshnessDetail in @($automationTaskHistoryFreshnessGate.details)) {
+        $lines.Add(('  Task history freshness: kind=`{0}`, name=`{1}`, state=`{2}`, latestAt=`{3}`, ageHours=`{4}`, thresholdHours=`{5}`, releaseGate=`{6}`' -f `
+                (Format-StatusValue $freshnessDetail.taskKind), `
+                (Format-StatusValue $freshnessDetail.taskName), `
+                (Format-StatusValue $freshnessDetail.state), `
+                (Format-StatusValue $freshnessDetail.latestAt), `
+                (Format-StatusValue $freshnessDetail.ageHours), `
+                (Format-StatusValue $freshnessDetail.thresholdHours), `
+                (Format-StatusValue $freshnessDetail.releaseGate)))
     }
 }
 $lines.Add("")

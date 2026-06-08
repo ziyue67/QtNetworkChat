@@ -1044,6 +1044,63 @@ foreach ($expected in @(
 }
 Assert-NoFixedMirrorBranchPolicy -Text $customMarkdown
 
+@'
+{
+  "runCount":7,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-02T07:00:00.0000000Z","exitCode":0},
+  "acknowledged":false,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $customHistoryPath -Encoding UTF8
+@'
+{
+  "runCount":3,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-04T07:30:00.0000000Z","exitCode":0},
+  "acknowledged":true,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $pgsqlSmokeHistoryPath -Encoding UTF8
+@'
+{
+  "runCount":5,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-04T07:00:00.0000000Z","exitCode":0},
+  "acknowledged":false,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $pgsqlMigrationHistoryPath -Encoding UTF8
+$staleHistoryMarkdownPath = Join-Path $configuredTempDir "automation-status-stale-task-history.md"
+& $ScriptPath `
+    -MarkdownPath $staleHistoryMarkdownPath `
+    -Head "8899aa0" `
+    -OriginMain "8899aa0" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath, $pgsqlMigrationPreviewPath) `
+    -ScheduledTaskReadbackJsonPath $registeredTaskReadbackPath `
+    -TaskHistoryFreshnessHours 24 `
+    -StatusNowUtc "2026-06-04T08:00:00.0000000Z" `
+    -FailOnSensitive
+
+$staleHistoryMarkdown = Get-Content -LiteralPath $staleHistoryMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Automation watch gate: state=`registered-history-gated`, tasks=`3`, registered=`3`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-stale-automation-task-history`, action=`run registered automation tasks and refresh history before release`',
+    'Scheduled task registry readback: state=`registered`, tasks=`3`, expectedRegistered=`3`, found=`3`, missing=`0`, registrationFailed=`0`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`scheduled-task-readback-registered`, action=`verify scheduler run history stays fresh before release`',
+    'Task history freshness gate: state=`history-stale`, tasks=`3`, fresh=`2`, stale=`1`, unavailable=`0`, unparseable=`0`, thresholdHours=`24`, releaseGate=`blocked-stale-automation-task-history`, action=`run registered automation tasks and refresh history before release`',
+    'Task history freshness: kind=`custom-ops`, name=`CustomOpsTask`, state=`history-stale`, latestAt=`2026-06-02T07:00:00.0000000Z`, ageHours=`49`, thresholdHours=`24`, releaseGate=`blocked-stale-automation-task-history`',
+    'Task history freshness: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, state=`fresh`, latestAt=`2026-06-04T07:30:00.0000000Z`, ageHours=`0.5`, thresholdHours=`24`, releaseGate=`fresh`',
+    'Task history freshness: kind=`pgsql-migration`, name=`PgsqlMigrationTask`, state=`fresh`, latestAt=`2026-06-04T07:00:00.0000000Z`, ageHours=`1`, thresholdHours=`24`, releaseGate=`fresh`',
+    'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`3`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
+    'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
+)) {
+    Assert-Contains -Text $staleHistoryMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $staleHistoryMarkdown
+
 ([ordered]@{
     format = "qtnetworkchat-scheduled-task-readback-v1"
     tasks = @(

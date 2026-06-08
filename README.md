@@ -244,7 +244,7 @@ export QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS=30000
 
 仓库包含 `.github/workflows/windows-build.yml`。推送到 `main` 或提交 PR 时会自动安装 Qt 6.8.3 MSVC 2022 x64、构建项目并运行 CTest；CI 构建步骤使用 GitHub step timeout 30 分钟，CTest step timeout 20 分钟，避免挂起的构建或测试长期占用 runner，同时给干净 MSVC Release 构建留足时间。失败或取消时会上传 `windows-build-diagnostics` artifact，包含 `build/ci-logs/`、CTest `Testing/` 目录和 CMake 输出日志；每次运行还会写入 GitHub Step Summary，记录提交、事件、Qt 配置和超时策略。手动触发该工作流时，还会运行 Windows 打包脚本并上传 `QtNetworkChat-win-x64.zip`。本地自动化仍以 Qt MinGW `build-qt6-mingw` 和 PowerShell timeout wrapper 作为提交前验证，CI 的 MSVC job 用于补充 Windows 编译器覆盖。
 
-自动化闭环状态可用 `scripts/write-automation-status.ps1` 生成或更新 `docs/automation-status.md`。默认不传任务路径时，脚本会在 `build-qt6-mingw/automation-tasks/` 下 bootstrap database-health、large-file-governance 和 PostgreSQL release acceptance 的 preview、status、last-run、history、ack 与脱敏 evidence 占位产物，并稳定回读到状态板；后续真实计划任务运行会覆盖同一 artifact。状态板会汇总 HEAD、远端哈希、CI/本地验证、受保护未跟踪项、preview/status/history/ack 产物、脱敏扫描和优先待办；更多任务 preview 与 ack/history 约定见 [Large-file governance](docs/large-file-governance.md) 和 [PostgreSQL operations](docs/postgresql-operations.md)。
+自动化闭环状态可用 `scripts/write-automation-status.ps1` 生成或更新 `docs/automation-status.md`。默认不传任务路径时，脚本会在 `build-qt6-mingw/automation-tasks/` 下 bootstrap database-health、large-file-governance 和 PostgreSQL release acceptance 的 preview、status、last-run、history、ack 与脱敏 evidence 占位产物，并稳定回读到状态板；后续真实计划任务运行会覆盖同一 artifact。状态板会汇总 HEAD、远端哈希、CI/本地验证、受保护未跟踪项、preview/status/history/ack 产物、注册任务 history 新鲜度门禁、脱敏扫描和优先待办；更多任务 preview、ack/history 与新鲜度约定见 [Large-file governance](docs/large-file-governance.md) 和 [PostgreSQL operations](docs/postgresql-operations.md)。
 
 ## 运行方式
 
