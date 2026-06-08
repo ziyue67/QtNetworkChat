@@ -1647,6 +1647,89 @@ int main() {
                     "explicit reviewed execution acceptance probe should keep the first acceptance non-invoking") && ok;
     }
 
+    const QJsonObject roundTripExecutionProbe =
+        e2eProbeProductionCryptoProviderRoundTripExecution();
+    ok = expect(roundTripExecutionProbe.value("schema").toString()
+                        == QStringLiteral("qtnetworkchat-e2e-production-provider-round-trip-execution-v1")
+                    && roundTripExecutionProbe.value("releaseGate").toString()
+                        == QStringLiteral("production-provider-round-trip-execution-not-release-gate")
+                    && !roundTripExecutionProbe.value("accepted").toBool(true)
+                    && roundTripExecutionProbe.value("roundTripNonReleaseGate").toBool(false)
+                    && roundTripExecutionProbe.value("requiredOperationCount").toInt() == 8
+                    && roundTripExecutionProbe.value("operations").toArray().size() == 8
+                    && roundTripExecutionProbe.value("negativeChecks").toArray().size() == 2
+                    && !roundTripExecutionProbe.value("inputBytesCaptured").toBool(true)
+                    && !roundTripExecutionProbe.value("outputBytesCaptured").toBool(true)
+                    && !roundTripExecutionProbe.value("resultBytesCaptured").toBool(true)
+                    && !roundTripExecutionProbe.value("rawKeyExported").toBool(true)
+                    && !roundTripExecutionProbe.value("privateMaterialExported").toBool(true)
+                    && !roundTripExecutionProbe.value("sessionSecretExported").toBool(true)
+                    && !roundTripExecutionProbe.value("privateIdentityMaterialExported").toBool(true)
+                    && !roundTripExecutionProbe.value("plaintextExported").toBool(true)
+                    && !roundTripExecutionProbe.value("ciphertextExported").toBool(true),
+                "production provider round-trip execution probe should stay a sanitized non-release gate") && ok;
+    if (reviewedProviderOperationsBound) {
+        const QJsonObject firstRoundTripOperation =
+            roundTripExecutionProbe.value("operations").toArray().at(0).toObject();
+        const QJsonObject lastRoundTripOperation =
+            roundTripExecutionProbe.value("operations").toArray().at(7).toObject();
+        const QJsonObject firstNegativeCheck =
+            roundTripExecutionProbe.value("negativeChecks").toArray().at(0).toObject();
+        const QJsonObject secondNegativeCheck =
+            roundTripExecutionProbe.value("negativeChecks").toArray().at(1).toObject();
+        ok = expect(roundTripExecutionProbe.value("providerTableRegistered").toBool(false)
+                        && roundTripExecutionProbe.value("tableValidationAccepted").toBool(false)
+                        && roundTripExecutionProbe.value("roundTripReady").toBool(false)
+                        && roundTripExecutionProbe.value("roundTripPassed").toBool(false)
+                        && roundTripExecutionProbe.value("invokedOperationCount").toInt() == 8
+                        && roundTripExecutionProbe.value("readyOperationCount").toInt() == 8
+                        && roundTripExecutionProbe.value("blockedOperationCount").toInt() == 0
+                        && roundTripExecutionProbe.value("statusConsistentOperationCount").toInt() == 8
+                        && roundTripExecutionProbe.value("sanitizedOperationCount").toInt() == 8
+                        && roundTripExecutionProbe.value("materialPolicyMatchedCount").toInt() == 8
+                        && roundTripExecutionProbe.value("negativeCheckCount").toInt() == 2
+                        && roundTripExecutionProbe.value("negativeCheckPassCount").toInt() == 2
+                        && roundTripExecutionProbe.value("tamperRejectedCount").toInt() == 2
+                        && roundTripExecutionProbe.value("identityPublicDerivationMatched").toBool(false)
+                        && roundTripExecutionProbe.value("agreementSignatureVerified").toBool(false)
+                        && roundTripExecutionProbe.value("sessionDerivePassed").toBool(false)
+                        && roundTripExecutionProbe.value("payloadRoundTripPassed").toBool(false)
+                        && roundTripExecutionProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-round-trip-execution-awaiting-audit-release-gate")
+                        && firstRoundTripOperation.value("operation").toString()
+                            == QStringLiteral("session-key-generation")
+                        && firstRoundTripOperation.value("operationInvoked").toBool(false)
+                        && firstRoundTripOperation.value("sealedOutputSize").toInt() == 32
+                        && !firstRoundTripOperation.value("outputBytesCaptured").toBool(true)
+                        && firstRoundTripOperation.value("roundTripStepPassed").toBool(false)
+                        && lastRoundTripOperation.value("operation").toString()
+                            == QStringLiteral("payload-decrypt")
+                        && lastRoundTripOperation.value("operationInvoked").toBool(false)
+                        && lastRoundTripOperation.value("publicOutputSize").toInt()
+                            == QByteArray("round-trip-provider-payload", 27).size()
+                        && lastRoundTripOperation.value("roundTripStepPassed").toBool(false)
+                        && firstNegativeCheck.value("checkId").toString()
+                            == QStringLiteral("agreement-verify-tamper")
+                        && firstNegativeCheck.value("rejectedAsExpected").toBool(false)
+                        && secondNegativeCheck.value("checkId").toString()
+                            == QStringLiteral("payload-decrypt-tamper")
+                        && secondNegativeCheck.value("rejectedAsExpected").toBool(false),
+                    "linked OpenSSL provider round-trip probe should prove the full callback chain without releasing production") && ok;
+    } else {
+        ok = expect(!roundTripExecutionProbe.value("providerTableRegistered").toBool(true)
+                        && !roundTripExecutionProbe.value("tableValidationAccepted").toBool(true)
+                        && !roundTripExecutionProbe.value("roundTripReady").toBool(true)
+                        && !roundTripExecutionProbe.value("roundTripPassed").toBool(true)
+                        && roundTripExecutionProbe.value("invokedOperationCount").toInt() == 0
+                        && roundTripExecutionProbe.value("readyOperationCount").toInt() == 0
+                        && roundTripExecutionProbe.value("blockedOperationCount").toInt() == 8
+                        && roundTripExecutionProbe.value("negativeCheckCount").toInt() == 2
+                        && roundTripExecutionProbe.value("negativeCheckPassCount").toInt() == 0
+                        && roundTripExecutionProbe.value("blockedReason").toString()
+                            == QStringLiteral("production-provider-table-not-registered"),
+                    "not-linked production provider round-trip probe should stay fully blocked") && ok;
+    }
+
     const E2EEnvelope envelope = encryptE2EPayload(QStringLiteral("10001"),
                                                    QStringLiteral("10002"),
                                                    QStringLiteral("production-runtime-gate"),

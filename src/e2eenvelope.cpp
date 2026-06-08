@@ -2778,6 +2778,475 @@ QJsonObject productionProviderInvocationExecutionProbeForDescriptor(
         true);
 }
 
+QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
+    const E2ECryptoAdapterDescriptor& descriptor) {
+    const qnc_e2e_provider_table_v1* registeredTable = activeProductionProviderTable();
+    const QJsonObject registration =
+        productionProviderTableRegistrationStatusForDescriptor(descriptor);
+    const bool registered = registeredTable != nullptr;
+    const bool tableValidationAccepted =
+        registration.value(QStringLiteral("tableValidationAccepted")).toBool(false);
+    const bool canUseTable = registered && tableValidationAccepted;
+
+    struct ProviderRunResult {
+        bool pointerPresent = false;
+        bool invoked = false;
+        qnc_e2e_status_t callbackStatus = QNC_E2E_STATUS_UNSUPPORTED;
+        qnc_e2e_status_t outputStatus = QNC_E2E_STATUS_UNSUPPORTED;
+        qnc_e2e_material_policy_t materialPolicy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+        QString sanitizedErrorClass = QStringLiteral("not-invoked");
+        QString blockedReason;
+        QByteArray publicOutput;
+        QByteArray sealedOutput;
+    };
+
+    const auto outputBytes = [](const qnc_e2e_buffer_view_v1& view) {
+        if (!view.data || view.size == 0) {
+            return QByteArray();
+        }
+        return QByteArray(reinterpret_cast<const char*>(view.data),
+                          static_cast<qsizetype>(view.size));
+    };
+    const auto invokeOperation =
+        [&](E2ECryptoOperation operation,
+            const QByteArray& primary,
+            const QByteArray& secondary,
+            const QByteArray& aad) {
+            ProviderRunResult result;
+            const qnc_e2e_provider_operation_v1 callback =
+                providerOperationPointer(registeredTable, operation);
+            result.pointerPresent = callback != nullptr;
+            if (!registered) {
+                result.blockedReason = QStringLiteral("production-provider-table-not-registered");
+                return result;
+            }
+            if (!tableValidationAccepted) {
+                result.blockedReason =
+                    registration.value(QStringLiteral("tableValidationBlockedReason")).toString(
+                        QStringLiteral("production-provider-table-validation-blocked"));
+                return result;
+            }
+            if (!callback) {
+                result.blockedReason =
+                    QStringLiteral("production-provider-operation-pointer-missing");
+                return result;
+            }
+
+            qnc_e2e_operation_input_v1 input = {};
+            input.operation = providerOperationEnum(operation);
+            input.suite_id = E2EAdvertisedSuite;
+            input.primary.data = reinterpret_cast<const uint8_t*>(primary.constData());
+            input.primary.size = static_cast<size_t>(primary.size());
+            input.secondary.data = reinterpret_cast<const uint8_t*>(secondary.constData());
+            input.secondary.size = static_cast<size_t>(secondary.size());
+            input.aad.data = reinterpret_cast<const uint8_t*>(aad.constData());
+            input.aad.size = static_cast<size_t>(aad.size());
+
+            qnc_e2e_operation_output_v1 output = {};
+            output.status = QNC_E2E_STATUS_UNSUPPORTED;
+            output.material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+            output.sanitized_error_class = "not-invoked";
+
+            result.callbackStatus = callback(&input, &output);
+            result.outputStatus = output.status;
+            result.materialPolicy = output.material_policy;
+            result.sanitizedErrorClass = output.sanitized_error_class
+                ? sanitizedBackendId(QString::fromLatin1(output.sanitized_error_class))
+                : QStringLiteral("missing-error-class");
+            result.publicOutput = outputBytes(output.public_output);
+            result.sealedOutput = outputBytes(output.sealed_output);
+            result.invoked = true;
+            return result;
+        };
+    const auto dependencyBlockedResult = [&](E2ECryptoOperation operation,
+                                             const QString& blockedReason) {
+        ProviderRunResult result;
+        result.pointerPresent = providerOperationPointer(registeredTable, operation) != nullptr;
+        result.blockedReason = blockedReason;
+        return result;
+    };
+
+    QJsonArray operations;
+    QJsonArray negativeChecks;
+    int invokedOperationCount = 0;
+    int readyOperationCount = 0;
+    int blockedOperationCount = 0;
+    int statusConsistentOperationCount = 0;
+    int sanitizedOperationCount = 0;
+    int materialPolicyMatchedCount = 0;
+    int sequenceIndex = 0;
+    const auto appendOperation =
+        [&](E2ECryptoOperation operation,
+            const ProviderRunResult& result,
+            bool stepPassed,
+            const QString& stepId) {
+            const QString statusClass = result.invoked
+                ? providerStatusClass(result.callbackStatus)
+                : QStringLiteral("not-invoked");
+            const QString outputStatusClass = result.invoked
+                ? providerStatusClass(result.outputStatus)
+                : QStringLiteral("not-invoked");
+            const QString materialPolicyClass = result.invoked
+                ? providerMaterialPolicyClass(result.materialPolicy)
+                : QStringLiteral("not-invoked");
+            const bool statusConsistent = result.invoked
+                && statusClass == outputStatusClass;
+            const bool sanitized = !result.invoked
+                || (!result.sanitizedErrorClass.isEmpty()
+                    && result.sanitizedErrorClass.size() <= 96);
+            const bool materialPolicyMatched = result.invoked
+                && (materialPolicyClass == productionProbeExpectedMaterialPolicyClass(operation)
+                    || (operation == E2ECryptoOperation::IdentityKeyGeneration
+                        && materialPolicyClass == QStringLiteral("handle-only")));
+
+            QJsonObject op;
+            op[QStringLiteral("sequenceIndex")] = sequenceIndex++;
+            op[QStringLiteral("stepId")] = stepId;
+            op[QStringLiteral("operation")] = cryptoOperationName(operation);
+            op[QStringLiteral("backendId")] = descriptor.id;
+            op[QStringLiteral("providerId")] = descriptor.providerId;
+            op[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+            op[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(operation);
+            op[QStringLiteral("functionPointerPresent")] = result.pointerPresent;
+            op[QStringLiteral("operationInvoked")] = result.invoked;
+            op[QStringLiteral("callbackStatusClass")] = statusClass;
+            op[QStringLiteral("outputStatusClass")] = outputStatusClass;
+            op[QStringLiteral("statusConsistent")] = statusConsistent;
+            op[QStringLiteral("materialPolicyClass")] = materialPolicyClass;
+            op[QStringLiteral("materialPolicyMatched")] = materialPolicyMatched;
+            op[QStringLiteral("sanitizedErrorClass")] = result.sanitizedErrorClass;
+            op[QStringLiteral("publicOutputSize")] = result.invoked
+                ? static_cast<int>(result.publicOutput.size())
+                : 0;
+            op[QStringLiteral("sealedOutputSize")] = result.invoked
+                ? static_cast<int>(result.sealedOutput.size())
+                : 0;
+            op[QStringLiteral("roundTripStepPassed")] = stepPassed;
+            op[QStringLiteral("blockedReason")] = stepPassed
+                ? QString()
+                : (result.blockedReason.isEmpty()
+                    ? QStringLiteral("production-provider-round-trip-step-failed")
+                    : result.blockedReason);
+            op[QStringLiteral("byteFlowScope")] =
+                QStringLiteral("internal-test-vector-only-not-exported");
+            op[QStringLiteral("inputBytesCaptured")] = false;
+            op[QStringLiteral("outputBytesCaptured")] = false;
+            op[QStringLiteral("resultBytesCaptured")] = false;
+            op[QStringLiteral("rawKeyExported")] = false;
+            op[QStringLiteral("privateMaterialExported")] = false;
+            op[QStringLiteral("sessionSecretExported")] = false;
+            op[QStringLiteral("privateIdentityMaterialExported")] = false;
+            op[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+            op[QStringLiteral("plaintextExported")] = false;
+            op[QStringLiteral("ciphertextExported")] = false;
+            operations.append(op);
+
+            if (result.invoked) {
+                ++invokedOperationCount;
+            }
+            if (stepPassed) {
+                ++readyOperationCount;
+            } else {
+                ++blockedOperationCount;
+            }
+            if (statusConsistent) {
+                ++statusConsistentOperationCount;
+            }
+            if (sanitized) {
+                ++sanitizedOperationCount;
+            }
+            if (materialPolicyMatched) {
+                ++materialPolicyMatchedCount;
+            }
+        };
+    int negativeCheckCount = 0;
+    int negativeCheckPassCount = 0;
+    const auto appendNegativeCheck =
+        [&](const QString& checkId,
+            E2ECryptoOperation operation,
+            const ProviderRunResult& result,
+            bool rejectedAsExpected) {
+            ++negativeCheckCount;
+            if (rejectedAsExpected) {
+                ++negativeCheckPassCount;
+            }
+            QJsonObject check;
+            check[QStringLiteral("checkId")] = checkId;
+            check[QStringLiteral("operation")] = cryptoOperationName(operation);
+            check[QStringLiteral("providerSymbol")] = productionOperationProviderSymbol(operation);
+            check[QStringLiteral("operationInvoked")] = result.invoked;
+            check[QStringLiteral("callbackStatusClass")] = result.invoked
+                ? providerStatusClass(result.callbackStatus)
+                : QStringLiteral("not-invoked");
+            check[QStringLiteral("outputStatusClass")] = result.invoked
+                ? providerStatusClass(result.outputStatus)
+                : QStringLiteral("not-invoked");
+            check[QStringLiteral("sanitizedErrorClass")] = result.sanitizedErrorClass;
+            check[QStringLiteral("rejectedAsExpected")] = rejectedAsExpected;
+            check[QStringLiteral("blockedReason")] = rejectedAsExpected
+                ? QString()
+                : (result.blockedReason.isEmpty()
+                    ? QStringLiteral("production-provider-negative-check-failed")
+                    : result.blockedReason);
+            check[QStringLiteral("inputBytesCaptured")] = false;
+            check[QStringLiteral("outputBytesCaptured")] = false;
+            check[QStringLiteral("rawKeyExported")] = false;
+            check[QStringLiteral("privateMaterialExported")] = false;
+            check[QStringLiteral("sessionSecretExported")] = false;
+            check[QStringLiteral("plaintextExported")] = false;
+            check[QStringLiteral("ciphertextExported")] = false;
+            negativeChecks.append(check);
+        };
+
+    const QByteArray empty;
+    const QByteArray transcript =
+        QByteArrayLiteral("qnc-provider-roundtrip-agreement-transcript-v1");
+    const QByteArray sessionAad =
+        QByteArrayLiteral("qnc-provider-roundtrip-session-context-v1");
+    const QByteArray payload = QByteArrayLiteral("round-trip-provider-payload");
+    const QByteArray payloadAad =
+        QByteArrayLiteral("qnc-provider-roundtrip-payload-aad-v1");
+
+    const ProviderRunResult sessionKey =
+        invokeOperation(E2ECryptoOperation::SessionKeyGeneration, empty, empty, empty);
+    const bool sessionKeyPassed = sessionKey.invoked
+        && sessionKey.callbackStatus == QNC_E2E_STATUS_OK
+        && sessionKey.outputStatus == QNC_E2E_STATUS_OK
+        && sessionKey.materialPolicy == QNC_E2E_MATERIAL_HANDLE_ONLY
+        && sessionKey.sealedOutput.size() == SessionKeyBytes;
+    appendOperation(E2ECryptoOperation::SessionKeyGeneration,
+                    sessionKey,
+                    sessionKeyPassed,
+                    QStringLiteral("session-key-generation"));
+
+    const ProviderRunResult identityKey =
+        invokeOperation(E2ECryptoOperation::IdentityKeyGeneration, empty, empty, empty);
+    const bool identityKeyPassed = identityKey.invoked
+        && identityKey.callbackStatus == QNC_E2E_STATUS_OK
+        && identityKey.outputStatus == QNC_E2E_STATUS_OK
+        && identityKey.publicOutput.size() == 32
+        && identityKey.sealedOutput.size() == 32;
+    appendOperation(E2ECryptoOperation::IdentityKeyGeneration,
+                    identityKey,
+                    identityKeyPassed,
+                    QStringLiteral("identity-key-generation"));
+
+    const ProviderRunResult publicKey = identityKeyPassed
+        ? invokeOperation(E2ECryptoOperation::PublicKeyDerivation,
+                          identityKey.sealedOutput,
+                          empty,
+                          empty)
+        : dependencyBlockedResult(E2ECryptoOperation::PublicKeyDerivation,
+                                  QStringLiteral("identity-generation-not-ready"));
+    const bool publicKeyPassed = publicKey.invoked
+        && publicKey.callbackStatus == QNC_E2E_STATUS_OK
+        && publicKey.outputStatus == QNC_E2E_STATUS_OK
+        && publicKey.materialPolicy == QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED
+        && publicKey.publicOutput == identityKey.publicOutput
+        && publicKey.publicOutput.size() == 32;
+    appendOperation(E2ECryptoOperation::PublicKeyDerivation,
+                    publicKey,
+                    publicKeyPassed,
+                    QStringLiteral("public-key-derivation"));
+
+    const ProviderRunResult signature = identityKeyPassed
+        ? invokeOperation(E2ECryptoOperation::AgreementSign,
+                          identityKey.sealedOutput,
+                          transcript,
+                          empty)
+        : dependencyBlockedResult(E2ECryptoOperation::AgreementSign,
+                                  QStringLiteral("identity-generation-not-ready"));
+    const bool signaturePassed = signature.invoked
+        && signature.callbackStatus == QNC_E2E_STATUS_OK
+        && signature.outputStatus == QNC_E2E_STATUS_OK
+        && signature.materialPolicy == QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED
+        && signature.publicOutput.size() == 64;
+    appendOperation(E2ECryptoOperation::AgreementSign,
+                    signature,
+                    signaturePassed,
+                    QStringLiteral("agreement-sign"));
+
+    const ProviderRunResult verification = publicKeyPassed && signaturePassed
+        ? invokeOperation(E2ECryptoOperation::AgreementVerify,
+                          publicKey.publicOutput,
+                          transcript,
+                          signature.publicOutput)
+        : dependencyBlockedResult(E2ECryptoOperation::AgreementVerify,
+                                  QStringLiteral("agreement-signature-input-not-ready"));
+    const bool verificationPassed = verification.invoked
+        && verification.callbackStatus == QNC_E2E_STATUS_OK
+        && verification.outputStatus == QNC_E2E_STATUS_OK
+        && verification.materialPolicy == QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED;
+    appendOperation(E2ECryptoOperation::AgreementVerify,
+                    verification,
+                    verificationPassed,
+                    QStringLiteral("agreement-verify"));
+
+    if (publicKeyPassed && signaturePassed) {
+        QByteArray tamperedSignature = signature.publicOutput;
+        if (!tamperedSignature.isEmpty()) {
+            tamperedSignature[0] = static_cast<char>(tamperedSignature.at(0) ^ 0x01);
+        }
+        const ProviderRunResult tamperedVerify =
+            invokeOperation(E2ECryptoOperation::AgreementVerify,
+                            publicKey.publicOutput,
+                            transcript,
+                            tamperedSignature);
+        appendNegativeCheck(QStringLiteral("agreement-verify-tamper"),
+                            E2ECryptoOperation::AgreementVerify,
+                            tamperedVerify,
+                            tamperedVerify.invoked
+                                && tamperedVerify.callbackStatus == QNC_E2E_STATUS_REJECTED
+                                && tamperedVerify.outputStatus == QNC_E2E_STATUS_REJECTED);
+    } else {
+        appendNegativeCheck(QStringLiteral("agreement-verify-tamper"),
+                            E2ECryptoOperation::AgreementVerify,
+                            dependencyBlockedResult(E2ECryptoOperation::AgreementVerify,
+                                                    QStringLiteral("agreement-signature-input-not-ready")),
+                            false);
+    }
+
+    const ProviderRunResult derivedSession = sessionKeyPassed && publicKeyPassed
+        ? invokeOperation(E2ECryptoOperation::SessionDerive,
+                          sessionKey.sealedOutput,
+                          publicKey.publicOutput,
+                          sessionAad)
+        : dependencyBlockedResult(E2ECryptoOperation::SessionDerive,
+                                  QStringLiteral("session-derive-input-not-ready"));
+    const bool sessionDerivePassed = derivedSession.invoked
+        && derivedSession.callbackStatus == QNC_E2E_STATUS_OK
+        && derivedSession.outputStatus == QNC_E2E_STATUS_OK
+        && derivedSession.materialPolicy == QNC_E2E_MATERIAL_HANDLE_ONLY
+        && derivedSession.sealedOutput.size() == SessionKeyBytes;
+    appendOperation(E2ECryptoOperation::SessionDerive,
+                    derivedSession,
+                    sessionDerivePassed,
+                    QStringLiteral("session-derive"));
+
+    const ProviderRunResult encryptedPayload = sessionDerivePassed
+        ? invokeOperation(E2ECryptoOperation::PayloadEncrypt,
+                          derivedSession.sealedOutput,
+                          payload,
+                          payloadAad)
+        : dependencyBlockedResult(E2ECryptoOperation::PayloadEncrypt,
+                                  QStringLiteral("session-derive-not-ready"));
+    const bool payloadEncryptPassed = encryptedPayload.invoked
+        && encryptedPayload.callbackStatus == QNC_E2E_STATUS_OK
+        && encryptedPayload.outputStatus == QNC_E2E_STATUS_OK
+        && encryptedPayload.materialPolicy == QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED
+        && encryptedPayload.sealedOutput.size() == payload.size() + MinNonceBytes + MinTagBytes;
+    appendOperation(E2ECryptoOperation::PayloadEncrypt,
+                    encryptedPayload,
+                    payloadEncryptPassed,
+                    QStringLiteral("payload-encrypt"));
+
+    const ProviderRunResult decryptedPayload = payloadEncryptPassed
+        ? invokeOperation(E2ECryptoOperation::PayloadDecrypt,
+                          derivedSession.sealedOutput,
+                          encryptedPayload.sealedOutput,
+                          payloadAad)
+        : dependencyBlockedResult(E2ECryptoOperation::PayloadDecrypt,
+                                  QStringLiteral("payload-encrypt-not-ready"));
+    const bool payloadDecryptPassed = decryptedPayload.invoked
+        && decryptedPayload.callbackStatus == QNC_E2E_STATUS_OK
+        && decryptedPayload.outputStatus == QNC_E2E_STATUS_OK
+        && decryptedPayload.materialPolicy == QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED
+        && decryptedPayload.publicOutput == payload;
+    appendOperation(E2ECryptoOperation::PayloadDecrypt,
+                    decryptedPayload,
+                    payloadDecryptPassed,
+                    QStringLiteral("payload-decrypt"));
+
+    if (payloadEncryptPassed) {
+        QByteArray tamperedCiphertext = encryptedPayload.sealedOutput;
+        if (!tamperedCiphertext.isEmpty()) {
+            tamperedCiphertext[tamperedCiphertext.size() - 1] =
+                static_cast<char>(tamperedCiphertext.at(tamperedCiphertext.size() - 1) ^ 0x01);
+        }
+        const ProviderRunResult tamperedDecrypt =
+            invokeOperation(E2ECryptoOperation::PayloadDecrypt,
+                            derivedSession.sealedOutput,
+                            tamperedCiphertext,
+                            payloadAad);
+        appendNegativeCheck(QStringLiteral("payload-decrypt-tamper"),
+                            E2ECryptoOperation::PayloadDecrypt,
+                            tamperedDecrypt,
+                            tamperedDecrypt.invoked
+                                && tamperedDecrypt.callbackStatus == QNC_E2E_STATUS_REJECTED
+                                && tamperedDecrypt.outputStatus == QNC_E2E_STATUS_REJECTED);
+    } else {
+        appendNegativeCheck(QStringLiteral("payload-decrypt-tamper"),
+                            E2ECryptoOperation::PayloadDecrypt,
+                            dependencyBlockedResult(E2ECryptoOperation::PayloadDecrypt,
+                                                    QStringLiteral("payload-encrypt-not-ready")),
+                            false);
+    }
+
+    const bool roundTripPassed = canUseTable
+        && readyOperationCount == cryptoOperations().size()
+        && invokedOperationCount == cryptoOperations().size()
+        && statusConsistentOperationCount == cryptoOperations().size()
+        && negativeCheckCount == 2
+        && negativeCheckPassCount == negativeCheckCount;
+
+    QJsonObject status;
+    status[QStringLiteral("schema")] =
+        QStringLiteral("qtnetworkchat-e2e-production-provider-round-trip-execution-v1");
+    status[QStringLiteral("backendId")] = descriptor.id;
+    status[QStringLiteral("providerId")] = descriptor.providerId;
+    status[QStringLiteral("operationContractVersion")] = descriptor.operationContractVersion;
+    status[QStringLiteral("linked")] = descriptor.linked;
+    status[QStringLiteral("productionReady")] = descriptor.productionReady;
+    status[QStringLiteral("providerTableRegistered")] = registered;
+    status[QStringLiteral("tableValidationAccepted")] = tableValidationAccepted;
+    status[QStringLiteral("providerTableRegistration")] = registration;
+    status[QStringLiteral("accepted")] = false;
+    status[QStringLiteral("roundTripReady")] = roundTripPassed;
+    status[QStringLiteral("roundTripPassed")] = roundTripPassed;
+    status[QStringLiteral("roundTripNonReleaseGate")] = true;
+    status[QStringLiteral("requiredOperationCount")] = cryptoOperations().size();
+    status[QStringLiteral("invokedOperationCount")] = invokedOperationCount;
+    status[QStringLiteral("readyOperationCount")] = readyOperationCount;
+    status[QStringLiteral("blockedOperationCount")] = blockedOperationCount;
+    status[QStringLiteral("statusConsistentOperationCount")] = statusConsistentOperationCount;
+    status[QStringLiteral("sanitizedOperationCount")] = sanitizedOperationCount;
+    status[QStringLiteral("materialPolicyMatchedCount")] = materialPolicyMatchedCount;
+    status[QStringLiteral("negativeCheckCount")] = negativeCheckCount;
+    status[QStringLiteral("negativeCheckPassCount")] = negativeCheckPassCount;
+    status[QStringLiteral("identityPublicDerivationMatched")] = publicKeyPassed;
+    status[QStringLiteral("agreementSignatureVerified")] = verificationPassed;
+    status[QStringLiteral("sessionDerivePassed")] = sessionDerivePassed;
+    status[QStringLiteral("payloadRoundTripPassed")] = payloadDecryptPassed;
+    status[QStringLiteral("tamperRejectedCount")] = negativeCheckPassCount;
+    status[QStringLiteral("releaseGate")] =
+        QStringLiteral("production-provider-round-trip-execution-not-release-gate");
+    status[QStringLiteral("blockedReason")] = roundTripPassed
+        ? QStringLiteral("production-provider-round-trip-execution-awaiting-audit-release-gate")
+        : (!registered
+            ? QStringLiteral("production-provider-table-not-registered")
+            : (!tableValidationAccepted
+                ? registration.value(QStringLiteral("tableValidationBlockedReason")).toString(
+                    QStringLiteral("production-provider-table-validation-blocked"))
+                : QStringLiteral("production-provider-round-trip-execution-failed")));
+    status[QStringLiteral("operatorAction")] = roundTripPassed
+        ? QStringLiteral("audit-round-trip-results-before-production-data-plane-release")
+        : QStringLiteral("fix-reviewed-provider-round-trip-before-production-data-plane-release");
+    status[QStringLiteral("operations")] = operations;
+    status[QStringLiteral("negativeChecks")] = negativeChecks;
+    status[QStringLiteral("operationInvoked")] = invokedOperationCount > 0;
+    status[QStringLiteral("inputBytesCaptured")] = false;
+    status[QStringLiteral("outputBytesCaptured")] = false;
+    status[QStringLiteral("resultBytesCaptured")] = false;
+    status[QStringLiteral("rawKeyExported")] = false;
+    status[QStringLiteral("privateMaterialExported")] = false;
+    status[QStringLiteral("sessionSecretExported")] = false;
+    status[QStringLiteral("privateIdentityMaterialExported")] = false;
+    status[QStringLiteral("fullPublicIdentityMaterialExported")] = false;
+    status[QStringLiteral("plaintextExported")] = false;
+    status[QStringLiteral("ciphertextExported")] = false;
+    return status;
+}
+
 QJsonObject productionProviderOperationPreflightStatusForDescriptor(const E2ECryptoAdapterDescriptor& descriptor) {
     const qnc_e2e_provider_table_v1* registeredTable = activeProductionProviderTable();
     const QJsonObject registration =
@@ -9584,6 +10053,10 @@ QJsonObject e2eProbeProductionCryptoProviderReviewedInvocationExecutionAcceptanc
     return productionProviderReviewedInvocationExecutionAcceptanceStatusFromArming(
         productionAdapterDescriptor(),
         reviewedInvocationArming);
+}
+
+QJsonObject e2eProbeProductionCryptoProviderRoundTripExecution() {
+    return productionProviderRoundTripExecutionProbeForDescriptor(productionAdapterDescriptor());
 }
 
 QJsonObject e2eValidateProductionProviderTable(const qnc_e2e_provider_table_v1* table) {

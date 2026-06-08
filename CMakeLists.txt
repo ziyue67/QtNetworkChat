@@ -132,6 +132,13 @@ if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
     list(APPEND QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES src/e2e_openssl_provider.cpp)
 endif()
 
+function(qtnetworkchat_attach_production_adapter target_name)
+    if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
+        target_sources(${target_name} PRIVATE ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES})
+        target_link_libraries(${target_name} PRIVATE OpenSSL::Crypto)
+    endif()
+endfunction()
+
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
@@ -238,6 +245,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(e2e_private_message_delivery_test)
     target_link_libraries(e2e_private_message_delivery_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(e2e_private_message_delivery_test)
 
     add_executable(history_metadata_test
         tests/history_metadata_test.cpp
@@ -276,6 +284,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(server_group_member_update_test)
     target_link_libraries(server_group_member_update_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(server_group_member_update_test)
 
     add_executable(account_password_kdf_test
         tests/account_password_kdf_test.cpp
@@ -296,6 +305,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(account_password_kdf_test)
     target_link_libraries(account_password_kdf_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(account_password_kdf_test)
 
     add_executable(login_credential_store_test
         tests/login_credential_store_test.cpp
@@ -375,6 +385,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(file_transfer_cancel_test)
     target_link_libraries(file_transfer_cancel_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(file_transfer_cancel_test)
 
     add_executable(file_chunk_duplicate_ack_test
         tests/file_chunk_duplicate_ack_test.cpp
@@ -395,6 +406,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(file_chunk_duplicate_ack_test)
     target_link_libraries(file_chunk_duplicate_ack_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(file_chunk_duplicate_ack_test)
 
     add_executable(file_chunk_retry_progress_test
         tests/file_chunk_retry_progress_test.cpp
@@ -407,6 +419,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(file_chunk_retry_progress_test)
     target_link_libraries(file_chunk_retry_progress_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+    qtnetworkchat_attach_production_adapter(file_chunk_retry_progress_test)
 
     add_executable(offline_attachment_quota_test
         tests/offline_attachment_quota_test.cpp
@@ -427,6 +440,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(offline_attachment_quota_test)
     target_link_libraries(offline_attachment_quota_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(offline_attachment_quota_test)
 
     add_executable(redis_client_test
         tests/redis_client_test.cpp
@@ -463,6 +477,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(redis_unavailable_fallback_test)
     target_link_libraries(redis_unavailable_fallback_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(redis_unavailable_fallback_test)
 
     add_executable(database_health_test
         tests/database_health_test.cpp
@@ -483,6 +498,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(database_health_test)
     target_link_libraries(database_health_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(database_health_test)
 
     add_executable(postgres_qpsql_protocol_smoke_test
         tests/postgres_qpsql_protocol_smoke_test.cpp
@@ -503,6 +519,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(postgres_qpsql_protocol_smoke_test)
     target_link_libraries(postgres_qpsql_protocol_smoke_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(postgres_qpsql_protocol_smoke_test)
 
     add_executable(redis_presence_flow_test
         tests/redis_presence_flow_test.cpp
@@ -531,6 +548,7 @@ if(BUILD_TESTING)
     )
     qtnetworkchat_target_include_dirs(redis_cross_instance_chat_test)
     target_link_libraries(redis_cross_instance_chat_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(redis_cross_instance_chat_test)
 
     add_executable(heartbeat_monitor_test
         tests/heartbeat_monitor_test.cpp
@@ -602,6 +620,7 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:e2e_production_adapter_runtime_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
     add_test(
