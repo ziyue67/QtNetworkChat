@@ -36,40 +36,48 @@ int main() {
     const bool expectedStructuralGateAccepted = reviewedProviderOperationsBound;
     const bool expectedProviderProbeAccepted = reviewedProviderOperationsBound;
     const bool expectedProviderControlGateAccepted = reviewedProviderOperationsBound;
-    const QString expectedReason = adapterLinked
+    const bool expectedProductionReady = reviewedProviderOperationsBound;
+    const bool expectedAvailable = reviewedProviderOperationsBound;
+    const QString expectedReason = reviewedProviderOperationsBound
+        ? QString()
+        : (adapterLinked
         ? QStringLiteral("production-adapter-not-ready")
-        : QStringLiteral("production-crypto-backend-unavailable");
+        : QStringLiteral("production-crypto-backend-unavailable"));
     const QString expectedAction = reviewedProviderOperationsBound
-        ? QStringLiteral("capture-reviewed-provider-results-and-open-production-acceptance-gates")
+        ? QStringLiteral("none")
         : (adapterLinked
             ? QStringLiteral("complete-production-crypto-adapter-implementation-and-compatibility-tests")
             : QStringLiteral("link-reviewed-production-crypto-backend"));
     const QString expectedDispatchState = reviewedProviderOperationsBound
-        ? QStringLiteral("reviewed-operations-bound-not-ready")
+        ? QStringLiteral("production-dispatch-ready")
         : (adapterLinked ? QStringLiteral("linked-placeholder-not-ready")
                          : QStringLiteral("not-linked"));
     const QString expectedReadinessGate = reviewedProviderOperationsBound
-        ? QStringLiteral("production-acceptance-gates-not-open")
+        ? QString()
         : (adapterLinked ? QStringLiteral("production-operations-not-implemented")
                          : QStringLiteral("production-adapter-not-linked"));
     const QString expectedSelfTestStatus = reviewedProviderOperationsBound
-        ? QStringLiteral("self-test-blocked-acceptance-gates")
+        ? QStringLiteral("production-self-test-passed")
         : (adapterLinked ? QStringLiteral("self-test-blocked-placeholder")
                          : QStringLiteral("self-test-blocked-not-linked"));
     const QString expectedCompatibilityStatus = reviewedProviderOperationsBound
-        ? QStringLiteral("compatibility-shape-passed-acceptance-blocked")
+        ? QStringLiteral("production-compatibility-passed")
         : (adapterLinked ? QStringLiteral("compatibility-blocked-placeholder")
                          : QStringLiteral("compatibility-blocked-not-linked"));
     const QString expectedCompatibilityGate = reviewedProviderOperationsBound
-        ? QStringLiteral("production-invocation-results-not-accepted")
+        ? QString()
         : (adapterLinked ? QStringLiteral("production-operation-vectors-not-implemented")
                          : QStringLiteral("production-adapter-not-linked"));
 
     ok = expect(status.value("requestedBackendId").toString() == QStringLiteral("openssl-reviewed-adapter-v1")
                     && status.value("selectionSource").toString() == QStringLiteral("environment")
-                    && !status.value("available").toBool(true)
-                    && status.value("selectedBackendId").toString().isEmpty()
-                    && status.value("productionReady").toBool(true) == false
+                    && status.value("available").toBool(!expectedAvailable) == expectedAvailable
+                    && status.value("selectedBackendId").toString()
+                        == (expectedAvailable
+                            ? QStringLiteral("openssl-reviewed-adapter-v1")
+                            : QString())
+                    && status.value("productionReady").toBool(!expectedProductionReady)
+                        == expectedProductionReady
                     && status.value("selectedProviderReadiness").toObject()
                         .value("readinessGate").toString()
                             == expectedReadinessGate
@@ -85,8 +93,9 @@ int main() {
                     && status.value("selectedProviderCompatibility").toObject()
                         .value("knownAnswerPassed").toBool(!reviewedProviderOperationsBound)
                             == reviewedProviderOperationsBound
-                    && !status.value("selectedProviderCompatibility").toObject()
-                        .value("roundTripPassed").toBool(true)
+                    && status.value("selectedProviderCompatibility").toObject()
+                        .value("roundTripPassed").toBool(!reviewedProviderOperationsBound)
+                            == reviewedProviderOperationsBound
                     && status.value("selectedProviderCompatibility").toObject()
                         .value("requiredOperations").toArray().size() == 8
                     && status.value("selectedProviderCompatibility").toObject()
@@ -99,7 +108,7 @@ int main() {
                         .value("reviewedOperationBound").toBool(!reviewedProviderOperationsBound)
                             == reviewedProviderOperationsBound
                     && status.value("unavailableReason").toString() == expectedReason,
-                "production adapter runtime status should fail closed with a precise reason") && ok;
+                "production adapter runtime status should expose precise production availability") && ok;
 
     const QJsonObject payloadEncrypt =
         status.value("operations").toObject().value("payload-encrypt").toObject();
@@ -1294,17 +1303,23 @@ int main() {
                     && acceptance.value("providerId").toString()
                         == QStringLiteral("openssl-reviewed-provider-v1")
                     && acceptance.value("linked").toBool(false) == adapterLinked
-                    && !acceptance.value("productionReady").toBool(true)
-                    && !acceptance.value("accepted").toBool(true)
+                    && acceptance.value("productionReady").toBool(!expectedProductionReady)
+                        == expectedProductionReady
+                    && acceptance.value("accepted").toBool(true) == false
                     && acceptance.value("releaseGate").toString()
-                        == (adapterLinked
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-call-handoff-blocked")
+                            : (adapterLinked
                             ? QStringLiteral("production-operations-not-ready")
-                            : QStringLiteral("production-adapter-not-linked"))
+                            : QStringLiteral("production-adapter-not-linked")))
                     && acceptance.value("blockedReason").toString()
-                        == expectedReason
+                        == (reviewedProviderOperationsBound
+                            ? QStringLiteral("production-provider-reviewed-call-handoff-awaiting-candidate")
+                            : expectedReason)
                     && acceptance.value("operationContractComplete").toBool(false)
                     && acceptance.value("registeredOperationCount").toInt() == 8
-                    && acceptance.value("blockedOperationCount").toInt() == 8
+                    && acceptance.value("blockedOperationCount").toInt()
+                        == (reviewedProviderOperationsBound ? 0 : 8)
                     && acceptance.value("operationGates").toArray().size() == 8
                     && acceptance.value("operationManifest").toArray().size() == 8
                     && acceptance.value("operationDispatchBindings").toObject()
@@ -1370,7 +1385,7 @@ int main() {
                         .value("executions").toArray().size() == 8
                     && !acceptance.value("rawKeyExported").toBool(true)
                     && !acceptance.value("privateMaterialExported").toBool(true),
-                "production acceptance status should summarize reviewed operation gates without enabling crypto") && ok;
+                "production acceptance status should summarize reviewed operation gates and execution evidence") && ok;
     const QJsonObject firstGate = acceptance.value("operationGates").toArray().at(0).toObject();
     ok = expect(firstGate.value("operation").toString()
                         == QStringLiteral("session-key-generation")
@@ -1394,8 +1409,10 @@ int main() {
                         == (reviewedProviderOperationsBound
                             ? QStringLiteral("production-acceptance-gates-not-open")
                             : QStringLiteral("production-session-key-generation-not-implemented"))
-                    && !firstGate.value("available").toBool(true)
-                    && firstGate.value("blockedReason").toString() == expectedReason
+                    && firstGate.value("available").toBool(!expectedAvailable)
+                        == expectedAvailable
+                    && firstGate.value("blockedReason").toString()
+                        == (expectedAvailable ? QString() : expectedReason)
                     && firstGate.value("providerId").toString()
                         == QStringLiteral("openssl-reviewed-provider-v1")
                     && !firstGate.value("rawKeyExported").toBool(true)
@@ -1432,18 +1449,26 @@ int main() {
                                 : QStringLiteral("production-payload-encrypt-not-implemented"))
                     && payloadEncrypt.value("requiresProductionReady").toBool(false)
                     && payloadEncrypt.value("adapterLinked").toBool(!adapterLinked) == adapterLinked
-                    && payloadEncrypt.value("productionReady").toBool(true) == false
-                    && payloadEncrypt.value("available").toBool(true) == false
-                    && payloadEncrypt.value("reason").toString() == expectedReason
-                    && payloadEncrypt.value("blockedReason").toString() == expectedReason
+                    && payloadEncrypt.value("productionReady").toBool(!expectedProductionReady)
+                        == expectedProductionReady
+                    && payloadEncrypt.value("available").toBool(!expectedAvailable)
+                        == expectedAvailable
+                    && payloadEncrypt.value("reason").toString()
+                        == (expectedAvailable
+                            ? QStringLiteral("production-backend-available")
+                            : expectedReason)
+                    && payloadEncrypt.value("blockedReason").toString()
+                        == (expectedAvailable ? QString() : expectedReason)
                     && payloadEncrypt.value("operatorAction").toString() == expectedAction
                     && payloadEncrypt.value("rawKeyExported").toBool(true) == false
                     && payloadEncrypt.value("privateMaterialExported").toBool(true) == false,
-                "production adapter operation should expose reviewed operation evidence without enabling data-plane crypto") && ok;
+                "production adapter operation should expose reviewed operation evidence and dispatch state") && ok;
 
     const QByteArray sessionKey = generateE2ESessionKey();
-    ok = expect(sessionKey.isEmpty(),
-                "production adapter runtime should not generate a session key until productionReady is true") && ok;
+    ok = expect(reviewedProviderOperationsBound
+                    ? sessionKey.size() == 32
+                    : sessionKey.isEmpty(),
+                "production adapter runtime should generate a session key only after productionReady") && ok;
 
     if (reviewedProviderOperationsBound) {
         const QJsonObject invocationExecutionProbe =
@@ -1948,9 +1973,33 @@ int main() {
                                                    QByteArray("payload", 7),
                                                    QStringLiteral("runtime-gate"),
                                                    &reason);
-    ok = expect(!envelope.isValid()
-                    && reason == expectedReason,
-                "production adapter runtime should block payload encryption at the shared execution context") && ok;
+    if (reviewedProviderOperationsBound) {
+        QByteArray decryptedPayload;
+        ok = expect(envelope.isValid()
+                        && reason.isEmpty()
+                        && decryptE2EPayload(envelope,
+                                             QByteArray(32, '\x11'),
+                                             &decryptedPayload,
+                                             &reason)
+                        && decryptedPayload == QByteArray("payload", 7)
+                        && reason.isEmpty(),
+                    "production adapter runtime should encrypt and decrypt payloads through OpenSSL provider") && ok;
+        E2EEnvelope tamperedEnvelope = envelope;
+        if (!tamperedEnvelope.ciphertext.isEmpty()) {
+            tamperedEnvelope.ciphertext[0] =
+                static_cast<char>(tamperedEnvelope.ciphertext.at(0) ^ 0x01);
+        }
+        ok = expect(!decryptE2EPayload(tamperedEnvelope,
+                                       QByteArray(32, '\x11'),
+                                       &decryptedPayload,
+                                       &reason)
+                        && reason == QStringLiteral("payload-decrypt-failed"),
+                    "production adapter runtime should reject tampered payloads") && ok;
+    } else {
+        ok = expect(!envelope.isValid()
+                        && reason == expectedReason,
+                    "production adapter runtime should block payload encryption at the shared execution context") && ok;
+    }
 
     qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
     return ok ? 0 : 1;

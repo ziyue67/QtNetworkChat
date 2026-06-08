@@ -94,7 +94,7 @@ file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
 if(NOT test_result EQUAL 0)
     message(STATUS "Captured production adapter runtime test output: ${test_stdout}\n${test_stderr}")
-    message(FATAL_ERROR "Production adapter linked-placeholder runtime should remain fail-closed under production backend selection")
+    message(FATAL_ERROR "Production adapter runtime should pass OpenSSL provider dispatch under production backend selection")
 endif()
 
-message(STATUS "E2E production adapter runtime fail-closed gate verified")
+message(STATUS "E2E production adapter runtime provider dispatch gate verified")

@@ -601,7 +601,7 @@ void Client::loadOrCreateE2ELocalIdentity() {
 
     m_e2eIdentityPrivateKey = generateE2EPrivateKey();
     m_e2eIdentityPublicKey = e2ePublicKeyFromPrivateKey(m_e2eIdentityPrivateKey);
-    m_e2eIdentityBackendId = m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eCryptoBackendId();
+    m_e2eIdentityBackendId = m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eCurrentBackendId();
     m_e2eIdentityFingerprint = m_e2eIdentityPublicKey.isEmpty() ? QString() : e2eFingerprint(m_e2eIdentityPublicKey);
     refreshPeerVerificationCodes();
     if (!normalizedUserId.isEmpty()) {
@@ -620,7 +620,7 @@ bool Client::saveE2ELocalIdentity(QString* rejectReason) const {
     root[QStringLiteral("schema")] = QStringLiteral("qtnetworkchat-e2e-identity-v1");
     root[QStringLiteral("userId")] = normalizedUserId;
     const QString identityBackendId = m_e2eIdentityBackendId.trimmed().isEmpty()
-        ? e2eCryptoBackendId()
+        ? e2eCurrentBackendId()
         : m_e2eIdentityBackendId.trimmed();
     root[QStringLiteral("backendId")] = identityBackendId;
     root[QStringLiteral("backendMigrationRequired")] = e2eCurrentBackendId() != identityBackendId;
@@ -667,7 +667,7 @@ void Client::setE2ESessionKey(const QString& peerId, const QString& keyId, const
 
     E2ESession session;
     session.keyId = normalizedKeyId;
-    session.backendId = e2eCryptoBackendId();
+    session.backendId = e2eCurrentBackendId();
     session.sessionKey = sessionKey;
     session.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     m_e2eSessions[normalizedPeerId] = session;
@@ -1850,8 +1850,9 @@ bool Client::saveE2ETrustPins(QString* rejectReason) const {
         QJsonObject pin;
         pin[QStringLiteral("peerId")] = it.key();
         pin[QStringLiteral("fingerprintSha256")] = it->pinnedFingerprint;
-        pin[QStringLiteral("backendId")] = e2eCryptoBackendId();
-        pin[QStringLiteral("backendMigrationRequired")] = e2eCurrentBackendId() != e2eCryptoBackendId();
+        const QString currentBackendId = e2eCurrentBackendId();
+        pin[QStringLiteral("backendId")] = currentBackendId;
+        pin[QStringLiteral("backendMigrationRequired")] = false;
         pin[QStringLiteral("verified")] = it->verified && !it->fingerprintMismatch;
         if (it->verified && !it->verificationCode.isEmpty()) {
             pin[QStringLiteral("verificationCode")] = it->verificationCode;
@@ -2023,7 +2024,7 @@ void Client::installE2EDerivedSession(const QString& peerId,
 
     E2ESession session;
     session.keyId = normalizedKeyId;
-    session.backendId = e2eCryptoBackendId();
+    session.backendId = e2eCurrentBackendId();
     session.sessionKey = sessionKey;
     session.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     m_e2eSessions[normalizedPeerId] = session;

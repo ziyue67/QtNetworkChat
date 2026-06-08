@@ -33,6 +33,7 @@ const char E2EProtocolV1[] = "qtnetworkchat-e2e-v1";
 const char E2EDraftSuite[] = "draft-placeholder";
 const char E2EAdvertisedSuite[] = "x25519-hkdf-sha256-aes-256-gcm";
 const char E2EDraftSignatureSuite[] = "draft-identity-hmac-sha256";
+const char E2EProductionSignatureSuite[] = "ed25519";
 const char DraftBackendId[] = "draft-qt-hmac-stream-v1";
 const char ProductionBackendId[] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_ID;
 
@@ -87,6 +88,17 @@ struct E2ECryptoExecutionContext {
     bool available = false;
     QString reason;
     QString entrypoint;
+};
+
+struct ProviderDispatchResult {
+    bool invoked = false;
+    qnc_e2e_status_t callbackStatus = QNC_E2E_STATUS_UNSUPPORTED;
+    qnc_e2e_status_t outputStatus = QNC_E2E_STATUS_UNSUPPORTED;
+    qnc_e2e_material_policy_t materialPolicy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+    QString errorClass = QStringLiteral("not-invoked");
+    QString reason;
+    QByteArray publicOutput;
+    QByteArray sealedOutput;
 };
 
 const qnc_e2e_provider_table_v1* g_registeredProductionProviderTable = nullptr;
@@ -519,6 +531,10 @@ QString productionOperationProviderAbiSignature(E2ECryptoOperation operation);
 QJsonObject providerTableValidationStatus(const qnc_e2e_provider_table_v1* table);
 qnc_e2e_provider_operation_v1 providerOperationPointer(const qnc_e2e_provider_table_v1* table,
                                                        E2ECryptoOperation operation);
+ProviderDispatchResult dispatchProductionProviderOperation(E2ECryptoOperation operation,
+                                                           const QByteArray& primary,
+                                                           const QByteArray& secondary,
+                                                           const QByteArray& aad);
 
 QStringList productionOperationInputContract(E2ECryptoOperation operation) {
     switch (operation) {
@@ -2042,6 +2058,238 @@ QString providerMaterialPolicyClass(qnc_e2e_material_policy_t policy) {
         return QStringLiteral("payload-bytes-allowed");
     }
     return QStringLiteral("unknown");
+}
+
+QByteArray providerViewBytes(const qnc_e2e_buffer_view_v1& view) {
+    if (!view.data || view.size == 0) {
+        return QByteArray();
+    }
+    return QByteArray(reinterpret_cast<const char*>(view.data),
+                      static_cast<qsizetype>(view.size));
+}
+
+ProviderDispatchResult dispatchProductionProviderOperation(E2ECryptoOperation operation,
+                                                           const QByteArray& primary,
+                                                           const QByteArray& secondary,
+                                                           const QByteArray& aad) {
+    ProviderDispatchResult result;
+    const qnc_e2e_provider_table_v1* table = activeProductionProviderTable();
+    const QJsonObject validation = providerTableValidationStatus(table);
+    if (!validation.value(QStringLiteral("accepted")).toBool(false)) {
+        result.reason = validation.value(QStringLiteral("blockedReason")).toString(
+            QStringLiteral("production-provider-table-validation-blocked"));
+        return result;
+    }
+
+    const qnc_e2e_provider_operation_v1 callback =
+        providerOperationPointer(table, operation);
+    if (!callback) {
+        result.reason = QStringLiteral("production-provider-operation-pointer-missing");
+        return result;
+    }
+
+    qnc_e2e_operation_input_v1 input = {};
+    input.operation = providerOperationEnum(operation);
+    input.suite_id = E2EAdvertisedSuite;
+    input.primary.data = primary.isEmpty()
+        ? nullptr
+        : reinterpret_cast<const uint8_t*>(primary.constData());
+    input.primary.size = static_cast<size_t>(primary.size());
+    input.secondary.data = secondary.isEmpty()
+        ? nullptr
+        : reinterpret_cast<const uint8_t*>(secondary.constData());
+    input.secondary.size = static_cast<size_t>(secondary.size());
+    input.aad.data = aad.isEmpty()
+        ? nullptr
+        : reinterpret_cast<const uint8_t*>(aad.constData());
+    input.aad.size = static_cast<size_t>(aad.size());
+
+    qnc_e2e_operation_output_v1 output = {};
+    output.status = QNC_E2E_STATUS_UNSUPPORTED;
+    output.material_policy = QNC_E2E_MATERIAL_HANDLE_ONLY;
+    output.sanitized_error_class = "not-invoked";
+
+    result.callbackStatus = callback(&input, &output);
+    result.outputStatus = output.status;
+    result.materialPolicy = output.material_policy;
+    result.errorClass = output.sanitized_error_class
+        ? sanitizedBackendId(QString::fromLatin1(output.sanitized_error_class))
+        : QStringLiteral("missing-error-class");
+    result.publicOutput = providerViewBytes(output.public_output);
+    result.sealedOutput = providerViewBytes(output.sealed_output);
+    result.invoked = true;
+    if (result.callbackStatus != QNC_E2E_STATUS_OK
+        || result.outputStatus != QNC_E2E_STATUS_OK) {
+        result.reason = result.errorClass.isEmpty()
+            ? providerStatusClass(result.outputStatus)
+            : result.errorClass;
+    }
+    return result;
+}
+
+bool providerResultOk(const ProviderDispatchResult& result) {
+    return result.invoked
+        && result.callbackStatus == QNC_E2E_STATUS_OK
+        && result.outputStatus == QNC_E2E_STATUS_OK;
+}
+
+bool productionProviderRuntimeReady(QString* reason = nullptr) {
+    if (QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED == 0) {
+        return fail(reason, QStringLiteral("production-crypto-backend-unavailable"));
+    }
+    if (!allProductionProviderOperationsBound()) {
+        return fail(reason, QStringLiteral("production-provider-operation-pointer-missing"));
+    }
+
+    const QByteArray empty;
+    const QByteArray transcript =
+        QByteArrayLiteral("qnc-provider-runtime-ready-agreement-transcript-v1");
+    const QByteArray sessionContext =
+        QByteArrayLiteral("qnc-provider-runtime-ready-session-context-v1");
+    const QByteArray plaintext =
+        QByteArrayLiteral("provider-runtime-ready-payload");
+    const QByteArray payloadAad =
+        QByteArrayLiteral("qnc-provider-runtime-ready-payload-aad-v1");
+
+    const ProviderDispatchResult sessionKey =
+        dispatchProductionProviderOperation(E2ECryptoOperation::SessionKeyGeneration,
+                                            empty,
+                                            empty,
+                                            empty);
+    if (!providerResultOk(sessionKey)
+        || sessionKey.materialPolicy != QNC_E2E_MATERIAL_HANDLE_ONLY
+        || sessionKey.sealedOutput.size() != SessionKeyBytes) {
+        return fail(reason, sessionKey.reason.isEmpty()
+            ? QStringLiteral("production-session-key-generation-self-test-failed")
+            : sessionKey.reason);
+    }
+
+    const ProviderDispatchResult identity =
+        dispatchProductionProviderOperation(E2ECryptoOperation::IdentityKeyGeneration,
+                                            empty,
+                                            empty,
+                                            empty);
+    if (!providerResultOk(identity)
+        || identity.publicOutput.size() != 32
+        || identity.sealedOutput.size() != 32) {
+        return fail(reason, identity.reason.isEmpty()
+            ? QStringLiteral("production-identity-key-generation-self-test-failed")
+            : identity.reason);
+    }
+
+    const ProviderDispatchResult publicKey =
+        dispatchProductionProviderOperation(E2ECryptoOperation::PublicKeyDerivation,
+                                            identity.sealedOutput,
+                                            empty,
+                                            empty);
+    if (!providerResultOk(publicKey)
+        || publicKey.materialPolicy != QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED
+        || publicKey.publicOutput != identity.publicOutput
+        || publicKey.publicOutput.size() != 32) {
+        return fail(reason, publicKey.reason.isEmpty()
+            ? QStringLiteral("production-public-key-derivation-self-test-failed")
+            : publicKey.reason);
+    }
+
+    const ProviderDispatchResult signature =
+        dispatchProductionProviderOperation(E2ECryptoOperation::AgreementSign,
+                                            identity.sealedOutput,
+                                            transcript,
+                                            empty);
+    if (!providerResultOk(signature)
+        || signature.materialPolicy != QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED
+        || signature.publicOutput.size() != 64) {
+        return fail(reason, signature.reason.isEmpty()
+            ? QStringLiteral("production-agreement-sign-self-test-failed")
+            : signature.reason);
+    }
+
+    const ProviderDispatchResult verification =
+        dispatchProductionProviderOperation(E2ECryptoOperation::AgreementVerify,
+                                            publicKey.publicOutput,
+                                            transcript,
+                                            signature.publicOutput);
+    if (!providerResultOk(verification)
+        || verification.materialPolicy != QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED) {
+        return fail(reason, verification.reason.isEmpty()
+            ? QStringLiteral("production-agreement-verify-self-test-failed")
+            : verification.reason);
+    }
+
+    QByteArray tamperedSignature = signature.publicOutput;
+    if (!tamperedSignature.isEmpty()) {
+        tamperedSignature[0] = static_cast<char>(tamperedSignature.at(0) ^ 0x01);
+    }
+    const ProviderDispatchResult rejectedSignature =
+        dispatchProductionProviderOperation(E2ECryptoOperation::AgreementVerify,
+                                            publicKey.publicOutput,
+                                            transcript,
+                                            tamperedSignature);
+    if (!rejectedSignature.invoked
+        || rejectedSignature.callbackStatus != QNC_E2E_STATUS_REJECTED
+        || rejectedSignature.outputStatus != QNC_E2E_STATUS_REJECTED) {
+        return fail(reason, QStringLiteral("production-agreement-verify-negative-self-test-failed"));
+    }
+
+    const ProviderDispatchResult derived =
+        dispatchProductionProviderOperation(E2ECryptoOperation::SessionDerive,
+                                            sessionKey.sealedOutput,
+                                            publicKey.publicOutput,
+                                            sessionContext);
+    if (!providerResultOk(derived)
+        || derived.materialPolicy != QNC_E2E_MATERIAL_HANDLE_ONLY
+        || derived.sealedOutput.size() != SessionKeyBytes) {
+        return fail(reason, derived.reason.isEmpty()
+            ? QStringLiteral("production-session-derive-self-test-failed")
+            : derived.reason);
+    }
+
+    const ProviderDispatchResult encrypted =
+        dispatchProductionProviderOperation(E2ECryptoOperation::PayloadEncrypt,
+                                            derived.sealedOutput,
+                                            plaintext,
+                                            payloadAad);
+    if (!providerResultOk(encrypted)
+        || encrypted.materialPolicy != QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED
+        || encrypted.sealedOutput.size() != plaintext.size() + MinNonceBytes + MinTagBytes) {
+        return fail(reason, encrypted.reason.isEmpty()
+            ? QStringLiteral("production-payload-encrypt-self-test-failed")
+            : encrypted.reason);
+    }
+
+    const ProviderDispatchResult decrypted =
+        dispatchProductionProviderOperation(E2ECryptoOperation::PayloadDecrypt,
+                                            derived.sealedOutput,
+                                            encrypted.sealedOutput,
+                                            payloadAad);
+    if (!providerResultOk(decrypted)
+        || decrypted.materialPolicy != QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED
+        || decrypted.publicOutput != plaintext) {
+        return fail(reason, decrypted.reason.isEmpty()
+            ? QStringLiteral("production-payload-decrypt-self-test-failed")
+            : decrypted.reason);
+    }
+
+    QByteArray tamperedCiphertext = encrypted.sealedOutput;
+    if (!tamperedCiphertext.isEmpty()) {
+        tamperedCiphertext[tamperedCiphertext.size() - 1] =
+            static_cast<char>(tamperedCiphertext.at(tamperedCiphertext.size() - 1) ^ 0x01);
+    }
+    const ProviderDispatchResult rejectedCiphertext =
+        dispatchProductionProviderOperation(E2ECryptoOperation::PayloadDecrypt,
+                                            derived.sealedOutput,
+                                            tamperedCiphertext,
+                                            payloadAad);
+    if (!rejectedCiphertext.invoked
+        || rejectedCiphertext.callbackStatus != QNC_E2E_STATUS_REJECTED
+        || rejectedCiphertext.outputStatus != QNC_E2E_STATUS_REJECTED) {
+        return fail(reason, QStringLiteral("production-payload-decrypt-negative-self-test-failed"));
+    }
+
+    if (reason) {
+        reason->clear();
+    }
+    return true;
 }
 
 QString providerProbeFailureClass(bool canInvoke,
@@ -9284,37 +9532,55 @@ E2ECryptoAdapterDescriptor productionAdapterDescriptor() {
     E2ECryptoAdapterDescriptor descriptor;
     const bool adapterLinked = QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED != 0;
     const bool reviewedOperationsBound = adapterLinked && allProductionProviderOperationsBound();
+    QString runtimeReadyReason;
+    const bool runtimeReady = productionProviderRuntimeReady(&runtimeReadyReason);
     descriptor.id = QString::fromLatin1(ProductionBackendId);
     descriptor.type = QStringLiteral("production-adapter");
     descriptor.implementation = QStringLiteral("production-adapter");
     descriptor.providerId = QStringLiteral("openssl-reviewed-provider-v1");
     descriptor.operationContractVersion = QStringLiteral("qtnetworkchat-e2e-crypto-ops-v1");
-    descriptor.dispatchState = reviewedOperationsBound
+    descriptor.dispatchState = runtimeReady
+        ? QStringLiteral("production-dispatch-ready")
+        : (reviewedOperationsBound
         ? QStringLiteral("reviewed-operations-bound-not-ready")
         : (adapterLinked ? QStringLiteral("linked-placeholder-not-ready")
-                         : QStringLiteral("not-linked"));
-    descriptor.selfTestStatus = reviewedOperationsBound
+                         : QStringLiteral("not-linked")));
+    descriptor.selfTestStatus = runtimeReady
+        ? QStringLiteral("production-self-test-passed")
+        : (reviewedOperationsBound
         ? QStringLiteral("self-test-blocked-acceptance-gates")
         : (adapterLinked ? QStringLiteral("self-test-blocked-placeholder")
-                         : QStringLiteral("self-test-blocked-not-linked"));
-    descriptor.readinessGate = reviewedOperationsBound
+                         : QStringLiteral("self-test-blocked-not-linked")));
+    descriptor.readinessGate = runtimeReady
+        ? QString()
+        : (reviewedOperationsBound
         ? QStringLiteral("production-acceptance-gates-not-open")
         : (adapterLinked ? QStringLiteral("production-operations-not-implemented")
-                         : QStringLiteral("production-adapter-not-linked"));
-    descriptor.compatibilityStatus = reviewedOperationsBound
+                         : QStringLiteral("production-adapter-not-linked")));
+    descriptor.compatibilityStatus = runtimeReady
+        ? QStringLiteral("production-compatibility-passed")
+        : (reviewedOperationsBound
         ? QStringLiteral("compatibility-shape-passed-acceptance-blocked")
         : (adapterLinked ? QStringLiteral("compatibility-blocked-placeholder")
-                         : QStringLiteral("compatibility-blocked-not-linked"));
-    descriptor.compatibilityGate = reviewedOperationsBound
+                         : QStringLiteral("compatibility-blocked-not-linked")));
+    descriptor.compatibilityGate = runtimeReady
+        ? QString()
+        : (reviewedOperationsBound
         ? QStringLiteral("production-invocation-results-not-accepted")
         : (adapterLinked ? QStringLiteral("production-operation-vectors-not-implemented")
-                         : QStringLiteral("production-adapter-not-linked"));
-    descriptor.unavailableReason = QStringLiteral("production-crypto-backend-unavailable");
-    descriptor.operatorAction = reviewedOperationsBound
+                         : QStringLiteral("production-adapter-not-linked")));
+    descriptor.unavailableReason = runtimeReady
+        ? QString()
+        : (runtimeReadyReason.isEmpty()
+            ? QStringLiteral("production-crypto-backend-unavailable")
+            : runtimeReadyReason);
+    descriptor.operatorAction = runtimeReady
+        ? QStringLiteral("none")
+        : (reviewedOperationsBound
         ? QStringLiteral("capture-reviewed-provider-results-and-open-production-acceptance-gates")
         : (adapterLinked ? QStringLiteral("run-production-crypto-compatibility-tests")
-                         : QStringLiteral("link-reviewed-production-crypto-backend"));
-    descriptor.productionReady = false;
+                         : QStringLiteral("link-reviewed-production-crypto-backend")));
+    descriptor.productionReady = runtimeReady;
     descriptor.linked = adapterLinked;
     descriptor.operations = cryptoOperations();
     return descriptor;
@@ -9425,7 +9691,7 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
     evidence[QStringLiteral("knownAnswerPassed")] =
         isDraft ? !e2eProductionCryptoRequired() : productionShapePassed;
     evidence[QStringLiteral("roundTripPassed")] =
-        isDraft ? !e2eProductionCryptoRequired() : false;
+        isDraft ? !e2eProductionCryptoRequired() : descriptor.productionReady;
     if (isProduction) {
         evidence[QStringLiteral("operationManifest")] = productionOperationManifest();
         evidence[QStringLiteral("operationHarness")] =
@@ -9502,15 +9768,20 @@ QJsonObject providerCompatibilityEvidence(const E2ECryptoAdapterDescriptor& desc
         evidence[QStringLiteral("blockedOperationCount")] =
             cryptoOperations().size() - implementedOperationCount;
     }
-    evidence[QStringLiteral("failClosedPassed")] = !descriptor.productionReady;
+    evidence[QStringLiteral("failClosedPassed")] =
+        descriptor.id == QString::fromLatin1(ProductionBackendId)
+            ? !descriptor.productionReady
+            : !e2eProductionCryptoRequired();
     evidence[QStringLiteral("rawKeyExported")] = descriptor.rawKeyExported;
     evidence[QStringLiteral("privateMaterialExported")] = descriptor.privateMaterialExported;
     evidence[QStringLiteral("operatorAction")] = descriptor.productionReady
         ? QStringLiteral("none")
         : (descriptor.id == QString::fromLatin1(ProductionBackendId)
-            ? (productionShapePassed
-                ? QStringLiteral("capture-reviewed-provider-results-and-open-production-acceptance-gates")
-                : QStringLiteral("implement-reviewed-production-provider-and-pass-compatibility-harness"))
+            ? (descriptor.productionReady
+                ? QStringLiteral("none")
+                : (productionShapePassed
+                    ? QStringLiteral("capture-reviewed-provider-results-and-open-production-acceptance-gates")
+                    : QStringLiteral("implement-reviewed-production-provider-and-pass-compatibility-harness")))
             : descriptor.operatorAction);
     return evidence;
 }
@@ -10557,11 +10828,13 @@ QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
 
     if (productionSelected) {
         obj["reason"] = context.reason;
-        obj["operatorAction"] = descriptor.linked
+        obj["operatorAction"] = context.available
+            ? QStringLiteral("none")
+            : (descriptor.linked
             ? (allProductionProviderOperationsBound()
                 ? QStringLiteral("capture-reviewed-provider-results-and-open-production-acceptance-gates")
                 : QStringLiteral("complete-production-crypto-adapter-implementation-and-compatibility-tests"))
-            : QStringLiteral("link-reviewed-production-crypto-backend");
+            : QStringLiteral("link-reviewed-production-crypto-backend"));
         return obj;
     }
 
@@ -10839,6 +11112,68 @@ QByteArray agreementTranscriptData(const E2EKeyAgreement& left,
     }
     return data;
 }
+
+QByteArray productionSessionDerivePrimary(const E2EKeyAgreement& left,
+                                          const E2EKeyAgreement& right) {
+    return agreementTranscriptData(left,
+                                   right,
+                                   QByteArrayLiteral("production-provider-session-shared-v1"));
+}
+
+QByteArray productionSessionDeriveSecondary(const E2EKeyAgreement& left,
+                                            const E2EKeyAgreement& right) {
+    const E2EKeyAgreement* first = &left;
+    const E2EKeyAgreement* second = &right;
+    if (left.senderId > right.senderId
+        || (left.senderId == right.senderId && left.keyId > right.keyId)) {
+        first = &right;
+        second = &left;
+    }
+
+    QByteArray data;
+    data.append("qtnetworkchat-e2e-production-session-public-material-v1|");
+    for (const E2EKeyAgreement* agreement : {first, second}) {
+        data.append(agreement->senderId.trimmed().toUtf8());
+        data.append('|');
+        data.append(agreement->receiverId.trimmed().toUtf8());
+        data.append('|');
+        data.append(agreement->keyId.trimmed().toUtf8());
+        data.append('|');
+        data.append(e2eFingerprint(agreement->publicKey).toUtf8());
+        data.append('|');
+        data.append(agreement->senderIdentityFingerprint.trimmed().toLower().toUtf8());
+        data.append('|');
+        data.append(agreement->receiverIdentityFingerprint.trimmed().toLower().toUtf8());
+        data.append('|');
+    }
+    return data;
+}
+
+QByteArray productionSessionDeriveAad(const E2EKeyAgreement& left,
+                                      const E2EKeyAgreement& right) {
+    const E2EKeyAgreement* first = &left;
+    const E2EKeyAgreement* second = &right;
+    if (left.senderId > right.senderId
+        || (left.senderId == right.senderId && left.keyId > right.keyId)) {
+        first = &right;
+        second = &left;
+    }
+    QByteArray data;
+    data.append("qtnetworkchat-e2e-production-session-context-v1|");
+    data.append(first->senderId.trimmed().toUtf8());
+    data.append('|');
+    data.append(second->senderId.trimmed().toUtf8());
+    data.append('|');
+    data.append(first->keyId.trimmed().toUtf8());
+    data.append('|');
+    data.append(second->keyId.trimmed().toUtf8());
+    return data;
+}
+
+bool productionBackendSelected() {
+    QString source;
+    return requestedBackendId(&source) == QString::fromLatin1(ProductionBackendId);
+}
 }
 
 QString normalizedE2EProtocol(QString protocol) {
@@ -10860,6 +11195,10 @@ bool isSupportedE2ESuite(const QString& suite) {
 }
 
 QString e2eDefaultSuite() {
+    QString reason;
+    if (productionBackendSelected() && productionProviderRuntimeReady(&reason)) {
+        return QString::fromLatin1(E2EAdvertisedSuite);
+    }
     return QString::fromLatin1(E2EDraftSuite);
 }
 
@@ -10868,6 +11207,10 @@ QString e2eCryptoBackendId() {
 }
 
 QString e2eAgreementSignatureSuite() {
+    QString reason;
+    if (productionBackendSelected() && productionProviderRuntimeReady(&reason)) {
+        return QString::fromLatin1(E2EProductionSignatureSuite);
+    }
     return QString::fromLatin1(E2EDraftSignatureSuite);
 }
 
@@ -11008,10 +11351,12 @@ QJsonObject e2eCryptoBackendStatus() {
     status["productionProviderPublicPrimitiveExecution"] =
         productionProviderPublicPrimitiveExecutionStatusForDescriptor(productionAdapterDescriptor());
     status["protocol"] = QString::fromLatin1(E2EProtocolV1);
-    status["suite"] = e2eDefaultSuite();
+    status["suite"] = selectedProduction && available
+        ? QString::fromLatin1(E2EAdvertisedSuite)
+        : e2eDefaultSuite();
     status["wireCompatibleSuite"] = QString::fromLatin1(E2EAdvertisedSuite);
     status["signatureSuite"] = e2eAgreementSignatureSuite();
-    status["productionReady"] = false;
+    status["productionReady"] = productionAdapterDescriptor().productionReady;
     status["productionRequired"] = e2eProductionCryptoRequired();
     status["productionBackendRequestedAtBuild"] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED != 0;
     status["productionBackendAvailableAtBuild"] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE != 0;
@@ -11025,11 +11370,15 @@ QJsonObject e2eCryptoBackendStatus() {
     status["available"] = available;
     status["unavailableReason"] = availabilityReason;
     status["status"] = available
-        ? QStringLiteral("draft-backend-active")
+        ? (selectedProduction
+            ? QStringLiteral("production-backend-active")
+            : QStringLiteral("draft-backend-active"))
         : availabilityReason;
     status["operatorAction"] = !available
         ? QStringLiteral("install-production-crypto-backend-or-disable-requirement")
-        : QStringLiteral("draft-backend-allowed-for-current-build");
+        : (selectedProduction
+            ? QStringLiteral("none")
+            : QStringLiteral("draft-backend-allowed-for-current-build"));
     status["rawKeyExported"] = false;
     g_cachedBackendStatusKey = cacheKey;
     g_cachedBackendStatus = status;
@@ -11427,11 +11776,37 @@ QByteArray generateE2ESessionKey() {
     if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::SessionKeyGeneration, nullptr)) {
         return QByteArray();
     }
+    if (productionBackendSelected()) {
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::SessionKeyGeneration,
+                                                QByteArray(),
+                                                QByteArray(),
+                                                QByteArray());
+        if (providerResultOk(result)
+            && result.materialPolicy == QNC_E2E_MATERIAL_HANDLE_ONLY
+            && result.sealedOutput.size() == SessionKeyBytes) {
+            return result.sealedOutput;
+        }
+        return QByteArray();
+    }
     return randomBytes(SessionKeyBytes);
 }
 
 QByteArray generateE2EPrivateKey() {
     if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::IdentityKeyGeneration, nullptr)) {
+        return QByteArray();
+    }
+    if (productionBackendSelected()) {
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::IdentityKeyGeneration,
+                                                QByteArray(),
+                                                QByteArray(),
+                                                QByteArray());
+        if (providerResultOk(result)
+            && result.publicOutput.size() == 32
+            && result.sealedOutput.size() == 32) {
+            return result.sealedOutput;
+        }
         return QByteArray();
     }
     quint32 scalar = 0;
@@ -11448,6 +11823,19 @@ QByteArray generateE2EPrivateKey() {
 
 QByteArray e2ePublicKeyFromPrivateKey(const QByteArray& privateKey) {
     if (rejectWhenCryptoOperationUnavailable(E2ECryptoOperation::PublicKeyDerivation, nullptr)) {
+        return QByteArray();
+    }
+    if (productionBackendSelected()) {
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::PublicKeyDerivation,
+                                                privateKey,
+                                                QByteArray(),
+                                                QByteArray());
+        if (providerResultOk(result)
+            && result.materialPolicy == QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED
+            && result.publicOutput.size() == 32) {
+            return result.publicOutput;
+        }
         return QByteArray();
     }
     const quint32 scalar = readDhValue(privateKey, DraftDhPrivatePrefix);
@@ -11477,6 +11865,26 @@ bool signE2EKeyAgreement(E2EKeyAgreement* agreement,
         || agreement->senderIdentityFingerprint.trimmed().toLower() != e2eFingerprint(identityPublicKey)) {
         return fail(reason, QStringLiteral("identity-key-mismatch"));
     }
+    if (productionBackendSelected()) {
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::AgreementSign,
+                                                identityPrivateKey,
+                                                agreementSignatureData(*agreement),
+                                                QByteArray());
+        if (!providerResultOk(result)
+            || result.materialPolicy != QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED
+            || result.publicOutput.isEmpty()
+            || result.publicOutput.size() > MaxSignatureBytes) {
+            return fail(reason, result.reason.isEmpty()
+                ? QStringLiteral("signature-generation-failed")
+                : result.reason);
+        }
+        agreement->signature = result.publicOutput;
+        if (reason) {
+            reason->clear();
+        }
+        return true;
+    }
     agreement->signature = hmacSha256(identityPublicKey, agreementSignatureData(*agreement));
     if (reason) {
         reason->clear();
@@ -11500,6 +11908,23 @@ bool verifyE2EKeyAgreementSignature(const E2EKeyAgreement& agreement,
     }
     if (agreement.signature.isEmpty()) {
         return fail(reason, QStringLiteral("missing-signature"));
+    }
+    if (productionBackendSelected()) {
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::AgreementVerify,
+                                                identityPublicKey,
+                                                agreementSignatureData(agreement),
+                                                agreement.signature);
+        if (!providerResultOk(result)
+            || result.materialPolicy != QNC_E2E_MATERIAL_PUBLIC_EXPORT_ALLOWED) {
+            return fail(reason, result.reason.isEmpty()
+                ? QStringLiteral("signature-mismatch")
+                : result.reason);
+        }
+        if (reason) {
+            reason->clear();
+        }
+        return true;
     }
     const QByteArray expected = hmacSha256(identityPublicKey, agreementSignatureData(agreement));
     if (expected != agreement.signature) {
@@ -11534,6 +11959,30 @@ QByteArray deriveE2EAuthenticatedSessionKey(const QByteArray& localPrivateKey,
             != remoteAgreement.senderIdentityFingerprint.trimmed().toLower()) {
         fail(reason, QStringLiteral("transcript-identity-mismatch"));
         return QByteArray();
+    }
+    if (productionBackendSelected()) {
+        const QByteArray localPublic = e2ePublicKeyFromPrivateKey(localPrivateKey);
+        if (localPublic.isEmpty() || localPublic != localAgreement.publicKey) {
+            fail(reason, QStringLiteral("invalid-local-key"));
+            return QByteArray();
+        }
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::SessionDerive,
+                                                productionSessionDerivePrimary(localAgreement, remoteAgreement),
+                                                productionSessionDeriveSecondary(localAgreement, remoteAgreement),
+                                                productionSessionDeriveAad(localAgreement, remoteAgreement));
+        if (!providerResultOk(result)
+            || result.materialPolicy != QNC_E2E_MATERIAL_HANDLE_ONLY
+            || result.sealedOutput.size() != SessionKeyBytes) {
+            fail(reason, result.reason.isEmpty()
+                ? QStringLiteral("session-derivation-failed")
+                : result.reason);
+            return QByteArray();
+        }
+        if (reason) {
+            reason->clear();
+        }
+        return result.sealedOutput;
     }
     const quint32 privateScalar = readDhValue(localPrivateKey, DraftDhPrivatePrefix);
     const quint32 localPublic = readDhValue(localAgreement.publicKey, DraftDhPublicPrefix);
@@ -11628,6 +12077,31 @@ E2EEnvelope encryptE2EPayload(const QString& senderId,
         return envelope;
     }
 
+    if (productionBackendSelected()) {
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::PayloadEncrypt,
+                                                sessionKey,
+                                                plaintext,
+                                                envelope.aad.toUtf8());
+        if (!providerResultOk(result)
+            || result.materialPolicy != QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED
+            || result.sealedOutput.size() <= MinNonceBytes + MinTagBytes) {
+            fail(reason, result.reason.isEmpty()
+                ? QStringLiteral("payload-encrypt-failed")
+                : result.reason);
+            return E2EEnvelope();
+        }
+        envelope.nonce = result.sealedOutput.left(MinNonceBytes);
+        envelope.tag = result.sealedOutput.mid(MinNonceBytes, MinTagBytes);
+        envelope.ciphertext = result.sealedOutput.mid(MinNonceBytes + MinTagBytes);
+        if (!envelope.isValid(reason)) {
+            return E2EEnvelope();
+        }
+        if (reason) {
+            reason->clear();
+        }
+        return envelope;
+    }
     envelope.ciphertext = streamXor(sessionKey, envelope.nonce, envelope.aad, plaintext);
     envelope.tag = hmacSha256(sessionKey, envelopeTagData(envelope));
     if (!envelope.isValid(reason)) {
@@ -11655,6 +12129,27 @@ bool decryptE2EPayload(const E2EEnvelope& envelope,
     QString validationReason;
     if (!envelope.isValid(&validationReason)) {
         return fail(reason, validationReason);
+    }
+    if (productionBackendSelected()) {
+        const QByteArray sealed = envelope.nonce + envelope.tag + envelope.ciphertext;
+        const ProviderDispatchResult result =
+            dispatchProductionProviderOperation(E2ECryptoOperation::PayloadDecrypt,
+                                                sessionKey,
+                                                sealed,
+                                                envelope.aad.toUtf8());
+        if (!providerResultOk(result)
+            || result.materialPolicy != QNC_E2E_MATERIAL_PAYLOAD_BYTES_ALLOWED) {
+            return fail(reason, result.reason.isEmpty()
+                ? QStringLiteral("authentication-failed")
+                : result.reason);
+        }
+        if (plaintext) {
+            *plaintext = result.publicOutput;
+        }
+        if (reason) {
+            reason->clear();
+        }
+        return true;
     }
     const QByteArray expectedTag = hmacSha256(sessionKey, envelopeTagData(envelope));
     if (expectedTag != envelope.tag) {

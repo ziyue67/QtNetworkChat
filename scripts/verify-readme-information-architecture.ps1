@@ -60,7 +60,7 @@ Assert-Contains $readme "docs/e2e-hardening-status.md"
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
 $automationStatus = Read-Utf8Text $automationStatusPath
-Assert-Contains $automationStatus "E2E production crypto is the active automation lane again"
+Assert-Contains $automationStatus "E2E production crypto is the active automation lane"
 Assert-Contains $automationStatus "callable manifest"
 Assert-Contains $automationStatus "sanitized execution result contract"
 Assert-Contains $automationStatus "production rotation dry-run/execute evidence"
