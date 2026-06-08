@@ -101,6 +101,16 @@ bool e2eS3ObjectRecoveryReviewedEnabled() {
     return envEnabled("QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED");
 }
 
+bool e2eOfflineObjectRecoveryReviewedEnabled() {
+    return envEnabled("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED");
+}
+
+QString e2eOfflineObjectRecoveryRootDir() {
+    const QString root = QString::fromLocal8Bit(
+        qgetenv("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT")).trimmed();
+    return root.isEmpty() ? QString() : QDir::cleanPath(root);
+}
+
 QString e2eObjectRecoveryScopeForStoreType(const QString& storeType) {
     if (storeType == QLatin1String("filesystem")) {
         return QStringLiteral("filesystem-object-ciphertext-readback");
@@ -108,8 +118,14 @@ QString e2eObjectRecoveryScopeForStoreType(const QString& storeType) {
     if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
         return QStringLiteral("s3-object-ciphertext-readback");
     }
-    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+    if (storeType == QLatin1String("s3")) {
         return QStringLiteral("s3-offline-auto-readback");
+    }
+    if (storeType == QLatin1String("offline") && e2eOfflineObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("offline-ciphertext-readback");
+    }
+    if (storeType == QLatin1String("offline")) {
+        return QStringLiteral("offline-auto-readback");
     }
     return QStringLiteral("unsupported-object-store-readback");
 }
@@ -124,8 +140,14 @@ QString e2eObjectRecoveryReviewGateForStoreType(const QString& storeType, bool o
     if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
         return QStringLiteral("s3-object-ciphertext-readback-reviewed");
     }
-    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+    if (storeType == QLatin1String("s3")) {
         return QStringLiteral("s3-offline-auto-readback-not-reviewed");
+    }
+    if (storeType == QLatin1String("offline") && e2eOfflineObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("offline-ciphertext-readback-reviewed");
+    }
+    if (storeType == QLatin1String("offline")) {
+        return QStringLiteral("offline-auto-readback-not-reviewed");
     }
     return QStringLiteral("object-store-type-unsupported");
 }
@@ -137,8 +159,14 @@ QString e2eObjectRecoveryDefaultReasonForStoreType(const QString& storeType, boo
     if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
         return QStringLiteral("e2e-file-object-recovery-read-path-unavailable");
     }
-    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+    if (storeType == QLatin1String("s3")) {
         return QStringLiteral("e2e-file-s3-offline-auto-readback-not-reviewed");
+    }
+    if (storeType == QLatin1String("offline") && e2eOfflineObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("e2e-file-object-recovery-read-path-unavailable");
+    }
+    if (storeType == QLatin1String("offline")) {
+        return QStringLiteral("e2e-file-offline-auto-readback-not-reviewed");
     }
     return QStringLiteral("e2e-file-object-recovery-read-path-unavailable");
 }
@@ -150,8 +178,14 @@ QString e2eObjectRecoveryDefaultActionForStoreType(const QString& storeType, boo
     if (storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled()) {
         return QStringLiteral("resend-or-wait-for-object-recovery");
     }
-    if (isS3OfflineE2EObjectRecoveryStore(storeType)) {
+    if (storeType == QLatin1String("s3")) {
         return QStringLiteral("keep-s3-offline-auto-readback-fail-closed-until-reviewed");
+    }
+    if (storeType == QLatin1String("offline") && e2eOfflineObjectRecoveryReviewedEnabled()) {
+        return QStringLiteral("resend-or-wait-for-object-recovery");
+    }
+    if (storeType == QLatin1String("offline")) {
+        return QStringLiteral("keep-offline-auto-readback-fail-closed-until-reviewed");
     }
     return QStringLiteral("resend-or-wait-for-object-recovery");
 }
@@ -598,6 +632,64 @@ bool loadE2EFileResumeCache(const QString& transferId,
     return true;
 }
 
+bool loadE2EOfflineObjectRecoveryPayload(const QString& objectKey,
+                                         const QString& objectHash,
+                                         qint64 objectSize,
+                                         QByteArray* wirePayload,
+                                         QString* rejectReason) {
+    if (!e2eOfflineObjectRecoveryReviewedEnabled()) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-offline-auto-readback-not-reviewed");
+        return false;
+    }
+
+    const QString rootDir = e2eOfflineObjectRecoveryRootDir();
+    if (rootDir.isEmpty()) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-store-unavailable");
+        return false;
+    }
+
+    const QFileInfo rootInfo(rootDir);
+    if (!rootInfo.exists() || !rootInfo.isDir()) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-store-unavailable");
+        return false;
+    }
+
+    const QString canonicalRoot =
+        QDir::cleanPath(QDir::fromNativeSeparators(rootInfo.canonicalFilePath()));
+    const QString candidatePath = QDir(rootInfo.absoluteFilePath()).absoluteFilePath(objectKey);
+    const QFileInfo candidateInfo(candidatePath);
+    const QString canonicalCandidate =
+        QDir::cleanPath(QDir::fromNativeSeparators(candidateInfo.canonicalFilePath()));
+    const QString rootWithSeparator = canonicalRoot.endsWith(QLatin1Char('/'))
+        ? canonicalRoot
+        : canonicalRoot + QLatin1Char('/');
+    if (canonicalRoot.isEmpty()
+        || canonicalCandidate.isEmpty()
+        || !canonicalCandidate.startsWith(rootWithSeparator)
+        || !candidateInfo.exists()
+        || !candidateInfo.isFile()
+        || candidateInfo.size() != objectSize) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-validation-failed");
+        return false;
+    }
+
+    QFile file(canonicalCandidate);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-read-failed");
+        return false;
+    }
+
+    const QByteArray payload = file.readAll();
+    if (payload.size() != objectSize
+        || sha256Hex(payload).compare(objectHash, Qt::CaseInsensitive) != 0) {
+        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-validation-failed");
+        return false;
+    }
+
+    if (wirePayload) *wirePayload = payload;
+    return true;
+}
+
 bool loadE2EFileObjectRecoveryPayload(const QJsonObject& state,
                                       QByteArray* wirePayload,
                                       QString* rejectReason = nullptr) {
@@ -630,8 +722,11 @@ bool loadE2EFileObjectRecoveryPayload(const QJsonObject& state,
         return false;
     }
     if (storeType == QLatin1String("offline")) {
-        if (rejectReason) *rejectReason = QStringLiteral("e2e-file-s3-offline-auto-readback-not-reviewed");
-        return false;
+        return loadE2EOfflineObjectRecoveryPayload(objectKey,
+                                                   objectHash,
+                                                   objectSize,
+                                                   wirePayload,
+                                                   rejectReason);
     }
     if (storeType != QLatin1String("filesystem") && storeType != QLatin1String("s3")) {
         if (rejectReason) *rejectReason = QStringLiteral("e2e-file-object-recovery-store-unavailable");
@@ -3239,10 +3334,11 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
             status["e2eFileObjectStoreType"] = storeType;
             status["e2eFileObjectStoreHash"] = state.value("e2eFileObjectStoreHash").toString();
             status["e2eFileObjectStoreSize"] = state.value("e2eFileObjectStoreSize").toString();
-            const bool s3OfflineNotReviewed =
-                isS3OfflineE2EObjectRecoveryStore(storeType)
-                && !(storeType == QLatin1String("s3") && e2eS3ObjectRecoveryReviewedEnabled());
-            const bool forceDefaultRecoveryDecision = !objectKeySafe || s3OfflineNotReviewed;
+            const bool s3NotReviewed =
+                storeType == QLatin1String("s3") && !e2eS3ObjectRecoveryReviewedEnabled();
+            const bool offlineNotReviewed =
+                storeType == QLatin1String("offline") && !e2eOfflineObjectRecoveryReviewedEnabled();
+            const bool forceDefaultRecoveryDecision = !objectKeySafe || s3NotReviewed || offlineNotReviewed;
             status["e2eFileObjectRecoveryScope"] = forceDefaultRecoveryDecision
                 ? e2eObjectRecoveryScopeForStoreType(storeType)
                 : state.value("e2eFileObjectRecoveryScope")

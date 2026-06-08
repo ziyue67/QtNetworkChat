@@ -57,6 +57,8 @@ string(JSON filesystem_gate GET "${evidence_content}" "summary" "filesystemObjec
 string(JSON filesystem_no_sensitive GET "${evidence_content}" "summary" "filesystemObjectRecoveryNoSensitiveExportProof")
 string(JSON offline_ready GET "${evidence_content}" "summary" "offlineObjectRecoveryReady")
 string(JSON offline_scope GET "${evidence_content}" "summary" "offlineObjectRecoveryScope")
+string(JSON offline_gate GET "${evidence_content}" "summary" "offlineObjectRecoveryReleaseGate")
+string(JSON offline_no_sensitive GET "${evidence_content}" "summary" "offlineObjectRecoveryNoSensitiveExportProof")
 string(JSON audit_focus0 GET "${evidence_content}" "auditSummary" "auditFocus" 0)
 string(JSON evidence_bundle0 GET "${evidence_content}" "auditSummary" "evidenceBundle" 0)
 
@@ -80,11 +82,13 @@ if(NOT filesystem_ready
     OR NOT filesystem_no_sensitive)
     message(FATAL_ERROR "Filesystem object ciphertext readback should be ready and sanitized")
 endif()
-if(offline_ready)
-    message(FATAL_ERROR "S3/offline object recovery should remain explicitly not ready")
+if(NOT offline_ready
+    OR NOT offline_no_sensitive)
+    message(FATAL_ERROR "Reviewed offline object ciphertext readback should be ready and sanitized behind its opt-in gate")
 endif()
-if(NOT offline_scope STREQUAL "s3-offline-auto-readback")
-    message(FATAL_ERROR "Offline/object recovery scope should stay limited to S3/offline auto-readback")
+if(NOT offline_scope STREQUAL "offline-ciphertext-readback"
+    OR NOT offline_gate STREQUAL "e2e-offline-ciphertext-readback-reviewed-opt-in")
+    message(FATAL_ERROR "Offline/object recovery should expose reviewed offline ciphertext readback as an explicit opt-in gate")
 endif()
 if(NOT audit_focus0 STREQUAL "production-crypto-acceptance")
     message(FATAL_ERROR "Rollout audit focus should include production crypto acceptance")
@@ -100,8 +104,9 @@ foreach(expected_text IN ITEMS
     "Sensitive export proof: noSensitiveExport=`false`, rawKey=`false`, privateMaterial=`false`, sessionSecret=`false`, plaintext=`false`, ciphertext=`false`"
     "Filesystem object recovery ready: `true`"
     "Filesystem object recovery gate: `e2e-filesystem-object-ciphertext-readback-ready`"
-    "Offline/object recovery ready: `false`"
-    "Offline/object recovery scope: `s3-offline-auto-readback`"
+    "Offline/object recovery ready: `true`"
+    "Offline/object recovery scope: `offline-ciphertext-readback`"
+    "Offline/object recovery gate: `e2e-offline-ciphertext-readback-reviewed-opt-in`"
 )
     string(FIND "${markdown_content}" "${expected_text}" expected_index)
     if(expected_index EQUAL -1)

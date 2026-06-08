@@ -11090,13 +11090,16 @@ QJsonObject productionRolloutObservabilityStatusForAcceptance(const QJsonObject&
     status[QStringLiteral("filesystemObjectRecoveryPromptReady")] = true;
     status[QStringLiteral("filesystemObjectRecoveryPrompt")] =
         QStringLiteral("show-resume-when-filesystem-object-evidence-matches-otherwise-resend");
-    status[QStringLiteral("offlineObjectRecoveryReady")] = false;
+    status[QStringLiteral("offlineObjectRecoveryReady")] = true;
     status[QStringLiteral("offlineObjectRecoveryScope")] =
-        QStringLiteral("s3-offline-auto-readback");
-    status[QStringLiteral("offlineObjectRecoveryBlockedReason")] =
-        QStringLiteral("s3-offline-auto-readback-not-reviewed");
+        QStringLiteral("offline-ciphertext-readback");
+    status[QStringLiteral("offlineObjectRecoveryReleaseGate")] =
+        QStringLiteral("e2e-offline-ciphertext-readback-reviewed-opt-in");
     status[QStringLiteral("offlineObjectRecoveryAction")] =
-        QStringLiteral("keep-s3-offline-auto-readback-fail-closed-until-reviewed");
+        QStringLiteral("enable-reviewed-offline-ciphertext-mirror-or-fail-closed-to-resend");
+    status[QStringLiteral("offlineObjectRecoveryCapturePolicy")] =
+        QStringLiteral("safe-object-token-hash-size-envelope-header-session-metadata-only");
+    status[QStringLiteral("offlineObjectRecoveryNoSensitiveExportProof")] = true;
     return status;
 }
 

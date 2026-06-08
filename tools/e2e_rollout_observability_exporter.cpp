@@ -128,10 +128,14 @@ QJsonObject buildEvidence(const QJsonObject& backendStatus) {
         rollout.value(QStringLiteral("offlineObjectRecoveryReady")).toBool(false);
     summary[QStringLiteral("offlineObjectRecoveryScope")] =
         rollout.value(QStringLiteral("offlineObjectRecoveryScope")).toString();
+    summary[QStringLiteral("offlineObjectRecoveryReleaseGate")] =
+        rollout.value(QStringLiteral("offlineObjectRecoveryReleaseGate")).toString();
     summary[QStringLiteral("offlineObjectRecoveryBlockedReason")] =
         rollout.value(QStringLiteral("offlineObjectRecoveryBlockedReason")).toString();
     summary[QStringLiteral("offlineObjectRecoveryAction")] =
         rollout.value(QStringLiteral("offlineObjectRecoveryAction")).toString();
+    summary[QStringLiteral("offlineObjectRecoveryNoSensitiveExportProof")] =
+        rollout.value(QStringLiteral("offlineObjectRecoveryNoSensitiveExportProof")).toBool(false);
 
     QJsonObject auditSummary;
     auditSummary[QStringLiteral("releaseGate")] = releaseGate;
@@ -141,7 +145,7 @@ QJsonObject buildEvidence(const QJsonObject& backendStatus) {
         "no-sensitive-export-proof",
         "public-primitive-execution",
         "filesystem-object-ciphertext-readback",
-        "s3-offline-auto-readback-gap",
+        "reviewed-offline-ciphertext-readback",
     });
     auditSummary[QStringLiteral("evidenceBundle")] = stringArray({
         "e2e-rollout-observability.json",
@@ -302,6 +306,8 @@ QString renderMarkdown(const QJsonObject& evidence) {
            << "`\n";
     stream << "- Offline/object recovery scope: `"
            << summary.value(QStringLiteral("offlineObjectRecoveryScope")).toString() << "`\n";
+    stream << "- Offline/object recovery gate: `"
+           << summary.value(QStringLiteral("offlineObjectRecoveryReleaseGate")).toString() << "`\n";
     stream << "- Offline/object recovery action: `"
            << summary.value(QStringLiteral("offlineObjectRecoveryAction")).toString() << "`\n";
     return output;

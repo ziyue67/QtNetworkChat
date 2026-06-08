@@ -46,6 +46,7 @@ const char kTransientRejectRetryFileName[] = "transient-reject-retry.bin";
 const char kHardRejectNoRetryFileName[] = "hard-reject-no-retry.bin";
 const char kE2ECacheResumeTransferId[] = "e2e-cache-resume-transfer";
 const char kE2EObjectResumeTransferId[] = "e2e-object-resume-transfer";
+const char kE2EOfflineResumeTransferId[] = "e2e-offline-resume-transfer";
 
 QString testAppDataDir() {
     const QString overrideDir = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_APPDATA_DIR")).trimmed();
@@ -202,6 +203,8 @@ public:
     int e2eCacheResumeQueries() const { return m_e2eCacheResumeQueries; }
     QVector<qint64> e2eObjectResumeChunkIndexes() const { return m_e2eObjectResumeChunkIndexes; }
     int e2eObjectResumeQueries() const { return m_e2eObjectResumeQueries; }
+    QVector<qint64> e2eOfflineResumeChunkIndexes() const { return m_e2eOfflineResumeChunkIndexes; }
+    int e2eOfflineResumeQueries() const { return m_e2eOfflineResumeQueries; }
     void setResumeMetadata(qint64 fileSize, const QString& fileHash) {
         m_resumeFileSize = fileSize;
         m_resumeFileHash = fileHash;
@@ -218,6 +221,11 @@ public:
         m_e2eObjectResumeFileSize = fileSize;
         m_e2eObjectResumeChunkCount = chunkCount;
         m_e2eObjectResumeFileHash = fileHash;
+    }
+    void setE2EOfflineResumeMetadata(qint64 fileSize, qint64 chunkCount, const QString& fileHash) {
+        m_e2eOfflineResumeFileSize = fileSize;
+        m_e2eOfflineResumeChunkCount = chunkCount;
+        m_e2eOfflineResumeFileHash = fileHash;
     }
 
 private slots:
@@ -301,6 +309,27 @@ private:
                 response["chunkSize"] = QString::number(kClientChunkBytes);
                 response["chunkCount"] = QString::number(m_e2eObjectResumeChunkCount);
                 response["fileHash"] = m_e2eObjectResumeFileHash;
+                response["receivedChunks"] = e2eReceivedChunks;
+                response["reason"] = "";
+                writeJson(socket, response);
+                return;
+            }
+            if (transferId == QString::fromLatin1(kE2EOfflineResumeTransferId)) {
+                ++m_e2eOfflineResumeQueries;
+                QJsonArray e2eReceivedChunks;
+                e2eReceivedChunks.append(QString::number(0));
+                e2eReceivedChunks.append(QString::number(1));
+
+                QJsonObject response;
+                response["type"] = "file_transfer_resume_state";
+                response["transferId"] = transferId;
+                response["canResume"] = true;
+                response["confirmedBytes"] = QString::number(2 * kClientChunkBytes);
+                response["nextChunkIndex"] = QString::number(2);
+                response["fileSize"] = QString::number(m_e2eOfflineResumeFileSize);
+                response["chunkSize"] = QString::number(kClientChunkBytes);
+                response["chunkCount"] = QString::number(m_e2eOfflineResumeChunkCount);
+                response["fileHash"] = m_e2eOfflineResumeFileHash;
                 response["receivedChunks"] = e2eReceivedChunks;
                 response["reason"] = "";
                 writeJson(socket, response);
@@ -636,6 +665,22 @@ private:
             writeJson(socket, ack);
             return;
         }
+        if (transferId == QString::fromLatin1(kE2EOfflineResumeTransferId)) {
+            if (message.value("e2eFileEncrypted").toBool(false)
+                && message.value("e2eEnvelope").isObject()
+                && !message.value("e2eEnvelope").toObject().contains(QStringLiteral("ciphertext"))) {
+                m_e2eOfflineResumeChunkIndexes.append(chunkIndex);
+            }
+            QJsonObject ack;
+            ack["type"] = "file_chunk_ack";
+            ack["transferId"] = transferId;
+            ack["chunkIndex"] = message["chunkIndex"].toString();
+            ack["accepted"] = true;
+            ack["reason"] = "";
+            ack["receivedBytes"] = QString::number(receivedBytes);
+            writeJson(socket, ack);
+            return;
+        }
 
         ++m_chunkAttempts;
         m_acknowledgedBytes = receivedBytes;
@@ -704,6 +749,11 @@ private:
     qint64 m_e2eObjectResumeFileSize = 0;
     qint64 m_e2eObjectResumeChunkCount = 0;
     QString m_e2eObjectResumeFileHash;
+    QVector<qint64> m_e2eOfflineResumeChunkIndexes;
+    int m_e2eOfflineResumeQueries = 0;
+    qint64 m_e2eOfflineResumeFileSize = 0;
+    qint64 m_e2eOfflineResumeChunkCount = 0;
+    QString m_e2eOfflineResumeFileHash;
 };
 
 class LoopbackS3ReadbackServer : public QObject {
@@ -1243,6 +1293,55 @@ int main(int argc, char** argv) {
                     && server.resumedChunkIndexes().size() == chunksBeforeE2eS3Recovery,
                 "E2E S3 recovery candidate should not query or send while fail-closed") && ok;
 
+    QJsonObject e2eOfflineRecoveryPolicy = e2eObjectRecoveryPolicy;
+    e2eOfflineRecoveryPolicy["e2eFileObjectStoreKey"] = "safeOfflineObject_123.bin";
+    e2eOfflineRecoveryPolicy["e2eFileObjectStoreType"] = "offline";
+    ok = expect(sender.saveOutgoingTransferState("e2e-offline-recovery-transfer",
+                                                 resumeFilePath,
+                                                 "960002",
+                                                 MessageType::File,
+                                                 e2eObjectWireHash,
+                                                 resumeFileSize + 128,
+                                                 resumeChunkCount + 1,
+                                                 e2eOfflineRecoveryPolicy),
+                "sender should persist E2E offline object recovery candidate metadata") && ok;
+    const QJsonObject e2eOfflineRecoveryStatus = sender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray e2eOfflineRecoveryStatusJson =
+        QJsonDocument(e2eOfflineRecoveryStatus).toJson(QJsonDocument::Compact);
+    ok = expect(e2eOfflineRecoveryStatus["configured"].toBool()
+                    && e2eOfflineRecoveryStatus["e2eFileObjectRecoveryCandidate"].toBool()
+                    && e2eOfflineRecoveryStatus["e2eFileObjectStoreKeySafe"].toBool(false)
+                    && e2eOfflineRecoveryStatus["e2eFileObjectStoreKey"].toString()
+                        == "safeOfflineObject_123.bin"
+                    && e2eOfflineRecoveryStatus["e2eFileObjectStoreType"].toString() == "offline"
+                    && e2eOfflineRecoveryStatus["e2eFileObjectRecoveryScope"].toString()
+                        == "offline-auto-readback"
+                    && e2eOfflineRecoveryStatus["e2eFileObjectRecoveryReviewGate"].toString()
+                        == "offline-auto-readback-not-reviewed"
+                    && e2eOfflineRecoveryStatus["reason"].toString()
+                        == "e2e-file-offline-auto-readback-not-reviewed"
+                    && e2eOfflineRecoveryStatus["action"].toString()
+                        == "keep-offline-auto-readback-fail-closed-until-reviewed"
+                    && !e2eOfflineRecoveryStatus["canAutoResume"].toBool(),
+                "E2E offline object recovery candidate should stay fail-closed behind reviewed auto-readback gate") && ok;
+    ok = expect(e2eOfflineRecoveryStatus["e2eFileObjectRecoveryNoSensitiveLocatorExport"].toBool(false)
+                    && !e2eOfflineRecoveryStatus["e2eFileOfflineObjectRecoveryReady"].toBool(true)
+                    && !e2eOfflineRecoveryStatusJson.contains("offline_files")
+                    && !e2eOfflineRecoveryStatusJson.contains("file://")
+                    && !e2eOfflineRecoveryStatusJson.contains("privateKey")
+                    && !e2eOfflineRecoveryStatusJson.contains("sessionKey"),
+                "E2E offline recovery status should expose only safe token evidence") && ok;
+    const int queriesBeforeE2eOfflineRecovery = server.resumeQueries();
+    const int chunksBeforeE2eOfflineRecovery = server.resumedChunkIndexes().size();
+    QString e2eOfflineRecoveryReason;
+    ok = expect(!sender.resumeSavedOutgoingTransfer(&e2eOfflineRecoveryReason, 5000),
+                "E2E offline object recovery candidate should refuse automatic resume before review") && ok;
+    ok = expect(e2eOfflineRecoveryReason == "e2e-file-offline-auto-readback-not-reviewed",
+                "E2E offline recovery refusal should expose the fixed not-reviewed reason") && ok;
+    ok = expect(server.resumeQueries() == queriesBeforeE2eOfflineRecovery
+                    && server.resumedChunkIndexes().size() == chunksBeforeE2eOfflineRecovery,
+                "E2E offline recovery candidate should not query or send while fail-closed") && ok;
+
     QJsonObject legacyUnsafeS3State;
     ok = expect(sender.loadOutgoingTransferState(&legacyUnsafeS3State),
                 "test should load E2E S3 recovery state before legacy mutation") && ok;
@@ -1624,6 +1723,101 @@ int main(int argc, char** argv) {
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_PREFIX");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY");
     qunsetenv("QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS");
+
+    Client e2eOfflineRecoveredSender;
+    e2eOfflineRecoveredSender.setUserInfo("950001", "RetrySender");
+    e2eOfflineRecoveredSender.setAccountInfo("950001", "secret", false);
+    ok = expect(e2eOfflineRecoveredSender.connectToServer("127.0.0.1", server.port()),
+                "E2E offline recovered sender should connect before reviewed offline readback") && ok;
+    ok = expect(e2eOfflineRecoveredSender.waitForLoginResult(5000),
+                "E2E offline recovered sender should log in before reviewed offline readback") && ok;
+    ok = expect(waitFor([&] {
+        return e2eOfflineRecoveredSender.e2ePeerIdentityStatus("960002")
+            .value("publicKeyFingerprintSha256").toString() == e2eFingerprint(peerPublicKey);
+    }, 5000), "E2E offline recovered sender should observe the peer identity before reviewed offline readback") && ok;
+    const QString e2eOfflineVerificationCode =
+        e2eOfflineRecoveredSender.e2ePeerIdentityStatus("960002").value("verificationCode").toString();
+    ok = expect(e2eOfflineRecoveredSender.pinE2EPeerIdentity("960002", e2eFingerprint(peerPublicKey))
+                    && e2eOfflineRecoveredSender.verifyAndPinE2EPeerIdentity("960002", e2eOfflineVerificationCode),
+                "E2E offline recovered sender should trust the peer identity before reviewed offline readback") && ok;
+    e2eOfflineRecoveredSender.setE2ESessionKey("960002", "e2e-file-cache-session", e2eSessionKey);
+
+    const QString offlineMirrorRoot = tempDir.filePath("e2e-offline-ciphertext-mirror");
+    ok = expect(QDir().mkpath(offlineMirrorRoot),
+                "reviewed E2E offline readback mirror root should be created") && ok;
+    const QString offlineObjectKey = QStringLiteral("safeOfflineObject_456.bin");
+    QFile offlineMirrorFile(QDir(offlineMirrorRoot).filePath(offlineObjectKey));
+    ok = expect(offlineMirrorFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+                "reviewed E2E offline readback mirror ciphertext should be writable") && ok;
+    ok = expect(offlineMirrorFile.write(e2eWirePayload) == e2eWirePayload.size(),
+                "reviewed E2E offline readback mirror should contain the ciphertext payload") && ok;
+    offlineMirrorFile.close();
+    qputenv("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED", "1");
+    qputenv("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT", offlineMirrorRoot.toUtf8());
+
+    QJsonObject e2eOfflineResumePolicy = e2eCacheRecoveryPolicy;
+    e2eOfflineResumePolicy.remove("e2eFileResumeCache");
+    e2eOfflineResumePolicy.remove("e2eFileResumeCacheFormat");
+    e2eOfflineResumePolicy.remove("e2eFileResumeCacheSha256");
+    e2eOfflineResumePolicy.remove("e2eFileResumeCacheSize");
+    e2eOfflineResumePolicy["e2eFileObjectRecoveryCandidate"] = true;
+    e2eOfflineResumePolicy["e2eFileObjectStoreKey"] = offlineObjectKey;
+    e2eOfflineResumePolicy["e2eFileObjectStoreType"] = "offline";
+    e2eOfflineResumePolicy["e2eFileObjectStoreHash"] = e2eWireHash;
+    e2eOfflineResumePolicy["e2eFileObjectStoreSize"] = QString::number(e2eWirePayload.size());
+    ok = expect(e2eOfflineRecoveredSender.saveOutgoingTransferState(QString::fromLatin1(kE2EOfflineResumeTransferId),
+                                                                    e2ePlainFilePath,
+                                                                    "960002",
+                                                                    MessageType::File,
+                                                                    e2eWireHash,
+                                                                    e2eWirePayload.size(),
+                                                                    e2eWireChunkCount,
+                                                                    e2eOfflineResumePolicy),
+                "sender should persist E2E offline recovery metadata with reviewed ciphertext mirror") && ok;
+    server.setE2EOfflineResumeMetadata(e2eWirePayload.size(), e2eWireChunkCount, e2eWireHash);
+    const QJsonObject e2eOfflineReadyStatus =
+        e2eOfflineRecoveredSender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray e2eOfflineReadyStatusJson =
+        QJsonDocument(e2eOfflineReadyStatus).toJson(QJsonDocument::Compact);
+    ok = expect(e2eOfflineReadyStatus["configured"].toBool()
+                    && e2eOfflineReadyStatus["e2eFileEncrypted"].toBool()
+                    && e2eOfflineReadyStatus["e2eFileObjectRecoveryCandidate"].toBool()
+                    && e2eOfflineReadyStatus["e2eFileObjectStoreType"].toString() == "offline"
+                    && e2eOfflineReadyStatus["e2eFileObjectRecoveryScope"].toString()
+                        == "offline-ciphertext-readback"
+                    && e2eOfflineReadyStatus["e2eFileObjectRecoveryReviewGate"].toString()
+                        == "offline-ciphertext-readback-reviewed"
+                    && e2eOfflineReadyStatus["e2eFileOfflineObjectRecoveryReady"].toBool()
+                    && e2eOfflineReadyStatus["recoveryMode"].toString() == "resume"
+                    && e2eOfflineReadyStatus["canAutoResume"].toBool()
+                    && e2eOfflineReadyStatus["reason"].toString()
+                        == "e2e-file-object-recovery-ready"
+                    && e2eOfflineReadyStatus["action"].toString()
+                        == "resume-object-wire-envelope",
+                "E2E reviewed offline object recovery should become auto-resumable after verified ciphertext mirror readback") && ok;
+    ok = expect(!e2eOfflineReadyStatusJson.contains(offlineMirrorRoot.toUtf8())
+                    && !e2eOfflineReadyStatusJson.contains("offline_files")
+                    && !e2eOfflineReadyStatusJson.contains("file://")
+                    && !e2eOfflineReadyStatusJson.contains("\"ciphertext\"")
+                    && !e2eOfflineReadyStatusJson.contains("privateKey")
+                    && !e2eOfflineReadyStatusJson.contains("sessionKey"),
+                "E2E reviewed offline ready status should not export mirror paths, ciphertext, or secret material") && ok;
+    const int e2eOfflineObjectQueriesBefore = server.e2eOfflineResumeQueries();
+    QString e2eOfflineObjectResumeReason;
+    ok = expect(e2eOfflineRecoveredSender.resumeSavedOutgoingTransfer(&e2eOfflineObjectResumeReason, 5000),
+                "E2E reviewed offline object recovery should resume encrypted file chunks from verified ciphertext mirror") && ok;
+    ok = expect(server.e2eOfflineResumeQueries() == e2eOfflineObjectQueriesBefore + 1,
+                "E2E reviewed offline object recovery should query server resume state once") && ok;
+    const QVector<qint64> e2eOfflineObjectChunks = server.e2eOfflineResumeChunkIndexes();
+    ok = expect(!e2eOfflineObjectChunks.isEmpty() && e2eOfflineObjectChunks.last() == 2,
+                "E2E reviewed offline object recovery should send only the missing ciphertext chunk") && ok;
+    ok = expect(e2eOfflineObjectResumeReason.isEmpty(),
+                "successful E2E reviewed offline recovery should not expose a reject reason") && ok;
+    ok = expect(!e2eOfflineRecoveredSender.loadOutgoingTransferState(nullptr),
+                "successful E2E reviewed offline recovery should clear persisted state") && ok;
+    e2eOfflineRecoveredSender.disconnectFromServer();
+    qunsetenv("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED");
+    qunsetenv("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT");
 
     ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kMismatchResumeTransferId),
                                                  resumeFilePath,

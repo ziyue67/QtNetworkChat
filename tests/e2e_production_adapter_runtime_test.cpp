@@ -1551,11 +1551,13 @@ int main() {
                     && !rolloutObservability.value("fullPublicIdentityMaterialExported").toBool(true)
                     && !rolloutObservability.value("plaintextBytesExported").toBool(true)
                     && !rolloutObservability.value("ciphertextBytesExported").toBool(true)
-                    && !rolloutObservability.value("offlineObjectRecoveryReady").toBool(true)
+                    && rolloutObservability.value("offlineObjectRecoveryReady").toBool(false)
                     && rolloutObservability.value("offlineObjectRecoveryScope").toString()
-                        == QStringLiteral("s3-offline-auto-readback")
-                    && rolloutObservability.value("offlineObjectRecoveryBlockedReason").toString()
-                        == QStringLiteral("s3-offline-auto-readback-not-reviewed"),
+                        == QStringLiteral("offline-ciphertext-readback")
+                    && rolloutObservability.value("offlineObjectRecoveryReleaseGate").toString()
+                        == QStringLiteral("e2e-offline-ciphertext-readback-reviewed-opt-in")
+                    && rolloutObservability.value("offlineObjectRecoveryNoSensitiveExportProof")
+                        .toBool(false),
                 "production rollout observability should become ready only after linked acceptance and no-sensitive-export proof") && ok;
     const QJsonObject firstGate = acceptance.value("operationGates").toArray().at(0).toObject();
     ok = expect(firstGate.value("operation").toString()

@@ -2353,9 +2353,13 @@ int main() {
                     && !productionRequestedRolloutObservability.value("sessionSecretExported").toBool(true)
                     && !productionRequestedRolloutObservability.value("plaintextBytesExported").toBool(true)
                     && !productionRequestedRolloutObservability.value("ciphertextBytesExported").toBool(true)
-                    && !productionRequestedRolloutObservability.value("offlineObjectRecoveryReady").toBool(true)
+                    && productionRequestedRolloutObservability.value("offlineObjectRecoveryReady").toBool(false)
                     && productionRequestedRolloutObservability.value("offlineObjectRecoveryScope").toString()
-                        == QStringLiteral("s3-offline-auto-readback"),
+                        == QStringLiteral("offline-ciphertext-readback")
+                    && productionRequestedRolloutObservability.value("offlineObjectRecoveryReleaseGate").toString()
+                        == QStringLiteral("e2e-offline-ciphertext-readback-reviewed-opt-in")
+                    && productionRequestedRolloutObservability.value("offlineObjectRecoveryNoSensitiveExportProof")
+                        .toBool(false),
                 "production rollout observability should fail closed until a linked provider is accepted") && ok;
     ok = expect(productionRequestedHarness.value("schema").toString()
                         == QStringLiteral("qtnetworkchat-e2e-production-operation-harness-v1")
