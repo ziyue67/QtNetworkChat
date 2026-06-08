@@ -1836,6 +1836,7 @@ bool Client::pinE2EPeerIdentity(const QString& peerId, const QString& expectedFi
     }
     E2EStoredTrustPin storedPin;
     storedPin.fingerprint = it->pinnedFingerprint;
+    storedPin.backendId = e2eCurrentBackendId();
     m_e2eStoredTrustPins[normalizedPeerId] = storedPin;
     emit e2eIdentityStateChanged(normalizedPeerId, e2ePeerIdentityStatus(normalizedPeerId));
     return true;
@@ -1877,6 +1878,7 @@ bool Client::verifyAndPinE2EPeerIdentity(const QString& peerId,
     }
     E2EStoredTrustPin storedPin;
     storedPin.fingerprint = it->pinnedFingerprint;
+    storedPin.backendId = e2eCurrentBackendId();
     storedPin.verified = true;
     storedPin.verificationCode = it->verificationCode;
     storedPin.verifiedAtMs = it->verifiedAtMs;

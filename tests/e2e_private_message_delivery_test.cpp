@@ -70,6 +70,45 @@ bool exchangeE2EIdentityAnnouncements(Client& left,
     return sent;
 }
 
+bool waitForMutualE2EIdentityObservation(Client& left,
+                                         const QString& leftPeerId,
+                                         Client& right,
+                                         const QString& rightPeerId,
+                                         QString* leftRejectReason,
+                                         QString* rightRejectReason,
+                                         int timeoutMs = 15000) {
+    return waitFor([&] {
+        const QString leftLocalFingerprint =
+            left.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+        const QString rightLocalFingerprint =
+            right.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+        const QString leftSawRightFingerprint =
+            left.e2ePeerIdentityStatus(leftPeerId).value("publicKeyFingerprintSha256").toString();
+        const QString rightSawLeftFingerprint =
+            right.e2ePeerIdentityStatus(rightPeerId).value("publicKeyFingerprintSha256").toString();
+        if (leftSawRightFingerprint != rightLocalFingerprint
+            || rightSawLeftFingerprint != leftLocalFingerprint) {
+            exchangeE2EIdentityAnnouncements(left,
+                                             leftPeerId,
+                                             right,
+                                             rightPeerId,
+                                             leftRejectReason,
+                                             rightRejectReason);
+        }
+        return leftLocalFingerprint.size() == 64
+            && rightLocalFingerprint.size() == 64
+            && left.e2ePeerIdentityStatus(leftPeerId).value("publicKeyFingerprintSha256").toString()
+                == rightLocalFingerprint
+            && right.e2ePeerIdentityStatus(rightPeerId).value("publicKeyFingerprintSha256").toString()
+                == leftLocalFingerprint
+            && left.e2ePeerIdentityStatus(leftPeerId).value("verificationCode").toString().size() >= 12
+            && left.e2ePeerIdentityStatus(leftPeerId).value("verificationCode").toString()
+                == right.e2ePeerIdentityStatus(rightPeerId).value("verificationCode").toString()
+            && (!leftRejectReason || leftRejectReason->isEmpty())
+            && (!rightRejectReason || rightRejectReason->isEmpty());
+    }, timeoutMs);
+}
+
 void disconnectClient(Client& client) {
     client.disconnectFromServer();
     waitFor([&] {
@@ -208,6 +247,332 @@ bool runProductionRotationLocalRebindScenario() {
                     && !executionJson.contains("publicKey\"")
                     && !executionJson.contains(draftIdentityFingerprint.toUtf8()),
                 "production rotation local rebind evidence should stay sanitized") && ok;
+    if (!appDataDir.isEmpty()) {
+        QDir(appDataDir).removeRecursively();
+        QDir().mkpath(appDataDir);
+    }
+
+    qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
+    const quint16 port = freeLocalPort();
+    ok = expect(port != 0, "a local production rotation test port should be available") && ok;
+    if (!ok) return false;
+
+    {
+        Server server;
+        ok = expect(server.start(port), "production rotation server should start") && ok;
+        if (!ok) return false;
+
+        Client alicePeer;
+        Client bobPeer;
+        Message bobProductionMessage;
+        Message bobProductionFileMessage;
+        QJsonObject bobRotationRequest;
+        QJsonObject aliceRotationResponse;
+        bool aliceRotationAccepted = false;
+        QString aliceRotationResponseReason;
+        QString aliceError;
+        QString bobError;
+        const QString aliceId = QStringLiteral("930101");
+        const QString bobId = QStringLiteral("930102");
+        QString reject;
+
+        QObject::connect(&bobPeer, &Client::newMessage, &bobPeer, [&](const Message& msg) {
+            if (msg.type == MessageType::Private) {
+                bobProductionMessage = msg;
+            } else if (msg.type == MessageType::File) {
+                bobProductionFileMessage = msg;
+            }
+        });
+        QObject::connect(&bobPeer, &Client::e2eSessionRotationRequested, &bobPeer, [&](const QString& peerId, const QJsonObject& agreement) {
+            if (peerId == aliceId) {
+                bobRotationRequest = agreement;
+            }
+        });
+        QObject::connect(&alicePeer, &Client::e2eSessionRotationResponded, &alicePeer, [&](const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason) {
+            if (peerId == bobId) {
+                aliceRotationResponse = agreement;
+                aliceRotationAccepted = accepted;
+                aliceRotationResponseReason = reason;
+            }
+        });
+        QObject::connect(&alicePeer, &Client::connectionError, &alicePeer, [&](const QString& error) {
+            aliceError = error;
+        });
+        QObject::connect(&bobPeer, &Client::connectionError, &bobPeer, [&](const QString& error) {
+            bobError = error;
+        });
+
+        ok = expect(registerClient(alicePeer, aliceId, QStringLiteral("Alice Production Peer"), port),
+                    "alice should register before production peer rotation") && ok;
+        ok = expect(registerClient(bobPeer, bobId, QStringLiteral("Bob Production Peer"), port),
+                    "bob should register before production peer rotation") && ok;
+        QString aliceAnnounceReason;
+        QString bobAnnounceReason;
+        ok = expect(waitForMutualE2EIdentityObservation(alicePeer,
+                                                        bobId,
+                                                        bobPeer,
+                                                        aliceId,
+                                                        &aliceAnnounceReason,
+                                                        &bobAnnounceReason),
+                    "draft identities should be mutually observed before production peer rotation") && ok;
+        const QString draftAliceFingerprint =
+            alicePeer.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+        const QString draftBobFingerprint =
+            bobPeer.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+        const QString draftVerificationCode =
+            alicePeer.e2ePeerIdentityStatus(bobId).value("verificationCode").toString();
+        ok = expect(draftVerificationCode.size() == 14
+                        && draftVerificationCode
+                            == bobPeer.e2ePeerIdentityStatus(aliceId).value("verificationCode").toString(),
+                    "draft identities should share a cross-device verification code") && ok;
+        ok = expect(alicePeer.pinE2EPeerIdentity(bobId,
+                                                 alicePeer.e2ePeerIdentityStatus(bobId)
+                                                     .value("publicKeyFingerprintSha256").toString(),
+                                                 &reject)
+                        && alicePeer.verifyAndPinE2EPeerIdentity(bobId,
+                                                                 draftVerificationCode,
+                                                                 &reject)
+                        && bobPeer.pinE2EPeerIdentity(aliceId,
+                                                      bobPeer.e2ePeerIdentityStatus(aliceId)
+                                                          .value("publicKeyFingerprintSha256").toString(),
+                                                      &reject)
+                        && bobPeer.verifyAndPinE2EPeerIdentity(aliceId,
+                                                               bobPeer.e2ePeerIdentityStatus(aliceId)
+                                                                   .value("verificationCode").toString(),
+                                                               &reject),
+                    "both peers should trust the draft identities before migration") && ok;
+        const QByteArray draftSessionKey = generateE2ESessionKey();
+        alicePeer.setE2ESessionKey(bobId,
+                                   QStringLiteral("draft-before-production-peer-rotation"),
+                                   draftSessionKey);
+        bobPeer.setE2ESessionKey(aliceId,
+                                 QStringLiteral("draft-before-production-peer-rotation"),
+                                 draftSessionKey);
+        ok = expect(alicePeer.e2eSessionStatus(bobId).value("state").toString()
+                            == QStringLiteral("ready")
+                        && bobPeer.e2eSessionStatus(aliceId).value("state").toString()
+                            == QStringLiteral("ready")
+                        && alicePeer.e2eSessionStatus(bobId).value("backendId").toString()
+                            == QStringLiteral("draft-qt-hmac-stream-v1"),
+                    "test should install matching draft sessions before production peer rotation") && ok;
+
+        qputenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND", "production");
+        const QJsonObject linkedStatus = e2eCryptoBackendStatus();
+        ok = expect(linkedStatus.value("selectedBackendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && linkedStatus.value("productionReady").toBool(false)
+                        && linkedStatus.value("productionAcceptance").toObject()
+                            .value("accepted").toBool(false),
+                    "linked OpenSSL provider should be accepted for production peer rotation") && ok;
+        const QJsonObject aliceDryRun = alicePeer.planE2EProductionRotationDryRun();
+        const QJsonObject bobDryRun = bobPeer.planE2EProductionRotationDryRun();
+        ok = expect(aliceDryRun.value("canRotateInPlace").toBool(false)
+                        && bobDryRun.value("canRotateInPlace").toBool(false)
+                        && aliceDryRun.value("blockedStageCount").toInt(-1) == 0
+                        && bobDryRun.value("blockedStageCount").toInt(-1) == 0
+                        && aliceDryRun.value("sessionMigrationCount").toInt() == 1
+                        && bobDryRun.value("sessionMigrationCount").toInt() == 1
+                        && aliceDryRun.value("affectedPeerPins").toArray().size() == 1
+                        && bobDryRun.value("affectedPeerPins").toArray().size() == 1,
+                    "both peers should be eligible for reviewed production rotation from draft state") && ok;
+
+        const QJsonObject aliceExecution = alicePeer.executeE2EProductionRotation(&reject);
+        ok = expect(reject.isEmpty()
+                        && aliceExecution.value("executed").toBool(false)
+                        && aliceExecution.value("releaseGate").toString()
+                            == QStringLiteral("production-rotation-local-state-rebound")
+                        && aliceExecution.value("clearedSessionCount").toInt() == 1
+                        && aliceExecution.value("requiresPeerReverification").toBool(false)
+                        && aliceExecution.value("requiresNewSessionAgreement").toBool(false),
+                    "alice should rebind local state to production identity and clear draft sessions") && ok;
+        const QJsonObject bobExecution = bobPeer.executeE2EProductionRotation(&reject);
+        ok = expect(reject.isEmpty()
+                        && bobExecution.value("executed").toBool(false)
+                        && bobExecution.value("releaseGate").toString()
+                            == QStringLiteral("production-rotation-local-state-rebound")
+                        && bobExecution.value("clearedSessionCount").toInt() == 1
+                        && bobExecution.value("requiresPeerReverification").toBool(false)
+                        && bobExecution.value("requiresNewSessionAgreement").toBool(false),
+                    "bob should rebind local state to production identity and clear draft sessions") && ok;
+        const QString productionAliceFingerprint =
+            alicePeer.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+        const QString productionBobFingerprint =
+            bobPeer.e2eLocalIdentityStatus().value("publicKeyFingerprintSha256").toString();
+        const QByteArray aliceExecutionJson =
+            QJsonDocument(aliceExecution).toJson(QJsonDocument::Compact);
+        const QByteArray bobExecutionJson =
+            QJsonDocument(bobExecution).toJson(QJsonDocument::Compact);
+        ok = expect(productionAliceFingerprint.size() == 64
+                        && productionBobFingerprint.size() == 64
+                        && productionAliceFingerprint != draftAliceFingerprint
+                        && productionBobFingerprint != draftBobFingerprint
+                        && alicePeer.e2eLocalIdentityStatus().value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && bobPeer.e2eLocalIdentityStatus().value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && alicePeer.e2eSessionStatus(bobId).value("state").toString()
+                            == QStringLiteral("missing-session")
+                        && bobPeer.e2eSessionStatus(aliceId).value("state").toString()
+                            == QStringLiteral("missing-session")
+                        && alicePeer.e2ePeerIdentityStatus(bobId).value("trustState").toString()
+                            == QStringLiteral("unverified")
+                        && bobPeer.e2ePeerIdentityStatus(aliceId).value("trustState").toString()
+                            == QStringLiteral("unverified"),
+                    "production rebind should leave both peers untrusted until production identities are re-announced") && ok;
+        ok = expect(!aliceExecutionJson.contains("privateKey")
+                        && !aliceExecutionJson.contains("sessionKey")
+                        && !aliceExecutionJson.contains("publicKey\"")
+                        && !aliceExecutionJson.contains(draftAliceFingerprint.toUtf8())
+                        && !aliceExecutionJson.contains(draftBobFingerprint.toUtf8())
+                        && !bobExecutionJson.contains("privateKey")
+                        && !bobExecutionJson.contains("sessionKey")
+                        && !bobExecutionJson.contains("publicKey\"")
+                        && !bobExecutionJson.contains(draftAliceFingerprint.toUtf8())
+                        && !bobExecutionJson.contains(draftBobFingerprint.toUtf8()),
+                    "production peer rotation execution evidence should not export sensitive material or full draft fingerprints") && ok;
+
+        aliceAnnounceReason.clear();
+        bobAnnounceReason.clear();
+        ok = expect(waitForMutualE2EIdentityObservation(alicePeer,
+                                                        bobId,
+                                                        bobPeer,
+                                                        aliceId,
+                                                        &aliceAnnounceReason,
+                                                        &bobAnnounceReason),
+                    "production identities should be mutually re-announced after local rebind") && ok;
+        ok = expect(alicePeer.e2ePeerIdentityStatus(bobId)
+                            .value("publicKeyFingerprintSha256").toString()
+                            == productionBobFingerprint
+                        && bobPeer.e2ePeerIdentityStatus(aliceId)
+                            .value("publicKeyFingerprintSha256").toString()
+                            == productionAliceFingerprint,
+                    "each peer should observe the other's production identity fingerprint") && ok;
+        const QString productionVerificationCode =
+            alicePeer.e2ePeerIdentityStatus(bobId).value("verificationCode").toString();
+        ok = expect(productionVerificationCode.size() == 14
+                        && productionVerificationCode
+                            == bobPeer.e2ePeerIdentityStatus(aliceId)
+                                .value("verificationCode").toString(),
+                    "production identities should derive a fresh shared verification code") && ok;
+        ok = expect(alicePeer.pinE2EPeerIdentity(bobId,
+                                                 productionBobFingerprint,
+                                                 &reject)
+                        && alicePeer.verifyAndPinE2EPeerIdentity(bobId,
+                                                                 productionVerificationCode,
+                                                                 &reject)
+                        && bobPeer.pinE2EPeerIdentity(aliceId,
+                                                      productionAliceFingerprint,
+                                                      &reject)
+                        && bobPeer.verifyAndPinE2EPeerIdentity(aliceId,
+                                                               productionVerificationCode,
+                                                               &reject)
+                        && alicePeer.e2ePeerIdentityStatus(bobId)
+                            .value("pinBackendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && bobPeer.e2ePeerIdentityStatus(aliceId)
+                            .value("pinBackendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1"),
+                    "both peers should re-pin production identities before session rotation") && ok;
+
+        bobRotationRequest = QJsonObject();
+        aliceRotationResponse = QJsonObject();
+        aliceRotationAccepted = false;
+        aliceRotationResponseReason.clear();
+        ok = expect(alicePeer.requestE2ESessionRotation(bobId, &reject),
+                    "alice should request a production e2e session rotation through the server") && ok;
+        ok = expect(waitFor([&] {
+            return bobRotationRequest.value("senderId").toString() == aliceId
+                && bobRotationRequest.value("receiverId").toString() == bobId;
+        }, 9000), "bob should receive the production key rotation request") && ok;
+        const QByteArray requestJson = QJsonDocument(bobRotationRequest).toJson(QJsonDocument::Compact);
+        ok = expect(bobRotationRequest.value("senderIdentityFingerprintSha256").toString()
+                            == productionAliceFingerprint
+                        && bobRotationRequest.value("receiverIdentityFingerprintSha256").toString()
+                            == productionBobFingerprint
+                        && bobRotationRequest.value("publicKeyFingerprintSha256").toString().size() == 64
+                        && bobRotationRequest.value("signature").toString().size() > 20
+                        && !bobRotationRequest.contains("sessionKey")
+                        && !requestJson.contains("privateKey")
+                        && !requestJson.contains("sessionKey"),
+                    "production rotation request should be signed and expose only public agreement material") && ok;
+        ok = expect(bobPeer.respondE2ESessionRotation(aliceId,
+                                                      bobRotationRequest.value("keyId").toString()
+                                                          + QStringLiteral("-response"),
+                                                      generateE2ESessionKey(),
+                                                      true,
+                                                      QStringLiteral("accepted"),
+                                                      &reject),
+                    "bob should accept and derive the production e2e session") && ok;
+        ok = expect(waitFor([&] {
+            return aliceRotationAccepted
+                && aliceRotationResponseReason == QStringLiteral("accepted")
+                && aliceRotationResponse.value("senderId").toString() == bobId
+                && aliceRotationResponse.value("receiverId").toString() == aliceId
+                && alicePeer.hasE2ESession(bobId)
+                && bobPeer.hasE2ESession(aliceId);
+        }, 9000), "alice should install the production key rotation response") && ok;
+        const QByteArray responseJson = QJsonDocument(aliceRotationResponse).toJson(QJsonDocument::Compact);
+        ok = expect(aliceRotationResponse.value("senderIdentityFingerprintSha256").toString()
+                            == productionBobFingerprint
+                        && aliceRotationResponse.value("receiverIdentityFingerprintSha256").toString()
+                            == productionAliceFingerprint
+                        && alicePeer.e2eSessionStatus(bobId).value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && bobPeer.e2eSessionStatus(aliceId).value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && alicePeer.e2eSessionStatus(bobId)
+                            .value("keyFingerprintSha256").toString().size() == 64
+                        && alicePeer.e2eSessionStatus(bobId)
+                            .value("keyFingerprintSha256").toString()
+                            == bobPeer.e2eSessionStatus(aliceId)
+                                .value("keyFingerprintSha256").toString()
+                        && !aliceRotationResponse.contains("sessionKey")
+                        && !responseJson.contains("privateKey")
+                        && !responseJson.contains("sessionKey"),
+                    "both peers should install the same production session without raw key export") && ok;
+
+        const QString productionPlaintext =
+            QStringLiteral("production e2e private message after peer rotation");
+        bobProductionMessage = Message();
+        ok = expect(alicePeer.sendEncryptedPrivateMessage(bobId, productionPlaintext, &reject),
+                    "production session should send encrypted private text") && ok;
+        ok = expect(waitFor([&] {
+            return bobProductionMessage.content == productionPlaintext;
+        }, 9000), "bob should decrypt private text through the production session") && ok;
+        ok = expect(bobProductionMessage.e2eEnvelope.isValid()
+                        && bobProductionMessage.e2eEnvelope.ciphertext
+                            != productionPlaintext.toUtf8()
+                        && aliceError.isEmpty()
+                        && bobError.isEmpty(),
+                    "production private text should retain envelope metadata and avoid decrypt diagnostics") && ok;
+
+        const QByteArray productionFilePayload("production e2e private file payload");
+        const QString productionFilePath =
+            QDir(appDataDir).filePath(QStringLiteral("alice-production-private-file.bin"));
+        bobProductionFileMessage = Message();
+        ok = expect(writeTextFile(productionFilePath, productionFilePayload),
+                    "test should write a production private file payload") && ok;
+        ok = expect(alicePeer.sendFile(productionFilePath, bobId),
+                    "production session should send encrypted private file payload") && ok;
+        ok = expect(waitFor([&] {
+            return bobProductionFileMessage.type == MessageType::File
+                && bobProductionFileMessage.fileData == productionFilePayload;
+        }, 9000), "bob should decrypt private file payload through the production session") && ok;
+        ok = expect(bobProductionFileMessage.e2eFileEncrypted
+                        && bobProductionFileMessage.e2eFilePlainSize
+                            == productionFilePayload.size()
+                        && bobProductionFileMessage.e2eFilePlainHash
+                            == QString::fromLatin1(QCryptographicHash::hash(productionFilePayload,
+                                                                             QCryptographicHash::Sha256).toHex())
+                        && bobProductionFileMessage.fileHash
+                            == bobProductionFileMessage.e2eFilePlainHash
+                        && !bobProductionFileMessage.fileData.contains("ciphertext"),
+                    "production private file delivery should keep safe e2e metadata after decrypt") && ok;
+
+        disconnectClient(alicePeer);
+        disconnectClient(bobPeer);
+        qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
+    }
     return ok;
 }
 }

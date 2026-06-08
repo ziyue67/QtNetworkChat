@@ -128,7 +128,7 @@ endif()
 
 if(NOT client_test_result EQUAL 0)
     message(STATUS "Captured production client rotation test output: ${client_test_stdout}\n${client_test_stderr}")
-    message(FATAL_ERROR "Production client rotation should generate production identity and clear draft sessions under linked provider gates")
+    message(FATAL_ERROR "Production client rotation should rebind identity, re-pin peers, derive production sessions, and deliver encrypted text/file payloads under linked provider gates")
 endif()
 
-message(STATUS "E2E production adapter runtime provider dispatch and client rotation gate verified")
+message(STATUS "E2E production adapter runtime provider dispatch and connected client rotation gate verified")
