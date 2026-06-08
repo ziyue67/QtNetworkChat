@@ -571,6 +571,213 @@ bool runProductionRotationLocalRebindScenario() {
 
         disconnectClient(alicePeer);
         disconnectClient(bobPeer);
+
+        Client aliceRestartedPeer;
+        Client bobRestartedPeer;
+        Message bobRestartedProductionMessage;
+        Message bobRestartedProductionFileMessage;
+        QJsonObject bobRestartedRotationRequest;
+        QJsonObject aliceRestartedRotationResponse;
+        bool aliceRestartedRotationAccepted = false;
+        QString aliceRestartedRotationReason;
+        QString aliceRestartedError;
+        QString bobRestartedError;
+
+        QObject::connect(&bobRestartedPeer, &Client::newMessage, &bobRestartedPeer, [&](const Message& msg) {
+            if (msg.type == MessageType::Private) {
+                bobRestartedProductionMessage = msg;
+            } else if (msg.type == MessageType::File) {
+                bobRestartedProductionFileMessage = msg;
+            }
+        });
+        QObject::connect(&bobRestartedPeer, &Client::e2eSessionRotationRequested, &bobRestartedPeer, [&](const QString& peerId, const QJsonObject& agreement) {
+            if (peerId == aliceId) {
+                bobRestartedRotationRequest = agreement;
+            }
+        });
+        QObject::connect(&aliceRestartedPeer, &Client::e2eSessionRotationResponded, &aliceRestartedPeer, [&](const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason) {
+            if (peerId == bobId) {
+                aliceRestartedRotationResponse = agreement;
+                aliceRestartedRotationAccepted = accepted;
+                aliceRestartedRotationReason = reason;
+            }
+        });
+        QObject::connect(&aliceRestartedPeer, &Client::connectionError, &aliceRestartedPeer, [&](const QString& error) {
+            aliceRestartedError = error;
+        });
+        QObject::connect(&bobRestartedPeer, &Client::connectionError, &bobRestartedPeer, [&](const QString& error) {
+            bobRestartedError = error;
+        });
+
+        ok = expect(loginClient(aliceRestartedPeer,
+                                aliceId,
+                                QStringLiteral("Alice Production Peer"),
+                                port),
+                    "restarted alice should log in with persisted production identity") && ok;
+        ok = expect(loginClient(bobRestartedPeer,
+                                bobId,
+                                QStringLiteral("Bob Production Peer"),
+                                port),
+                    "restarted bob should log in with persisted production identity") && ok;
+        ok = expect(aliceRestartedPeer.e2eLocalIdentityStatus()
+                            .value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && bobRestartedPeer.e2eLocalIdentityStatus()
+                            .value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && aliceRestartedPeer.e2eLocalIdentityStatus()
+                            .value("publicKeyFingerprintSha256").toString()
+                            == productionAliceFingerprint
+                        && bobRestartedPeer.e2eLocalIdentityStatus()
+                            .value("publicKeyFingerprintSha256").toString()
+                            == productionBobFingerprint
+                        && aliceRestartedPeer.e2eLocalIdentityStatus()
+                            .value("identityPersisted").toBool(false)
+                        && bobRestartedPeer.e2eLocalIdentityStatus()
+                            .value("identityPersisted").toBool(false)
+                        && aliceRestartedPeer.e2eLocalIdentityStatus()
+                            .value("agreementSigning").toBool(false)
+                        && bobRestartedPeer.e2eLocalIdentityStatus()
+                            .value("agreementSigning").toBool(false),
+                    "restarted peers should restore usable production identity material from disk") && ok;
+
+        QString aliceRestartAnnounceReason;
+        QString bobRestartAnnounceReason;
+        ok = expect(waitForMutualE2EIdentityObservation(aliceRestartedPeer,
+                                                        bobId,
+                                                        bobRestartedPeer,
+                                                        aliceId,
+                                                        &aliceRestartAnnounceReason,
+                                                        &bobRestartAnnounceReason),
+                    "restarted peers should observe persisted production identities") && ok;
+        ok = expect(aliceRestartedPeer.e2ePeerIdentityStatus(bobId)
+                            .value("trustState").toString()
+                            == QStringLiteral("trusted")
+                        && bobRestartedPeer.e2ePeerIdentityStatus(aliceId)
+                            .value("trustState").toString()
+                            == QStringLiteral("trusted")
+                        && aliceRestartedPeer.e2ePeerIdentityStatus(bobId)
+                            .value("pinPersisted").toBool(false)
+                        && bobRestartedPeer.e2ePeerIdentityStatus(aliceId)
+                            .value("pinPersisted").toBool(false)
+                        && aliceRestartedPeer.e2ePeerIdentityStatus(bobId)
+                            .value("pinBackendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && bobRestartedPeer.e2ePeerIdentityStatus(aliceId)
+                            .value("pinBackendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && !aliceRestartedPeer.e2ePeerIdentityStatus(bobId)
+                            .value("backendMigrationRequired").toBool(true)
+                        && !bobRestartedPeer.e2ePeerIdentityStatus(aliceId)
+                            .value("backendMigrationRequired").toBool(true)
+                        && aliceRestartedPeer.e2ePeerIdentityStatus(bobId)
+                            .value("verificationCode").toString()
+                            == productionVerificationCode
+                        && bobRestartedPeer.e2ePeerIdentityStatus(aliceId)
+                            .value("verificationCode").toString()
+                            == productionVerificationCode,
+                    "restarted peers should restore verified production trust pins without manual re-pin") && ok;
+        ok = expect(aliceRestartedPeer.e2eSessionStatus(bobId)
+                            .value("state").toString()
+                            == QStringLiteral("missing-session")
+                        && bobRestartedPeer.e2eSessionStatus(aliceId)
+                            .value("state").toString()
+                            == QStringLiteral("missing-session"),
+                    "production sessions should not be reused from memory after restart") && ok;
+
+        ok = expect(aliceRestartedPeer.requestE2ESessionRotation(bobId, &reject),
+                    "restarted alice should request a fresh production session") && ok;
+        ok = expect(waitFor([&] {
+            return bobRestartedRotationRequest.value("senderId").toString() == aliceId
+                && bobRestartedRotationRequest.value("receiverId").toString() == bobId;
+        }, 9000), "restarted bob should receive the fresh production rotation request") && ok;
+        const QByteArray restartedRequestJson =
+            QJsonDocument(bobRestartedRotationRequest).toJson(QJsonDocument::Compact);
+        ok = expect(bobRestartedRotationRequest.value("senderIdentityFingerprintSha256").toString()
+                            == productionAliceFingerprint
+                        && bobRestartedRotationRequest.value("receiverIdentityFingerprintSha256").toString()
+                            == productionBobFingerprint
+                        && bobRestartedRotationRequest.value("signature").toString().size() > 20
+                        && !bobRestartedRotationRequest.contains("sessionKey")
+                        && !restartedRequestJson.contains("privateKey")
+                        && !restartedRequestJson.contains("sessionKey"),
+                    "restarted production rotation request should stay signed and sanitized") && ok;
+        ok = expect(bobRestartedPeer.respondE2ESessionRotation(aliceId,
+                                                               bobRestartedRotationRequest
+                                                                   .value("keyId").toString()
+                                                                   + QStringLiteral("-response"),
+                                                               generateE2ESessionKey(),
+                                                               true,
+                                                               QStringLiteral("accepted"),
+                                                               &reject),
+                    "restarted bob should derive a fresh production session response") && ok;
+        ok = expect(waitFor([&] {
+            return aliceRestartedRotationAccepted
+                && aliceRestartedRotationReason == QStringLiteral("accepted")
+                && aliceRestartedRotationResponse.value("senderId").toString() == bobId
+                && aliceRestartedRotationResponse.value("receiverId").toString() == aliceId
+                && aliceRestartedPeer.hasE2ESession(bobId)
+                && bobRestartedPeer.hasE2ESession(aliceId);
+        }, 9000), "restarted alice should install the fresh production session") && ok;
+        const QByteArray restartedResponseJson =
+            QJsonDocument(aliceRestartedRotationResponse).toJson(QJsonDocument::Compact);
+        ok = expect(aliceRestartedPeer.e2eSessionStatus(bobId)
+                            .value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && bobRestartedPeer.e2eSessionStatus(aliceId)
+                            .value("backendId").toString()
+                            == QStringLiteral("openssl-reviewed-adapter-v1")
+                        && aliceRestartedPeer.e2eSessionStatus(bobId)
+                            .value("keyFingerprintSha256").toString()
+                            == bobRestartedPeer.e2eSessionStatus(aliceId)
+                                .value("keyFingerprintSha256").toString()
+                        && !aliceRestartedRotationResponse.contains("sessionKey")
+                        && !restartedResponseJson.contains("privateKey")
+                        && !restartedResponseJson.contains("sessionKey"),
+                    "restarted peers should install matching fresh production sessions without raw key export") && ok;
+
+        const QString restartedPlaintext =
+            QStringLiteral("production e2e private message after restart");
+        bobRestartedProductionMessage = Message();
+        ok = expect(aliceRestartedPeer.sendEncryptedPrivateMessage(bobId,
+                                                                   restartedPlaintext,
+                                                                   &reject),
+                    "fresh production session should send encrypted private text after restart") && ok;
+        ok = expect(waitFor([&] {
+            return bobRestartedProductionMessage.content == restartedPlaintext;
+        }, 9000), "restarted bob should decrypt private text through the fresh production session") && ok;
+        ok = expect(bobRestartedProductionMessage.e2eEnvelope.isValid()
+                        && bobRestartedProductionMessage.e2eEnvelope.ciphertext
+                            != restartedPlaintext.toUtf8()
+                        && aliceRestartedError.isEmpty()
+                        && bobRestartedError.isEmpty(),
+                    "fresh production text delivery after restart should keep envelope metadata and avoid diagnostics") && ok;
+
+        const QByteArray restartedFilePayload("production e2e private file payload after restart");
+        const QString restartedFilePath =
+            QDir(appDataDir).filePath(QStringLiteral("alice-production-private-file-after-restart.bin"));
+        bobRestartedProductionFileMessage = Message();
+        ok = expect(writeTextFile(restartedFilePath, restartedFilePayload),
+                    "test should write a restarted production private file payload") && ok;
+        ok = expect(aliceRestartedPeer.sendFile(restartedFilePath, bobId),
+                    "fresh production session should send encrypted private file after restart") && ok;
+        ok = expect(waitFor([&] {
+            return bobRestartedProductionFileMessage.type == MessageType::File
+                && bobRestartedProductionFileMessage.fileData == restartedFilePayload;
+        }, 9000), "restarted bob should decrypt private file through the fresh production session") && ok;
+        ok = expect(bobRestartedProductionFileMessage.e2eFileEncrypted
+                        && bobRestartedProductionFileMessage.e2eFilePlainSize
+                            == restartedFilePayload.size()
+                        && bobRestartedProductionFileMessage.e2eFilePlainHash
+                            == QString::fromLatin1(QCryptographicHash::hash(restartedFilePayload,
+                                                                             QCryptographicHash::Sha256).toHex())
+                        && bobRestartedProductionFileMessage.fileHash
+                            == bobRestartedProductionFileMessage.e2eFilePlainHash
+                        && !bobRestartedProductionFileMessage.fileData.contains("ciphertext"),
+                    "fresh production file delivery after restart should keep safe e2e metadata") && ok;
+
+        disconnectClient(aliceRestartedPeer);
+        disconnectClient(bobRestartedPeer);
         qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
     }
     return ok;
