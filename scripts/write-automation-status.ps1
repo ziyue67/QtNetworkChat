@@ -25,6 +25,7 @@ param(
     [string]$LargeFileGovernanceLastRunPath,
     [string]$LargeFileGovernanceTaskPreviewPath,
     [string[]]$TaskPreviewPath = @(),
+    [string]$ScheduledTaskReadbackJsonPath,
     [string]$AutomationTaskHistoryPath,
     [string]$AutomationTaskAckPath,
     [switch]$BootstrapDefaultTasks,
@@ -1074,7 +1075,245 @@ function Get-AutomationTaskAckGateReadback([object]$HistoryState, [object]$AckSt
     [pscustomobject]$result
 }
 
-function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate) {
+function Read-ScheduledTaskReadbackArtifact([string]$PathValue) {
+    $result = [ordered]@{
+        configured = $false
+        state = "not-configured"
+        tasks = @{}
+    }
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    $state = Get-ArtifactState -PathValue $PathValue -ExpectJson
+    if ($state.state -ne "ok") {
+        $result.state = $state.state
+        return [pscustomobject]$result
+    }
+
+    $taskMap = @{}
+    $entries = @()
+    $artifactTasks = Get-JsonValue $state.value "tasks" $null
+    if ($null -ne $artifactTasks) {
+        if ($artifactTasks -is [array]) {
+            $entries = @($artifactTasks)
+        } else {
+            $entries = @($artifactTasks)
+        }
+    } else {
+        $entries = @($state.value)
+    }
+    foreach ($entry in $entries) {
+        $taskName = Format-StatusValue (Get-JsonValue $entry "taskName" (Get-JsonValue $entry "name" "unknown"))
+        if ($taskName -eq "unknown") {
+            continue
+        }
+        $registered = Convert-StatusBoolean (Get-JsonValue $entry "registered" (Get-JsonValue $entry "found" $null)) $false
+        $readbackState = Format-StatusValue (Get-JsonValue $entry "state" (Get-JsonValue $entry "status" $(if ($registered) { "registered" } else { "missing" })))
+        $schedulerState = Format-StatusValue (Get-JsonValue $entry "schedulerState" (Get-JsonValue $entry "taskState" "unknown"))
+        $taskPath = Format-StatusValue (Get-JsonValue $entry "taskPath" "unknown")
+        $taskMap[$taskName] = [pscustomobject]@{
+            taskName = $taskName
+            registered = $registered
+            state = $readbackState
+            schedulerState = $schedulerState
+            taskPath = $taskPath
+            source = "artifact"
+        }
+    }
+    $result.state = "ok"
+    $result.tasks = $taskMap
+    [pscustomobject]$result
+}
+
+function Read-ScheduledTaskState([string]$TaskName, [object]$InjectedReadback) {
+    if ($null -ne $InjectedReadback -and $InjectedReadback.configured) {
+        if ($InjectedReadback.state -ne "ok") {
+            return [pscustomobject]@{
+                taskName = $TaskName
+                registered = $false
+                state = "readback-unavailable"
+                schedulerState = "unknown"
+                taskPath = "unknown"
+                source = $InjectedReadback.state
+            }
+        }
+        if ($InjectedReadback.tasks.ContainsKey($TaskName)) {
+            return $InjectedReadback.tasks[$TaskName]
+        }
+        return [pscustomobject]@{
+            taskName = $TaskName
+            registered = $false
+            state = "missing"
+            schedulerState = "unknown"
+            taskPath = "unknown"
+            source = "artifact"
+        }
+    }
+
+    if ($script:PlanOnly.IsPresent) {
+        return [pscustomobject]@{
+            taskName = $TaskName
+            registered = $false
+            state = "plan-only"
+            schedulerState = "unknown"
+            taskPath = "unknown"
+            source = "plan-only"
+        }
+    }
+
+    $command = Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        return [pscustomobject]@{
+            taskName = $TaskName
+            registered = $false
+            state = "scheduler-readback-unavailable"
+            schedulerState = "unknown"
+            taskPath = "unknown"
+            source = "Get-ScheduledTask-unavailable"
+        }
+    }
+
+    try {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -eq $task) {
+            return [pscustomobject]@{
+                taskName = $TaskName
+                registered = $false
+                state = "missing"
+                schedulerState = "unknown"
+                taskPath = "unknown"
+                source = "Get-ScheduledTask"
+            }
+        }
+        return [pscustomobject]@{
+            taskName = $TaskName
+            registered = $true
+            state = "registered"
+            schedulerState = Format-StatusValue $task.State
+            taskPath = Format-StatusValue $task.TaskPath
+            source = "Get-ScheduledTask"
+        }
+    } catch {
+        return [pscustomobject]@{
+            taskName = $TaskName
+            registered = $false
+            state = "scheduler-readback-unavailable"
+            schedulerState = "unknown"
+            taskPath = "unknown"
+            source = "Get-ScheduledTask-error"
+        }
+    }
+}
+
+function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$ReadbackJsonPath) {
+    $totalCount = @($PreviewRecords).Count
+    $injectedReadback = Read-ScheduledTaskReadbackArtifact $ReadbackJsonPath
+    $details = New-Object System.Collections.Generic.List[object]
+    $result = [ordered]@{
+        configured = $totalCount -gt 0
+        state = "not-configured"
+        taskCount = $totalCount
+        expectedRegisteredCount = 0
+        registeredFoundCount = 0
+        registeredMissingCount = 0
+        previewOnlyCount = 0
+        unreadableCount = 0
+        releaseGate = "scheduled-task-readback-not-configured"
+        action = "configure automation task previews before release"
+        source = if ($injectedReadback.configured) { "artifact" } else { "Get-ScheduledTask" }
+        details = $null
+    }
+    if ($totalCount -le 0) {
+        return [pscustomobject]$result
+    }
+
+    foreach ($previewRecord in $PreviewRecords) {
+        if ($null -eq $previewRecord -or $null -eq $previewRecord.state -or $previewRecord.state.state -ne "ok") {
+            continue
+        }
+
+        $registeredExpected = Convert-StatusBoolean $previewRecord.register $false
+        $taskName = Format-StatusValue $previewRecord.taskName
+        if (-not $registeredExpected) {
+            $result.previewOnlyCount++
+            $details.Add([pscustomobject]@{
+                    taskName = $taskName
+                    taskKind = Format-StatusValue $previewRecord.taskKind
+                    expectedRegistered = "false"
+                    readback = "preview-only"
+                    schedulerState = "unknown"
+                    taskPath = "unknown"
+                    source = "preview"
+                })
+            continue
+        }
+
+        $result.expectedRegisteredCount++
+        if ($taskName -eq "unknown") {
+            $result.unreadableCount++
+            $details.Add([pscustomobject]@{
+                    taskName = $taskName
+                    taskKind = Format-StatusValue $previewRecord.taskKind
+                    expectedRegistered = "true"
+                    readback = "missing-task-name"
+                    schedulerState = "unknown"
+                    taskPath = "unknown"
+                    source = "preview"
+                })
+            continue
+        }
+
+        $taskReadback = Read-ScheduledTaskState $taskName $injectedReadback
+        $taskState = Format-StatusValue $taskReadback.state
+        if (Convert-StatusBoolean $taskReadback.registered $false) {
+            $result.registeredFoundCount++
+        } elseif ($taskState -eq "missing") {
+            $result.registeredMissingCount++
+        } else {
+            $result.unreadableCount++
+        }
+        $details.Add([pscustomobject]@{
+                taskName = $taskName
+                taskKind = Format-StatusValue $previewRecord.taskKind
+                expectedRegistered = "true"
+                readback = $taskState
+                schedulerState = Format-StatusValue $taskReadback.schedulerState
+                taskPath = Format-StatusValue $taskReadback.taskPath
+                source = Format-StatusValue $taskReadback.source
+            })
+    }
+
+    $result["details"] = [object[]]$details.ToArray()
+    if ($result.previewOnlyCount -gt 0) {
+        $result.state = "preview-only"
+        $result.releaseGate = "blocked-preview-only-automation-watch"
+        $result.action = "register scheduled tasks with -Register or provide registered task artifacts before release"
+    } elseif ($result.expectedRegisteredCount -le 0) {
+        $result.state = "no-registered-tasks"
+        $result.releaseGate = "automation-watch-not-registered"
+        $result.action = "register at least one automation task before release"
+    } elseif ($result.registeredMissingCount -gt 0) {
+        $result.state = "registered-missing"
+        $result.releaseGate = "blocked-scheduled-task-missing"
+        $result.action = "restore missing scheduled tasks before release"
+    } elseif ($result.unreadableCount -gt 0) {
+        $result.state = "scheduler-readback-unavailable"
+        $result.releaseGate = "blocked-scheduler-readback-unavailable"
+        $result.action = "provide scheduler readback evidence before release"
+    } elseif ($result.registeredFoundCount -eq $result.expectedRegisteredCount) {
+        $result.state = "registered"
+        $result.releaseGate = "scheduled-task-readback-registered"
+        $result.action = "verify scheduler run history stays fresh before release"
+    } else {
+        $result.state = "partial"
+        $result.releaseGate = "blocked-scheduled-task-readback-partial"
+        $result.action = "reconcile scheduled task registration evidence before release"
+    }
+    [pscustomobject]$result
+}
+
+function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate, [object]$SchedulerReadback) {
     $totalCount = @($PreviewRecords).Count
     $result = [ordered]@{
         configured = $totalCount -gt 0
@@ -1114,6 +1353,10 @@ function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]
         $result.state = "no-registered-tasks"
         $result.releaseGate = "automation-watch-not-registered"
         $result.action = "register at least one automation task before release"
+    } elseif ($null -ne $SchedulerReadback -and $SchedulerReadback.configured -and $SchedulerReadback.releaseGate -ne "scheduled-task-readback-registered") {
+        $result.state = $SchedulerReadback.state
+        $result.releaseGate = $SchedulerReadback.releaseGate
+        $result.action = $SchedulerReadback.action
     } elseif ($null -ne $AckGate -and $AckGate.configured -and $AckGate.releaseGate -ne "passing") {
         $result.state = "registered-ack-gated"
         $result.releaseGate = $AckGate.releaseGate
@@ -1431,7 +1674,8 @@ $automationTaskAckGateConfigured = Has-ConfigurationHint @(
     $normalizedTaskPreviewPaths
 )
 $automationTaskAckGate = Get-AutomationTaskAckGateReadback $automationTaskHistoryState $automationTaskAckState $automationTaskAckGateConfigured
-$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate
+$scheduledTaskRegistryReadback = Get-ScheduledTaskRegistryReadback @($previewRecords) $ScheduledTaskReadbackJsonPath
+$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback
 $automationTaskAckReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured
 
 $databaseHealthStatus = $databaseHealthStatusState.value
@@ -1555,6 +1799,29 @@ if ($automationTaskWatchGate.configured) {
             (Format-StatusValue $automationTaskWatchGate.invalidPreviewCount), `
             (Format-StatusValue $automationTaskWatchGate.releaseGate), `
             (Format-StatusValue $automationTaskWatchGate.action)))
+}
+if ($scheduledTaskRegistryReadback.configured) {
+    $lines.Add(('- Scheduled task registry readback: state=`{0}`, tasks=`{1}`, expectedRegistered=`{2}`, found=`{3}`, missing=`{4}`, previewOnly=`{5}`, unreadable=`{6}`, source=`{7}`, releaseGate=`{8}`, action=`{9}`' -f `
+            (Format-StatusValue $scheduledTaskRegistryReadback.state), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.taskCount), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.expectedRegisteredCount), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.registeredFoundCount), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.registeredMissingCount), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.previewOnlyCount), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.unreadableCount), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.source), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.releaseGate), `
+            (Format-StatusValue $scheduledTaskRegistryReadback.action)))
+    foreach ($taskReadback in @($scheduledTaskRegistryReadback.details)) {
+        $lines.Add(('  Scheduler task: kind=`{0}`, name=`{1}`, expectedRegistered=`{2}`, readback=`{3}`, schedulerState=`{4}`, taskPath=`{5}`, source=`{6}`' -f `
+                (Format-StatusValue $taskReadback.taskKind), `
+                (Format-StatusValue $taskReadback.taskName), `
+                (Format-StatusValue $taskReadback.expectedRegistered), `
+                (Format-StatusValue $taskReadback.readback), `
+                (Format-StatusValue $taskReadback.schedulerState), `
+                (Format-StatusValue $taskReadback.taskPath), `
+                (Format-StatusValue $taskReadback.source)))
+    }
 }
 $lines.Add("")
 $lines.Add("## Generic Task Readback")
