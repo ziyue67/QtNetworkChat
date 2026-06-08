@@ -23,6 +23,8 @@ param(
 
     [string]$TaskDir,
 
+    [int]$AckExpiryHours = 72,
+
     [string]$ReceiptRotationPath,
 
     [int]$RotationKeepRecords,
@@ -159,6 +161,9 @@ if ($null -eq $QueuePath -or $QueuePath.Count -eq 0) {
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     throw "OutputDir is required."
 }
+if ($AckExpiryHours -lt 1) {
+    throw "AckExpiryHours must be greater than zero."
+}
 if ($Schedule -eq "Hourly" -and $EveryHours -lt 1) {
     throw "EveryHours must be greater than zero."
 }
@@ -213,6 +218,9 @@ $ackPath = Join-Path $resolvedTaskDir "automation-task-ack.json"
 
 $lines = New-Object System.Collections.ArrayList
 [void]$lines.Add('$ErrorActionPreference = "Stop"')
+[void]$lines.Add('$repoRoot = ' + (Quote-PSString (Resolve-Path (Join-Path $PSScriptRoot "..")).Path))
+[void]$lines.Add('Set-Location -LiteralPath $repoRoot')
+[void]$lines.Add('$runStartedAt = (Get-Date).ToUniversalTime().ToString("o")')
 [void]$lines.Add('$runner = ' + (Quote-PSString $governanceScript))
 [void]$lines.Add('$historyScript = ' + (Quote-PSString $historyScript))
 [void]$lines.Add('$logPath = ' + (Quote-PSString $logPath))
@@ -265,10 +273,11 @@ if ($lastIndex -ge 0) {
     $lines[$lastIndex] = $lastLine
 }
 [void]$lines.Add('$exitCode = $LASTEXITCODE')
-[void]$lines.Add(('"{0} exitCode=$exitCode historyPath={1} historyMarkdownPath={2} ackPath={3}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $historyPath, $historyMarkdownPath, $ackPath))
+[void]$lines.Add(('"$runStartedAt exitCode=$exitCode historyPath={0} historyMarkdownPath={1} ackPath={2}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f $historyPath, $historyMarkdownPath, $ackPath))
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $historyScript `')
 Add-ScalarArg $lines "LastRunPath" $logPath
 Add-ScalarArg $lines "AckPath" $ackPath
+Add-IntArg $lines "AckExpiryHours" $AckExpiryHours
 Add-ScalarArg $lines "JsonPath" $historyPath
 Add-ScalarArg $lines "MarkdownPath" $historyMarkdownPath
 Add-SwitchArg $lines "FailOnSensitive" $true

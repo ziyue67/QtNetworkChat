@@ -64,6 +64,8 @@ param(
 
     [switch]$Register,
 
+    [int]$AckExpiryHours = 72,
+
     [string]$User = "SYSTEM"
 )
 
@@ -116,6 +118,9 @@ function Add-SwitchArg([System.Collections.ArrayList]$Lines, [string]$Name, [boo
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     throw "OutputDir is required."
+}
+if ($AckExpiryHours -lt 1) {
+    throw "AckExpiryHours must be greater than zero."
 }
 if ($Schedule -eq "Hourly" -and $EveryHours -lt 1) {
     throw "EveryHours must be greater than zero."
@@ -217,6 +222,9 @@ if ([string]::IsNullOrWhiteSpace($RollbackAuditPath)) {
 
 $lines = New-Object System.Collections.ArrayList
 [void]$lines.Add('$ErrorActionPreference = "Stop"')
+[void]$lines.Add('$repoRoot = ' + (Quote-PSString (Resolve-Path (Join-Path $PSScriptRoot "..")).Path))
+[void]$lines.Add('Set-Location -LiteralPath $repoRoot')
+[void]$lines.Add('$runStartedAt = (Get-Date).ToUniversalTime().ToString("o")')
 [void]$lines.Add('$healthScript = ' + (Quote-PSString $healthScript))
 [void]$lines.Add('$statusScript = ' + (Quote-PSString $statusScript))
 [void]$lines.Add('$dashboardScript = ' + (Quote-PSString $dashboardScript))
@@ -368,10 +376,11 @@ if ($lastIndex -ge 0) {
 [void]$lines.Add('$pipelineExitCode = if ($healthExitCode -ne 0) { $healthExitCode } elseif ($healthStatusExitCode -ne 0) { $healthStatusExitCode } elseif ($dashboardExitCode -ne 0) { $dashboardExitCode } elseif ($smokeExitCode -ne 0) { $smokeExitCode } elseif ($migrationExitCode -ne 0) { $migrationExitCode } else { $acceptanceExitCode }')
 [void]$lines.Add('$packageExitCode = 0')
 [void]$lines.Add('$exitCode = $pipelineExitCode')
-    [void]$lines.Add(('"{0} healthExitCode=$healthExitCode healthStatusExitCode=$healthStatusExitCode dashboardExitCode=$dashboardExitCode smokeExitCode=$smokeExitCode migrationExitCode=$migrationExitCode acceptanceExitCode=$acceptanceExitCode packageExitCode=$packageExitCode exitCode=$exitCode healthPath={1} healthStatusPath={2} dashboardPath={3} smokeJsonPath={4} migrationJsonPath={5} rollbackPreviewPath={6} rollbackAuditPath={7} jsonPath={8} markdownPath={9} evidencePackagePath={10} evidenceManifestPath={11} historyPath={12} historyMarkdownPath={13} ackPath={14}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $healthPath, $healthStatusPath, $DatabaseHealthDashboardPath, $SmokeJsonPath, $MigrationJsonPath, $RollbackPreviewPath, $RollbackAuditPath, $jsonPath, $markdownPath, $evidencePackagePath, $evidenceManifestPath, $historyPath, $historyMarkdownPath, $ackPath))
+    [void]$lines.Add(('"$runStartedAt healthExitCode=$healthExitCode healthStatusExitCode=$healthStatusExitCode dashboardExitCode=$dashboardExitCode smokeExitCode=$smokeExitCode migrationExitCode=$migrationExitCode acceptanceExitCode=$acceptanceExitCode packageExitCode=$packageExitCode exitCode=$exitCode healthPath={0} healthStatusPath={1} dashboardPath={2} smokeJsonPath={3} migrationJsonPath={4} rollbackPreviewPath={5} rollbackAuditPath={6} jsonPath={7} markdownPath={8} evidencePackagePath={9} evidenceManifestPath={10} historyPath={11} historyMarkdownPath={12} ackPath={13}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f $healthPath, $healthStatusPath, $DatabaseHealthDashboardPath, $SmokeJsonPath, $MigrationJsonPath, $RollbackPreviewPath, $RollbackAuditPath, $jsonPath, $markdownPath, $evidencePackagePath, $evidenceManifestPath, $historyPath, $historyMarkdownPath, $ackPath))
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $historyScript `')
 Add-ScalarArg $lines "LastRunPath" $logPath
 Add-ScalarArg $lines "AckPath" $ackPath
+Add-IntArg $lines "AckExpiryHours" $AckExpiryHours
 Add-ScalarArg $lines "JsonPath" $historyPath
 Add-ScalarArg $lines "MarkdownPath" $historyMarkdownPath
 Add-SwitchArg $lines "FailOnSensitive" $true

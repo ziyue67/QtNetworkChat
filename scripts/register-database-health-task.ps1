@@ -30,6 +30,8 @@ param(
 
     [string]$TaskDir,
 
+    [int]$AckExpiryHours = 72,
+
     [switch]$PlanOnly,
 
     [switch]$FailOnUnhealthy,
@@ -125,6 +127,9 @@ Assert-NoSensitiveValue "DashboardMarkdownPath" @($DashboardMarkdownPath)
 if ([string]::IsNullOrWhiteSpace($TaskDir)) {
     $TaskDir = Join-Path $OutputDir "database-health-task"
 }
+if ($AckExpiryHours -lt 1) {
+    throw "AckExpiryHours must be greater than zero."
+}
 
 $resolvedTaskDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($TaskDir)
 New-Item -ItemType Directory -Path $resolvedTaskDir -Force | Out-Null
@@ -180,6 +185,9 @@ $dashboardMarkdownPath = if ($dashboardEnabled) {
 
 $lines = New-Object System.Collections.ArrayList
 [void]$lines.Add('$ErrorActionPreference = "Stop"')
+[void]$lines.Add('$repoRoot = ' + (Quote-PSString (Resolve-Path (Join-Path $PSScriptRoot "..")).Path))
+[void]$lines.Add('Set-Location -LiteralPath $repoRoot')
+[void]$lines.Add('$runStartedAt = (Get-Date).ToUniversalTime().ToString("o")')
 [void]$lines.Add('$healthScript = ' + (Quote-PSString $healthScript))
 [void]$lines.Add('$statusScript = ' + (Quote-PSString $statusScript))
 [void]$lines.Add('$dashboardScript = ' + (Quote-PSString $dashboardScript))
@@ -248,10 +256,11 @@ if ($dashboardEnabled) {
     [void]$lines.Add('$dashboardExitCode = 0')
 }
 [void]$lines.Add('$exitCode = if ($healthExitCode -ne 0) { $healthExitCode } elseif ($statusExitCode -ne 0) { $statusExitCode } else { $dashboardExitCode }')
-[void]$lines.Add(('"{0} healthExitCode=$healthExitCode statusExitCode=$statusExitCode dashboardExitCode=$dashboardExitCode exitCode=$exitCode healthPath={1} statusPath={2} dashboardPath={3} markdownPath={4} historyPath={5} historyMarkdownPath={6} ackPath={7}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f (Get-Date).ToUniversalTime().ToString("o"), $healthPath, $statusPath, $dashboardPath, $markdownPath, $historyPath, $historyMarkdownPath, $ackPath))
+[void]$lines.Add(('"$runStartedAt healthExitCode=$healthExitCode statusExitCode=$statusExitCode dashboardExitCode=$dashboardExitCode exitCode=$exitCode healthPath={0} statusPath={1} dashboardPath={2} markdownPath={3} historyPath={4} historyMarkdownPath={5} ackPath={6}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f $healthPath, $statusPath, $dashboardPath, $markdownPath, $historyPath, $historyMarkdownPath, $ackPath))
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $historyScript `')
 Add-ScalarArg $lines "LastRunPath" $logPath
 Add-ScalarArg $lines "AckPath" $ackPath
+Add-IntArg $lines "AckExpiryHours" $AckExpiryHours
 Add-ScalarArg $lines "JsonPath" $historyPath
 Add-ScalarArg $lines "MarkdownPath" $historyMarkdownPath
 Add-SwitchArg $lines "FailOnSensitive" $true

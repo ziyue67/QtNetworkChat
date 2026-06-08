@@ -268,6 +268,7 @@ $dbRegisterArgs = @(
     "-File", $registerDatabaseHealthScript,
     "-OutputDir", $dbOutputDir,
     "-TaskDir", $dbTaskDir,
+    "-AckExpiryHours", $AckExpiryHours,
     "-Driver", "postgres",
     "-WriteMarkdown",
     "-WriteDashboard"
@@ -291,6 +292,7 @@ $govRegisterArgs = @(
     "-SourceInstanceId", "bootstrap-instance",
     "-OutputDir", $govOutputDir,
     "-TaskDir", $govTaskDir,
+    "-AckExpiryHours", $AckExpiryHours,
     "-WriteDashboard",
     "-WriteReport",
     "-PackageDiagnostics",
@@ -309,7 +311,8 @@ $pgsqlRegisterArgs = @(
     "-ExecutionPolicy", "Bypass",
     "-File", $registerPgsqlReleaseScript,
     "-OutputDir", $pgsqlOutputDir,
-    "-TaskDir", $pgsqlTaskDir
+    "-TaskDir", $pgsqlTaskDir,
+    "-AckExpiryHours", $AckExpiryHours
 )
 if ($Register.IsPresent) {
     $pgsqlRegisterArgs += @("-Register", "-User", $User)
