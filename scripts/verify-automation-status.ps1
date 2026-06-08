@@ -81,6 +81,10 @@ $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
 $autoRunListPath = Join-Path $tempDir "gh-run-list.json"
 $autoCTestLogPath = Join-Path $tempDir "LastTest.log"
 $localVerificationPath = Join-Path $tempDir "local-verification-status.json"
+$e2eRolloutDir = Join-Path $tempDir "e2e_rollout_observability_evidence"
+$e2eRolloutJsonPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.json"
+$e2eRolloutMarkdownPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.md"
+Ensure-Directory -Path $e2eRolloutDir
 
 @'
 {
@@ -160,6 +164,47 @@ End testing: Jun 03 04:01
     -CTestLogPath $autoCTestLogPath `
     -FailOnSensitive | Out-Null
 
+@'
+{
+  "format":"qtnetworkchat-e2e-production-rollout-observability-evidence-v1",
+  "status":"blocked",
+  "ok":false,
+  "summary":{
+    "readiness":"blocked",
+    "filesystemObjectRecoveryReady":true,
+    "filesystemObjectRecoveryReleaseGate":"e2e-filesystem-object-ciphertext-readback-ready",
+    "offlineObjectRecoveryReady":true,
+    "offlineObjectRecoveryScope":"offline-ciphertext-readback",
+    "offlineObjectRecoveryReleaseGate":"e2e-offline-ciphertext-readback-reviewed-opt-in"
+  },
+  "auditSummary":{
+    "releaseGate":"production-rollout-observability-blocked-not-linked",
+    "auditFocus":["production-crypto-acceptance"],
+    "evidenceBundle":["e2e-rollout-observability.json","e2e-rollout-observability.md"]
+  },
+  "releaseRun":{
+    "tool":"e2e_rollout_observability_exporter",
+    "persisted":true
+  },
+  "sensitiveExportProof":{
+    "noSensitiveExportProof":false,
+    "sensitiveFieldsSuppressed":true,
+    "rawKeyExported":false,
+    "privateMaterialExported":false,
+    "sessionSecretExported":false,
+    "plaintextBytesExported":false,
+    "ciphertextBytesExported":false
+  }
+}
+'@ | Set-Content -LiteralPath $e2eRolloutJsonPath -Encoding UTF8
+@'
+# QtNetworkChat E2E Production Rollout Observability Evidence
+
+- Status: `blocked`
+- Release gate: `production-rollout-observability-blocked-not-linked`
+- Offline/object recovery gate: `e2e-offline-ciphertext-readback-reviewed-opt-in`
+'@ | Set-Content -LiteralPath $e2eRolloutMarkdownPath -Encoding UTF8
+
 ([ordered]@{
     format = "qtnetworkchat-database-health-task-preview-v1"
     taskKind = "database-health"
@@ -213,6 +258,8 @@ End testing: Jun 03 04:01
     -BuildStatus "passed" `
     -CTestStatus "passed" `
     -CTestCount 51 `
+    -E2ERolloutObservabilityJsonPath $e2eRolloutJsonPath `
+    -E2ERolloutObservabilityMarkdownPath $e2eRolloutMarkdownPath `
     -DatabaseHealthStatusPath $dbStatusPath `
     -DatabaseHealthLastRunPath $dbLastRunPath `
     -DatabaseHealthTaskPreviewPath $dbPreviewPath `
@@ -236,6 +283,11 @@ foreach ($expected in @(
     'Local CTest count: `51`',
     'Protected untracked entries: `.polaris/, AGENTS.md`',
     'Status readback: `ci=parameter; build=parameter; ctest=parameter`',
+    'E2E Rollout Observability Readback',
+    'E2E rollout observability: status=`blocked`, ok=`false`, readiness=`blocked`, releaseGate=`production-rollout-observability-blocked-not-linked`, bundle=`json+markdown`',
+    'CI: status=`success`, runId=`26816554264`, source=`parameter`; localBuild=`passed`, localCTest=`passed`, count=`51`',
+    'Recovery gates: filesystemReady=`true`, filesystemGate=`e2e-filesystem-object-ciphertext-readback-ready`, offlineReady=`true`, offlineGate=`e2e-offline-ciphertext-readback-reviewed-opt-in`',
+    'Sensitive export proof: noSensitiveExport=`false`, suppressed=`true`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
@@ -256,6 +308,7 @@ foreach ($expected in @(
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok`',
+    'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
     'E2E production crypto is the active automation lane again',
@@ -277,7 +330,8 @@ foreach ($expected in @(
     'QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED=1 plus QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT enables canonical safe-token ciphertext readback',
     'S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates',
     'legacy URL/path-like object locators are suppressed from recovery status',
-    'Remaining E2E work is real release artifact/CI status collection for the persisted rollout evidence',
+    'Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with current GitHub Windows Build visibility and local build/CTest readback',
+    'remaining E2E release work is external Windows Build visibility recovery and final production-linked release artifact promotion',
     'Group productization is closed for the current automation lane',
     'Mainwindow structure split is no longer the active lane but remains partially complete',
     'README information architecture is closed for now',

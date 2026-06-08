@@ -14,6 +14,8 @@ param(
     [string]$CTestLogPath,
     [string]$GitHubWorkflow = "Windows Build",
     [string]$GitHubRunListJsonPath,
+    [string]$E2ERolloutObservabilityJsonPath,
+    [string]$E2ERolloutObservabilityMarkdownPath,
     [string]$DatabaseHealthStatusPath,
     [string]$DatabaseHealthLastRunPath,
     [string]$DatabaseHealthTaskPreviewPath,
@@ -535,6 +537,101 @@ function Get-ArtifactIssueText(
     $ArtifactLabel + '=not-configured'
 }
 
+function Get-E2ERolloutObservabilityReadback(
+    [object]$JsonState,
+    [object]$MarkdownState
+) {
+    $result = [ordered]@{
+        configured = $false
+        state = "not-configured"
+        status = "not-configured"
+        ok = $false
+        releaseGate = "unknown"
+        readiness = "unknown"
+        ciStatus = "unknown"
+        ciRunId = "unknown"
+        ciSource = "unknown"
+        localBuildStatus = "unknown"
+        localCTestStatus = "unknown"
+        localCTestCount = 0
+        jsonArtifact = "not-configured"
+        markdownArtifact = "not-configured"
+        bundle = "not-configured"
+        noSensitiveExportProof = "unknown"
+        sensitiveFieldsSuppressed = "unknown"
+        filesystemReady = "unknown"
+        filesystemGate = "unknown"
+        offlineReady = "unknown"
+        offlineGate = "unknown"
+        artifactSource = "e2e-rollout-observability"
+    }
+
+    if ($null -ne $JsonState -and $JsonState.configured) {
+        $result.configured = $true
+        $result.jsonArtifact = $JsonState.state
+    }
+    if ($null -ne $MarkdownState -and $MarkdownState.configured) {
+        $result.configured = $true
+        $result.markdownArtifact = $MarkdownState.state
+    }
+    if (-not $result.configured) {
+        return [pscustomobject]$result
+    }
+
+    if ($null -eq $JsonState -or $JsonState.state -ne "ok") {
+        $result.state = if ($null -ne $JsonState) { $JsonState.state } else { "missing-json" }
+        $result.status = "artifact-unavailable"
+        $result.bundle = "missing-json"
+        return [pscustomobject]$result
+    }
+
+    $evidence = $JsonState.value
+    if ((Get-JsonValue $evidence "format" "") -ne "qtnetworkchat-e2e-production-rollout-observability-evidence-v1") {
+        $result.state = "invalid-format"
+        $result.status = "invalid-format"
+        $result.bundle = "invalid-json-format"
+        return [pscustomobject]$result
+    }
+
+    $summary = Get-JsonValue $evidence "summary" $null
+    $auditSummary = Get-JsonValue $evidence "auditSummary" $null
+    $proof = Get-JsonValue $evidence "sensitiveExportProof" $null
+    $releaseCi = Get-JsonValue $evidence "releaseCi" $null
+    $releaseLocal = Get-JsonValue $evidence "releaseLocalVerification" $null
+
+    $result.state = "ok"
+    $result.status = Format-StatusValue (Get-JsonValue $evidence "status" "unknown")
+    $result.ok = [bool](Get-JsonValue $evidence "ok" $false)
+    $result.releaseGate = Format-StatusValue (Get-JsonValue $auditSummary "releaseGate" "unknown")
+    $result.readiness = Format-StatusValue (Get-JsonValue $summary "readiness" "unknown")
+    $result.noSensitiveExportProof =
+        Format-StatusValue (Get-JsonValue $proof "noSensitiveExportProof" "unknown")
+    $result.sensitiveFieldsSuppressed =
+        Format-StatusValue (Get-JsonValue $proof "sensitiveFieldsSuppressed" "unknown")
+    $result.filesystemReady =
+        Format-StatusValue (Get-JsonValue $summary "filesystemObjectRecoveryReady" "unknown")
+    $result.filesystemGate =
+        Format-StatusValue (Get-JsonValue $summary "filesystemObjectRecoveryReleaseGate" "unknown")
+    $result.offlineReady =
+        Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryReady" "unknown")
+    $result.offlineGate =
+        Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryReleaseGate" "unknown")
+    $result.ciStatus = Format-StatusValue (Get-JsonValue $releaseCi "status" "unknown")
+    $result.ciRunId = Format-StatusValue (Get-JsonValue $releaseCi "runId" "unknown")
+    $result.ciSource = Format-StatusValue (Get-JsonValue $releaseCi "source" "unknown")
+    $result.localBuildStatus =
+        Format-StatusValue (Get-JsonValue $releaseLocal "buildStatus" "unknown")
+    $result.localCTestStatus =
+        Format-StatusValue (Get-JsonValue $releaseLocal "ctestStatus" "unknown")
+    $result.localCTestCount = [int](Get-JsonValue $releaseLocal "ctestCount" 0)
+    $result.bundle = if ($null -ne $MarkdownState -and $MarkdownState.state -eq "ok") {
+        "json+markdown"
+    } else {
+        "json-only"
+    }
+    [pscustomobject]$result
+}
+
 function New-PreviewRecord([string]$Label, [string]$PathValue) {
     $state = Get-ArtifactState -PathValue $PathValue -ExpectJson
     $taskKind = if ($state.state -eq "ok") { Format-StatusValue (Get-JsonValue $state.value "taskKind" "unknown") } else { "unknown" }
@@ -867,6 +964,12 @@ if ([string]::IsNullOrWhiteSpace($OriginMain)) {
 if ([string]::IsNullOrWhiteSpace($LocalVerificationStatusPath)) {
     $LocalVerificationStatusPath = Join-Path $BuildDir "local-verification-status.json"
 }
+if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityJsonPath)) {
+    $E2ERolloutObservabilityJsonPath = Join-Path $BuildDir "e2e_rollout_observability_evidence\e2e-rollout-observability.json"
+}
+if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityMarkdownPath)) {
+    $E2ERolloutObservabilityMarkdownPath = Join-Path $BuildDir "e2e_rollout_observability_evidence\e2e-rollout-observability.md"
+}
 $localVerificationReadback = Get-LocalVerificationStatusReadback $LocalVerificationStatusPath
 
 $ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
@@ -912,9 +1015,21 @@ if ((Is-UnknownStatus $CTestStatus) -or $CTestCount -le 0) {
         }
         if ($CTestCount -le 0) {
             $CTestCount = [int]$ctestReadback.count
-        }
-        $ctestReadbackSource = $ctestReadback.source
     }
+    $ctestReadbackSource = $ctestReadback.source
+    }
+}
+
+$e2eRolloutJsonState = Get-ArtifactState -PathValue $E2ERolloutObservabilityJsonPath -ExpectJson
+$e2eRolloutMarkdownState = Get-ArtifactState -PathValue $E2ERolloutObservabilityMarkdownPath
+$e2eRolloutReadback = Get-E2ERolloutObservabilityReadback $e2eRolloutJsonState $e2eRolloutMarkdownState
+if ($e2eRolloutReadback.state -eq "ok") {
+    $e2eRolloutReadback.ciStatus = Format-StatusValue $CiStatus
+    $e2eRolloutReadback.ciRunId = Format-StatusValue $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId })
+    $e2eRolloutReadback.ciSource = Format-StatusValue $ciReadbackSource
+    $e2eRolloutReadback.localBuildStatus = Format-StatusValue $BuildStatus
+    $e2eRolloutReadback.localCTestStatus = Format-StatusValue $CTestStatus
+    $e2eRolloutReadback.localCTestCount = [int]$CTestCount
 }
 
 Initialize-DefaultAutomationTasksIfNeeded
@@ -1019,7 +1134,7 @@ $e2eProductionBacklog = @(
     "The linked runtime gate now also drives the real public API chain directly for identity generation, public derivation, agreement sign/verify, session derivation, payload encrypt/decrypt, and tamper rejection instead of relying only on probe summaries. Normal provider probe fixtures now use 32-byte valid production material handles, while runtime self-test plus explicit round-trip/public-primitive probes reject malformed identity handles, malformed verification public keys, and malformed payload keys as invalid-input without hashing arbitrary material into usable keys. productionRolloutObservability now summarizes acceptance, material/export proof counts, public primitive readiness, filesystem object ciphertext readback readiness, operator recovery prompts, user recovery prompts, and no-sensitive-export proof; it stays fail-closed until linked acceptance passes, then reports releaseGate=production-rollout-observability-ready without exporting key/session/private identity/plaintext/ciphertext bytes."
     "e2e_rollout_observability_exporter now persists sanitized rollout observability JSON/Markdown with filesystem object readback and reviewed offline mirror opt-in gates; default CTest verifies the unlinked fail-closed artifact and the linked OpenSSL runtime gate requires accepted evidence before promotion. The runtime gate also verifies client production rotation beyond local rebind: when every provider gate is ready, executeE2EProductionRotation generates production local identity material, persists the production backend id, clears draft sessions/pending agreements without exporting sensitive material, then Alice/Bob/Carol re-announce production identities, re-verify trust pins, derive independent signed production sessions, and send encrypted private text/file payloads on openssl-reviewed-adapter-v1."
     "The same gate restarts all three clients, restores production identities/trust pins from disk, refuses to reuse memory-only sessions, derives fresh independent production sessions, and repeats encrypted text/file delivery. Encrypted private file recovery now has sender-local same-wire cache, verified filesystem object readback, explicit reviewed S3 object readback, and explicit reviewed offline mirror readback paths: auto-resume is allowed only when the local ciphertext cache, filesystem object ciphertext, reviewed S3 ciphertext object, or reviewed offline mirror ciphertext object matches the sanitized envelope header, key id/fingerprint, plaintext/wire hashes, envelope ciphertextSha256, and server resume metadata."
-    "S3 remains fail-closed by default; only QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED=1 plus normal S3 configuration enables reviewed HEAD/GET ciphertext readback, and status/resume evidence must not export endpoint, bucket, credentials, ciphertext, session keys, or private material. Offline mirror readback is also explicit: only QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED=1 plus QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT enables canonical safe-token ciphertext readback, and status/resume evidence must not export mirror roots, local paths, ciphertext, session keys, or private material. S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates, legacy URL/path-like object locators are suppressed from recovery status, and cache loss, missing object root, object loss, hash/header/session mismatch, unsafe locator, or unsupported auto-readback fails closed to resend/clear. Offline attachment replay preserves that header so receivers can decrypt queued ciphertext locally. Remaining E2E work is real release artifact/CI status collection for the persisted rollout evidence."
+    "S3 remains fail-closed by default; only QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED=1 plus normal S3 configuration enables reviewed HEAD/GET ciphertext readback, and status/resume evidence must not export endpoint, bucket, credentials, ciphertext, session keys, or private material. Offline mirror readback is also explicit: only QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED=1 plus QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT enables canonical safe-token ciphertext readback, and status/resume evidence must not export mirror roots, local paths, ciphertext, session keys, or private material. S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates, legacy URL/path-like object locators are suppressed from recovery status, and cache loss, missing object root, object loss, hash/header/session mismatch, unsafe locator, or unsupported auto-readback fails closed to resend/clear. Offline attachment replay preserves that header so receivers can decrypt queued ciphertext locally. Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with current GitHub Windows Build visibility and local build/CTest readback; remaining E2E release work is external Windows Build visibility recovery and final production-linked release artifact promotion."
 ) -join " "
 
 $lines = [System.Collections.Generic.List[string]]::new()
@@ -1042,6 +1157,39 @@ $lines.Add('- Protected untracked entries: `' + $protectedText + '`')
 $lines.Add('- Status readback: `ci=' + (Format-StatusValue $ciReadbackSource) +
     '; build=' + (Format-StatusValue $buildReadbackSource) +
     '; ctest=' + (Format-StatusValue $ctestReadbackSource) + '`')
+$lines.Add("")
+$lines.Add("## E2E Rollout Observability Readback")
+$lines.Add("")
+if (-not $e2eRolloutReadback.configured) {
+    $lines.Add('- E2E rollout observability: `not configured`')
+} elseif ($e2eRolloutReadback.state -ne "ok") {
+    $lines.Add(('- E2E rollout observability: status=`{0}`, json=`{1}`, markdown=`{2}`' -f `
+            (Format-StatusValue $e2eRolloutReadback.status), `
+            (Format-StatusValue $e2eRolloutReadback.jsonArtifact), `
+            (Format-StatusValue $e2eRolloutReadback.markdownArtifact)))
+} else {
+    $lines.Add(('- E2E rollout observability: status=`{0}`, ok=`{1}`, readiness=`{2}`, releaseGate=`{3}`, bundle=`{4}`' -f `
+            (Format-StatusValue $e2eRolloutReadback.status), `
+            (Format-StatusValue $e2eRolloutReadback.ok), `
+            (Format-StatusValue $e2eRolloutReadback.readiness), `
+            (Format-StatusValue $e2eRolloutReadback.releaseGate), `
+            (Format-StatusValue $e2eRolloutReadback.bundle)))
+    $lines.Add(('  CI: status=`{0}`, runId=`{1}`, source=`{2}`; localBuild=`{3}`, localCTest=`{4}`, count=`{5}`' -f `
+            (Format-StatusValue $e2eRolloutReadback.ciStatus), `
+            (Format-StatusValue $e2eRolloutReadback.ciRunId), `
+            (Format-StatusValue $e2eRolloutReadback.ciSource), `
+            (Format-StatusValue $e2eRolloutReadback.localBuildStatus), `
+            (Format-StatusValue $e2eRolloutReadback.localCTestStatus), `
+            (Format-StatusValue $e2eRolloutReadback.localCTestCount)))
+    $lines.Add(('  Recovery gates: filesystemReady=`{0}`, filesystemGate=`{1}`, offlineReady=`{2}`, offlineGate=`{3}`' -f `
+            (Format-StatusValue $e2eRolloutReadback.filesystemReady), `
+            (Format-StatusValue $e2eRolloutReadback.filesystemGate), `
+            (Format-StatusValue $e2eRolloutReadback.offlineReady), `
+            (Format-StatusValue $e2eRolloutReadback.offlineGate)))
+    $lines.Add(('  Sensitive export proof: noSensitiveExport=`{0}`, suppressed=`{1}`' -f `
+            (Format-StatusValue $e2eRolloutReadback.noSensitiveExportProof), `
+            (Format-StatusValue $e2eRolloutReadback.sensitiveFieldsSuppressed)))
+}
 $lines.Add("")
 $lines.Add("## Automation Guardrails")
 $lines.Add("")
@@ -1227,9 +1375,15 @@ $automationHistoryDiagnostics = @(
     (Get-ArtifactIssueText "history" $automationTaskHistoryState $automationTaskHistoryPreviewState $automationTaskHistoryConfig),
     (Get-ArtifactIssueText "ack" $automationTaskAckState $automationTaskAckPreviewState $automationTaskAckConfig)
 ) -join "; "
+$e2eRolloutDiagnostics = @(
+    ('json={0}' -f (Format-StatusValue $e2eRolloutReadback.jsonArtifact)),
+    ('markdown={0}' -f (Format-StatusValue $e2eRolloutReadback.markdownArtifact)),
+    ('bundle={0}' -f (Format-StatusValue $e2eRolloutReadback.bundle))
+) -join "; "
 $lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
 $lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnostics + '`')
 $lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics + '`')
+$lines.Add('- E2E rollout observability artifacts: `' + $e2eRolloutDiagnostics + '`')
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")

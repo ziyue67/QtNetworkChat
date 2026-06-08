@@ -16,7 +16,7 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 - Rotation request/response messages carry only public agreement material. Each side keeps its private agreement scalar locally, validates the identity-bound transcript, and derives the same session key from the shared transcript before marking the data plane `ready`.
 - Missing pending agreement state, mismatched peer IDs, mismatched identity fingerprints, missing/tampered agreement signatures, invalid local private/public pairing, or malformed remote public material fail closed and do not install a session.
 - The server validates shape and routing, then forwards only public agreement material. For remote Redis-present users it publishes an `e2e_control` event that contains the same public identity or signed agreement material and is delivered only to the online receiver instance. It does not cache identity keys, session keys, or private material.
-- The default draft backend remains for development and fail-closed compatibility testing. Production-reviewed OpenSSL builds are now available behind explicit build/runtime selection and are covered by runtime gates. Release promotion still requires real release artifact collection around the persisted rollout evidence and offline encrypted file recovery review.
+- The default draft backend remains for development and fail-closed compatibility testing. Production-reviewed OpenSSL builds are now available behind explicit build/runtime selection and are covered by runtime gates. Release promotion now has sanitized persisted rollout evidence plus automation-status readback for the evidence artifact, current GitHub Windows Build visibility, and local build/CTest; final promotion still waits for current-commit Windows Build visibility and an accepted linked-reviewed OpenSSL release artifact.
 
 ## Current Cross-Device Trust Boundary
 
@@ -48,7 +48,7 @@ QtNetworkChat currently treats the server as a transparent carrier for private-m
 
 ## Remaining Work
 
-- Wire persisted rollout observability JSON/Markdown into real release artifact collection and CI/local status readback when the external Windows Build visibility issue is resolved.
+- Recover external Windows Build visibility for current commits, then promote an accepted linked-reviewed OpenSSL rollout observability artifact through release packaging.
 - Add migration checks for older identity/pin store schemas and continue refining user-facing recovery prompts around trust rebinds and cache-missing encrypted file sends.
 
 
