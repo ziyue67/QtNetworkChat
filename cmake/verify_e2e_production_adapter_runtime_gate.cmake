@@ -77,6 +77,19 @@ if(NOT client_build_result EQUAL 0)
     message(FATAL_ERROR "Production adapter runtime probe should build e2e_private_message_delivery_test")
 endif()
 
+execute_process(
+    COMMAND "${CMAKE_EXE}" --build "${PROBE_BUILD_DIR}" --target e2e_rollout_observability_exporter
+        --config "${CONFIGURATION}"
+    RESULT_VARIABLE exporter_build_result
+    OUTPUT_VARIABLE exporter_build_stdout
+    ERROR_VARIABLE exporter_build_stderr
+)
+if(NOT exporter_build_result EQUAL 0)
+    file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
+    message(STATUS "Captured production rollout observability exporter build output: ${exporter_build_stdout}\n${exporter_build_stderr}")
+    message(FATAL_ERROR "Production adapter runtime probe should build e2e_rollout_observability_exporter")
+endif()
+
 set(path_separator ":")
 if(WIN32)
     set(path_separator ";")
@@ -119,6 +132,49 @@ execute_process(
     ERROR_VARIABLE client_test_stderr
 )
 
+set(exporter_exe "${PROBE_BUILD_DIR}/e2e_rollout_observability_exporter")
+if(WIN32)
+    set(exporter_exe "${PROBE_BUILD_DIR}/e2e_rollout_observability_exporter.exe")
+endif()
+if(DEFINED CONFIGURATION AND NOT "${CONFIGURATION}" STREQUAL "" AND EXISTS "${PROBE_BUILD_DIR}/${CONFIGURATION}/e2e_rollout_observability_exporter.exe")
+    set(exporter_exe "${PROBE_BUILD_DIR}/${CONFIGURATION}/e2e_rollout_observability_exporter.exe")
+endif()
+set(evidence_dir "${PROBE_BUILD_DIR}/production-rollout-observability-evidence")
+file(REMOVE_RECURSE "${evidence_dir}")
+file(MAKE_DIRECTORY "${evidence_dir}")
+set(evidence_json "${evidence_dir}/e2e-rollout-observability.json")
+set(evidence_md "${evidence_dir}/e2e-rollout-observability.md")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "PATH=${probe_path}"
+        "QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production"
+        "${exporter_exe}"
+            --json "${evidence_json}"
+            --markdown "${evidence_md}"
+            --require-accepted
+    RESULT_VARIABLE evidence_result
+    OUTPUT_VARIABLE evidence_stdout
+    ERROR_VARIABLE evidence_stderr
+)
+
+if(evidence_result EQUAL 0 AND EXISTS "${evidence_json}" AND EXISTS "${evidence_md}")
+    file(READ "${evidence_json}" evidence_content)
+    file(READ "${evidence_md}" evidence_markdown)
+    string(JSON evidence_format GET "${evidence_content}" "format")
+    string(JSON evidence_ok GET "${evidence_content}" "ok")
+    string(JSON evidence_gate GET "${evidence_content}" "auditSummary" "releaseGate")
+    string(JSON evidence_no_sensitive GET "${evidence_content}" "sensitiveExportProof" "noSensitiveExportProof")
+    string(JSON evidence_raw_key GET "${evidence_content}" "sensitiveExportProof" "rawKeyExported")
+    string(JSON evidence_plaintext GET "${evidence_content}" "sensitiveExportProof" "plaintextBytesExported")
+    string(JSON evidence_ciphertext GET "${evidence_content}" "sensitiveExportProof" "ciphertextBytesExported")
+    string(JSON evidence_ready_count GET "${evidence_content}" "productionRolloutObservability" "publicPrimitiveReadyCount")
+    string(JSON evidence_blocked_count GET "${evidence_content}" "productionRolloutObservability" "publicPrimitiveBlockedCount")
+    string(JSON evidence_offline_ready GET "${evidence_content}" "summary" "offlineObjectRecoveryReady")
+elseif(evidence_result EQUAL 0)
+    set(evidence_result 4)
+    set(evidence_stderr "production-rollout-observability-evidence-files-missing")
+endif()
+
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
 if(NOT test_result EQUAL 0)
@@ -131,4 +187,37 @@ if(NOT client_test_result EQUAL 0)
     message(FATAL_ERROR "Production client rotation should rebind identity, re-pin multiple peers, derive independent production sessions, recover production identities/trust after restart, and deliver encrypted text/file payloads under linked provider gates")
 endif()
 
-message(STATUS "E2E production adapter runtime provider dispatch, multi-peer connected client rotation, and restart recovery gate verified")
+if(NOT evidence_result EQUAL 0)
+    message(STATUS "Captured production rollout observability evidence output: ${evidence_stdout}\n${evidence_stderr}")
+    message(FATAL_ERROR "Production rollout observability evidence should be accepted under linked provider gates")
+endif()
+if(NOT evidence_format STREQUAL "qtnetworkchat-e2e-production-rollout-observability-evidence-v1"
+    OR NOT evidence_ok
+    OR NOT evidence_gate STREQUAL "production-rollout-observability-ready"
+    OR NOT evidence_no_sensitive
+    OR evidence_raw_key
+    OR evidence_plaintext
+    OR evidence_ciphertext
+    OR NOT evidence_ready_count EQUAL 8
+    OR NOT evidence_blocked_count EQUAL 0
+    OR evidence_offline_ready)
+    message(FATAL_ERROR "Production rollout observability evidence should be sanitized, accepted, and keep offline/object recovery not-ready")
+endif()
+foreach(forbidden_text IN ITEMS
+    "privateKey"
+    "sessionKey"
+    "plaintextBytes="
+    "ciphertextBytes="
+    "ghp_"
+    "github_pat_"
+    "Authorization:"
+    "Credential="
+    "Signature="
+)
+    string(FIND "${evidence_content}\n${evidence_markdown}" "${forbidden_text}" forbidden_index)
+    if(NOT forbidden_index EQUAL -1)
+        message(FATAL_ERROR "Production rollout observability evidence leaked forbidden text: ${forbidden_text}")
+    endif()
+endforeach()
+
+message(STATUS "E2E production adapter runtime provider dispatch, multi-peer connected client rotation, restart recovery, and rollout observability evidence gate verified")

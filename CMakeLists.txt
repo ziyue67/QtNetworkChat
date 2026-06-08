@@ -180,6 +180,19 @@ add_executable(sqlite_to_postgres_migrator
 )
 target_link_libraries(sqlite_to_postgres_migrator PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
 
+add_executable(e2e_rollout_observability_exporter
+    tools/e2e_rollout_observability_exporter.cpp
+    src/e2eenvelope.cpp
+    ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
+    include/e2eenvelope.h
+    include/qtnetworkchat_e2e_provider_api.h
+)
+target_include_directories(e2e_rollout_observability_exporter PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
+target_link_libraries(e2e_rollout_observability_exporter PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
+    target_link_libraries(e2e_rollout_observability_exporter PRIVATE OpenSSL::Crypto)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     function(qtnetworkchat_target_include_dirs target_name)
@@ -622,6 +635,14 @@ if(BUILD_TESTING)
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME E2ERolloutObservabilityEvidence
+        COMMAND ${CMAKE_COMMAND}
+            -DEXPORTER_EXE=$<TARGET_FILE:e2e_rollout_observability_exporter>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_rollout_observability_evidence.cmake
     )
     add_test(
         NAME E2EPrivateMessageDelivery
