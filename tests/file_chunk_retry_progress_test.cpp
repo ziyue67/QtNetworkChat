@@ -1028,6 +1028,9 @@ int main(int argc, char** argv) {
                 "default persisted state should remain auto-resumable") && ok;
     ok = expect(defaultRecoveryStatus["reason"].toString() == "can-query-resume-state",
                 "default persisted state should describe resume query recovery") && ok;
+    ok = expect(defaultRecoveryStatus["filePath"].toString() == QFileInfo(resumeFilePath).absoluteFilePath()
+                    && defaultRecoveryStatus["fileName"].toString() == QFileInfo(resumeFilePath).fileName(),
+                "plaintext saved transfer recovery status may expose the local path for UI recovery") && ok;
     QJsonObject expiredState = persistedState;
     expiredState["updatedAt"] = QDateTime::currentDateTimeUtc().addDays(-2).toString(Qt::ISODate);
     ok = expect(writeOutgoingTransferState(expiredState),
@@ -1131,6 +1134,9 @@ int main(int argc, char** argv) {
     ok = expect(e2eRecoveryStatus["fileHash"].toString() == "wire-ciphertext-sha256"
                     && e2eRecoveryStatus["fileSize"].toVariant().toLongLong() == resumeFileSize + 96,
                 "E2E persisted state should keep wire ciphertext size/hash as the transfer metadata") && ok;
+    ok = expect(!e2eRecoveryStatus.contains("filePath")
+                    && e2eRecoveryStatus["fileName"].toString() == QFileInfo(resumeFilePath).fileName(),
+                "E2E recovery status should expose only the display filename, not the local path") && ok;
     ok = expect(e2eRecoveryStatus["e2eFileEncrypted"].toBool()
                     && e2eRecoveryStatus["e2eFileKeyId"].toString() == "e2e-file-key-001"
                     && e2eRecoveryStatus["e2eFileKeyFingerprintSha256"].toString() == "0123456789abcdef"
@@ -1691,6 +1697,9 @@ int main(int argc, char** argv) {
                     && !e2eS3ReadyStatusJson.contains("privateKey")
                     && !e2eS3ReadyStatusJson.contains("sessionKey"),
                 "E2E reviewed S3 ready status should not export endpoints, buckets, credentials, ciphertext, or secret material") && ok;
+    ok = expect(!e2eS3ReadyStatus.contains("filePath")
+                    && e2eS3ReadyStatus["fileName"].toString() == QFileInfo(e2ePlainFilePath).fileName(),
+                "E2E reviewed S3 ready status should not export the local plaintext path") && ok;
     ok = expect(s3ReadbackServer.headCount() >= 1 && s3ReadbackServer.getCount() >= 1,
                 "E2E reviewed S3 recovery status should validate and read ciphertext through HEAD/GET") && ok;
     const int e2eS3ObjectQueriesBefore = server.e2eObjectResumeQueries();
@@ -1802,6 +1811,9 @@ int main(int argc, char** argv) {
                     && !e2eOfflineReadyStatusJson.contains("privateKey")
                     && !e2eOfflineReadyStatusJson.contains("sessionKey"),
                 "E2E reviewed offline ready status should not export mirror paths, ciphertext, or secret material") && ok;
+    ok = expect(!e2eOfflineReadyStatus.contains("filePath")
+                    && e2eOfflineReadyStatus["fileName"].toString() == QFileInfo(e2ePlainFilePath).fileName(),
+                "E2E reviewed offline ready status should not export the local plaintext path") && ok;
     const int e2eOfflineObjectQueriesBefore = server.e2eOfflineResumeQueries();
     QString e2eOfflineObjectResumeReason;
     ok = expect(e2eOfflineRecoveredSender.resumeSavedOutgoingTransfer(&e2eOfflineObjectResumeReason, 5000),

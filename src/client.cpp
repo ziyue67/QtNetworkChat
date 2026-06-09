@@ -3285,9 +3285,16 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
         return status;
     }
 
+    const bool e2eFileEncrypted = state.value("e2eFileEncrypted").toBool(false);
+    const QFileInfo savedFileInfo(state.value("filePath").toString());
     status["configured"] = true;
     status["transferId"] = state.value("transferId").toString();
-    status["filePath"] = state.value("filePath").toString();
+    status["fileName"] = savedFileInfo.fileName().isEmpty()
+        ? QStringLiteral("unnamed")
+        : savedFileInfo.fileName();
+    if (!e2eFileEncrypted) {
+        status["filePath"] = state.value("filePath").toString();
+    }
     status["receiverId"] = state.value("receiverId").toString();
     status["messageType"] = state.value("messageType").toInt();
     status["fileHash"] = state.value("fileHash").toString();
@@ -3297,7 +3304,6 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
     status["updatedAt"] = state.value("updatedAt").toString();
 
     const QString recoveryMode = state.value("recoveryMode").toString(QStringLiteral("resume")).trimmed().toLower();
-    const bool e2eFileEncrypted = state.value("e2eFileEncrypted").toBool(false);
     status["e2eFileEncrypted"] = e2eFileEncrypted;
     if (e2eFileEncrypted) {
         status["e2eFileKeyId"] = state.value("e2eFileKeyId").toString();
