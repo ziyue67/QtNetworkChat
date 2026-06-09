@@ -898,6 +898,173 @@ foreach ($expected in @(
     Assert-Contains -Text $configuredRegisteredMarkdown -Expected $expected
 }
 
+$previewEvidenceMarkdownPath = Join-Path $configuredTempDir "automation-status-preview-evidence.md"
+$previewEvidenceDbPreviewPath = Join-Path $configuredTempDir "preview-evidence-database-health-task-preview.json"
+$previewEvidenceGovPreviewPath = Join-Path $configuredTempDir "preview-evidence-large-file-governance-task-preview.json"
+$previewEvidenceDbStatusPath = Join-Path $configuredTempDir "preview-evidence-database-health-status.json"
+$previewEvidenceGovStatusPath = Join-Path $configuredTempDir "preview-evidence-large-file-governance-status.json"
+$previewEvidenceDbLastRunPath = Join-Path $configuredTempDir "preview-evidence-database-health-last-run.log"
+$previewEvidenceGovLastRunPath = Join-Path $configuredTempDir "preview-evidence-large-file-governance-last-run.log"
+$previewEvidenceDbHistoryPath = Join-Path $configuredTempDir "preview-evidence-database-health-history.json"
+$previewEvidenceGovHistoryPath = Join-Path $configuredTempDir "preview-evidence-large-file-governance-history.json"
+$previewEvidenceDbAckPath = Join-Path $configuredTempDir "preview-evidence-database-health-ack.json"
+$previewEvidenceGovAckPath = Join-Path $configuredTempDir "preview-evidence-large-file-governance-ack.json"
+$previewEvidenceReadbackPath = Join-Path $configuredTempDir "preview-evidence-registered-readback.json"
+
+([ordered]@{
+    format = "qtnetworkchat-database-health-status-v1"
+    status = "configured"
+    ok = $true
+    driver = "QPSQL"
+    checkCount = 0
+    failedChecks = @()
+    queryMetrics = [ordered]@{
+        slowQueryCount = 0
+        queryFailureCount = 0
+    }
+    summary = [ordered]@{
+        readiness = "preview-registered"
+        operatorAction = "Run the generated database health launcher to refresh live health evidence."
+    }
+    auditSummary = [ordered]@{
+        releaseGate = "database-health-preview-registered"
+        auditFocus = @("preview", "history")
+    }
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $previewEvidenceDbStatusPath -Encoding UTF8
+
+([ordered]@{
+    format = "qtnetworkchat-large-file-governance-status-v1"
+    status = "configured"
+    ok = $true
+    totalWarnings = 0
+    alertCount = 0
+    s3CoverageActionableGapAreas = @()
+    summary = [ordered]@{
+        readiness = "preview-registered"
+        operatorAction = "Run the generated large-file governance launcher to refresh dashboard and diagnostics evidence."
+    }
+    auditSummary = [ordered]@{
+        releaseGate = "large-file-governance-preview-registered"
+        auditFocus = @("preview", "history")
+    }
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $previewEvidenceGovStatusPath -Encoding UTF8
+
+'2026-06-03T01:00:00.0000000Z exitCode=0' | Set-Content -LiteralPath $previewEvidenceDbLastRunPath -Encoding UTF8
+'2026-06-03T01:05:00.0000000Z exitCode=0' | Set-Content -LiteralPath $previewEvidenceGovLastRunPath -Encoding UTF8
+@'
+{
+  "runCount":1,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-03T01:00:00.0000000Z","exitCode":0},
+  "acknowledged":false,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $previewEvidenceDbHistoryPath -Encoding UTF8
+@'
+{
+  "runCount":1,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-03T01:05:00.0000000Z","exitCode":0},
+  "acknowledged":false,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $previewEvidenceGovHistoryPath -Encoding UTF8
+'{"acknowledged":false}' | Set-Content -LiteralPath $previewEvidenceDbAckPath -Encoding UTF8
+'{"acknowledged":false}' | Set-Content -LiteralPath $previewEvidenceGovAckPath -Encoding UTF8
+
+([ordered]@{
+    format = "qtnetworkchat-database-health-task-preview-v1"
+    taskKind = "database-health"
+    taskName = "PreviewEvidenceDbTask"
+    taskDisplayName = "Database health"
+    statusArtifactPath = $previewEvidenceDbStatusPath
+    lastRunPath = $previewEvidenceDbLastRunPath
+    historyArtifactPath = $previewEvidenceDbHistoryPath
+    ackArtifactPath = $previewEvidenceDbAckPath
+    taskSummary = "registered configured database health sample"
+    readOnly = $true
+    register = $false
+    schedule = "Daily"
+    at = "03:15"
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $previewEvidenceDbPreviewPath -Encoding UTF8
+
+([ordered]@{
+    format = "qtnetworkchat-large-file-governance-task-preview-v1"
+    taskKind = "large-file-governance"
+    taskName = "PreviewEvidenceGovTask"
+    taskDisplayName = "Large-file governance"
+    statusArtifactPath = $previewEvidenceGovStatusPath
+    lastRunPath = $previewEvidenceGovLastRunPath
+    historyArtifactPath = $previewEvidenceGovHistoryPath
+    ackArtifactPath = $previewEvidenceGovAckPath
+    taskSummary = "registered configured large-file governance sample"
+    readOnly = $true
+    register = $false
+    schedule = "Daily"
+    at = "03:00"
+    artifactRoles = [ordered]@{
+        status = "statusArtifactPath"
+        lastRun = "lastRunPath"
+        history = "historyArtifactPath"
+        ack = "ackArtifactPath"
+    }
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $previewEvidenceGovPreviewPath -Encoding UTF8
+
+([ordered]@{
+    format = "qtnetworkchat-scheduled-task-readback-v1"
+    tasks = @(
+        [ordered]@{
+            taskName = "PreviewEvidenceDbTask"
+            registered = $true
+            state = "registered"
+            schedulerState = "Ready"
+            taskPath = "\QtNetworkChat\"
+            source = "artifact"
+        },
+        [ordered]@{
+            taskName = "PreviewEvidenceGovTask"
+            registered = $true
+            state = "registered"
+            schedulerState = "Ready"
+            taskPath = "\QtNetworkChat\"
+            source = "artifact"
+        }
+    )
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $previewEvidenceReadbackPath -Encoding UTF8
+
+& $ScriptPath `
+    -MarkdownPath $previewEvidenceMarkdownPath `
+    -Head "fedcbab" `
+    -OriginMain "fedcbab" `
+    -CiStatus "queued" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 53 `
+    -DatabaseHealthTaskPreviewPath $previewEvidenceDbPreviewPath `
+    -LargeFileGovernanceTaskPreviewPath $previewEvidenceGovPreviewPath `
+    -ScheduledTaskReadbackJsonPath $previewEvidenceReadbackPath `
+    -StatusNowUtc "2026-06-03T02:00:00.0000000Z" `
+    -FailOnSensitive
+
+$previewEvidenceMarkdown = Get-Content -LiteralPath $previewEvidenceMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Automation watch gate: state=`registered-evidence-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-preview-task-evidence`, action=`run registered automation tasks to refresh live status evidence before release`',
+    'Task evidence gate: state=`preview-evidence`, tasks=`2`, previewEvidence=`2`, releaseGate=`blocked-preview-task-evidence`, action=`run registered automation tasks to refresh live status evidence before release`',
+    'Task evidence: kind=`database-health`, name=`PreviewEvidenceDbTask`, state=`preview-evidence`, status=`configured/ok=true`, readiness=`preview-registered`, releaseGate=`database-health-preview-registered`',
+    'Task evidence: kind=`large-file-governance`, name=`PreviewEvidenceGovTask`, state=`preview-evidence`, status=`configured/ok=true`, readiness=`preview-registered`, releaseGate=`large-file-governance-preview-registered`',
+    'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`2`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
+    'Task history freshness gate: state=`fresh`, tasks=`2`, fresh=`2`, stale=`0`, unavailable=`0`, unparseable=`0`, thresholdHours=`24`, releaseGate=`fresh`, action=`none`'
+)) {
+    Assert-Contains -Text $previewEvidenceMarkdown -Expected $expected
+}
+Assert-NotContains -Text $previewEvidenceMarkdown -Forbidden 'Automation watch gate: state=`registered`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`automation-watch-registered`, action=`none`'
+
 $invalidMarkdownPath = Join-Path $configuredTempDir "automation-status-invalid.md"
 $invalidDbPreviewPath = Join-Path $configuredTempDir "database-health-invalid-preview.json"
 $invalidGovPreviewPath = Join-Path $configuredTempDir "large-file-governance-invalid-preview.json"

@@ -1125,6 +1125,70 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
     }
 }
 
+function Test-IsPreviewTaskEvidence([object]$Readback) {
+    if ($null -eq $Readback) {
+        return $false
+    }
+    $statusSummary = (Format-StatusValue $Readback.statusSummary).ToLowerInvariant()
+    $readinessSummary = (Format-StatusValue $Readback.readinessSummary).ToLowerInvariant()
+    $releaseGateSummary = (Format-StatusValue $Readback.releaseGateSummary).ToLowerInvariant()
+    if ($statusSummary -eq "configured" -or $statusSummary.StartsWith("configured/")) {
+        return $true
+    }
+    if ($readinessSummary -eq "preview-registered") {
+        return $true
+    }
+    if ($releaseGateSummary -match '(^|-)preview(-|$)' -or $releaseGateSummary -match 'preview-registered') {
+        return $true
+    }
+    $false
+}
+
+function Get-AutomationTaskEvidenceGateReadback([object[]]$TaskReadbacks) {
+    $usableReadbacks = @($TaskReadbacks | Where-Object { $null -ne $_ })
+    $result = [ordered]@{
+        configured = $usableReadbacks.Count -gt 0
+        state = "not-configured"
+        taskCount = $usableReadbacks.Count
+        previewEvidenceCount = 0
+        releaseGate = "not-configured"
+        action = "none"
+        details = @()
+    }
+    if ($usableReadbacks.Count -le 0) {
+        return [pscustomobject]$result
+    }
+
+    $details = New-Object System.Collections.Generic.List[object]
+    foreach ($readback in $usableReadbacks) {
+        if (-not (Test-IsPreviewTaskEvidence $readback)) {
+            continue
+        }
+        $preview = $readback.previewRecord
+        $result.previewEvidenceCount++
+        $details.Add([pscustomobject]@{
+                taskKind = Format-StatusValue $preview.taskKind
+                taskName = Format-StatusValue $preview.taskName
+                state = "preview-evidence"
+                status = Format-StatusValue $readback.statusSummary
+                readiness = Format-StatusValue $readback.readinessSummary
+                releaseGate = Format-StatusValue $readback.releaseGateSummary
+            })
+    }
+
+    $result.details = [object[]]$details.ToArray()
+    if ($result.previewEvidenceCount -gt 0) {
+        $result.state = "preview-evidence"
+        $result.releaseGate = "blocked-preview-task-evidence"
+        $result.action = "run registered automation tasks to refresh live status evidence before release"
+    } else {
+        $result.state = "passing"
+        $result.releaseGate = "passing"
+        $result.action = "none"
+    }
+    [pscustomobject]$result
+}
+
 function Get-AutomationTaskAckGateReadback([object]$HistoryState, [object]$AckState, [bool]$Configured) {
     $result = [ordered]@{
         configured = $Configured
@@ -1817,7 +1881,7 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
     [pscustomobject]$result
 }
 
-function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate, [object]$SchedulerReadback, [object]$RegistrationAckGate, [object]$FreshnessGate) {
+function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]$AckGate, [object]$SchedulerReadback, [object]$RegistrationAckGate, [object]$FreshnessGate, [object]$EvidenceGate) {
     $totalCount = @($PreviewRecords).Count
     $result = [ordered]@{
         configured = $totalCount -gt 0
@@ -1877,6 +1941,10 @@ function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]
         $result.state = "registered-ack-gated"
         $result.releaseGate = $AckGate.releaseGate
         $result.action = $AckGate.action
+    } elseif ($null -ne $EvidenceGate -and $EvidenceGate.configured -and $EvidenceGate.releaseGate -ne "passing") {
+        $result.state = "registered-evidence-gated"
+        $result.releaseGate = $EvidenceGate.releaseGate
+        $result.action = $EvidenceGate.action
     } elseif ($null -ne $FreshnessGate -and $FreshnessGate.configured -and $FreshnessGate.releaseGate -ne "fresh") {
         $result.state = "registered-history-gated"
         $result.releaseGate = $FreshnessGate.releaseGate
@@ -2227,7 +2295,10 @@ $largeFileGovernanceStatusPreviewState = if ($null -ne $largeFileGovernanceStatu
 $largeFileGovernanceLastRunConfigMatch = Find-PreviewRecordForArtifact $largeFileGovernancePreviewCandidates @("lastRunPath", "logPath") "lastRun"
 $largeFileGovernanceLastRunConfig = $largeFileGovernanceLastRunConfigMatch.configuration
 $largeFileGovernanceLastRunPreviewState = if ($null -ne $largeFileGovernanceLastRunConfigMatch.record) { $largeFileGovernanceLastRunConfigMatch.record.state } else { $null }
-$pgsqlReleaseAcceptanceReadbacks = @($pgsqlReleaseAcceptancePreviewCandidates | ForEach-Object { Get-GenericTaskReadback $_ })
+$automationTaskEvidenceReadbacks = @($previewRecords | ForEach-Object { Get-GenericTaskReadback $_ })
+$pgsqlReleaseAcceptanceReadbacks = @($automationTaskEvidenceReadbacks | Where-Object {
+        (Format-StatusValue $_.previewRecord.taskKind) -eq "pgsql-release-acceptance"
+    })
 $automationTaskHistoryConfigMatch = Find-PreviewRecordForArtifact @($previewRecords) @("historyArtifactPath", "historyPath") "history"
 $automationTaskHistoryConfig = $automationTaskHistoryConfigMatch.configuration
 $automationTaskHistoryPreviewState = if ($null -ne $automationTaskHistoryConfigMatch.record) { $automationTaskHistoryConfigMatch.record.state } else { $null }
@@ -2256,7 +2327,8 @@ $scheduledTaskRegistryReadback = Get-ScheduledTaskRegistryReadback @($previewRec
 $scheduledTaskRegistrationAttemptReadback = Get-ScheduledTaskRegistrationAttemptReadback $ScheduledTaskRegistrationAttemptPath
 $scheduledTaskRegistrationAckGate = Get-ScheduledTaskRegistrationAckGateReadback $scheduledTaskRegistrationAttemptReadback $scheduledTaskRegistrationAckState $TaskAckExpiryHours $statusNow
 $automationTaskHistoryFreshnessGate = Get-AutomationTaskHistoryFreshnessReadback $automationTaskHistoryAckPairs $scheduledTaskRegistryReadback $TaskHistoryFreshnessHours $statusNow
-$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback $scheduledTaskRegistrationAckGate $automationTaskHistoryFreshnessGate
+$automationTaskEvidenceGate = Get-AutomationTaskEvidenceGateReadback $automationTaskEvidenceReadbacks
+$automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback $scheduledTaskRegistrationAckGate $automationTaskHistoryFreshnessGate $automationTaskEvidenceGate
 $automationTaskAckSingleReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured $automationTaskAckState $TaskAckExpiryHours $statusNow
 $automationTaskAckReminder = Get-AutomationTaskAckReminderAggregateReadback $automationTaskHistoryAckPairs $automationTaskAckSingleReminder $automationTaskAckGateConfigured
 
@@ -2387,6 +2459,23 @@ if ($automationTaskWatchGate.configured) {
             (Format-StatusValue $automationTaskWatchGate.invalidPreviewCount), `
             (Format-StatusValue $automationTaskWatchGate.releaseGate), `
             (Format-StatusValue $automationTaskWatchGate.action)))
+}
+if ($automationTaskEvidenceGate.configured) {
+    $lines.Add(('- Task evidence gate: state=`{0}`, tasks=`{1}`, previewEvidence=`{2}`, releaseGate=`{3}`, action=`{4}`' -f `
+            (Format-StatusValue $automationTaskEvidenceGate.state), `
+            (Format-StatusValue $automationTaskEvidenceGate.taskCount), `
+            (Format-StatusValue $automationTaskEvidenceGate.previewEvidenceCount), `
+            (Format-StatusValue $automationTaskEvidenceGate.releaseGate), `
+            (Format-StatusValue $automationTaskEvidenceGate.action)))
+    foreach ($evidenceDetail in @($automationTaskEvidenceGate.details)) {
+        $lines.Add(('  Task evidence: kind=`{0}`, name=`{1}`, state=`{2}`, status=`{3}`, readiness=`{4}`, releaseGate=`{5}`' -f `
+                (Format-StatusValue $evidenceDetail.taskKind), `
+                (Format-StatusValue $evidenceDetail.taskName), `
+                (Format-StatusValue $evidenceDetail.state), `
+                (Format-StatusValue $evidenceDetail.status), `
+                (Format-StatusValue $evidenceDetail.readiness), `
+                (Format-StatusValue $evidenceDetail.releaseGate)))
+    }
 }
 if ($scheduledTaskRegistryReadback.configured) {
     $lines.Add(('- Scheduled task registry readback: state=`{0}`, tasks=`{1}`, expectedRegistered=`{2}`, found=`{3}`, missing=`{4}`, registrationFailed=`{5}`, previewOnly=`{6}`, unreadable=`{7}`, source=`{8}`, releaseGate=`{9}`, action=`{10}`' -f `
