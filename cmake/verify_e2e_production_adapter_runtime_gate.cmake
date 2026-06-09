@@ -13,6 +13,10 @@ endif()
 if(NOT DEFINED QT_BIN_DIR OR NOT EXISTS "${QT_BIN_DIR}")
     message(FATAL_ERROR "QT_BIN_DIR is required")
 endif()
+set(RELEASE_EVIDENCE_PACKAGER "${SOURCE_DIR}/scripts/package-e2e-release-evidence.ps1")
+if(NOT EXISTS "${RELEASE_EVIDENCE_PACKAGER}")
+    message(FATAL_ERROR "E2E release evidence packager does not exist: ${RELEASE_EVIDENCE_PACKAGER}")
+endif()
 
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
@@ -148,6 +152,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
         "PATH=${probe_path}"
         "QTNETWORKCHAT_E2E_CRYPTO_BACKEND=production"
+        "QTNETWORKCHAT_E2E_REQUIRE_PRODUCTION_CRYPTO=1"
         "${exporter_exe}"
             --json "${evidence_json}"
             --markdown "${evidence_md}"
@@ -175,6 +180,50 @@ if(evidence_result EQUAL 0 AND EXISTS "${evidence_json}" AND EXISTS "${evidence_
     string(JSON evidence_offline_scope GET "${evidence_content}" "summary" "offlineObjectRecoveryScope")
     string(JSON evidence_offline_gate GET "${evidence_content}" "summary" "offlineObjectRecoveryReleaseGate")
     string(JSON evidence_offline_no_sensitive GET "${evidence_content}" "summary" "offlineObjectRecoveryNoSensitiveExportProof")
+    set(release_ci_json "${evidence_dir}/github-windows-build-status.json")
+    set(release_local_json "${evidence_dir}/local-verification-status.json")
+    set(release_status_md "${evidence_dir}/automation-status.md")
+    set(release_package_dir "${evidence_dir}/release-package")
+    file(WRITE "${release_ci_json}" "{\n  \"format\":\"qtnetworkchat-github-windows-build-status-v1\",\n  \"headSha\":\"production-probe-head\",\n  \"status\":\"success\",\n  \"runId\":\"production-probe-run\",\n  \"source\":\"probe-fixture\",\n  \"visibility\":\"current-head-observed\",\n  \"observedRunCount\":1,\n  \"currentHeadObserved\":true,\n  \"releaseGate\":\"github-windows-build-current-head-success\",\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
+    file(WRITE "${release_local_json}" "{\n  \"format\":\"qtnetworkchat-local-verification-status-v1\",\n  \"ok\":true,\n  \"build\":{\"status\":\"passed\"},\n  \"ctest\":{\"status\":\"passed\",\"count\":3},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
+    file(WRITE "${release_status_md}" "# Automation Status\n\n- Production probe release packaging fixture.\n")
+    execute_process(
+        COMMAND powershell -ExecutionPolicy Bypass -File "${RELEASE_EVIDENCE_PACKAGER}"
+            -OutputDir "${release_package_dir}"
+            -RolloutJsonPath "${evidence_json}"
+            -RolloutMarkdownPath "${evidence_md}"
+            -GitHubWindowsBuildStatusPath "${release_ci_json}"
+            -LocalVerificationStatusPath "${release_local_json}"
+            -AutomationStatusPath "${release_status_md}"
+            -ReleaseHead "production-probe-head"
+            -FailOnSensitive
+        RESULT_VARIABLE release_package_result
+        OUTPUT_VARIABLE release_package_stdout
+        ERROR_VARIABLE release_package_stderr
+    )
+    if(release_package_result EQUAL 0)
+        set(release_manifest_json "${release_package_dir}/e2e-release-evidence-manifest.json")
+        set(release_promotion_json "${release_package_dir}/e2e-release-promotion.json")
+        if(EXISTS "${release_manifest_json}" AND EXISTS "${release_promotion_json}")
+            file(READ "${release_manifest_json}" release_manifest_content)
+            file(READ "${release_promotion_json}" release_promotion_content)
+            string(JSON release_ready GET "${release_manifest_content}" "releaseReady")
+            string(JSON release_gate GET "${release_manifest_content}" "releaseGate")
+            string(JSON release_production_linked_ready GET "${release_manifest_content}" "productionLinkedEvidence" "ready")
+            string(JSON release_production_linked_gate GET "${release_manifest_content}" "productionLinkedEvidence" "releaseGate")
+            string(JSON release_requested_backend_match GET "${release_manifest_content}" "productionLinkedEvidence" "requestedBackendMatchesAcceptance")
+            string(JSON release_selected_backend_match GET "${release_manifest_content}" "productionLinkedEvidence" "selectedBackendMatchesAcceptance")
+            string(JSON release_operation_counts_ready GET "${release_manifest_content}" "productionLinkedEvidence" "operationCountsReady")
+            string(JSON release_sensitive_exported GET "${release_manifest_content}" "productionLinkedEvidence" "sensitiveMaterialExported")
+            string(JSON release_promotion_ready GET "${release_promotion_content}" "promotionReady")
+            string(JSON release_promotion_promoted GET "${release_promotion_content}" "promoted")
+            string(JSON release_promotion_gate GET "${release_promotion_content}" "releaseGate")
+            string(JSON release_promotion_blocker_count LENGTH "${release_promotion_content}" "blockers")
+        else()
+            set(release_package_result 5)
+            set(release_package_stderr "release-package-manifest-or-promotion-missing")
+        endif()
+    endif()
 elseif(evidence_result EQUAL 0)
     set(evidence_result 4)
     set(evidence_stderr "production-rollout-observability-evidence-files-missing")
@@ -196,6 +245,10 @@ if(NOT evidence_result EQUAL 0)
     message(STATUS "Captured production rollout observability evidence output: ${evidence_stdout}\n${evidence_stderr}")
     message(FATAL_ERROR "Production rollout observability evidence should be accepted under linked provider gates")
 endif()
+if(NOT release_package_result EQUAL 0)
+    message(STATUS "Captured production release evidence package output: ${release_package_stdout}\n${release_package_stderr}")
+    message(FATAL_ERROR "Production-linked rollout evidence should package into a promoted E2E release artifact when CI and local verification are ready")
+endif()
 if(NOT evidence_format STREQUAL "qtnetworkchat-e2e-production-rollout-observability-evidence-v1"
     OR NOT evidence_ok
     OR NOT evidence_gate STREQUAL "production-rollout-observability-ready"
@@ -214,6 +267,20 @@ endif()
 if(NOT evidence_offline_scope STREQUAL "offline-ciphertext-readback"
     OR NOT evidence_offline_gate STREQUAL "e2e-offline-ciphertext-readback-reviewed-opt-in")
     message(FATAL_ERROR "Production rollout observability evidence should expose reviewed offline ciphertext readback as an explicit opt-in gate")
+endif()
+if(NOT release_ready
+    OR NOT release_gate STREQUAL "e2e-release-evidence-ready"
+    OR NOT release_production_linked_ready
+    OR NOT release_production_linked_gate STREQUAL "production-linked-rollout-ready"
+    OR NOT release_requested_backend_match
+    OR NOT release_selected_backend_match
+    OR NOT release_operation_counts_ready
+    OR release_sensitive_exported
+    OR NOT release_promotion_ready
+    OR NOT release_promotion_promoted
+    OR NOT release_promotion_gate STREQUAL "e2e-release-artifact-promoted"
+    OR NOT release_promotion_blocker_count EQUAL 0)
+    message(FATAL_ERROR "Production-linked release package should be ready and promoted only with accepted production rollout, current CI, local verification, backend match, operation counts, and no-sensitive proof")
 endif()
 foreach(forbidden_text IN ITEMS
     "privateKey"
