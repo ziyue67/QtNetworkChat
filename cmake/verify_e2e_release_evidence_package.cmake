@@ -4,6 +4,7 @@ endif()
 
 set(TEMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/e2e_release_evidence_package")
 set(OUTPUT_DIR "${TEMP_DIR}/out")
+set(EXTRACT_DIR "${TEMP_DIR}/extract")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY "${TEMP_DIR}")
 
@@ -56,7 +57,9 @@ string(JSON ok GET "${manifest_content}" "ok")
 string(JSON release_ready GET "${manifest_content}" "releaseReady")
 string(JSON release_gate GET "${manifest_content}" "releaseGate")
 string(JSON package_path GET "${manifest_content}" "packagePath")
+string(JSON package_sha256 GET "${manifest_content}" "packageSha256")
 string(JSON staging_dir GET "${manifest_content}" "stagingDir")
+string(JSON manifest_packaged_as GET "${manifest_content}" "manifestPackagedAs")
 string(JSON input_count GET "${manifest_content}" "inputCount")
 string(JSON input0_source_name GET "${manifest_content}" "inputs" 0 "sourceName")
 string(JSON input0_sha256 GET "${manifest_content}" "inputs" 0 "sha256")
@@ -71,6 +74,7 @@ else()
     set(source_absolute_path_leaked FALSE)
 endif()
 string(LENGTH "${input0_sha256}" input0_sha256_length)
+string(LENGTH "${package_sha256}" package_sha256_length)
 
 if(NOT format STREQUAL "qtnetworkchat-e2e-release-evidence-package-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -85,7 +89,10 @@ if(NOT input_count EQUAL 5 OR NOT ci_status STREQUAL "external-visibility-stale"
     message(FATAL_ERROR "E2E release evidence manifest did not preserve CI readback")
 endif()
 if(NOT package_path STREQUAL "e2e-release-evidence.zip"
+        OR NOT package_sha256_length EQUAL 64
+        OR NOT package_sha256 MATCHES "^[0-9a-f]+$"
         OR NOT staging_dir STREQUAL "e2e-release-evidence"
+        OR NOT manifest_packaged_as STREQUAL "manifest.json"
         OR NOT input0_source_name STREQUAL "e2e-rollout-observability.json"
         OR NOT input0_sha256_length EQUAL 64
         OR NOT input0_sha256 MATCHES "^[0-9a-f]+$")
@@ -99,6 +106,36 @@ endif()
 if(NOT local_ctest_count EQUAL 70 OR NOT proof_no_sensitive)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence manifest did not preserve local verification/no-sensitive proof")
+endif()
+
+file(MAKE_DIRECTORY "${EXTRACT_DIR}")
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E tar xfz "${PACKAGE_PATH}"
+    WORKING_DIRECTORY "${EXTRACT_DIR}"
+    RESULT_VARIABLE extract_result
+    OUTPUT_VARIABLE extract_output
+    ERROR_VARIABLE extract_error
+)
+if(NOT extract_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Failed to extract E2E release evidence package: ${extract_error}")
+endif()
+if(NOT EXISTS "${EXTRACT_DIR}/manifest.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence package should include manifest.json")
+endif()
+file(READ "${EXTRACT_DIR}/manifest.json" packaged_manifest_content)
+string(JSON packaged_format GET "${packaged_manifest_content}" "format")
+string(JSON packaged_package_sha256 GET "${packaged_manifest_content}" "packageSha256")
+string(FIND "${packaged_manifest_content}" "${TEMP_DIR}" packaged_temp_path_index)
+if(NOT packaged_format STREQUAL "qtnetworkchat-e2e-release-evidence-package-v1"
+        OR NOT packaged_package_sha256 STREQUAL "pending")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Packaged E2E release evidence manifest should be self-describing and mark pre-zip SHA pending")
+endif()
+if(NOT packaged_temp_path_index EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Packaged E2E release evidence manifest leaked local paths")
 endif()
 
 execute_process(

@@ -230,11 +230,6 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "e2e-release-evidence-ready"
 }
 
-if (Test-Path -LiteralPath $resolvedPackagePath) {
-    Remove-Item -LiteralPath $resolvedPackagePath -Force
-}
-Compress-Archive -Path (Join-Path $stagingDir "*") -DestinationPath $resolvedPackagePath -Force
-
 $manifest = [ordered]@{
     format = "qtnetworkchat-e2e-release-evidence-package-v1"
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -242,7 +237,9 @@ $manifest = [ordered]@{
     releaseReady = $releaseReady
     releaseGate = $releaseGate
     packagePath = Split-Path -Leaf $resolvedPackagePath
+    packageSha256 = "pending"
     stagingDir = Split-Path -Leaf $stagingDir
+    manifestPackagedAs = "manifest.json"
     inputCount = $manifestInputs.Count
     inputs = @($manifestInputs)
     rollout = [ordered]@{
@@ -283,6 +280,16 @@ $manifest = [ordered]@{
     }
     sensitiveHits = @($sensitiveHits.ToArray())
 }
+
+$stagingManifestPath = Join-Path $stagingDir "manifest.json"
+$manifest | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $stagingManifestPath -Encoding UTF8
+
+if (Test-Path -LiteralPath $resolvedPackagePath) {
+    Remove-Item -LiteralPath $resolvedPackagePath -Force
+}
+Compress-Archive -Path (Join-Path $stagingDir "*") -DestinationPath $resolvedPackagePath -Force
+
+$manifest.packageSha256 = Get-Sha256Hex $resolvedPackagePath
 $manifest | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $resolvedManifestPath -Encoding UTF8
 
 Write-Host "e2e release evidence package"
