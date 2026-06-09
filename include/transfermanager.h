@@ -43,6 +43,23 @@ struct TransferResumeBlockedPrompt {
     QString clearedStatusMessage;
 };
 
+struct TransferResumeResultState {
+    bool succeeded = false;
+    bool canceled = false;
+    bool failed = false;
+    QString fileName;
+    QString targetName;
+    QString reason;
+    QString systemMessage;
+    QString hintText;
+    QString statusMessage;
+    QString failureTitle;
+    QString failureMessage;
+    QString clearedSystemMessage;
+    QString clearedHintText;
+    QString clearedStatusMessage;
+};
+
 struct TransferRecoveryUiState {
     bool hasSavedTransfer = false;
     bool canAutoResume = false;
@@ -95,6 +112,11 @@ public:
     static TransferClearRecoveryPrompt clearRecoveryPrompt(const QJsonObject& state);
     static TransferResumeBlockedPrompt resumeBlockedPrompt(const QJsonObject& state,
                                                            const QJsonObject& recoveryStatus);
+    static TransferResumeResultState resumeResultState(const QString& fileName,
+                                                       const QString& targetName,
+                                                       bool resumed,
+                                                       bool canceled,
+                                                       const QString& rejectReason);
     static TransferProgressUiState sendingInitialState(const QString& kind,
                                                        const QString& fileName,
                                                        const QString& targetName);

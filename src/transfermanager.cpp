@@ -162,6 +162,43 @@ TransferResumeBlockedPrompt TransferManager::resumeBlockedPrompt(const QJsonObje
     return result;
 }
 
+TransferResumeResultState TransferManager::resumeResultState(const QString& fileName,
+                                                             const QString& targetName,
+                                                             bool resumed,
+                                                             bool canceled,
+                                                             const QString& rejectReason) {
+    TransferResumeResultState result;
+    result.succeeded = resumed;
+    result.canceled = !resumed && canceled;
+    result.failed = !resumed && !canceled;
+    result.fileName = fileName;
+    result.targetName = targetName;
+    result.reason = rejectReason.isEmpty() ? QStringLiteral("恢复失败") : rejectReason;
+    if (result.succeeded) {
+        result.systemMessage = QStringLiteral("已恢复并完成未完成发送：%1 -> %2").arg(fileName, targetName);
+        result.hintText = QStringLiteral("未完成发送已恢复 · %1 · %2").arg(fileName, targetName);
+        result.statusMessage = QStringLiteral("未完成发送已恢复完成：") + fileName;
+        return result;
+    }
+    if (result.canceled) {
+        result.systemMessage = QStringLiteral("已取消恢复未完成发送：") + fileName;
+        result.hintText = QStringLiteral("已取消恢复未完成发送 · ") + fileName;
+        result.statusMessage = QStringLiteral("已取消恢复发送：") + fileName;
+        return result;
+    }
+    result.systemMessage = QStringLiteral("恢复未完成发送失败：%1 -> %2（%3）。恢复记录已保留，可稍后重试。")
+        .arg(fileName, targetName, result.reason);
+    result.hintText = QStringLiteral("恢复未完成发送失败 · %1 · %2").arg(fileName, result.reason);
+    result.statusMessage = QStringLiteral("恢复未完成发送失败：") + result.reason;
+    result.failureTitle = QStringLiteral("恢复未完成发送失败");
+    result.failureMessage = QStringLiteral("文件：%1\n目标：%2\n原因：%3\n\n恢复记录已保留，可稍后通过菜单“恢复未完成发送”重试；也可以现在清除这条恢复记录。")
+        .arg(fileName, targetName, result.reason);
+    result.clearedSystemMessage = QStringLiteral("已清除未完成发送恢复记录：") + fileName;
+    result.clearedHintText = QStringLiteral("已清除未完成发送恢复记录 · ") + fileName;
+    result.clearedStatusMessage = QStringLiteral("已清除恢复记录：") + fileName;
+    return result;
+}
+
 TransferProgressUiState TransferManager::sendingInitialState(const QString& kind,
                                                              const QString& fileName,
                                                              const QString& targetName) {

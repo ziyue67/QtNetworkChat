@@ -119,6 +119,49 @@ int main(int argc, char** argv) {
                     && blockedPrompt.clearedHintText.contains(QString::fromUtf8("已清除未完成发送恢复记录")),
                 "blocked resume prompt should centralize fail-closed resend guidance") && ok;
 
+    TransferResumeResultState resumeSucceeded = TransferManager::resumeResultState(
+        QStringLiteral("report.zip"),
+        QStringLiteral("QQ:920001"),
+        true,
+        false,
+        QString());
+    ok = expect(resumeSucceeded.succeeded
+                    && !resumeSucceeded.canceled
+                    && !resumeSucceeded.failed
+                    && resumeSucceeded.systemMessage.contains(QString::fromUtf8("已恢复并完成"))
+                    && resumeSucceeded.hintText.contains(QString::fromUtf8("未完成发送已恢复"))
+                    && resumeSucceeded.statusMessage.contains(QStringLiteral("report.zip")),
+                "resume result state should describe successful recovery") && ok;
+
+    TransferResumeResultState resumeCanceled = TransferManager::resumeResultState(
+        QStringLiteral("report.zip"),
+        QStringLiteral("QQ:920001"),
+        false,
+        true,
+        QString());
+    ok = expect(!resumeCanceled.succeeded
+                    && resumeCanceled.canceled
+                    && !resumeCanceled.failed
+                    && resumeCanceled.systemMessage.contains(QString::fromUtf8("已取消恢复"))
+                    && resumeCanceled.statusMessage.contains(QString::fromUtf8("已取消恢复发送")),
+                "resume result state should describe canceled recovery") && ok;
+
+    TransferResumeResultState resumeFailed = TransferManager::resumeResultState(
+        QStringLiteral("report.zip"),
+        QStringLiteral("QQ:920001"),
+        false,
+        false,
+        QStringLiteral("server-resume-state-mismatch"));
+    ok = expect(!resumeFailed.succeeded
+                    && !resumeFailed.canceled
+                    && resumeFailed.failed
+                    && resumeFailed.reason == QStringLiteral("server-resume-state-mismatch")
+                    && resumeFailed.systemMessage.contains(QString::fromUtf8("恢复记录已保留"))
+                    && resumeFailed.failureTitle == QString::fromUtf8("恢复未完成发送失败")
+                    && resumeFailed.failureMessage.contains(QStringLiteral("server-resume-state-mismatch"))
+                    && resumeFailed.clearedStatusMessage.contains(QString::fromUtf8("已清除恢复记录")),
+                "resume result state should describe failed recovery and retained record guidance") && ok;
+
     TransferStatusEvent timeoutEvent = TransferManager::statusEvent(QStringLiteral("report.zip"),
                                                                     QStringLiteral("transfer-abcdef1234567890"),
                                                                     QStringLiteral("chunk-ack-timeout"),
