@@ -79,6 +79,7 @@ $govLastRunPath = Join-Path $tempDir "large-file-governance-last-run.log"
 $govPreviewPath = Join-Path $tempDir "large-file-governance-task-preview.json"
 $taskHistoryPath = Join-Path $tempDir "automation-task-history.json"
 $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
+$ackDrillPath = Join-Path $tempDir "automation-ack-drill.json"
 $autoRunListPath = Join-Path $tempDir "gh-run-list.json"
 $releaseCiStatusPath = Join-Path $tempDir "github-windows-build-status-release.json"
 $autoCTestLogPath = Join-Path $tempDir "LastTest.log"
@@ -149,6 +150,26 @@ Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
   "reason":"reviewed"
 }
 '@ | Set-Content -LiteralPath $taskAckPath -Encoding UTF8
+@'
+{
+  "format":"qtnetworkchat-automation-ack-drill-v1",
+  "state":"exercised",
+  "ok":true,
+  "releaseGate":"automation-ack-drill-exercised",
+  "failedRunCount":1,
+  "acknowledged":true,
+  "historyAcknowledged":true,
+  "ackExpired":false,
+  "ackReminder":"acknowledged",
+  "ackExpiryHours":72,
+  "acknowledgedBy":"oncall-drill",
+  "acknowledgedAt":"2026-06-03T03:30:00.0000000Z",
+  "reason":"ack-drill",
+  "liveTaskMutation":false,
+  "operatorAction":"Keep live task acknowledgements tied to real failures; this drill proves the acknowledgement path without mutating live task history.",
+  "sensitiveHits":[]
+}
+'@ | Set-Content -LiteralPath $ackDrillPath -Encoding UTF8
 
 @'
 [
@@ -399,6 +420,7 @@ End testing: Jun 03 04:01
     -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
     -AutomationTaskHistoryPath $taskHistoryPath `
     -AutomationTaskAckPath $taskAckPath `
+    -AutomationAckDrillPath $ackDrillPath `
     -ProtectedUntracked ".polaris/,AGENTS.md" `
     -StatusNowUtc "2026-06-03T05:00:00.0000000Z" `
     -FailOnSensitive
@@ -453,10 +475,12 @@ foreach ($expected in @(
     'Task ack gate: kind=`database-health`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
     'Task ack gate: kind=`large-file-governance`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
     'Task acknowledgement reminder: state=`acknowledged`, expiryHours=`72`, ageHours=`1.5`, remainingHours=`70.5`, overdueHours=`0`, expiresAt=`2026-06-06T03:30:00.0000000Z`, action=`none`',
+    'Task acknowledgement drill: state=`exercised`, ok=`true`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`automation-ack-drill-exercised`, liveTaskMutation=`false`, action=`Keep live task acknowledgements tied to real failures; this drill proves the acknowledgement path without mutating live task history.`',
     'Artifact Diagnostics',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`',
+    'Automation ack drill artifacts: `state=exercised; ok=true; acknowledged=true; releaseGate=automation-ack-drill-exercised`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
     'E2E linked release candidate artifacts: `manifest=ok; releaseReady=true; promoted=true; releaseGate=e2e-release-artifact-promoted; packageSha256=',

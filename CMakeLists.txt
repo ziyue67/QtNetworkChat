@@ -980,6 +980,14 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_automation_task_ack.cmake
     )
     add_test(
+        NAME AutomationAckDrill
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-automation-ack-drill.ps1
+            -DACK_SCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-automation-task-ack.ps1
+            -DHISTORY_SCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/write-automation-task-history.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_automation_ack_drill.cmake
+    )
+    add_test(
         NAME DatabaseHealthCheckPlan
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-database-health.ps1

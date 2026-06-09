@@ -29,6 +29,7 @@ param(
     [string]$ScheduledTaskReadbackJsonPath,
     [string]$AutomationTaskHistoryPath,
     [string]$AutomationTaskAckPath,
+    [string]$AutomationAckDrillPath,
     [string]$ScheduledTaskRegistrationAttemptPath,
     [string]$ScheduledTaskRegistrationAckPath,
     [switch]$BootstrapDefaultTasks,
@@ -2271,6 +2272,13 @@ if ([string]::IsNullOrWhiteSpace($E2ELinkedReleaseCandidateManifestPath)) {
         $E2ELinkedReleaseCandidateManifestPath = $defaultLinkedReleaseCandidateManifestPath
     }
 }
+if ([string]::IsNullOrWhiteSpace($AutomationAckDrillPath)) {
+    $defaultAutomationAckDrillPath =
+        Join-Path $BuildDir "automation-tasks\ack-drill\automation-ack-drill.json"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultAutomationAckDrillPath) -PathType Leaf) {
+        $AutomationAckDrillPath = $defaultAutomationAckDrillPath
+    }
+}
 $localVerificationReadback = Get-LocalVerificationStatusReadback $LocalVerificationStatusPath
 
 $ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
@@ -2330,6 +2338,7 @@ $e2eLinkedReleaseCandidateManifestState =
     Get-ArtifactState -PathValue $E2ELinkedReleaseCandidateManifestPath -ExpectJson
 $e2eLinkedReleaseCandidateReadback =
     Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState
+$automationAckDrillState = Get-ArtifactState -PathValue $AutomationAckDrillPath -ExpectJson
 if ($e2eRolloutReadback.state -eq "ok") {
     $e2eRolloutReadback.ciStatus = Format-StatusValue $CiStatus
     $e2eRolloutReadback.ciRunId = Format-StatusValue $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId })
@@ -2931,6 +2940,23 @@ if ($automationTaskAckReminder.configured) {
             (Format-StatusValue $automationTaskAckReminder.expiresAt),
             (Format-StatusValue $automationTaskAckReminder.action)))
 }
+if ($automationAckDrillState.configured) {
+    if ($automationAckDrillState.state -eq "ok" -and
+            (Get-JsonValue $automationAckDrillState.value "format" "") -eq "qtnetworkchat-automation-ack-drill-v1") {
+        $lines.Add(('- Task acknowledgement drill: state=`{0}`, ok=`{1}`, failed=`{2}`, acknowledged=`{3}`, ackExpired=`{4}`, releaseGate=`{5}`, liveTaskMutation=`{6}`, action=`{7}`' -f
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "state" "unknown")),
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "ok" "unknown")),
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "failedRunCount" "unknown")),
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "acknowledged" "unknown")),
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "ackExpired" "unknown")),
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "releaseGate" "unknown")),
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "liveTaskMutation" "unknown")),
+                (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "operatorAction" "unknown"))))
+    } else {
+        $lines.Add(('- Task acknowledgement drill: state=`{0}`, releaseGate=`automation-ack-drill-unavailable`' -f
+                (Format-StatusValue $automationAckDrillState.state)))
+    }
+}
 $lines.Add("")
 $lines.Add("## Artifact Diagnostics")
 $lines.Add("")
@@ -2949,6 +2975,20 @@ $automationHistoryDiagnostics = @(
     (Get-ArtifactIssueText "ack" $automationTaskAckState $automationTaskAckPreviewState $automationTaskAckConfig),
     (Get-ArtifactIssueText "registrationAck" $scheduledTaskRegistrationAckState $null $null)
 ) -join "; "
+$automationAckDrillDiagnostics = if ($automationAckDrillState.configured) {
+    if ($automationAckDrillState.state -eq "ok") {
+        @(
+            ('state={0}' -f (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "state" "unknown"))),
+            ('ok={0}' -f (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "ok" "unknown"))),
+            ('acknowledged={0}' -f (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "acknowledged" "unknown"))),
+            ('releaseGate={0}' -f (Format-StatusValue (Get-JsonValue $automationAckDrillState.value "releaseGate" "unknown")))
+        ) -join "; "
+    } else {
+        ('state={0}' -f (Format-StatusValue $automationAckDrillState.state))
+    }
+} else {
+    ""
+}
 $e2eRolloutDiagnostics = @(
     ('json={0}' -f (Format-StatusValue $e2eRolloutReadback.jsonArtifact)),
     ('markdown={0}' -f (Format-StatusValue $e2eRolloutReadback.markdownArtifact)),
@@ -2970,6 +3010,9 @@ $e2eLinkedReleaseCandidateDiagnostics = @(
 $lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
 $lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnostics + '`')
 $lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics + '`')
+if ($automationAckDrillState.configured) {
+    $lines.Add('- Automation ack drill artifacts: `' + $automationAckDrillDiagnostics + '`')
+}
 $lines.Add('- E2E rollout observability artifacts: `' + $e2eRolloutDiagnostics + '`')
 $lines.Add('- E2E release evidence artifacts: `' + $e2eReleaseEvidenceDiagnostics + '`')
 if ($e2eLinkedReleaseCandidateReadback.configured) {
