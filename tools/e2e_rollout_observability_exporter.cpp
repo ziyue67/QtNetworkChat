@@ -134,6 +134,8 @@ QJsonObject buildEvidence(const QJsonObject& backendStatus) {
         rollout.value(QStringLiteral("offlineObjectRecoveryBlockedReason")).toString();
     summary[QStringLiteral("offlineObjectRecoveryAction")] =
         rollout.value(QStringLiteral("offlineObjectRecoveryAction")).toString();
+    summary[QStringLiteral("offlineObjectRecoveryCapturePolicy")] =
+        rollout.value(QStringLiteral("offlineObjectRecoveryCapturePolicy")).toString();
     summary[QStringLiteral("offlineObjectRecoveryNoSensitiveExportProof")] =
         rollout.value(QStringLiteral("offlineObjectRecoveryNoSensitiveExportProof")).toBool(false);
 
@@ -310,6 +312,8 @@ QString renderMarkdown(const QJsonObject& evidence) {
            << summary.value(QStringLiteral("offlineObjectRecoveryReleaseGate")).toString() << "`\n";
     stream << "- Offline/object recovery action: `"
            << summary.value(QStringLiteral("offlineObjectRecoveryAction")).toString() << "`\n";
+    stream << "- Offline/object recovery capture policy: `"
+           << summary.value(QStringLiteral("offlineObjectRecoveryCapturePolicy")).toString() << "`\n";
     return output;
 }
 

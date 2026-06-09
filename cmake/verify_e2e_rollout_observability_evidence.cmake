@@ -58,6 +58,7 @@ string(JSON filesystem_no_sensitive GET "${evidence_content}" "summary" "filesys
 string(JSON offline_ready GET "${evidence_content}" "summary" "offlineObjectRecoveryReady")
 string(JSON offline_scope GET "${evidence_content}" "summary" "offlineObjectRecoveryScope")
 string(JSON offline_gate GET "${evidence_content}" "summary" "offlineObjectRecoveryReleaseGate")
+string(JSON offline_capture_policy GET "${evidence_content}" "summary" "offlineObjectRecoveryCapturePolicy")
 string(JSON offline_no_sensitive GET "${evidence_content}" "summary" "offlineObjectRecoveryNoSensitiveExportProof")
 string(JSON audit_focus0 GET "${evidence_content}" "auditSummary" "auditFocus" 0)
 string(JSON evidence_bundle0 GET "${evidence_content}" "auditSummary" "evidenceBundle" 0)
@@ -87,7 +88,8 @@ if(NOT offline_ready
     message(FATAL_ERROR "Reviewed offline object ciphertext readback should be ready and sanitized behind its opt-in gate")
 endif()
 if(NOT offline_scope STREQUAL "offline-ciphertext-readback"
-    OR NOT offline_gate STREQUAL "e2e-offline-ciphertext-readback-reviewed-opt-in")
+    OR NOT offline_gate STREQUAL "e2e-offline-ciphertext-readback-reviewed-opt-in"
+    OR NOT offline_capture_policy STREQUAL "safe-object-token-hash-size-envelope-header-session-metadata-only")
     message(FATAL_ERROR "Offline/object recovery should expose reviewed offline ciphertext readback as an explicit opt-in gate")
 endif()
 if(NOT audit_focus0 STREQUAL "production-crypto-acceptance")
@@ -107,6 +109,7 @@ foreach(expected_text IN ITEMS
     "Offline/object recovery ready: `true`"
     "Offline/object recovery scope: `offline-ciphertext-readback`"
     "Offline/object recovery gate: `e2e-offline-ciphertext-readback-reviewed-opt-in`"
+    "Offline/object recovery capture policy: `safe-object-token-hash-size-envelope-header-session-metadata-only`"
 )
     string(FIND "${markdown_content}" "${expected_text}" expected_index)
     if(expected_index EQUAL -1)
