@@ -46,16 +46,23 @@ endif()
 
 set(PACKAGE_PATH "${OUTPUT_DIR}/e2e-release-evidence.zip")
 set(MANIFEST_PATH "${OUTPUT_DIR}/e2e-release-evidence-manifest.json")
-if(NOT EXISTS "${PACKAGE_PATH}" OR NOT EXISTS "${MANIFEST_PATH}")
+set(PROMOTION_PATH "${OUTPUT_DIR}/e2e-release-promotion.json")
+if(NOT EXISTS "${PACKAGE_PATH}" OR NOT EXISTS "${MANIFEST_PATH}" OR NOT EXISTS "${PROMOTION_PATH}")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Expected E2E release evidence package and manifest were not created")
+    message(FATAL_ERROR "Expected E2E release evidence package, manifest, and promotion decision were not created")
 endif()
 
 file(READ "${MANIFEST_PATH}" manifest_content)
+file(READ "${PROMOTION_PATH}" promotion_content)
 string(JSON format GET "${manifest_content}" "format")
 string(JSON ok GET "${manifest_content}" "ok")
 string(JSON release_ready GET "${manifest_content}" "releaseReady")
 string(JSON release_gate GET "${manifest_content}" "releaseGate")
+string(JSON promotion_packaged_as GET "${manifest_content}" "promotionPackagedAs")
+string(JSON promotion_embedded_gate GET "${manifest_content}" "promotion" "releaseGate")
+string(JSON promotion_embedded_ready GET "${manifest_content}" "promotion" "promotionReady")
+string(JSON promotion_embedded_promoted GET "${manifest_content}" "promotion" "promoted")
+string(JSON promotion_embedded_blocker0 GET "${manifest_content}" "promotion" "blockers" 0)
 string(JSON package_path GET "${manifest_content}" "packagePath")
 string(JSON package_sha256 GET "${manifest_content}" "packageSha256")
 string(JSON staging_dir GET "${manifest_content}" "stagingDir")
@@ -68,6 +75,12 @@ string(JSON ci_status GET "${manifest_content}" "ci" "status")
 string(JSON ci_visibility GET "${manifest_content}" "ci" "visibility")
 string(JSON local_ctest_count GET "${manifest_content}" "localVerification" "ctestCount")
 string(JSON proof_no_sensitive GET "${manifest_content}" "sensitiveExportProof" "noSensitiveExportProof")
+string(JSON promotion_format GET "${promotion_content}" "format")
+string(JSON promotion_ready GET "${promotion_content}" "promotionReady")
+string(JSON promotion_promoted GET "${promotion_content}" "promoted")
+string(JSON promotion_gate GET "${promotion_content}" "releaseGate")
+string(JSON promotion_evidence_gate GET "${promotion_content}" "evidenceReleaseGate")
+string(JSON promotion_blocker0 GET "${promotion_content}" "blockers" 0)
 string(FIND "${manifest_content}" "${TEMP_DIR}" temp_path_index)
 if(manifest_content MATCHES "\"source\"[ \t\r\n]*:[ \t\r\n]*\"[A-Za-z]:")
     set(source_absolute_path_leaked TRUE)
@@ -84,6 +97,20 @@ endif()
 if(NOT ok OR release_ready OR NOT release_gate STREQUAL "blocked-ci-head-not-observed")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence should package cleanly but stay blocked by stale CI")
+endif()
+if(NOT promotion_format STREQUAL "qtnetworkchat-e2e-release-artifact-promotion-v1"
+        OR promotion_ready
+        OR promotion_promoted
+        OR NOT promotion_gate STREQUAL "blocked-e2e-release-artifact-promotion"
+        OR NOT promotion_evidence_gate STREQUAL "blocked-ci-head-not-observed"
+        OR NOT promotion_blocker0 STREQUAL "rollout-not-ready"
+        OR NOT promotion_embedded_gate STREQUAL promotion_gate
+        OR promotion_embedded_ready
+        OR promotion_embedded_promoted
+        OR NOT promotion_embedded_blocker0 STREQUAL "rollout-not-ready"
+        OR NOT promotion_packaged_as STREQUAL "e2e-release-promotion.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence should emit a fail-closed promotion decision with blockers")
 endif()
 if(NOT input_count EQUAL 5 OR NOT ci_status STREQUAL "external-visibility-stale" OR NOT ci_visibility STREQUAL "head-not-observed")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -108,6 +135,49 @@ endif()
 if(NOT local_ctest_count EQUAL 70 OR NOT proof_no_sensitive)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence manifest did not preserve local verification/no-sensitive proof")
+endif()
+
+set(READY_ROLLOUT_JSON "${TEMP_DIR}/e2e-rollout-observability-ready.json")
+set(READY_CI_JSON "${TEMP_DIR}/github-windows-build-status-ready.json")
+set(READY_LOCAL_JSON "${TEMP_DIR}/local-verification-status-ready.json")
+file(WRITE "${READY_ROLLOUT_JSON}" "{\n  \"format\":\"qtnetworkchat-e2e-production-rollout-observability-evidence-v1\",\n  \"status\":\"ready\",\n  \"ok\":true,\n  \"summary\":{\"readiness\":\"ready\"},\n  \"auditSummary\":{\"releaseGate\":\"production-rollout-observability-ready\"},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true,\"sensitiveFieldsSuppressed\":true}\n}\n")
+file(WRITE "${READY_CI_JSON}" "{\n  \"format\":\"qtnetworkchat-github-windows-build-status-v1\",\n  \"headSha\":\"abc123\",\n  \"status\":\"success\",\n  \"runId\":\"12345\",\n  \"source\":\"json-artifact\",\n  \"visibility\":\"current-head-observed\",\n  \"observedRunCount\":1,\n  \"currentHeadObserved\":true,\n  \"releaseGate\":\"github-windows-build-current-head-success\",\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
+file(WRITE "${READY_LOCAL_JSON}" "{\n  \"format\":\"qtnetworkchat-local-verification-status-v1\",\n  \"ok\":true,\n  \"build\":{\"status\":\"passed\"},\n  \"ctest\":{\"status\":\"passed\",\"count\":71},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}/ready"
+        -RolloutJsonPath "${READY_ROLLOUT_JSON}"
+        -RolloutMarkdownPath "${ROLLOUT_MD}"
+        -GitHubWindowsBuildStatusPath "${READY_CI_JSON}"
+        -LocalVerificationStatusPath "${READY_LOCAL_JSON}"
+        -AutomationStatusPath "${AUTO_MD}"
+    RESULT_VARIABLE ready_result
+    OUTPUT_VARIABLE ready_output
+    ERROR_VARIABLE ready_error
+)
+if(NOT ready_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence ready promotion package failed: ${ready_error}")
+endif()
+file(READ "${OUTPUT_DIR}/ready/e2e-release-evidence-manifest.json" ready_manifest)
+file(READ "${OUTPUT_DIR}/ready/e2e-release-promotion.json" ready_promotion)
+string(JSON ready_release_ready GET "${ready_manifest}" "releaseReady")
+string(JSON ready_release_gate GET "${ready_manifest}" "releaseGate")
+string(JSON ready_promotion_ready GET "${ready_promotion}" "promotionReady")
+string(JSON ready_promotion_promoted GET "${ready_promotion}" "promoted")
+string(JSON ready_promotion_gate GET "${ready_promotion}" "releaseGate")
+string(JSON ready_promotion_blocker_count LENGTH "${ready_promotion}" "blockers")
+if(NOT ready_release_ready
+        OR NOT ready_release_gate STREQUAL "e2e-release-evidence-ready"
+        OR NOT ready_promotion_ready
+        OR NOT ready_promotion_promoted
+        OR NOT ready_promotion_gate STREQUAL "e2e-release-artifact-promoted")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence ready path should promote only when rollout, CI, and local verification are ready")
+endif()
+if(NOT ready_promotion_blocker_count EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence ready promotion should have no blockers")
 endif()
 
 file(MAKE_DIRECTORY "${EXTRACT_DIR}")

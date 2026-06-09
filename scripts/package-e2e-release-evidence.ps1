@@ -4,6 +4,7 @@ param(
 
     [string]$PackagePath,
     [string]$ManifestPath,
+    [string]$PromotionPath,
     [string]$RolloutJsonPath,
     [string]$RolloutMarkdownPath,
     [string]$GitHubWindowsBuildStatusPath,
@@ -139,9 +140,13 @@ if ([string]::IsNullOrWhiteSpace($PackagePath)) {
 if ([string]::IsNullOrWhiteSpace($ManifestPath)) {
     $ManifestPath = Join-Path $resolvedOutputDir "e2e-release-evidence-manifest.json"
 }
+if ([string]::IsNullOrWhiteSpace($PromotionPath)) {
+    $PromotionPath = Join-Path $resolvedOutputDir "e2e-release-promotion.json"
+}
 
 $resolvedPackagePath = Resolve-OptionalPath $PackagePath
 $resolvedManifestPath = Resolve-OptionalPath $ManifestPath
+$resolvedPromotionPath = Resolve-OptionalPath $PromotionPath
 $packageParent = Split-Path -Parent $resolvedPackagePath
 if (-not [string]::IsNullOrWhiteSpace($packageParent)) {
     New-Item -ItemType Directory -Path $packageParent -Force | Out-Null
@@ -149,6 +154,10 @@ if (-not [string]::IsNullOrWhiteSpace($packageParent)) {
 $manifestParent = Split-Path -Parent $resolvedManifestPath
 if (-not [string]::IsNullOrWhiteSpace($manifestParent)) {
     New-Item -ItemType Directory -Path $manifestParent -Force | Out-Null
+}
+$promotionParent = Split-Path -Parent $resolvedPromotionPath
+if (-not [string]::IsNullOrWhiteSpace($promotionParent)) {
+    New-Item -ItemType Directory -Path $promotionParent -Force | Out-Null
 }
 
 $stagingDir = Join-Path $resolvedOutputDir "e2e-release-evidence"
@@ -230,6 +239,38 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "e2e-release-evidence-ready"
 }
 
+$promotionBlockers = New-Object System.Collections.ArrayList
+if ($sensitiveHits.Count -gt 0) {
+    [void]$promotionBlockers.Add("sensitive-evidence")
+}
+if (-not $rolloutArtifactPresent) {
+    [void]$promotionBlockers.Add("missing-rollout-observability")
+} elseif (-not $rolloutOk) {
+    [void]$promotionBlockers.Add("rollout-not-ready")
+}
+if (-not $ciArtifactPresent) {
+    [void]$promotionBlockers.Add("missing-github-windows-build-status")
+} else {
+    if ($ciStatus -ne "success") {
+        [void]$promotionBlockers.Add(("ci-status-{0}" -f $ciStatus))
+    }
+    if (-not $ciCurrentHeadObserved) {
+        [void]$promotionBlockers.Add("ci-current-head-not-observed")
+    }
+}
+if (-not $localArtifactPresent) {
+    [void]$promotionBlockers.Add("missing-local-verification-status")
+} elseif (-not $localOk) {
+    [void]$promotionBlockers.Add("local-verification-not-ready")
+}
+
+$promotionReady = $releaseReady -and $ciCurrentHeadObserved -and $promotionBlockers.Count -eq 0
+$promotionGate = if ($promotionReady) {
+    "e2e-release-artifact-promoted"
+} else {
+    "blocked-e2e-release-artifact-promotion"
+}
+
 $manifest = [ordered]@{
     format = "qtnetworkchat-e2e-release-evidence-package-v1"
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -241,6 +282,7 @@ $manifest = [ordered]@{
     stagingDir = Split-Path -Leaf $stagingDir
     manifestPackagedAs = "manifest.json"
     manifestEmbedded = $true
+    promotionPackagedAs = Split-Path -Leaf $resolvedPromotionPath
     inputCount = $manifestInputs.Count
     inputs = @($manifestInputs)
     rollout = [ordered]@{
@@ -279,6 +321,27 @@ $manifest = [ordered]@{
         plaintextBytesExported = $false
         privateMaterialExported = $false
     }
+    promotion = [ordered]@{
+        format = "qtnetworkchat-e2e-release-artifact-promotion-v1"
+        promoted = $promotionReady
+        promotionReady = $promotionReady
+        releaseGate = $promotionGate
+        evidenceReleaseGate = $releaseGate
+        packagePath = Split-Path -Leaf $resolvedPackagePath
+        packageSha256 = "pending"
+        manifestPath = Split-Path -Leaf $resolvedManifestPath
+        currentHeadObserved = $ciCurrentHeadObserved
+        ciStatus = $ciStatus
+        localVerificationOk = $localOk
+        rolloutOk = $rolloutOk
+        noSensitiveExportProof = $sensitiveHits.Count -eq 0
+        blockers = @($promotionBlockers.ToArray())
+        operatorAction = if ($promotionReady) {
+            "Promote the packaged E2E release artifact using the recorded package SHA-256 and attached evidence."
+        } else {
+            "Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision."
+        }
+    }
     sensitiveHits = @($sensitiveHits.ToArray())
 }
 
@@ -291,10 +354,14 @@ if (Test-Path -LiteralPath $resolvedPackagePath) {
 Compress-Archive -Path (Join-Path $stagingDir "*") -DestinationPath $resolvedPackagePath -Force
 
 $manifest.packageSha256 = Get-Sha256Hex $resolvedPackagePath
+$manifest.promotion.packageSha256 = $manifest.packageSha256
 $manifest | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $resolvedManifestPath -Encoding UTF8
+$manifest.promotion | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $resolvedPromotionPath -Encoding UTF8
 
 Write-Host "e2e release evidence package"
 Write-Host ("  package: {0}" -f $resolvedPackagePath)
 Write-Host ("  manifest: {0}" -f $resolvedManifestPath)
+Write-Host ("  promotion: {0}" -f $resolvedPromotionPath)
 Write-Host ("  release gate: {0}" -f $releaseGate)
+Write-Host ("  promotion gate: {0}" -f $promotionGate)
 Write-Host ("  inputs: {0}" -f $manifestInputs.Count)

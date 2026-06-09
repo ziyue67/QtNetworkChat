@@ -899,6 +899,11 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
         packageSha256 = "unknown"
         manifestPackagedAs = "unknown"
         manifestEmbedded = "unknown"
+        promotionReady = "unknown"
+        promotionPromoted = "unknown"
+        promotionGate = "unknown"
+        promotionBlockers = "unknown"
+        promotionOperatorAction = "unknown"
     }
     if ($null -ne $ManifestState -and $ManifestState.configured) {
         $result.configured = $true
@@ -923,6 +928,7 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
     $ci = Get-JsonValue $manifest "ci" $null
     $local = Get-JsonValue $manifest "localVerification" $null
     $proof = Get-JsonValue $manifest "sensitiveExportProof" $null
+    $promotion = Get-JsonValue $manifest "promotion" $null
     $result.state = "ok"
     $result.ok = Format-StatusValue (Get-JsonValue $manifest "ok" "unknown")
     $result.releaseReady = Format-StatusValue (Get-JsonValue $manifest "releaseReady" "unknown")
@@ -944,6 +950,16 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
     $result.localCTestCount = [int](Get-JsonValue $local "ctestCount" 0)
     $result.noSensitiveExportProof =
         Format-StatusValue (Get-JsonValue $proof "noSensitiveExportProof" "unknown")
+    $result.promotionReady =
+        Format-StatusValue (Get-JsonValue $promotion "promotionReady" "unknown")
+    $result.promotionPromoted =
+        Format-StatusValue (Get-JsonValue $promotion "promoted" "unknown")
+    $result.promotionGate =
+        Format-StatusValue (Get-JsonValue $promotion "releaseGate" "unknown")
+    $result.promotionBlockers =
+        Format-StatusValue (@(Get-JsonValue $promotion "blockers" @()) -join ",")
+    $result.promotionOperatorAction =
+        Format-StatusValue (Get-JsonValue $promotion "operatorAction" "unknown")
     [pscustomobject]$result
 }
 
@@ -2487,6 +2503,13 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.manifestPackagedAs), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.manifestEmbedded), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)))
+    $lines.Add(('  Promotion decision: promoted=`{0}`, ready=`{1}`, releaseGate=`{2}`, blockers=`{3}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionPromoted), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionReady), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionGate), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionBlockers)))
+    $lines.Add(('  Promotion action: `{0}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionOperatorAction)))
     $lines.Add(('  Evidence CI gate: currentHeadObserved=`{0}`, externalBlocker=`{1}`, releaseGate=`{2}`, latestObservedHead=`{3}`' -f `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciCurrentHeadObserved), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
