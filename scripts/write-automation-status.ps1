@@ -1168,6 +1168,8 @@ function Get-AutomationTaskEvidenceGateReadback([object[]]$TaskReadbacks) {
         state = "not-configured"
         taskCount = $usableReadbacks.Count
         previewEvidenceCount = 0
+        liveEvidenceCount = 0
+        missingEvidenceCount = 0
         releaseGate = "not-configured"
         action = "none"
         details = @()
@@ -1178,15 +1180,32 @@ function Get-AutomationTaskEvidenceGateReadback([object[]]$TaskReadbacks) {
 
     $details = New-Object System.Collections.Generic.List[object]
     foreach ($readback in $usableReadbacks) {
-        if (-not (Test-IsPreviewTaskEvidence $readback)) {
+        $preview = $readback.previewRecord
+        if (Test-IsPreviewTaskEvidence $readback) {
+            $result.previewEvidenceCount++
+            $details.Add([pscustomobject]@{
+                    taskKind = Format-StatusValue $preview.taskKind
+                    taskName = Format-StatusValue $preview.taskName
+                    state = "preview-evidence"
+                    status = Format-StatusValue $readback.statusSummary
+                    readiness = Format-StatusValue $readback.readinessSummary
+                    releaseGate = Format-StatusValue $readback.releaseGateSummary
+                })
             continue
         }
-        $preview = $readback.previewRecord
-        $result.previewEvidenceCount++
+
+        $statusState = Format-StatusValue $readback.statusState.state
+        if ($statusState -eq "ok") {
+            $result.liveEvidenceCount++
+            $state = "live-evidence"
+        } else {
+            $result.missingEvidenceCount++
+            $state = "missing-evidence"
+        }
         $details.Add([pscustomobject]@{
                 taskKind = Format-StatusValue $preview.taskKind
                 taskName = Format-StatusValue $preview.taskName
-                state = "preview-evidence"
+                state = $state
                 status = Format-StatusValue $readback.statusSummary
                 readiness = Format-StatusValue $readback.readinessSummary
                 releaseGate = Format-StatusValue $readback.releaseGateSummary
@@ -2478,10 +2497,12 @@ if ($automationTaskWatchGate.configured) {
             (Format-StatusValue $automationTaskWatchGate.action)))
 }
 if ($automationTaskEvidenceGate.configured) {
-    $lines.Add(('- Task evidence gate: state=`{0}`, tasks=`{1}`, previewEvidence=`{2}`, releaseGate=`{3}`, action=`{4}`' -f `
+    $lines.Add(('- Task evidence gate: state=`{0}`, tasks=`{1}`, previewEvidence=`{2}`, liveEvidence=`{3}`, missingEvidence=`{4}`, releaseGate=`{5}`, action=`{6}`' -f `
             (Format-StatusValue $automationTaskEvidenceGate.state), `
             (Format-StatusValue $automationTaskEvidenceGate.taskCount), `
             (Format-StatusValue $automationTaskEvidenceGate.previewEvidenceCount), `
+            (Format-StatusValue $automationTaskEvidenceGate.liveEvidenceCount), `
+            (Format-StatusValue $automationTaskEvidenceGate.missingEvidenceCount), `
             (Format-StatusValue $automationTaskEvidenceGate.releaseGate), `
             (Format-StatusValue $automationTaskEvidenceGate.action)))
     foreach ($evidenceDetail in @($automationTaskEvidenceGate.details)) {

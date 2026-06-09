@@ -1115,7 +1115,7 @@ $previewEvidenceReadbackPath = Join-Path $configuredTempDir "preview-evidence-re
 $previewEvidenceMarkdown = Get-Content -LiteralPath $previewEvidenceMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'Automation watch gate: state=`registered-evidence-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-preview-task-evidence`, action=`run registered automation tasks to refresh live status evidence before release`',
-    'Task evidence gate: state=`preview-evidence`, tasks=`2`, previewEvidence=`2`, releaseGate=`blocked-preview-task-evidence`, action=`run registered automation tasks to refresh live status evidence before release`',
+    'Task evidence gate: state=`preview-evidence`, tasks=`2`, previewEvidence=`2`, liveEvidence=`0`, missingEvidence=`0`, releaseGate=`blocked-preview-task-evidence`, action=`run registered automation tasks to refresh live status evidence before release`',
     'Task evidence: kind=`database-health`, name=`PreviewEvidenceDbTask`, state=`preview-evidence`, status=`configured/ok=true/planOnly=true`, readiness=`ready`, releaseGate=`await-live-health-check`',
     'Task evidence: kind=`large-file-governance`, name=`PreviewEvidenceGovTask`, state=`preview-evidence`, status=`configured/ok=true`, readiness=`preview-registered`, releaseGate=`large-file-governance-preview-registered`',
     'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`2`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
