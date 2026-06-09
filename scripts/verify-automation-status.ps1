@@ -319,9 +319,9 @@ foreach ($expected in @(
     'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`auto1234567890abcdef`',
     'Automation Guardrails',
     'Registered Preview Tasks',
-    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
     'Summary: `Read-only database health check that writes redacted health, status, optional dashboard, last-run, and task history artifacts.`',
-    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Hourly/2 h@02:30`, path=`',
     'Summary: `Read-only governance sweep that writes redacted dashboard, reports, diagnostics, last-run, and task history artifacts.`',
     'Automation watch gate: state=`preview-only`, tasks=`2`, registered=`0`, previewOnly=`2`, invalid=`0`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
     'Scheduled task registry readback: state=`preview-only`, tasks=`2`, expectedRegistered=`0`, found=`0`, missing=`0`, registrationFailed=`0`, previewOnly=`2`, unreadable=`0`, source=`Get-ScheduledTask`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
@@ -601,9 +601,9 @@ if (-not (Test-Path -LiteralPath $defaultBootstrapMarkdownPath -PathType Leaf)) 
 $defaultBootstrapMarkdown = Get-Content -LiteralPath $defaultBootstrapMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'HEAD: `boot1234`',
-    'Preview task: label=`database-health`, kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
-    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`, path=`',
-    'Preview task: label=`generic`, kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, display=`PostgreSQL release acceptance`, state=`ok`, format=`qtnetworkchat-pgsql-release-acceptance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@04:45`, path=`',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:00`, path=`',
+    'Preview task: label=`generic`, kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, display=`PostgreSQL release acceptance`, state=`ok`, format=`qtnetworkchat-pgsql-release-acceptance-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@04:45`, path=`',
     'Scheduled task registry readback: state=`preview-only`, tasks=`3`, expectedRegistered=`0`, found=`0`, missing=`0`, registrationFailed=`0`, previewOnly=`3`, unreadable=`0`, source=`artifact`, releaseGate=`blocked-preview-only-automation-watch`, action=`register scheduled tasks with -Register or provide registered task artifacts before release`',
     'Scheduled task registration attempt: state=`preview`, requested=`false`, user=`SYSTEM`, tasks=`3`, failed=`0`, releaseGate=`scheduled-task-registration-preview`, action=`run bootstrap with -Register to create or update scheduled tasks`',
     'Registration attempt task: kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, requested=`false`, status=`preview-generated`, exitCode=`0`, failureClass=`none`',
@@ -768,8 +768,8 @@ foreach ($expected in @(
     'Task acknowledgement gate: state=`history-unavailable`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
     'Task ack gate: kind=`database-health`, name=`unknown`, state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`',
     'Task ack gate: kind=`large-file-governance`, name=`unknown`, state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, releaseGate=`automation-task-history-unavailable`',
-    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`',
-    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:00`',
     'Database health artifacts: `preview=ok; status=missing',
     'Large-file governance artifacts: `preview=ok; status=missing',
     'Automation history artifacts: `history=missing'
@@ -823,8 +823,8 @@ $configuredGovPreview | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $conf
 
 $configuredRegisteredMarkdown = Get-Content -LiteralPath $configuredRegisteredMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Preview task: label=`database-health`, kind=`database-health`, name=`ConfiguredPreviewOnlyDbTask`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`',
-    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`ConfiguredPreviewOnlyGovTask`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`',
+    'Preview task: label=`database-health`, kind=`database-health`, name=`ConfiguredPreviewOnlyDbTask`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`registered`, effectiveRegistered=`true`, schedule=`Daily@03:15`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`ConfiguredPreviewOnlyGovTask`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`registered`, effectiveRegistered=`true`, schedule=`Daily@03:00`',
     'Automation watch gate: state=`registered-ack-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
     'Scheduled task registry readback: state=`registered`, tasks=`2`, expectedRegistered=`2`, found=`2`, missing=`0`, registrationFailed=`0`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`scheduled-task-readback-registered`, action=`verify scheduler run history stays fresh before release`',
     'Scheduler task: kind=`database-health`, name=`ConfiguredPreviewOnlyDbTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Ready`, taskPath=`\QtNetworkChat\`, source=`artifact`',
@@ -880,8 +880,8 @@ Ensure-Directory -Path $configuredTempDir
 
 $genericMarkdown = Get-Content -LiteralPath $genericMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Preview task: label=`generic`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`, path=`',
-    'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Hourly/2 h@02:30`, path=`',
+    'Preview task: label=`generic`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
+    'Preview task: label=`generic`, kind=`large-file-governance`, name=`unknown`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Hourly/2 h@02:30`, path=`',
     'Generic task readback: `typed task readback active; no unclassified generic tasks`',
     'Database health: status=`healthy`, ok=`true`, driver=`QPSQL`',
     'Gate: readiness=`verified`, releaseGate=`review-query-failures`, action=`Investigate query failures before promoting this database health snapshot.`, auditFocus=`query-failures, slow-queries`',
@@ -1083,9 +1083,9 @@ Ensure-Directory -Path $configuredTempDir
 
 $customMarkdown = Get-Content -LiteralPath $customMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Preview task: label=`generic`, kind=`custom-ops`, name=`CustomOpsTask`, display=`Custom ops`, state=`ok`, format=`qtnetworkchat-custom-task-preview-v1`, readOnly=`false`, register=`true`, schedule=`Daily@05:45`, path=`',
-    'Preview task: label=`generic`, kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, display=`PostgreSQL smoke`, state=`ok`, format=`qtnetworkchat-pgsql-smoke-task-preview-v1`, readOnly=`true`, register=`true`, schedule=`Hourly/6 h@04:20`, path=`',
-    'Preview task: label=`generic`, kind=`pgsql-migration`, name=`PgsqlMigrationTask`, display=`PostgreSQL migration`, state=`ok`, format=`qtnetworkchat-pgsql-migration-task-preview-v1`, readOnly=`true`, register=`true`, schedule=`Daily@06:40`, path=`',
+    'Preview task: label=`generic`, kind=`custom-ops`, name=`CustomOpsTask`, display=`Custom ops`, state=`ok`, format=`qtnetworkchat-custom-task-preview-v1`, readOnly=`false`, register=`true`, schedulerReadback=`registered`, effectiveRegistered=`true`, schedule=`Daily@05:45`, path=`',
+    'Preview task: label=`generic`, kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, display=`PostgreSQL smoke`, state=`ok`, format=`qtnetworkchat-pgsql-smoke-task-preview-v1`, readOnly=`true`, register=`true`, schedulerReadback=`registered`, effectiveRegistered=`true`, schedule=`Hourly/6 h@04:20`, path=`',
+    'Preview task: label=`generic`, kind=`pgsql-migration`, name=`PgsqlMigrationTask`, display=`PostgreSQL migration`, state=`ok`, format=`qtnetworkchat-pgsql-migration-task-preview-v1`, readOnly=`true`, register=`true`, schedulerReadback=`registered`, effectiveRegistered=`true`, schedule=`Daily@06:40`, path=`',
     'Automation watch gate: state=`registered-ack-gated`, tasks=`3`, registered=`3`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-unacknowledged-failure`, action=`acknowledge failed automation task before release`',
     'Scheduled task registry readback: state=`registered`, tasks=`3`, expectedRegistered=`3`, found=`3`, missing=`0`, registrationFailed=`0`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`scheduled-task-readback-registered`, action=`verify scheduler run history stays fresh before release`',
     'Scheduler task: kind=`custom-ops`, name=`CustomOpsTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Ready`, taskPath=`\QtNetworkChat\`, source=`artifact`',

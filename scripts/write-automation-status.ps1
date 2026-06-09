@@ -1889,7 +1889,32 @@ function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]
     [pscustomobject]$result
 }
 
-function Format-PreviewDescriptor([object]$PreviewRecord) {
+function Find-SchedulerReadbackDetail([object]$SchedulerReadback, [string]$TaskName, [string]$TaskKind = "") {
+    if ($null -eq $SchedulerReadback -or -not $SchedulerReadback.configured) {
+        return $null
+    }
+    $normalizedTaskName = Format-StatusValue $TaskName
+    $normalizedTaskKind = Format-StatusValue $TaskKind
+    $fallbackByName = $null
+    foreach ($detail in @($SchedulerReadback.details)) {
+        $detailName = Format-StatusValue $detail.taskName
+        $detailKind = Format-StatusValue $detail.taskKind
+        if ($detailName -eq $normalizedTaskName) {
+            if ($normalizedTaskName -eq "unknown") {
+                if ($detailKind -eq $normalizedTaskKind) {
+                    return $detail
+                }
+            } elseif ($normalizedTaskKind -eq "unknown" -or $detailKind -eq $normalizedTaskKind) {
+                return $detail
+            } elseif ($null -eq $fallbackByName) {
+                $fallbackByName = $detail
+            }
+        }
+    }
+    $fallbackByName
+}
+
+function Format-PreviewDescriptor([object]$PreviewRecord, [object]$SchedulerReadbackDetail = $null) {
     $parts = New-Object System.Collections.Generic.List[string]
     $parts.Add(('label=`{0}`' -f (Format-StatusValue $PreviewRecord.label)))
     $parts.Add(('kind=`{0}`' -f (Format-StatusValue $PreviewRecord.taskKind)))
@@ -1899,6 +1924,15 @@ function Format-PreviewDescriptor([object]$PreviewRecord) {
     $parts.Add(('format=`{0}`' -f (Format-StatusValue $PreviewRecord.previewFormat)))
     $parts.Add(('readOnly=`{0}`' -f (Format-StatusValue $PreviewRecord.readOnly)))
     $parts.Add(('register=`{0}`' -f (Format-StatusValue $PreviewRecord.register)))
+    if ($null -ne $SchedulerReadbackDetail) {
+        $effectiveRegistered = "false"
+        if ((Format-StatusValue $SchedulerReadbackDetail.expectedRegistered) -eq "true" -and
+            (Format-StatusValue $SchedulerReadbackDetail.readback) -eq "registered") {
+            $effectiveRegistered = "true"
+        }
+        $parts.Add(('schedulerReadback=`{0}`' -f (Format-StatusValue $SchedulerReadbackDetail.readback)))
+        $parts.Add(('effectiveRegistered=`{0}`' -f $effectiveRegistered))
+    }
     $parts.Add(('schedule=`{0}`' -f (Format-StatusValue $PreviewRecord.scheduleSummary)))
     $parts.Add(('path=`{0}`' -f (Format-StatusValue (Format-RepoRelativePath $PreviewRecord.path))))
     $parts -join ", "
@@ -2337,7 +2371,8 @@ if ($previewRecords.Count -eq 0) {
     $lines.Add('- Registered preview tasks: `none`')
 } else {
     foreach ($previewRecord in $previewRecords) {
-        $lines.Add('- Preview task: ' + (Format-PreviewDescriptor $previewRecord))
+        $schedulerDetail = Find-SchedulerReadbackDetail $scheduledTaskRegistryReadback $previewRecord.taskName $previewRecord.taskKind
+        $lines.Add('- Preview task: ' + (Format-PreviewDescriptor $previewRecord $schedulerDetail))
         if ($previewRecord.taskSummary -ne "unknown") {
             $lines.Add('  Summary: `' + $previewRecord.taskSummary + '`')
         }
