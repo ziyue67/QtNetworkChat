@@ -196,6 +196,9 @@ $lines = New-Object System.Collections.ArrayList
 [void]$lines.Add('$historyPath = ' + (Quote-PSString $historyPath))
 [void]$lines.Add('$historyMarkdownPath = ' + (Quote-PSString $historyMarkdownPath))
 [void]$lines.Add('$ackPath = ' + (Quote-PSString $ackPath))
+[void]$lines.Add('$postgresPassword = [string]$env:QTNETWORKCHAT_PGPASSWORD')
+[void]$lines.Add('$postgresPasswordArgs = @()')
+[void]$lines.Add('if (-not [string]::IsNullOrWhiteSpace($postgresPassword)) { $postgresPasswordArgs = @("-PostgresPassword", $postgresPassword) }')
 [void]$lines.Add('$logDir = Split-Path -Parent $logPath')
 [void]$lines.Add('if (-not [string]::IsNullOrWhiteSpace($logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }')
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $healthScript `')
@@ -206,7 +209,7 @@ Add-ScalarArg $lines "PostgresHost" $PostgresHost
 Add-IntArg $lines "PostgresPort" $PostgresPort
 Add-ScalarArg $lines "PostgresDatabase" $PostgresDatabase
 Add-ScalarArg $lines "PostgresUser" $PostgresUser
-Add-RawArg $lines "PostgresPassword" '([string]$env:QTNETWORKCHAT_PGPASSWORD)'
+[void]$lines.Add('    @postgresPasswordArgs `')
 Add-ScalarArg $lines "SQLitePath" $SQLitePath
 Add-SwitchArg $lines "PlanOnly" $PlanOnly.IsPresent
 Add-SwitchArg $lines "FailOnUnhealthy" $FailOnUnhealthy.IsPresent

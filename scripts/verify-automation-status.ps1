@@ -294,6 +294,7 @@ End testing: Jun 03 04:01
     -AutomationTaskHistoryPath $taskHistoryPath `
     -AutomationTaskAckPath $taskAckPath `
     -ProtectedUntracked ".polaris/,AGENTS.md" `
+    -StatusNowUtc "2026-06-03T05:00:00.0000000Z" `
     -FailOnSensitive
 
 if (-not (Test-Path -LiteralPath $markdownPath -PathType Leaf)) {
@@ -574,6 +575,11 @@ foreach ($expected in @(
 
 $defaultBootstrapDir = Join-Path $tempDir "default-bootstrap"
 $defaultBootstrapMarkdownPath = Join-Path $tempDir "automation-status-default-bootstrap.md"
+$defaultBootstrapPreviewReadbackPath = Join-Path $tempDir "default-bootstrap-preview-only-readback.json"
+([ordered]@{
+    format = "qtnetworkchat-scheduled-task-readback-v1"
+    tasks = @()
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $defaultBootstrapPreviewReadbackPath -Encoding UTF8
 & $ScriptPath `
     -MarkdownPath $defaultBootstrapMarkdownPath `
     -Head "boot1234" `
@@ -584,6 +590,7 @@ $defaultBootstrapMarkdownPath = Join-Path $tempDir "automation-status-default-bo
     -CTestCount 69 `
     -BootstrapDefaultTasks `
     -DefaultTaskOutputDir $defaultBootstrapDir `
+    -ScheduledTaskReadbackJsonPath $defaultBootstrapPreviewReadbackPath `
     -TaskAckExpiryHours 24 `
     -TaskHistoryRetentionCount 5 `
     -FailOnSensitive
@@ -768,6 +775,62 @@ foreach ($expected in @(
     'Automation history artifacts: `history=missing'
 )) {
     Assert-Contains -Text $configuredMarkdown -Expected $expected
+}
+
+$configuredRegisteredReadbackPath = Join-Path $configuredTempDir "configured-registered-readback.json"
+$configuredRegisteredMarkdownPath = Join-Path $configuredTempDir "automation-status-configured-registered.md"
+([ordered]@{
+    format = "qtnetworkchat-scheduled-task-readback-v1"
+    tasks = @(
+        [ordered]@{
+            taskName = "ConfiguredPreviewOnlyDbTask"
+            registered = $true
+            state = "registered"
+            schedulerState = "Ready"
+            taskPath = "\QtNetworkChat\"
+            source = "artifact"
+        },
+        [ordered]@{
+            taskName = "ConfiguredPreviewOnlyGovTask"
+            registered = $true
+            state = "registered"
+            schedulerState = "Ready"
+            taskPath = "\QtNetworkChat\"
+            source = "artifact"
+        }
+    )
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $configuredRegisteredReadbackPath -Encoding UTF8
+
+$configuredDbPreview = Get-Content -LiteralPath $configuredDbPreviewPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$configuredDbPreview | Add-Member -NotePropertyName "taskName" -NotePropertyValue "ConfiguredPreviewOnlyDbTask" -Force
+$configuredDbPreview | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $configuredDbPreviewPath -Encoding UTF8
+$configuredGovPreview = Get-Content -LiteralPath $configuredGovPreviewPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$configuredGovPreview | Add-Member -NotePropertyName "taskName" -NotePropertyValue "ConfiguredPreviewOnlyGovTask" -Force
+$configuredGovPreview | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $configuredGovPreviewPath -Encoding UTF8
+
+& $ScriptPath `
+    -MarkdownPath $configuredRegisteredMarkdownPath `
+    -Head "fedcbaa" `
+    -OriginMain "fedcbaa" `
+    -CiStatus "queued" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 53 `
+    -DatabaseHealthTaskPreviewPath $configuredDbPreviewPath `
+    -LargeFileGovernanceTaskPreviewPath $configuredGovPreviewPath `
+    -ScheduledTaskReadbackJsonPath $configuredRegisteredReadbackPath `
+    -FailOnSensitive
+
+$configuredRegisteredMarkdown = Get-Content -LiteralPath $configuredRegisteredMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Preview task: label=`database-health`, kind=`database-health`, name=`ConfiguredPreviewOnlyDbTask`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:15`',
+    'Preview task: label=`large-file-governance`, kind=`large-file-governance`, name=`ConfiguredPreviewOnlyGovTask`, display=`Large-file governance`, state=`ok`, format=`qtnetworkchat-large-file-governance-task-preview-v1`, readOnly=`true`, register=`false`, schedule=`Daily@03:00`',
+    'Automation watch gate: state=`registered-ack-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
+    'Scheduled task registry readback: state=`registered`, tasks=`2`, expectedRegistered=`2`, found=`2`, missing=`0`, registrationFailed=`0`, previewOnly=`0`, unreadable=`0`, source=`artifact`, releaseGate=`scheduled-task-readback-registered`, action=`verify scheduler run history stays fresh before release`',
+    'Scheduler task: kind=`database-health`, name=`ConfiguredPreviewOnlyDbTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Ready`, taskPath=`\QtNetworkChat\`, source=`artifact`',
+    'Scheduler task: kind=`large-file-governance`, name=`ConfiguredPreviewOnlyGovTask`, expectedRegistered=`true`, readback=`registered`, schedulerState=`Ready`, taskPath=`\QtNetworkChat\`, source=`artifact`'
+)) {
+    Assert-Contains -Text $configuredRegisteredMarkdown -Expected $expected
 }
 
 $invalidMarkdownPath = Join-Path $configuredTempDir "automation-status-invalid.md"
@@ -1277,6 +1340,53 @@ Assert-NoFixedMirrorBranchPolicy -Text $registrationExpiredMarkdown
 $expiredHistoryPath = Join-Path $configuredTempDir "expired-task-history.json"
 $expiredAckPath = Join-Path $configuredTempDir "expired-task-ack.json"
 $expiredMarkdownPath = Join-Path $configuredTempDir "automation-status-expired-ack.md"
+$freshAckHistoryPath = Join-Path $configuredTempDir "fresh-ack-task-history.json"
+$freshAckPath = Join-Path $configuredTempDir "fresh-ack-task-ack.json"
+$freshAckMarkdownPath = Join-Path $configuredTempDir "automation-status-fresh-ack.md"
+@'
+{
+  "format":"qtnetworkchat-automation-task-history-v1",
+  "runCount":2,
+  "failedRunCount":1,
+  "latestRun":{"timestamp":"2026-06-03T08:00:00.0000000Z","exitCode":1},
+  "acknowledged":false,
+  "ackExpired":false,
+  "ackReminder":"acknowledge-required",
+  "ackExpiryHours":72
+}
+'@ | Set-Content -LiteralPath $freshAckHistoryPath -Encoding UTF8
+@'
+{
+  "format":"qtnetworkchat-automation-task-ack-v1",
+  "acknowledged":true,
+  "acknowledgedBy":"oncall",
+  "acknowledgedAt":"2026-06-03T09:00:00.0000000Z",
+  "reason":"fresh ack sample"
+}
+'@ | Set-Content -LiteralPath $freshAckPath -Encoding UTF8
+
+& $ScriptPath `
+    -MarkdownPath $freshAckMarkdownPath `
+    -Head "aabbcb9" `
+    -OriginMain "aabbcb9" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -AutomationTaskHistoryPath $freshAckHistoryPath `
+    -AutomationTaskAckPath $freshAckPath `
+    -FailOnSensitive
+
+$freshAckMarkdown = Get-Content -LiteralPath $freshAckMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Task history: runs=`2`, failed=`1`, latestAt=`2026-06-03T08:00:00.0000000Z`, latestExitCode=`1`, acknowledged=`false`, ackExpired=`false`',
+    'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-03T09:00:00.0000000Z`, reason=`fresh ack sample`',
+    'Task acknowledgement gate: state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`'
+)) {
+    Assert-Contains -Text $freshAckMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $freshAckMarkdown
+
 @'
 {
   "format":"qtnetworkchat-automation-task-history-v1",

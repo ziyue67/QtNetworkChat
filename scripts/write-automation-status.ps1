@@ -435,7 +435,7 @@ function Convert-ToUtcDateTimeOffset([object]$Value) {
     }
 }
 
-function Get-AckReminderReadback([object]$HistoryState, [bool]$Configured) {
+function Get-AckReminderReadback([object]$HistoryState, [bool]$Configured, [object]$AckState = $null, [int]$DefaultExpiryHours = 0, [object]$NowUtc = $null) {
     $result = [ordered]@{
         configured = $Configured
         state = "not-configured"
@@ -461,6 +461,46 @@ function Get-AckReminderReadback([object]$HistoryState, [bool]$Configured) {
     $result.remainingHours = Format-StatusValue (Get-JsonValue $history "ackHoursRemaining" "unknown")
     $result.overdueHours = Format-StatusValue (Get-JsonValue $history "ackHoursOverdue" "unknown")
     $result.expiresAt = Format-StatusValue (Get-JsonValue $history "ackExpiresAt" "unknown")
+    $failedCount = 0
+    [void][int]::TryParse((Format-StatusValue (Get-JsonValue $history "failedRunCount" "0")), [ref]$failedCount)
+    $historyAckExpired = Convert-StatusBoolean (Get-JsonValue $history "ackExpired" $null) $false
+    if ($failedCount -gt 0 -and -not $historyAckExpired -and $null -ne $AckState -and $AckState.state -eq "ok" -and
+        (Convert-StatusBoolean (Get-JsonValue $AckState.value "acknowledged" $null) $false)) {
+        $result.state = "acknowledged"
+        $ackAt = Convert-ToUtcDateTimeOffset (Get-JsonValue $AckState.value "acknowledgedAt" $null)
+        $expiryHours = 0
+        [void][int]::TryParse((Format-StatusValue $result.expiryHours), [ref]$expiryHours)
+        if ($expiryHours -le 0) {
+            $expiryHours = $DefaultExpiryHours
+            if ($expiryHours -gt 0) {
+                $result.expiryHours = $expiryHours
+            }
+        }
+        if ($null -eq $NowUtc) {
+            $NowUtc = [System.DateTimeOffset]::UtcNow
+        }
+        if ($null -ne $ackAt -and $expiryHours -gt 0) {
+            $ageHours = ($NowUtc - $ackAt).TotalHours
+            if ($ageHours -lt 0) {
+                $ageHours = 0
+            }
+            $expiresAt = $ackAt.AddHours($expiryHours)
+            $remainingHours = ($expiresAt - $NowUtc).TotalHours
+            $result.ageHours = [math]::Round($ageHours, 2)
+            $result.expiresAt = $expiresAt.UtcDateTime.ToString("o")
+            if ($remainingHours -lt 0) {
+                $result.state = "renew-required"
+                $result.remainingHours = 0
+                $result.overdueHours = [math]::Round(-$remainingHours, 2)
+            } else {
+                $result.remainingHours = [math]::Round($remainingHours, 2)
+                $result.overdueHours = 0
+                if ($remainingHours -le 24) {
+                    $result.state = "renew-soon"
+                }
+            }
+        }
+    }
     if ($result.state -eq "acknowledge-required") {
         $result.action = "acknowledge failed automation task before release"
     } elseif ($result.state -eq "renew-required") {
@@ -473,6 +513,48 @@ function Get-AckReminderReadback([object]$HistoryState, [bool]$Configured) {
         $result.action = "none"
     }
     [pscustomobject]$result
+}
+
+function Get-AckReminderPriority([string]$State) {
+    switch (Format-StatusValue $State) {
+        "renew-required" { return 60 }
+        "acknowledge-required" { return 50 }
+        "history-unavailable" { return 40 }
+        "renew-soon" { return 30 }
+        "acknowledged" { return 20 }
+        "not-required" { return 10 }
+        default { return 0 }
+    }
+}
+
+function Get-AutomationTaskAckReminderAggregateReadback([object[]]$TaskPairs, [object]$FallbackReminder, [bool]$Configured) {
+    $usableReminders = @($TaskPairs | Where-Object { $null -ne $_ -and $null -ne $_.reminder -and $_.reminder.configured })
+    if ($usableReminders.Count -le 0) {
+        return $FallbackReminder
+    }
+
+    $selected = $null
+    $selectedPriority = -1
+    foreach ($pair in $usableReminders) {
+        $priority = Get-AckReminderPriority $pair.reminder.state
+        if ($null -eq $selected -or $priority -gt $selectedPriority) {
+            $selected = $pair.reminder
+            $selectedPriority = $priority
+        }
+    }
+    if ($null -ne $selected) {
+        return $selected
+    }
+    [pscustomobject]@{
+        configured = $Configured
+        state = "not-configured"
+        expiryHours = "unknown"
+        ageHours = "unknown"
+        remainingHours = "unknown"
+        overdueHours = "unknown"
+        expiresAt = "unknown"
+        action = "none"
+    }
 }
 
 function Has-ConfigurationHint([string[]]$Values) {
@@ -1074,14 +1156,19 @@ function Get-AutomationTaskAckGateReadback([object]$HistoryState, [object]$AckSt
         return [pscustomobject]$result
     }
 
-    $acknowledgedRaw = Get-JsonValue $HistoryState.value "acknowledged" $null
-    if ($null -eq $acknowledgedRaw -and $null -ne $AckState -and $AckState.state -eq "ok") {
-        $acknowledgedRaw = Get-JsonValue $AckState.value "acknowledged" $null
-    }
     $ackExpiredRaw = Get-JsonValue $HistoryState.value "ackExpired" $null
+    $ackExpired = Convert-StatusBoolean $ackExpiredRaw $false
+    $acknowledgedRaw = Get-JsonValue $HistoryState.value "acknowledged" $null
+    if ($null -ne $AckState -and $AckState.state -eq "ok") {
+        $ackStateAcknowledgedRaw = Get-JsonValue $AckState.value "acknowledged" $null
+        if ($null -ne $ackStateAcknowledgedRaw -and -not $ackExpired) {
+            $acknowledgedRaw = $ackStateAcknowledgedRaw
+        } elseif ($null -eq $acknowledgedRaw) {
+            $acknowledgedRaw = $ackStateAcknowledgedRaw
+        }
+    }
 
     $acknowledged = Convert-StatusBoolean $acknowledgedRaw $false
-    $ackExpired = Convert-StatusBoolean $ackExpiredRaw $false
     $result.failedRunCount = $failedCount
     $result.acknowledged = $acknowledged.ToString().ToLowerInvariant()
     $result.ackExpired = $ackExpired.ToString().ToLowerInvariant()
@@ -1114,7 +1201,7 @@ function Get-AutomationTaskHistoryAckPairReadback([object]$PreviewRecord) {
     $configured = -not [string]::IsNullOrWhiteSpace($historyConfig.path) `
         -or -not [string]::IsNullOrWhiteSpace($ackConfig.path)
     $gate = Get-AutomationTaskAckGateReadback $historyState $ackState $configured
-    $reminder = Get-AckReminderReadback $historyState $configured
+    $reminder = Get-AckReminderReadback $historyState $configured $ackState $script:TaskAckExpiryHours $script:AutomationStatusNowUtc
     [pscustomobject]@{
         taskKind = Format-StatusValue $PreviewRecord.taskKind
         taskName = Format-StatusValue $PreviewRecord.taskName
@@ -1634,8 +1721,16 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
             continue
         }
 
-        $registeredExpected = Convert-StatusBoolean $previewRecord.register $false
+        $previewRegisteredExpected = Convert-StatusBoolean $previewRecord.register $false
+        $registeredExpected = $previewRegisteredExpected
         $taskName = Format-StatusValue $previewRecord.taskName
+        $taskReadback = $null
+        if ($taskName -ne "unknown") {
+            $taskReadback = Read-ScheduledTaskState $taskName $injectedReadback
+            if (-not $previewRegisteredExpected -and (Convert-StatusBoolean $taskReadback.registered $false)) {
+                $registeredExpected = $true
+            }
+        }
         if (-not $registeredExpected) {
             $result.previewOnlyCount++
             $details.Add([pscustomobject]@{
@@ -1646,7 +1741,7 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
                     schedulerState = "unknown"
                     taskPath = "unknown"
                     source = "preview"
-                })
+            })
             continue
         }
 
@@ -1661,11 +1756,13 @@ function Get-ScheduledTaskRegistryReadback([object[]]$PreviewRecords, [string]$R
                     schedulerState = "unknown"
                     taskPath = "unknown"
                     source = "preview"
-                })
+            })
             continue
         }
 
-        $taskReadback = Read-ScheduledTaskState $taskName $injectedReadback
+        if ($null -eq $taskReadback) {
+            $taskReadback = Read-ScheduledTaskState $taskName $injectedReadback
+        }
         $taskState = Format-StatusValue $taskReadback.state
         if (Convert-StatusBoolean $taskReadback.registered $false) {
             $result.registeredFoundCount++
@@ -1746,6 +1843,10 @@ function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]
         } else {
             $result.previewOnlyCount++
         }
+    }
+    if ($null -ne $SchedulerReadback -and $SchedulerReadback.configured) {
+        $result.registeredCount = $SchedulerReadback.expectedRegisteredCount
+        $result.previewOnlyCount = $SchedulerReadback.previewOnlyCount
     }
 
     if ($result.invalidPreviewCount -gt 0) {
@@ -2076,6 +2177,7 @@ $statusNow = Convert-ToUtcDateTimeOffset $StatusNowUtc
 if ($null -eq $statusNow) {
     $statusNow = [System.DateTimeOffset]::UtcNow
 }
+$script:AutomationStatusNowUtc = $statusNow
 $generatedAt = $statusNow.UtcDateTime.ToString("o")
 $databaseHealthPreviewRecord = @($databaseHealthPreviewCandidates | Select-Object -First 1)[0]
 $largeFileGovernancePreviewRecord = @($largeFileGovernancePreviewCandidates | Select-Object -First 1)[0]
@@ -2121,7 +2223,8 @@ $scheduledTaskRegistrationAttemptReadback = Get-ScheduledTaskRegistrationAttempt
 $scheduledTaskRegistrationAckGate = Get-ScheduledTaskRegistrationAckGateReadback $scheduledTaskRegistrationAttemptReadback $scheduledTaskRegistrationAckState $TaskAckExpiryHours $statusNow
 $automationTaskHistoryFreshnessGate = Get-AutomationTaskHistoryFreshnessReadback $automationTaskHistoryAckPairs $scheduledTaskRegistryReadback $TaskHistoryFreshnessHours $statusNow
 $automationTaskWatchGate = Get-AutomationTaskWatchGateReadback @($previewRecords) $automationTaskAckGate $scheduledTaskRegistryReadback $scheduledTaskRegistrationAckGate $automationTaskHistoryFreshnessGate
-$automationTaskAckReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured
+$automationTaskAckSingleReminder = Get-AckReminderReadback $automationTaskHistoryState $automationTaskAckGateConfigured $automationTaskAckState $TaskAckExpiryHours $statusNow
+$automationTaskAckReminder = Get-AutomationTaskAckReminderAggregateReadback $automationTaskHistoryAckPairs $automationTaskAckSingleReminder $automationTaskAckGateConfigured
 
 $databaseHealthStatus = $databaseHealthStatusState.value
 $databaseHealthLastRun = Read-LastRunSummary $databaseHealthLastRunState
