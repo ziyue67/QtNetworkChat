@@ -9,6 +9,8 @@ set(FAKE_PG_BIN "${TEMP_DIR}/postgres/bin")
 set(JSON_PATH "${TEMP_DIR}/pgsql-smoke-plan.json")
 set(MARKDOWN_PATH "${TEMP_DIR}/pgsql-smoke-plan.md")
 set(BOOTSTRAP_JSON_PATH "${TEMP_DIR}/local-postgres-bootstrap.json")
+set(REAL_BLOCKED_JSON_PATH "${TEMP_DIR}/pgsql-smoke-real-blocked.json")
+set(REAL_BLOCKED_MARKDOWN_PATH "${TEMP_DIR}/pgsql-smoke-real-blocked.md")
 file(REMOVE_RECURSE "${TEMP_DIR}")
 file(MAKE_DIRECTORY
     "${FAKE_BUILD_DIR}"
@@ -203,6 +205,70 @@ endif()
 if(NOT has_markdown_secret EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL smoke Markdown leaked the provided password")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "QTNETWORKCHAT_PGPASSWORD="
+        powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+            -TestExe "${FAKE_BUILD_DIR}/postgres_qpsql_protocol_smoke_test.exe"
+            -QtRoot "${FAKE_QT_ROOT}"
+            -PostgresBinDir "${FAKE_PG_BIN}"
+            -JsonPath "${REAL_BLOCKED_JSON_PATH}"
+            -MarkdownPath "${REAL_BLOCKED_MARKDOWN_PATH}"
+    RESULT_VARIABLE real_blocked_result
+    OUTPUT_VARIABLE real_blocked_output
+    ERROR_VARIABLE real_blocked_error_output
+)
+if(NOT real_blocked_result EQUAL 2)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password should exit 2 after writing blocked evidence, got ${real_blocked_result}")
+endif()
+if(NOT EXISTS "${REAL_BLOCKED_JSON_PATH}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password did not write blocked JSON evidence")
+endif()
+if(NOT EXISTS "${REAL_BLOCKED_MARKDOWN_PATH}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password did not write blocked Markdown evidence")
+endif()
+file(READ "${REAL_BLOCKED_JSON_PATH}" real_blocked_json_content)
+file(READ "${REAL_BLOCKED_MARKDOWN_PATH}" real_blocked_markdown_content)
+string(JSON real_blocked_plan_only GET "${real_blocked_json_content}" "planOnly")
+string(JSON real_blocked_ok GET "${real_blocked_json_content}" "ok")
+string(JSON real_blocked_readiness GET "${real_blocked_json_content}" "summary" "readiness")
+string(JSON real_blocked_failed_checks GET "${real_blocked_json_content}" "summary" "failedCheckCount")
+string(JSON real_blocked_operator_action GET "${real_blocked_json_content}" "summary" "operatorAction")
+string(JSON real_blocked_release_gate GET "${real_blocked_json_content}" "auditSummary" "releaseGate")
+string(FIND "${real_blocked_json_content}" "\"name\":  \"postgres-password\"" has_real_blocked_password_check)
+string(FIND "${real_blocked_json_content}" "postgres-password-missing" has_real_blocked_audit_focus)
+string(FIND "${real_blocked_json_content}" "await-real-smoke" has_real_blocked_preview_gate)
+string(FIND "${real_blocked_markdown_content}" "Plan only: False" has_real_blocked_markdown_plan_only)
+string(FIND "${real_blocked_markdown_content}" "Readiness: blocked" has_real_blocked_markdown_readiness)
+string(FIND "${real_blocked_markdown_content}" "Audit release gate: blocked" has_real_blocked_markdown_gate)
+string(FIND "${real_blocked_markdown_content}" "QTNETWORKCHAT_PGPASSWORD is required for real smoke; value was not provided." has_real_blocked_markdown_password_check)
+if(real_blocked_plan_only OR real_blocked_ok)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password should write non-PlanOnly failed evidence")
+endif()
+if(NOT real_blocked_readiness STREQUAL "blocked" OR NOT real_blocked_release_gate STREQUAL "blocked")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password should write blocked readiness and release gate")
+endif()
+if(NOT real_blocked_failed_checks EQUAL 1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password should record one failed password check")
+endif()
+if(NOT real_blocked_operator_action STREQUAL "Provide QTNETWORKCHAT_PGPASSWORD from a secure local environment and rerun real PostgreSQL protocol smoke.")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password should explain the operator action")
+endif()
+if(has_real_blocked_password_check EQUAL -1 OR has_real_blocked_audit_focus EQUAL -1 OR NOT has_real_blocked_preview_gate EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password should replace preview gates with blocked password evidence")
+endif()
+if(has_real_blocked_markdown_plan_only EQUAL -1 OR has_real_blocked_markdown_readiness EQUAL -1 OR has_real_blocked_markdown_gate EQUAL -1 OR has_real_blocked_markdown_password_check EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Real PostgreSQL smoke without password Markdown should expose non-PlanOnly blocked password evidence")
 endif()
 
 execute_process(

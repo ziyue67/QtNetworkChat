@@ -714,6 +714,79 @@ foreach ($forbidden in @(
 }
 Assert-NoFixedMirrorBranchPolicy -Text $defaultBootstrapMarkdown
 
+$defaultDatabaseHealthPreviewPath =
+    Join-Path $defaultBootstrapDir "database-health\database-health-task\database-health-task-preview.json"
+$defaultDatabaseHealthLauncherPath =
+    Join-Path $defaultBootstrapDir "database-health\database-health-task\run-database-health-task.ps1"
+$defaultGovernancePreviewPath =
+    Join-Path $defaultBootstrapDir "large-file-governance\scheduled-task\scheduled-task-preview.json"
+$defaultGovernanceLauncherPath =
+    Join-Path $defaultBootstrapDir "large-file-governance\scheduled-task\run-large-file-governance-task.ps1"
+$defaultPgsqlPreviewPath =
+    Join-Path $defaultBootstrapDir "pgsql-release-acceptance\pgsql-release-acceptance-task\pgsql-release-acceptance-task-preview.json"
+$defaultPgsqlLauncherPath =
+    Join-Path $defaultBootstrapDir "pgsql-release-acceptance\pgsql-release-acceptance-task\run-pgsql-release-acceptance-task.ps1"
+$livePreviewSamples = @(
+    @{ Path = $defaultDatabaseHealthPreviewPath; Launcher = $defaultDatabaseHealthLauncherPath; Marker = "preserve-db-live-launcher" },
+    @{ Path = $defaultGovernancePreviewPath; Launcher = $defaultGovernanceLauncherPath; Marker = "preserve-governance-live-launcher" },
+    @{ Path = $defaultPgsqlPreviewPath; Launcher = $defaultPgsqlLauncherPath; Marker = "preserve-pgsql-live-launcher" }
+)
+foreach ($sample in $livePreviewSamples) {
+    if (-not (Test-Path -LiteralPath $sample.Path -PathType Leaf)) {
+        throw "Default bootstrap live preview sample missing: $($sample.Path)"
+    }
+    if (-not (Test-Path -LiteralPath $sample.Launcher -PathType Leaf)) {
+        throw "Default bootstrap live launcher sample missing: $($sample.Launcher)"
+    }
+    $preview = Get-Content -LiteralPath $sample.Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -eq $preview.PSObject.Properties["register"]) {
+        $preview | Add-Member -NotePropertyName "register" -NotePropertyValue $true
+    } else {
+        $preview.register = $true
+    }
+    if ($null -eq $preview.PSObject.Properties["planOnly"]) {
+        $preview | Add-Member -NotePropertyName "planOnly" -NotePropertyValue $false
+    } else {
+        $preview.planOnly = $false
+    }
+    $preview | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $sample.Path -Encoding UTF8
+    ("`$marker = '{0}'`n" -f $sample.Marker) |
+        Set-Content -LiteralPath $sample.Launcher -Encoding UTF8
+}
+$defaultBootstrapLiveTaskPreservedMarkdownPath =
+    Join-Path $tempDir "automation-status-default-bootstrap-live-task-preserved.md"
+& $ScriptPath `
+    -MarkdownPath $defaultBootstrapLiveTaskPreservedMarkdownPath `
+    -Head "bootlive2" `
+    -OriginMain "bootlive2" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 69 `
+    -BootstrapDefaultTasks `
+    -DefaultTaskOutputDir $defaultBootstrapDir `
+    -ScheduledTaskReadbackJsonPath $defaultBootstrapPreviewReadbackPath `
+    -TaskAckExpiryHours 24 `
+    -TaskHistoryRetentionCount 5 `
+    -FailOnSensitive
+foreach ($sample in $livePreviewSamples) {
+    $preview = Get-Content -LiteralPath $sample.Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $preview.register -or $preview.planOnly) {
+        throw "Default bootstrap preview refresh overwrote existing live task preview: $($sample.Path)"
+    }
+    $launcherText = Get-Content -LiteralPath $sample.Launcher -Raw -Encoding UTF8
+    Assert-Contains -Text $launcherText -Expected $sample.Marker
+}
+$defaultGeneratedReadbackPath = Join-Path $defaultBootstrapDir "scheduled-task-readback.json"
+$defaultGeneratedReadback =
+    Get-Content -LiteralPath $defaultGeneratedReadbackPath -Raw -Encoding UTF8 | ConvertFrom-Json
+foreach ($task in @($defaultGeneratedReadback.tasks)) {
+    if ($task.registrationStatus -ne "preserved-existing-live-task") {
+        throw "Default bootstrap readback did not record preserved live task bootstrap: $($task.taskName)"
+    }
+}
+Assert-NoFixedMirrorBranchPolicy -Text (Get-Content -LiteralPath $defaultBootstrapLiveTaskPreservedMarkdownPath -Raw -Encoding UTF8)
+
 $defaultBootstrapLiveGovStatusPath = Join-Path $defaultBootstrapDir "large-file-governance\large-file-governance-dashboard.json"
 @'
 {

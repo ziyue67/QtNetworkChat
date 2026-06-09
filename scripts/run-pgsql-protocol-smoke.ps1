@@ -85,6 +85,34 @@ function Get-SmokeReleaseGate {
     "can-review-direct-smoke-evidence"
 }
 
+function Set-SmokeBlocked {
+    param(
+        [object]$Result,
+        [object[]]$Checks,
+        [string]$OperatorAction,
+        [string]$AuditFocus
+    )
+
+    $failedChecks = @($Checks | Where-Object { -not $_.ok })
+    $Result.checks = @($Checks)
+    $Result.ok = $false
+    $Result.summary.readiness = "blocked"
+    $Result.summary.failedCheckCount = $failedChecks.Count
+    $Result.summary.operatorAction = if ([string]::IsNullOrWhiteSpace($OperatorAction)) {
+        Get-SmokeOperatorAction -PlanOnly ([bool]$Result.planOnly) -EnsureDatabase ([bool]$Result.ensureDatabase) -Ok $false -FailedChecks $failedChecks.Count
+    } else {
+        $OperatorAction
+    }
+    $Result.auditSummary.releaseGate =
+        Get-SmokeReleaseGate -PlanOnly ([bool]$Result.planOnly) -EnsureDatabase ([bool]$Result.ensureDatabase) -Readiness $Result.summary.readiness
+    if (-not [string]::IsNullOrWhiteSpace($AuditFocus)) {
+        $existingFocus = @($Result.auditSummary.auditFocus)
+        if ($existingFocus -notcontains $AuditFocus) {
+            $Result.auditSummary.auditFocus = @($existingFocus + $AuditFocus)
+        }
+    }
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $testExePath = Resolve-RepoPath $TestExe
 $qtBinDir = Join-Path $QtRoot "bin"
@@ -291,81 +319,102 @@ $result.recoverySummary = [ordered]@{
 }
 
 if (-not $PlanOnly) {
+    $runRealSmoke = $true
     if (-not $result.ok) {
         $missing = @($checks | Where-Object { -not $_.ok } | ForEach-Object { $_.name })
-        throw ("PostgreSQL protocol smoke prerequisites missing: {0}" -f ($missing -join ", "))
+        $runRealSmoke = $false
+        Set-SmokeBlocked `
+            -Result $result `
+            -Checks $checks `
+            -OperatorAction ("Fix PostgreSQL protocol smoke prerequisite failures before rerunning: {0}." -f ($missing -join ", ")) `
+            -AuditFocus "runtime-prerequisites"
     }
-    if ([string]::IsNullOrWhiteSpace($PostgresPassword)) {
-        throw "PostgresPassword is required for real PostgreSQL protocol smoke"
-    }
-
-    New-Item -ItemType Directory -Force -Path $runtimeAppData | Out-Null
-
-    if ($EnsureDatabase) {
-        $bootstrapJsonTarget = if ([string]::IsNullOrWhiteSpace($BootstrapJsonPath)) {
-            Join-Path $runtimeAppData "local-postgres-bootstrap.json"
-        } else {
-            Resolve-RepoPath $BootstrapJsonPath
-        }
-        $bootstrapParent = Split-Path -Parent $bootstrapJsonTarget
-        if (-not [string]::IsNullOrWhiteSpace($bootstrapParent)) {
-            New-Item -ItemType Directory -Force -Path $bootstrapParent | Out-Null
-        }
-        & powershell -ExecutionPolicy Bypass -File $bootstrapScript `
-            -PostgresBinDir $PostgresBinDir `
-            -Database $PostgresDatabase `
-            -User $PostgresUser `
-            -Password $PostgresPassword `
-            -HostAddress $PostgresHost `
-            -Port $PostgresPort `
-            -JsonPath $bootstrapJsonTarget
-        $result.bootstrapJsonPath = $bootstrapJsonTarget
-        $result.bootstrapExitCode = $LASTEXITCODE
-        if ($LASTEXITCODE -ne 0) {
-            $result.ok = $false
-            throw ("PostgreSQL database bootstrap failed with exit code {0}. See redacted bootstrap JSON: {1}" -f $LASTEXITCODE, $bootstrapJsonTarget)
-        }
+    if ($runRealSmoke -and [string]::IsNullOrWhiteSpace($PostgresPassword)) {
+        $checks += (New-Check "postgres-password" $false "QTNETWORKCHAT_PGPASSWORD is required for real smoke; value was not provided.")
+        $runRealSmoke = $false
+        Set-SmokeBlocked `
+            -Result $result `
+            -Checks $checks `
+            -OperatorAction "Provide QTNETWORKCHAT_PGPASSWORD from a secure local environment and rerun real PostgreSQL protocol smoke." `
+            -AuditFocus "postgres-password-missing"
     }
 
-    $oldPath = $env:PATH
-    $oldPluginPath = $env:QT_PLUGIN_PATH
-    $oldRun = $env:QTNETWORKCHAT_RUN_REAL_QPSQL_TEST
-    $oldDriver = $env:QTNETWORKCHAT_DB_DRIVER
-    $oldHost = $env:QTNETWORKCHAT_PGHOST
-    $oldPort = $env:QTNETWORKCHAT_PGPORT
-    $oldDatabase = $env:QTNETWORKCHAT_PGDATABASE
-    $oldUser = $env:QTNETWORKCHAT_PGUSER
-    $oldPassword = $env:QTNETWORKCHAT_PGPASSWORD
-    $oldAppData = $env:QTNETWORKCHAT_APPDATA_DIR
-    try {
-        $env:PATH = "$qtBinDir;$PostgresBinDir;$oldPath"
-        $env:QT_PLUGIN_PATH = $qtPluginDir
-        $env:QTNETWORKCHAT_RUN_REAL_QPSQL_TEST = "1"
-        $env:QTNETWORKCHAT_DB_DRIVER = "QPSQL"
-        $env:QTNETWORKCHAT_PGHOST = $PostgresHost
-        $env:QTNETWORKCHAT_PGPORT = "$PostgresPort"
-        $env:QTNETWORKCHAT_PGDATABASE = $PostgresDatabase
-        $env:QTNETWORKCHAT_PGUSER = $PostgresUser
-        $env:QTNETWORKCHAT_PGPASSWORD = $PostgresPassword
-        $env:QTNETWORKCHAT_APPDATA_DIR = $runtimeAppData
+    if ($runRealSmoke) {
+        New-Item -ItemType Directory -Force -Path $runtimeAppData | Out-Null
 
-        & $testExePath
-        $result.exitCode = $LASTEXITCODE
-        $result.ok = $result.ok -and ($LASTEXITCODE -eq 0)
-        $result.summary.readiness = if ($result.ok) { "verified" } else { "blocked" }
-        $result.summary.operatorAction = Get-SmokeOperatorAction -PlanOnly $false -EnsureDatabase ([bool]$EnsureDatabase) -Ok ([bool]$result.ok) -FailedChecks (@($checks | Where-Object { -not $_.ok }).Count)
-        $result.auditSummary.releaseGate = Get-SmokeReleaseGate -PlanOnly $false -EnsureDatabase ([bool]$EnsureDatabase) -Readiness $result.summary.readiness
-    } finally {
-        $env:PATH = $oldPath
-        $env:QT_PLUGIN_PATH = $oldPluginPath
-        $env:QTNETWORKCHAT_RUN_REAL_QPSQL_TEST = $oldRun
-        $env:QTNETWORKCHAT_DB_DRIVER = $oldDriver
-        $env:QTNETWORKCHAT_PGHOST = $oldHost
-        $env:QTNETWORKCHAT_PGPORT = $oldPort
-        $env:QTNETWORKCHAT_PGDATABASE = $oldDatabase
-        $env:QTNETWORKCHAT_PGUSER = $oldUser
-        $env:QTNETWORKCHAT_PGPASSWORD = $oldPassword
-        $env:QTNETWORKCHAT_APPDATA_DIR = $oldAppData
+        if ($EnsureDatabase) {
+            $bootstrapJsonTarget = if ([string]::IsNullOrWhiteSpace($BootstrapJsonPath)) {
+                Join-Path $runtimeAppData "local-postgres-bootstrap.json"
+            } else {
+                Resolve-RepoPath $BootstrapJsonPath
+            }
+            $bootstrapParent = Split-Path -Parent $bootstrapJsonTarget
+            if (-not [string]::IsNullOrWhiteSpace($bootstrapParent)) {
+                New-Item -ItemType Directory -Force -Path $bootstrapParent | Out-Null
+            }
+            & powershell -ExecutionPolicy Bypass -File $bootstrapScript `
+                -PostgresBinDir $PostgresBinDir `
+                -Database $PostgresDatabase `
+                -User $PostgresUser `
+                -Password $PostgresPassword `
+                -HostAddress $PostgresHost `
+                -Port $PostgresPort `
+                -JsonPath $bootstrapJsonTarget
+            $result.bootstrapJsonPath = $bootstrapJsonTarget
+            $result.bootstrapExitCode = $LASTEXITCODE
+            if ($LASTEXITCODE -ne 0) {
+                $checks += (New-Check "postgres-bootstrap" $false ("bootstrap failed with exit code {0}; see redacted bootstrap JSON: {1}" -f $LASTEXITCODE, $bootstrapJsonTarget))
+                $runRealSmoke = $false
+                Set-SmokeBlocked `
+                    -Result $result `
+                    -Checks $checks `
+                    -OperatorAction ("Review redacted PostgreSQL bootstrap evidence and rerun smoke after fixing database bootstrap failure {0}." -f $LASTEXITCODE) `
+                    -AuditFocus "postgres-bootstrap-failed"
+            }
+        }
+    }
+
+    if ($runRealSmoke) {
+        $oldPath = $env:PATH
+        $oldPluginPath = $env:QT_PLUGIN_PATH
+        $oldRun = $env:QTNETWORKCHAT_RUN_REAL_QPSQL_TEST
+        $oldDriver = $env:QTNETWORKCHAT_DB_DRIVER
+        $oldHost = $env:QTNETWORKCHAT_PGHOST
+        $oldPort = $env:QTNETWORKCHAT_PGPORT
+        $oldDatabase = $env:QTNETWORKCHAT_PGDATABASE
+        $oldUser = $env:QTNETWORKCHAT_PGUSER
+        $oldPassword = $env:QTNETWORKCHAT_PGPASSWORD
+        $oldAppData = $env:QTNETWORKCHAT_APPDATA_DIR
+        try {
+            $env:PATH = "$qtBinDir;$PostgresBinDir;$oldPath"
+            $env:QT_PLUGIN_PATH = $qtPluginDir
+            $env:QTNETWORKCHAT_RUN_REAL_QPSQL_TEST = "1"
+            $env:QTNETWORKCHAT_DB_DRIVER = "QPSQL"
+            $env:QTNETWORKCHAT_PGHOST = $PostgresHost
+            $env:QTNETWORKCHAT_PGPORT = "$PostgresPort"
+            $env:QTNETWORKCHAT_PGDATABASE = $PostgresDatabase
+            $env:QTNETWORKCHAT_PGUSER = $PostgresUser
+            $env:QTNETWORKCHAT_PGPASSWORD = $PostgresPassword
+            $env:QTNETWORKCHAT_APPDATA_DIR = $runtimeAppData
+
+            & $testExePath
+            $result.exitCode = $LASTEXITCODE
+            $result.ok = $result.ok -and ($LASTEXITCODE -eq 0)
+            $result.summary.readiness = if ($result.ok) { "verified" } else { "blocked" }
+            $result.summary.operatorAction = Get-SmokeOperatorAction -PlanOnly $false -EnsureDatabase ([bool]$EnsureDatabase) -Ok ([bool]$result.ok) -FailedChecks (@($checks | Where-Object { -not $_.ok }).Count)
+            $result.auditSummary.releaseGate = Get-SmokeReleaseGate -PlanOnly $false -EnsureDatabase ([bool]$EnsureDatabase) -Readiness $result.summary.readiness
+        } finally {
+            $env:PATH = $oldPath
+            $env:QT_PLUGIN_PATH = $oldPluginPath
+            $env:QTNETWORKCHAT_RUN_REAL_QPSQL_TEST = $oldRun
+            $env:QTNETWORKCHAT_DB_DRIVER = $oldDriver
+            $env:QTNETWORKCHAT_PGHOST = $oldHost
+            $env:QTNETWORKCHAT_PGPORT = $oldPort
+            $env:QTNETWORKCHAT_PGDATABASE = $oldDatabase
+            $env:QTNETWORKCHAT_PGUSER = $oldUser
+            $env:QTNETWORKCHAT_PGPASSWORD = $oldPassword
+            $env:QTNETWORKCHAT_APPDATA_DIR = $oldAppData
+        }
     }
 }
 

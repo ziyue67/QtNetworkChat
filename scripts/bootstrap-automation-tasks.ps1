@@ -96,6 +96,38 @@ function Write-TextFileIfMissing([string]$PathValue, [string]$Text) {
     Write-TextFile $PathValue $Text
 }
 
+function Test-ExistingLiveTaskPreview([string]$PathValue) {
+    if (-not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
+        return $false
+    }
+    try {
+        $preview = Get-Content -LiteralPath $PathValue -Raw -Encoding UTF8 | ConvertFrom-Json
+        $registerProperty = $preview.PSObject.Properties["register"]
+        if ($null -ne $registerProperty -and [bool]$registerProperty.Value) {
+            return $true
+        }
+        $planOnlyProperty = $preview.PSObject.Properties["planOnly"]
+        if ($null -ne $planOnlyProperty -and -not [bool]$planOnlyProperty.Value) {
+            return $true
+        }
+    } catch {
+        return $false
+    }
+    $false
+}
+
+function New-PreservedTaskBootstrapResult([string]$TaskKind, [string]$TaskName) {
+    [pscustomobject]@{
+        taskKind = $TaskKind
+        taskName = $TaskName
+        registrationRequested = $false
+        exitCode = 0
+        status = "preserved-existing-live-task"
+        failureClass = "none"
+        outputLineCount = 0
+    }
+}
+
 function Get-RegistrationFailureClass([int]$ExitCode, [string[]]$Lines) {
     if ($ExitCode -eq 0) {
         return "none"
@@ -271,53 +303,66 @@ New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 
 $dbOutputDir = Join-Path $resolvedOutputDir "database-health"
 $dbTaskDir = Join-Path $dbOutputDir "database-health-task"
+$dbPreviewPath = Join-Path $dbTaskDir "database-health-task-preview.json"
 $govOutputDir = Join-Path $resolvedOutputDir "large-file-governance"
 $govTaskDir = Join-Path $govOutputDir "scheduled-task"
+$govPreviewPath = Join-Path $govTaskDir "scheduled-task-preview.json"
 $govRouteLogPath = Join-Path $govOutputDir "route-log.ndjson"
 $govQueuePath = Join-Path $govOutputDir "offline-queue.jsonl"
 $pgsqlOutputDir = Join-Path $resolvedOutputDir "pgsql-release-acceptance"
 $pgsqlTaskDir = Join-Path $pgsqlOutputDir "pgsql-release-acceptance-task"
+$pgsqlPreviewPath = Join-Path $pgsqlTaskDir "pgsql-release-acceptance-task-preview.json"
 $registrationResults = New-Object System.Collections.Generic.List[object]
 
-$dbRegisterArgs = @(
-    "-ExecutionPolicy", "Bypass",
-    "-File", $registerDatabaseHealthScript,
-    "-OutputDir", $dbOutputDir,
-    "-TaskDir", $dbTaskDir,
-    "-AckExpiryHours", $AckExpiryHours,
-    "-Driver", "postgres",
-    "-WriteMarkdown",
-    "-WriteDashboard"
-)
-if ($Register.IsPresent) {
-    $dbRegisterArgs += @("-Register", "-User", $User)
+$preserveDbTaskBootstrap = -not $Register.IsPresent -and (Test-ExistingLiveTaskPreview $dbPreviewPath)
+if ($preserveDbTaskBootstrap) {
+    $dbRegistrationResult = New-PreservedTaskBootstrapResult "database-health" "QtNetworkChatDatabaseHealth"
 } else {
-    $dbRegisterArgs += "-PlanOnly"
+    $dbRegisterArgs = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", $registerDatabaseHealthScript,
+        "-OutputDir", $dbOutputDir,
+        "-TaskDir", $dbTaskDir,
+        "-AckExpiryHours", $AckExpiryHours,
+        "-Driver", "postgres",
+        "-WriteMarkdown",
+        "-WriteDashboard"
+    )
+    if ($Register.IsPresent) {
+        $dbRegisterArgs += @("-Register", "-User", $User)
+    } else {
+        $dbRegisterArgs += "-PlanOnly"
+    }
+    $dbRegistrationResult = Invoke-AutomationTaskHelper "database-health" "QtNetworkChatDatabaseHealth" $dbRegisterArgs $Register.IsPresent
 }
-$dbRegistrationResult = Invoke-AutomationTaskHelper "database-health" "QtNetworkChatDatabaseHealth" $dbRegisterArgs $Register.IsPresent
 $registrationResults.Add($dbRegistrationResult)
 if (-not $Register.IsPresent -and [int]$dbRegistrationResult.exitCode -ne 0) {
     throw "database health task preview bootstrap failed with exit code $($dbRegistrationResult.exitCode)"
 }
 
-$govRegisterArgs = @(
-    "-ExecutionPolicy", "Bypass",
-    "-File", $registerLargeFileGovernanceScript,
-    "-RouteLogPath", $govRouteLogPath,
-    "-QueuePath", $govQueuePath,
-    "-SourceInstanceId", "bootstrap-instance",
-    "-OutputDir", $govOutputDir,
-    "-TaskDir", $govTaskDir,
-    "-AckExpiryHours", $AckExpiryHours,
-    "-WriteDashboard",
-    "-WriteReport",
-    "-PackageDiagnostics",
-    "-NoFailOnWarning"
-)
-if ($Register.IsPresent) {
-    $govRegisterArgs += @("-Register", "-User", $User)
+$preserveGovTaskBootstrap = -not $Register.IsPresent -and (Test-ExistingLiveTaskPreview $govPreviewPath)
+if ($preserveGovTaskBootstrap) {
+    $govRegistrationResult = New-PreservedTaskBootstrapResult "large-file-governance" "QtNetworkChatLargeFileGovernance"
+} else {
+    $govRegisterArgs = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", $registerLargeFileGovernanceScript,
+        "-RouteLogPath", $govRouteLogPath,
+        "-QueuePath", $govQueuePath,
+        "-SourceInstanceId", "bootstrap-instance",
+        "-OutputDir", $govOutputDir,
+        "-TaskDir", $govTaskDir,
+        "-AckExpiryHours", $AckExpiryHours,
+        "-WriteDashboard",
+        "-WriteReport",
+        "-PackageDiagnostics",
+        "-NoFailOnWarning"
+    )
+    if ($Register.IsPresent) {
+        $govRegisterArgs += @("-Register", "-User", $User)
+    }
+    $govRegistrationResult = Invoke-AutomationTaskHelper "large-file-governance" "QtNetworkChatLargeFileGovernance" $govRegisterArgs $Register.IsPresent
 }
-$govRegistrationResult = Invoke-AutomationTaskHelper "large-file-governance" "QtNetworkChatLargeFileGovernance" $govRegisterArgs $Register.IsPresent
 $registrationResults.Add($govRegistrationResult)
 if (-not $Register.IsPresent -and [int]$govRegistrationResult.exitCode -ne 0) {
     throw "large-file governance task preview bootstrap failed with exit code $($govRegistrationResult.exitCode)"
@@ -329,19 +374,24 @@ if (-not (Test-Path -LiteralPath $govRouteLogPath -PathType Leaf)) {
     Write-TextFile $govRouteLogPath ""
 }
 
-$pgsqlRegisterArgs = @(
-    "-ExecutionPolicy", "Bypass",
-    "-File", $registerPgsqlReleaseScript,
-    "-OutputDir", $pgsqlOutputDir,
-    "-TaskDir", $pgsqlTaskDir,
-    "-AckExpiryHours", $AckExpiryHours
-)
-if ($Register.IsPresent) {
-    $pgsqlRegisterArgs += @("-Register", "-User", $User)
+$preservePgsqlTaskBootstrap = -not $Register.IsPresent -and (Test-ExistingLiveTaskPreview $pgsqlPreviewPath)
+if ($preservePgsqlTaskBootstrap) {
+    $pgsqlRegistrationResult = New-PreservedTaskBootstrapResult "pgsql-release-acceptance" "QtNetworkChatPgsqlReleaseAcceptance"
 } else {
-    $pgsqlRegisterArgs += @("-PlanOnly", "-SkipEvidencePackage")
+    $pgsqlRegisterArgs = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", $registerPgsqlReleaseScript,
+        "-OutputDir", $pgsqlOutputDir,
+        "-TaskDir", $pgsqlTaskDir,
+        "-AckExpiryHours", $AckExpiryHours
+    )
+    if ($Register.IsPresent) {
+        $pgsqlRegisterArgs += @("-Register", "-User", $User)
+    } else {
+        $pgsqlRegisterArgs += @("-PlanOnly", "-SkipEvidencePackage")
+    }
+    $pgsqlRegistrationResult = Invoke-AutomationTaskHelper "pgsql-release-acceptance" "QtNetworkChatPgsqlReleaseAcceptance" $pgsqlRegisterArgs $Register.IsPresent
 }
-$pgsqlRegistrationResult = Invoke-AutomationTaskHelper "pgsql-release-acceptance" "QtNetworkChatPgsqlReleaseAcceptance" $pgsqlRegisterArgs $Register.IsPresent
 $registrationResults.Add($pgsqlRegistrationResult)
 if (-not $Register.IsPresent -and [int]$pgsqlRegistrationResult.exitCode -ne 0) {
     throw "PostgreSQL release acceptance task preview bootstrap failed with exit code $($pgsqlRegistrationResult.exitCode)"
