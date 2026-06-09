@@ -17,6 +17,32 @@ struct TransferDiagnosticCopyUiState {
     QString copiedStatusMessage;
 };
 
+struct TransferClearRecoveryPrompt {
+    QString fileName;
+    QString title;
+    QString message;
+    QString noSavedStatusMessage;
+    QString keptStatusMessage;
+    QString clearedSystemMessage;
+    QString clearedStatusMessage;
+    QString clearFailedSystemMessage;
+    QString clearFailedStatusMessage;
+};
+
+struct TransferResumeBlockedPrompt {
+    QString fileName;
+    QString targetName;
+    QString reason;
+    QString title;
+    QString message;
+    QString systemMessage;
+    QString hintText;
+    QString statusMessage;
+    QString clearedSystemMessage;
+    QString clearedHintText;
+    QString clearedStatusMessage;
+};
+
 struct TransferRecoveryUiState {
     bool hasSavedTransfer = false;
     bool canAutoResume = false;
@@ -66,6 +92,9 @@ public:
                                            qint64 receivedBytes = 0,
                                            qint64 totalBytes = 0);
     static TransferDiagnosticCopyUiState diagnosticCopyUiState(const QString& diagnostic);
+    static TransferClearRecoveryPrompt clearRecoveryPrompt(const QJsonObject& state);
+    static TransferResumeBlockedPrompt resumeBlockedPrompt(const QJsonObject& state,
+                                                           const QJsonObject& recoveryStatus);
     static TransferProgressUiState sendingInitialState(const QString& kind,
                                                        const QString& fileName,
                                                        const QString& targetName);

@@ -95,6 +95,30 @@ int main(int argc, char** argv) {
                     && resend.statusMessage.contains(QString::fromUtf8("需要重新发送")),
                 "e2e resend recovery should fail closed for auto resume with user-facing guidance") && ok;
 
+    TransferClearRecoveryPrompt clearPrompt = TransferManager::clearRecoveryPrompt(
+        savedState(QStringLiteral("C:/tmp/report.zip"), QStringLiteral("920001")));
+    ok = expect(clearPrompt.fileName == QStringLiteral("report.zip")
+                    && clearPrompt.title == QString::fromUtf8("清除恢复记录")
+                    && clearPrompt.message.contains(QStringLiteral("report.zip"))
+                    && clearPrompt.noSavedStatusMessage.contains(QString::fromUtf8("暂无可清除"))
+                    && clearPrompt.keptStatusMessage.contains(QString::fromUtf8("已保留"))
+                    && clearPrompt.clearedSystemMessage.contains(QString::fromUtf8("已清除未完成发送"))
+                    && clearPrompt.clearFailedStatusMessage.contains(QString::fromUtf8("清除恢复记录失败")),
+                "clear recovery prompt should centralize confirmation and result messages") && ok;
+
+    TransferResumeBlockedPrompt blockedPrompt = TransferManager::resumeBlockedPrompt(
+        savedState(QStringLiteral("C:/tmp/secret.bin"), QString()),
+        recoveryStatus(false, QStringLiteral("resend"), QStringLiteral("e2e-file-resend-required"), true));
+    ok = expect(blockedPrompt.fileName == QStringLiteral("secret.bin")
+                    && blockedPrompt.targetName == QString::fromUtf8("公共聊天室")
+                    && blockedPrompt.reason == QStringLiteral("e2e-file-resend-required")
+                    && blockedPrompt.title == QString::fromUtf8("需要重新发送")
+                    && blockedPrompt.systemMessage.contains(QString::fromUtf8("不能自动续传"))
+                    && blockedPrompt.message.contains(QStringLiteral("e2e-file-resend-required"))
+                    && blockedPrompt.hintText.contains(QString::fromUtf8("需重新发送"))
+                    && blockedPrompt.clearedHintText.contains(QString::fromUtf8("已清除未完成发送恢复记录")),
+                "blocked resume prompt should centralize fail-closed resend guidance") && ok;
+
     TransferStatusEvent timeoutEvent = TransferManager::statusEvent(QStringLiteral("report.zip"),
                                                                     QStringLiteral("transfer-abcdef1234567890"),
                                                                     QStringLiteral("chunk-ack-timeout"),
