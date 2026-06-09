@@ -1827,6 +1827,66 @@ int main(int argc, char** argv) {
                 "successful E2E reviewed offline recovery should not expose a reject reason") && ok;
     ok = expect(!e2eOfflineRecoveredSender.loadOutgoingTransferState(nullptr),
                 "successful E2E reviewed offline recovery should clear persisted state") && ok;
+
+    ok = expect(e2eOfflineRecoveredSender.saveOutgoingTransferState(QString::fromLatin1(kE2EOfflineResumeTransferId),
+                                                                    e2ePlainFilePath,
+                                                                    "960002",
+                                                                    MessageType::File,
+                                                                    e2eWireHash,
+                                                                    e2eWirePayload.size(),
+                                                                    e2eWireChunkCount,
+                                                                    e2eOfflineResumePolicy),
+                "sender should persist reviewed offline recovery metadata before unsafe locator mutation") && ok;
+    QJsonObject legacyUnsafeOfflineState;
+    ok = expect(e2eOfflineRecoveredSender.loadOutgoingTransferState(&legacyUnsafeOfflineState),
+                "test should load reviewed offline recovery state before unsafe locator mutation") && ok;
+    legacyUnsafeOfflineState["e2eFileObjectStoreKey"] =
+        QStringLiteral("../outside/") + offlineObjectKey;
+    legacyUnsafeOfflineState["e2eFileObjectRecoveryReason"] = "resume-object-wire-envelope";
+    legacyUnsafeOfflineState["e2eFileObjectRecoveryAction"] = "resume-object-wire-envelope";
+    ok = expect(writeOutgoingTransferState(legacyUnsafeOfflineState),
+                "test should write legacy unsafe E2E offline recovery metadata") && ok;
+    const QJsonObject legacyUnsafeOfflineStatus =
+        e2eOfflineRecoveredSender.savedOutgoingTransferRecoveryStatus();
+    const QByteArray legacyUnsafeOfflineStatusJson =
+        QJsonDocument(legacyUnsafeOfflineStatus).toJson(QJsonDocument::Compact);
+    ok = expect(legacyUnsafeOfflineStatus["configured"].toBool()
+                    && legacyUnsafeOfflineStatus["e2eFileObjectRecoveryCandidate"].toBool()
+                    && !legacyUnsafeOfflineStatus["e2eFileObjectStoreKeySafe"].toBool(true)
+                    && legacyUnsafeOfflineStatus["e2eFileObjectStoreKeySuppressed"].toBool(false)
+                    && !legacyUnsafeOfflineStatus.contains("e2eFileObjectStoreKey")
+                    && legacyUnsafeOfflineStatus["e2eFileObjectStoreType"].toString() == "offline"
+                    && legacyUnsafeOfflineStatus["e2eFileObjectRecoveryScope"].toString()
+                        == "offline-ciphertext-readback"
+                    && legacyUnsafeOfflineStatus["e2eFileObjectRecoveryReviewGate"].toString()
+                        == "object-store-key-token-invalid"
+                    && legacyUnsafeOfflineStatus["reason"].toString()
+                        == "e2e-file-object-recovery-evidence-invalid"
+                    && legacyUnsafeOfflineStatus["action"].toString()
+                        == "suppress-object-key-and-resend"
+                    && !legacyUnsafeOfflineStatus["canAutoResume"].toBool(),
+                "reviewed E2E offline recovery should suppress unsafe mirror locators and fail closed") && ok;
+    ok = expect(!legacyUnsafeOfflineStatusJson.contains("../")
+                    && !legacyUnsafeOfflineStatusJson.contains("outside")
+                    && !legacyUnsafeOfflineStatusJson.contains(offlineMirrorRoot.toUtf8())
+                    && !legacyUnsafeOfflineStatusJson.contains("file://")
+                    && !legacyUnsafeOfflineStatusJson.contains("resume-object-wire-envelope")
+                    && !legacyUnsafeOfflineStatusJson.contains("\"ciphertext\"")
+                    && !legacyUnsafeOfflineStatusJson.contains("privateKey")
+                    && !legacyUnsafeOfflineStatusJson.contains("sessionKey"),
+                "reviewed E2E offline unsafe status should not export mirror paths, stale resume actions, ciphertext, or secret material") && ok;
+    const int queriesBeforeUnsafeOfflineRecovery = server.e2eOfflineResumeQueries();
+    const int chunksBeforeUnsafeOfflineRecovery = server.e2eOfflineResumeChunkIndexes().size();
+    QString legacyUnsafeOfflineReason;
+    ok = expect(!e2eOfflineRecoveredSender.resumeSavedOutgoingTransfer(&legacyUnsafeOfflineReason, 5000),
+                "legacy unsafe reviewed E2E offline recovery state should refuse automatic resume") && ok;
+    ok = expect(legacyUnsafeOfflineReason == "e2e-file-object-recovery-evidence-invalid",
+                "legacy unsafe reviewed E2E offline recovery refusal should expose the fixed evidence-invalid reason") && ok;
+    ok = expect(server.e2eOfflineResumeQueries() == queriesBeforeUnsafeOfflineRecovery
+                    && server.e2eOfflineResumeChunkIndexes().size() == chunksBeforeUnsafeOfflineRecovery,
+                "legacy unsafe reviewed E2E offline recovery state should not query or send") && ok;
+    ok = expect(e2eOfflineRecoveredSender.clearOutgoingTransferState(),
+                "sender should clear unsafe reviewed E2E offline recovery state before continuing") && ok;
     e2eOfflineRecoveredSender.disconnectFromServer();
     qunsetenv("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED");
     qunsetenv("QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT");
