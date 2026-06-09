@@ -791,7 +791,11 @@ function Get-E2ERolloutObservabilityReadback(
         filesystemReady = "unknown"
         filesystemGate = "unknown"
         offlineReady = "unknown"
+        offlineScope = "unknown"
         offlineGate = "unknown"
+        offlineAction = "unknown"
+        offlineCapturePolicy = "unknown"
+        offlineNoSensitiveExportProof = "unknown"
         artifactSource = "e2e-rollout-observability"
     }
 
@@ -824,6 +828,7 @@ function Get-E2ERolloutObservabilityReadback(
 
     $summary = Get-JsonValue $evidence "summary" $null
     $auditSummary = Get-JsonValue $evidence "auditSummary" $null
+    $rolloutObservability = Get-JsonValue $evidence "productionRolloutObservability" $null
     $proof = Get-JsonValue $evidence "sensitiveExportProof" $null
     $releaseCi = Get-JsonValue $evidence "releaseCi" $null
     $releaseLocal = Get-JsonValue $evidence "releaseLocalVerification" $null
@@ -843,8 +848,19 @@ function Get-E2ERolloutObservabilityReadback(
         Format-StatusValue (Get-JsonValue $summary "filesystemObjectRecoveryReleaseGate" "unknown")
     $result.offlineReady =
         Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryReady" "unknown")
+    $result.offlineScope =
+        Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryScope" "unknown")
     $result.offlineGate =
         Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryReleaseGate" "unknown")
+    $result.offlineAction =
+        Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryAction" `
+            (Get-JsonValue $rolloutObservability "offlineObjectRecoveryAction" "unknown"))
+    $result.offlineCapturePolicy =
+        Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryCapturePolicy" `
+            (Get-JsonValue $rolloutObservability "offlineObjectRecoveryCapturePolicy" "unknown"))
+    $result.offlineNoSensitiveExportProof =
+        Format-StatusValue (Get-JsonValue $summary "offlineObjectRecoveryNoSensitiveExportProof" `
+            (Get-JsonValue $rolloutObservability "offlineObjectRecoveryNoSensitiveExportProof" "unknown"))
     $result.ciStatus = Format-StatusValue (Get-JsonValue $releaseCi "status" "unknown")
     $result.ciRunId = Format-StatusValue (Get-JsonValue $releaseCi "runId" "unknown")
     $result.ciSource = Format-StatusValue (Get-JsonValue $releaseCi "source" "unknown")
@@ -2433,11 +2449,16 @@ if (-not $e2eRolloutReadback.configured) {
             (Format-StatusValue $e2eRolloutReadback.localBuildStatus), `
             (Format-StatusValue $e2eRolloutReadback.localCTestStatus), `
             (Format-StatusValue $e2eRolloutReadback.localCTestCount)))
-    $lines.Add(('  Recovery gates: filesystemReady=`{0}`, filesystemGate=`{1}`, offlineReady=`{2}`, offlineGate=`{3}`' -f `
+    $lines.Add(('  Recovery gates: filesystemReady=`{0}`, filesystemGate=`{1}`, offlineReady=`{2}`, offlineScope=`{3}`, offlineGate=`{4}`' -f `
             (Format-StatusValue $e2eRolloutReadback.filesystemReady), `
             (Format-StatusValue $e2eRolloutReadback.filesystemGate), `
             (Format-StatusValue $e2eRolloutReadback.offlineReady), `
+            (Format-StatusValue $e2eRolloutReadback.offlineScope), `
             (Format-StatusValue $e2eRolloutReadback.offlineGate)))
+    $lines.Add(('  Offline recovery evidence: action=`{0}`, capturePolicy=`{1}`, noSensitiveExport=`{2}`' -f `
+            (Format-StatusValue $e2eRolloutReadback.offlineAction), `
+            (Format-StatusValue $e2eRolloutReadback.offlineCapturePolicy), `
+            (Format-StatusValue $e2eRolloutReadback.offlineNoSensitiveExportProof)))
     $lines.Add(('  Sensitive export proof: noSensitiveExport=`{0}`, suppressed=`{1}`' -f `
             (Format-StatusValue $e2eRolloutReadback.noSensitiveExportProof), `
             (Format-StatusValue $e2eRolloutReadback.sensitiveFieldsSuppressed)))

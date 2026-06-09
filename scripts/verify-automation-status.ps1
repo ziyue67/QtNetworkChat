@@ -192,7 +192,12 @@ End testing: Jun 03 04:01
     "filesystemObjectRecoveryReleaseGate":"e2e-filesystem-object-ciphertext-readback-ready",
     "offlineObjectRecoveryReady":true,
     "offlineObjectRecoveryScope":"offline-ciphertext-readback",
-    "offlineObjectRecoveryReleaseGate":"e2e-offline-ciphertext-readback-reviewed-opt-in"
+    "offlineObjectRecoveryReleaseGate":"e2e-offline-ciphertext-readback-reviewed-opt-in",
+    "offlineObjectRecoveryAction":"enable-reviewed-offline-ciphertext-mirror-or-fail-closed-to-resend",
+    "offlineObjectRecoveryNoSensitiveExportProof":true
+  },
+  "productionRolloutObservability":{
+    "offlineObjectRecoveryCapturePolicy":"safe-object-token-hash-size-envelope-header-session-metadata-only"
   },
   "auditSummary":{
     "releaseGate":"production-rollout-observability-blocked-not-linked",
@@ -312,7 +317,8 @@ foreach ($expected in @(
     'E2E Rollout Observability Readback',
     'E2E rollout observability: status=`blocked`, ok=`false`, readiness=`blocked`, releaseGate=`production-rollout-observability-blocked-not-linked`, bundle=`json+markdown`',
     'CI: status=`success`, runId=`26816554264`, source=`parameter`; localBuild=`passed`, localCTest=`passed`, count=`51`',
-    'Recovery gates: filesystemReady=`true`, filesystemGate=`e2e-filesystem-object-ciphertext-readback-ready`, offlineReady=`true`, offlineGate=`e2e-offline-ciphertext-readback-reviewed-opt-in`',
+    'Recovery gates: filesystemReady=`true`, filesystemGate=`e2e-filesystem-object-ciphertext-readback-ready`, offlineReady=`true`, offlineScope=`offline-ciphertext-readback`, offlineGate=`e2e-offline-ciphertext-readback-reviewed-opt-in`',
+    'Offline recovery evidence: action=`enable-reviewed-offline-ciphertext-mirror-or-fail-closed-to-resend`, capturePolicy=`safe-object-token-hash-size-envelope-header-session-metadata-only`, noSensitiveExport=`true`',
     'Sensitive export proof: noSensitiveExport=`false`, suppressed=`true`',
     'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-ci-head-not-observed`, inputs=`4`',
     'Evidence CI/local: ciStatus=`external-visibility-stale`, ciVisibility=`head-not-observed`, localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`',
