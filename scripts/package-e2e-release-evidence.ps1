@@ -60,6 +60,24 @@ function Format-Value([object]$Value) {
     $text
 }
 
+function Get-Sha256Hex([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
+        return "unknown"
+    }
+    $stream = [System.IO.File]::OpenRead($PathValue)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hashBytes = $sha256.ComputeHash($stream)
+            return (($hashBytes | ForEach-Object { $_.ToString("x2") }) -join "")
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 function Read-OptionalJson([string]$PathValue) {
     $resolvedPath = Resolve-OptionalPath $PathValue
     if ([string]::IsNullOrWhiteSpace($resolvedPath) -or -not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
@@ -105,9 +123,10 @@ function Copy-EvidenceFile(
     [void]$ScanPaths.Add($resolvedSource)
     [void]$ManifestInputs.Add([pscustomobject]@{
         kind = $Kind
-        source = $resolvedSource
+        sourceName = Split-Path -Leaf $resolvedSource
         packagedAs = $targetName
         bytes = (Get-Item -LiteralPath $resolvedSource).Length
+        sha256 = Get-Sha256Hex $resolvedSource
     })
 }
 
@@ -222,8 +241,8 @@ $manifest = [ordered]@{
     ok = $packageOk
     releaseReady = $releaseReady
     releaseGate = $releaseGate
-    packagePath = $resolvedPackagePath
-    stagingDir = $stagingDir
+    packagePath = Split-Path -Leaf $resolvedPackagePath
+    stagingDir = Split-Path -Leaf $stagingDir
     inputCount = $manifestInputs.Count
     inputs = @($manifestInputs)
     rollout = [ordered]@{
