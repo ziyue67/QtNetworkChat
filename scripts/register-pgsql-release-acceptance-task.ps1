@@ -358,6 +358,10 @@ if ($lastIndex -ge 0) {
     $lines[$lastIndex] = $lastLine
 }
 [void]$lines.Add('$migrationExitCode = $LASTEXITCODE')
+[void]$lines.Add('$missingPlanOnlyMigrationEvidence = $false')
+if ($PlanOnly.IsPresent) {
+    [void]$lines.Add('$missingPlanOnlyMigrationEvidence = ($migrationExitCode -ne 0 -and -not (Test-Path -LiteralPath ' + (Quote-PSString $MigrationJsonPath) + ' -PathType Leaf))')
+}
 [void]$lines.Add('& powershell -ExecutionPolicy Bypass -File $acceptanceScript `')
 Add-ScalarArg $lines "DatabaseHealthDashboardPath" $DatabaseHealthDashboardPath
 Add-ScalarArg $lines "SmokeJsonPath" $SmokeJsonPath
@@ -376,7 +380,7 @@ if ($lastIndex -ge 0) {
     $lines[$lastIndex] = $lastLine
 }
 [void]$lines.Add('$acceptanceExitCode = $LASTEXITCODE')
-[void]$lines.Add('$pipelineExitCode = if ($healthExitCode -ne 0) { $healthExitCode } elseif ($healthStatusExitCode -ne 0) { $healthStatusExitCode } elseif ($dashboardExitCode -ne 0) { $dashboardExitCode } elseif ($smokeExitCode -ne 0) { $smokeExitCode } elseif ($migrationExitCode -ne 0) { $migrationExitCode } else { $acceptanceExitCode }')
+[void]$lines.Add('$pipelineExitCode = if ($healthExitCode -ne 0) { $healthExitCode } elseif ($healthStatusExitCode -ne 0) { $healthStatusExitCode } elseif ($dashboardExitCode -ne 0) { $dashboardExitCode } elseif ($smokeExitCode -ne 0) { $smokeExitCode } elseif ($missingPlanOnlyMigrationEvidence) { 0 } elseif ($migrationExitCode -ne 0) { $migrationExitCode } else { $acceptanceExitCode }')
 [void]$lines.Add('$packageExitCode = 0')
 [void]$lines.Add('$exitCode = $pipelineExitCode')
     [void]$lines.Add(('"$runStartedAt healthExitCode=$healthExitCode healthStatusExitCode=$healthStatusExitCode dashboardExitCode=$dashboardExitCode smokeExitCode=$smokeExitCode migrationExitCode=$migrationExitCode acceptanceExitCode=$acceptanceExitCode packageExitCode=$packageExitCode exitCode=$exitCode healthPath={0} healthStatusPath={1} dashboardPath={2} smokeJsonPath={3} migrationJsonPath={4} rollbackPreviewPath={5} rollbackAuditPath={6} jsonPath={7} markdownPath={8} evidencePackagePath={9} evidenceManifestPath={10} historyPath={11} historyMarkdownPath={12} ackPath={13}" | Set-Content -LiteralPath $logPath -Encoding UTF8' -f $healthPath, $healthStatusPath, $DatabaseHealthDashboardPath, $SmokeJsonPath, $MigrationJsonPath, $RollbackPreviewPath, $RollbackAuditPath, $jsonPath, $markdownPath, $evidencePackagePath, $evidenceManifestPath, $historyPath, $historyMarkdownPath, $ackPath))

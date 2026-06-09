@@ -123,8 +123,10 @@ $dashboardAudit = Get-JsonValue $dashboard "auditSummary" $null
 $dashboardQueryMetrics = Get-JsonValue $dashboard "queryMetrics" $null
 $dashboardSlowQueryCount = [int](Get-JsonValue $dashboardQueryMetrics "slowQueryCount" 0)
 $dashboardQueryFailureCount = [int](Get-JsonValue $dashboardQueryMetrics "queryFailureCount" 0)
+$dashboardPlanOnly = Normalize-Bool (Get-JsonValue $dashboard "planOnly" $false)
 
 $smokeOk = Normalize-Bool (Get-JsonValue $smoke "ok" $false)
+$smokePlanOnly = Normalize-Bool (Get-JsonValue $smoke "planOnly" $false)
 $smokeSummary = Get-JsonValue $smoke "summary" $null
 $smokeAudit = Get-JsonValue $smoke "auditSummary" $null
 $smokeRecovery = Get-JsonValue $smoke "recoverySummary" $null
@@ -150,6 +152,8 @@ $releaseGateSignals = @(
     [string](Get-JsonValue $smokeAudit "releaseGate" "unknown"),
     [string](Get-JsonValue $migrationAudit "releaseGate" "unknown")
 )
+$planOnlyEvidence = [bool]($dashboardPlanOnly -or $smokePlanOnly -or (($releaseGateSignals | Where-Object { $_ -match '^await-(live|real)' }).Count -gt 0))
+$missingCoreEvidence = [bool]($null -eq $migration -or $null -eq $rollbackPreview -or $null -eq $rollbackAudit)
 
 $acceptanceStatus = if ($sensitiveHits.Count -gt 0) {
     "blocked"
@@ -176,6 +180,8 @@ $operatorAction = if ($sensitiveHits.Count -gt 0) {
     "Review PostgreSQL slow queries and pool thresholds before promoting PostgreSQL release acceptance."
 } elseif (-not $smokeOk) {
     "Run or repair real PostgreSQL smoke evidence before promoting PostgreSQL release acceptance."
+} elseif ($planOnlyEvidence -or $missingCoreEvidence) {
+    "Run with live PostgreSQL credentials, a valid SQLite source snapshot, and without PlanOnly to generate health, smoke, migration, rollback, and evidence artifacts."
 } elseif (-not $migrationOk) {
     "Repair migration report generation before promoting PostgreSQL release acceptance."
 } elseif ((Get-JsonValue $rollbackPreview "riskLevel" "unknown") -eq "review") {
@@ -260,6 +266,7 @@ foreach ($item in @((Get-JsonValue $rollbackAuditSummary "auditFocus" @()))) {
 $summary = [ordered]@{
     format = "qtnetworkchat-pgsql-release-acceptance-v1"
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    planOnly = $planOnlyEvidence
     status = $acceptanceStatus
     ok = $acceptanceOk
     summary = [ordered]@{
@@ -269,7 +276,7 @@ $summary = [ordered]@{
         releaseGateSignals = $releaseGateSignals
     }
     auditSummary = [ordered]@{
-        releaseGate = if ($acceptanceOk) { "can-review-cutover" } elseif ($dashboardQueryFailureCount -gt 0) { "review-query-failures" } elseif ($dashboardSlowQueryCount -gt 0) { "review-slow-queries" } elseif ($acceptanceStatus -eq "review") { "review-pgsql-evidence" } else { "blocked" }
+        releaseGate = if ($acceptanceOk) { "can-review-cutover" } elseif ($dashboardQueryFailureCount -gt 0) { "review-query-failures" } elseif ($dashboardSlowQueryCount -gt 0) { "review-slow-queries" } elseif ($planOnlyEvidence -or $missingCoreEvidence) { "await-live-pgsql-release-acceptance" } elseif ($acceptanceStatus -eq "review") { "review-pgsql-evidence" } else { "blocked" }
         auditFocus = @($auditFocus)
         evidenceBundle = @($evidenceBundle)
     }
@@ -315,6 +322,7 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add("")
     $lines.Add(('- Status: `{0}`' -f (Format-Value $summary.status)))
     $lines.Add(('- OK: `{0}`' -f (Format-Value $summary.ok)))
+    $lines.Add(('- Plan only: `{0}`' -f (Format-Value $summary.planOnly)))
     $lines.Add(('- Readiness: `{0}`' -f (Format-Value $summary.summary.readiness)))
     $lines.Add(('- Operator action: `{0}`' -f (Format-Value $summary.summary.operatorAction)))
     $lines.Add(('- Release gate: `{0}`' -f (Format-Value $summary.auditSummary.releaseGate)))

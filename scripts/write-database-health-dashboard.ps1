@@ -122,6 +122,9 @@ if ($sensitiveHits.Count -gt 0) {
 
 $healthOk = Normalize-Bool (Get-JsonValue $health "ok" $false)
 $statusOk = Normalize-Bool (Get-JsonValue $statusSummary "ok" $false)
+$healthPlanOnly = Normalize-Bool (Get-JsonValue $health "planOnly" $false)
+$statusPlanOnly = Normalize-Bool (Get-JsonValue $statusSummary "planOnly" $false)
+$planOnly = [bool]($healthPlanOnly -or $statusPlanOnly)
 $healthStatus = [string](Get-JsonValue $health "status" "")
 $statusStatus = [string](Get-JsonValue $statusSummary "status" "")
 $driver = [string](Get-JsonValue $statusSummary "driver" (Get-JsonValue $health "driver" (Get-JsonValue (Get-JsonValue $health "config" $null) "driver" "unknown")))
@@ -163,6 +166,9 @@ if ($queryFailureCount -gt 0) {
 if ($slowQueryCount -gt 0) {
     [void]$warnings.Add("database-slow-queries")
 }
+if ($planOnly) {
+    [void]$warnings.Add("plan-only-health-evidence")
+}
 
 $hasHealthSignal = $null -ne $health -or $null -ne $statusSummary
 $ok = $hasHealthSignal -and ($healthOk -or $statusOk) -and $failedChecks.Count -eq 0 -and $sensitiveHits.Count -eq 0
@@ -180,6 +186,7 @@ $dashboard = [ordered]@{
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
     status = $overallStatus
     ok = [bool]($overallStatus -eq "healthy")
+    planOnly = $planOnly
     driver = $driver
     healthStatus = $healthStatus
     statusSummaryStatus = $statusStatus
@@ -234,9 +241,17 @@ $dashboard = [ordered]@{
     }
 }
 $dashboard.summary = [ordered]@{
-    readiness = if ($dashboard.ok) { "verified" } else { "blocked" }
+    readiness = if (-not $dashboard.ok) {
+        "blocked"
+    } elseif ($planOnly) {
+        "ready"
+    } else {
+        "verified"
+    }
     operatorAction = if (-not $dashboard.ok) {
         "Review failed checks, sensitive hits, and task warnings before trusting this dashboard."
+    } elseif ($planOnly) {
+        "Run the database health task without PlanOnly and provide QTNETWORKCHAT_PGPASSWORD from the environment to verify live database health."
     } elseif ($queryFailureCount -gt 0) {
         "Investigate query failures before promoting this dashboard to release readiness."
     } elseif ($slowQueryCount -gt 0) {
@@ -248,6 +263,8 @@ $dashboard.summary = [ordered]@{
 $dashboard.auditSummary = [ordered]@{
     releaseGate = if (-not $dashboard.ok) {
         "blocked"
+    } elseif ($planOnly) {
+        "await-live-health-check"
     } elseif ($queryFailureCount -gt 0) {
         "review-query-failures"
     } elseif ($slowQueryCount -gt 0) {
@@ -279,6 +296,7 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedMarkdownPath)) {
     $lines.Add(('- Generated at: `{0}`' -f $dashboard.generatedAt))
     $lines.Add(('- Status: `{0}`' -f $dashboard.status))
     $lines.Add(('- OK: `{0}`' -f (Format-Value $dashboard.ok)))
+    $lines.Add(('- Plan only: `{0}`' -f (Format-Value $dashboard.planOnly)))
     $lines.Add(('- Driver: `{0}`' -f (Format-Value $dashboard.driver)))
     $lines.Add(('- Checks: `{0}`' -f $dashboard.checkCount))
     $lines.Add(('- Failed checks: `{0}`' -f (@($dashboard.failedChecks) -join ", ")))

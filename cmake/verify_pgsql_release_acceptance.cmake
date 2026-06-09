@@ -95,6 +95,7 @@ file(READ "${OUTPUT_MD_PATH}" markdown_content)
 string(JSON format GET "${json_content}" "format")
 string(JSON status GET "${json_content}" "status")
 string(JSON ok GET "${json_content}" "ok")
+string(JSON plan_only GET "${json_content}" "planOnly")
 string(JSON readiness GET "${json_content}" "summary" "readiness")
 string(JSON operator_action GET "${json_content}" "summary" "operatorAction")
 string(JSON release_gate GET "${json_content}" "auditSummary" "releaseGate")
@@ -128,6 +129,10 @@ endif()
 if(NOT status STREQUAL "review" OR ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "PostgreSQL release acceptance should be review / ok=false for rollback review inputs")
+endif()
+if(plan_only)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Fixture with real health/smoke/migration inputs should not be plan-only")
 endif()
 if(NOT readiness STREQUAL "review")
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -169,6 +174,77 @@ if(has_title EQUAL -1 OR has_gate EQUAL -1 OR has_audit_gate_detail EQUAL -1 OR 
     OR has_rollback_audit_before_metric EQUAL -1 OR has_rollback_audit_after_metric EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Release acceptance markdown missing title, gate, details, or metrics")
+endif()
+
+set(PLAN_ONLY_DASHBOARD_PATH "${TEMP_DIR}/database-health-dashboard-plan-only.json")
+set(PLAN_ONLY_SMOKE_JSON_PATH "${TEMP_DIR}/pgsql-smoke-plan-only.json")
+set(PLAN_ONLY_OUTPUT_JSON_PATH "${TEMP_DIR}/pgsql-release-acceptance-plan-only.json")
+set(PLAN_ONLY_OUTPUT_MD_PATH "${TEMP_DIR}/pgsql-release-acceptance-plan-only.md")
+file(WRITE "${PLAN_ONLY_DASHBOARD_PATH}" [=[
+{
+  "status":"healthy",
+  "ok":true,
+  "planOnly":true,
+  "queryMetrics":{"slowQueryCount":0,"queryFailureCount":0},
+  "summary":{"readiness":"ready","operatorAction":"Run the database health task without PlanOnly and provide QTNETWORKCHAT_PGPASSWORD from the environment to verify live database health."},
+  "auditSummary":{"releaseGate":"await-live-health-check","auditFocus":["plan-only-health-evidence"],"evidenceBundle":["dashboard-json","dashboard-markdown","query-metrics"]}
+}
+]=])
+file(WRITE "${PLAN_ONLY_SMOKE_JSON_PATH}" [=[
+{
+  "ok":true,
+  "planOnly":true,
+  "summary":{"readiness":"ready","operatorAction":"Runtime prerequisites look ready; next run can enable real smoke against the target PostgreSQL."},
+  "auditSummary":{"releaseGate":"await-real-smoke","bootstrapRequired":false,"auditFocus":["offline-attachment-recovery"],"evidenceBundle":["json","markdown","boundary-scenarios"]},
+  "recoverySummary":{"retryOrResumeCount":3,"cleanupProofCount":6,"releaseHint":"Use real smoke evidence to confirm retry, cleanup, and restart recovery paths."}
+}
+]=])
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -DatabaseHealthDashboardPath "${PLAN_ONLY_DASHBOARD_PATH}"
+        -SmokeJsonPath "${PLAN_ONLY_SMOKE_JSON_PATH}"
+        -MigrationJsonPath "${TEMP_DIR}/missing-migration.json"
+        -RollbackPreviewPath "${TEMP_DIR}/missing-rollback-preview.json"
+        -RollbackAuditPath "${TEMP_DIR}/missing-rollback-audit.json"
+        -JsonPath "${PLAN_ONLY_OUTPUT_JSON_PATH}"
+        -MarkdownPath "${PLAN_ONLY_OUTPUT_MD_PATH}"
+    RESULT_VARIABLE plan_only_result
+    OUTPUT_VARIABLE plan_only_output
+    ERROR_VARIABLE plan_only_error_output
+)
+if(NOT plan_only_output STREQUAL "")
+    message(STATUS "${plan_only_output}")
+endif()
+if(NOT plan_only_error_output STREQUAL "")
+    message(STATUS "${plan_only_error_output}")
+endif()
+if(NOT plan_only_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Plan-only PostgreSQL release acceptance run exited with code ${plan_only_result}")
+endif()
+file(READ "${PLAN_ONLY_OUTPUT_JSON_PATH}" plan_only_json_content)
+file(READ "${PLAN_ONLY_OUTPUT_MD_PATH}" plan_only_markdown_content)
+string(JSON plan_only_status GET "${plan_only_json_content}" "status")
+string(JSON plan_only_ok GET "${plan_only_json_content}" "ok")
+string(JSON plan_only_flag GET "${plan_only_json_content}" "planOnly")
+string(JSON plan_only_release_gate GET "${plan_only_json_content}" "auditSummary" "releaseGate")
+string(JSON plan_only_operator_action GET "${plan_only_json_content}" "summary" "operatorAction")
+string(FIND "${plan_only_markdown_content}" "Plan only: `true`" plan_only_markdown_flag)
+if(NOT plan_only_status STREQUAL "review" OR plan_only_ok OR NOT plan_only_flag)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Plan-only acceptance should remain review / ok=false / planOnly=true")
+endif()
+if(NOT plan_only_release_gate STREQUAL "await-live-pgsql-release-acceptance")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Plan-only acceptance should wait for live PostgreSQL release evidence")
+endif()
+if(NOT plan_only_operator_action MATCHES "Run with live PostgreSQL credentials")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Plan-only acceptance should tell operator to generate live evidence")
+endif()
+if(plan_only_markdown_flag EQUAL -1)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Plan-only acceptance markdown should expose planOnly=true")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

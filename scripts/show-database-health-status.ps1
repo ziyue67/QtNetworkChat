@@ -93,6 +93,7 @@ $environment = Get-JsonValue $health "environment" $null
 $driver = [string](Get-JsonValue $health "driver" (Get-JsonValue $config "driver" (Get-JsonValue $environment "QTNETWORKCHAT_DB_DRIVER" "unknown")))
 $status = [string](Get-JsonValue $health "status" "unknown")
 $ok = [bool](Get-JsonValue $health "ok" $false)
+$planOnly = [bool](Get-JsonValue $health "planOnly" $false)
 $queryMetrics = Get-JsonValue $health "queryMetrics" $null
 $slowQueryThresholdMs = [int](Get-JsonValue $queryMetrics "slowQueryThresholdMs" 0)
 $slowQueryCount = [int](Get-JsonValue $queryMetrics "slowQueryCount" 0)
@@ -117,6 +118,7 @@ $summary = [ordered]@{
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
     sourcePath = $resolvedHealthPath
     sourceFormat = [string](Get-JsonValue $health "format" "")
+    planOnly = $planOnly
     status = $status
     ok = $ok
     driver = $driver
@@ -164,11 +166,20 @@ if ($queryFailureCount -gt 0) { [void]$auditFocus.Add("query-failures") }
 if ($slowQueryCount -gt 0) { [void]$auditFocus.Add("slow-queries") }
 if ($summary.failedChecks.Count -gt 0) { [void]$auditFocus.Add("failed-checks") }
 if ($sensitiveHits.Count -gt 0) { [void]$auditFocus.Add("sensitive-fields") }
+if ($planOnly) { [void]$auditFocus.Add("plan-only-health-evidence") }
 if ($auditFocus.Count -eq 0) { [void]$auditFocus.Add("routine-health-review") }
 $summary.summary = [ordered]@{
-    readiness = if ($summary.ok) { "verified" } else { "blocked" }
+    readiness = if (-not $summary.ok) {
+        "blocked"
+    } elseif ($planOnly) {
+        "ready"
+    } else {
+        "verified"
+    }
     operatorAction = if (-not $summary.ok) {
         "Review failed checks, sensitive hits, and last error evidence before trusting this health snapshot."
+    } elseif ($planOnly) {
+        "Run without PlanOnly and provide QTNETWORKCHAT_PGPASSWORD from the environment to verify live database health."
     } elseif ($queryFailureCount -gt 0) {
         "Investigate query failures before promoting this database health snapshot."
     } elseif ($slowQueryCount -gt 0) {
@@ -180,6 +191,8 @@ $summary.summary = [ordered]@{
 $summary.auditSummary = [ordered]@{
     releaseGate = if (-not $summary.ok) {
         "blocked"
+    } elseif ($planOnly) {
+        "await-live-health-check"
     } elseif ($queryFailureCount -gt 0) {
         "review-query-failures"
     } elseif ($slowQueryCount -gt 0) {
@@ -211,6 +224,7 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add("")
     $lines.Add(("| status | {0} |" -f (Format-Value $summary.status)))
     $lines.Add(("| ok | {0} |" -f (Format-Value $summary.ok)))
+    $lines.Add(("| planOnly | {0} |" -f (Format-Value $summary.planOnly)))
     $lines.Add(("| driver | {0} |" -f (Format-Value $summary.driver)))
     $lines.Add(("| checkCount | {0} |" -f (Format-Value $summary.checkCount)))
     $lines.Add(("| slowQueryThresholdMs | {0} |" -f (Format-Value $summary.queryMetrics.slowQueryThresholdMs)))

@@ -88,6 +88,7 @@ foreach(expected_text
         "smokeExitCode"
         "migrationExitCode"
         "acceptanceExitCode"
+        "missingPlanOnlyMigrationEvidence"
         "packageExitCode"
         "pipelineExitCode"
         "historyExitCode"

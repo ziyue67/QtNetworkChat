@@ -974,6 +974,7 @@ $previewEvidenceReadbackPath = Join-Path $configuredTempDir "preview-evidence-re
     format = "qtnetworkchat-database-health-status-v1"
     status = "configured"
     ok = $true
+    planOnly = $true
     driver = "QPSQL"
     checkCount = 0
     failedChecks = @()
@@ -982,12 +983,12 @@ $previewEvidenceReadbackPath = Join-Path $configuredTempDir "preview-evidence-re
         queryFailureCount = 0
     }
     summary = [ordered]@{
-        readiness = "preview-registered"
-        operatorAction = "Run the generated database health launcher to refresh live health evidence."
+        readiness = "ready"
+        operatorAction = "Run without PlanOnly and provide QTNETWORKCHAT_PGPASSWORD from the environment to verify live database health."
     }
     auditSummary = [ordered]@{
-        releaseGate = "database-health-preview-registered"
-        auditFocus = @("preview", "history")
+        releaseGate = "await-live-health-check"
+        auditFocus = @("plan-only-health-evidence", "history")
     }
 } | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $previewEvidenceDbStatusPath -Encoding UTF8
 
@@ -1115,7 +1116,7 @@ $previewEvidenceMarkdown = Get-Content -LiteralPath $previewEvidenceMarkdownPath
 foreach ($expected in @(
     'Automation watch gate: state=`registered-evidence-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-preview-task-evidence`, action=`run registered automation tasks to refresh live status evidence before release`',
     'Task evidence gate: state=`preview-evidence`, tasks=`2`, previewEvidence=`2`, releaseGate=`blocked-preview-task-evidence`, action=`run registered automation tasks to refresh live status evidence before release`',
-    'Task evidence: kind=`database-health`, name=`PreviewEvidenceDbTask`, state=`preview-evidence`, status=`configured/ok=true`, readiness=`preview-registered`, releaseGate=`database-health-preview-registered`',
+    'Task evidence: kind=`database-health`, name=`PreviewEvidenceDbTask`, state=`preview-evidence`, status=`configured/ok=true/planOnly=true`, readiness=`ready`, releaseGate=`await-live-health-check`',
     'Task evidence: kind=`large-file-governance`, name=`PreviewEvidenceGovTask`, state=`preview-evidence`, status=`configured/ok=true`, readiness=`preview-registered`, releaseGate=`large-file-governance-preview-registered`',
     'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`2`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
     'Task history freshness gate: state=`fresh`, tasks=`2`, fresh=`2`, stale=`0`, unavailable=`0`, unparseable=`0`, thresholdHours=`24`, releaseGate=`fresh`, action=`none`'

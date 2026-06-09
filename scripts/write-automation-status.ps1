@@ -1013,9 +1013,14 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
     $operatorActionSummary = "unknown"
     $auditFocusSummary = "unknown"
     $releaseDetailsSummary = "unknown"
+    $planOnlySummary = $false
     if ($statusState.state -eq "ok") {
         $statusValue = Get-JsonValue $statusState.value "status" ""
         $okValue = Get-JsonValue $statusState.value "ok" $null
+        $planOnlyValue = Get-JsonValue $statusState.value "planOnly" $null
+        if ($null -ne $planOnlyValue) {
+            $planOnlySummary = ((Format-StatusValue $planOnlyValue).ToLowerInvariant() -eq "true")
+        }
         $statusSummaryNode = Get-JsonValue $statusState.value "summary" $null
         $reportSummaryNode = Get-JsonValue $statusState.value "reportSummary" $null
         $auditSummaryNode = Get-JsonValue $statusState.value "auditSummary" $null
@@ -1029,6 +1034,9 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
             $statusSummary = "ok=" + (Format-StatusValue $okValue)
         } else {
             $statusSummary = "ok"
+        }
+        if ($planOnlySummary) {
+            $statusSummary = $statusSummary + "/planOnly=true"
         }
         $readinessValue = Get-JsonValue $statusSummaryNode "readiness" ""
         if ([string]::IsNullOrWhiteSpace([string]$readinessValue)) {
@@ -1086,6 +1094,11 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
         if ($releaseDetails.Count -gt 0) {
             $releaseDetailsSummary = $releaseDetails -join "; "
         }
+        if ($planOnlySummary -and $releaseDetailsSummary -eq "unknown") {
+            $releaseDetailsSummary = "planOnly=true"
+        } elseif ($planOnlySummary) {
+            $releaseDetailsSummary = $releaseDetailsSummary + "; planOnly=true"
+        }
     } else {
         $statusSummary = $statusState.state
         $readinessSummary = $statusState.state
@@ -1119,6 +1132,7 @@ function Get-GenericTaskReadback([object]$PreviewRecord) {
         operatorActionSummary = $operatorActionSummary
         auditFocusSummary = $auditFocusSummary
         releaseDetailsSummary = $releaseDetailsSummary
+        planOnlySummary = $planOnlySummary
         lastRunExitCode = $lastRunExitCode
         historySummary = $historySummary
         ackSummary = $ackSummary
@@ -1139,6 +1153,9 @@ function Test-IsPreviewTaskEvidence([object]$Readback) {
         return $true
     }
     if ($releaseGateSummary -match '(^|-)preview(-|$)' -or $releaseGateSummary -match 'preview-registered') {
+        return $true
+    }
+    if ($releaseGateSummary -eq "await-live-health-check" -or $Readback.planOnlySummary) {
         return $true
     }
     $false
@@ -2644,6 +2661,7 @@ if ($databaseHealthStatusState.state -ne "ok") {
 } else {
     $dbQueryMetrics = Get-JsonValue $databaseHealthStatus "queryMetrics" $null
     $dbFailedChecks = @((Get-JsonValue $databaseHealthStatus "failedChecks" @()))
+    $dbPlanOnly = Get-JsonValue $databaseHealthStatus "planOnly" $null
     $dbSummary = Get-JsonValue $databaseHealthStatus "summary" $null
     $dbAuditSummary = Get-JsonValue $databaseHealthStatus "auditSummary" $null
     $dbAuditFocus = @((Get-JsonValue $dbAuditSummary "auditFocus" @()))
@@ -2655,6 +2673,9 @@ if ($databaseHealthStatusState.state -ne "ok") {
             $dbFailedChecks.Count,
             (Format-StatusValue (Get-JsonValue $dbQueryMetrics "slowQueryCount" "unknown")),
             (Format-StatusValue (Get-JsonValue $dbQueryMetrics "queryFailureCount" "unknown"))))
+    if ($null -ne $dbPlanOnly) {
+        $lines.Add(('  Evidence mode: planOnly=`{0}`' -f (Format-StatusValue $dbPlanOnly)))
+    }
     $lines.Add(('  Gate: readiness=`{0}`, releaseGate=`{1}`, action=`{2}`, auditFocus=`{3}`' -f
             (Format-StatusValue (Get-JsonValue $dbSummary "readiness" "unknown")),
             (Format-StatusValue (Get-JsonValue $dbAuditSummary "releaseGate" "unknown")),
