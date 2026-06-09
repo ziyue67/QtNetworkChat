@@ -10,6 +10,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$script:LastToolFailureClass = "none"
+
 function Resolve-RepoPath([string]$PathValue) {
     if ([System.IO.Path]::IsPathRooted($PathValue)) {
         return $PathValue
@@ -17,18 +19,49 @@ function Resolve-RepoPath([string]$PathValue) {
     Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
 }
 
+function Get-GitHubRunListFailureClass([string]$Text) {
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return "github-cli-run-list-unavailable"
+    }
+    $normalized = $Text.ToLowerInvariant()
+    if ($normalized -match "keyring|token.*invalid|failed to log in|gh auth login|authentication required|oauth") {
+        return "github-cli-auth-invalid"
+    }
+    if ($normalized -match "payment|spending limit|billing") {
+        return "github-actions-account-billing-blocked"
+    }
+    if ($normalized -match "127\.0\.0\.1:443|connection refused|connectex|dial tcp|proxy|could not resolve|resolve host|dns|timed out|timeout|no connection") {
+        return "github-cli-network-unavailable"
+    }
+    "github-cli-run-list-unavailable"
+}
+
 function Invoke-ToolText([string]$CommandName, [string[]]$Arguments) {
+    $script:LastToolFailureClass = "none"
+    $previousErrorActionPreference = $ErrorActionPreference
     try {
-        $output = & $CommandName @Arguments 2>$null
+        $ErrorActionPreference = "Continue"
+        $output = & $CommandName @Arguments 2>&1
+        $outputText = (@($output | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                $_.ToString()
+            } else {
+                [string]$_
+            }
+        }) -join "`n")
         if ($LASTEXITCODE -ne 0) {
+            $script:LastToolFailureClass = Get-GitHubRunListFailureClass $outputText
             $global:LASTEXITCODE = 0
             return ""
         }
         $global:LASTEXITCODE = 0
-        return ((@($output) -join "`n").Trim())
+        return ($outputText.Trim())
     } catch {
+        $script:LastToolFailureClass = "github-cli-run-list-unavailable"
         $global:LASTEXITCODE = 0
         return ""
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 }
 
@@ -48,7 +81,8 @@ function New-StatusPayload(
     [string]$RunId,
     [string]$Source,
     [string]$Visibility,
-    [object[]]$Runs
+    [object[]]$Runs,
+    [string]$RunListFailureClass = "none"
 ) {
     $latestRun = if ($Runs.Count -gt 0) { @($Runs | Select-Object -First 1)[0] } else { $null }
     $latestHeadSha = ""
@@ -67,6 +101,18 @@ function New-StatusPayload(
     if ($Status -eq "success") {
         $releaseGate = "github-windows-build-current-head-success"
         $operatorAction = "continue release evidence review"
+    } elseif ($Visibility -eq "run-list-auth-blocked") {
+        $externalBlocker = "github-windows-build-gh-auth-invalid"
+        $releaseGate = "blocked-ci-gh-auth-invalid"
+        $operatorAction = "reauthenticate GitHub CLI before release evidence collection"
+    } elseif ($Visibility -eq "run-list-network-blocked") {
+        $externalBlocker = "github-windows-build-gh-network-unavailable"
+        $releaseGate = "blocked-ci-gh-network-unavailable"
+        $operatorAction = "restore GitHub API network/proxy access before release evidence collection"
+    } elseif ($Visibility -eq "run-list-account-blocked") {
+        $externalBlocker = "github-actions-account-billing-blocked"
+        $releaseGate = "blocked-ci-account-billing"
+        $operatorAction = "resolve GitHub Actions account billing or spending-limit blocker before release evidence collection"
     } elseif ($Visibility -eq "head-not-observed" -or $Visibility -eq "no-runs") {
         $externalBlocker = "github-windows-build-current-head-not-observed"
         $releaseGate = "blocked-ci-head-not-observed"
@@ -88,6 +134,7 @@ function New-StatusPayload(
         runId = $RunId
         source = $Source
         visibility = $Visibility
+        runListFailureClass = $RunListFailureClass
         runMatched = -not [string]::IsNullOrWhiteSpace($RunId)
         observedRunCount = $Runs.Count
         currentHeadObserved = -not [string]::IsNullOrWhiteSpace($RunId)
@@ -146,9 +193,24 @@ if ($PlanOnly.IsPresent) {
         "--json", "databaseId,headSha,status,conclusion,createdAt,workflowName"
     )
     if ([string]::IsNullOrWhiteSpace($runListJson)) {
-        $source = "auto-gh-run-list-unavailable"
-        $status = "unavailable"
-        $visibility = "run-list-unavailable"
+        $failureClass = $script:LastToolFailureClass
+        if ($failureClass -eq "github-cli-auth-invalid") {
+            $source = "auto-gh-run-list-auth-blocked"
+            $status = "external-auth-blocked"
+            $visibility = "run-list-auth-blocked"
+        } elseif ($failureClass -eq "github-cli-network-unavailable") {
+            $source = "auto-gh-run-list-network-blocked"
+            $status = "external-network-blocked"
+            $visibility = "run-list-network-blocked"
+        } elseif ($failureClass -eq "github-actions-account-billing-blocked") {
+            $source = "auto-gh-run-list-account-blocked"
+            $status = "external-account-blocked"
+            $visibility = "run-list-account-blocked"
+        } else {
+            $source = "auto-gh-run-list-unavailable"
+            $status = "unavailable"
+            $visibility = "run-list-unavailable"
+        }
     }
 }
 
@@ -204,7 +266,7 @@ if ($runs.Count -gt 0 -and $status -eq "unknown") {
     $visibility = "no-runs"
 }
 
-$payload = New-StatusPayload $status $runId $source $visibility $runs
+$payload = New-StatusPayload $status $runId $source $visibility $runs $script:LastToolFailureClass
 $json = $payload | ConvertTo-Json -Depth 6
 
 foreach ($forbidden in @("ghp_", "github_pat_", "Authorization:", "Credential=", "Signature=")) {

@@ -554,6 +554,71 @@ if ($staleCiStatus.status -ne "external-visibility-stale" `
     throw "GitHub Windows Build stale status artifact did not preserve the external visibility blocker evidence."
 }
 
+$fakeGhAuthDir = Join-Path $tempDir "fake-gh-auth"
+Ensure-Directory -Path $fakeGhAuthDir
+$fakeGhAuthPath = Join-Path $fakeGhAuthDir "gh.cmd"
+@'
+@echo off
+echo github.com 1>&2
+echo   X Failed to log in to github.com account ziyue67 ^(keyring^) 1>&2
+echo   - Active account: true 1>&2
+echo   - The token in keyring is invalid. 1>&2
+echo   - To re-authenticate, run: gh auth login -h github.com 1>&2
+exit /b 1
+'@ | Set-Content -LiteralPath $fakeGhAuthPath -Encoding ASCII
+$authBlockedCiStatusPath = Join-Path $tempDir "github-windows-build-status-auth-blocked.json"
+$previousPath = $env:PATH
+try {
+    $env:PATH = $fakeGhAuthDir + [System.IO.Path]::PathSeparator + $previousPath
+    & (Join-Path $PSScriptRoot "write-github-windows-build-status.ps1") `
+        -OutputPath $authBlockedCiStatusPath `
+        -Head "authblocked1234567890abcdef" `
+        -FailOnSensitive | Out-Null
+} finally {
+    $env:PATH = $previousPath
+}
+$authBlockedCiStatusJson = Get-Content -LiteralPath $authBlockedCiStatusPath -Raw -Encoding UTF8
+$authBlockedCiStatus = $authBlockedCiStatusJson | ConvertFrom-Json
+if ($authBlockedCiStatus.status -ne "external-auth-blocked" `
+        -or $authBlockedCiStatus.visibility -ne "run-list-auth-blocked" `
+        -or $authBlockedCiStatus.source -ne "auto-gh-run-list-auth-blocked" `
+        -or $authBlockedCiStatus.runListFailureClass -ne "github-cli-auth-invalid" `
+        -or $authBlockedCiStatus.currentHeadObserved `
+        -or $authBlockedCiStatus.externalBlocker -ne "github-windows-build-gh-auth-invalid" `
+        -or $authBlockedCiStatus.releaseGate -ne "blocked-ci-gh-auth-invalid" `
+        -or [int]$authBlockedCiStatus.observedRunCount -ne 0 `
+        -or -not $authBlockedCiStatus.operatorAction.Contains("reauthenticate GitHub CLI")) {
+    throw "GitHub Windows Build auth-blocked status artifact did not preserve the sanitized auth blocker evidence."
+}
+Assert-NotContains -Text $authBlockedCiStatusJson -Forbidden "ziyue67"
+Assert-NotContains -Text $authBlockedCiStatusJson -Forbidden "keyring"
+Assert-NotContains -Text $authBlockedCiStatusJson -Forbidden "token in keyring"
+Assert-NotContains -Text $authBlockedCiStatusJson -Forbidden "gh auth login"
+
+$authBlockedEvidenceDir = Join-Path $tempDir "e2e_release_evidence_auth_blocked"
+& (Join-Path $PSScriptRoot "package-e2e-release-evidence.ps1") `
+    -OutputDir $authBlockedEvidenceDir `
+    -RolloutJsonPath $e2eRolloutJsonPath `
+    -RolloutMarkdownPath $e2eRolloutMarkdownPath `
+    -GitHubWindowsBuildStatusPath $authBlockedCiStatusPath `
+    -LocalVerificationStatusPath $localVerificationPath `
+    -FailOnSensitive | Out-Null
+$authBlockedEvidenceManifestPath =
+    Join-Path $authBlockedEvidenceDir "e2e-release-evidence-manifest.json"
+$authBlockedEvidenceManifestJson =
+    Get-Content -LiteralPath $authBlockedEvidenceManifestPath -Raw -Encoding UTF8
+$authBlockedEvidenceManifest = $authBlockedEvidenceManifestJson | ConvertFrom-Json
+if ($authBlockedEvidenceManifest.releaseGate -ne "blocked-ci-gh-auth-invalid" `
+        -or $authBlockedEvidenceManifest.ci.status -ne "external-auth-blocked" `
+        -or $authBlockedEvidenceManifest.ci.externalBlocker -ne "github-windows-build-gh-auth-invalid" `
+        -or $authBlockedEvidenceManifest.ci.releaseGate -ne "blocked-ci-gh-auth-invalid" `
+        -or $authBlockedEvidenceManifest.releaseReady) {
+    throw "E2E release evidence package did not preserve the GitHub auth blocker release gate."
+}
+Assert-NotContains -Text $authBlockedEvidenceManifestJson -Forbidden "ziyue67"
+Assert-NotContains -Text $authBlockedEvidenceManifestJson -Forbidden "keyring"
+Assert-NotContains -Text $authBlockedEvidenceManifestJson -Forbidden "token in keyring"
+
 $bootstrapPlanOutput = & powershell -ExecutionPolicy Bypass -File $bootstrapScriptPath `
     -OutputDir (Join-Path $tempDir "bootstrap-plan") `
     -ScheduledTaskReadbackPath (Join-Path $tempDir "bootstrap-plan\scheduled-task-readback.json") `

@@ -196,7 +196,13 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
 } elseif (-not $localArtifactPresent) {
     "blocked-missing-local-verification-status"
 } elseif ($ciStatus -ne "success") {
-    if ($ciStatus -eq "external-visibility-stale") { "blocked-ci-head-not-observed" } else { "blocked-ci-" + $ciStatus }
+    if ($ciReleaseGate -ne "unknown") {
+        $ciReleaseGate
+    } elseif ($ciStatus -eq "external-visibility-stale") {
+        "blocked-ci-head-not-observed"
+    } else {
+        "blocked-ci-" + $ciStatus
+    }
 } elseif (-not $localOk) {
     "blocked-local-verification"
 } elseif (-not $rolloutOk) {
