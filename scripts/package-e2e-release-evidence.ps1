@@ -240,6 +240,7 @@ $manifest = [ordered]@{
     packageSha256 = "pending"
     stagingDir = Split-Path -Leaf $stagingDir
     manifestPackagedAs = "manifest.json"
+    manifestEmbedded = $true
     inputCount = $manifestInputs.Count
     inputs = @($manifestInputs)
     rollout = [ordered]@{

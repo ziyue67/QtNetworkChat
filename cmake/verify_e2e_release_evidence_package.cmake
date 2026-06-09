@@ -60,6 +60,7 @@ string(JSON package_path GET "${manifest_content}" "packagePath")
 string(JSON package_sha256 GET "${manifest_content}" "packageSha256")
 string(JSON staging_dir GET "${manifest_content}" "stagingDir")
 string(JSON manifest_packaged_as GET "${manifest_content}" "manifestPackagedAs")
+string(JSON manifest_embedded GET "${manifest_content}" "manifestEmbedded")
 string(JSON input_count GET "${manifest_content}" "inputCount")
 string(JSON input0_source_name GET "${manifest_content}" "inputs" 0 "sourceName")
 string(JSON input0_sha256 GET "${manifest_content}" "inputs" 0 "sha256")
@@ -93,6 +94,7 @@ if(NOT package_path STREQUAL "e2e-release-evidence.zip"
         OR NOT package_sha256 MATCHES "^[0-9a-f]+$"
         OR NOT staging_dir STREQUAL "e2e-release-evidence"
         OR NOT manifest_packaged_as STREQUAL "manifest.json"
+        OR NOT manifest_embedded
         OR NOT input0_source_name STREQUAL "e2e-rollout-observability.json"
         OR NOT input0_sha256_length EQUAL 64
         OR NOT input0_sha256 MATCHES "^[0-9a-f]+$")
@@ -127,11 +129,13 @@ endif()
 file(READ "${EXTRACT_DIR}/manifest.json" packaged_manifest_content)
 string(JSON packaged_format GET "${packaged_manifest_content}" "format")
 string(JSON packaged_package_sha256 GET "${packaged_manifest_content}" "packageSha256")
+string(JSON packaged_manifest_embedded GET "${packaged_manifest_content}" "manifestEmbedded")
 string(FIND "${packaged_manifest_content}" "${TEMP_DIR}" packaged_temp_path_index)
 if(NOT packaged_format STREQUAL "qtnetworkchat-e2e-release-evidence-package-v1"
-        OR NOT packaged_package_sha256 STREQUAL "pending")
+        OR NOT packaged_package_sha256 STREQUAL "pending"
+        OR NOT packaged_manifest_embedded)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Packaged E2E release evidence manifest should be self-describing and mark pre-zip SHA pending")
+    message(FATAL_ERROR "Packaged E2E release evidence manifest should be self-describing, embedded, and mark pre-zip SHA pending")
 endif()
 if(NOT packaged_temp_path_index EQUAL -1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
