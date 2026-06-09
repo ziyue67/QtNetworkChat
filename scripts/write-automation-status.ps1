@@ -18,6 +18,7 @@ param(
     [string]$E2ERolloutObservabilityJsonPath,
     [string]$E2ERolloutObservabilityMarkdownPath,
     [string]$E2EReleaseEvidenceManifestPath,
+    [string]$E2ELinkedReleaseCandidateManifestPath,
     [string]$DatabaseHealthStatusPath,
     [string]$DatabaseHealthLastRunPath,
     [string]$DatabaseHealthTaskPreviewPath,
@@ -2263,6 +2264,13 @@ if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityMarkdownPath)) {
 if ([string]::IsNullOrWhiteSpace($E2EReleaseEvidenceManifestPath)) {
     $E2EReleaseEvidenceManifestPath = Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence-manifest.json"
 }
+if ([string]::IsNullOrWhiteSpace($E2ELinkedReleaseCandidateManifestPath)) {
+    $defaultLinkedReleaseCandidateManifestPath =
+        Join-Path $BuildDir "e2e_release_evidence_linked_candidate\e2e-release-evidence-manifest.json"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultLinkedReleaseCandidateManifestPath) -PathType Leaf) {
+        $E2ELinkedReleaseCandidateManifestPath = $defaultLinkedReleaseCandidateManifestPath
+    }
+}
 $localVerificationReadback = Get-LocalVerificationStatusReadback $LocalVerificationStatusPath
 
 $ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
@@ -2318,6 +2326,10 @@ $e2eRolloutMarkdownState = Get-ArtifactState -PathValue $E2ERolloutObservability
 $e2eRolloutReadback = Get-E2ERolloutObservabilityReadback $e2eRolloutJsonState $e2eRolloutMarkdownState
 $e2eReleaseEvidenceManifestState = Get-ArtifactState -PathValue $E2EReleaseEvidenceManifestPath -ExpectJson
 $e2eReleaseEvidenceReadback = Get-E2EReleaseEvidenceReadback $e2eReleaseEvidenceManifestState
+$e2eLinkedReleaseCandidateManifestState =
+    Get-ArtifactState -PathValue $E2ELinkedReleaseCandidateManifestPath -ExpectJson
+$e2eLinkedReleaseCandidateReadback =
+    Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState
 if ($e2eRolloutReadback.state -eq "ok") {
     $e2eRolloutReadback.ciStatus = Format-StatusValue $CiStatus
     $e2eRolloutReadback.ciRunId = Format-StatusValue $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId })
@@ -2566,6 +2578,25 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadSha), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadMatchesReleaseHead)))
+}
+if ($e2eLinkedReleaseCandidateReadback.configured) {
+    if ($e2eLinkedReleaseCandidateReadback.state -ne "ok") {
+        $lines.Add(('  Linked runtime candidate: state=`{0}`, releaseGate=`{1}`, artifact=`{2}`' -f `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.state), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseGate), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageArtifact)))
+    } else {
+        $lines.Add(('  Linked runtime candidate: releaseReady=`{0}`, promoted=`{1}`, releaseGate=`{2}`, productionLinked=`{3}`, ci=`{4}/{5}`, local=`{6}/{7}`, blockers=`{8}`' -f `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.ciStatus), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.ciVisibility), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers)))
+    }
 }
 $lines.Add("")
 $lines.Add("## Automation Guardrails")
@@ -2929,11 +2960,21 @@ $e2eReleaseEvidenceDiagnostics = @(
     ('packageSha256={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)),
     ('releaseGate={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate))
 ) -join "; "
+$e2eLinkedReleaseCandidateDiagnostics = @(
+    ('manifest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageArtifact)),
+    ('releaseReady={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady)),
+    ('promoted={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted)),
+    ('releaseGate={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate)),
+    ('packageSha256={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageSha256))
+) -join "; "
 $lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
 $lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnostics + '`')
 $lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics + '`')
 $lines.Add('- E2E rollout observability artifacts: `' + $e2eRolloutDiagnostics + '`')
 $lines.Add('- E2E release evidence artifacts: `' + $e2eReleaseEvidenceDiagnostics + '`')
+if ($e2eLinkedReleaseCandidateReadback.configured) {
+    $lines.Add('- E2E linked release candidate artifacts: `' + $e2eLinkedReleaseCandidateDiagnostics + '`')
+}
 $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")
@@ -2966,7 +3007,8 @@ if (-not $PlanOnly) {
     if (-not [string]::IsNullOrWhiteSpace($parent)) {
         New-Item -ItemType Directory -Force -Path $parent | Out-Null
     }
-    Set-Content -LiteralPath $target -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($target, ($lines -join [Environment]::NewLine), $utf8NoBom)
     Write-Host ("automation status: {0}" -f $target)
 } else {
     Write-Output ($lines -join [Environment]::NewLine)

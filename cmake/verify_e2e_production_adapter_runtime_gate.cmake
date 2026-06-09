@@ -17,6 +17,9 @@ set(RELEASE_EVIDENCE_PACKAGER "${SOURCE_DIR}/scripts/package-e2e-release-evidenc
 if(NOT EXISTS "${RELEASE_EVIDENCE_PACKAGER}")
     message(FATAL_ERROR "E2E release evidence packager does not exist: ${RELEASE_EVIDENCE_PACKAGER}")
 endif()
+if(DEFINED LINKED_RELEASE_CANDIDATE_DIR AND NOT "${LINKED_RELEASE_CANDIDATE_DIR}" STREQUAL "")
+    file(REMOVE_RECURSE "${LINKED_RELEASE_CANDIDATE_DIR}")
+endif()
 
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
 
@@ -219,6 +222,10 @@ if(evidence_result EQUAL 0 AND EXISTS "${evidence_json}" AND EXISTS "${evidence_
             string(JSON release_promotion_promoted GET "${release_promotion_content}" "promoted")
             string(JSON release_promotion_gate GET "${release_promotion_content}" "releaseGate")
             string(JSON release_promotion_blocker_count LENGTH "${release_promotion_content}" "blockers")
+            if(DEFINED LINKED_RELEASE_CANDIDATE_DIR AND NOT "${LINKED_RELEASE_CANDIDATE_DIR}" STREQUAL "")
+                file(MAKE_DIRECTORY "${LINKED_RELEASE_CANDIDATE_DIR}")
+                file(COPY "${release_package_dir}/" DESTINATION "${LINKED_RELEASE_CANDIDATE_DIR}")
+            endif()
         else()
             set(release_package_result 5)
             set(release_package_stderr "release-package-manifest-or-promotion-missing")

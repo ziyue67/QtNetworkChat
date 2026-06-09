@@ -628,6 +628,7 @@ if(BUILD_TESTING)
             -DCONFIGURATION=$<CONFIG>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -DOPENSSL_RUNTIME_DIR=${QTNETWORKCHAT_E2E_PRODUCTION_OPENSSL_RUNTIME_DIR}
+            -DLINKED_RELEASE_CANDIDATE_DIR=${CMAKE_CURRENT_BINARY_DIR}/e2e_release_evidence_linked_candidate
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_production_adapter_runtime_gate.cmake
     )
     add_test(

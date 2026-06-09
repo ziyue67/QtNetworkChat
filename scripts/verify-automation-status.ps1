@@ -88,9 +88,16 @@ $e2eRolloutJsonPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.json"
 $e2eRolloutMarkdownPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.md"
 $e2eReleaseEvidenceDir = Join-Path $tempDir "e2e_release_evidence"
 $e2eReleaseEvidenceManifestPath = Join-Path $e2eReleaseEvidenceDir "e2e-release-evidence-manifest.json"
+$e2eLinkedReleaseCandidateDir = Join-Path $tempDir "e2e_release_evidence_linked_candidate"
+$e2eLinkedReleaseCandidateManifestPath =
+    Join-Path $e2eLinkedReleaseCandidateDir "e2e-release-evidence-manifest.json"
+$linkedCandidateRolloutJsonPath = Join-Path $tempDir "e2e-rollout-observability-linked-candidate.json"
+$linkedCandidateRolloutMarkdownPath = Join-Path $tempDir "e2e-rollout-observability-linked-candidate.md"
+$linkedCandidateCiStatusPath = Join-Path $tempDir "github-windows-build-status-linked-candidate.json"
 $bootstrapScriptPath = Join-Path $PSScriptRoot "bootstrap-automation-tasks.ps1"
 Ensure-Directory -Path $e2eRolloutDir
 Ensure-Directory -Path $e2eReleaseEvidenceDir
+Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
 
 @'
 {
@@ -234,6 +241,99 @@ End testing: Jun 03 04:01
     -LocalVerificationStatusPath $localVerificationPath `
     -FailOnSensitive | Out-Null
 
+@'
+{
+  "format":"qtnetworkchat-e2e-production-rollout-observability-evidence-v1",
+  "status":"ready",
+  "ok":true,
+  "summary":{
+    "readiness":"ready",
+    "filesystemObjectRecoveryReady":true,
+    "filesystemObjectRecoveryReleaseGate":"e2e-filesystem-object-ciphertext-readback-ready",
+    "offlineObjectRecoveryReady":true,
+    "offlineObjectRecoveryScope":"offline-ciphertext-readback",
+    "offlineObjectRecoveryReleaseGate":"e2e-offline-ciphertext-readback-reviewed-opt-in",
+    "offlineObjectRecoveryAction":"enable-reviewed-offline-ciphertext-mirror-or-fail-closed-to-resend",
+    "offlineObjectRecoveryNoSensitiveExportProof":true
+  },
+  "auditSummary":{"releaseGate":"production-rollout-observability-ready"},
+  "productionAcceptanceSummary":{
+    "accepted":true,
+    "linked":true,
+    "productionReady":true,
+    "releaseGate":"production-crypto-accepted",
+    "backendId":"openssl-reviewed-adapter-v1",
+    "providerId":"openssl-reviewed-provider-v1",
+    "requiredOperationCount":8,
+    "availableOperationCount":8
+  },
+  "productionRolloutObservability":{
+    "accepted":true,
+    "linked":true,
+    "productionReady":true,
+    "releaseGate":"production-rollout-observability-ready",
+    "backendId":"openssl-reviewed-adapter-v1",
+    "providerId":"openssl-reviewed-provider-v1",
+    "releaseRunObservable":true,
+    "noSensitiveExportProof":true,
+    "requiredOperationCount":8,
+    "publicPrimitiveReadyCount":8,
+    "materialExportProofCount":8,
+    "outputShapeProofCount":8,
+    "offlineObjectRecoveryCapturePolicy":"safe-object-token-hash-size-envelope-header-session-metadata-only",
+    "rawKeyExported":false,
+    "privateMaterialExported":false,
+    "sessionSecretExported":false,
+    "plaintextBytesExported":false,
+    "ciphertextBytesExported":false
+  },
+  "releaseRun":{
+    "persisted":true,
+    "productionRequired":true,
+    "requestedBackendId":"openssl-reviewed-adapter-v1",
+    "selectedBackendId":"openssl-reviewed-adapter-v1"
+  },
+  "sensitiveExportProof":{
+    "noSensitiveExportProof":true,
+    "sensitiveFieldsSuppressed":true,
+    "rawKeyExported":false,
+    "privateMaterialExported":false,
+    "sessionSecretExported":false,
+    "plaintextBytesExported":false,
+    "ciphertextBytesExported":false
+  }
+}
+'@ | Set-Content -LiteralPath $linkedCandidateRolloutJsonPath -Encoding UTF8
+@'
+# QtNetworkChat E2E Linked Runtime Candidate Evidence
+
+- Status: `ready`
+- Release gate: `production-rollout-observability-ready`
+- Production backend: `openssl-reviewed-adapter-v1`
+'@ | Set-Content -LiteralPath $linkedCandidateRolloutMarkdownPath -Encoding UTF8
+@'
+{
+  "format":"qtnetworkchat-github-windows-build-status-v1",
+  "headSha":"linked-candidate-head",
+  "status":"success",
+  "runId":"linked-candidate-run",
+  "source":"fixture",
+  "visibility":"current-head-observed",
+  "observedRunCount":1,
+  "currentHeadObserved":true,
+  "releaseGate":"github-windows-build-current-head-success",
+  "sensitiveExportProof":{"noSensitiveExportProof":true}
+}
+'@ | Set-Content -LiteralPath $linkedCandidateCiStatusPath -Encoding UTF8
+& (Join-Path $PSScriptRoot "package-e2e-release-evidence.ps1") `
+    -OutputDir $e2eLinkedReleaseCandidateDir `
+    -RolloutJsonPath $linkedCandidateRolloutJsonPath `
+    -RolloutMarkdownPath $linkedCandidateRolloutMarkdownPath `
+    -GitHubWindowsBuildStatusPath $linkedCandidateCiStatusPath `
+    -LocalVerificationStatusPath $localVerificationPath `
+    -ReleaseHead "linked-candidate-head" `
+    -FailOnSensitive | Out-Null
+
 ([ordered]@{
     format = "qtnetworkchat-database-health-task-preview-v1"
     taskKind = "database-health"
@@ -290,6 +390,7 @@ End testing: Jun 03 04:01
     -E2ERolloutObservabilityJsonPath $e2eRolloutJsonPath `
     -E2ERolloutObservabilityMarkdownPath $e2eRolloutMarkdownPath `
     -E2EReleaseEvidenceManifestPath $e2eReleaseEvidenceManifestPath `
+    -E2ELinkedReleaseCandidateManifestPath $e2eLinkedReleaseCandidateManifestPath `
     -DatabaseHealthStatusPath $dbStatusPath `
     -DatabaseHealthLastRunPath $dbLastRunPath `
     -DatabaseHealthTaskPreviewPath $dbPreviewPath `
@@ -327,6 +428,7 @@ foreach ($expected in @(
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready,ci-status-external-visibility-stale,ci-current-head-not-observed`',
     'Promotion action: `Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision.`',
     'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`auto1234567890abcdef`',
+    'Linked runtime candidate: releaseReady=`true`, promoted=`true`, releaseGate=`e2e-release-artifact-promoted`, productionLinked=`true`, ci=`success/current-head-observed`, local=`passed/passed`, blockers=`unknown`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
@@ -357,6 +459,7 @@ foreach ($expected in @(
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
+    'E2E linked release candidate artifacts: `manifest=ok; releaseReady=true; promoted=true; releaseGate=e2e-release-artifact-promoted; packageSha256=',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
     'E2E production crypto is the active automation lane again',
