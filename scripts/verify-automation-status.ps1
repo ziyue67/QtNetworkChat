@@ -77,6 +77,7 @@ $dbPreviewPath = Join-Path $tempDir "database-health-task-preview.json"
 $govStatusPath = Join-Path $tempDir "large-file-governance-status.json"
 $govLastRunPath = Join-Path $tempDir "large-file-governance-last-run.log"
 $govPreviewPath = Join-Path $tempDir "large-file-governance-task-preview.json"
+$s3ReadinessPath = Join-Path $tempDir "s3-real-backend-readiness.json"
 $taskHistoryPath = Join-Path $tempDir "automation-task-history.json"
 $taskAckPath = Join-Path $tempDir "automation-task-ack.json"
 $ackDrillPath = Join-Path $tempDir "automation-ack-drill.json"
@@ -125,6 +126,18 @@ Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
   "s3CoverageActionableGapAreas":["remote-validation-fail-closed"]
 }
 '@ | Set-Content -LiteralPath $govStatusPath -Encoding UTF8
+@'
+{
+  "format":"qtnetworkchat-s3-real-backend-readiness-v1",
+  "ok":true,
+  "status":"verified",
+  "configured":true,
+  "explicitEnabled":true,
+  "summary":{"readiness":"verified","operatorAction":"Archive the redacted S3/MinIO real-backend evidence with large-file governance artifacts."},
+  "auditSummary":{"releaseGate":"can-review-s3-real-backend-evidence","defaultCTestMode":"readiness-and-redaction-only","realBackendDefaultCI":false},
+  "evidence":{"s3LineCount":5,"successCount":5,"fixedFailureReasonCount":0,"sensitiveHitCount":0}
+}
+'@ | Set-Content -LiteralPath $s3ReadinessPath -Encoding UTF8
 '2026-06-03T02:03:04.0000000Z exitCode=2' | Set-Content -LiteralPath $govLastRunPath -Encoding UTF8
 @'
 {
@@ -469,6 +482,10 @@ foreach ($expected in @(
     'Database health last run: at=`2026-06-03T01:02:03.0000000Z`, exitCode=`0`',
     'Large-file governance: status=`unhealthy`, ok=`false`, warnings=`3`, alerts=`2`, actionableS3Gaps=`1`',
     'Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`',
+    'S3 Real Backend Readiness',
+    'S3 real backend readiness: status=`verified`, ok=`true`, configured=`true`, explicitEnabled=`true`, readiness=`verified`, releaseGate=`can-review-s3-real-backend-evidence`',
+    'Evidence: s3Lines=`5`, success=`5`, fixedFailureReasons=`0`, sensitiveHits=`0`, defaultCTestMode=`readiness-and-redaction-only`, realBackendDefaultCI=`false`',
+    'Action: `Archive the redacted S3/MinIO real-backend evidence with large-file governance artifacts.`',
     'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
     'Task acknowledgement gate: state=`failed-acknowledged`, failed=`2`, acknowledged=`true`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
@@ -479,6 +496,7 @@ foreach ($expected in @(
     'Artifact Diagnostics',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
+    'S3 real backend readiness artifacts: `readiness=ok; status=verified; releaseGate=can-review-s3-real-backend-evidence; defaultCI=false`',
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`',
     'Automation ack drill artifacts: `state=exercised; ok=true; acknowledged=true; releaseGate=automation-ack-drill-exercised`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
@@ -544,6 +562,7 @@ $autoMarkdownPath = Join-Path $tempDir "automation-status-auto-readback.md"
     -LargeFileGovernanceStatusPath $govStatusPath `
     -LargeFileGovernanceLastRunPath $govLastRunPath `
     -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
+    -S3RealBackendReadinessPath $s3ReadinessPath `
     -AutomationTaskHistoryPath $taskHistoryPath `
     -AutomationTaskAckPath $taskAckPath `
     -FailOnSensitive
@@ -820,8 +839,10 @@ foreach ($expected in @(
     'Task history: runs=`1`, failed=`0`, latestAt=`',
     'Task acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`bootstrap-default`',
     'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`false`, ackExpired=`false`, tasks=`3`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
+    'S3 real backend readiness: `not configured`',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
+    'S3 real backend readiness artifacts: `readiness=not-configured; status=not-configured; releaseGate=not-configured; defaultCI=unknown`',
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=ok`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
@@ -1116,10 +1137,12 @@ foreach ($expected in @(
     'Tracked remote hash: `unknown`',
     'Database health: `configured but status artifact unavailable`',
     'Large-file governance: `configured but status artifact unavailable`',
+    'S3 real backend readiness: `not configured`',
     'Task history: `configured but history artifact unavailable`',
     'Task acknowledgement gate: state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
     'Database health artifacts: `preview=not-configured; status=missing',
     'Large-file governance artifacts: `preview=not-configured; status=missing',
+    'S3 real backend readiness artifacts: `readiness=not-configured; status=not-configured; releaseGate=not-configured; defaultCI=unknown`',
     'Automation history artifacts: `history=missing',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {

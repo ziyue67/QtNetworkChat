@@ -25,6 +25,7 @@ param(
     [string]$LargeFileGovernanceStatusPath,
     [string]$LargeFileGovernanceLastRunPath,
     [string]$LargeFileGovernanceTaskPreviewPath,
+    [string]$S3RealBackendReadinessPath,
     [string[]]$TaskPreviewPath = @(),
     [string]$ScheduledTaskReadbackJsonPath,
     [string]$AutomationTaskHistoryPath,
@@ -766,6 +767,60 @@ function Get-ArtifactIssueText(
         return ('{0}=not-configured' -f $ArtifactLabel)
     }
     $ArtifactLabel + '=not-configured'
+}
+
+function Get-S3RealBackendReadinessReadback([object]$ArtifactState) {
+    $result = [ordered]@{
+        configured = $false
+        state = "not-configured"
+        ok = "unknown"
+        status = "not-configured"
+        readiness = "not-configured"
+        releaseGate = "not-configured"
+        operatorAction = "none"
+        configuredFlag = "unknown"
+        explicitEnabled = "unknown"
+        defaultCTestMode = "unknown"
+        realBackendDefaultCI = "unknown"
+        s3LineCount = 0
+        successCount = 0
+        fixedFailureReasonCount = 0
+        sensitiveHitCount = 0
+    }
+    if ($null -eq $ArtifactState -or -not $ArtifactState.configured) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    $result.state = $ArtifactState.state
+    if ($ArtifactState.state -ne "ok") {
+        $result.status = $ArtifactState.state
+        $result.releaseGate = "s3-real-backend-readiness-" + $ArtifactState.state
+        return [pscustomobject]$result
+    }
+    $readiness = $ArtifactState.value
+    if ((Get-JsonValue $readiness "format" "") -ne "qtnetworkchat-s3-real-backend-readiness-v1") {
+        $result.state = "invalid-format"
+        $result.status = "invalid-format"
+        $result.releaseGate = "s3-real-backend-readiness-invalid-format"
+        return [pscustomobject]$result
+    }
+    $summary = Get-JsonValue $readiness "summary" $null
+    $auditSummary = Get-JsonValue $readiness "auditSummary" $null
+    $evidence = Get-JsonValue $readiness "evidence" $null
+    $result.ok = Format-StatusValue (Get-JsonValue $readiness "ok" $null)
+    $result.status = Format-StatusValue (Get-JsonValue $readiness "status" "unknown")
+    $result.readiness = Format-StatusValue (Get-JsonValue $summary "readiness" "unknown")
+    $result.releaseGate = Format-StatusValue (Get-JsonValue $auditSummary "releaseGate" "unknown")
+    $result.operatorAction = Format-StatusValue (Get-JsonValue $summary "operatorAction" "unknown")
+    $result.configuredFlag = Format-StatusValue (Get-JsonValue $readiness "configured" $null)
+    $result.explicitEnabled = Format-StatusValue (Get-JsonValue $readiness "explicitEnabled" $null)
+    $result.defaultCTestMode = Format-StatusValue (Get-JsonValue $auditSummary "defaultCTestMode" "unknown")
+    $result.realBackendDefaultCI = Format-StatusValue (Get-JsonValue $auditSummary "realBackendDefaultCI" "unknown")
+    $result.s3LineCount = [int](Get-JsonValue $evidence "s3LineCount" 0)
+    $result.successCount = [int](Get-JsonValue $evidence "successCount" 0)
+    $result.fixedFailureReasonCount = [int](Get-JsonValue $evidence "fixedFailureReasonCount" 0)
+    $result.sensitiveHitCount = [int](Get-JsonValue $evidence "sensitiveHitCount" 0)
+    [pscustomobject]$result
 }
 
 function Get-E2ERolloutObservabilityReadback(
@@ -2279,6 +2334,15 @@ if ([string]::IsNullOrWhiteSpace($AutomationAckDrillPath)) {
         $AutomationAckDrillPath = $defaultAutomationAckDrillPath
     }
 }
+if ([string]::IsNullOrWhiteSpace($S3RealBackendReadinessPath) `
+        -and -not $PlanOnly.IsPresent `
+        -and -not $BootstrapDefaultTasks.IsPresent) {
+    $defaultS3RealBackendReadinessPath =
+        Join-Path $BuildDir "manual-s3-real-backend\s3-real-backend-readiness.json"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultS3RealBackendReadinessPath) -PathType Leaf) {
+        $S3RealBackendReadinessPath = $defaultS3RealBackendReadinessPath
+    }
+}
 $localVerificationReadback = Get-LocalVerificationStatusReadback $LocalVerificationStatusPath
 
 $ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
@@ -2339,6 +2403,9 @@ $e2eLinkedReleaseCandidateManifestState =
 $e2eLinkedReleaseCandidateReadback =
     Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState
 $automationAckDrillState = Get-ArtifactState -PathValue $AutomationAckDrillPath -ExpectJson
+$s3RealBackendReadinessState = Get-ArtifactState -PathValue $S3RealBackendReadinessPath -ExpectJson
+$s3RealBackendReadinessReadback =
+    Get-S3RealBackendReadinessReadback $s3RealBackendReadinessState
 if ($e2eRolloutReadback.state -eq "ok") {
     $e2eRolloutReadback.ciStatus = Format-StatusValue $CiStatus
     $e2eRolloutReadback.ciRunId = Format-StatusValue $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId })
@@ -2958,6 +3025,33 @@ if ($automationAckDrillState.configured) {
     }
 }
 $lines.Add("")
+$lines.Add("## S3 Real Backend Readiness")
+$lines.Add("")
+if (-not $s3RealBackendReadinessReadback.configured) {
+    $lines.Add('- S3 real backend readiness: `not configured`')
+} elseif ($s3RealBackendReadinessReadback.state -ne "ok" -and $s3RealBackendReadinessReadback.state -ne "invalid-format") {
+    $lines.Add(('- S3 real backend readiness: state=`{0}`, releaseGate=`{1}`' -f
+            (Format-StatusValue $s3RealBackendReadinessReadback.state),
+            (Format-StatusValue $s3RealBackendReadinessReadback.releaseGate)))
+} else {
+    $lines.Add(('- S3 real backend readiness: status=`{0}`, ok=`{1}`, configured=`{2}`, explicitEnabled=`{3}`, readiness=`{4}`, releaseGate=`{5}`' -f
+            (Format-StatusValue $s3RealBackendReadinessReadback.status),
+            (Format-StatusValue $s3RealBackendReadinessReadback.ok),
+            (Format-StatusValue $s3RealBackendReadinessReadback.configuredFlag),
+            (Format-StatusValue $s3RealBackendReadinessReadback.explicitEnabled),
+            (Format-StatusValue $s3RealBackendReadinessReadback.readiness),
+            (Format-StatusValue $s3RealBackendReadinessReadback.releaseGate)))
+    $lines.Add(('  Evidence: s3Lines=`{0}`, success=`{1}`, fixedFailureReasons=`{2}`, sensitiveHits=`{3}`, defaultCTestMode=`{4}`, realBackendDefaultCI=`{5}`' -f
+            (Format-StatusValue $s3RealBackendReadinessReadback.s3LineCount),
+            (Format-StatusValue $s3RealBackendReadinessReadback.successCount),
+            (Format-StatusValue $s3RealBackendReadinessReadback.fixedFailureReasonCount),
+            (Format-StatusValue $s3RealBackendReadinessReadback.sensitiveHitCount),
+            (Format-StatusValue $s3RealBackendReadinessReadback.defaultCTestMode),
+            (Format-StatusValue $s3RealBackendReadinessReadback.realBackendDefaultCI)))
+    $lines.Add(('  Action: `{0}`' -f
+            (Format-StatusValue $s3RealBackendReadinessReadback.operatorAction)))
+}
+$lines.Add("")
 $lines.Add("## Artifact Diagnostics")
 $lines.Add("")
 $databaseHealthDiagnostics = @(
@@ -3007,8 +3101,15 @@ $e2eLinkedReleaseCandidateDiagnostics = @(
     ('releaseGate={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate)),
     ('packageSha256={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageSha256))
 ) -join "; "
+$s3RealBackendReadinessDiagnostics = @(
+    ('readiness={0}' -f (Format-StatusValue $s3RealBackendReadinessState.state)),
+    ('status={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.status)),
+    ('releaseGate={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.releaseGate)),
+    ('defaultCI={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.realBackendDefaultCI))
+) -join "; "
 $lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
 $lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnostics + '`')
+$lines.Add('- S3 real backend readiness artifacts: `' + $s3RealBackendReadinessDiagnostics + '`')
 $lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics + '`')
 if ($automationAckDrillState.configured) {
     $lines.Add('- Automation ack drill artifacts: `' + $automationAckDrillDiagnostics + '`')
