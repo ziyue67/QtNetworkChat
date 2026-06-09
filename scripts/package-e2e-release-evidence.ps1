@@ -81,6 +81,23 @@ function Test-HeadMatch([string]$Expected, [string]$Actual) {
         -or $normalizedExpected.StartsWith($normalizedActual)
 }
 
+function Normalize-TextValue([object]$Value) {
+    $text = Format-Value $Value
+    if ($text -eq "unknown") {
+        return ""
+    }
+    $text.Trim()
+}
+
+function Test-TextMatch([string]$Expected, [string]$Actual) {
+    $normalizedExpected = Normalize-TextValue $Expected
+    $normalizedActual = Normalize-TextValue $Actual
+    if ([string]::IsNullOrWhiteSpace($normalizedExpected) -or [string]::IsNullOrWhiteSpace($normalizedActual)) {
+        return $false
+    }
+    $normalizedExpected -ceq $normalizedActual
+}
+
 function Get-Sha256Hex([string]$PathValue) {
     if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
         return "unknown"
@@ -209,12 +226,51 @@ $local = Read-OptionalJson $LocalVerificationStatusPath
 
 $rolloutAudit = Get-JsonValue $rollout "auditSummary" $null
 $rolloutSummary = Get-JsonValue $rollout "summary" $null
+$productionAcceptance = Get-JsonValue $rollout "productionAcceptanceSummary" $null
+$productionRollout = Get-JsonValue $rollout "productionRolloutObservability" $null
+$releaseRun = Get-JsonValue $rollout "releaseRun" $null
+$rolloutProof = Get-JsonValue $rollout "sensitiveExportProof" $null
 $localBuild = Get-JsonValue $local "build" $null
 $localCTest = Get-JsonValue $local "ctest" $null
 
 $rolloutOk = [bool](Get-JsonValue $rollout "ok" $false)
 $rolloutStatus = Format-Value (Get-JsonValue $rollout "status" "missing")
 $rolloutGate = Format-Value (Get-JsonValue $rolloutAudit "releaseGate" "missing-rollout-observability")
+$productionAcceptanceAccepted = [bool](Get-JsonValue $productionAcceptance "accepted" $false)
+$productionAcceptanceLinked = [bool](Get-JsonValue $productionAcceptance "linked" $false)
+$productionAcceptanceReady = [bool](Get-JsonValue $productionAcceptance "productionReady" $false)
+$productionAcceptanceGate = Format-Value (Get-JsonValue $productionAcceptance "releaseGate" "unknown")
+$productionAcceptanceBackendId = Format-Value (Get-JsonValue $productionAcceptance "backendId" "unknown")
+$productionAcceptanceProviderId = Format-Value (Get-JsonValue $productionAcceptance "providerId" "unknown")
+$productionAcceptanceRequiredCount = [int](Get-JsonValue $productionAcceptance "requiredOperationCount" 0)
+$productionAcceptanceAvailableCount = [int](Get-JsonValue $productionAcceptance "availableOperationCount" 0)
+$productionRolloutAccepted = [bool](Get-JsonValue $productionRollout "accepted" $false)
+$productionRolloutLinked = [bool](Get-JsonValue $productionRollout "linked" $false)
+$productionRolloutReady = [bool](Get-JsonValue $productionRollout "productionReady" $false)
+$productionRolloutGate = Format-Value (Get-JsonValue $productionRollout "releaseGate" "unknown")
+$productionRolloutBackendId = Format-Value (Get-JsonValue $productionRollout "backendId" "unknown")
+$productionReleaseRunObservable = [bool](Get-JsonValue $productionRollout "releaseRunObservable" $false)
+$productionRolloutNoSensitive = [bool](Get-JsonValue $productionRollout "noSensitiveExportProof" $false)
+$productionRolloutRequiredCount = [int](Get-JsonValue $productionRollout "requiredOperationCount" 0)
+$productionPublicPrimitiveReadyCount = [int](Get-JsonValue $productionRollout "publicPrimitiveReadyCount" 0)
+$productionMaterialExportProofCount = [int](Get-JsonValue $productionRollout "materialExportProofCount" 0)
+$productionOutputShapeProofCount = [int](Get-JsonValue $productionRollout "outputShapeProofCount" 0)
+$releaseRunPersisted = [bool](Get-JsonValue $releaseRun "persisted" $false)
+$releaseRunProductionRequired = [bool](Get-JsonValue $releaseRun "productionRequired" $false)
+$releaseRunRequestedBackendId = Format-Value (Get-JsonValue $releaseRun "requestedBackendId" "unknown")
+$releaseRunSelectedBackendId = Format-Value (Get-JsonValue $releaseRun "selectedBackendId" "unknown")
+$rolloutNoSensitive = [bool](Get-JsonValue $rolloutProof "noSensitiveExportProof" $false)
+$rolloutSensitiveSuppressed = [bool](Get-JsonValue $rolloutProof "sensitiveFieldsSuppressed" $false)
+$sensitiveMaterialExported = [bool](Get-JsonValue $rolloutProof "rawKeyExported" $false) `
+    -or [bool](Get-JsonValue $rolloutProof "privateMaterialExported" $false) `
+    -or [bool](Get-JsonValue $rolloutProof "sessionSecretExported" $false) `
+    -or [bool](Get-JsonValue $rolloutProof "plaintextBytesExported" $false) `
+    -or [bool](Get-JsonValue $rolloutProof "ciphertextBytesExported" $false) `
+    -or [bool](Get-JsonValue $productionRollout "rawKeyExported" $false) `
+    -or [bool](Get-JsonValue $productionRollout "privateMaterialExported" $false) `
+    -or [bool](Get-JsonValue $productionRollout "sessionSecretExported" $false) `
+    -or [bool](Get-JsonValue $productionRollout "plaintextBytesExported" $false) `
+    -or [bool](Get-JsonValue $productionRollout "ciphertextBytesExported" $false)
 $ciStatus = Format-Value (Get-JsonValue $ci "status" "missing")
 $ciVisibility = Format-Value (Get-JsonValue $ci "visibility" "missing")
 $ciRunId = Format-Value (Get-JsonValue $ci "runId" "unknown")
@@ -236,8 +292,41 @@ $localArtifactPresent = $null -ne $local
 $releaseHeadConfigured = -not [string]::IsNullOrWhiteSpace((Normalize-HeadValue $ReleaseHead))
 $targetReleaseHead = if ($releaseHeadConfigured) { Format-Value $ReleaseHead } else { "unknown" }
 $ciHeadMatchesReleaseHead = -not $releaseHeadConfigured -or ($ciArtifactPresent -and (Test-HeadMatch $targetReleaseHead $ciHeadSha))
+$acceptedBackendMatchesRollout = Test-TextMatch $productionAcceptanceBackendId $productionRolloutBackendId
+$requestedBackendMatchesAcceptance = Test-TextMatch $productionAcceptanceBackendId $releaseRunRequestedBackendId
+$selectedBackendMatchesAcceptance = Test-TextMatch $productionAcceptanceBackendId $releaseRunSelectedBackendId
+$productionOperationCountsReady = $productionAcceptanceRequiredCount -gt 0 `
+    -and $productionAcceptanceAvailableCount -ge $productionAcceptanceRequiredCount `
+    -and $productionRolloutRequiredCount -ge $productionAcceptanceRequiredCount `
+    -and $productionPublicPrimitiveReadyCount -ge $productionAcceptanceRequiredCount `
+    -and $productionMaterialExportProofCount -ge $productionAcceptanceRequiredCount `
+    -and $productionOutputShapeProofCount -ge $productionAcceptanceRequiredCount
+$productionLinkedBlockers = New-Object System.Collections.ArrayList
+if (-not $rolloutOk) { [void]$productionLinkedBlockers.Add("rollout-not-ready") }
+if (-not $productionAcceptanceAccepted) { [void]$productionLinkedBlockers.Add("production-acceptance-not-accepted") }
+if (-not $productionAcceptanceLinked) { [void]$productionLinkedBlockers.Add("production-acceptance-not-linked") }
+if (-not $productionAcceptanceReady) { [void]$productionLinkedBlockers.Add("production-acceptance-not-ready") }
+if ($productionAcceptanceGate -ne "production-crypto-accepted") { [void]$productionLinkedBlockers.Add("production-acceptance-gate-not-accepted") }
+if (-not $productionRolloutAccepted) { [void]$productionLinkedBlockers.Add("production-rollout-not-accepted") }
+if (-not $productionRolloutLinked) { [void]$productionLinkedBlockers.Add("production-rollout-not-linked") }
+if (-not $productionRolloutReady) { [void]$productionLinkedBlockers.Add("production-rollout-not-ready") }
+if ($productionRolloutGate -ne "production-rollout-observability-ready") { [void]$productionLinkedBlockers.Add("production-rollout-gate-not-ready") }
+if (-not $productionReleaseRunObservable) { [void]$productionLinkedBlockers.Add("production-release-run-not-observable") }
+if (-not $releaseRunPersisted) { [void]$productionLinkedBlockers.Add("release-run-not-persisted") }
+if (-not $releaseRunProductionRequired) { [void]$productionLinkedBlockers.Add("release-run-not-production-required") }
+if (-not $acceptedBackendMatchesRollout) { [void]$productionLinkedBlockers.Add("production-backend-mismatch") }
+if (-not $requestedBackendMatchesAcceptance) { [void]$productionLinkedBlockers.Add("release-run-requested-backend-mismatch") }
+if (-not $selectedBackendMatchesAcceptance) { [void]$productionLinkedBlockers.Add("release-run-backend-mismatch") }
+if (-not $productionOperationCountsReady) { [void]$productionLinkedBlockers.Add("production-operation-counts-not-ready") }
+if (-not $productionRolloutNoSensitive -or -not $rolloutNoSensitive -or $sensitiveMaterialExported) { [void]$productionLinkedBlockers.Add("production-no-sensitive-proof-missing") }
+$productionLinkedEvidenceReady = $rolloutArtifactPresent -and $productionLinkedBlockers.Count -eq 0
+$productionLinkedGate = if ($productionLinkedEvidenceReady) {
+    "production-linked-rollout-ready"
+} else {
+    "blocked-production-linked-rollout-not-ready"
+}
 $packageOk = $sensitiveHits.Count -eq 0 -and $rolloutArtifactPresent -and $ciArtifactPresent -and $localArtifactPresent
-$releaseReady = $packageOk -and $rolloutOk -and $ciStatus -eq "success" -and $localOk -and $ciHeadMatchesReleaseHead
+$releaseReady = $packageOk -and $productionLinkedEvidenceReady -and $ciStatus -eq "success" -and $localOk -and $ciHeadMatchesReleaseHead
 
 $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-sensitive-evidence"
@@ -259,8 +348,8 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     }
 } elseif (-not $localOk) {
     "blocked-local-verification"
-} elseif (-not $rolloutOk) {
-    $rolloutGate
+} elseif (-not $productionLinkedEvidenceReady) {
+    $productionLinkedGate
 } else {
     "e2e-release-evidence-ready"
 }
@@ -271,8 +360,13 @@ if ($sensitiveHits.Count -gt 0) {
 }
 if (-not $rolloutArtifactPresent) {
     [void]$promotionBlockers.Add("missing-rollout-observability")
-} elseif (-not $rolloutOk) {
-    [void]$promotionBlockers.Add("rollout-not-ready")
+} else {
+    if (-not $rolloutOk) {
+        [void]$promotionBlockers.Add("rollout-not-ready")
+    }
+    if (-not $productionLinkedEvidenceReady) {
+        [void]$promotionBlockers.Add("production-linked-rollout-not-ready")
+    }
 }
 if (-not $ciArtifactPresent) {
     [void]$promotionBlockers.Add("missing-github-windows-build-status")
@@ -293,7 +387,7 @@ if (-not $localArtifactPresent) {
     [void]$promotionBlockers.Add("local-verification-not-ready")
 }
 
-$promotionReady = $releaseReady -and $ciCurrentHeadObserved -and $ciHeadMatchesReleaseHead -and $promotionBlockers.Count -eq 0
+$promotionReady = $releaseReady -and $ciCurrentHeadObserved -and $ciHeadMatchesReleaseHead -and $productionLinkedEvidenceReady -and $promotionBlockers.Count -eq 0
 $promotionGate = if ($promotionReady) {
     "e2e-release-artifact-promoted"
 } else {
@@ -322,6 +416,41 @@ $manifest = [ordered]@{
         ok = $rolloutOk
         readiness = Format-Value (Get-JsonValue $rolloutSummary "readiness" "unknown")
         releaseGate = $rolloutGate
+    }
+    productionLinkedEvidence = [ordered]@{
+        ready = $productionLinkedEvidenceReady
+        releaseGate = $productionLinkedGate
+        blockers = @($productionLinkedBlockers.ToArray())
+        acceptanceAccepted = $productionAcceptanceAccepted
+        acceptanceLinked = $productionAcceptanceLinked
+        acceptanceProductionReady = $productionAcceptanceReady
+        acceptanceReleaseGate = $productionAcceptanceGate
+        acceptanceBackendId = $productionAcceptanceBackendId
+        acceptanceProviderId = $productionAcceptanceProviderId
+        acceptanceRequiredOperationCount = $productionAcceptanceRequiredCount
+        acceptanceAvailableOperationCount = $productionAcceptanceAvailableCount
+        rolloutAccepted = $productionRolloutAccepted
+        rolloutLinked = $productionRolloutLinked
+        rolloutProductionReady = $productionRolloutReady
+        rolloutReleaseGate = $productionRolloutGate
+        rolloutBackendId = $productionRolloutBackendId
+        releaseRunObservable = $productionReleaseRunObservable
+        releaseRunPersisted = $releaseRunPersisted
+        releaseRunProductionRequired = $releaseRunProductionRequired
+        releaseRunRequestedBackendId = $releaseRunRequestedBackendId
+        releaseRunSelectedBackendId = $releaseRunSelectedBackendId
+        acceptedBackendMatchesRollout = $acceptedBackendMatchesRollout
+        requestedBackendMatchesAcceptance = $requestedBackendMatchesAcceptance
+        selectedBackendMatchesAcceptance = $selectedBackendMatchesAcceptance
+        operationCountsReady = $productionOperationCountsReady
+        requiredOperationCount = $productionAcceptanceRequiredCount
+        publicPrimitiveReadyCount = $productionPublicPrimitiveReadyCount
+        materialExportProofCount = $productionMaterialExportProofCount
+        outputShapeProofCount = $productionOutputShapeProofCount
+        rolloutNoSensitiveExportProof = $productionRolloutNoSensitive
+        artifactNoSensitiveExportProof = $rolloutNoSensitive
+        sensitiveFieldsSuppressed = $rolloutSensitiveSuppressed
+        sensitiveMaterialExported = $sensitiveMaterialExported
     }
     ci = [ordered]@{
         present = $ciArtifactPresent
@@ -368,6 +497,8 @@ $manifest = [ordered]@{
         currentHeadObserved = $ciCurrentHeadObserved
         ciHeadMatchesReleaseHead = $ciHeadMatchesReleaseHead
         ciStatus = $ciStatus
+        productionLinkedEvidenceReady = $productionLinkedEvidenceReady
+        productionLinkedReleaseGate = $productionLinkedGate
         localVerificationOk = $localOk
         rolloutOk = $rolloutOk
         noSensitiveExportProof = $sensitiveHits.Count -eq 0

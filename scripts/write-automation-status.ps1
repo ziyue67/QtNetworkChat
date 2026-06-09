@@ -907,6 +907,14 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
         promotionGate = "unknown"
         promotionBlockers = "unknown"
         promotionOperatorAction = "unknown"
+        productionLinkedReady = "unknown"
+        productionLinkedGate = "unknown"
+        productionLinkedBlockers = "unknown"
+        productionLinkedAcceptanceBackend = "unknown"
+        productionLinkedRolloutBackend = "unknown"
+        productionLinkedReleaseRunBackend = "unknown"
+        productionLinkedOperationCountsReady = "unknown"
+        productionLinkedNoSensitiveReady = "unknown"
     }
     if ($null -ne $ManifestState -and $ManifestState.configured) {
         $result.configured = $true
@@ -932,6 +940,7 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
     $local = Get-JsonValue $manifest "localVerification" $null
     $proof = Get-JsonValue $manifest "sensitiveExportProof" $null
     $promotion = Get-JsonValue $manifest "promotion" $null
+    $productionLinked = Get-JsonValue $manifest "productionLinkedEvidence" $null
     $result.state = "ok"
     $result.ok = Format-StatusValue (Get-JsonValue $manifest "ok" "unknown")
     $result.releaseReady = Format-StatusValue (Get-JsonValue $manifest "releaseReady" "unknown")
@@ -967,6 +976,28 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
         Format-StatusValue (@(Get-JsonValue $promotion "blockers" @()) -join ",")
     $result.promotionOperatorAction =
         Format-StatusValue (Get-JsonValue $promotion "operatorAction" "unknown")
+    $result.productionLinkedReady =
+        Format-StatusValue (Get-JsonValue $productionLinked "ready" "unknown")
+    $result.productionLinkedGate =
+        Format-StatusValue (Get-JsonValue $productionLinked "releaseGate" "unknown")
+    $result.productionLinkedBlockers =
+        Format-StatusValue (@(Get-JsonValue $productionLinked "blockers" @()) -join ",")
+    $result.productionLinkedAcceptanceBackend =
+        Format-StatusValue (Get-JsonValue $productionLinked "acceptanceBackendId" "unknown")
+    $result.productionLinkedRolloutBackend =
+        Format-StatusValue (Get-JsonValue $productionLinked "rolloutBackendId" "unknown")
+    $result.productionLinkedReleaseRunBackend =
+        Format-StatusValue (Get-JsonValue $productionLinked "releaseRunSelectedBackendId" "unknown")
+    $result.productionLinkedOperationCountsReady =
+        Format-StatusValue (Get-JsonValue $productionLinked "operationCountsReady" "unknown")
+    $productionLinkedNoSensitiveReady = $false
+    if ($null -ne $productionLinked) {
+        $productionLinkedNoSensitiveReady =
+            [bool](Get-JsonValue $productionLinked "rolloutNoSensitiveExportProof" $false) `
+            -and [bool](Get-JsonValue $productionLinked "artifactNoSensitiveExportProof" $false) `
+            -and -not [bool](Get-JsonValue $productionLinked "sensitiveMaterialExported" $false)
+    }
+    $result.productionLinkedNoSensitiveReady = Format-StatusValue $productionLinkedNoSensitiveReady
     [pscustomobject]$result
 }
 
@@ -2510,6 +2541,15 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.manifestPackagedAs), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.manifestEmbedded), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)))
+    $lines.Add(('  Production-linked release: ready=`{0}`, releaseGate=`{1}`, blockers=`{2}`, acceptanceBackend=`{3}`, rolloutBackend=`{4}`, releaseRunBackend=`{5}`, operationCountsReady=`{6}`, noSensitiveReady=`{7}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedReady), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedGate), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedBlockers), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedAcceptanceBackend), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedRolloutBackend), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedReleaseRunBackend), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedOperationCountsReady), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedNoSensitiveReady)))
     $lines.Add(('  Promotion decision: promoted=`{0}`, ready=`{1}`, releaseGate=`{2}`, blockers=`{3}`' -f `
             (Format-StatusValue $e2eReleaseEvidenceReadback.promotionPromoted), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.promotionReady), `

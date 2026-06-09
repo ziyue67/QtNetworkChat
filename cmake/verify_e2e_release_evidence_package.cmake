@@ -64,6 +64,15 @@ string(JSON promotion_embedded_gate GET "${manifest_content}" "promotion" "relea
 string(JSON promotion_embedded_ready GET "${manifest_content}" "promotion" "promotionReady")
 string(JSON promotion_embedded_promoted GET "${manifest_content}" "promotion" "promoted")
 string(JSON promotion_embedded_blocker0 GET "${manifest_content}" "promotion" "blockers" 0)
+string(JSON promotion_embedded_blocker1 GET "${manifest_content}" "promotion" "blockers" 1)
+string(JSON production_linked_ready GET "${manifest_content}" "productionLinkedEvidence" "ready")
+string(JSON production_linked_gate GET "${manifest_content}" "productionLinkedEvidence" "releaseGate")
+string(JSON production_linked_blocker0 GET "${manifest_content}" "productionLinkedEvidence" "blockers" 0)
+string(JSON production_linked_backend_match GET "${manifest_content}" "productionLinkedEvidence" "acceptedBackendMatchesRollout")
+string(JSON production_linked_request_match GET "${manifest_content}" "productionLinkedEvidence" "requestedBackendMatchesAcceptance")
+string(JSON production_linked_select_match GET "${manifest_content}" "productionLinkedEvidence" "selectedBackendMatchesAcceptance")
+string(JSON production_linked_counts_ready GET "${manifest_content}" "productionLinkedEvidence" "operationCountsReady")
+string(JSON production_linked_sensitive_exported GET "${manifest_content}" "productionLinkedEvidence" "sensitiveMaterialExported")
 string(JSON package_path GET "${manifest_content}" "packagePath")
 string(JSON package_sha256 GET "${manifest_content}" "packageSha256")
 string(JSON staging_dir GET "${manifest_content}" "stagingDir")
@@ -88,6 +97,7 @@ string(JSON promotion_target_release_head GET "${promotion_content}" "targetRele
 string(JSON promotion_ci_head_sha GET "${promotion_content}" "ciHeadSha")
 string(JSON promotion_ci_head_matches_release_head GET "${promotion_content}" "ciHeadMatchesReleaseHead")
 string(JSON promotion_blocker0 GET "${promotion_content}" "blockers" 0)
+string(JSON promotion_blocker1 GET "${promotion_content}" "blockers" 1)
 string(FIND "${manifest_content}" "${TEMP_DIR}" temp_path_index)
 if(manifest_content MATCHES "\"source\"[ \t\r\n]*:[ \t\r\n]*\"[A-Za-z]:")
     set(source_absolute_path_leaked TRUE)
@@ -111,13 +121,26 @@ if(NOT promotion_format STREQUAL "qtnetworkchat-e2e-release-artifact-promotion-v
         OR NOT promotion_gate STREQUAL "blocked-e2e-release-artifact-promotion"
         OR NOT promotion_evidence_gate STREQUAL "blocked-ci-head-not-observed"
         OR NOT promotion_blocker0 STREQUAL "rollout-not-ready"
+        OR NOT promotion_blocker1 STREQUAL "production-linked-rollout-not-ready"
         OR NOT promotion_embedded_gate STREQUAL promotion_gate
         OR promotion_embedded_ready
         OR promotion_embedded_promoted
         OR NOT promotion_embedded_blocker0 STREQUAL "rollout-not-ready"
+        OR NOT promotion_embedded_blocker1 STREQUAL "production-linked-rollout-not-ready"
         OR NOT promotion_packaged_as STREQUAL "e2e-release-promotion.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence should emit a fail-closed promotion decision with blockers")
+endif()
+if(production_linked_ready
+        OR NOT production_linked_gate STREQUAL "blocked-production-linked-rollout-not-ready"
+        OR NOT production_linked_blocker0 STREQUAL "rollout-not-ready"
+        OR production_linked_backend_match
+        OR production_linked_request_match
+        OR production_linked_select_match
+        OR production_linked_counts_ready
+        OR production_linked_sensitive_exported)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence should keep production-linked promotion fail-closed for unlinked rollout evidence")
 endif()
 if(NOT input_count EQUAL 5
         OR NOT ci_status STREQUAL "external-visibility-stale"
@@ -155,7 +178,7 @@ endif()
 set(READY_ROLLOUT_JSON "${TEMP_DIR}/e2e-rollout-observability-ready.json")
 set(READY_CI_JSON "${TEMP_DIR}/github-windows-build-status-ready.json")
 set(READY_LOCAL_JSON "${TEMP_DIR}/local-verification-status-ready.json")
-file(WRITE "${READY_ROLLOUT_JSON}" "{\n  \"format\":\"qtnetworkchat-e2e-production-rollout-observability-evidence-v1\",\n  \"status\":\"ready\",\n  \"ok\":true,\n  \"summary\":{\"readiness\":\"ready\"},\n  \"auditSummary\":{\"releaseGate\":\"production-rollout-observability-ready\"},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true,\"sensitiveFieldsSuppressed\":true}\n}\n")
+file(WRITE "${READY_ROLLOUT_JSON}" "{\n  \"format\":\"qtnetworkchat-e2e-production-rollout-observability-evidence-v1\",\n  \"status\":\"ready\",\n  \"ok\":true,\n  \"summary\":{\"readiness\":\"ready\"},\n  \"auditSummary\":{\"releaseGate\":\"production-rollout-observability-ready\"},\n  \"productionAcceptanceSummary\":{\n    \"accepted\":true,\n    \"linked\":true,\n    \"productionReady\":true,\n    \"releaseGate\":\"production-crypto-accepted\",\n    \"backendId\":\"openssl-reviewed-adapter-v1\",\n    \"providerId\":\"openssl-reviewed-provider-v1\",\n    \"requiredOperationCount\":8,\n    \"availableOperationCount\":8\n  },\n  \"productionRolloutObservability\":{\n    \"accepted\":true,\n    \"linked\":true,\n    \"productionReady\":true,\n    \"releaseGate\":\"production-rollout-observability-ready\",\n    \"backendId\":\"openssl-reviewed-adapter-v1\",\n    \"providerId\":\"openssl-reviewed-provider-v1\",\n    \"releaseRunObservable\":true,\n    \"noSensitiveExportProof\":true,\n    \"requiredOperationCount\":8,\n    \"publicPrimitiveReadyCount\":8,\n    \"materialExportProofCount\":8,\n    \"outputShapeProofCount\":8,\n    \"rawKeyExported\":false,\n    \"privateMaterialExported\":false,\n    \"sessionSecretExported\":false,\n    \"plaintextBytesExported\":false,\n    \"ciphertextBytesExported\":false\n  },\n  \"releaseRun\":{\n    \"persisted\":true,\n    \"productionRequired\":true,\n    \"requestedBackendId\":\"openssl-reviewed-adapter-v1\",\n    \"selectedBackendId\":\"openssl-reviewed-adapter-v1\"\n  },\n  \"sensitiveExportProof\":{\n    \"noSensitiveExportProof\":true,\n    \"sensitiveFieldsSuppressed\":true,\n    \"rawKeyExported\":false,\n    \"privateMaterialExported\":false,\n    \"sessionSecretExported\":false,\n    \"plaintextBytesExported\":false,\n    \"ciphertextBytesExported\":false\n  }\n}\n")
 file(WRITE "${READY_CI_JSON}" "{\n  \"format\":\"qtnetworkchat-github-windows-build-status-v1\",\n  \"headSha\":\"abc123\",\n  \"status\":\"success\",\n  \"runId\":\"12345\",\n  \"source\":\"json-artifact\",\n  \"visibility\":\"current-head-observed\",\n  \"observedRunCount\":1,\n  \"currentHeadObserved\":true,\n  \"releaseGate\":\"github-windows-build-current-head-success\",\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
 file(WRITE "${READY_LOCAL_JSON}" "{\n  \"format\":\"qtnetworkchat-local-verification-status-v1\",\n  \"ok\":true,\n  \"build\":{\"status\":\"passed\"},\n  \"ctest\":{\"status\":\"passed\",\"count\":71},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
 execute_process(
@@ -183,6 +206,13 @@ string(JSON ready_promotion_ready GET "${ready_promotion}" "promotionReady")
 string(JSON ready_promotion_promoted GET "${ready_promotion}" "promoted")
 string(JSON ready_promotion_gate GET "${ready_promotion}" "releaseGate")
 string(JSON ready_promotion_blocker_count LENGTH "${ready_promotion}" "blockers")
+string(JSON ready_production_linked_ready GET "${ready_manifest}" "productionLinkedEvidence" "ready")
+string(JSON ready_production_linked_gate GET "${ready_manifest}" "productionLinkedEvidence" "releaseGate")
+string(JSON ready_production_backend_match GET "${ready_manifest}" "productionLinkedEvidence" "acceptedBackendMatchesRollout")
+string(JSON ready_requested_backend_match GET "${ready_manifest}" "productionLinkedEvidence" "requestedBackendMatchesAcceptance")
+string(JSON ready_selected_backend_match GET "${ready_manifest}" "productionLinkedEvidence" "selectedBackendMatchesAcceptance")
+string(JSON ready_operation_counts GET "${ready_manifest}" "productionLinkedEvidence" "operationCountsReady")
+string(JSON ready_sensitive_exported GET "${ready_manifest}" "productionLinkedEvidence" "sensitiveMaterialExported")
 if(NOT ready_release_ready
         OR NOT ready_release_gate STREQUAL "e2e-release-evidence-ready"
         OR NOT ready_promotion_ready
@@ -191,9 +221,60 @@ if(NOT ready_release_ready
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence ready path should promote only when rollout, CI, and local verification are ready")
 endif()
+if(NOT ready_production_linked_ready
+        OR NOT ready_production_linked_gate STREQUAL "production-linked-rollout-ready"
+        OR NOT ready_production_backend_match
+        OR NOT ready_requested_backend_match
+        OR NOT ready_selected_backend_match
+        OR NOT ready_operation_counts
+        OR ready_sensitive_exported)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence ready path should require complete production-linked rollout evidence")
+endif()
 if(NOT ready_promotion_blocker_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence ready promotion should have no blockers")
+endif()
+
+set(PSEUDO_READY_ROLLOUT_JSON "${TEMP_DIR}/e2e-rollout-observability-pseudo-ready.json")
+file(WRITE "${PSEUDO_READY_ROLLOUT_JSON}" "{\n  \"format\":\"qtnetworkchat-e2e-production-rollout-observability-evidence-v1\",\n  \"status\":\"ready\",\n  \"ok\":true,\n  \"summary\":{\"readiness\":\"ready\"},\n  \"auditSummary\":{\"releaseGate\":\"production-rollout-observability-ready\"},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true,\"sensitiveFieldsSuppressed\":true}\n}\n")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}/pseudo-ready"
+        -RolloutJsonPath "${PSEUDO_READY_ROLLOUT_JSON}"
+        -RolloutMarkdownPath "${ROLLOUT_MD}"
+        -GitHubWindowsBuildStatusPath "${READY_CI_JSON}"
+        -LocalVerificationStatusPath "${READY_LOCAL_JSON}"
+        -AutomationStatusPath "${AUTO_MD}"
+        -ReleaseHead "abc123"
+    RESULT_VARIABLE pseudo_ready_result
+    OUTPUT_VARIABLE pseudo_ready_output
+    ERROR_VARIABLE pseudo_ready_error
+)
+if(NOT pseudo_ready_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence pseudo-ready package failed: ${pseudo_ready_error}")
+endif()
+file(READ "${OUTPUT_DIR}/pseudo-ready/e2e-release-evidence-manifest.json" pseudo_ready_manifest)
+file(READ "${OUTPUT_DIR}/pseudo-ready/e2e-release-promotion.json" pseudo_ready_promotion)
+string(JSON pseudo_release_ready GET "${pseudo_ready_manifest}" "releaseReady")
+string(JSON pseudo_release_gate GET "${pseudo_ready_manifest}" "releaseGate")
+string(JSON pseudo_production_linked_ready GET "${pseudo_ready_manifest}" "productionLinkedEvidence" "ready")
+string(JSON pseudo_production_linked_gate GET "${pseudo_ready_manifest}" "productionLinkedEvidence" "releaseGate")
+string(JSON pseudo_production_linked_blocker0 GET "${pseudo_ready_manifest}" "productionLinkedEvidence" "blockers" 0)
+string(JSON pseudo_promotion_ready GET "${pseudo_ready_promotion}" "promotionReady")
+string(JSON pseudo_promotion_promoted GET "${pseudo_ready_promotion}" "promoted")
+string(JSON pseudo_promotion_blocker0 GET "${pseudo_ready_promotion}" "blockers" 0)
+if(pseudo_release_ready
+        OR NOT pseudo_release_gate STREQUAL "blocked-production-linked-rollout-not-ready"
+        OR pseudo_production_linked_ready
+        OR NOT pseudo_production_linked_gate STREQUAL "blocked-production-linked-rollout-not-ready"
+        OR NOT pseudo_production_linked_blocker0 STREQUAL "production-acceptance-not-accepted"
+        OR pseudo_promotion_ready
+        OR pseudo_promotion_promoted
+        OR NOT pseudo_promotion_blocker0 STREQUAL "production-linked-rollout-not-ready")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence must block pseudo-ready rollout artifacts without production-linked proof")
 endif()
 
 execute_process(
