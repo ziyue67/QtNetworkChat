@@ -108,6 +108,28 @@ function Is-UnknownStatus([string]$Value) {
     [string]::IsNullOrWhiteSpace($Value) -or $Value.Trim().ToLowerInvariant() -eq "unknown"
 }
 
+function Normalize-HeadValue([object]$Value) {
+    if ($null -eq $Value) {
+        return ""
+    }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text) -or $text.ToLowerInvariant() -eq "unknown") {
+        return ""
+    }
+    $text.ToLowerInvariant()
+}
+
+function Test-HeadMatch([string]$Expected, [string]$Actual) {
+    $normalizedExpected = Normalize-HeadValue $Expected
+    $normalizedActual = Normalize-HeadValue $Actual
+    if ([string]::IsNullOrWhiteSpace($normalizedExpected) -or [string]::IsNullOrWhiteSpace($normalizedActual)) {
+        return $false
+    }
+    $normalizedActual -eq $normalizedExpected `
+        -or $normalizedActual.StartsWith($normalizedExpected) `
+        -or $normalizedExpected.StartsWith($normalizedActual)
+}
+
 function Get-GitHubWindowsBuildStatusArtifactReadback([string]$PathValue, [string]$HeadSha) {
     $result = [ordered]@{
         configured = $false
@@ -934,7 +956,7 @@ function Get-E2ERolloutObservabilityReadback(
     [pscustomobject]$result
 }
 
-function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
+function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$CurrentHeadSha) {
     $result = [ordered]@{
         configured = $false
         state = "not-configured"
@@ -972,6 +994,9 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
         productionLinkedReleaseRunBackend = "unknown"
         productionLinkedOperationCountsReady = "unknown"
         productionLinkedNoSensitiveReady = "unknown"
+        targetMatchesCurrentHead = "unknown"
+        currentHead = "unknown"
+        staleReleaseArtifact = "unknown"
     }
     if ($null -ne $ManifestState -and $ManifestState.configured) {
         $result.configured = $true
@@ -1005,6 +1030,11 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
     $result.inputCount = [int](Get-JsonValue $manifest "inputCount" 0)
     $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
     $result.targetReleaseHead = Format-StatusValue (Get-JsonValue $manifest "targetReleaseHead" "unknown")
+    $result.currentHead = Format-StatusValue $(if ([string]::IsNullOrWhiteSpace($CurrentHeadSha)) { "unknown" } else { $CurrentHeadSha })
+    $releaseHeadConfigured = [bool](Get-JsonValue $manifest "releaseHeadConfigured" $false)
+    $targetMatchesCurrentHead = (-not $releaseHeadConfigured) -or (Test-HeadMatch $CurrentHeadSha $result.targetReleaseHead)
+    $result.targetMatchesCurrentHead = Format-StatusValue $targetMatchesCurrentHead
+    $result.staleReleaseArtifact = Format-StatusValue (-not $targetMatchesCurrentHead)
     $result.manifestPackagedAs = Format-StatusValue (Get-JsonValue $manifest "manifestPackagedAs" "unknown")
     $result.manifestEmbedded = Format-StatusValue (Get-JsonValue $manifest "manifestEmbedded" "unknown")
     $result.ciStatus = Format-StatusValue (Get-JsonValue $ci "status" "unknown")
@@ -1055,6 +1085,26 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
             -and -not [bool](Get-JsonValue $productionLinked "sensitiveMaterialExported" $false)
     }
     $result.productionLinkedNoSensitiveReady = Format-StatusValue $productionLinkedNoSensitiveReady
+    if (-not $targetMatchesCurrentHead) {
+        $result.releaseReady = "false"
+        $result.releaseGate = "blocked-release-artifact-stale-head"
+        $result.ciCurrentHeadObserved = "false"
+        $result.ciExternalBlocker = "release-artifact-target-head-mismatch"
+        $result.ciReleaseGate = "blocked-release-artifact-stale-head"
+        $result.promotionReady = "false"
+        $result.promotionPromoted = "false"
+        $result.promotionGate = "blocked-e2e-release-artifact-promotion"
+        $blockers = @($result.promotionBlockers -split "," | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne "unknown" })
+        if ($blockers -notcontains "release-artifact-stale-head") {
+            $blockers += "release-artifact-stale-head"
+        }
+        if ($blockers -notcontains "ci-current-head-not-observed") {
+            $blockers += "ci-current-head-not-observed"
+        }
+        $result.promotionBlockers = Format-StatusValue ($blockers -join ",")
+        $result.promotionOperatorAction =
+            "Regenerate E2E release evidence for the current HEAD before promotion."
+    }
     [pscustomobject]$result
 }
 
@@ -2397,11 +2447,11 @@ $e2eRolloutJsonState = Get-ArtifactState -PathValue $E2ERolloutObservabilityJson
 $e2eRolloutMarkdownState = Get-ArtifactState -PathValue $E2ERolloutObservabilityMarkdownPath
 $e2eRolloutReadback = Get-E2ERolloutObservabilityReadback $e2eRolloutJsonState $e2eRolloutMarkdownState
 $e2eReleaseEvidenceManifestState = Get-ArtifactState -PathValue $E2EReleaseEvidenceManifestPath -ExpectJson
-$e2eReleaseEvidenceReadback = Get-E2EReleaseEvidenceReadback $e2eReleaseEvidenceManifestState
+$e2eReleaseEvidenceReadback = Get-E2EReleaseEvidenceReadback $e2eReleaseEvidenceManifestState $Head
 $e2eLinkedReleaseCandidateManifestState =
     Get-ArtifactState -PathValue $E2ELinkedReleaseCandidateManifestPath -ExpectJson
 $e2eLinkedReleaseCandidateReadback =
-    Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState
+    Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState $Head
 $automationAckDrillState = Get-ArtifactState -PathValue $AutomationAckDrillPath -ExpectJson
 $s3RealBackendReadinessState = Get-ArtifactState -PathValue $S3RealBackendReadinessPath -ExpectJson
 $s3RealBackendReadinessReadback =
@@ -2650,10 +2700,13 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciReleaseGate), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciLatestObservedHead)))
-    $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`' -f `
+    $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`, currentHead=`{3}`, targetMatchesCurrentHead=`{4}`, stale=`{5}`' -f `
             (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadSha), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadMatchesReleaseHead)))
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadMatchesReleaseHead), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.targetMatchesCurrentHead), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact)))
 }
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     if ($e2eLinkedReleaseCandidateReadback.state -ne "ok") {

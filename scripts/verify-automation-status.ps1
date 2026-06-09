@@ -463,7 +463,8 @@ foreach ($expected in @(
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready,ci-status-external-visibility-stale,ci-current-head-not-observed`',
     'Promotion action: `Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision.`',
     'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`auto1234567890abcdef`',
-    'Linked runtime candidate: releaseReady=`true`, promoted=`true`, releaseGate=`e2e-release-artifact-promoted`, productionLinked=`true`, ci=`success/current-head-observed`, local=`passed/passed`, blockers=`unknown`',
+    'Evidence CI head match: targetReleaseHead=`unknown`, ciHead=`missing-release-head`, matches=`true`, currentHead=`abc1234`, targetMatchesCurrentHead=`true`, stale=`false`',
+    'Linked runtime candidate: releaseReady=`false`, promoted=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, productionLinked=`true`, ci=`success/current-head-observed`, local=`passed/passed`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
@@ -501,7 +502,7 @@ foreach ($expected in @(
     'Automation ack drill artifacts: `state=exercised; ok=true; acknowledged=true; releaseGate=automation-ack-drill-exercised`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
-    'E2E linked release candidate artifacts: `manifest=ok; releaseReady=true; promoted=true; releaseGate=e2e-release-artifact-promoted; packageSha256=',
+    'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; packageSha256=',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
     'E2E production crypto is the active automation lane again',
@@ -2059,6 +2060,34 @@ foreach ($expected in @(
     Assert-Contains -Text $expiredMarkdown -Expected $expected
 }
 Assert-NoFixedMirrorBranchPolicy -Text $expiredMarkdown
+
+$staleReleaseEvidenceMarkdownPath = Join-Path $tempDir "automation-status-stale-e2e-release-evidence.md"
+& $ScriptPath `
+    -MarkdownPath $staleReleaseEvidenceMarkdownPath `
+    -Head "newer-linked-candidate-head" `
+    -OriginMain "newer-linked-candidate-head" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -BuildDir $tempDir `
+    -E2EReleaseEvidenceManifestPath $e2eLinkedReleaseCandidateManifestPath `
+    -E2ELinkedReleaseCandidateManifestPath (Join-Path $tempDir "missing-linked-candidate.json") `
+    -AutomationTaskHistoryPath $freshAckHistoryPath `
+    -AutomationTaskAckPath $freshAckPath `
+    -FailOnSensitive
+
+$staleReleaseEvidenceMarkdown = Get-Content -LiteralPath $staleReleaseEvidenceMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-release-artifact-stale-head`, inputs=`4`',
+    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`',
+    'Promotion action: `Regenerate E2E release evidence for the current HEAD before promotion.`',
+    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`release-artifact-target-head-mismatch`, releaseGate=`blocked-release-artifact-stale-head`, latestObservedHead=`unknown`',
+    'Evidence CI head match: targetReleaseHead=`linked-candidate-head`, ciHead=`linked-candidate-head`, matches=`true`, currentHead=`newer-linked-candidate-head`, targetMatchesCurrentHead=`false`, stale=`true`'
+)) {
+    Assert-Contains -Text $staleReleaseEvidenceMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $staleReleaseEvidenceMarkdown
 
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
 Write-Host "Automation status writer test passed"
