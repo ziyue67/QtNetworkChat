@@ -1709,8 +1709,10 @@ int main() {
                         && reason == QStringLiteral("agreement-signature-invalid"),
                     "linked OpenSSL public API chain should reject tampered agreement material") && ok;
         E2EKeyAgreement tamperedSignatureAgreement = bobAgreement;
-        tamperedSignatureAgreement.signature[0] =
-            static_cast<char>(tamperedSignatureAgreement.signature.at(0) ^ 0x01);
+        if (!tamperedSignatureAgreement.signature.isEmpty()) {
+            tamperedSignatureAgreement.signature[0] =
+                static_cast<char>(tamperedSignatureAgreement.signature.at(0) ^ 0x01);
+        }
         ok = expect(!verifyE2EKeyAgreementSignature(tamperedSignatureAgreement,
                                                     bobIdentityPublicKey,
                                                     &reason)
@@ -1755,8 +1757,10 @@ int main() {
                         && reason.isEmpty(),
                     "linked OpenSSL public API chain should encrypt and decrypt payloads with derived sessions") && ok;
         E2EEnvelope tamperedProductionEnvelope = productionEnvelope;
-        tamperedProductionEnvelope.tag[0] =
-            static_cast<char>(tamperedProductionEnvelope.tag.at(0) ^ 0x01);
+        if (!tamperedProductionEnvelope.tag.isEmpty()) {
+            tamperedProductionEnvelope.tag[0] =
+                static_cast<char>(tamperedProductionEnvelope.tag.at(0) ^ 0x01);
+        }
         ok = expect(!decryptE2EPayload(tamperedProductionEnvelope,
                                        bobDerived,
                                        &productionDecrypted,
@@ -1885,7 +1889,7 @@ int main() {
                             == QStringLiteral("payload-decrypt")
                         && eighthProbe.value("callbackStatusClass").toString()
                             == QStringLiteral("ok")
-                        && eighthProbe.value("publicOutputSize").toInt() == 28
+                        && eighthProbe.value("publicOutputSize").toInt() == 32
                         && eighthProbe.value("sealedOutputSize").toInt() == 0
                         && eighthProbe.value("materialPolicyClass").toString()
                             == QStringLiteral("payload-bytes-allowed")
@@ -2090,7 +2094,7 @@ int main() {
                     && roundTripExecutionProbe.value("roundTripNonReleaseGate").toBool(false)
                     && roundTripExecutionProbe.value("requiredOperationCount").toInt() == 8
                     && roundTripExecutionProbe.value("operations").toArray().size() == 8
-                    && roundTripExecutionProbe.value("negativeChecks").toArray().size() == 6
+                    && roundTripExecutionProbe.value("negativeChecks").toArray().size() == 7
                     && !roundTripExecutionProbe.value("inputBytesCaptured").toBool(true)
                     && !roundTripExecutionProbe.value("outputBytesCaptured").toBool(true)
                     && !roundTripExecutionProbe.value("resultBytesCaptured").toBool(true)
@@ -2114,10 +2118,12 @@ int main() {
             roundTripExecutionProbe.value("negativeChecks").toArray().at(2).toObject();
         const QJsonObject malformedAgreementVerifyCheck =
             roundTripExecutionProbe.value("negativeChecks").toArray().at(3).toObject();
-        const QJsonObject payloadTamperCheck =
+        const QJsonObject malformedSessionDeriveCheck =
             roundTripExecutionProbe.value("negativeChecks").toArray().at(4).toObject();
-        const QJsonObject malformedPayloadEncryptCheck =
+        const QJsonObject payloadTamperCheck =
             roundTripExecutionProbe.value("negativeChecks").toArray().at(5).toObject();
+        const QJsonObject malformedPayloadEncryptCheck =
+            roundTripExecutionProbe.value("negativeChecks").toArray().at(6).toObject();
         ok = expect(roundTripExecutionProbe.value("providerTableRegistered").toBool(false)
                         && roundTripExecutionProbe.value("tableValidationAccepted").toBool(false)
                         && roundTripExecutionProbe.value("roundTripReady").toBool(false)
@@ -2128,9 +2134,9 @@ int main() {
                         && roundTripExecutionProbe.value("statusConsistentOperationCount").toInt() == 8
                         && roundTripExecutionProbe.value("sanitizedOperationCount").toInt() == 8
                         && roundTripExecutionProbe.value("materialPolicyMatchedCount").toInt() == 8
-                        && roundTripExecutionProbe.value("negativeCheckCount").toInt() == 6
-                        && roundTripExecutionProbe.value("negativeCheckPassCount").toInt() == 6
-                        && roundTripExecutionProbe.value("tamperRejectedCount").toInt() == 6
+                        && roundTripExecutionProbe.value("negativeCheckCount").toInt() == 7
+                        && roundTripExecutionProbe.value("negativeCheckPassCount").toInt() == 7
+                        && roundTripExecutionProbe.value("tamperRejectedCount").toInt() == 7
                         && roundTripExecutionProbe.value("identityPublicDerivationMatched").toBool(false)
                         && roundTripExecutionProbe.value("agreementSignatureVerified").toBool(false)
                         && roundTripExecutionProbe.value("sessionDerivePassed").toBool(false)
@@ -2173,6 +2179,13 @@ int main() {
                         && malformedAgreementVerifyCheck.value("outputStatusClass").toString()
                             == QStringLiteral("invalid-input")
                         && malformedAgreementVerifyCheck.value("rejectedAsExpected").toBool(false)
+                        && malformedSessionDeriveCheck.value("checkId").toString()
+                            == QStringLiteral("session-derive-malformed-key")
+                        && malformedSessionDeriveCheck.value("callbackStatusClass").toString()
+                            == QStringLiteral("invalid-input")
+                        && malformedSessionDeriveCheck.value("outputStatusClass").toString()
+                            == QStringLiteral("invalid-input")
+                        && malformedSessionDeriveCheck.value("rejectedAsExpected").toBool(false)
                         && payloadTamperCheck.value("checkId").toString()
                             == QStringLiteral("payload-decrypt-tamper")
                         && payloadTamperCheck.value("rejectedAsExpected").toBool(false)
@@ -2192,7 +2205,7 @@ int main() {
                         && roundTripExecutionProbe.value("invokedOperationCount").toInt() == 0
                         && roundTripExecutionProbe.value("readyOperationCount").toInt() == 0
                         && roundTripExecutionProbe.value("blockedOperationCount").toInt() == 8
-                        && roundTripExecutionProbe.value("negativeCheckCount").toInt() == 6
+                        && roundTripExecutionProbe.value("negativeCheckCount").toInt() == 7
                         && roundTripExecutionProbe.value("negativeCheckPassCount").toInt() == 0
                         && roundTripExecutionProbe.value("blockedReason").toString()
                             == QStringLiteral("production-provider-table-not-registered"),
@@ -2209,7 +2222,7 @@ int main() {
                     && publicPrimitiveProbe.value("publicPrimitiveExecutionNonReleaseGate").toBool(false)
                     && publicPrimitiveProbe.value("requiredOperationCount").toInt() == 8
                     && publicPrimitiveProbe.value("operations").toArray().size() == 8
-                    && publicPrimitiveProbe.value("negativeChecks").toArray().size() == 6
+                    && publicPrimitiveProbe.value("negativeChecks").toArray().size() == 7
                     && !publicPrimitiveProbe.value("publicApiInvoked").toBool(true)
                     && !publicPrimitiveProbe.value("inputBytesCaptured").toBool(true)
                     && !publicPrimitiveProbe.value("outputBytesCaptured").toBool(true)
@@ -2234,10 +2247,12 @@ int main() {
             publicPrimitiveProbe.value("negativeChecks").toArray().at(2).toObject();
         const QJsonObject malformedPublicPrimitiveVerify =
             publicPrimitiveProbe.value("negativeChecks").toArray().at(3).toObject();
-        const QJsonObject publicPrimitivePayloadTamper =
+        const QJsonObject malformedPublicPrimitiveSessionDerive =
             publicPrimitiveProbe.value("negativeChecks").toArray().at(4).toObject();
-        const QJsonObject malformedPublicPrimitiveEncrypt =
+        const QJsonObject publicPrimitivePayloadTamper =
             publicPrimitiveProbe.value("negativeChecks").toArray().at(5).toObject();
+        const QJsonObject malformedPublicPrimitiveEncrypt =
+            publicPrimitiveProbe.value("negativeChecks").toArray().at(6).toObject();
         ok = expect(publicPrimitiveProbe.value("providerTableRegistered").toBool(false)
                         && publicPrimitiveProbe.value("tableValidationAccepted").toBool(false)
                         && publicPrimitiveProbe.value("providerDataPlaneBridgeReady").toBool(false)
@@ -2252,9 +2267,9 @@ int main() {
                         && publicPrimitiveProbe.value("sanitizedOperationCount").toInt() == 8
                         && publicPrimitiveProbe.value("materialPolicyMatchedCount").toInt() == 8
                         && publicPrimitiveProbe.value("outputShapeHashCount").toInt() == 8
-                        && publicPrimitiveProbe.value("negativeCheckCount").toInt() == 6
-                        && publicPrimitiveProbe.value("negativeCheckPassCount").toInt() == 6
-                        && publicPrimitiveProbe.value("tamperRejectedCount").toInt() == 6
+                        && publicPrimitiveProbe.value("negativeCheckCount").toInt() == 7
+                        && publicPrimitiveProbe.value("negativeCheckPassCount").toInt() == 7
+                        && publicPrimitiveProbe.value("tamperRejectedCount").toInt() == 7
                         && publicPrimitiveProbe.value("identityPublicDerivationMatched").toBool(false)
                         && publicPrimitiveProbe.value("agreementSignatureVerified").toBool(false)
                         && publicPrimitiveProbe.value("sessionDerivePassed").toBool(false)
@@ -2304,6 +2319,13 @@ int main() {
                         && malformedPublicPrimitiveVerify.value("outputStatusClass").toString()
                             == QStringLiteral("invalid-input")
                         && malformedPublicPrimitiveVerify.value("rejectedAsExpected").toBool(false)
+                        && malformedPublicPrimitiveSessionDerive.value("checkId").toString()
+                            == QStringLiteral("public-session-derive-malformed-key")
+                        && malformedPublicPrimitiveSessionDerive.value("callbackStatusClass").toString()
+                            == QStringLiteral("invalid-input")
+                        && malformedPublicPrimitiveSessionDerive.value("outputStatusClass").toString()
+                            == QStringLiteral("invalid-input")
+                        && malformedPublicPrimitiveSessionDerive.value("rejectedAsExpected").toBool(false)
                         && publicPrimitivePayloadTamper.value("checkId").toString()
                             == QStringLiteral("public-payload-decrypt-tamper")
                         && publicPrimitivePayloadTamper.value("rejectedAsExpected").toBool(false)
@@ -2324,7 +2346,7 @@ int main() {
                         && publicPrimitiveProbe.value("invokedOperationCount").toInt() == 0
                         && publicPrimitiveProbe.value("readyOperationCount").toInt() == 0
                         && publicPrimitiveProbe.value("blockedOperationCount").toInt() == 8
-                        && publicPrimitiveProbe.value("negativeCheckCount").toInt() == 6
+                        && publicPrimitiveProbe.value("negativeCheckCount").toInt() == 7
                         && publicPrimitiveProbe.value("negativeCheckPassCount").toInt() == 0
                         && publicPrimitiveProbe.value("blockedReason").toString()
                             == QStringLiteral("production-provider-table-not-registered"),

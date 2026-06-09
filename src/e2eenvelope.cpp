@@ -36,6 +36,10 @@ const char E2EDraftSignatureSuite[] = "draft-identity-hmac-sha256";
 const char E2EProductionSignatureSuite[] = "ed25519";
 const char DraftBackendId[] = "draft-qt-hmac-stream-v1";
 const char ProductionBackendId[] = QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_ID;
+const char ProductionSessionDerivePrimaryDomain[] =
+    "qtnetworkchat-e2e-authenticated-production-v1|";
+const char ProductionSessionDeriveSecondaryDomain[] =
+    "qtnetworkchat-e2e-production-session-public-material-v1|";
 
 enum class E2ECryptoOperation {
     SessionKeyGeneration,
@@ -2144,6 +2148,12 @@ bool productionProviderRuntimeReady(QString* reason = nullptr) {
     const QByteArray empty;
     const QByteArray transcript =
         QByteArrayLiteral("qnc-provider-runtime-ready-agreement-transcript-v1");
+    const QByteArray sessionPrimary =
+        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain)
+        + QByteArrayLiteral("qnc-provider-runtime-ready-session-primary-v1");
+    const QByteArray sessionSecondary =
+        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain)
+        + QByteArrayLiteral("qnc-provider-runtime-ready-session-secondary-v1");
     const QByteArray sessionContext =
         QByteArrayLiteral("qnc-provider-runtime-ready-session-context-v1");
     const QByteArray plaintext =
@@ -2233,8 +2243,8 @@ bool productionProviderRuntimeReady(QString* reason = nullptr) {
 
     const ProviderDispatchResult derived =
         dispatchProductionProviderOperation(E2ECryptoOperation::SessionDerive,
-                                            sessionKey.sealedOutput,
-                                            publicKey.publicOutput,
+                                            sessionPrimary,
+                                            sessionSecondary,
                                             sessionContext);
     if (!providerResultOk(derived)
         || derived.materialPolicy != QNC_E2E_MATERIAL_HANDLE_ONLY
@@ -2307,6 +2317,17 @@ bool productionProviderRuntimeReady(QString* reason = nullptr) {
         || rejectedAgreementVerify.callbackStatus != QNC_E2E_STATUS_INVALID_INPUT
         || rejectedAgreementVerify.outputStatus != QNC_E2E_STATUS_INVALID_INPUT) {
         return fail(reason, QStringLiteral("production-agreement-verify-malformed-public-key-self-test-failed"));
+    }
+
+    const ProviderDispatchResult rejectedSessionDerive =
+        dispatchProductionProviderOperation(E2ECryptoOperation::SessionDerive,
+                                            QByteArrayLiteral("malformed-session-derive-key"),
+                                            sessionSecondary,
+                                            sessionContext);
+    if (!rejectedSessionDerive.invoked
+        || rejectedSessionDerive.callbackStatus != QNC_E2E_STATUS_INVALID_INPUT
+        || rejectedSessionDerive.outputStatus != QNC_E2E_STATUS_INVALID_INPUT) {
+        return fail(reason, QStringLiteral("production-session-derive-malformed-key-self-test-failed"));
     }
 
     const QByteArray malformedSessionKey = derived.sealedOutput.left(SessionKeyBytes - 1);
@@ -2553,7 +2574,11 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
     const bool providerInvocationAllowed = invokeProviderOperations;
 
     static const QByteArray primaryFixture(32, '\x42');
-    static const QByteArray secondaryFixture("qnc-provider-probe-secondary", 28);
+    static const QByteArray secondaryFixture(32, '\x24');
+    static const QByteArray sessionDerivePrimaryFixture =
+        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain) + QByteArray(32, '\x42');
+    static const QByteArray sessionDeriveSecondaryFixture =
+        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain) + QByteArray(32, '\x24');
     static const QByteArray aadFixture("qnc-provider-probe-aad", 22);
     QByteArray verifyPublicFixture;
     QByteArray verifySignatureFixture;
@@ -2699,6 +2724,16 @@ QJsonObject productionProviderInvocationExecutionProbeCoreForDescriptor(
         input.secondary.size = static_cast<size_t>(secondaryFixture.size());
         input.aad.data = reinterpret_cast<const uint8_t*>(aadFixture.constData());
         input.aad.size = static_cast<size_t>(aadFixture.size());
+        if (operation == E2ECryptoOperation::SessionDerive) {
+            input.primary.data =
+                reinterpret_cast<const uint8_t*>(sessionDerivePrimaryFixture.constData());
+            input.primary.size =
+                static_cast<size_t>(sessionDerivePrimaryFixture.size());
+            input.secondary.data =
+                reinterpret_cast<const uint8_t*>(sessionDeriveSecondaryFixture.constData());
+            input.secondary.size =
+                static_cast<size_t>(sessionDeriveSecondaryFixture.size());
+        }
         if (operation == E2ECryptoOperation::AgreementVerify
             && !verifyPublicFixture.isEmpty()
             && !verifySignatureFixture.isEmpty()) {
@@ -3368,6 +3403,12 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
     const QByteArray empty;
     const QByteArray transcript =
         QByteArrayLiteral("qnc-provider-roundtrip-agreement-transcript-v1");
+    const QByteArray sessionPrimary =
+        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain)
+        + QByteArrayLiteral("qnc-provider-roundtrip-session-primary-v1");
+    const QByteArray sessionSecondary =
+        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain)
+        + QByteArrayLiteral("qnc-provider-roundtrip-session-secondary-v1");
     const QByteArray sessionAad =
         QByteArrayLiteral("qnc-provider-roundtrip-session-context-v1");
     const QByteArray payload = QByteArrayLiteral("round-trip-provider-payload");
@@ -3534,8 +3575,8 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
 
     const ProviderRunResult derivedSession = sessionKeyPassed && publicKeyPassed
         ? invokeOperation(E2ECryptoOperation::SessionDerive,
-                          sessionKey.sealedOutput,
-                          publicKey.publicOutput,
+                          sessionPrimary,
+                          sessionSecondary,
                           sessionAad)
         : dependencyBlockedResult(E2ECryptoOperation::SessionDerive,
                                   QStringLiteral("session-derive-input-not-ready"));
@@ -3548,6 +3589,26 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
                     derivedSession,
                     sessionDerivePassed,
                     QStringLiteral("session-derive"));
+
+    if (sessionKeyPassed && publicKeyPassed) {
+        const ProviderRunResult malformedSessionDerive =
+            invokeOperation(E2ECryptoOperation::SessionDerive,
+                            QByteArrayLiteral("malformed-session-derive-key"),
+                            sessionSecondary,
+                            sessionAad);
+        appendNegativeCheck(QStringLiteral("session-derive-malformed-key"),
+                            E2ECryptoOperation::SessionDerive,
+                            malformedSessionDerive,
+                            malformedSessionDerive.invoked
+                                && malformedSessionDerive.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedSessionDerive.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("session-derive-malformed-key"),
+                            E2ECryptoOperation::SessionDerive,
+                            dependencyBlockedResult(E2ECryptoOperation::SessionDerive,
+                                                    QStringLiteral("session-derive-input-not-ready")),
+                            false);
+    }
 
     const ProviderRunResult encryptedPayload = sessionDerivePassed
         ? invokeOperation(E2ECryptoOperation::PayloadEncrypt,
@@ -3632,7 +3693,7 @@ QJsonObject productionProviderRoundTripExecutionProbeForDescriptor(
         && readyOperationCount == cryptoOperations().size()
         && invokedOperationCount == cryptoOperations().size()
         && statusConsistentOperationCount == cryptoOperations().size()
-        && negativeCheckCount == 6
+        && negativeCheckCount == 7
         && negativeCheckPassCount == negativeCheckCount;
 
     QJsonObject status;
@@ -8979,6 +9040,12 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
     const QByteArray empty;
     const QByteArray agreementTranscript =
         QByteArrayLiteral("qnc-public-primitive-agreement-transcript-v1");
+    const QByteArray sessionPrimary =
+        QByteArrayLiteral(ProductionSessionDerivePrimaryDomain)
+        + QByteArrayLiteral("qnc-public-primitive-session-primary-v1");
+    const QByteArray sessionSecondary =
+        QByteArrayLiteral(ProductionSessionDeriveSecondaryDomain)
+        + QByteArrayLiteral("qnc-public-primitive-session-secondary-v1");
     const QByteArray sessionContext =
         QByteArrayLiteral("qnc-public-primitive-session-context-v1");
     const QByteArray plaintext =
@@ -9161,8 +9228,8 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
 
     const ProviderRunResult derivedSession = sessionKeyPassed && publicKeyPassed
         ? invokeOperation(E2ECryptoOperation::SessionDerive,
-                          sessionKey.sealedOutput,
-                          publicKey.publicOutput,
+                          sessionPrimary,
+                          sessionSecondary,
                           sessionContext)
         : dependencyBlockedResult(E2ECryptoOperation::SessionDerive,
                                   QStringLiteral("session-derive-input-not-ready"));
@@ -9178,6 +9245,26 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
                     sessionKeyPassed ? sessionKey.sealedOutput.size() : 0,
                     publicKeyPassed ? publicKey.publicOutput.size() : 0,
                     sessionContext.size());
+
+    if (sessionKeyPassed && publicKeyPassed) {
+        const ProviderRunResult malformedSessionDerive =
+            invokeOperation(E2ECryptoOperation::SessionDerive,
+                            QByteArrayLiteral("malformed-session-derive-key"),
+                            sessionSecondary,
+                            sessionContext);
+        appendNegativeCheck(QStringLiteral("public-session-derive-malformed-key"),
+                            E2ECryptoOperation::SessionDerive,
+                            malformedSessionDerive,
+                            malformedSessionDerive.invoked
+                                && malformedSessionDerive.callbackStatus == QNC_E2E_STATUS_INVALID_INPUT
+                                && malformedSessionDerive.outputStatus == QNC_E2E_STATUS_INVALID_INPUT);
+    } else {
+        appendNegativeCheck(QStringLiteral("public-session-derive-malformed-key"),
+                            E2ECryptoOperation::SessionDerive,
+                            dependencyBlockedResult(E2ECryptoOperation::SessionDerive,
+                                                    QStringLiteral("session-derive-input-not-ready")),
+                            false);
+    }
 
     const ProviderRunResult encryptedPayload = sessionDerivePassed
         ? invokeOperation(E2ECryptoOperation::PayloadEncrypt,
@@ -9270,7 +9357,7 @@ QJsonObject productionProviderPublicPrimitiveExecutionProbeForDescriptor(
         && publicApiMappedOperationCount == cryptoOperations().size()
         && bridgeReadyOperationCount == cryptoOperations().size()
         && statusConsistentOperationCount == cryptoOperations().size()
-        && negativeCheckCount == 6
+        && negativeCheckCount == 7
         && negativeCheckPassCount == negativeCheckCount;
 
     QJsonObject status;
@@ -11474,9 +11561,15 @@ QByteArray agreementTranscriptData(const E2EKeyAgreement& left,
 
 QByteArray productionSessionDerivePrimary(const E2EKeyAgreement& left,
                                           const E2EKeyAgreement& right) {
-    return agreementTranscriptData(left,
-                                   right,
-                                   QByteArrayLiteral("production-provider-session-shared-v1"));
+    QByteArray transcript =
+        agreementTranscriptData(left,
+                                right,
+                                QByteArrayLiteral("production-provider-session-shared-v1"));
+    const QByteArray draftDomain = QByteArrayLiteral("qtnetworkchat-e2e-authenticated-draft-v1|");
+    if (transcript.startsWith(draftDomain)) {
+        transcript.remove(0, draftDomain.size());
+    }
+    return QByteArrayLiteral(ProductionSessionDerivePrimaryDomain) + transcript;
 }
 
 QByteArray productionSessionDeriveSecondary(const E2EKeyAgreement& left,
@@ -11490,7 +11583,7 @@ QByteArray productionSessionDeriveSecondary(const E2EKeyAgreement& left,
     }
 
     QByteArray data;
-    data.append("qtnetworkchat-e2e-production-session-public-material-v1|");
+    data.append(ProductionSessionDeriveSecondaryDomain);
     for (const E2EKeyAgreement* agreement : {first, second}) {
         data.append(agreement->senderId.trimmed().toUtf8());
         data.append('|');

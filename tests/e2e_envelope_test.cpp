@@ -1786,7 +1786,7 @@ int main() {
                     && !firstProbeExecutionFrame.value("outputBytesCaptured").toBool(true)
                     && firstProbeExecutionFrame.value("resultCaptured").toBool(false)
                     && firstProbeExecutionFrame.value("primaryInputSize").toInt() == 32
-                    && firstProbeExecutionFrame.value("secondaryInputSize").toInt() == 28
+                    && firstProbeExecutionFrame.value("secondaryInputSize").toInt() == 32
                     && firstProbeExecutionFrame.value("aadInputSize").toInt() == 22
                     && firstProbeExecutionFrame.value("timeoutPolicy").toString()
                         == QStringLiteral("bounded-explicit-test-probe")
@@ -1815,6 +1815,20 @@ int main() {
                     && !firstProbeVectorContract.value("rawKeyExported").toBool(true)
                     && !firstProbeVectorContract.value("privateMaterialExported").toBool(true),
                 "provider invocation probe vector contract should expose stable sanitized fixture schema") && ok;
+    const QJsonObject sessionDeriveProbe =
+        invocationExecutionProbe.value("probes").toArray().at(5).toObject();
+    const QJsonObject sessionDeriveExecutionFrame =
+        sessionDeriveProbe.value("probeExecutionFrame").toObject();
+    ok = expect(sessionDeriveProbe.value("operation").toString()
+                        == QStringLiteral("session-derive")
+                    && sessionDeriveExecutionFrame.value("primaryInputSize").toInt() == 78
+                    && sessionDeriveExecutionFrame.value("secondaryInputSize").toInt() == 88
+                    && sessionDeriveExecutionFrame.value("aadInputSize").toInt() == 22
+                    && !sessionDeriveExecutionFrame.value("inputBytesCaptured").toBool(true)
+                    && !sessionDeriveExecutionFrame.value("outputBytesCaptured").toBool(true)
+                    && !sessionDeriveExecutionFrame.value("rawKeyExported").toBool(true)
+                    && !sessionDeriveExecutionFrame.value("sessionSecretExported").toBool(true),
+                "session derive invocation probe should expose production-domain material sizes only") && ok;
     const QJsonObject agreementVerifyProbe =
         invocationExecutionProbe.value("probes").toArray().at(4).toObject();
     ok = expect(agreementVerifyProbe.value("operation").toString()

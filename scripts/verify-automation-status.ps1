@@ -355,7 +355,7 @@ foreach ($expected in @(
     'linked reviewed builds can pass the early operation, provider control, and explicit reviewed tail probe evidence gates',
     'real public API chain directly for identity generation, public derivation, agreement sign/verify, session derivation, payload encrypt/decrypt, and tamper rejection',
     'Normal provider probe fixtures now use 32-byte valid production material handles',
-    'malformed identity handles, malformed verification public keys, and malformed payload keys as invalid-input',
+    'malformed identity handles, malformed verification public keys, malformed session-derive keys, and malformed payload keys as invalid-input',
     'explicit reviewed runtime-preflight/arming/execution-acceptance probe readiness',
     'production rotation dry-run/execute evidence',
     'e2e_rollout_observability_exporter now persists sanitized rollout observability JSON/Markdown',

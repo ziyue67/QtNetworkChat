@@ -19,6 +19,10 @@ constexpr std::size_t HkdfDigestBytes = 32;
 constexpr std::size_t AesGcmNonceBytes = 12;
 constexpr std::size_t AesGcmTagBytes = 16;
 constexpr std::size_t MaxProbePayloadBytes = 4096;
+constexpr std::size_t MaxSessionDeriveMaterialBytes = 4096;
+constexpr char SessionDerivePrimaryDomain[] = "qtnetworkchat-e2e-authenticated-production-v1|";
+constexpr char SessionDeriveSecondaryDomain[] =
+    "qtnetworkchat-e2e-production-session-public-material-v1|";
 
 void clearOutput(qnc_e2e_operation_output_v1* output) {
     if (!output) {
@@ -44,6 +48,8 @@ qnc_e2e_status_t reject(qnc_e2e_operation_output_v1* output,
     output->sanitized_error_class = errorClass;
     return status;
 }
+
+bool validSessionDeriveMaterial(const qnc_e2e_operation_input_v1* input);
 
 bool hasBasicInput(const qnc_e2e_operation_input_v1* input,
                    qnc_e2e_operation_output_v1* output,
@@ -140,10 +146,7 @@ bool verifyEd25519(const std::array<std::uint8_t, Ed25519PublicKeyBytes>& public
 
 bool deriveSessionKey(const qnc_e2e_operation_input_v1* input,
                       std::array<std::uint8_t, SessionKeyBytes>* sessionKey) {
-    if (!input || !sessionKey
-        || !input->primary.data || input->primary.size == 0
-        || !input->secondary.data || input->secondary.size == 0
-        || !input->aad.data || input->aad.size == 0) {
+    if (!sessionKey || !validSessionDeriveMaterial(input)) {
         return false;
     }
 
@@ -199,6 +202,30 @@ bool copyExactBuffer(const qnc_e2e_buffer_view_v1& view,
     }
     std::memcpy(output, view.data, outputSize);
     return true;
+}
+
+bool bufferStartsWith(const qnc_e2e_buffer_view_v1& view, const char* prefix) {
+    if (!view.data || !prefix) {
+        return false;
+    }
+    const std::size_t prefixSize = std::strlen(prefix);
+    return view.size >= prefixSize
+        && std::memcmp(view.data, prefix, prefixSize) == 0;
+}
+
+bool validSessionDeriveMaterial(const qnc_e2e_operation_input_v1* input) {
+    return input
+        && input->primary.data
+        && input->primary.size > std::strlen(SessionDerivePrimaryDomain)
+        && input->primary.size <= MaxSessionDeriveMaterialBytes
+        && bufferStartsWith(input->primary, SessionDerivePrimaryDomain)
+        && input->secondary.data
+        && input->secondary.size > std::strlen(SessionDeriveSecondaryDomain)
+        && input->secondary.size <= MaxSessionDeriveMaterialBytes
+        && bufferStartsWith(input->secondary, SessionDeriveSecondaryDomain)
+        && input->aad.data
+        && input->aad.size > 0
+        && input->aad.size <= MaxSessionDeriveMaterialBytes;
 }
 
 bool copySessionKeyFromPrimary(const qnc_e2e_operation_input_v1* input,
@@ -464,6 +491,9 @@ extern "C" qnc_e2e_status_t qnc_e2e_op_session_derive_v1(
     qnc_e2e_operation_output_v1* output) {
     if (!hasBasicInput(input, output, QNC_E2E_OPERATION_SESSION_DERIVE)) {
         return QNC_E2E_STATUS_INVALID_INPUT;
+    }
+    if (!validSessionDeriveMaterial(input)) {
+        return reject(output, QNC_E2E_STATUS_INVALID_INPUT, "missing-session-derive-input");
     }
 
     static thread_local std::array<std::uint8_t, SessionKeyBytes> sessionKey = {};
