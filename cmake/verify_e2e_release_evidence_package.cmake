@@ -28,6 +28,7 @@ execute_process(
         -GitHubWindowsBuildStatusPath "${CI_JSON}"
         -LocalVerificationStatusPath "${LOCAL_JSON}"
         -AutomationStatusPath "${AUTO_MD}"
+        -ReleaseHead "abc123"
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error_output
@@ -72,7 +73,10 @@ string(JSON input_count GET "${manifest_content}" "inputCount")
 string(JSON input0_source_name GET "${manifest_content}" "inputs" 0 "sourceName")
 string(JSON input0_sha256 GET "${manifest_content}" "inputs" 0 "sha256")
 string(JSON ci_status GET "${manifest_content}" "ci" "status")
+string(JSON ci_head_sha GET "${manifest_content}" "ci" "headSha")
 string(JSON ci_visibility GET "${manifest_content}" "ci" "visibility")
+string(JSON ci_head_matches_release_head GET "${manifest_content}" "ci" "headMatchesReleaseHead")
+string(JSON target_release_head GET "${manifest_content}" "targetReleaseHead")
 string(JSON local_ctest_count GET "${manifest_content}" "localVerification" "ctestCount")
 string(JSON proof_no_sensitive GET "${manifest_content}" "sensitiveExportProof" "noSensitiveExportProof")
 string(JSON promotion_format GET "${promotion_content}" "format")
@@ -80,6 +84,9 @@ string(JSON promotion_ready GET "${promotion_content}" "promotionReady")
 string(JSON promotion_promoted GET "${promotion_content}" "promoted")
 string(JSON promotion_gate GET "${promotion_content}" "releaseGate")
 string(JSON promotion_evidence_gate GET "${promotion_content}" "evidenceReleaseGate")
+string(JSON promotion_target_release_head GET "${promotion_content}" "targetReleaseHead")
+string(JSON promotion_ci_head_sha GET "${promotion_content}" "ciHeadSha")
+string(JSON promotion_ci_head_matches_release_head GET "${promotion_content}" "ciHeadMatchesReleaseHead")
 string(JSON promotion_blocker0 GET "${promotion_content}" "blockers" 0)
 string(FIND "${manifest_content}" "${TEMP_DIR}" temp_path_index)
 if(manifest_content MATCHES "\"source\"[ \t\r\n]*:[ \t\r\n]*\"[A-Za-z]:")
@@ -112,7 +119,15 @@ if(NOT promotion_format STREQUAL "qtnetworkchat-e2e-release-artifact-promotion-v
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence should emit a fail-closed promotion decision with blockers")
 endif()
-if(NOT input_count EQUAL 5 OR NOT ci_status STREQUAL "external-visibility-stale" OR NOT ci_visibility STREQUAL "head-not-observed")
+if(NOT input_count EQUAL 5
+        OR NOT ci_status STREQUAL "external-visibility-stale"
+        OR NOT ci_head_sha STREQUAL "abc123"
+        OR NOT ci_visibility STREQUAL "head-not-observed"
+        OR NOT ci_head_matches_release_head
+        OR NOT target_release_head STREQUAL "abc123"
+        OR NOT promotion_target_release_head STREQUAL "abc123"
+        OR NOT promotion_ci_head_sha STREQUAL "abc123"
+        OR NOT promotion_ci_head_matches_release_head)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence manifest did not preserve CI readback")
 endif()
@@ -151,6 +166,7 @@ execute_process(
         -GitHubWindowsBuildStatusPath "${READY_CI_JSON}"
         -LocalVerificationStatusPath "${READY_LOCAL_JSON}"
         -AutomationStatusPath "${AUTO_MD}"
+        -ReleaseHead "abc123"
     RESULT_VARIABLE ready_result
     OUTPUT_VARIABLE ready_output
     ERROR_VARIABLE ready_error
@@ -178,6 +194,47 @@ endif()
 if(NOT ready_promotion_blocker_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence ready promotion should have no blockers")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}/head-mismatch"
+        -RolloutJsonPath "${READY_ROLLOUT_JSON}"
+        -RolloutMarkdownPath "${ROLLOUT_MD}"
+        -GitHubWindowsBuildStatusPath "${READY_CI_JSON}"
+        -LocalVerificationStatusPath "${READY_LOCAL_JSON}"
+        -AutomationStatusPath "${AUTO_MD}"
+        -ReleaseHead "def456"
+    RESULT_VARIABLE head_mismatch_result
+    OUTPUT_VARIABLE head_mismatch_output
+    ERROR_VARIABLE head_mismatch_error
+)
+if(NOT head_mismatch_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence head-mismatch package failed: ${head_mismatch_error}")
+endif()
+file(READ "${OUTPUT_DIR}/head-mismatch/e2e-release-evidence-manifest.json" mismatch_manifest)
+file(READ "${OUTPUT_DIR}/head-mismatch/e2e-release-promotion.json" mismatch_promotion)
+string(JSON mismatch_release_ready GET "${mismatch_manifest}" "releaseReady")
+string(JSON mismatch_release_gate GET "${mismatch_manifest}" "releaseGate")
+string(JSON mismatch_ci_head_matches GET "${mismatch_manifest}" "ci" "headMatchesReleaseHead")
+string(JSON mismatch_target_head GET "${mismatch_manifest}" "targetReleaseHead")
+string(JSON mismatch_ci_head GET "${mismatch_manifest}" "ci" "headSha")
+string(JSON mismatch_promotion_ready GET "${mismatch_promotion}" "promotionReady")
+string(JSON mismatch_promotion_promoted GET "${mismatch_promotion}" "promoted")
+string(JSON mismatch_promotion_ci_head_matches GET "${mismatch_promotion}" "ciHeadMatchesReleaseHead")
+string(JSON mismatch_promotion_blocker0 GET "${mismatch_promotion}" "blockers" 0)
+if(mismatch_release_ready
+        OR NOT mismatch_release_gate STREQUAL "blocked-ci-head-mismatch"
+        OR mismatch_ci_head_matches
+        OR NOT mismatch_target_head STREQUAL "def456"
+        OR NOT mismatch_ci_head STREQUAL "abc123"
+        OR mismatch_promotion_ready
+        OR mismatch_promotion_promoted
+        OR mismatch_promotion_ci_head_matches
+        OR NOT mismatch_promotion_blocker0 STREQUAL "ci-head-mismatch")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence should block promotion when the CI artifact head does not match the release head")
 endif()
 
 file(MAKE_DIRECTORY "${EXTRACT_DIR}")
@@ -218,6 +275,7 @@ execute_process(
         -RolloutJsonPath "${ROLLOUT_JSON}"
         -RolloutMarkdownPath "${ROLLOUT_MD}"
         -LocalVerificationStatusPath "${LOCAL_JSON}"
+        -ReleaseHead "abc123"
     RESULT_VARIABLE missing_ci_result
     OUTPUT_VARIABLE missing_ci_output
     ERROR_VARIABLE missing_ci_error

@@ -887,10 +887,13 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
         inputCount = 0
         ciStatus = "unknown"
         ciVisibility = "unknown"
+        ciHeadSha = "unknown"
         ciCurrentHeadObserved = "unknown"
+        ciHeadMatchesReleaseHead = "unknown"
         ciExternalBlocker = "unknown"
         ciReleaseGate = "unknown"
         ciLatestObservedHead = "unknown"
+        targetReleaseHead = "unknown"
         localBuildStatus = "unknown"
         localCTestStatus = "unknown"
         localCTestCount = 0
@@ -935,12 +938,16 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
     $result.releaseGate = Format-StatusValue (Get-JsonValue $manifest "releaseGate" "unknown")
     $result.inputCount = [int](Get-JsonValue $manifest "inputCount" 0)
     $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
+    $result.targetReleaseHead = Format-StatusValue (Get-JsonValue $manifest "targetReleaseHead" "unknown")
     $result.manifestPackagedAs = Format-StatusValue (Get-JsonValue $manifest "manifestPackagedAs" "unknown")
     $result.manifestEmbedded = Format-StatusValue (Get-JsonValue $manifest "manifestEmbedded" "unknown")
     $result.ciStatus = Format-StatusValue (Get-JsonValue $ci "status" "unknown")
     $result.ciVisibility = Format-StatusValue (Get-JsonValue $ci "visibility" "unknown")
+    $result.ciHeadSha = Format-StatusValue (Get-JsonValue $ci "headSha" "unknown")
     $result.ciCurrentHeadObserved =
         Format-StatusValue (Get-JsonValue $ci "currentHeadObserved" "unknown")
+    $result.ciHeadMatchesReleaseHead =
+        Format-StatusValue (Get-JsonValue $ci "headMatchesReleaseHead" "unknown")
     $result.ciExternalBlocker = Format-StatusValue (Get-JsonValue $ci "externalBlocker" "unknown")
     $result.ciReleaseGate = Format-StatusValue (Get-JsonValue $ci "releaseGate" "unknown")
     $result.ciLatestObservedHead =
@@ -2515,6 +2522,10 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciReleaseGate), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciLatestObservedHead)))
+    $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadSha), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadMatchesReleaseHead)))
 }
 $lines.Add("")
 $lines.Add("## Automation Guardrails")

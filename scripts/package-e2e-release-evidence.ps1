@@ -10,6 +10,7 @@ param(
     [string]$GitHubWindowsBuildStatusPath,
     [string]$LocalVerificationStatusPath,
     [string]$AutomationStatusPath,
+    [string]$ReleaseHead,
 
     [switch]$FailOnSensitive,
     [switch]$NoFailOnSensitive
@@ -59,6 +60,25 @@ function Format-Value([object]$Value) {
         return "unknown"
     }
     $text
+}
+
+function Normalize-HeadValue([object]$Value) {
+    $text = Format-Value $Value
+    if ($text -eq "unknown") {
+        return ""
+    }
+    $text.Trim().ToLowerInvariant()
+}
+
+function Test-HeadMatch([string]$Expected, [string]$Actual) {
+    $normalizedExpected = Normalize-HeadValue $Expected
+    $normalizedActual = Normalize-HeadValue $Actual
+    if ([string]::IsNullOrWhiteSpace($normalizedExpected) -or [string]::IsNullOrWhiteSpace($normalizedActual)) {
+        return $false
+    }
+    $normalizedActual -eq $normalizedExpected `
+        -or $normalizedActual.StartsWith($normalizedExpected) `
+        -or $normalizedExpected.StartsWith($normalizedActual)
 }
 
 function Get-Sha256Hex([string]$PathValue) {
@@ -199,6 +219,7 @@ $ciStatus = Format-Value (Get-JsonValue $ci "status" "missing")
 $ciVisibility = Format-Value (Get-JsonValue $ci "visibility" "missing")
 $ciRunId = Format-Value (Get-JsonValue $ci "runId" "unknown")
 $ciSource = Format-Value (Get-JsonValue $ci "source" "unknown")
+$ciHeadSha = Format-Value (Get-JsonValue $ci "headSha" "unknown")
 $ciCurrentHeadObserved = [bool](Get-JsonValue $ci "currentHeadObserved" $false)
 $ciExternalBlocker = Format-Value (Get-JsonValue $ci "externalBlocker" "unknown")
 $ciReleaseGate = Format-Value (Get-JsonValue $ci "releaseGate" "unknown")
@@ -212,8 +233,11 @@ $localCTestCount = [int](Get-JsonValue $localCTest "count" 0)
 $rolloutArtifactPresent = $null -ne $rollout
 $ciArtifactPresent = $null -ne $ci
 $localArtifactPresent = $null -ne $local
+$releaseHeadConfigured = -not [string]::IsNullOrWhiteSpace((Normalize-HeadValue $ReleaseHead))
+$targetReleaseHead = if ($releaseHeadConfigured) { Format-Value $ReleaseHead } else { "unknown" }
+$ciHeadMatchesReleaseHead = -not $releaseHeadConfigured -or ($ciArtifactPresent -and (Test-HeadMatch $targetReleaseHead $ciHeadSha))
 $packageOk = $sensitiveHits.Count -eq 0 -and $rolloutArtifactPresent -and $ciArtifactPresent -and $localArtifactPresent
-$releaseReady = $packageOk -and $rolloutOk -and $ciStatus -eq "success" -and $localOk
+$releaseReady = $packageOk -and $rolloutOk -and $ciStatus -eq "success" -and $localOk -and $ciHeadMatchesReleaseHead
 
 $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-sensitive-evidence"
@@ -223,6 +247,8 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-missing-github-windows-build-status"
 } elseif (-not $localArtifactPresent) {
     "blocked-missing-local-verification-status"
+} elseif (-not $ciHeadMatchesReleaseHead) {
+    "blocked-ci-head-mismatch"
 } elseif ($ciStatus -ne "success") {
     if ($ciReleaseGate -ne "unknown") {
         $ciReleaseGate
@@ -257,6 +283,9 @@ if (-not $ciArtifactPresent) {
     if (-not $ciCurrentHeadObserved) {
         [void]$promotionBlockers.Add("ci-current-head-not-observed")
     }
+    if (-not $ciHeadMatchesReleaseHead) {
+        [void]$promotionBlockers.Add("ci-head-mismatch")
+    }
 }
 if (-not $localArtifactPresent) {
     [void]$promotionBlockers.Add("missing-local-verification-status")
@@ -264,7 +293,7 @@ if (-not $localArtifactPresent) {
     [void]$promotionBlockers.Add("local-verification-not-ready")
 }
 
-$promotionReady = $releaseReady -and $ciCurrentHeadObserved -and $promotionBlockers.Count -eq 0
+$promotionReady = $releaseReady -and $ciCurrentHeadObserved -and $ciHeadMatchesReleaseHead -and $promotionBlockers.Count -eq 0
 $promotionGate = if ($promotionReady) {
     "e2e-release-artifact-promoted"
 } else {
@@ -279,6 +308,8 @@ $manifest = [ordered]@{
     releaseGate = $releaseGate
     packagePath = Split-Path -Leaf $resolvedPackagePath
     packageSha256 = "pending"
+    releaseHeadConfigured = $releaseHeadConfigured
+    targetReleaseHead = $targetReleaseHead
     stagingDir = Split-Path -Leaf $stagingDir
     manifestPackagedAs = "manifest.json"
     manifestEmbedded = $true
@@ -295,11 +326,13 @@ $manifest = [ordered]@{
     ci = [ordered]@{
         present = $ciArtifactPresent
         status = $ciStatus
+        headSha = $ciHeadSha
         runId = $ciRunId
         source = $ciSource
         visibility = $ciVisibility
         observedRunCount = [int](Get-JsonValue $ci "observedRunCount" 0)
         currentHeadObserved = $ciCurrentHeadObserved
+        headMatchesReleaseHead = $ciHeadMatchesReleaseHead
         externalBlocker = $ciExternalBlocker
         releaseGate = $ciReleaseGate
         latestObservedHead = $ciLatestObservedHead
@@ -330,7 +363,10 @@ $manifest = [ordered]@{
         packagePath = Split-Path -Leaf $resolvedPackagePath
         packageSha256 = "pending"
         manifestPath = Split-Path -Leaf $resolvedManifestPath
+        targetReleaseHead = $targetReleaseHead
+        ciHeadSha = $ciHeadSha
         currentHeadObserved = $ciCurrentHeadObserved
+        ciHeadMatchesReleaseHead = $ciHeadMatchesReleaseHead
         ciStatus = $ciStatus
         localVerificationOk = $localOk
         rolloutOk = $rolloutOk
