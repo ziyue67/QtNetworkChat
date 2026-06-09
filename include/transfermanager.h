@@ -4,6 +4,19 @@
 #include <QJsonObject>
 #include <QString>
 
+struct TransferActionUiState {
+    bool visible = false;
+    bool enabled = false;
+    QString toolTip;
+};
+
+struct TransferDiagnosticCopyUiState {
+    TransferActionUiState action;
+    QString clipboardText;
+    QString emptyStatusMessage;
+    QString copiedStatusMessage;
+};
+
 struct TransferRecoveryUiState {
     bool hasSavedTransfer = false;
     bool canAutoResume = false;
@@ -21,6 +34,8 @@ struct TransferRecoveryUiState {
     QString clearToolTip;
     QString announceMessage;
     QString statusMessage;
+    TransferActionUiState resumeAction;
+    TransferActionUiState clearAction;
 };
 
 struct TransferStatusEvent {
@@ -29,6 +44,7 @@ struct TransferStatusEvent {
     bool copyActionVisible = false;
     bool copyActionEnabled = false;
     QString copyActionToolTip;
+    TransferDiagnosticCopyUiState copyDiagnostic;
 };
 
 struct TransferProgressUiState {
@@ -49,6 +65,7 @@ public:
                                            const QString& reason,
                                            qint64 receivedBytes = 0,
                                            qint64 totalBytes = 0);
+    static TransferDiagnosticCopyUiState diagnosticCopyUiState(const QString& diagnostic);
     static TransferProgressUiState sendingInitialState(const QString& kind,
                                                        const QString& fileName,
                                                        const QString& targetName);

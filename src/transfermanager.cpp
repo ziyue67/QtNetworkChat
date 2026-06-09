@@ -62,10 +62,16 @@ TransferRecoveryUiState TransferManager::recoveryUiState(bool hasSavedTransfer,
     result.resumeEnabled = hasSavedTransfer && clientConnected && result.canAutoResume;
     result.clearVisible = hasSavedTransfer;
     result.clearEnabled = hasSavedTransfer;
+    result.resumeAction.visible = result.resumeVisible;
+    result.resumeAction.enabled = result.resumeEnabled;
+    result.clearAction.visible = result.clearVisible;
+    result.clearAction.enabled = result.clearEnabled;
 
     if (!hasSavedTransfer) {
         result.resumeToolTip = QStringLiteral("暂无可恢复的未完成发送");
         result.clearToolTip = QStringLiteral("暂无可清除的恢复记录");
+        result.resumeAction.toolTip = result.resumeToolTip;
+        result.clearAction.toolTip = result.clearToolTip;
         return result;
     }
 
@@ -79,6 +85,8 @@ TransferRecoveryUiState TransferManager::recoveryUiState(bool hasSavedTransfer,
         ? result.detail
         : result.detail + QStringLiteral("（需要重新发送，原因：%1）").arg(result.recoveryReason);
     result.clearToolTip = QStringLiteral("清除恢复记录：") + result.detail;
+    result.resumeAction.toolTip = result.resumeToolTip;
+    result.clearAction.toolTip = result.clearToolTip;
 
     if (announce) {
         if (result.canAutoResume) {
@@ -105,6 +113,18 @@ TransferStatusEvent TransferManager::statusEvent(const QString& fileName,
     result.copyActionVisible = true;
     result.copyActionEnabled = true;
     result.copyActionToolTip = QStringLiteral("复制最近一次文件传输准备、续传、完成、失败或离线兜底状态诊断");
+    result.copyDiagnostic = diagnosticCopyUiState(result.diagnostic);
+    return result;
+}
+
+TransferDiagnosticCopyUiState TransferManager::diagnosticCopyUiState(const QString& diagnostic) {
+    TransferDiagnosticCopyUiState result;
+    result.clipboardText = diagnostic.trimmed();
+    result.action.visible = true;
+    result.action.enabled = !result.clipboardText.isEmpty();
+    result.action.toolTip = QStringLiteral("复制最近一次文件传输准备、续传、完成、失败或离线兜底状态诊断");
+    result.emptyStatusMessage = QStringLiteral("暂无可复制的文件状态诊断");
+    result.copiedStatusMessage = QStringLiteral("最近文件状态诊断已复制");
     return result;
 }
 

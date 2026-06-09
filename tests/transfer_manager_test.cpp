@@ -54,11 +54,17 @@ int main(int argc, char** argv) {
         true);
     ok = expect(resumable.resumeVisible
                     && resumable.resumeEnabled
+                    && resumable.resumeAction.visible
+                    && resumable.resumeAction.enabled
                     && resumable.clearVisible
                     && resumable.clearEnabled
+                    && resumable.clearAction.visible
+                    && resumable.clearAction.enabled
                     && resumable.fileName == QStringLiteral("report.zip")
                     && resumable.targetName == QStringLiteral("QQ:920001")
                     && resumable.resumeToolTip == resumable.detail
+                    && resumable.resumeAction.toolTip == resumable.resumeToolTip
+                    && resumable.clearAction.toolTip == resumable.clearToolTip
                     && resumable.announceMessage.contains(QString::fromUtf8("恢复未完成发送"))
                     && resumable.statusMessage.contains(QStringLiteral("report.zip")),
                 "resumable saved transfer should enable resume and announce recovery") && ok;
@@ -96,11 +102,28 @@ int main(int argc, char** argv) {
                                                                     4096);
     ok = expect(timeoutEvent.copyActionVisible
                     && timeoutEvent.copyActionEnabled
+                    && timeoutEvent.copyDiagnostic.action.visible
+                    && timeoutEvent.copyDiagnostic.action.enabled
                     && timeoutEvent.message.contains(QStringLiteral("report.zip"))
                     && timeoutEvent.message.contains(QStringLiteral("ID:transfer-abc"))
                     && timeoutEvent.diagnostic.contains(QStringLiteral("category=timeout"))
+                    && timeoutEvent.copyDiagnostic.clipboardText == timeoutEvent.diagnostic.trimmed()
                     && timeoutEvent.copyActionToolTip.contains(QString::fromUtf8("文件传输")),
                 "status event should carry user message, diagnostic and copy action state") && ok;
+
+    TransferDiagnosticCopyUiState emptyCopy = TransferManager::diagnosticCopyUiState(QStringLiteral("  "));
+    ok = expect(emptyCopy.action.visible
+                    && !emptyCopy.action.enabled
+                    && emptyCopy.clipboardText.isEmpty()
+                    && emptyCopy.emptyStatusMessage.contains(QString::fromUtf8("暂无可复制")),
+                "empty transfer diagnostic copy state should keep action visible but disabled") && ok;
+
+    TransferDiagnosticCopyUiState readyCopy = TransferManager::diagnosticCopyUiState(QStringLiteral("  category=timeout; id=abc  "));
+    ok = expect(readyCopy.action.visible
+                    && readyCopy.action.enabled
+                    && readyCopy.clipboardText == QStringLiteral("category=timeout; id=abc")
+                    && readyCopy.copiedStatusMessage.contains(QString::fromUtf8("已复制")),
+                "ready transfer diagnostic copy state should trim clipboard text and expose success message") && ok;
 
     TransferProgressUiState initial = TransferManager::sendingInitialState(QString::fromUtf8("文件"),
                                                                            QStringLiteral("report.zip"),

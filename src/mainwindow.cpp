@@ -50,6 +50,13 @@
 #include <QCryptographicHash>
 
 namespace {
+void applyTransferActionState(QAction* action, const TransferActionUiState& state) {
+    if (!action) return;
+    action->setVisible(state.visible);
+    action->setEnabled(state.enabled);
+    action->setToolTip(state.toolTip);
+}
+
 QIcon createChatIcon(const QString& seedText = QString()) {
     QIcon icon;
     const int sizes[] = {16, 24, 32, 48, 64, 128};
@@ -517,11 +524,7 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
                                              qint64 totalBytes) {
     const TransferStatusEvent event = m_transferManager.statusEvent(fileName, transferId, reason, receivedBytes, totalBytes);
     m_lastTransferStatusDiagnostic = event.diagnostic;
-    if (m_copyLastTransferStatusAction) {
-        m_copyLastTransferStatusAction->setVisible(event.copyActionVisible);
-        m_copyLastTransferStatusAction->setEnabled(event.copyActionEnabled);
-        m_copyLastTransferStatusAction->setToolTip(event.copyActionToolTip);
-    }
+    applyTransferActionState(m_copyLastTransferStatusAction, event.copyDiagnostic.action);
     appendSystemMessage(event.message);
     ui->chatHintLabel->setText(event.message);
     ui->statusbar->showMessage(event.message, 4200);
@@ -539,12 +542,8 @@ void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
         state,
         recoveryStatus,
         announce);
-    m_resumeSavedTransferAction->setVisible(uiState.resumeVisible);
-    m_resumeSavedTransferAction->setEnabled(uiState.resumeEnabled);
-    m_clearSavedTransferAction->setVisible(uiState.clearVisible);
-    m_clearSavedTransferAction->setEnabled(uiState.clearEnabled);
-    m_resumeSavedTransferAction->setToolTip(uiState.resumeToolTip);
-    m_clearSavedTransferAction->setToolTip(uiState.clearToolTip);
+    applyTransferActionState(m_resumeSavedTransferAction, uiState.resumeAction);
+    applyTransferActionState(m_clearSavedTransferAction, uiState.clearAction);
 
     if (announce && !uiState.announceMessage.isEmpty()) {
         appendSystemMessage(uiState.announceMessage);
@@ -1133,12 +1132,13 @@ void MainWindow::setupUi() {
     connect(m_resumeSavedTransferAction, &QAction::triggered, this, &MainWindow::onResumeSavedOutgoingTransfer);
     connect(m_clearSavedTransferAction, &QAction::triggered, this, &MainWindow::onClearSavedOutgoingTransfer);
     connect(m_copyLastTransferStatusAction, &QAction::triggered, this, [this]() {
-        if (m_lastTransferStatusDiagnostic.trimmed().isEmpty()) {
-            ui->statusbar->showMessage("暂无可复制的文件状态诊断", 1800);
+        const TransferDiagnosticCopyUiState copyState = m_transferManager.diagnosticCopyUiState(m_lastTransferStatusDiagnostic);
+        if (!copyState.action.enabled) {
+            ui->statusbar->showMessage(copyState.emptyStatusMessage, 1800);
             return;
         }
-        QApplication::clipboard()->setText(m_lastTransferStatusDiagnostic);
-        ui->statusbar->showMessage("最近文件状态诊断已复制", 2200);
+        QApplication::clipboard()->setText(copyState.clipboardText);
+        ui->statusbar->showMessage(copyState.copiedStatusMessage, 2200);
     });
     connect(filterHistoryAction, &QAction::triggered, this, &MainWindow::onFilterHistoryByDate);
     connect(exportHistoryAction, &QAction::triggered, this, &MainWindow::onExportHistory);
