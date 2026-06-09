@@ -479,16 +479,20 @@ Write-ScheduledTaskReadback `
     -TaskNames $defaultTaskNames `
     -RegistrationRequested $Register.IsPresent `
     -RegistrationResults ([object[]]$registrationResults.ToArray())
-Write-RegistrationAttempt `
-    -PathValue $RegistrationAttemptPath `
-    -RegistrationResults ([object[]]$registrationResults.ToArray()) `
-    -RegistrationRequested $Register.IsPresent `
-    -UserValue $User
-& powershell -ExecutionPolicy Bypass -File $ackScript `
-    -AckPath $RegistrationAckPath `
-    -Clear `
-    -Reason "bootstrap-registration-default"
-if ($LASTEXITCODE -ne 0) { throw "scheduled task registration ack bootstrap failed with exit code $LASTEXITCODE" }
+if ($Register.IsPresent -or -not (Test-Path -LiteralPath $RegistrationAttemptPath -PathType Leaf)) {
+    Write-RegistrationAttempt `
+        -PathValue $RegistrationAttemptPath `
+        -RegistrationResults ([object[]]$registrationResults.ToArray()) `
+        -RegistrationRequested $Register.IsPresent `
+        -UserValue $User
+}
+if ($Register.IsPresent -or -not (Test-Path -LiteralPath $RegistrationAckPath -PathType Leaf)) {
+    & powershell -ExecutionPolicy Bypass -File $ackScript `
+        -AckPath $RegistrationAckPath `
+        -Clear `
+        -Reason "bootstrap-registration-default"
+    if ($LASTEXITCODE -ne 0) { throw "scheduled task registration ack bootstrap failed with exit code $LASTEXITCODE" }
+}
 
 $summaryPath = Join-Path $resolvedOutputDir "automation-task-bootstrap.json"
 $summary = [ordered]@{

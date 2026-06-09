@@ -797,6 +797,105 @@ foreach ($task in @($defaultRegistrationAttempt.tasks)) {
     }
 }
 
+$defaultRegistrationAckPath = Join-Path $defaultBootstrapDir "scheduled-task-registration-ack.json"
+([ordered]@{
+    format = "qtnetworkchat-scheduled-task-registration-attempt-v1"
+    generatedAt = "2026-06-09T10:00:00.0000000Z"
+    registrationRequested = $true
+    user = "SYSTEM"
+    taskCount = 3
+    failedCount = 3
+    tasks = @(
+        [ordered]@{
+            taskKind = "database-health"
+            taskName = "QtNetworkChatDatabaseHealth"
+            registrationRequested = $true
+            exitCode = 1
+            status = "registration-failed"
+            failureClass = "permission-denied"
+            outputLineCount = 2
+        },
+        [ordered]@{
+            taskKind = "large-file-governance"
+            taskName = "QtNetworkChatLargeFileGovernance"
+            registrationRequested = $true
+            exitCode = 1
+            status = "registration-failed"
+            failureClass = "permission-denied"
+            outputLineCount = 2
+        },
+        [ordered]@{
+            taskKind = "pgsql-release-acceptance"
+            taskName = "QtNetworkChatPgsqlReleaseAcceptance"
+            registrationRequested = $true
+            exitCode = 1
+            status = "registration-failed"
+            failureClass = "permission-denied"
+            outputLineCount = 2
+        }
+    )
+} | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $defaultRegistrationAttemptPath -Encoding UTF8
+([ordered]@{
+    format = "qtnetworkchat-automation-task-ack-v1"
+    generatedAt = "2026-06-09T10:00:00.0000000Z"
+    acknowledged = $false
+    acknowledgedBy = "cleared"
+    acknowledgedAt = ""
+    reason = "registration failed preserved sample"
+} | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $defaultRegistrationAckPath -Encoding UTF8
+
+$defaultBootstrapPreservedMarkdownPath = Join-Path $tempDir "automation-status-default-bootstrap-registration-preserved.md"
+& $ScriptPath `
+    -MarkdownPath $defaultBootstrapPreservedMarkdownPath `
+    -Head "bootkeep1" `
+    -OriginMain "bootkeep1" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 69 `
+    -BootstrapDefaultTasks `
+    -DefaultTaskOutputDir $defaultBootstrapDir `
+    -ScheduledTaskReadbackJsonPath $defaultBootstrapPreviewReadbackPath `
+    -TaskAckExpiryHours 24 `
+    -TaskHistoryRetentionCount 5 `
+    -FailOnSensitive
+
+$defaultPreservedRegistrationAttempt = Get-Content -LiteralPath $defaultRegistrationAttemptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if (-not $defaultPreservedRegistrationAttempt.registrationRequested -or $defaultPreservedRegistrationAttempt.failedCount -ne 3) {
+    throw "Default bootstrap preview refresh overwrote existing registration failure attempt evidence."
+}
+foreach ($task in @($defaultPreservedRegistrationAttempt.tasks)) {
+    if ($task.status -ne "registration-failed") {
+        throw "Default bootstrap preserved registration attempt task lost failure status: $($task.taskName)"
+    }
+    if ($task.failureClass -ne "permission-denied") {
+        throw "Default bootstrap preserved registration attempt task lost failure class: $($task.taskName) => $($task.failureClass)"
+    }
+}
+$defaultPreservedRegistrationAck = Get-Content -LiteralPath $defaultRegistrationAckPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($defaultPreservedRegistrationAck.reason -ne "registration failed preserved sample") {
+    throw "Default bootstrap preview refresh overwrote existing registration acknowledgement evidence."
+}
+$defaultBootstrapPreservedMarkdown = Get-Content -LiteralPath $defaultBootstrapPreservedMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Scheduled task registration attempt: state=`failed`, requested=`true`, user=`SYSTEM`, tasks=`3`, failed=`3`, releaseGate=`blocked-scheduled-task-registration-attempt-failed`, action=`review scheduled task registration attempt failures before release`',
+    'Registration attempt task: kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`2`',
+    'Registration attempt task: kind=`large-file-governance`, name=`QtNetworkChatLargeFileGovernance`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`2`',
+    'Registration attempt task: kind=`pgsql-release-acceptance`, name=`QtNetworkChatPgsqlReleaseAcceptance`, requested=`true`, status=`registration-failed`, exitCode=`1`, failureClass=`permission-denied`, outputLines=`2`',
+    'Scheduled task registration acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`registration failed preserved sample`',
+    'Scheduled task registration ack gate: state=`failed-unacknowledged`, failed=`3`, acknowledged=`false`, ackExpired=`false`, ageHours=`unknown`, remainingHours=`unknown`, overdueHours=`unknown`, expiresAt=`unknown`, releaseGate=`blocked-registration-unacknowledged-failure`, action=`acknowledge scheduled task registration failures before release`'
+)) {
+    Assert-Contains -Text $defaultBootstrapPreservedMarkdown -Expected $expected
+}
+foreach ($forbidden in @(
+    'Scheduled task registration attempt: state=`preview`, requested=`false`',
+    'Registration attempt task: kind=`database-health`, name=`QtNetworkChatDatabaseHealth`, requested=`false`, status=`preview-generated`',
+    'Scheduled task registration acknowledgement: acknowledged=`false`, by=`cleared`, at=`unknown`, reason=`bootstrap-registration-default`'
+)) {
+    Assert-NotContains -Text $defaultBootstrapPreservedMarkdown -Forbidden $forbidden
+}
+Assert-NoFixedMirrorBranchPolicy -Text $defaultBootstrapPreservedMarkdown
+
 $planOutput = & $ScriptPath `
     -PlanOnly `
     -Head "def5678" `
