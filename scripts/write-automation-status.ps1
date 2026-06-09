@@ -880,6 +880,8 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
         localCTestCount = 0
         noSensitiveExportProof = "unknown"
         packageArtifact = "not-configured"
+        packageSha256 = "unknown"
+        manifestPackagedAs = "unknown"
     }
     if ($null -ne $ManifestState -and $ManifestState.configured) {
         $result.configured = $true
@@ -909,6 +911,8 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState) {
     $result.releaseReady = Format-StatusValue (Get-JsonValue $manifest "releaseReady" "unknown")
     $result.releaseGate = Format-StatusValue (Get-JsonValue $manifest "releaseGate" "unknown")
     $result.inputCount = [int](Get-JsonValue $manifest "inputCount" 0)
+    $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
+    $result.manifestPackagedAs = Format-StatusValue (Get-JsonValue $manifest "manifestPackagedAs" "unknown")
     $result.ciStatus = Format-StatusValue (Get-JsonValue $ci "status" "unknown")
     $result.ciVisibility = Format-StatusValue (Get-JsonValue $ci "visibility" "unknown")
     $result.ciCurrentHeadObserved =
@@ -2456,6 +2460,9 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
+    $lines.Add(('  Evidence artifact: manifestPackagedAs=`{0}`, packageSha256=`{1}`' -f `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.manifestPackagedAs), `
+            (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)))
     $lines.Add(('  Evidence CI gate: currentHeadObserved=`{0}`, externalBlocker=`{1}`, releaseGate=`{2}`, latestObservedHead=`{3}`' -f `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciCurrentHeadObserved), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
@@ -2820,6 +2827,7 @@ $e2eRolloutDiagnostics = @(
 ) -join "; "
 $e2eReleaseEvidenceDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.packageArtifact)),
+    ('packageSha256={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)),
     ('releaseGate={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate))
 ) -join "; "
 $lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
