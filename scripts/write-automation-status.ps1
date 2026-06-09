@@ -2674,12 +2674,20 @@ if ($largeFileGovernanceStatusState.state -ne "ok") {
     }
 } else {
     $governanceGapAreas = @((Get-JsonValue $largeFileGovernanceStatus "s3CoverageActionableGapAreas" @()))
+    $governanceSummary = Get-JsonValue $largeFileGovernanceStatus "summary" $null
+    $governanceAuditSummary = Get-JsonValue $largeFileGovernanceStatus "auditSummary" $null
+    $governanceAuditFocus = @((Get-JsonValue $governanceAuditSummary "auditFocus" @()))
     $lines.Add(('- Large-file governance: status=`{0}`, ok=`{1}`, warnings=`{2}`, alerts=`{3}`, actionableS3Gaps=`{4}`' -f
             (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "status" "unknown")),
             (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "ok" $null)),
             (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "totalWarnings" "unknown")),
             (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "alertCount" "unknown")),
             $governanceGapAreas.Count))
+    $lines.Add(('  Gate: readiness=`{0}`, releaseGate=`{1}`, action=`{2}`, auditFocus=`{3}`' -f
+            (Format-StatusValue (Get-JsonValue $governanceSummary "readiness" "unknown")),
+            (Format-StatusValue (Get-JsonValue $governanceAuditSummary "releaseGate" "unknown")),
+            (Format-StatusValue (Get-JsonValue $governanceSummary "operatorAction" "unknown")),
+            (Format-StatusValue ($(if ($governanceAuditFocus.Count -gt 0) { $governanceAuditFocus -join ", " } else { "none" })))))
 }
 if ($null -ne $largeFileGovernanceLastRun) {
     $lines.Add(('- Large-file governance last run: at=`{0}`, exitCode=`{1}`' -f

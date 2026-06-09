@@ -147,6 +147,46 @@ $ok = Normalize-Bool (Get-JsonValue $dashboard "ok" (Get-JsonValue $health "ok" 
 $reason = [string](Get-JsonValue $dashboard "reason" (Get-JsonValue $health "reason" "dashboard or health data missing"))
 $totalWarnings = [int](Get-JsonValue $dashboard "totalWarnings" (Get-JsonValue $overview "totalWarnings" 0))
 $alertCount = [int](Get-JsonValue $dashboard "alertCount" (Get-JsonValue $overview "alertCount" $alerts.Count))
+$dashboardSummary = Get-JsonValue $dashboard "summary" $null
+$dashboardAuditSummary = Get-JsonValue $dashboard "auditSummary" $null
+$readiness = [string](Get-JsonValue $dashboardSummary "readiness" "")
+if ([string]::IsNullOrWhiteSpace($readiness)) {
+    $readiness = if (-not $ok) {
+        "blocked"
+    } elseif ($s3CoverageActionableGapAreas.Count -gt 0) {
+        "review"
+    } else {
+        "verified"
+    }
+}
+$operatorAction = [string](Get-JsonValue $dashboardSummary "operatorAction" "")
+if ([string]::IsNullOrWhiteSpace($operatorAction)) {
+    $operatorAction = if (-not $ok) {
+        "Review governance alerts, health status, and diagnostics before trusting this status."
+    } elseif ($s3CoverageActionableGapAreas.Count -gt 0) {
+        "Review S3 coverage gaps before promoting large-file governance evidence."
+    } else {
+        "Archive the redacted governance status for release readiness review."
+    }
+}
+$releaseGate = [string](Get-JsonValue $dashboardAuditSummary "releaseGate" "")
+if ([string]::IsNullOrWhiteSpace($releaseGate)) {
+    $releaseGate = if (-not $ok) {
+        "blocked-governance-health"
+    } elseif ($s3CoverageActionableGapAreas.Count -gt 0) {
+        "review-s3-coverage-gaps"
+    } else {
+        "can-review-governance-evidence"
+    }
+}
+$auditFocus = @((Get-JsonValue $dashboardAuditSummary "auditFocus" @()))
+if ($auditFocus.Count -eq 0) {
+    $auditFocus = if ($s3CoverageActionableGapAreas.Count -gt 0) {
+        @($s3CoverageActionableGapAreas | ForEach-Object { "s3-coverage-gap:" + [string]$_ })
+    } else {
+        @("routine-governance-review")
+    }
+}
 
 $warningSources = @()
 foreach ($alert in $alerts) {
@@ -170,6 +210,14 @@ $summary = [pscustomobject]@{
     reason         = $reason
     totalWarnings  = $totalWarnings
     alertCount     = $alertCount
+    summary        = [pscustomobject]@{
+        readiness      = $readiness
+        operatorAction = $operatorAction
+    }
+    auditSummary   = [pscustomobject]@{
+        releaseGate = $releaseGate
+        auditFocus  = @($auditFocus)
+    }
     warningSources = $warningSources
     metrics        = $metrics
     s3StabilizationCoverage = $s3StabilizationCoverage
@@ -207,6 +255,9 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(('- Reason: `{0}`' -f $summary.reason))
     $lines.Add(('- Total warnings: `{0}`' -f $summary.totalWarnings))
     $lines.Add(('- Alert count: `{0}`' -f $summary.alertCount))
+    $lines.Add(('- Readiness: `{0}`' -f $summary.summary.readiness))
+    $lines.Add(('- Operator action: `{0}`' -f $summary.summary.operatorAction))
+    $lines.Add(('- Release gate: `{0}`' -f $summary.auditSummary.releaseGate))
     $lines.Add("")
     $lines.Add("## Warning Sources")
     $lines.Add("")
@@ -250,6 +301,8 @@ Write-Host ("  ok: {0}" -f (Format-Value $summary.ok))
 Write-Host ("  reason: {0}" -f $summary.reason)
 Write-Host ("  warnings: {0}" -f $summary.totalWarnings)
 Write-Host ("  alert sources: {0}" -f $summary.alertCount)
+Write-Host ("  readiness: {0}" -f $summary.summary.readiness)
+Write-Host ("  release gate: {0}" -f $summary.auditSummary.releaseGate)
 Write-Host ("  s3 coverage areas: {0}" -f $summary.s3StabilizationCoverage.Count)
 Write-Host ("  s3 coverage gaps: {0}" -f $summary.s3CoverageGapAreas.Count)
 Write-Host ("  s3 actionable coverage gaps: {0}" -f $summary.s3CoverageActionableGapAreas.Count)

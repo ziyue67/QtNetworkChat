@@ -73,6 +73,9 @@ string(JSON status_ok GET "${status_content}" "ok")
 string(JSON status_warning_count GET "${status_content}" "totalWarnings")
 string(JSON status_alert_count GET "${status_content}" "alertCount")
 string(JSON status_s3_lines GET "${status_content}" "metrics" "s3Lines")
+string(JSON status_readiness GET "${status_content}" "summary" "readiness")
+string(JSON status_release_gate GET "${status_content}" "auditSummary" "releaseGate")
+string(JSON status_audit_focus0 GET "${status_content}" "auditSummary" "auditFocus" 0)
 string(JSON status_coverage_area0 GET "${status_content}" "s3StabilizationCoverage" 0 "area")
 string(JSON status_gap_area0 GET "${status_content}" "s3CoverageGapAreas" 0)
 string(JSON status_actionable_gap_area0 GET "${status_content}" "s3CoverageActionableGapAreas" 0)
@@ -100,6 +103,18 @@ if(NOT status_s3_lines EQUAL 4)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected s3Lines=4, got ${status_s3_lines}")
 endif()
+if(NOT status_readiness STREQUAL "review")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected status readiness=review for actionable S3 coverage gaps, got ${status_readiness}")
+endif()
+if(NOT status_release_gate STREQUAL "review-s3-coverage-gaps")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected status releaseGate=review-s3-coverage-gaps, got ${status_release_gate}")
+endif()
+if(NOT status_audit_focus0 STREQUAL "s3-coverage-gap:remote-validation-fail-closed")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected status audit focus s3 coverage gap, got ${status_audit_focus0}")
+endif()
 if(NOT status_coverage_area0 STREQUAL "source-write-fallback")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected status coverage area source-write-fallback, got ${status_coverage_area0}")
@@ -113,6 +128,8 @@ file(READ "${STATUS_MD}" markdown_content)
 foreach(expected_text
         "QtNetworkChat Large File Governance Status"
         "Status: `healthy`"
+        "Readiness: `review`"
+        "Release gate: `review-s3-coverage-gaps`"
         "## S3 Stabilization Coverage"
         "source-write-fallback"
         "Actionable coverage gaps"

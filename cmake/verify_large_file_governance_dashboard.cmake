@@ -100,6 +100,9 @@ string(JSON dashboard_s3_coverage_gaps GET "${dashboard_content}" "metrics" "s3C
 string(JSON dashboard_s3_actionable_gaps GET "${dashboard_content}" "metrics" "s3CoverageActionableGaps")
 string(JSON dashboard_retained GET "${dashboard_content}" "metrics" "reconcileRetained")
 string(JSON dashboard_sensitive GET "${dashboard_content}" "sensitiveHits")
+string(JSON dashboard_readiness GET "${dashboard_content}" "summary" "readiness")
+string(JSON dashboard_release_gate GET "${dashboard_content}" "auditSummary" "releaseGate")
+string(JSON dashboard_audit_focus0 GET "${dashboard_content}" "auditSummary" "auditFocus" 0)
 string(JSON dashboard_coverage_area0 GET "${dashboard_content}" "s3StabilizationCoverage" 0 "area")
 string(JSON dashboard_gap_area0 GET "${dashboard_content}" "s3CoverageGapAreas" 0)
 string(JSON dashboard_actionable_gap_area0 GET "${dashboard_content}" "s3CoverageActionableGapAreas" 0)
@@ -159,10 +162,24 @@ if(NOT dashboard_sensitive EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected dashboard sensitiveHits=0, got ${dashboard_sensitive}")
 endif()
+if(NOT dashboard_readiness STREQUAL "blocked")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected dashboard readiness=blocked, got ${dashboard_readiness}")
+endif()
+if(NOT dashboard_release_gate STREQUAL "blocked-governance-health")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected dashboard releaseGate=blocked-governance-health, got ${dashboard_release_gate}")
+endif()
+if(NOT dashboard_audit_focus0 STREQUAL "s3-request-results")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected first dashboard audit focus s3-request-results, got ${dashboard_audit_focus0}")
+endif()
 
 file(READ "${DASHBOARD_MD}" markdown_content)
 foreach(expected_text
         "QtNetworkChat Large File Governance Dashboard"
+        "Readiness: `blocked`"
+        "Release gate: `blocked-governance-health`"
         "## Metrics"
         "s3Lines"
         "## S3 Stabilization Coverage"

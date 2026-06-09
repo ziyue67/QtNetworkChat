@@ -228,6 +228,52 @@ $dashboard = [pscustomobject]@{
     artifacts     = $artifacts
     sensitiveHits = [int]$sensitiveHits.Count
 }
+$dashboardSummary = [ordered]@{
+    readiness = if (-not $dashboard.ok) {
+        "blocked"
+    } elseif ($dashboard.s3CoverageActionableGapAreas.Count -gt 0) {
+        "review"
+    } else {
+        "verified"
+    }
+    operatorAction = if (-not $dashboard.ok) {
+        "Review governance alerts, health status, and diagnostics before trusting this dashboard."
+    } elseif ($dashboard.s3CoverageActionableGapAreas.Count -gt 0) {
+        "Review S3 coverage gaps before promoting large-file governance evidence."
+    } else {
+        "Archive the redacted governance dashboard, report, and diagnostics for release readiness review."
+    }
+}
+$auditFocus = New-Object System.Collections.Generic.List[string]
+foreach ($alert in $alerts) {
+    if (-not [bool](Get-JsonValue $alert "ok" $false)) {
+        $kind = [string](Get-JsonValue $alert "kind" "governance-alert")
+        if (-not [string]::IsNullOrWhiteSpace($kind)) {
+            $auditFocus.Add($kind)
+        }
+    }
+}
+foreach ($gapArea in $dashboard.s3CoverageActionableGapAreas) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$gapArea)) {
+        $auditFocus.Add("s3-coverage-gap:" + [string]$gapArea)
+    }
+}
+if ($auditFocus.Count -eq 0) {
+    $auditFocus.Add("routine-governance-review")
+}
+$dashboardAuditSummary = [ordered]@{
+    releaseGate = if (-not $dashboard.ok) {
+        "blocked-governance-health"
+    } elseif ($dashboard.s3CoverageActionableGapAreas.Count -gt 0) {
+        "review-s3-coverage-gaps"
+    } else {
+        "can-review-governance-evidence"
+    }
+    evidenceBundle = @("dashboard-json", "dashboard-markdown", "governance-report", "diagnostics-package")
+    auditFocus = @($auditFocus.ToArray())
+}
+$dashboard | Add-Member -MemberType NoteProperty -Name "summary" -Value ([pscustomobject]$dashboardSummary) -Force
+$dashboard | Add-Member -MemberType NoteProperty -Name "auditSummary" -Value ([pscustomobject]$dashboardAuditSummary) -Force
 
 $dashboard | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resolvedDashboardPath -Encoding UTF8
 
@@ -246,6 +292,9 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(('- OK: `{0}`' -f (Format-Value $dashboard.ok)))
     $lines.Add(('- Reason: `{0}`' -f $dashboard.reason))
     $lines.Add(('- Total warnings: `{0}`' -f $dashboard.totalWarnings))
+    $lines.Add(('- Readiness: `{0}`' -f (Format-Value $dashboard.summary.readiness)))
+    $lines.Add(('- Operator action: `{0}`' -f (Format-Value $dashboard.summary.operatorAction)))
+    $lines.Add(('- Release gate: `{0}`' -f (Format-Value $dashboard.auditSummary.releaseGate)))
     $lines.Add("")
     $lines.Add("## Metrics")
     $lines.Add("")

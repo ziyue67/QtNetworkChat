@@ -82,6 +82,20 @@ function Write-TextFile([string]$PathValue, [string]$Text) {
     $Text | Set-Content -LiteralPath $PathValue -Encoding UTF8
 }
 
+function Write-JsonFileIfMissing([string]$PathValue, [object]$Payload, [int]$Depth = 8) {
+    if (Test-Path -LiteralPath $PathValue -PathType Leaf) {
+        return
+    }
+    Write-JsonFile $PathValue $Payload $Depth
+}
+
+function Write-TextFileIfMissing([string]$PathValue, [string]$Text) {
+    if (Test-Path -LiteralPath $PathValue -PathType Leaf) {
+        return
+    }
+    Write-TextFile $PathValue $Text
+}
+
 function Get-RegistrationFailureClass([int]$ExitCode, [string[]]$Lines) {
     if ($ExitCode -eq 0) {
         return "none"
@@ -338,7 +352,7 @@ $dbLastRunPath = Join-Path $dbTaskDir "last-run.log"
 $dbHistoryPath = Join-Path $dbTaskDir "automation-task-history.json"
 $dbHistoryMarkdownPath = Join-Path $dbTaskDir "automation-task-history.md"
 $dbAckPath = Join-Path $dbTaskDir "automation-task-ack.json"
-Write-JsonFile $dbStatusPath ([ordered]@{
+Write-JsonFileIfMissing $dbStatusPath ([ordered]@{
         format = "qtnetworkchat-database-health-status-v1"
         generatedAt = $generatedAt
         status = "configured"
@@ -359,14 +373,14 @@ Write-JsonFile $dbStatusPath ([ordered]@{
             auditFocus = @("preview", "last-run", "history", "ack")
         }
     })
-Write-TextFile $dbLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=database-health statusPath={1} historyPath={2} ackPath={3}" -f $generatedAt, $dbStatusPath, $dbHistoryPath, $dbAckPath)
+Write-TextFileIfMissing $dbLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=database-health statusPath={1} historyPath={2} ackPath={3}" -f $generatedAt, $dbStatusPath, $dbHistoryPath, $dbAckPath)
 
 $govStatusPath = Join-Path $govOutputDir "large-file-governance-dashboard.json"
 $govLastRunPath = Join-Path $govTaskDir "last-run.log"
 $govHistoryPath = Join-Path $govTaskDir "automation-task-history.json"
 $govHistoryMarkdownPath = Join-Path $govTaskDir "automation-task-history.md"
 $govAckPath = Join-Path $govTaskDir "automation-task-ack.json"
-Write-JsonFile $govStatusPath ([ordered]@{
+Write-JsonFileIfMissing $govStatusPath ([ordered]@{
         format = "qtnetworkchat-large-file-governance-status-v1"
         generatedAt = $generatedAt
         status = "configured"
@@ -378,8 +392,12 @@ Write-JsonFile $govStatusPath ([ordered]@{
             readiness = "preview-registered"
             operatorAction = "Run the generated large-file governance launcher to refresh dashboard and diagnostics evidence."
         }
+        auditSummary = [ordered]@{
+            releaseGate = "large-file-governance-preview-registered"
+            auditFocus = @("preview", "last-run", "history", "ack")
+        }
     })
-Write-TextFile $govLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=large-file-governance statusPath={1} historyPath={2} ackPath={3}" -f $generatedAt, $govStatusPath, $govHistoryPath, $govAckPath)
+Write-TextFileIfMissing $govLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=large-file-governance statusPath={1} historyPath={2} ackPath={3}" -f $generatedAt, $govStatusPath, $govHistoryPath, $govAckPath)
 
 $pgsqlStatusPath = Join-Path $pgsqlOutputDir "pgsql-release-acceptance.json"
 $pgsqlLastRunPath = Join-Path $pgsqlTaskDir "last-run.log"
@@ -389,7 +407,7 @@ $pgsqlAckPath = Join-Path $pgsqlTaskDir "automation-task-ack.json"
 $pgsqlEvidenceDir = Join-Path $pgsqlOutputDir "evidence"
 $pgsqlEvidencePackagePath = Join-Path $pgsqlEvidenceDir "pgsql-release-evidence.zip"
 $pgsqlEvidenceManifestPath = Join-Path $pgsqlEvidenceDir "pgsql-release-evidence-manifest.json"
-Write-JsonFile $pgsqlStatusPath ([ordered]@{
+Write-JsonFileIfMissing $pgsqlStatusPath ([ordered]@{
         format = "qtnetworkchat-pgsql-release-acceptance-v1"
         generatedAt = $generatedAt
         status = "configured"
@@ -408,8 +426,8 @@ Write-JsonFile $pgsqlStatusPath ([ordered]@{
             evidenceBundle = @("pgsql-release-acceptance.json", "pgsql-release-evidence.zip")
         }
     })
-Write-TextFile $pgsqlLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=pgsql-release-acceptance statusPath={1} evidencePackagePath={2} historyPath={3} ackPath={4}" -f $generatedAt, $pgsqlStatusPath, $pgsqlEvidencePackagePath, $pgsqlHistoryPath, $pgsqlAckPath)
-Write-JsonFile $pgsqlEvidenceManifestPath ([ordered]@{
+Write-TextFileIfMissing $pgsqlLastRunPath ("{0} exitCode=0 bootstrapExitCode=0 taskKind=pgsql-release-acceptance statusPath={1} evidencePackagePath={2} historyPath={3} ackPath={4}" -f $generatedAt, $pgsqlStatusPath, $pgsqlEvidencePackagePath, $pgsqlHistoryPath, $pgsqlAckPath)
+Write-JsonFileIfMissing $pgsqlEvidenceManifestPath ([ordered]@{
         format = "qtnetworkchat-pgsql-release-evidence-package-v1"
         generatedAt = $generatedAt
         packageMode = "bootstrap-preview"
@@ -418,18 +436,19 @@ Write-JsonFile $pgsqlEvidenceManifestPath ([ordered]@{
     })
 New-Item -ItemType Directory -Force -Path $pgsqlEvidenceDir | Out-Null
 $evidenceReadmePath = Join-Path $pgsqlEvidenceDir "README.txt"
-Write-TextFile $evidenceReadmePath "Bootstrap evidence package placeholder. Run the generated PostgreSQL release acceptance launcher for live redacted evidence."
-if (Test-Path -LiteralPath $pgsqlEvidencePackagePath -PathType Leaf) {
-    Remove-Item -LiteralPath $pgsqlEvidencePackagePath -Force
+Write-TextFileIfMissing $evidenceReadmePath "Bootstrap evidence package placeholder. Run the generated PostgreSQL release acceptance launcher for live redacted evidence."
+if (-not (Test-Path -LiteralPath $pgsqlEvidencePackagePath -PathType Leaf)) {
+    Compress-Archive -LiteralPath $pgsqlEvidenceManifestPath, $evidenceReadmePath -DestinationPath $pgsqlEvidencePackagePath -Force
 }
-Compress-Archive -LiteralPath $pgsqlEvidenceManifestPath, $evidenceReadmePath -DestinationPath $pgsqlEvidencePackagePath -Force
 
 foreach ($ackPath in @($dbAckPath, $govAckPath, $pgsqlAckPath)) {
-    & powershell -ExecutionPolicy Bypass -File $ackScript `
-        -AckPath $ackPath `
-        -Clear `
-        -Reason "bootstrap-default"
-    if ($LASTEXITCODE -ne 0) { throw "automation ack bootstrap failed with exit code $LASTEXITCODE" }
+    if (-not (Test-Path -LiteralPath $ackPath -PathType Leaf)) {
+        & powershell -ExecutionPolicy Bypass -File $ackScript `
+            -AckPath $ackPath `
+            -Clear `
+            -Reason "bootstrap-default"
+        if ($LASTEXITCODE -ne 0) { throw "automation ack bootstrap failed with exit code $LASTEXITCODE" }
+    }
 }
 
 foreach ($task in @(
@@ -437,15 +456,17 @@ foreach ($task in @(
         @{ LastRun = $govLastRunPath; Ack = $govAckPath; Json = $govHistoryPath; Markdown = $govHistoryMarkdownPath },
         @{ LastRun = $pgsqlLastRunPath; Ack = $pgsqlAckPath; Json = $pgsqlHistoryPath; Markdown = $pgsqlHistoryMarkdownPath }
     )) {
-    & powershell -ExecutionPolicy Bypass -File $historyScript `
-        -LastRunPath $task.LastRun `
-        -AckPath $task.Ack `
-        -AckExpiryHours $AckExpiryHours `
-        -RetentionCount $HistoryRetentionCount `
-        -JsonPath $task.Json `
-        -MarkdownPath $task.Markdown `
-        -FailOnSensitive
-    if ($LASTEXITCODE -ne 0) { throw "automation history bootstrap failed with exit code $LASTEXITCODE" }
+    if (-not (Test-Path -LiteralPath $task.Json -PathType Leaf)) {
+        & powershell -ExecutionPolicy Bypass -File $historyScript `
+            -LastRunPath $task.LastRun `
+            -AckPath $task.Ack `
+            -AckExpiryHours $AckExpiryHours `
+            -RetentionCount $HistoryRetentionCount `
+            -JsonPath $task.Json `
+            -MarkdownPath $task.Markdown `
+            -FailOnSensitive
+        if ($LASTEXITCODE -ne 0) { throw "automation history bootstrap failed with exit code $LASTEXITCODE" }
+    }
 }
 
 $defaultTaskNames = @(

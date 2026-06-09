@@ -707,6 +707,65 @@ foreach ($forbidden in @(
 }
 Assert-NoFixedMirrorBranchPolicy -Text $defaultBootstrapMarkdown
 
+$defaultBootstrapLiveGovStatusPath = Join-Path $defaultBootstrapDir "large-file-governance\large-file-governance-dashboard.json"
+@'
+{
+  "format":"qtnetworkchat-large-file-governance-dashboard-v1",
+  "status":"healthy",
+  "ok":true,
+  "reason":"all checks passed",
+  "totalWarnings":0,
+  "alertCount":2,
+  "s3CoverageActionableGapAreas":[],
+  "summary":{
+    "readiness":"verified",
+    "operatorAction":"Archive the redacted governance dashboard, report, and diagnostics for release readiness review."
+  },
+  "auditSummary":{
+    "releaseGate":"can-review-governance-evidence",
+    "auditFocus":["routine-governance-review"]
+  }
+}
+'@ | Set-Content -LiteralPath $defaultBootstrapLiveGovStatusPath -Encoding UTF8
+$defaultBootstrapLiveMarkdownPath = Join-Path $tempDir "automation-status-default-bootstrap-live-preserved.md"
+& $ScriptPath `
+    -MarkdownPath $defaultBootstrapLiveMarkdownPath `
+    -Head "bootlive1" `
+    -OriginMain "bootlive1" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 69 `
+    -BootstrapDefaultTasks `
+    -DefaultTaskOutputDir $defaultBootstrapDir `
+    -ScheduledTaskReadbackJsonPath $defaultBootstrapPreviewReadbackPath `
+    -TaskAckExpiryHours 24 `
+    -TaskHistoryRetentionCount 5 `
+    -FailOnSensitive
+$defaultBootstrapLiveGovStatus =
+    Get-Content -LiteralPath $defaultBootstrapLiveGovStatusPath -Raw -Encoding UTF8
+$defaultBootstrapLiveMarkdown =
+    Get-Content -LiteralPath $defaultBootstrapLiveMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    '"format":"qtnetworkchat-large-file-governance-dashboard-v1"',
+    '"status":"healthy"',
+    '"releaseGate":"can-review-governance-evidence"',
+    'Large-file governance: status=`healthy`, ok=`true`, warnings=`0`, alerts=`2`, actionableS3Gaps=`0`',
+    'Gate: readiness=`verified`, releaseGate=`can-review-governance-evidence`, action=`Archive the redacted governance dashboard, report, and diagnostics for release readiness review.`, auditFocus=`routine-governance-review`'
+)) {
+    if ($expected.StartsWith('"')) {
+        Assert-Contains -Text ($defaultBootstrapLiveGovStatus -replace '\s+', '') -Expected $expected
+    } else {
+        Assert-Contains -Text $defaultBootstrapLiveMarkdown -Expected $expected
+    }
+}
+foreach ($forbidden in @(
+    'releaseGate=`large-file-governance-preview-registered`'
+)) {
+    Assert-NotContains -Text $defaultBootstrapLiveMarkdown -Forbidden $forbidden
+}
+Assert-NoFixedMirrorBranchPolicy -Text $defaultBootstrapLiveMarkdown
+
 $defaultRegistrationAttemptPath = Join-Path $defaultBootstrapDir "scheduled-task-registration-attempt.json"
 if (-not (Test-Path -LiteralPath $defaultRegistrationAttemptPath -PathType Leaf)) {
     throw "Default bootstrap registration attempt artifact was not created"
