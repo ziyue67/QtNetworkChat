@@ -548,6 +548,41 @@ MainWindow::SavedFileActionState MainWindow::savedFileActionState(const QModelIn
     return state;
 }
 
+bool MainWindow::isChatMediaMessage(const QString& chatText, const SavedFileActionState& savedFileState) const {
+    return savedFileState.hasSavePath
+        || chatText.contains("文件")
+        || chatText.contains("图片")
+        || chatText.contains("视频")
+        || chatText.contains("媒体")
+        || chatText.contains("查收话术")
+        || chatText.contains("回执话术");
+}
+
+void MainWindow::configureSavedFileActions(QAction* copySavePathAction,
+                                           QAction* openSavedFileAction,
+                                           QAction* openSaveFolderAction,
+                                           const SavedFileActionState& savedFileState) const {
+    copySavePathAction->setEnabled(savedFileState.hasSavePath);
+    openSavedFileAction->setEnabled(savedFileState.canOpenFile);
+    openSaveFolderAction->setEnabled(savedFileState.canOpenFolder);
+
+    if (!savedFileState.hasSavePath) {
+        copySavePathAction->setToolTip("这条记录还没有保存路径");
+        openSavedFileAction->setToolTip("收到并保存文件后可直接打开");
+        openSaveFolderAction->setToolTip("收到并保存文件后可打开目录");
+        return;
+    }
+
+    if (!savedFileState.canOpenFile) {
+        openSavedFileAction->setToolTip(savedFileState.fileInfo.exists()
+            ? "当前保存路径不是文件"
+            : "保存文件不存在或文件已移动");
+    }
+    if (!savedFileState.canOpenFolder) {
+        openSaveFolderAction->setToolTip("保存目录不存在或无权访问");
+    }
+}
+
 QString MainWindow::chatPlainContentText(const QString& chatText) const {
     QString content = chatText.section(']', 2).trimmed();
     if (content.isEmpty()) content = chatText;
@@ -1555,13 +1590,7 @@ void MainWindow::setupUi() {
         describeChatAction(resendAction, "把消息正文重新填入输入框并立即发送");
         describeChatAction(copyTimeAction, "复制这条消息的发送时间");
         const SavedFileActionState savedFileState = savedFileActionState(index);
-        const bool isMediaMessage = savedFileState.hasSavePath
-            || text.contains("文件")
-            || text.contains("图片")
-            || text.contains("视频")
-            || text.contains("媒体")
-            || text.contains("查收话术")
-            || text.contains("回执话术");
+        const bool isMediaMessage = isChatMediaMessage(text, savedFileState);
         QAction* copyMediaCardAction = menu.addAction("复制媒体卡片");
         QAction* copyFileNoticeAction = menu.addAction("复制查收话术");
         QAction* copyReceiptAction = menu.addAction("复制回执话术");
@@ -1579,24 +1608,8 @@ void MainWindow::setupUi() {
         copyMediaCardAction->setEnabled(isMediaMessage);
         copyFileNoticeAction->setEnabled(isMediaMessage);
         copyReceiptAction->setEnabled(isMediaMessage);
-        copySavePathAction->setEnabled(savedFileState.hasSavePath);
-        openSavedFileAction->setEnabled(savedFileState.canOpenFile);
-        openSaveFolderAction->setEnabled(savedFileState.canOpenFolder);
         copyMediaFlowAction->setEnabled(isMediaMessage);
-        if (!savedFileState.hasSavePath) {
-            copySavePathAction->setToolTip("这条记录还没有保存路径");
-            openSavedFileAction->setToolTip("收到并保存文件后可直接打开");
-            openSaveFolderAction->setToolTip("收到并保存文件后可打开目录");
-        } else {
-            if (!savedFileState.canOpenFile) {
-                openSavedFileAction->setToolTip(savedFileState.fileInfo.exists()
-                    ? "当前保存路径不是文件"
-                    : "保存文件不存在或文件已移动");
-            }
-            if (!savedFileState.canOpenFolder) {
-                openSaveFolderAction->setToolTip("保存目录不存在或无权访问");
-            }
-        }
+        configureSavedFileActions(copySavePathAction, openSavedFileAction, openSaveFolderAction, savedFileState);
         menu.addSeparator();
         QAction* mentionReplyAction = menu.addAction("@对方回复");
         describeChatAction(mentionReplyAction, "把发送者作为 @ 回复对象插入输入框");
