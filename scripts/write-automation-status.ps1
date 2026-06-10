@@ -966,6 +966,7 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
         inputCount = 0
         ciStatus = "unknown"
         ciVisibility = "unknown"
+        ciSource = "unknown"
         ciHeadSha = "unknown"
         ciCurrentHeadObserved = "unknown"
         ciHeadMatchesReleaseHead = "unknown"
@@ -997,6 +998,9 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
         targetMatchesCurrentHead = "unknown"
         currentHead = "unknown"
         staleReleaseArtifact = "unknown"
+        probeFixture = "unknown"
+        releaseEligible = "unknown"
+        releaseEligibilityGate = "unknown"
     }
     if ($null -ne $ManifestState -and $ManifestState.configured) {
         $result.configured = $true
@@ -1039,6 +1043,7 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
     $result.manifestEmbedded = Format-StatusValue (Get-JsonValue $manifest "manifestEmbedded" "unknown")
     $result.ciStatus = Format-StatusValue (Get-JsonValue $ci "status" "unknown")
     $result.ciVisibility = Format-StatusValue (Get-JsonValue $ci "visibility" "unknown")
+    $result.ciSource = Format-StatusValue (Get-JsonValue $ci "source" "unknown")
     $result.ciHeadSha = Format-StatusValue (Get-JsonValue $ci "headSha" "unknown")
     $result.ciCurrentHeadObserved =
         Format-StatusValue (Get-JsonValue $ci "currentHeadObserved" "unknown")
@@ -1085,6 +1090,17 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
             -and -not [bool](Get-JsonValue $productionLinked "sensitiveMaterialExported" $false)
     }
     $result.productionLinkedNoSensitiveReady = Format-StatusValue $productionLinkedNoSensitiveReady
+    $isProbeFixture = $result.ciSource -eq "probe-fixture" -or $result.targetReleaseHead -eq "production-probe-head"
+    $result.probeFixture = Format-StatusValue $isProbeFixture
+    $releaseEligible = -not $isProbeFixture -and $targetMatchesCurrentHead
+    $result.releaseEligible = Format-StatusValue $releaseEligible
+    $result.releaseEligibilityGate = if ($isProbeFixture) {
+        "not-release-eligible-probe-fixture"
+    } elseif (-not $targetMatchesCurrentHead) {
+        "not-release-eligible-stale-head"
+    } else {
+        "release-eligible-current-head"
+    }
     if (-not $targetMatchesCurrentHead) {
         $result.releaseReady = "false"
         $result.releaseGate = "blocked-release-artifact-stale-head"
@@ -2717,7 +2733,7 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseGate), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageArtifact)))
     } else {
-        $lines.Add(('  Linked runtime candidate: releaseReady=`{0}`, promoted=`{1}`, releaseGate=`{2}`, productionLinked=`{3}`, ci=`{4}/{5}`, local=`{6}/{7}`, blockers=`{8}`' -f `
+        $lines.Add(('  Linked runtime candidate: releaseReady=`{0}`, promoted=`{1}`, releaseGate=`{2}`, productionLinked=`{3}`, ci=`{4}/{5}`, local=`{6}/{7}`, blockers=`{8}`, probeFixture=`{9}`, releaseEligible=`{10}`, eligibilityGate=`{11}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate), `
@@ -2726,7 +2742,10 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.ciVisibility), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus), `
-                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers)))
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligibilityGate)))
         $lines.Add(('  Linked runtime candidate head match: targetReleaseHead=`{0}`, currentHead=`{1}`, targetMatchesCurrentHead=`{2}`, stale=`{3}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetReleaseHead), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.currentHead), `
@@ -3167,6 +3186,8 @@ $e2eLinkedReleaseCandidateDiagnostics = @(
     ('releaseGate={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate)),
     ('targetMatchesCurrentHead={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead)),
     ('stale={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact)),
+    ('probeFixture={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture)),
+    ('releaseEligible={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible)),
     ('packageSha256={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageSha256))
 ) -join "; "
 $s3RealBackendReadinessDiagnostics = @(
