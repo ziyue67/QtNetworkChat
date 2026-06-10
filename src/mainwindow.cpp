@@ -3,6 +3,7 @@
 #include "composermanager.h"
 #include "filetransferstatus.h"
 #include "qtnetworkchat_version.h"
+#include "windowstatemanager.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -283,8 +284,7 @@ QPixmap squareAvatarPixmap(const QPixmap& source, int side) {
 }
 
 QString appWindowTitle(const QString& suffix = QString()) {
-    const QString base = QStringLiteral("QtNetworkChat %1").arg(QString::fromLatin1(QTNETWORKCHAT_VERSION_STRING));
-    return suffix.isEmpty() ? base : QStringLiteral("%1 - %2").arg(base, suffix);
+    return WindowStateManager::appWindowTitle(QString::fromLatin1(QTNETWORKCHAT_VERSION_STRING), suffix);
 }
 }
 
@@ -8034,16 +8034,22 @@ void MainWindow::saveLocalGroups() const {
 }
 
 void MainWindow::updateUnreadState() {
-    setWindowTitle(appWindowTitle(QString("%1 条新消息").arg(m_unreadCount)));
-    m_trayIcon->setToolTip(appWindowTitle(QString("%1 条新消息").arg(m_unreadCount)));
+    const WindowChromeState state = WindowStateManager::unreadState(
+        QString::fromLatin1(QTNETWORKCHAT_VERSION_STRING),
+        m_unreadCount);
+    setWindowTitle(state.windowTitle);
+    m_trayIcon->setToolTip(state.trayToolTip);
 }
 
 void MainWindow::clearUnreadState() {
     m_unreadCount = 0;
-    setWindowTitle(m_privateChatTarget.isEmpty()
-        ? appWindowTitle(m_currentUserName)
-        : ui->chatTitleLabel->text());
-    m_trayIcon->setToolTip(appWindowTitle());
+    const WindowChromeState state = WindowStateManager::clearedState(
+        QString::fromLatin1(QTNETWORKCHAT_VERSION_STRING),
+        !m_privateChatTarget.isEmpty(),
+        m_currentUserName,
+        ui->chatTitleLabel->text());
+    setWindowTitle(state.windowTitle);
+    m_trayIcon->setToolTip(state.trayToolTip);
 }
 
 void MainWindow::changeEvent(QEvent* event) {

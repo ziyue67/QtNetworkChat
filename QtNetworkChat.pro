@@ -16,6 +16,7 @@ SOURCES += \
     src/historymetadata.cpp \
     src/transfermanager.cpp \
     src/composermanager.cpp \
+    src/windowstatemanager.cpp \
     src/filetransferstatus.cpp \
     src/friendmanager.cpp \
     src/groupmanager.cpp \
@@ -32,6 +33,7 @@ HEADERS += \
     include/historymetadata.h \
     include/transfermanager.h \
     include/composermanager.h \
+    include/windowstatemanager.h \
     include/filetransferstatus.h \
     include/friendmanager.h \
     include/groupmanager.h \
