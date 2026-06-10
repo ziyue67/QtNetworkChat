@@ -100,6 +100,14 @@ struct TransferProgressUiState {
     int percent = 0;
 };
 
+struct TransferSendUiState {
+    QString hintText;
+    QString statusMessage;
+    QString warningTitle;
+    QString warningMessage;
+    int statusTimeoutMs = 3000;
+};
+
 class TransferManager {
 public:
     static TransferRecoveryUiState recoveryUiState(bool hasSavedTransfer,
@@ -138,6 +146,17 @@ public:
                                                         qint64 chunkSize,
                                                         qint64 chunkCount,
                                                         const QString& fileHash);
+    static TransferSendUiState publicGroupRemovedState(const QString& kind);
+    static TransferSendUiState disconnectedSendState(const QString& kind, const QString& targetName);
+    static TransferSendUiState canceledSendState(const QString& kind, const QString& fileName);
+    static TransferSendUiState failedSendState(const QString& kind,
+                                               const QString& fileName,
+                                               const QString& fileSize,
+                                               const QString& targetName);
+    static TransferSendUiState preparingSendState(const QString& kind,
+                                                  const QString& fileName,
+                                                  const QString& fileSize,
+                                                  const QString& targetName);
     static TransferProgressUiState resumeInitialState(const QString& fileName,
                                                       const QString& targetName);
     static TransferProgressUiState resumeCancelState(const QString& fileName);

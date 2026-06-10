@@ -258,6 +258,45 @@ int main(int argc, char** argv) {
                     && sendingPrepared.labelText.contains(QString::fromUtf8("文件校验清单已生成")),
                 "sending prepared state should expose manifest summary and label") && ok;
 
+    TransferSendUiState publicRemoved = TransferManager::publicGroupRemovedState(QString::fromUtf8("图片/视频"));
+    ok = expect(publicRemoved.hintText.contains(QString::fromUtf8("图片/视频发送暂停"))
+                    && publicRemoved.hintText.contains(QString::fromUtf8("重新邀请"))
+                    && publicRemoved.statusMessage.contains(QString::fromUtf8("暂不能发送图片/视频"))
+                    && publicRemoved.statusTimeoutMs == 3000,
+                "public group removed send state should fail closed with reinvite guidance") && ok;
+
+    TransferSendUiState disconnectedSend = TransferManager::disconnectedSendState(QString::fromUtf8("文件"), QString());
+    ok = expect(disconnectedSend.hintText.contains(QString::fromUtf8("公共聊天室 已断开"))
+                    && disconnectedSend.statusMessage.contains(QString::fromUtf8("暂不能发送文件到 公共聊天室"))
+                    && disconnectedSend.statusTimeoutMs == 3000,
+                "disconnected send state should fall back to public chat target") && ok;
+
+    TransferSendUiState preparingSend = TransferManager::preparingSendState(QString::fromUtf8("视频"),
+                                                                           QStringLiteral("clip.mp4"),
+                                                                           QStringLiteral("2.0 MB"),
+                                                                           QString::fromUtf8("好友A"));
+    ok = expect(preparingSend.hintText == QString::fromUtf8("准备发送视频到 好友A · clip.mp4 · 2.0 MB")
+                    && preparingSend.statusMessage == preparingSend.hintText
+                    && preparingSend.statusTimeoutMs == 1800,
+                "preparing send state should centralize pre-transfer copy") && ok;
+
+    TransferSendUiState canceledSend = TransferManager::canceledSendState(QString::fromUtf8("文件"), QStringLiteral("report.zip"));
+    ok = expect(canceledSend.hintText == QString::fromUtf8("已取消发送文件 · report.zip")
+                    && canceledSend.statusMessage == QString::fromUtf8("已取消发送文件：report.zip")
+                    && canceledSend.statusTimeoutMs == 2200,
+                "canceled send state should centralize cancel copy") && ok;
+
+    TransferSendUiState failedSend = TransferManager::failedSendState(QString::fromUtf8("图片"),
+                                                                      QStringLiteral("photo.png"),
+                                                                      QStringLiteral("512 KB"),
+                                                                      QString::fromUtf8("好友A"));
+    ok = expect(failedSend.hintText == QString::fromUtf8("图片发送失败 · photo.png · 好友A")
+                    && failedSend.statusMessage == QString::fromUtf8("图片发送失败：photo.png")
+                    && failedSend.warningTitle == QString::fromUtf8("发送失败")
+                    && failedSend.warningMessage.contains(QString::fromUtf8("图片“photo.png”（512 KB）未发送到 好友A"))
+                    && failedSend.statusTimeoutMs == 3000,
+                "failed send state should centralize warning and retry guidance") && ok;
+
     TransferProgressUiState resumeCancel = TransferManager::resumeCancelState(QStringLiteral("report.zip"));
     ok = expect(resumeCancel.labelText.contains(QString::fromUtf8("正在取消恢复发送"))
                     && resumeCancel.labelText.contains(QStringLiteral("report.zip")),

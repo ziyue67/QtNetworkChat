@@ -2402,14 +2402,16 @@ void MainWindow::onSendFile() {
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
     if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
-        ui->chatHintLabel->setText("文件发送暂停 · 当前账号已不在公共群，等待重新邀请");
-        ui->statusbar->showMessage("当前账号已不在公共群，暂不能发送文件", 3000);
+        const TransferSendUiState state = m_transferManager.publicGroupRemovedState(QStringLiteral("文件"));
+        ui->chatHintLabel->setText(state.hintText);
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
         return;
     }
     if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
-        ui->chatHintLabel->setText(QString("文件发送暂停 · %1 已断开").arg(targetName));
-        ui->statusbar->showMessage(QString("已断开连接，暂不能发送文件到 %1").arg(targetName), 3000);
+        const TransferSendUiState state = m_transferManager.disconnectedSendState(QStringLiteral("文件"), targetName);
+        ui->chatHintLabel->setText(state.hintText);
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
         return;
     }
@@ -2434,8 +2436,9 @@ void MainWindow::onSendFile() {
     }
 
     const QString fileSize = humanFileSize(info.size());
-    ui->chatHintLabel->setText(QString("准备发送文件到 %1 · %2 · %3").arg(targetName, info.fileName(), fileSize));
-    ui->statusbar->showMessage(QString("准备发送文件到 %1 · %2 · %3").arg(targetName, info.fileName(), fileSize), 1800);
+    const TransferSendUiState preparingState = m_transferManager.preparingSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
+    ui->chatHintLabel->setText(preparingState.hintText);
+    ui->statusbar->showMessage(preparingState.statusMessage, preparingState.statusTimeoutMs);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QString line = QString("[%1] <%2> 发送了文件: %3 · %4").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName(), fileSize);
         saveHistory(m_privateChatTarget, line);
@@ -2488,16 +2491,15 @@ void MainWindow::onSendFile() {
         ui->chatListView->scrollToBottom();
     } else if (transferCanceled) {
         appendSystemMessage(QString("已取消发送文件: %1 · 到 %2").arg(info.fileName(), targetName));
-        ui->chatHintLabel->setText(QString("已取消发送文件 · %1 · %2").arg(info.fileName(), targetName));
-        ui->statusbar->showMessage(QString("已取消发送文件：%1").arg(info.fileName()), 2200);
+        const TransferSendUiState state = m_transferManager.canceledSendState(QStringLiteral("文件"), info.fileName());
+        ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
     } else {
-        ui->chatHintLabel->setText(QString("文件发送失败 · %1 · %2").arg(info.fileName(), targetName));
-        ui->statusbar->showMessage(QString("文件发送失败：%1").arg(info.fileName()), 3000);
-        QMessageBox::warning(this,
-                             "发送失败",
-                             QString("文件“%1”（%2）未发送到 %3，请检查连接状态或稍后重试。")
-                                 .arg(info.fileName(), fileSize, targetName));
+        const TransferSendUiState state = m_transferManager.failedSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
+        ui->chatHintLabel->setText(state.hintText);
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        QMessageBox::warning(this, state.warningTitle, state.warningMessage);
         refreshComposerState();
     }
 }
@@ -2506,14 +2508,16 @@ void MainWindow::onSendImage() {
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
     if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
-        ui->chatHintLabel->setText("图片/视频发送暂停 · 当前账号已不在公共群，等待重新邀请");
-        ui->statusbar->showMessage("当前账号已不在公共群，暂不能发送图片/视频", 3000);
+        const TransferSendUiState state = m_transferManager.publicGroupRemovedState(QStringLiteral("图片/视频"));
+        ui->chatHintLabel->setText(state.hintText);
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
         return;
     }
     if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
-        ui->chatHintLabel->setText(QString("图片/视频发送暂停 · %1 已断开").arg(targetName));
-        ui->statusbar->showMessage(QString("已断开连接，暂不能发送图片/视频到 %1").arg(targetName), 3000);
+        const TransferSendUiState state = m_transferManager.disconnectedSendState(QStringLiteral("图片/视频"), targetName);
+        ui->chatHintLabel->setText(state.hintText);
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
         return;
     }
@@ -2541,8 +2545,9 @@ void MainWindow::onSendImage() {
     const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
     const QString mediaType = isVideo ? "视频" : "图片";
     const QString fileSize = humanFileSize(info.size());
-    ui->chatHintLabel->setText(QString("准备发送%1到 %2 · %3 · %4").arg(mediaType, targetName, info.fileName(), fileSize));
-    ui->statusbar->showMessage(QString("准备发送%1到 %2 · %3 · %4").arg(mediaType, targetName, info.fileName(), fileSize), 1800);
+    const TransferSendUiState preparingState = m_transferManager.preparingSendState(mediaType, info.fileName(), fileSize, targetName);
+    ui->chatHintLabel->setText(preparingState.hintText);
+    ui->statusbar->showMessage(preparingState.statusMessage, preparingState.statusTimeoutMs);
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QPixmap pixmap(filePath);
         QString line = QString("[%1] <%2> [%3] %4 · %5").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, mediaType, info.fileName(), fileSize);
@@ -2617,16 +2622,15 @@ void MainWindow::onSendImage() {
         ui->chatListView->scrollToBottom();
     } else if (transferCanceled) {
         appendSystemMessage(QString("已取消发送%1: %2 · 到 %3").arg(mediaType, info.fileName(), targetName));
-        ui->chatHintLabel->setText(QString("已取消发送%1 · %2 · %3").arg(mediaType, info.fileName(), targetName));
-        ui->statusbar->showMessage(QString("已取消发送%1：%2").arg(mediaType, info.fileName()), 2200);
+        const TransferSendUiState state = m_transferManager.canceledSendState(mediaType, info.fileName());
+        ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
     } else {
-        ui->chatHintLabel->setText(QString("%1发送失败 · %2 · %3").arg(mediaType, info.fileName(), targetName));
-        ui->statusbar->showMessage(QString("%1发送失败：%2").arg(mediaType, info.fileName()), 3000);
-        QMessageBox::warning(this,
-                             "发送失败",
-                             QString("%1“%2”（%3）未发送到 %4，请检查连接状态或稍后重试。")
-                                 .arg(mediaType, info.fileName(), fileSize, targetName));
+        const TransferSendUiState state = m_transferManager.failedSendState(mediaType, info.fileName(), fileSize, targetName);
+        ui->chatHintLabel->setText(state.hintText);
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        QMessageBox::warning(this, state.warningTitle, state.warningMessage);
         refreshComposerState();
     }
 }

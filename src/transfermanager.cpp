@@ -306,6 +306,56 @@ TransferProgressUiState TransferManager::sendingPreparedState(const QString& kin
     return result;
 }
 
+TransferSendUiState TransferManager::publicGroupRemovedState(const QString& kind) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("%1发送暂停 · 当前账号已不在公共群，等待重新邀请").arg(kind);
+    result.statusMessage = QStringLiteral("当前账号已不在公共群，暂不能发送%1").arg(kind);
+    result.statusTimeoutMs = 3000;
+    return result;
+}
+
+TransferSendUiState TransferManager::disconnectedSendState(const QString& kind, const QString& targetName) {
+    TransferSendUiState result;
+    const QString safeTarget = targetName.trimmed().isEmpty() ? QStringLiteral("公共聊天室") : targetName.trimmed();
+    result.hintText = QStringLiteral("%1发送暂停 · %2 已断开").arg(kind, safeTarget);
+    result.statusMessage = QStringLiteral("已断开连接，暂不能发送%1到 %2").arg(kind, safeTarget);
+    result.statusTimeoutMs = 3000;
+    return result;
+}
+
+TransferSendUiState TransferManager::canceledSendState(const QString& kind, const QString& fileName) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("已取消发送%1 · %2").arg(kind, fileName);
+    result.statusMessage = QStringLiteral("已取消发送%1：%2").arg(kind, fileName);
+    result.statusTimeoutMs = 2200;
+    return result;
+}
+
+TransferSendUiState TransferManager::failedSendState(const QString& kind,
+                                                     const QString& fileName,
+                                                     const QString& fileSize,
+                                                     const QString& targetName) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("%1发送失败 · %2 · %3").arg(kind, fileName, targetName);
+    result.statusMessage = QStringLiteral("%1发送失败：%2").arg(kind, fileName);
+    result.warningTitle = QStringLiteral("发送失败");
+    result.warningMessage = QStringLiteral("%1“%2”（%3）未发送到 %4，请检查连接状态或稍后重试。")
+        .arg(kind, fileName, fileSize, targetName);
+    result.statusTimeoutMs = 3000;
+    return result;
+}
+
+TransferSendUiState TransferManager::preparingSendState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& fileSize,
+                                                        const QString& targetName) {
+    TransferSendUiState result;
+    result.hintText = QStringLiteral("准备发送%1到 %2 · %3 · %4").arg(kind, targetName, fileName, fileSize);
+    result.statusMessage = result.hintText;
+    result.statusTimeoutMs = 1800;
+    return result;
+}
+
 TransferProgressUiState TransferManager::resumeInitialState(const QString& fileName,
                                                             const QString& targetName) {
     TransferProgressUiState result;
