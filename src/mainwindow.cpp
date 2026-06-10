@@ -2526,17 +2526,9 @@ void MainWindow::onSendImage() {
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         if (!isVideo && !pixmap.isNull()) {
-            QStandardItem* previewItem = new QStandardItem(QString("%1 · %2").arg(info.fileName(), fileSize));
-            previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
-            previewItem->setEditable(false);
-            previewItem->setBackground(QColor(246, 250, 253));
-            m_chatModel->appendRow(previewItem);
+            appendMediaPreviewItem(QString("%1 · %2").arg(info.fileName(), fileSize), pixmap, false, false);
         } else if (isVideo) {
-            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 · 可在文件目录中打开").arg(info.fileName(), fileSize));
-            previewItem->setEditable(false);
-            previewItem->setForeground(QColor(126, 87, 194));
-            previewItem->setBackground(QColor(245, 240, 255));
-            m_chatModel->appendRow(previewItem);
+            appendMediaPreviewItem(QString("视频文件 · %1 · %2 · 可在文件目录中打开").arg(info.fileName(), fileSize), QPixmap(), true, false);
         }
         appendTransferCompletionState(completedState, true, false, QColor(), QColor());
         return;
@@ -2552,20 +2544,10 @@ void MainWindow::onSendImage() {
         if (!isVideo) {
             QPixmap pixmap(filePath);
             if (!pixmap.isNull()) {
-                QStandardItem* previewItem = new QStandardItem(completedState.cardText);
-                previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
-                previewItem->setEditable(false);
-                previewItem->setBackground(QColor(246, 250, 253));
-                previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-                m_chatModel->appendRow(previewItem);
+                appendMediaPreviewItem(completedState.cardText, pixmap, false, true);
             }
         } else {
-            QStandardItem* previewItem = new QStandardItem(completedState.cardText);
-            previewItem->setEditable(false);
-            previewItem->setForeground(QColor(126, 87, 194));
-            previewItem->setBackground(QColor(245, 240, 255));
-            previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            m_chatModel->appendRow(previewItem);
+            appendMediaPreviewItem(completedState.cardText, QPixmap(), true, true);
         }
         appendTransferCompletionState(completedState, false, false, QColor(), QColor());
     } else if (transferCanceled) {
@@ -7297,6 +7279,25 @@ void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
     ui->chatHintLabel->setText(state.hintText);
     ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
     ui->chatListView->scrollToBottom();
+}
+
+void MainWindow::appendMediaPreviewItem(const QString& text,
+                                        const QPixmap& pixmap,
+                                        bool isVideo,
+                                        bool alignRight) {
+    QStandardItem* previewItem = new QStandardItem(text);
+    if (!isVideo && !pixmap.isNull()) {
+        previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
+    }
+    previewItem->setEditable(false);
+    previewItem->setBackground(isVideo ? QColor(245, 240, 255) : QColor(246, 250, 253));
+    if (isVideo) {
+        previewItem->setForeground(QColor(126, 87, 194));
+    }
+    if (alignRight) {
+        previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    }
+    m_chatModel->appendRow(previewItem);
 }
 
 void MainWindow::loadHistory(const QString& peerId) {

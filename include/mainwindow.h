@@ -92,6 +92,10 @@ private:
                                        bool includeCard,
                                        const QColor& cardForeground,
                                        const QColor& cardBackground);
+    void appendMediaPreviewItem(const QString& text,
+                                const QPixmap& pixmap,
+                                bool isVideo,
+                                bool alignRight);
     void loadHistory(const QString& peerId = QString());
     void saveHistory(const QString& peerId, const QString& content);
     void saveHistory(const QString& peerId,
