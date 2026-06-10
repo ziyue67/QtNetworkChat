@@ -292,6 +292,15 @@ $localArtifactPresent = $null -ne $local
 $releaseHeadConfigured = -not [string]::IsNullOrWhiteSpace((Normalize-HeadValue $ReleaseHead))
 $targetReleaseHead = if ($releaseHeadConfigured) { Format-Value $ReleaseHead } else { "unknown" }
 $ciHeadMatchesReleaseHead = -not $releaseHeadConfigured -or ($ciArtifactPresent -and (Test-HeadMatch $targetReleaseHead $ciHeadSha))
+$probeFixture = $ciSource -eq "probe-fixture" `
+    -or (Normalize-HeadValue $targetReleaseHead) -eq "production-probe-head" `
+    -or (Normalize-HeadValue $ciHeadSha) -eq "production-probe-head"
+$releaseEligible = -not $probeFixture
+$releaseEligibilityGate = if ($probeFixture) {
+    "not-release-eligible-probe-fixture"
+} else {
+    "release-eligible-current-head"
+}
 $acceptedBackendMatchesRollout = Test-TextMatch $productionAcceptanceBackendId $productionRolloutBackendId
 $requestedBackendMatchesAcceptance = Test-TextMatch $productionAcceptanceBackendId $releaseRunRequestedBackendId
 $selectedBackendMatchesAcceptance = Test-TextMatch $productionAcceptanceBackendId $releaseRunSelectedBackendId
@@ -326,7 +335,12 @@ $productionLinkedGate = if ($productionLinkedEvidenceReady) {
     "blocked-production-linked-rollout-not-ready"
 }
 $packageOk = $sensitiveHits.Count -eq 0 -and $rolloutArtifactPresent -and $ciArtifactPresent -and $localArtifactPresent
-$releaseReady = $packageOk -and $productionLinkedEvidenceReady -and $ciStatus -eq "success" -and $localOk -and $ciHeadMatchesReleaseHead
+$releaseReady = $packageOk `
+    -and $releaseEligible `
+    -and $productionLinkedEvidenceReady `
+    -and $ciStatus -eq "success" `
+    -and $localOk `
+    -and $ciHeadMatchesReleaseHead
 
 $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-sensitive-evidence"
@@ -338,6 +352,8 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-missing-local-verification-status"
 } elseif (-not $ciHeadMatchesReleaseHead) {
     "blocked-ci-head-mismatch"
+} elseif (-not $releaseEligible) {
+    "blocked-release-artifact-probe-fixture"
 } elseif ($ciStatus -ne "success") {
     if ($ciReleaseGate -ne "unknown") {
         $ciReleaseGate
@@ -357,6 +373,9 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
 $promotionBlockers = New-Object System.Collections.ArrayList
 if ($sensitiveHits.Count -gt 0) {
     [void]$promotionBlockers.Add("sensitive-evidence")
+}
+if (-not $releaseEligible) {
+    [void]$promotionBlockers.Add("release-artifact-probe-fixture")
 }
 if (-not $rolloutArtifactPresent) {
     [void]$promotionBlockers.Add("missing-rollout-observability")
@@ -387,7 +406,12 @@ if (-not $localArtifactPresent) {
     [void]$promotionBlockers.Add("local-verification-not-ready")
 }
 
-$promotionReady = $releaseReady -and $ciCurrentHeadObserved -and $ciHeadMatchesReleaseHead -and $productionLinkedEvidenceReady -and $promotionBlockers.Count -eq 0
+$promotionReady = $releaseReady `
+    -and $releaseEligible `
+    -and $ciCurrentHeadObserved `
+    -and $ciHeadMatchesReleaseHead `
+    -and $productionLinkedEvidenceReady `
+    -and $promotionBlockers.Count -eq 0
 $promotionGate = if ($promotionReady) {
     "e2e-release-artifact-promoted"
 } else {
@@ -404,6 +428,9 @@ $manifest = [ordered]@{
     packageSha256 = "pending"
     releaseHeadConfigured = $releaseHeadConfigured
     targetReleaseHead = $targetReleaseHead
+    probeFixture = $probeFixture
+    releaseEligible = $releaseEligible
+    releaseEligibilityGate = $releaseEligibilityGate
     stagingDir = Split-Path -Leaf $stagingDir
     manifestPackagedAs = "manifest.json"
     manifestEmbedded = $true
@@ -465,6 +492,7 @@ $manifest = [ordered]@{
         externalBlocker = $ciExternalBlocker
         releaseGate = $ciReleaseGate
         latestObservedHead = $ciLatestObservedHead
+        probeFixture = $probeFixture
     }
     localVerification = [ordered]@{
         present = $localArtifactPresent
@@ -497,6 +525,9 @@ $manifest = [ordered]@{
         currentHeadObserved = $ciCurrentHeadObserved
         ciHeadMatchesReleaseHead = $ciHeadMatchesReleaseHead
         ciStatus = $ciStatus
+        probeFixture = $probeFixture
+        releaseEligible = $releaseEligible
+        releaseEligibilityGate = $releaseEligibilityGate
         productionLinkedEvidenceReady = $productionLinkedEvidenceReady
         productionLinkedReleaseGate = $productionLinkedGate
         localVerificationOk = $localOk

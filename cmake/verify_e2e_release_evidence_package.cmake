@@ -85,6 +85,9 @@ string(JSON ci_status GET "${manifest_content}" "ci" "status")
 string(JSON ci_head_sha GET "${manifest_content}" "ci" "headSha")
 string(JSON ci_visibility GET "${manifest_content}" "ci" "visibility")
 string(JSON ci_head_matches_release_head GET "${manifest_content}" "ci" "headMatchesReleaseHead")
+string(JSON probe_fixture GET "${manifest_content}" "probeFixture")
+string(JSON release_eligible GET "${manifest_content}" "releaseEligible")
+string(JSON release_eligibility_gate GET "${manifest_content}" "releaseEligibilityGate")
 string(JSON target_release_head GET "${manifest_content}" "targetReleaseHead")
 string(JSON local_ctest_count GET "${manifest_content}" "localVerification" "ctestCount")
 string(JSON proof_no_sensitive GET "${manifest_content}" "sensitiveExportProof" "noSensitiveExportProof")
@@ -96,6 +99,9 @@ string(JSON promotion_evidence_gate GET "${promotion_content}" "evidenceReleaseG
 string(JSON promotion_target_release_head GET "${promotion_content}" "targetReleaseHead")
 string(JSON promotion_ci_head_sha GET "${promotion_content}" "ciHeadSha")
 string(JSON promotion_ci_head_matches_release_head GET "${promotion_content}" "ciHeadMatchesReleaseHead")
+string(JSON promotion_probe_fixture GET "${promotion_content}" "probeFixture")
+string(JSON promotion_release_eligible GET "${promotion_content}" "releaseEligible")
+string(JSON promotion_release_eligibility_gate GET "${promotion_content}" "releaseEligibilityGate")
 string(JSON promotion_blocker0 GET "${promotion_content}" "blockers" 0)
 string(JSON promotion_blocker1 GET "${promotion_content}" "blockers" 1)
 string(FIND "${manifest_content}" "${TEMP_DIR}" temp_path_index)
@@ -147,10 +153,16 @@ if(NOT input_count EQUAL 5
         OR NOT ci_head_sha STREQUAL "abc123"
         OR NOT ci_visibility STREQUAL "head-not-observed"
         OR NOT ci_head_matches_release_head
+        OR probe_fixture
+        OR NOT release_eligible
+        OR NOT release_eligibility_gate STREQUAL "release-eligible-current-head"
         OR NOT target_release_head STREQUAL "abc123"
         OR NOT promotion_target_release_head STREQUAL "abc123"
         OR NOT promotion_ci_head_sha STREQUAL "abc123"
-        OR NOT promotion_ci_head_matches_release_head)
+        OR NOT promotion_ci_head_matches_release_head
+        OR promotion_probe_fixture
+        OR NOT promotion_release_eligible
+        OR NOT promotion_release_eligibility_gate STREQUAL "release-eligible-current-head")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence manifest did not preserve CI readback")
 endif()
@@ -206,6 +218,11 @@ string(JSON ready_promotion_ready GET "${ready_promotion}" "promotionReady")
 string(JSON ready_promotion_promoted GET "${ready_promotion}" "promoted")
 string(JSON ready_promotion_gate GET "${ready_promotion}" "releaseGate")
 string(JSON ready_promotion_blocker_count LENGTH "${ready_promotion}" "blockers")
+string(JSON ready_probe_fixture GET "${ready_manifest}" "probeFixture")
+string(JSON ready_release_eligible GET "${ready_manifest}" "releaseEligible")
+string(JSON ready_eligibility_gate GET "${ready_manifest}" "releaseEligibilityGate")
+string(JSON ready_promotion_probe_fixture GET "${ready_promotion}" "probeFixture")
+string(JSON ready_promotion_release_eligible GET "${ready_promotion}" "releaseEligible")
 string(JSON ready_production_linked_ready GET "${ready_manifest}" "productionLinkedEvidence" "ready")
 string(JSON ready_production_linked_gate GET "${ready_manifest}" "productionLinkedEvidence" "releaseGate")
 string(JSON ready_production_backend_match GET "${ready_manifest}" "productionLinkedEvidence" "acceptedBackendMatchesRollout")
@@ -217,7 +234,12 @@ if(NOT ready_release_ready
         OR NOT ready_release_gate STREQUAL "e2e-release-evidence-ready"
         OR NOT ready_promotion_ready
         OR NOT ready_promotion_promoted
-        OR NOT ready_promotion_gate STREQUAL "e2e-release-artifact-promoted")
+        OR NOT ready_promotion_gate STREQUAL "e2e-release-artifact-promoted"
+        OR ready_probe_fixture
+        OR NOT ready_release_eligible
+        OR NOT ready_eligibility_gate STREQUAL "release-eligible-current-head"
+        OR ready_promotion_probe_fixture
+        OR NOT ready_promotion_release_eligible)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence ready path should promote only when rollout, CI, and local verification are ready")
 endif()
@@ -234,6 +256,57 @@ endif()
 if(NOT ready_promotion_blocker_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "E2E release evidence ready promotion should have no blockers")
+endif()
+
+set(PROBE_CI_JSON "${TEMP_DIR}/github-windows-build-status-probe.json")
+file(WRITE "${PROBE_CI_JSON}" "{\n  \"format\":\"qtnetworkchat-github-windows-build-status-v1\",\n  \"headSha\":\"production-probe-head\",\n  \"status\":\"success\",\n  \"runId\":\"production-probe-run\",\n  \"source\":\"probe-fixture\",\n  \"visibility\":\"current-head-observed\",\n  \"observedRunCount\":1,\n  \"currentHeadObserved\":true,\n  \"releaseGate\":\"github-windows-build-current-head-success\",\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}/probe"
+        -RolloutJsonPath "${READY_ROLLOUT_JSON}"
+        -RolloutMarkdownPath "${ROLLOUT_MD}"
+        -GitHubWindowsBuildStatusPath "${PROBE_CI_JSON}"
+        -LocalVerificationStatusPath "${READY_LOCAL_JSON}"
+        -AutomationStatusPath "${AUTO_MD}"
+        -ReleaseHead "production-probe-head"
+    RESULT_VARIABLE probe_result
+    OUTPUT_VARIABLE probe_output
+    ERROR_VARIABLE probe_error
+)
+if(NOT probe_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence probe package failed: ${probe_error}")
+endif()
+file(READ "${OUTPUT_DIR}/probe/e2e-release-evidence-manifest.json" probe_manifest)
+file(READ "${OUTPUT_DIR}/probe/e2e-release-promotion.json" probe_promotion)
+string(JSON probe_release_ready GET "${probe_manifest}" "releaseReady")
+string(JSON probe_release_gate GET "${probe_manifest}" "releaseGate")
+string(JSON probe_manifest_probe_fixture GET "${probe_manifest}" "probeFixture")
+string(JSON probe_manifest_release_eligible GET "${probe_manifest}" "releaseEligible")
+string(JSON probe_manifest_eligibility_gate GET "${probe_manifest}" "releaseEligibilityGate")
+string(JSON probe_production_linked_ready GET "${probe_manifest}" "productionLinkedEvidence" "ready")
+string(JSON probe_promotion_ready GET "${probe_promotion}" "promotionReady")
+string(JSON probe_promotion_promoted GET "${probe_promotion}" "promoted")
+string(JSON probe_promotion_gate GET "${probe_promotion}" "releaseGate")
+string(JSON probe_promotion_probe_fixture GET "${probe_promotion}" "probeFixture")
+string(JSON probe_promotion_release_eligible GET "${probe_promotion}" "releaseEligible")
+string(JSON probe_promotion_eligibility_gate GET "${probe_promotion}" "releaseEligibilityGate")
+string(JSON probe_promotion_blocker0 GET "${probe_promotion}" "blockers" 0)
+if(probe_release_ready
+        OR NOT probe_release_gate STREQUAL "blocked-release-artifact-probe-fixture"
+        OR NOT probe_manifest_probe_fixture
+        OR probe_manifest_release_eligible
+        OR NOT probe_manifest_eligibility_gate STREQUAL "not-release-eligible-probe-fixture"
+        OR NOT probe_production_linked_ready
+        OR probe_promotion_ready
+        OR probe_promotion_promoted
+        OR NOT probe_promotion_gate STREQUAL "blocked-e2e-release-artifact-promotion"
+        OR NOT probe_promotion_probe_fixture
+        OR probe_promotion_release_eligible
+        OR NOT probe_promotion_eligibility_gate STREQUAL "not-release-eligible-probe-fixture"
+        OR NOT probe_promotion_blocker0 STREQUAL "release-artifact-probe-fixture")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "E2E release evidence must not promote production-probe-head fixtures even when production-linked evidence is ready")
 endif()
 
 set(PSEUDO_READY_ROLLOUT_JSON "${TEMP_DIR}/e2e-rollout-observability-pseudo-ready.json")

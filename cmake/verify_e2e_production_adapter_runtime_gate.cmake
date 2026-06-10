@@ -222,6 +222,13 @@ if(evidence_result EQUAL 0 AND EXISTS "${evidence_json}" AND EXISTS "${evidence_
             string(JSON release_promotion_promoted GET "${release_promotion_content}" "promoted")
             string(JSON release_promotion_gate GET "${release_promotion_content}" "releaseGate")
             string(JSON release_promotion_blocker_count LENGTH "${release_promotion_content}" "blockers")
+            string(JSON release_probe_fixture GET "${release_manifest_content}" "probeFixture")
+            string(JSON release_eligible GET "${release_manifest_content}" "releaseEligible")
+            string(JSON release_eligibility_gate GET "${release_manifest_content}" "releaseEligibilityGate")
+            string(JSON release_promotion_probe_fixture GET "${release_promotion_content}" "probeFixture")
+            string(JSON release_promotion_release_eligible GET "${release_promotion_content}" "releaseEligible")
+            string(JSON release_promotion_eligibility_gate GET "${release_promotion_content}" "releaseEligibilityGate")
+            string(JSON release_promotion_blocker0 GET "${release_promotion_content}" "blockers" 0)
             if(DEFINED LINKED_RELEASE_CANDIDATE_DIR AND NOT "${LINKED_RELEASE_CANDIDATE_DIR}" STREQUAL "")
                 file(MAKE_DIRECTORY "${LINKED_RELEASE_CANDIDATE_DIR}")
                 file(COPY "${release_package_dir}/" DESTINATION "${LINKED_RELEASE_CANDIDATE_DIR}")
@@ -275,19 +282,26 @@ if(NOT evidence_offline_scope STREQUAL "offline-ciphertext-readback"
     OR NOT evidence_offline_gate STREQUAL "e2e-offline-ciphertext-readback-reviewed-opt-in")
     message(FATAL_ERROR "Production rollout observability evidence should expose reviewed offline ciphertext readback as an explicit opt-in gate")
 endif()
-if(NOT release_ready
-    OR NOT release_gate STREQUAL "e2e-release-evidence-ready"
+if(release_ready
+    OR NOT release_gate STREQUAL "blocked-release-artifact-probe-fixture"
     OR NOT release_production_linked_ready
     OR NOT release_production_linked_gate STREQUAL "production-linked-rollout-ready"
     OR NOT release_requested_backend_match
     OR NOT release_selected_backend_match
     OR NOT release_operation_counts_ready
     OR release_sensitive_exported
-    OR NOT release_promotion_ready
-    OR NOT release_promotion_promoted
-    OR NOT release_promotion_gate STREQUAL "e2e-release-artifact-promoted"
-    OR NOT release_promotion_blocker_count EQUAL 0)
-    message(FATAL_ERROR "Production-linked release package should be ready and promoted only with accepted production rollout, current CI, local verification, backend match, operation counts, and no-sensitive proof")
+    OR NOT release_probe_fixture
+    OR release_eligible
+    OR NOT release_eligibility_gate STREQUAL "not-release-eligible-probe-fixture"
+    OR release_promotion_ready
+    OR release_promotion_promoted
+    OR NOT release_promotion_gate STREQUAL "blocked-e2e-release-artifact-promotion"
+    OR NOT release_promotion_probe_fixture
+    OR release_promotion_release_eligible
+    OR NOT release_promotion_eligibility_gate STREQUAL "not-release-eligible-probe-fixture"
+    OR NOT release_promotion_blocker_count EQUAL 1
+    OR NOT release_promotion_blocker0 STREQUAL "release-artifact-probe-fixture")
+    message(FATAL_ERROR "Production-linked probe fixture package should prove accepted rollout evidence but remain ineligible for final promotion")
 endif()
 foreach(forbidden_text IN ITEMS
     "privateKey"
