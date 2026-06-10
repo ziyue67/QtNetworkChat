@@ -100,6 +100,10 @@ private:
                                             const QString& cardToolTip,
                                             const QString& replyText,
                                             const QString& replyToolTip);
+    void appendReceivedTransferSavedItem(const QString& text,
+                                         const QString& toolTip,
+                                         bool integrityFailed);
+    void appendReceivedTransferSaveFailedItem(const QString& text);
     void loadHistory(const QString& peerId = QString());
     void saveHistory(const QString& peerId, const QString& content);
     void saveHistory(const QString& peerId,

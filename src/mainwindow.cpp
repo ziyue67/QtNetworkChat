@@ -2673,12 +2673,10 @@ void MainWindow::onNewMessage(const Message& msg) {
             f.write(msg.fileData);
             f.close();
             const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
-            QStandardItem* savedItem = new QStandardItem(QString("图片已自动保存: %1 · %2%3%4").arg(savePath, receivedSize, manifestSuffix, integritySuffix));
-            savedItem->setEditable(false);
-            savedItem->setData(savedFileTip, Qt::ToolTipRole);
-            savedItem->setForeground(integrityText.startsWith("完整性校验失败") ? QColor(180, 70, 70) : Qt::darkGreen);
-            savedItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-            m_chatModel->appendRow(savedItem);
+            appendReceivedTransferSavedItem(
+                QString("图片已自动保存: %1 · %2%3%4").arg(savePath, receivedSize, manifestSuffix, integritySuffix),
+                savedFileTip,
+                integrityText.startsWith("完整性校验失败"));
             appendReceivedTransferReceiptItems(
                 QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix),
                 QString("图片已保存到：%1").arg(savePath),
@@ -2694,11 +2692,7 @@ void MainWindow::onNewMessage(const Message& msg) {
             ui->chatHintLabel->setText(QString("已接收图片 · %1 · %2 · 来自 %3%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
             ui->statusbar->showMessage(QString("图片已保存到下载目录 · %1%2%3").arg(receivedSize, manifestSuffix, integritySuffix), 3000);
         } else {
-            QStandardItem* failedItem = new QStandardItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
-            failedItem->setEditable(false);
-            failedItem->setForeground(QColor(180, 70, 70));
-            failedItem->setBackground(QColor(255, 245, 245));
-            m_chatModel->appendRow(failedItem);
+            appendReceivedTransferSaveFailedItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
             showFileTransferStatusEvent(receivedName,
                                         msg.transferId,
                                         QStringLiteral("receive-save-failed"),
@@ -2728,12 +2722,10 @@ void MainWindow::onNewMessage(const Message& msg) {
             f.write(msg.fileData);
             f.close();
             const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
-            QStandardItem* item2 = new QStandardItem(QString("文件已自动保存: %1 · %2%3%4").arg(savePath, receivedSize, manifestSuffix, integritySuffix));
-            item2->setEditable(false);
-            item2->setData(savedFileTip, Qt::ToolTipRole);
-            item2->setForeground(integrityText.startsWith("完整性校验失败") ? QColor(180, 70, 70) : Qt::darkGreen);
-            item2->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-            m_chatModel->appendRow(item2);
+            appendReceivedTransferSavedItem(
+                QString("文件已自动保存: %1 · %2%3%4").arg(savePath, receivedSize, manifestSuffix, integritySuffix),
+                savedFileTip,
+                integrityText.startsWith("完整性校验失败"));
             appendReceivedTransferReceiptItems(
                 QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix),
                 QString("文件已保存到：%1").arg(savePath),
@@ -2749,11 +2741,7 @@ void MainWindow::onNewMessage(const Message& msg) {
             ui->chatHintLabel->setText(QString("已接收文件 · %1 · %2 · 来自 %3%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
             ui->statusbar->showMessage(QString("文件已保存到下载目录 · %1%2%3").arg(receivedSize, manifestSuffix, integritySuffix), 3000);
         } else {
-            QStandardItem* failedItem = new QStandardItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
-            failedItem->setEditable(false);
-            failedItem->setForeground(QColor(180, 70, 70));
-            failedItem->setBackground(QColor(255, 245, 245));
-            m_chatModel->appendRow(failedItem);
+            appendReceivedTransferSaveFailedItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
             showFileTransferStatusEvent(receivedName,
                                         msg.transferId,
                                         QStringLiteral("receive-save-failed"),
@@ -7298,6 +7286,25 @@ void MainWindow::appendReceivedTransferReceiptItems(const QString& cardText,
     replyItem->setForeground(QColor(86, 116, 130));
     replyItem->setBackground(QColor(246, 251, 253));
     m_chatModel->appendRow(replyItem);
+}
+
+void MainWindow::appendReceivedTransferSavedItem(const QString& text,
+                                                 const QString& toolTip,
+                                                 bool integrityFailed) {
+    QStandardItem* savedItem = new QStandardItem(text);
+    savedItem->setEditable(false);
+    savedItem->setData(toolTip, Qt::ToolTipRole);
+    savedItem->setForeground(integrityFailed ? QColor(180, 70, 70) : Qt::darkGreen);
+    savedItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_chatModel->appendRow(savedItem);
+}
+
+void MainWindow::appendReceivedTransferSaveFailedItem(const QString& text) {
+    QStandardItem* failedItem = new QStandardItem(text);
+    failedItem->setEditable(false);
+    failedItem->setForeground(QColor(180, 70, 70));
+    failedItem->setBackground(QColor(255, 245, 245));
+    m_chatModel->appendRow(failedItem);
 }
 
 void MainWindow::loadHistory(const QString& peerId) {
