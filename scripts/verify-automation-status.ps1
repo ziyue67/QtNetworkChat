@@ -90,6 +90,10 @@ $e2eRolloutJsonPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.json"
 $e2eRolloutMarkdownPath = Join-Path $e2eRolloutDir "e2e-rollout-observability.md"
 $e2eReleaseEvidenceDir = Join-Path $tempDir "e2e_release_evidence"
 $e2eReleaseEvidenceManifestPath = Join-Path $e2eReleaseEvidenceDir "e2e-release-evidence-manifest.json"
+$e2eCurrentHeadCiStaleEvidenceDir = Join-Path $tempDir "e2e_release_evidence_current_head_ci_stale"
+$e2eCurrentHeadCiStaleEvidenceManifestPath =
+    Join-Path $e2eCurrentHeadCiStaleEvidenceDir "e2e-release-evidence-manifest.json"
+$currentHeadCiStaleStatusPath = Join-Path $tempDir "github-windows-build-status-current-head-ci-stale.json"
 $e2eLinkedReleaseCandidateDir = Join-Path $tempDir "e2e_release_evidence_linked_candidate"
 $e2eLinkedReleaseCandidateManifestPath =
     Join-Path $e2eLinkedReleaseCandidateDir "e2e-release-evidence-manifest.json"
@@ -99,6 +103,7 @@ $linkedCandidateCiStatusPath = Join-Path $tempDir "github-windows-build-status-l
 $bootstrapScriptPath = Join-Path $PSScriptRoot "bootstrap-automation-tasks.ps1"
 Ensure-Directory -Path $e2eRolloutDir
 Ensure-Directory -Path $e2eReleaseEvidenceDir
+Ensure-Directory -Path $e2eCurrentHeadCiStaleEvidenceDir
 Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
 
 @'
@@ -273,6 +278,31 @@ End testing: Jun 03 04:01
     -RolloutMarkdownPath $e2eRolloutMarkdownPath `
     -GitHubWindowsBuildStatusPath $releaseCiStatusPath `
     -LocalVerificationStatusPath $localVerificationPath `
+    -FailOnSensitive | Out-Null
+
+@'
+{
+  "format":"qtnetworkchat-github-windows-build-status-v1",
+  "headSha":"current-head-ci-stale",
+  "status":"external-visibility-stale",
+  "runId":"unknown",
+  "source":"auto-gh-run-list",
+  "visibility":"head-not-observed",
+  "observedRunCount":20,
+  "currentHeadObserved":false,
+  "externalBlocker":"github-windows-build-current-head-not-observed",
+  "releaseGate":"blocked-ci-head-not-observed",
+  "latestObserved":{"headSha":"older-ci-head","status":"queued","conclusion":"unknown"},
+  "sensitiveExportProof":{"noSensitiveExportProof":true}
+}
+'@ | Set-Content -LiteralPath $currentHeadCiStaleStatusPath -Encoding UTF8
+& (Join-Path $PSScriptRoot "package-e2e-release-evidence.ps1") `
+    -OutputDir $e2eCurrentHeadCiStaleEvidenceDir `
+    -RolloutJsonPath $e2eRolloutJsonPath `
+    -RolloutMarkdownPath $e2eRolloutMarkdownPath `
+    -GitHubWindowsBuildStatusPath $currentHeadCiStaleStatusPath `
+    -LocalVerificationStatusPath $localVerificationPath `
+    -ReleaseHead "current-head-ci-stale" `
     -FailOnSensitive | Out-Null
 
 @'
@@ -2182,6 +2212,36 @@ foreach ($expected in @(
     Assert-Contains -Text $expiredMarkdown -Expected $expected
 }
 Assert-NoFixedMirrorBranchPolicy -Text $expiredMarkdown
+
+$currentHeadCiStaleMarkdownPath =
+    Join-Path $tempDir "automation-status-current-head-ci-stale-e2e-release-evidence.md"
+& $ScriptPath `
+    -MarkdownPath $currentHeadCiStaleMarkdownPath `
+    -Head "current-head-ci-stale" `
+    -OriginMain "current-head-ci-stale" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -BuildDir $tempDir `
+    -E2EReleaseEvidenceManifestPath $e2eCurrentHeadCiStaleEvidenceManifestPath `
+    -E2ELinkedReleaseCandidateManifestPath (Join-Path $tempDir "missing-linked-candidate.json") `
+    -AutomationTaskHistoryPath $freshAckHistoryPath `
+    -AutomationTaskAckPath $freshAckPath `
+    -FailOnSensitive
+
+$currentHeadCiStaleMarkdown =
+    Get-Content -LiteralPath $currentHeadCiStaleMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-ci-head-not-observed`, inputs=`4`',
+    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready,ci-status-external-visibility-stale,ci-current-head-not-observed`',
+    'Promotion action: `Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision.`',
+    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`older-ci-head`',
+    'Evidence CI head match: targetReleaseHead=`current-head-ci-stale`, ciHead=`current-head-ci-stale`, matches=`true`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`'
+)) {
+    Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $currentHeadCiStaleMarkdown
 
 $staleReleaseEvidenceMarkdownPath = Join-Path $tempDir "automation-status-stale-e2e-release-evidence.md"
 & $ScriptPath `
