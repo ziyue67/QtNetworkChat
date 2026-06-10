@@ -1534,6 +1534,7 @@ function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [objec
     $anyAcknowledgedReview = $false
     $anyUnavailable = $false
     $anyUnparseable = $false
+    $allAcknowledged = $true
     $blockedCount = 0
     $details = New-Object System.Collections.Generic.List[object]
     foreach ($pair in $usablePairs) {
@@ -1555,6 +1556,9 @@ function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [objec
         } elseif ($gate.releaseGate -ne "passing") {
             $anyUnavailable = $true
         }
+        if (-not (Convert-StatusBoolean $gate.acknowledged $false)) {
+            $allAcknowledged = $false
+        }
         $details.Add([pscustomobject]@{
                 taskKind = $pair.taskKind
                 taskName = $pair.taskName
@@ -1569,7 +1573,7 @@ function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [objec
     $result.taskCount = $usablePairs.Count
     $result.blockedTaskCount = $blockedCount
     $result.failedRunCount = $failedTotal
-    $result.acknowledged = if ($failedTotal -le 0) { "false" } else { (-not ($anyExpired -or $anyUnacknowledged -or $anyUnavailable -or $anyUnparseable)).ToString().ToLowerInvariant() }
+    $result.acknowledged = if ($failedTotal -le 0) { $allAcknowledged.ToString().ToLowerInvariant() } else { (-not ($anyExpired -or $anyUnacknowledged -or $anyUnavailable -or $anyUnparseable)).ToString().ToLowerInvariant() }
     $result.ackExpired = $anyExpired.ToString().ToLowerInvariant()
     $result.details = [object[]]$details.ToArray()
     if ($anyUnavailable) {
@@ -1838,13 +1842,6 @@ function Get-ScheduledTaskRegistrationAckGateReadback([object]$RegistrationAttem
     }
     $result.configured = $true
     $result.failedCount = Format-StatusValue $RegistrationAttempt.failedCount
-    if ($RegistrationAttempt.failedCount -le 0) {
-        $result.state = "passing"
-        $result.acknowledged = "false"
-        $result.ackExpired = "false"
-        $result.releaseGate = "passing"
-        return [pscustomobject]$result
-    }
 
     $acknowledged = $false
     $ackExpired = $false
@@ -1880,6 +1877,11 @@ function Get-ScheduledTaskRegistrationAckGateReadback([object]$RegistrationAttem
     }
     $result.acknowledged = $acknowledged.ToString().ToLowerInvariant()
     $result.ackExpired = $ackExpired.ToString().ToLowerInvariant()
+    if ($RegistrationAttempt.failedCount -le 0) {
+        $result.state = "passing"
+        $result.releaseGate = "passing"
+        return [pscustomobject]$result
+    }
     if ($ackExpired) {
         $result.state = "failed-ack-expired"
         $result.releaseGate = "blocked-registration-ack-expired"

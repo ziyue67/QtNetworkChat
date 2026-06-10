@@ -1800,6 +1800,74 @@ foreach ($expected in @(
 }
 Assert-NoFixedMirrorBranchPolicy -Text $staleHistoryMarkdown
 
+@'
+{
+  "runCount":7,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-04T07:45:00.0000000Z","exitCode":0},
+  "acknowledged":true,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $customHistoryPath -Encoding UTF8
+@'
+{
+  "acknowledged":true,
+  "acknowledgedBy":"oncall",
+  "reason":"reviewed"
+}
+'@ | Set-Content -LiteralPath $customAckPath -Encoding UTF8
+@'
+{
+  "runCount":3,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-04T07:30:00.0000000Z","exitCode":0},
+  "acknowledged":true,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $pgsqlSmokeHistoryPath -Encoding UTF8
+@'
+{
+  "runCount":5,
+  "failedRunCount":0,
+  "latestRun":{"timestamp":"2026-06-04T07:00:00.0000000Z","exitCode":0},
+  "acknowledged":true,
+  "ackExpired":false
+}
+'@ | Set-Content -LiteralPath $pgsqlMigrationHistoryPath -Encoding UTF8
+@'
+{
+  "acknowledged":true,
+  "acknowledgedBy":"oncall",
+  "reason":"reviewed"
+}
+'@ | Set-Content -LiteralPath $pgsqlMigrationAckPath -Encoding UTF8
+$allAckMarkdownPath = Join-Path $configuredTempDir "automation-status-all-ack.md"
+& $ScriptPath `
+    -MarkdownPath $allAckMarkdownPath `
+    -Head "8899aa1" `
+    -OriginMain "8899aa1" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath, $pgsqlMigrationPreviewPath) `
+    -ScheduledTaskReadbackJsonPath $registeredTaskReadbackPath `
+    -TaskHistoryFreshnessHours 24 `
+    -StatusNowUtc "2026-06-04T08:00:00.0000000Z" `
+    -FailOnSensitive
+
+$allAckMarkdown = Get-Content -LiteralPath $allAckMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Task acknowledgement aggregate: acknowledged=`true`, failed=`0`, blocked=`0`, source=`aggregate`, releaseGate=`passing`',
+    'Task acknowledgement gate: state=`passing`, failed=`0`, acknowledged=`true`, ackExpired=`false`, tasks=`3`, blocked=`0`, source=`aggregate`, releaseGate=`passing`, action=`none`',
+    'Task ack gate: kind=`custom-ops`, name=`CustomOpsTask`, state=`passing`, failed=`0`, acknowledged=`true`, ackExpired=`false`, releaseGate=`passing`',
+    'Task ack gate: kind=`pgsql-smoke`, name=`PgsqlSmokeTask`, state=`passing`, failed=`0`, acknowledged=`true`, ackExpired=`false`, releaseGate=`passing`',
+    'Task ack gate: kind=`pgsql-migration`, name=`PgsqlMigrationTask`, state=`passing`, failed=`0`, acknowledged=`true`, ackExpired=`false`, releaseGate=`passing`'
+)) {
+    Assert-Contains -Text $allAckMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $allAckMarkdown
+
 ([ordered]@{
     format = "qtnetworkchat-scheduled-task-readback-v1"
     tasks = @(
@@ -1963,6 +2031,54 @@ foreach ($expected in @(
     Assert-Contains -Text $registrationExpiredMarkdown -Expected $expected
 }
 Assert-NoFixedMirrorBranchPolicy -Text $registrationExpiredMarkdown
+
+@'
+{
+  "format":"qtnetworkchat-scheduled-task-registration-attempt-v1",
+  "registrationRequested":true,
+  "user":"SYSTEM",
+  "taskCount":2,
+  "failedCount":0,
+  "tasks":[
+    {"taskKind":"custom-ops","taskName":"CustomOpsTask","registrationRequested":true,"status":"registration-command-succeeded","exitCode":0,"failureClass":"none","outputLineCount":3},
+    {"taskKind":"pgsql-smoke","taskName":"PgsqlSmokeTask","registrationRequested":true,"status":"registration-command-succeeded","exitCode":0,"failureClass":"none","outputLineCount":3}
+  ]
+}
+'@ | Set-Content -LiteralPath $registrationFailedAttemptPath -Encoding UTF8
+@'
+{
+  "acknowledged":true,
+  "acknowledgedBy":"oncall",
+  "acknowledgedAt":"2026-06-05T06:00:00.0000000Z",
+  "reason":"registration reviewed sample"
+}
+'@ | Set-Content -LiteralPath $registrationExpiredAckPath -Encoding UTF8
+$registrationAllAckMarkdownPath = Join-Path $configuredTempDir "automation-status-registration-all-ack.md"
+& $ScriptPath `
+    -MarkdownPath $registrationAllAckMarkdownPath `
+    -Head "8899ac4" `
+    -OriginMain "8899ac4" `
+    -CiStatus "success" `
+    -BuildStatus "passed" `
+    -CTestStatus "passed" `
+    -CTestCount 54 `
+    -TaskPreviewPath @($customPreviewPath, $pgsqlSmokePreviewPath) `
+    -ScheduledTaskReadbackJsonPath $registeredTaskReadbackPath `
+    -ScheduledTaskRegistrationAttemptPath $registrationFailedAttemptPath `
+    -ScheduledTaskRegistrationAckPath $registrationExpiredAckPath `
+    -TaskAckExpiryHours 72 `
+    -StatusNowUtc "2026-06-05T07:00:00.0000000Z" `
+    -FailOnSensitive
+
+$registrationAllAckMarkdown = Get-Content -LiteralPath $registrationAllAckMarkdownPath -Raw -Encoding UTF8
+foreach ($expected in @(
+    'Scheduled task registration attempt: state=`requested`, requested=`true`, user=`SYSTEM`, tasks=`2`, failed=`0`, releaseGate=`scheduled-task-registration-attempt-requested`, action=`verify scheduler readback and task history after registration`',
+    'Scheduled task registration acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-05T06:00:00.0000000Z`, reason=`registration reviewed sample`',
+    'Scheduled task registration ack gate: state=`passing`, failed=`0`, acknowledged=`true`, ackExpired=`false`, ageHours=`1`, remainingHours=`71`, overdueHours=`0`, expiresAt=`2026-06-08T06:00:00.0000000Z`, releaseGate=`passing`, action=`none`'
+)) {
+    Assert-Contains -Text $registrationAllAckMarkdown -Expected $expected
+}
+Assert-NoFixedMirrorBranchPolicy -Text $registrationAllAckMarkdown
 
 $expiredHistoryPath = Join-Path $configuredTempDir "expired-task-history.json"
 $expiredAckPath = Join-Path $configuredTempDir "expired-task-ack.json"
