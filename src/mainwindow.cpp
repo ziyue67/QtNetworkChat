@@ -5,6 +5,7 @@
 #include "composermanager.h"
 #include "filetransferstatus.h"
 #include "localfilemanager.h"
+#include "notificationpanelmanager.h"
 #include "qtnetworkchat_version.h"
 #include "windowstatemanager.h"
 #include <QInputDialog>
@@ -217,13 +218,11 @@ QString selectedGroupNoticeEntryId(QListWidget* noticeList) {
 }
 
 bool isGroupCreateEntryId(const QString& groupId) {
-    return groupId.startsWith("group_create:");
+    return NotificationPanelManager::isGroupCreateEntryId(groupId);
 }
 
 QString groupCreateEntryName(const QString& groupId) {
-    return isGroupCreateEntryId(groupId)
-        ? groupId.mid(QString("group_create:").size()).trimmed()
-        : QString();
+    return NotificationPanelManager::groupCreateEntryName(groupId);
 }
 
 bool trySelectedInspectableGroupNoticeId(QListWidget* noticeList,
@@ -6252,52 +6251,44 @@ void MainWindow::onShowFriendNotifications() {
         return selectedFriendNoticeEntryId(noticeList);
     };
     auto updateRequestActionState = [=]() {
-        const QString currentId = currentRequestId();
-        const bool hasPending = !m_pendingFriendRequests.isEmpty();
-        const bool canAccept = currentId.startsWith("search_add:") || !currentId.isEmpty();
-        const bool isRealRequest = !currentId.isEmpty() && !currentId.startsWith("search_add:");
-        const bool hasSearchKeyword = !searchEdit->text().trimmed().isEmpty();
-        const bool isSearchAdd = currentId.startsWith("search_add:");
-        acceptBtn->setEnabled(canAccept);
-        acceptBtn->setText(isSearchAdd ? "搜索并添加" : "同意");
-        acceptBtn->setToolTip(isRealRequest
-            ? "同意当前选中的好友申请并加入好友列表"
-            : (isSearchAdd ? "对搜索结果里的 QQ 号发送好友申请" : "选择申请后可同意，或先搜索 QQ 号"));
-        rejectBtn->setEnabled(isRealRequest);
-        rejectBtn->setToolTip(isRealRequest ? "拒绝当前选中的好友申请" : "当前没有可拒绝的好友申请");
-        copyBtn->setEnabled(isRealRequest);
-        copyBtn->setToolTip(isRealRequest ? "复制当前申请人的 QQ、昵称和来源" : "当前没有可复制的申请人名片");
-        copyInviteBtn->setEnabled(hasPending || hasSearchKeyword);
-        copyInviteBtn->setToolTip(hasPending || hasSearchKeyword ? "复制一段回复好友申请的礼貌话术" : "有申请或输入 QQ 后可复制回复话术");
-        copyAllBtn->setEnabled(hasPending);
-        copyAllBtn->setToolTip(hasPending ? "复制所有待处理申请的 QQ、昵称和回复话术" : "当前没有待处理好友申请");
-        copyRequestMediaPackBtn->setEnabled(hasPending || hasSearchKeyword);
-        copyRequestMediaPackBtn->setToolTip(hasPending || hasSearchKeyword ? "复制同意好友后发送图片、视频或文件的准备摘要" : "有申请或输入 QQ 后可复制媒体准备摘要");
-        copyRequestBatchPlanBtn->setEnabled(hasPending || hasSearchKeyword);
-        copyRequestBatchPlanBtn->setToolTip(hasPending || hasSearchKeyword ? "复制当前筛选申请的批量处理和媒体发送清单" : "当前没有可整理的申请");
-        copyMediaGuideBtn->setEnabled(hasPending || hasSearchKeyword);
-        copyMediaGuideBtn->setToolTip(hasPending || hasSearchKeyword ? "复制同意好友后发送图片、视频和文件的简短指南" : "有申请或输入 QQ 后可复制上传指南");
-        acceptAllBtn->setEnabled(hasPending);
-        acceptAllBtn->setToolTip(hasPending ? "确认后批量同意所有待处理好友申请" : "当前没有待处理好友申请");
-        rejectAllBtn->setEnabled(hasPending);
-        rejectAllBtn->setToolTip(hasPending ? "确认后批量拒绝所有待处理好友申请" : "当前没有待处理好友申请");
-        clearBtn->setEnabled(hasPending);
-        clearBtn->setToolTip(hasPending ? "清空全部待处理好友申请，不会自动回复对方" : "当前没有待清空的好友申请");
+        const FriendNoticeActionState state = NotificationPanelManager::friendNoticeActionState(
+            currentRequestId(),
+            !m_pendingFriendRequests.isEmpty(),
+            !searchEdit->text().trimmed().isEmpty());
+        acceptBtn->setEnabled(state.acceptEnabled);
+        acceptBtn->setText(state.acceptText);
+        acceptBtn->setToolTip(state.acceptToolTip);
+        rejectBtn->setEnabled(state.rejectEnabled);
+        rejectBtn->setToolTip(state.rejectToolTip);
+        copyBtn->setEnabled(state.copyCardEnabled);
+        copyBtn->setToolTip(state.copyCardToolTip);
+        copyInviteBtn->setEnabled(state.copyInviteEnabled);
+        copyInviteBtn->setToolTip(state.copyInviteToolTip);
+        copyAllBtn->setEnabled(state.copyAllEnabled);
+        copyAllBtn->setToolTip(state.copyAllToolTip);
+        copyRequestMediaPackBtn->setEnabled(state.copyMediaPackEnabled);
+        copyRequestMediaPackBtn->setToolTip(state.copyMediaPackToolTip);
+        copyRequestBatchPlanBtn->setEnabled(state.copyBatchPlanEnabled);
+        copyRequestBatchPlanBtn->setToolTip(state.copyBatchPlanToolTip);
+        copyMediaGuideBtn->setEnabled(state.copyMediaGuideEnabled);
+        copyMediaGuideBtn->setToolTip(state.copyMediaGuideToolTip);
+        acceptAllBtn->setEnabled(state.acceptAllEnabled);
+        acceptAllBtn->setToolTip(state.acceptAllToolTip);
+        rejectAllBtn->setEnabled(state.rejectAllEnabled);
+        rejectAllBtn->setToolTip(state.rejectAllToolTip);
+        clearBtn->setEnabled(state.clearEnabled);
+        clearBtn->setToolTip(state.clearToolTip);
     };
     auto updateRequestPreview = [this, noticeList, requestPreviewLabel]() {
         QListWidgetItem* item = noticeList->currentItem();
         if (!item) {
-            requestPreviewLabel->setText("选择申请后可同意、拒绝、复制名片或回复话术");
+            requestPreviewLabel->setText(NotificationPanelManager::friendNoticePreviewText(QString(), QString()));
             return;
         }
         QString id = item->data(Qt::UserRole).toString();
-        if (id.startsWith("search_add:")) {
-            requestPreviewLabel->setText(QString("未找到申请人，可搜索并发送申请 QQ:%1").arg(id.mid(QString("search_add:").size())));
-        } else if (!id.isEmpty()) {
-            requestPreviewLabel->setText(QString("申请人 · %1 · QQ:%2 · 可自动同意并加为好友").arg(m_friendNames.value(id, contactDisplayName(id)), id));
-        } else {
-            requestPreviewLabel->setText("暂无可处理申请");
-        }
+        requestPreviewLabel->setText(NotificationPanelManager::friendNoticePreviewText(
+            id,
+            id.isEmpty() ? QString() : m_friendNames.value(id, contactDisplayName(id))));
     };
     updateRequestPreview();
     updateRequestActionState();
@@ -6788,52 +6779,54 @@ void MainWindow::onShowGroupNotifications() {
     auto updateGroupPreview = [this, noticeList, groupPreviewLabel]() {
         QListWidgetItem* current = noticeList->currentItem();
         if (!current) {
-            groupPreviewLabel->setText("选择群聊后可复制群号、公告、成员或入群话术");
+            groupPreviewLabel->setText(NotificationPanelManager::groupNoticePreviewText(QString(), QString(), QString(), 0, m_knownUsers.size()));
             return;
         }
         const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        if (isGroupCreateEntryId(groupId)) {
-            QString name = groupCreateEntryName(groupId);
-            groupPreviewLabel->setText(QString("待创建群聊 · %1 · 创建后可邀请好友").arg(name.isEmpty() ? "搜索群聊" : name));
-        } else if (groupId.startsWith("local_group_")) {
-            groupPreviewLabel->setText(QString("群聊 · %1 · 群号:%2 · 成员%3人")
-                .arg(m_localGroupNames.value(groupId, "群聊"), groupId.mid(QString("local_group_").size()), QString::number(m_localGroupMembers.value(groupId).size())));
-        } else {
-            groupPreviewLabel->setText(QString("公共聊天室 · 在线成员%1人 · 可直接进入").arg(m_knownUsers.size()));
-        }
+        const QString groupName = groupId.startsWith("local_group_")
+            ? m_localGroupNames.value(groupId, "群聊")
+            : QString();
+        const QString groupNumber = groupId.startsWith("local_group_")
+            ? groupId.mid(QString("local_group_").size())
+            : QString();
+        const int memberCount = groupId.startsWith("local_group_")
+            ? m_localGroupMembers.value(groupId).size()
+            : 0;
+        groupPreviewLabel->setText(NotificationPanelManager::groupNoticePreviewText(
+            groupId,
+            groupName,
+            groupNumber,
+            memberCount,
+            m_knownUsers.size()));
     };
     auto updateGroupActionState = [=]() {
-        const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        const bool hasSelection = noticeList->currentItem() != nullptr;
-        const bool isCreateEntry = isGroupCreateEntryId(groupId);
-        const bool canInspectGroup = hasSelection && !isCreateEntry;
-        const bool hasSearchKeyword = !searchEdit->text().trimmed().isEmpty();
-        openBtn->setEnabled(hasSelection);
-        openBtn->setText(isCreateEntry ? "创建并进入群聊" : (groupId.isEmpty() ? "进入公共聊天室" : "进入选中群聊"));
-        openBtn->setToolTip(!hasSelection
-            ? "选择群聊后可进入"
-            : (isCreateEntry ? "按当前关键词创建新群并立即进入" : "进入当前选中的公共聊天室或本地群聊"));
-        copyBtn->setEnabled(canInspectGroup);
-        copyBtn->setToolTip(canInspectGroup ? "复制当前选中群聊的群号" : "待创建群聊没有群号，请先进入创建");
-        cardBtn->setEnabled(canInspectGroup);
-        cardBtn->setToolTip(canInspectGroup ? "复制群名、群号、成员数和公告摘要" : "待创建群聊没有名片，请先进入创建");
-        announceBtn->setEnabled(canInspectGroup);
-        announceBtn->setToolTip(canInspectGroup ? "复制当前选中群聊的公告内容" : "待创建群聊没有公告，请先进入创建");
-        memberBtn->setEnabled(canInspectGroup);
-        memberBtn->setToolTip(canInspectGroup ? "复制当前选中群聊的全部成员列表" : "待创建群聊没有成员列表，请先进入创建");
-        onlineMemberBtn->setEnabled(canInspectGroup);
-        onlineMemberBtn->setToolTip(canInspectGroup ? "复制当前群里在线成员的 QQ 和昵称" : "待创建群聊没有在线成员，请先进入创建");
-        inviteTextBtn->setEnabled(hasSelection || hasSearchKeyword);
-        inviteTextBtn->setToolTip(hasSelection || hasSearchKeyword ? "复制一段可直接发给好友的入群邀请" : "当前没有可邀请的群聊");
-        copyGroupMediaPackBtn->setEnabled(hasSelection || hasSearchKeyword);
-        copyGroupMediaPackBtn->setToolTip(hasSelection || hasSearchKeyword ? "复制群聊媒体发送前的目标、成员和话术摘要" : "当前没有可复制的群聊媒体包");
-        copyGroupBatchPlanBtn->setEnabled(noticeList->count() > 0);
-        copyGroupBatchPlanBtn->setToolTip(noticeList->count() > 0 ? "复制群聊批量发送图片、视频或文件的操作清单" : "当前没有可整理的群聊");
-        copyMediaGuideBtn->setEnabled(hasSelection || hasSearchKeyword);
-        copyMediaGuideBtn->setToolTip(hasSelection || hasSearchKeyword ? "复制群聊中发送图片、视频和文件的简短指南" : "当前没有可复制的上传指南");
-        hintLabel->setText(!hasSelection
-            ? "先选择群聊后再进入或复制信息"
-            : (isCreateEntry ? "双击可按当前关键词创建新群并进入" : "双击群通知可直接进入群聊"));
+        const GroupNoticeActionState state = NotificationPanelManager::groupNoticeActionState(
+            selectedGroupNoticeEntryId(noticeList),
+            noticeList->currentItem() != nullptr,
+            !searchEdit->text().trimmed().isEmpty(),
+            noticeList->count());
+        openBtn->setEnabled(state.openEnabled);
+        openBtn->setText(state.openText);
+        openBtn->setToolTip(state.openToolTip);
+        copyBtn->setEnabled(state.copyIdEnabled);
+        copyBtn->setToolTip(state.copyIdToolTip);
+        cardBtn->setEnabled(state.copyCardEnabled);
+        cardBtn->setToolTip(state.copyCardToolTip);
+        announceBtn->setEnabled(state.copyAnnouncementEnabled);
+        announceBtn->setToolTip(state.copyAnnouncementToolTip);
+        memberBtn->setEnabled(state.copyMembersEnabled);
+        memberBtn->setToolTip(state.copyMembersToolTip);
+        onlineMemberBtn->setEnabled(state.copyOnlineMembersEnabled);
+        onlineMemberBtn->setToolTip(state.copyOnlineMembersToolTip);
+        inviteTextBtn->setEnabled(state.copyInviteEnabled);
+        inviteTextBtn->setToolTip(state.copyInviteToolTip);
+        copyGroupMediaPackBtn->setEnabled(state.copyMediaPackEnabled);
+        copyGroupMediaPackBtn->setToolTip(state.copyMediaPackToolTip);
+        copyGroupBatchPlanBtn->setEnabled(state.copyBatchPlanEnabled);
+        copyGroupBatchPlanBtn->setToolTip(state.copyBatchPlanToolTip);
+        copyMediaGuideBtn->setEnabled(state.copyMediaGuideEnabled);
+        copyMediaGuideBtn->setToolTip(state.copyMediaGuideToolTip);
+        hintLabel->setText(state.hintText);
     };
     updateGroupPreview();
     updateGroupActionState();

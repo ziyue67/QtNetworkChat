@@ -20,6 +20,7 @@
 #include "groupmanager.h"
 #include "historyservice.h"
 #include "chatcontextmanager.h"
+#include "notificationpanelmanager.h"
 #include "message.h"
 #include "transfermanager.h"
 

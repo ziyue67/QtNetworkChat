@@ -120,6 +120,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/composermanager.cpp
     src/windowstatemanager.cpp
     src/friendmanager.cpp
+    src/notificationpanelmanager.cpp
     src/groupmanager.cpp
     src/e2eenvelope.cpp
     include/tlssecurity.h
@@ -130,6 +131,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     include/composermanager.h
     include/windowstatemanager.h
     include/friendmanager.h
+    include/notificationpanelmanager.h
     include/groupmanager.h
     include/e2eenvelope.h
     include/qtnetworkchat_e2e_provider_api.h
@@ -151,6 +153,7 @@ add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
     src/localfilemanager.cpp
+    src/notificationpanelmanager.cpp
     src/clientstorage.cpp
     src/historyservice.cpp
     src/historymetadata.cpp
@@ -165,6 +168,7 @@ add_executable(QtNetworkChat
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
     include/localfilemanager.h
+    include/notificationpanelmanager.h
     include/clientstorage.h
     include/historyservice.h
     include/historymetadata.h
@@ -396,6 +400,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(chat_context_manager_test PRIVATE include)
     target_link_libraries(chat_context_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(notification_panel_manager_test
+        tests/notification_panel_manager_test.cpp
+        src/notificationpanelmanager.cpp
+        include/notificationpanelmanager.h
+    )
+    target_include_directories(notification_panel_manager_test PRIVATE include)
+    target_link_libraries(notification_panel_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(composer_manager_test
         tests/composer_manager_test.cpp
@@ -797,6 +809,13 @@ if(BUILD_TESTING)
         NAME ChatContextManagerDispatch
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:chat_context_manager_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME NotificationPanelManagerUiState
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:notification_panel_manager_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
