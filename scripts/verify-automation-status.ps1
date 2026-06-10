@@ -93,6 +93,9 @@ $e2eReleaseEvidenceManifestPath = Join-Path $e2eReleaseEvidenceDir "e2e-release-
 $e2eCurrentHeadCiStaleEvidenceDir = Join-Path $tempDir "e2e_release_evidence_current_head_ci_stale"
 $e2eCurrentHeadCiStaleEvidenceManifestPath =
     Join-Path $e2eCurrentHeadCiStaleEvidenceDir "e2e-release-evidence-manifest.json"
+$e2eCurrentHeadCiStaleLinkedCandidateDir = Join-Path $tempDir "e2e_release_evidence_current_head_ci_stale_linked_candidate"
+$e2eCurrentHeadCiStaleLinkedCandidateManifestPath =
+    Join-Path $e2eCurrentHeadCiStaleLinkedCandidateDir "e2e-release-evidence-manifest.json"
 $currentHeadCiStaleStatusPath = Join-Path $tempDir "github-windows-build-status-current-head-ci-stale.json"
 $e2eLinkedReleaseCandidateDir = Join-Path $tempDir "e2e_release_evidence_linked_candidate"
 $e2eLinkedReleaseCandidateManifestPath =
@@ -397,6 +400,14 @@ End testing: Jun 03 04:01
     -LocalVerificationStatusPath $localVerificationPath `
     -ReleaseHead "linked-candidate-head" `
     -FailOnSensitive | Out-Null
+& (Join-Path $PSScriptRoot "package-e2e-release-evidence.ps1") `
+    -OutputDir $e2eCurrentHeadCiStaleLinkedCandidateDir `
+    -RolloutJsonPath $linkedCandidateRolloutJsonPath `
+    -RolloutMarkdownPath $linkedCandidateRolloutMarkdownPath `
+    -GitHubWindowsBuildStatusPath $currentHeadCiStaleStatusPath `
+    -LocalVerificationStatusPath $localVerificationPath `
+    -ReleaseHead "current-head-ci-stale" `
+    -FailOnSensitive | Out-Null
 
 ([ordered]@{
     format = "qtnetworkchat-database-health-task-preview-v1"
@@ -497,6 +508,7 @@ foreach ($expected in @(
     'Evidence CI head match: targetReleaseHead=`unknown`, ciHead=`missing-release-head`, matches=`true`, currentHead=`abc1234`, targetMatchesCurrentHead=`true`, stale=`false`',
     'Linked runtime candidate: releaseReady=`false`, promoted=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, productionLinked=`true`, ci=`success/current-head-observed`, local=`passed/passed`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`, probeFixture=`false`, releaseEligible=`false`, eligibilityGate=`not-release-eligible-stale-head`',
     'Linked runtime candidate head match: targetReleaseHead=`linked-candidate-head`, currentHead=`abc1234`, targetMatchesCurrentHead=`false`, stale=`true`',
+    'Final production-linked promotion gate: productionLinkedReady=`false`, releaseEligible=`false`, ciOnlyBlocked=`false`, releaseGate=`blocked-production-linked-candidate-not-ready`, action=`Regenerate production-linked candidate evidence and resolve non-CI blockers before release promotion.`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
@@ -2225,7 +2237,7 @@ $currentHeadCiStaleMarkdownPath =
     -CTestCount 54 `
     -BuildDir $tempDir `
     -E2EReleaseEvidenceManifestPath $e2eCurrentHeadCiStaleEvidenceManifestPath `
-    -E2ELinkedReleaseCandidateManifestPath (Join-Path $tempDir "missing-linked-candidate.json") `
+    -E2ELinkedReleaseCandidateManifestPath $e2eCurrentHeadCiStaleLinkedCandidateManifestPath `
     -AutomationTaskHistoryPath $freshAckHistoryPath `
     -AutomationTaskAckPath $freshAckPath `
     -FailOnSensitive
@@ -2237,7 +2249,10 @@ foreach ($expected in @(
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready,ci-status-external-visibility-stale,ci-current-head-not-observed`',
     'Promotion action: `Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision.`',
     'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`older-ci-head`',
-    'Evidence CI head match: targetReleaseHead=`current-head-ci-stale`, ciHead=`current-head-ci-stale`, matches=`true`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`'
+    'Evidence CI head match: targetReleaseHead=`current-head-ci-stale`, ciHead=`current-head-ci-stale`, matches=`true`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`',
+    'Linked runtime candidate: releaseReady=`false`, promoted=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, productionLinked=`true`, ci=`external-visibility-stale/head-not-observed`, local=`passed/passed`, blockers=`ci-status-external-visibility-stale,ci-current-head-not-observed`, probeFixture=`false`, releaseEligible=`true`, eligibilityGate=`release-eligible-current-head`',
+    'Linked runtime candidate head match: targetReleaseHead=`current-head-ci-stale`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`',
+    'Final production-linked promotion gate: productionLinkedReady=`true`, releaseEligible=`true`, ciOnlyBlocked=`true`, releaseGate=`blocked-ci-visibility-only`, action=`Wait for GitHub Windows Build to observe this head; do not change production-linked evidence for CI visibility lag.`'
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }

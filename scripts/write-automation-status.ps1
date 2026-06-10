@@ -2754,6 +2754,47 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.currentHead), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact)))
+        $linkedPromotionBlockers = [System.Collections.Generic.List[string]]::new()
+        foreach ($blocker in @(([string]$e2eLinkedReleaseCandidateReadback.promotionBlockers) -split ",")) {
+            $trimmedBlocker = $blocker.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmedBlocker) -and $trimmedBlocker -ne "unknown") {
+                $linkedPromotionBlockers.Add($trimmedBlocker)
+            }
+        }
+        $nonCiLinkedPromotionBlockers = @($linkedPromotionBlockers | Where-Object {
+            $_ -ne "ci-status-external-visibility-stale" -and $_ -ne "ci-current-head-not-observed"
+        })
+        $linkedProductionReady =
+            (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady) -eq "true" `
+            -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible) -eq "true" `
+            -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture) -eq "false" `
+            -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead) -eq "true" `
+            -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact) -eq "false"
+        $linkedOnlyCiBlocked = $linkedProductionReady `
+            -and $linkedPromotionBlockers.Count -gt 0 `
+            -and $nonCiLinkedPromotionBlockers.Count -eq 0
+        $finalLinkedPromotionGate = if ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted) -eq "true") {
+            "e2e-release-artifact-promoted"
+        } elseif ($linkedOnlyCiBlocked) {
+            "blocked-ci-visibility-only"
+        } elseif ($linkedProductionReady) {
+            "blocked-final-promotion-review"
+        } else {
+            "blocked-production-linked-candidate-not-ready"
+        }
+        $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "blocked-ci-visibility-only") {
+            "Wait for GitHub Windows Build to observe this head; do not change production-linked evidence for CI visibility lag."
+        } elseif ($finalLinkedPromotionGate -eq "e2e-release-artifact-promoted") {
+            "Archive the promoted production-linked E2E release artifact."
+        } else {
+            "Regenerate production-linked candidate evidence and resolve non-CI blockers before release promotion."
+        }
+        $lines.Add(('  Final production-linked promotion gate: productionLinkedReady=`{0}`, releaseEligible=`{1}`, ciOnlyBlocked=`{2}`, releaseGate=`{3}`, action=`{4}`' -f `
+                (Format-StatusValue $linkedProductionReady), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible), `
+                (Format-StatusValue $linkedOnlyCiBlocked), `
+                $finalLinkedPromotionGate, `
+                $finalLinkedPromotionAction))
     }
 }
 $lines.Add("")
