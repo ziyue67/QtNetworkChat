@@ -2707,18 +2707,11 @@ void MainWindow::onNewMessage(const Message& msg) {
                                             true,
                                             context.integrityText.startsWith("完整性校验失败"));
         } else {
-            appendReceivedTransferSaveFailedItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(context.receivedName, context.receivedSize));
-            applyReceivedTransferSaveStatus(QStringLiteral("图片"),
-                                            context.receivedName,
-                                            displayName,
-                                            context.receivedSize,
-                                            context.manifestSuffix,
-                                            context.integritySuffix,
-                                            msg.transferId,
-                                            msg.fileData.size(),
-                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
-                                            false,
-                                            false);
+            appendReceivedTransferSaveFailedEvidence(context,
+                                                     displayName,
+                                                     msg.transferId,
+                                                     msg.fileData.size(),
+                                                     msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
         }
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
         const ReceivedTransferContext context = receivedTransferContext(msg,
@@ -2743,18 +2736,11 @@ void MainWindow::onNewMessage(const Message& msg) {
                                             true,
                                             context.integrityText.startsWith("完整性校验失败"));
         } else {
-            appendReceivedTransferSaveFailedItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(context.receivedName, context.receivedSize));
-            applyReceivedTransferSaveStatus(QStringLiteral("文件"),
-                                            context.receivedName,
-                                            displayName,
-                                            context.receivedSize,
-                                            context.manifestSuffix,
-                                            context.integritySuffix,
-                                            msg.transferId,
-                                            msg.fileData.size(),
-                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
-                                            false,
-                                            false);
+            appendReceivedTransferSaveFailedEvidence(context,
+                                                     displayName,
+                                                     msg.transferId,
+                                                     msg.fileData.size(),
+                                                     msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
         }
     }
 
@@ -7320,6 +7306,26 @@ void MainWindow::appendReceivedTransferSavedEvidence(const ReceivedTransferConte
                                                                                                            context.integrityText,
                                                                                                            context.savePath),
         savedFileTip);
+}
+
+void MainWindow::appendReceivedTransferSaveFailedEvidence(const ReceivedTransferContext& context,
+                                                          const QString& displayName,
+                                                          const QString& transferId,
+                                                          qint64 receivedBytes,
+                                                          qint64 totalBytes) {
+    appendReceivedTransferSaveFailedItem(QString("%1保存失败 · %2 · %3 · 请检查下载目录权限")
+        .arg(context.kind, context.receivedName, context.receivedSize));
+    applyReceivedTransferSaveStatus(context.kind,
+                                    context.receivedName,
+                                    displayName,
+                                    context.receivedSize,
+                                    context.manifestSuffix,
+                                    context.integritySuffix,
+                                    transferId,
+                                    receivedBytes,
+                                    totalBytes,
+                                    false,
+                                    false);
 }
 
 void MainWindow::appendReceivedTransferSavedItem(const QString& text,

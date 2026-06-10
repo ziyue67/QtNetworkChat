@@ -112,6 +112,11 @@ private:
                                             const QString& replyToolTip);
     void appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
                                              const QString& displayName);
+    void appendReceivedTransferSaveFailedEvidence(const ReceivedTransferContext& context,
+                                                  const QString& displayName,
+                                                  const QString& transferId,
+                                                  qint64 receivedBytes,
+                                                  qint64 totalBytes);
     void appendReceivedTransferSavedItem(const QString& text,
                                          const QString& toolTip,
                                          bool integrityFailed);
