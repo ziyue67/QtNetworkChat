@@ -2450,22 +2450,7 @@ void MainWindow::onSendFile() {
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
-        QStandardItem* cardItem = new QStandardItem(completedState.cardText);
-        cardItem->setEditable(false);
-        cardItem->setForeground(QColor(0, 121, 107));
-        cardItem->setBackground(QColor(232, 248, 245));
-        cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(cardItem);
-        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
-        receiptItem->setEditable(false);
-        receiptItem->setForeground(QColor(86, 116, 130));
-        receiptItem->setBackground(QColor(246, 251, 253));
-        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(receiptItem);
-        appendSystemMessage(completedState.systemMessage);
-        ui->chatHintLabel->setText(completedState.hintText);
-        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
-        ui->chatListView->scrollToBottom();
+        appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
         return;
     }
 
@@ -2475,22 +2460,7 @@ void MainWindow::onSendFile() {
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
     if (ok) {
         const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(QStringLiteral("文件"), info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
-        appendSystemMessage(completedState.systemMessage);
-        QStandardItem* cardItem = new QStandardItem(completedState.cardText);
-        cardItem->setEditable(false);
-        cardItem->setForeground(QColor(0, 121, 107));
-        cardItem->setBackground(QColor(232, 248, 245));
-        cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(cardItem);
-        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
-        receiptItem->setEditable(false);
-        receiptItem->setForeground(QColor(86, 116, 130));
-        receiptItem->setBackground(QColor(246, 251, 253));
-        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(completedState.hintText);
-        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
-        ui->chatListView->scrollToBottom();
+        appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
     } else if (transferCanceled) {
         appendSystemMessage(QString("已取消发送文件: %1 · 到 %2").arg(info.fileName(), targetName));
         const TransferSendUiState state = m_transferManager.canceledSendState(QStringLiteral("文件"), info.fileName());
@@ -2575,16 +2545,7 @@ void MainWindow::onSendImage() {
             previewItem->setBackground(QColor(245, 240, 255));
             m_chatModel->appendRow(previewItem);
         }
-        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
-        receiptItem->setEditable(false);
-        receiptItem->setForeground(QColor(86, 116, 130));
-        receiptItem->setBackground(QColor(246, 251, 253));
-        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(receiptItem);
-        appendSystemMessage(completedState.systemMessage);
-        ui->chatHintLabel->setText(completedState.hintText);
-        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
-        ui->chatListView->scrollToBottom();
+        appendTransferCompletionState(completedState, true, false, QColor(), QColor());
         return;
     }
 
@@ -2613,15 +2574,7 @@ void MainWindow::onSendImage() {
             previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
             m_chatModel->appendRow(previewItem);
         }
-        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
-        receiptItem->setEditable(false);
-        receiptItem->setForeground(QColor(86, 116, 130));
-        receiptItem->setBackground(QColor(246, 251, 253));
-        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(completedState.hintText);
-        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
-        ui->chatListView->scrollToBottom();
+        appendTransferCompletionState(completedState, false, false, QColor(), QColor());
     } else if (transferCanceled) {
         appendSystemMessage(QString("已取消发送%1: %2 · 到 %3").arg(mediaType, info.fileName(), targetName));
         const TransferSendUiState state = m_transferManager.canceledSendState(mediaType, info.fileName());
@@ -7314,6 +7267,38 @@ void MainWindow::appendSystemMessage(const QString& text) {
     item->setBackground(QColor(245, 247, 250));
     item->setForeground(Qt::darkGray);
     m_chatModel->appendRow(item);
+    ui->chatListView->scrollToBottom();
+}
+
+void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
+                                               bool includeSystemMessage,
+                                               bool includeCard,
+                                               const QColor& cardForeground,
+                                               const QColor& cardBackground) {
+    if (includeSystemMessage && !state.systemMessage.isEmpty()) {
+        appendSystemMessage(state.systemMessage);
+    }
+
+    if (includeCard && !state.cardText.isEmpty()) {
+        QStandardItem* cardItem = new QStandardItem(state.cardText);
+        cardItem->setEditable(false);
+        cardItem->setForeground(cardForeground);
+        cardItem->setBackground(cardBackground);
+        cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(cardItem);
+    }
+
+    if (!state.receiptText.isEmpty()) {
+        QStandardItem* receiptItem = new QStandardItem(state.receiptText);
+        receiptItem->setEditable(false);
+        receiptItem->setForeground(QColor(86, 116, 130));
+        receiptItem->setBackground(QColor(246, 251, 253));
+        receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_chatModel->appendRow(receiptItem);
+    }
+
+    ui->chatHintLabel->setText(state.hintText);
+    ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
     ui->chatListView->scrollToBottom();
 }
 

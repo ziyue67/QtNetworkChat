@@ -86,6 +86,11 @@ private:
     void setupTray();
     void appendMessage(const Message& msg);
     void appendSystemMessage(const QString& text);
+    void appendTransferCompletionState(const TransferSendUiState& state,
+                                       bool includeSystemMessage,
+                                       bool includeCard,
+                                       const QColor& cardForeground,
+                                       const QColor& cardBackground);
     void loadHistory(const QString& peerId = QString());
     void saveHistory(const QString& peerId, const QString& content);
     void saveHistory(const QString& peerId,
