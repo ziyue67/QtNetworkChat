@@ -2764,59 +2764,22 @@ void MainWindow::onNewMessage(const Message& msg) {
         if (pixmap.loadFromData(msg.fileData)) {
             appendMediaPreviewItem(QString("%1 · %2%3").arg(context.receivedName, context.receivedSize, context.manifestSuffix), pixmap, false, false);
         }
-
-        QFile f(context.savePath);
-        if (f.open(QIODevice::WriteOnly)) {
-            f.write(msg.fileData);
-            f.close();
-            appendReceivedTransferSavedEvidence(context, displayName);
-            applyReceivedTransferSaveStatus(QStringLiteral("图片"),
-                                            context.receivedName,
-                                            displayName,
-                                            context.receivedSize,
-                                            context.manifestSuffix,
-                                            context.integritySuffix,
-                                            msg.transferId,
-                                            msg.fileData.size(),
-                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
-                                            true,
-                                            context.integrityText.startsWith("完整性校验失败"));
-        } else {
-            appendReceivedTransferSaveFailedEvidence(context,
-                                                     displayName,
-                                                     msg.transferId,
-                                                     msg.fileData.size(),
-                                                     msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
-        }
+        persistReceivedTransferPayload(context,
+                                       displayName,
+                                       msg.transferId,
+                                       msg.fileData,
+                                       msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
         const ReceivedTransferContext context = receivedTransferContext(msg,
                                                                         QStringLiteral("文件"),
                                                                         QStringLiteral("received_file"),
                                                                         QStringLiteral("Files"),
                                                                         displayName);
-        QFile f(context.savePath);
-        if (f.open(QIODevice::WriteOnly)) {
-            f.write(msg.fileData);
-            f.close();
-            appendReceivedTransferSavedEvidence(context, displayName);
-            applyReceivedTransferSaveStatus(QStringLiteral("文件"),
-                                            context.receivedName,
-                                            displayName,
-                                            context.receivedSize,
-                                            context.manifestSuffix,
-                                            context.integritySuffix,
-                                            msg.transferId,
-                                            msg.fileData.size(),
-                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
-                                            true,
-                                            context.integrityText.startsWith("完整性校验失败"));
-        } else {
-            appendReceivedTransferSaveFailedEvidence(context,
-                                                     displayName,
-                                                     msg.transferId,
-                                                     msg.fileData.size(),
-                                                     msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
-        }
+        persistReceivedTransferPayload(context,
+                                       displayName,
+                                       msg.transferId,
+                                       msg.fileData,
+                                       msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
     }
 
     int rowCount = m_chatModel->rowCount();
@@ -7453,6 +7416,38 @@ void MainWindow::appendReceivedTransferSaveFailedEvidence(const ReceivedTransfer
                                     totalBytes,
                                     false,
                                     false);
+}
+
+bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& context,
+                                                const QString& displayName,
+                                                const QString& transferId,
+                                                const QByteArray& fileData,
+                                                qint64 totalBytes) {
+    QFile file(context.savePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        appendReceivedTransferSaveFailedEvidence(context,
+                                                 displayName,
+                                                 transferId,
+                                                 fileData.size(),
+                                                 totalBytes);
+        return false;
+    }
+
+    file.write(fileData);
+    file.close();
+    appendReceivedTransferSavedEvidence(context, displayName);
+    applyReceivedTransferSaveStatus(context.kind,
+                                    context.receivedName,
+                                    displayName,
+                                    context.receivedSize,
+                                    context.manifestSuffix,
+                                    context.integritySuffix,
+                                    transferId,
+                                    fileData.size(),
+                                    totalBytes,
+                                    true,
+                                    context.integrityText.startsWith("完整性校验失败"));
+    return true;
 }
 
 void MainWindow::appendReceivedTransferSavedItem(const QString& text,

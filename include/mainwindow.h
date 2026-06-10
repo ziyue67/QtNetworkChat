@@ -136,6 +136,11 @@ private:
                                                   const QString& transferId,
                                                   qint64 receivedBytes,
                                                   qint64 totalBytes);
+    bool persistReceivedTransferPayload(const ReceivedTransferContext& context,
+                                        const QString& displayName,
+                                        const QString& transferId,
+                                        const QByteArray& fileData,
+                                        qint64 totalBytes);
     void appendReceivedTransferSavedItem(const QString& text,
                                          const QString& toolTip,
                                          bool integrityFailed);
