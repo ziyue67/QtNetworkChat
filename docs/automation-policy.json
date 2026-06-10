@@ -1,0 +1,5 @@
+{
+  "format": "qtnetworkchat-automation-policy-v1",
+  "gitHubWindowsBuildPolicy": "disabled",
+  "note": "GitHub Windows Build is disabled by repo policy; local MinGW build and CTest remain the active release verification path."
+}

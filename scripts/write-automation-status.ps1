@@ -13,6 +13,8 @@ param(
     [string]$LocalVerificationStatusPath,
     [string]$CTestLogPath,
     [string]$GitHubWorkflow = "Windows Build",
+    [string]$GitHubWindowsBuildPolicy = "",
+    [string]$AutomationPolicyPath = "",
     [string]$GitHubWindowsBuildStatusPath,
     [string]$GitHubRunListJsonPath,
     [string]$E2ERolloutObservabilityJsonPath,
@@ -106,6 +108,52 @@ function Invoke-ToolText([string]$CommandName, [string[]]$Arguments) {
 
 function Is-UnknownStatus([string]$Value) {
     [string]::IsNullOrWhiteSpace($Value) -or $Value.Trim().ToLowerInvariant() -eq "unknown"
+}
+
+function Normalize-GitHubWindowsBuildPolicy([string]$Value) {
+    $normalized = ([string]$Value).Trim().ToLowerInvariant()
+    switch ($normalized) {
+        "disabled" { return "disabled" }
+        "optional" { return "optional" }
+        "required" { return "required" }
+        default { return "" }
+    }
+}
+
+function Get-AutomationPolicyReadback([string]$PathValue) {
+    $result = [ordered]@{
+        configured = $false
+        readable = $false
+        valid = $false
+        githubWindowsBuildPolicy = ""
+        source = "automation-policy"
+    }
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or $script:PlanOnly.IsPresent) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    try {
+        $resolved = Resolve-RepoPath $PathValue
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            return [pscustomobject]$result
+        }
+        $policy = Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        $result.readable = $true
+        if ((Get-JsonValue $policy "format" "") -ne "qtnetworkchat-automation-policy-v1") {
+            $result.source = "automation-policy-invalid-format"
+            return [pscustomobject]$result
+        }
+        $policyValue = Normalize-GitHubWindowsBuildPolicy ([string](Get-JsonValue $policy "gitHubWindowsBuildPolicy" ""))
+        if ([string]::IsNullOrWhiteSpace($policyValue)) {
+            $result.source = "automation-policy-invalid-github-windows-build-policy"
+            return [pscustomobject]$result
+        }
+        $result.valid = $true
+        $result.githubWindowsBuildPolicy = $policyValue
+    } catch {
+        $result.source = "automation-policy-unreadable"
+    }
+    [pscustomobject]$result
 }
 
 function Normalize-HeadValue([object]$Value) {
@@ -1103,6 +1151,35 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
         "not-release-eligible-stale-head"
     } else {
         "release-eligible-current-head"
+    }
+    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+        $result.ciStatus = "disabled-by-policy"
+        $result.ciVisibility = "not-required"
+        $result.ciSource = "automation-policy"
+        $result.ciCurrentHeadObserved = "not-required"
+        $result.ciExternalBlocker = "waived-by-policy"
+        $result.ciReleaseGate = "not-required"
+        $result.ciLatestObservedHead = "not-required"
+        $policyBlockers = @($result.promotionBlockers -split "," | Where-Object {
+                -not [string]::IsNullOrWhiteSpace($_) `
+                    -and $_ -ne "unknown" `
+                    -and $_ -ne "ci-status-external-visibility-stale" `
+                    -and $_ -ne "ci-current-head-not-observed"
+            })
+        $result.promotionBlockers = Format-StatusValue ($policyBlockers -join ",")
+        $policyReady = (Format-StatusValue $result.productionLinkedReady) -eq "true" `
+            -and (Format-StatusValue $result.releaseEligible) -eq "true" `
+            -and (Format-StatusValue $result.probeFixture) -eq "false" `
+            -and (Format-StatusValue $result.targetMatchesCurrentHead) -eq "true" `
+            -and (Format-StatusValue $result.staleReleaseArtifact) -eq "false"
+        if ($policyReady) {
+            $result.releaseReady = "true"
+            $result.releaseGate = "ready-local-verification-only"
+            $result.promotionReady = "true"
+            $result.promotionGate = "ready-local-verification-only"
+            $result.promotionOperatorAction =
+                "GitHub Windows Build is disabled by repo policy; use local build/CTest and linked production evidence for release review."
+        }
     }
     if (-not $targetMatchesCurrentHead) {
         $result.releaseReady = "false"
@@ -2379,6 +2456,12 @@ if ([string]::IsNullOrWhiteSpace($OriginMain)) {
 if ([string]::IsNullOrWhiteSpace($LocalVerificationStatusPath)) {
     $LocalVerificationStatusPath = Join-Path $BuildDir "local-verification-status.json"
 }
+if ([string]::IsNullOrWhiteSpace($AutomationPolicyPath)) {
+    $defaultAutomationPolicyPath = "docs\automation-policy.json"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultAutomationPolicyPath) -PathType Leaf) {
+        $AutomationPolicyPath = $defaultAutomationPolicyPath
+    }
+}
 if ([string]::IsNullOrWhiteSpace($GitHubWindowsBuildStatusPath)) {
     $GitHubWindowsBuildStatusPath = Join-Path $BuildDir "github-windows-build-status.json"
 }
@@ -2415,15 +2498,41 @@ if ([string]::IsNullOrWhiteSpace($S3RealBackendReadinessPath) `
     }
 }
 $localVerificationReadback = Get-LocalVerificationStatusReadback $LocalVerificationStatusPath
+$automationPolicyReadback = Get-AutomationPolicyReadback $AutomationPolicyPath
+$script:GitHubWindowsBuildPolicyResolved = Normalize-GitHubWindowsBuildPolicy $GitHubWindowsBuildPolicy
+$gitHubWindowsBuildPolicySource = if (-not [string]::IsNullOrWhiteSpace($script:GitHubWindowsBuildPolicyResolved)) {
+    "parameter"
+} else {
+    "default-required"
+}
+if ([string]::IsNullOrWhiteSpace($script:GitHubWindowsBuildPolicyResolved)) {
+    if ($automationPolicyReadback.valid) {
+        $script:GitHubWindowsBuildPolicyResolved = $automationPolicyReadback.githubWindowsBuildPolicy
+        $gitHubWindowsBuildPolicySource = $automationPolicyReadback.source
+    } else {
+        $script:GitHubWindowsBuildPolicyResolved = "required"
+        if ($automationPolicyReadback.configured) {
+            $gitHubWindowsBuildPolicySource = $automationPolicyReadback.source
+        }
+    }
+}
 
 $ciReadbackSource = if (Is-UnknownStatus $CiStatus) { "auto" } else { "parameter" }
 if (Is-UnknownStatus $CiStatus) {
-    $ciReadback = Get-GitHubWindowsBuildReadback $Head
-    $CiStatus = $ciReadback.status
-    if ([string]::IsNullOrWhiteSpace($CiRunId)) {
-        $CiRunId = $ciReadback.runId
+    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+        $CiStatus = "disabled-by-policy"
+        if ([string]::IsNullOrWhiteSpace($CiRunId)) {
+            $CiRunId = "not-required"
+        }
+        $ciReadbackSource = $gitHubWindowsBuildPolicySource
+    } else {
+        $ciReadback = Get-GitHubWindowsBuildReadback $Head
+        $CiStatus = $ciReadback.status
+        if ([string]::IsNullOrWhiteSpace($CiRunId)) {
+            $CiRunId = $ciReadback.runId
+        }
+        $ciReadbackSource = $ciReadback.source
     }
-    $ciReadbackSource = $ciReadback.source
 }
 
 $buildReadbackSource = if (Is-UnknownStatus $BuildStatus) { "auto" } else { "parameter" }
@@ -2610,12 +2719,17 @@ $largeFileGovernanceLastRun = Read-LastRunSummary $largeFileGovernanceLastRunSta
 $automationTaskHistory = $automationTaskHistoryState.value
 $automationTaskAck = $automationTaskAckState.value
 
+$e2eReleaseTail = if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy, so the remaining E2E release work is final production-linked release artifact promotion plus local release review."
+} else {
+    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with current GitHub Windows Build visibility and local build/CTest readback; remaining E2E release work is external Windows Build visibility recovery and final production-linked release artifact promotion."
+}
 $e2eProductionBacklog = @(
     "1. E2E production crypto is the active automation lane again. Linked OpenSSL builds now run the reviewed provider table through public API dispatch. The default status surface keeps the callable manifest, sanitized execution result contract, explicit reviewed runtime-preflight/arming/execution-acceptance probe readiness, and production rotation dry-run/execute evidence, promotes sanitized provider invocation probe evidence through reviewed candidate, call handoff, stub, callable bridge/interface, runtime preflight, arming, execution acceptance, data-plane bridge, and public primitive execution, and linked reviewed builds can pass the early operation, provider control, and explicit reviewed tail probe evidence gates to reach productionAcceptance.accepted=true / releaseGate=production-crypto-accepted."
     "The linked runtime gate now also drives the real public API chain directly for identity generation, public derivation, agreement sign/verify, session derivation, payload encrypt/decrypt, and tamper rejection instead of relying only on probe summaries. Normal provider probe fixtures now use 32-byte valid production material handles, while runtime self-test plus explicit round-trip/public-primitive probes reject malformed identity handles, malformed verification public keys, malformed session-derive keys, and malformed payload keys as invalid-input without hashing arbitrary material into usable keys. productionRolloutObservability now summarizes acceptance, material/export proof counts, public primitive readiness, filesystem object ciphertext readback readiness, operator recovery prompts, user recovery prompts, and no-sensitive-export proof; it stays fail-closed until linked acceptance passes, then reports releaseGate=production-rollout-observability-ready without exporting key/session/private identity/plaintext/ciphertext bytes."
     "e2e_rollout_observability_exporter now persists sanitized rollout observability JSON/Markdown with filesystem object readback and reviewed offline mirror opt-in gates; default CTest verifies the unlinked fail-closed artifact and the linked OpenSSL runtime gate requires accepted evidence before promotion. The runtime gate also verifies client production rotation beyond local rebind: when every provider gate is ready, executeE2EProductionRotation generates production local identity material, persists the production backend id, clears draft sessions/pending agreements without exporting sensitive material, then Alice/Bob/Carol re-announce production identities, re-verify trust pins, derive independent signed production sessions, and send encrypted private text/file payloads on openssl-reviewed-adapter-v1."
     "The same gate restarts all three clients, restores production identities/trust pins from disk, refuses to reuse memory-only sessions, derives fresh independent production sessions, and repeats encrypted text/file delivery. Encrypted private file recovery now has sender-local same-wire cache, verified filesystem object readback, explicit reviewed S3 object readback, and explicit reviewed offline mirror readback paths: auto-resume is allowed only when the local ciphertext cache, filesystem object ciphertext, reviewed S3 ciphertext object, or reviewed offline mirror ciphertext object matches the sanitized envelope header, key id/fingerprint, plaintext/wire hashes, envelope ciphertextSha256, and server resume metadata."
-    "S3 remains fail-closed by default; only QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED=1 plus normal S3 configuration enables reviewed HEAD/GET ciphertext readback, and status/resume evidence must not export endpoint, bucket, credentials, ciphertext, session keys, private material, or local plaintext paths. Offline mirror readback is also explicit: only QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED=1 plus QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT enables canonical safe-token ciphertext readback, and status/resume evidence must not export mirror roots, local paths, ciphertext, session keys, or private material. S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates, legacy URL/path-like object locators are suppressed from recovery status, and cache loss, missing object root, object loss, hash/header/session mismatch, unsafe locator, or unsupported auto-readback fails closed to resend/clear. Offline attachment replay preserves that header so receivers can decrypt queued ciphertext locally. Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with current GitHub Windows Build visibility and local build/CTest readback; remaining E2E release work is external Windows Build visibility recovery and final production-linked release artifact promotion."
+    "S3 remains fail-closed by default; only QTNETWORKCHAT_E2E_S3_OBJECT_RECOVERY_REVIEWED=1 plus normal S3 configuration enables reviewed HEAD/GET ciphertext readback, and status/resume evidence must not export endpoint, bucket, credentials, ciphertext, session keys, private material, or local plaintext paths. Offline mirror readback is also explicit: only QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED=1 plus QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT enables canonical safe-token ciphertext readback, and status/resume evidence must not export mirror roots, local paths, ciphertext, session keys, or private material. S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates, legacy URL/path-like object locators are suppressed from recovery status, and cache loss, missing object root, object loss, hash/header/session mismatch, unsafe locator, or unsupported auto-readback fails closed to resend/clear. Offline attachment replay preserves that header so receivers can decrypt queued ciphertext locally. $e2eReleaseTail"
 ) -join " "
 
 $lines = [System.Collections.Generic.List[string]]::new()
@@ -2630,6 +2744,7 @@ $lines.Add('- HEAD: `' + $Head + '`')
 $lines.Add('- HEAD note: `status source/evidence head; the commit containing this generated status file may be newer`')
 $lines.Add('- Tracked remote branch: `' + $TrackedRemoteBranch + '`')
 $lines.Add('- Tracked remote hash: `' + $TrackedRemoteHash + '`')
+$lines.Add('- GitHub Windows Build policy: `' + $script:GitHubWindowsBuildPolicyResolved + '`')
 $lines.Add('- GitHub Windows Build: `' + $CiStatus + '`')
 $lines.Add('- GitHub run id: `' + $(if ([string]::IsNullOrWhiteSpace($CiRunId)) { "unknown" } else { $CiRunId }) + '`')
 $lines.Add('- Local MinGW build: `' + $BuildStatus + '`')
@@ -2771,11 +2886,14 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
             -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture) -eq "false" `
             -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead) -eq "true" `
             -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact) -eq "false"
-        $linkedOnlyCiBlocked = $linkedProductionReady `
+        $linkedOnlyCiBlocked = $script:GitHubWindowsBuildPolicyResolved -ne "disabled" `
+            -and $linkedProductionReady `
             -and $linkedPromotionBlockers.Count -gt 0 `
             -and $nonCiLinkedPromotionBlockers.Count -eq 0
         $finalLinkedPromotionGate = if ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted) -eq "true") {
             "e2e-release-artifact-promoted"
+        } elseif ($script:GitHubWindowsBuildPolicyResolved -eq "disabled" -and $linkedProductionReady) {
+            "ready-local-verification-only"
         } elseif ($linkedOnlyCiBlocked) {
             "blocked-ci-visibility-only"
         } elseif ($linkedProductionReady) {
@@ -2783,7 +2901,9 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
         } else {
             "blocked-production-linked-candidate-not-ready"
         }
-        $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "blocked-ci-visibility-only") {
+        $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "ready-local-verification-only") {
+            "GitHub Windows Build is disabled by repo policy; complete final local build/CTest review and archive the production-linked release artifact when approved."
+        } elseif ($finalLinkedPromotionGate -eq "blocked-ci-visibility-only") {
             "Wait for GitHub Windows Build to observe this head; do not change production-linked evidence for CI visibility lag."
         } elseif ($finalLinkedPromotionGate -eq "e2e-release-artifact-promoted") {
             "Archive the promoted production-linked E2E release artifact."
