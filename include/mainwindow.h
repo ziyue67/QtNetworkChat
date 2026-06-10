@@ -121,6 +121,17 @@ private:
     void refreshComposerState();
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
+    void applyReceivedTransferSaveStatus(const QString& kind,
+                                         const QString& fileName,
+                                         const QString& displayName,
+                                         const QString& receivedSize,
+                                         const QString& manifestSuffix,
+                                         const QString& integritySuffix,
+                                         const QString& transferId,
+                                         qint64 receivedBytes,
+                                         qint64 totalBytes,
+                                         bool saved,
+                                         bool integrityFailed);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);

@@ -532,6 +532,38 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
     ui->statusbar->showMessage(event.statusBarMessage, event.statusBarTimeoutMs);
 }
 
+void MainWindow::applyReceivedTransferSaveStatus(const QString& kind,
+                                                 const QString& fileName,
+                                                 const QString& displayName,
+                                                 const QString& receivedSize,
+                                                 const QString& manifestSuffix,
+                                                 const QString& integritySuffix,
+                                                 const QString& transferId,
+                                                 qint64 receivedBytes,
+                                                 qint64 totalBytes,
+                                                 bool saved,
+                                                 bool integrityFailed) {
+    if (saved) {
+        showFileTransferStatusEvent(fileName,
+                                    transferId,
+                                    integrityFailed ? QStringLiteral("hash") : QStringLiteral("receive-saved"),
+                                    receivedBytes,
+                                    totalBytes);
+        ui->chatHintLabel->setText(QString("已接收%1 · %2 · %3 · 来自 %4%5%6")
+            .arg(kind, fileName, receivedSize, displayName, manifestSuffix, integritySuffix));
+        ui->statusbar->showMessage(QString("%1已保存到下载目录 · %2%3%4").arg(kind, receivedSize, manifestSuffix, integritySuffix), 3000);
+        return;
+    }
+
+    showFileTransferStatusEvent(fileName,
+                                transferId,
+                                QStringLiteral("receive-save-failed"),
+                                receivedBytes,
+                                totalBytes);
+    ui->chatHintLabel->setText(QString("%1保存失败 · %2 · 来自 %3").arg(kind, fileName, displayName));
+    ui->statusbar->showMessage(QString("%1保存失败，请检查下载目录权限").arg(kind), 3200);
+}
+
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
     if (!m_resumeSavedTransferAction || !m_clearSavedTransferAction) return;
 
@@ -2682,24 +2714,30 @@ void MainWindow::onNewMessage(const Message& msg) {
                 QString("图片已保存到：%1").arg(savePath),
                 QString("回执话术 · 已收到图片 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath),
                 savedFileTip);
-            showFileTransferStatusEvent(receivedName,
-                                        msg.transferId,
-                                        integrityText.startsWith("完整性校验失败")
-                                            ? QStringLiteral("hash")
-                                            : QStringLiteral("receive-saved"),
-                                        msg.fileData.size(),
-                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
-            ui->chatHintLabel->setText(QString("已接收图片 · %1 · %2 · 来自 %3%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
-            ui->statusbar->showMessage(QString("图片已保存到下载目录 · %1%2%3").arg(receivedSize, manifestSuffix, integritySuffix), 3000);
+            applyReceivedTransferSaveStatus(QStringLiteral("图片"),
+                                            receivedName,
+                                            displayName,
+                                            receivedSize,
+                                            manifestSuffix,
+                                            integritySuffix,
+                                            msg.transferId,
+                                            msg.fileData.size(),
+                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
+                                            true,
+                                            integrityText.startsWith("完整性校验失败"));
         } else {
             appendReceivedTransferSaveFailedItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
-            showFileTransferStatusEvent(receivedName,
-                                        msg.transferId,
-                                        QStringLiteral("receive-save-failed"),
-                                        msg.fileData.size(),
-                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
-            ui->chatHintLabel->setText(QString("图片保存失败 · %1 · 来自 %2").arg(receivedName, displayName));
-            ui->statusbar->showMessage("图片保存失败，请检查下载目录权限", 3200);
+            applyReceivedTransferSaveStatus(QStringLiteral("图片"),
+                                            receivedName,
+                                            displayName,
+                                            receivedSize,
+                                            manifestSuffix,
+                                            integritySuffix,
+                                            msg.transferId,
+                                            msg.fileData.size(),
+                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
+                                            false,
+                                            false);
         }
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
         const QString receivedName = safeReceivedFileName(msg.fileName, "received_file");
@@ -2731,24 +2769,30 @@ void MainWindow::onNewMessage(const Message& msg) {
                 QString("文件已保存到：%1").arg(savePath),
                 QString("回执话术 · 已收到文件 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath),
                 savedFileTip);
-            showFileTransferStatusEvent(receivedName,
-                                        msg.transferId,
-                                        integrityText.startsWith("完整性校验失败")
-                                            ? QStringLiteral("hash")
-                                            : QStringLiteral("receive-saved"),
-                                        msg.fileData.size(),
-                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
-            ui->chatHintLabel->setText(QString("已接收文件 · %1 · %2 · 来自 %3%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
-            ui->statusbar->showMessage(QString("文件已保存到下载目录 · %1%2%3").arg(receivedSize, manifestSuffix, integritySuffix), 3000);
+            applyReceivedTransferSaveStatus(QStringLiteral("文件"),
+                                            receivedName,
+                                            displayName,
+                                            receivedSize,
+                                            manifestSuffix,
+                                            integritySuffix,
+                                            msg.transferId,
+                                            msg.fileData.size(),
+                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
+                                            true,
+                                            integrityText.startsWith("完整性校验失败"));
         } else {
             appendReceivedTransferSaveFailedItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
-            showFileTransferStatusEvent(receivedName,
-                                        msg.transferId,
-                                        QStringLiteral("receive-save-failed"),
-                                        msg.fileData.size(),
-                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
-            ui->chatHintLabel->setText(QString("文件保存失败 · %1 · 来自 %2").arg(receivedName, displayName));
-            ui->statusbar->showMessage("文件保存失败，请检查下载目录权限", 3200);
+            applyReceivedTransferSaveStatus(QStringLiteral("文件"),
+                                            receivedName,
+                                            displayName,
+                                            receivedSize,
+                                            manifestSuffix,
+                                            integritySuffix,
+                                            msg.transferId,
+                                            msg.fileData.size(),
+                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
+                                            false,
+                                            false);
         }
     }
 
