@@ -297,6 +297,33 @@ int main(int argc, char** argv) {
                     && failedSend.statusTimeoutMs == 3000,
                 "failed send state should centralize warning and retry guidance") && ok;
 
+    TransferSendUiState localCompleted = TransferManager::localSendCompletedState(QString::fromUtf8("文件"),
+                                                                                 QStringLiteral("report.zip"),
+                                                                                 QStringLiteral("4.0 KB"),
+                                                                                 QString::fromUtf8("本地群"),
+                                                                                 QStringLiteral("12:00:00"));
+    ok = expect(localCompleted.systemMessage == QString::fromUtf8("文件发送详情：report.zip · 4.0 KB · 到 本地群")
+                    && localCompleted.cardText == QString::fromUtf8("文件卡片 · report.zip · 4.0 KB · 已发送到 本地群")
+                    && localCompleted.receiptText == QString::fromUtf8("文件查收话术 · 我已发送文件 report.zip 到 本地群，请注意查收。 · 右键聊天记录可复制")
+                    && localCompleted.hintText == QString::fromUtf8("已发送文件到 本地群 · 4.0 KB · 12:00:00")
+                    && localCompleted.statusMessage == QString::fromUtf8("已发送文件到 本地群 · 4.0 KB")
+                    && localCompleted.statusTimeoutMs == 2200,
+                "local completed send state should centralize local file card and receipt copy") && ok;
+
+    TransferSendUiState remoteCompleted = TransferManager::remoteSendCompletedState(QString::fromUtf8("图片"),
+                                                                                   QStringLiteral("photo.png"),
+                                                                                   QStringLiteral("512 KB"),
+                                                                                   QString::fromUtf8("好友A"),
+                                                                                   QStringLiteral("12:00:01"),
+                                                                                   QString::fromUtf8("4片 · 分片128 KB"));
+    ok = expect(remoteCompleted.systemMessage == QString::fromUtf8("已发送图片: photo.png · 512 KB · 到 好友A · 4片 · 分片128 KB")
+                    && remoteCompleted.cardText == QString::fromUtf8("图片卡片 · photo.png · 512 KB · 已发送到 好友A · 4片 · 分片128 KB")
+                    && remoteCompleted.receiptText == QString::fromUtf8("图片查收话术 · 我已发送图片 photo.png 到 好友A，请注意查收。 · 右键聊天记录可复制")
+                    && remoteCompleted.hintText == QString::fromUtf8("已发送图片到 好友A · 512 KB · 12:00:01 · 4片 · 分片128 KB")
+                    && remoteCompleted.statusMessage == QString::fromUtf8("已发送图片到 好友A · 512 KB · 4片 · 分片128 KB")
+                    && remoteCompleted.statusTimeoutMs == 2600,
+                "remote completed send state should include transfer summary in all completion surfaces") && ok;
+
     TransferProgressUiState resumeCancel = TransferManager::resumeCancelState(QStringLiteral("report.zip"));
     ok = expect(resumeCancel.labelText.contains(QString::fromUtf8("正在取消恢复发送"))
                     && resumeCancel.labelText.contains(QStringLiteral("report.zip")),

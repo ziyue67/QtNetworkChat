@@ -103,6 +103,9 @@ struct TransferProgressUiState {
 struct TransferSendUiState {
     QString hintText;
     QString statusMessage;
+    QString systemMessage;
+    QString cardText;
+    QString receiptText;
     QString warningTitle;
     QString warningMessage;
     int statusTimeoutMs = 3000;
@@ -157,6 +160,17 @@ public:
                                                   const QString& fileName,
                                                   const QString& fileSize,
                                                   const QString& targetName);
+    static TransferSendUiState localSendCompletedState(const QString& kind,
+                                                       const QString& fileName,
+                                                       const QString& fileSize,
+                                                       const QString& targetName,
+                                                       const QString& completedAt);
+    static TransferSendUiState remoteSendCompletedState(const QString& kind,
+                                                        const QString& fileName,
+                                                        const QString& fileSize,
+                                                        const QString& targetName,
+                                                        const QString& completedAt,
+                                                        const QString& transferSummary = QString());
     static TransferProgressUiState resumeInitialState(const QString& fileName,
                                                       const QString& targetName);
     static TransferProgressUiState resumeCancelState(const QString& fileName);

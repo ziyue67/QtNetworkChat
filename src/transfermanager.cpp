@@ -356,6 +356,42 @@ TransferSendUiState TransferManager::preparingSendState(const QString& kind,
     return result;
 }
 
+TransferSendUiState TransferManager::localSendCompletedState(const QString& kind,
+                                                             const QString& fileName,
+                                                             const QString& fileSize,
+                                                             const QString& targetName,
+                                                             const QString& completedAt) {
+    TransferSendUiState result;
+    result.systemMessage = QStringLiteral("%1发送详情：%2 · %3 · 到 %4").arg(kind, fileName, fileSize, targetName);
+    result.cardText = QStringLiteral("%1卡片 · %2 · %3 · 已发送到 %4").arg(kind, fileName, fileSize, targetName);
+    result.receiptText = QStringLiteral("%1查收话术 · 我已发送%1 %2 到 %3，请注意查收。 · 右键聊天记录可复制")
+        .arg(kind, fileName, targetName);
+    result.hintText = QStringLiteral("已发送%1到 %2 · %3 · %4").arg(kind, targetName, fileSize, completedAt);
+    result.statusMessage = QStringLiteral("已发送%1到 %2 · %3").arg(kind, targetName, fileSize);
+    result.statusTimeoutMs = 2200;
+    return result;
+}
+
+TransferSendUiState TransferManager::remoteSendCompletedState(const QString& kind,
+                                                              const QString& fileName,
+                                                              const QString& fileSize,
+                                                              const QString& targetName,
+                                                              const QString& completedAt,
+                                                              const QString& transferSummary) {
+    TransferSendUiState result;
+    const QString transferSuffix = transferSummary.trimmed().isEmpty()
+        ? QString()
+        : QStringLiteral(" · %1").arg(transferSummary.trimmed());
+    result.systemMessage = QStringLiteral("已发送%1: %2 · %3 · 到 %4%5").arg(kind, fileName, fileSize, targetName, transferSuffix);
+    result.cardText = QStringLiteral("%1卡片 · %2 · %3 · 已发送到 %4%5").arg(kind, fileName, fileSize, targetName, transferSuffix);
+    result.receiptText = QStringLiteral("%1查收话术 · 我已发送%1 %2 到 %3，请注意查收。 · 右键聊天记录可复制")
+        .arg(kind, fileName, targetName);
+    result.hintText = QStringLiteral("已发送%1到 %2 · %3 · %4%5").arg(kind, targetName, fileSize, completedAt, transferSuffix);
+    result.statusMessage = QStringLiteral("已发送%1到 %2 · %3%4").arg(kind, targetName, fileSize, transferSuffix);
+    result.statusTimeoutMs = 2600;
+    return result;
+}
+
 TransferProgressUiState TransferManager::resumeInitialState(const QString& fileName,
                                                             const QString& targetName) {
     TransferProgressUiState result;

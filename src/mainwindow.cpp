@@ -2439,8 +2439,10 @@ void MainWindow::onSendFile() {
     const TransferSendUiState preparingState = m_transferManager.preparingSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
     ui->chatHintLabel->setText(preparingState.hintText);
     ui->statusbar->showMessage(preparingState.statusMessage, preparingState.statusTimeoutMs);
+    const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        QString line = QString("[%1] <%2> 发送了文件: %3 · %4").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, info.fileName(), fileSize);
+        const TransferSendUiState completedState = m_transferManager.localSendCompletedState(QStringLiteral("文件"), info.fileName(), fileSize, targetName, completedAt);
+        QString line = QString("[%1] <%2> 发送了文件: %3 · %4").arg(completedAt, m_currentUserName, info.fileName(), fileSize);
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
@@ -2448,21 +2450,21 @@ void MainWindow::onSendFile() {
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
-        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 · 已发送到 %3").arg(info.fileName(), fileSize, targetName));
+        QStandardItem* cardItem = new QStandardItem(completedState.cardText);
         cardItem->setEditable(false);
         cardItem->setForeground(QColor(0, 121, 107));
         cardItem->setBackground(QColor(232, 248, 245));
         cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(cardItem);
-        QStandardItem* receiptItem = new QStandardItem(QString("查收话术 · 我已发送 %1 到 %2，请注意查收。 · 右键聊天记录可复制").arg(info.fileName(), targetName));
+        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
         receiptItem->setEditable(false);
         receiptItem->setForeground(QColor(86, 116, 130));
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        appendSystemMessage(QString("文件发送详情：%1 · %2 · 到 %3").arg(info.fileName(), fileSize, targetName));
-        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 · %3").arg(targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2").arg(targetName, fileSize), 2200);
+        appendSystemMessage(completedState.systemMessage);
+        ui->chatHintLabel->setText(completedState.hintText);
+        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
         ui->chatListView->scrollToBottom();
         return;
     }
@@ -2471,23 +2473,23 @@ void MainWindow::onSendFile() {
     bool transferCanceled = false;
     bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary, &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
-    const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
-        appendSystemMessage(QString("已发送文件: %1 · %2 · 到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
-        QStandardItem* cardItem = new QStandardItem(QString("文件卡片 · %1 · %2 · 已发送到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
+        const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(QStringLiteral("文件"), info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
+        appendSystemMessage(completedState.systemMessage);
+        QStandardItem* cardItem = new QStandardItem(completedState.cardText);
         cardItem->setEditable(false);
         cardItem->setForeground(QColor(0, 121, 107));
         cardItem->setBackground(QColor(232, 248, 245));
         cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(cardItem);
-        QStandardItem* receiptItem = new QStandardItem(QString("查收话术 · 我已发送 %1 到 %2，请注意查收。 · 右键聊天记录可复制").arg(info.fileName(), targetName));
+        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
         receiptItem->setEditable(false);
         receiptItem->setForeground(QColor(86, 116, 130));
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(QString("已发送文件到 %1 · %2 · %3%4").arg(targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSuffix));
-        ui->statusbar->showMessage(QString("已发送文件到 %1 · %2%3").arg(targetName, fileSize, transferSuffix), 2600);
+        ui->chatHintLabel->setText(completedState.hintText);
+        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
         ui->chatListView->scrollToBottom();
     } else if (transferCanceled) {
         appendSystemMessage(QString("已取消发送文件: %1 · 到 %2").arg(info.fileName(), targetName));
@@ -2548,9 +2550,11 @@ void MainWindow::onSendImage() {
     const TransferSendUiState preparingState = m_transferManager.preparingSendState(mediaType, info.fileName(), fileSize, targetName);
     ui->chatHintLabel->setText(preparingState.hintText);
     ui->statusbar->showMessage(preparingState.statusMessage, preparingState.statusTimeoutMs);
+    const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
+        const TransferSendUiState completedState = m_transferManager.localSendCompletedState(mediaType, info.fileName(), fileSize, targetName, completedAt);
         QPixmap pixmap(filePath);
-        QString line = QString("[%1] <%2> [%3] %4 · %5").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, mediaType, info.fileName(), fileSize);
+        QString line = QString("[%1] <%2> [%3] %4 · %5").arg(completedAt, m_currentUserName, mediaType, info.fileName(), fileSize);
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
@@ -2571,16 +2575,15 @@ void MainWindow::onSendImage() {
             previewItem->setBackground(QColor(245, 240, 255));
             m_chatModel->appendRow(previewItem);
         }
-        QStandardItem* receiptItem = new QStandardItem(QString("%1查收话术 · 我已发送%2 %3 到 %4，请注意查收。 · 右键聊天记录可复制")
-            .arg(mediaType, mediaType, info.fileName(), targetName));
+        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
         receiptItem->setEditable(false);
         receiptItem->setForeground(QColor(86, 116, 130));
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        appendSystemMessage(QString("%1发送详情：%2 · %3 · 到 %4").arg(mediaType, info.fileName(), fileSize, targetName));
-        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 · %4").arg(mediaType, targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss")));
-        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3").arg(mediaType, targetName, fileSize), 2200);
+        appendSystemMessage(completedState.systemMessage);
+        ui->chatHintLabel->setText(completedState.hintText);
+        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
         ui->chatListView->scrollToBottom();
         return;
     }
@@ -2589,13 +2592,13 @@ void MainWindow::onSendImage() {
     bool transferCanceled = false;
     bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo, &transferSummary, &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
-    const QString transferSuffix = transferSummary.isEmpty() ? QString() : QString(" · %1").arg(transferSummary);
     if (ok) {
-        appendSystemMessage(QString("已发送%1: %2 · %3 · 到 %4%5").arg(mediaType, info.fileName(), fileSize, targetName, transferSuffix));
+        const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(mediaType, info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
+        appendSystemMessage(completedState.systemMessage);
         if (!isVideo) {
             QPixmap pixmap(filePath);
             if (!pixmap.isNull()) {
-                QStandardItem* previewItem = new QStandardItem(QString("%1 · %2 · 已发送到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
+                QStandardItem* previewItem = new QStandardItem(completedState.cardText);
                 previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
                 previewItem->setEditable(false);
                 previewItem->setBackground(QColor(246, 250, 253));
@@ -2603,22 +2606,21 @@ void MainWindow::onSendImage() {
                 m_chatModel->appendRow(previewItem);
             }
         } else {
-            QStandardItem* previewItem = new QStandardItem(QString("视频文件 · %1 · %2 · 已发送到 %3%4").arg(info.fileName(), fileSize, targetName, transferSuffix));
+            QStandardItem* previewItem = new QStandardItem(completedState.cardText);
             previewItem->setEditable(false);
             previewItem->setForeground(QColor(126, 87, 194));
             previewItem->setBackground(QColor(245, 240, 255));
             previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
             m_chatModel->appendRow(previewItem);
         }
-        QStandardItem* receiptItem = new QStandardItem(QString("%1查收话术 · 我已发送%2 %3 到 %4，请注意查收。 · 右键聊天记录可复制")
-            .arg(mediaType, mediaType, info.fileName(), targetName));
+        QStandardItem* receiptItem = new QStandardItem(completedState.receiptText);
         receiptItem->setEditable(false);
         receiptItem->setForeground(QColor(86, 116, 130));
         receiptItem->setBackground(QColor(246, 251, 253));
         receiptItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(receiptItem);
-        ui->chatHintLabel->setText(QString("已发送%1到 %2 · %3 · %4%5").arg(mediaType, targetName, fileSize, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSuffix));
-        ui->statusbar->showMessage(QString("已发送%1到 %2 · %3%4").arg(mediaType, targetName, fileSize, transferSuffix), 2600);
+        ui->chatHintLabel->setText(completedState.hintText);
+        ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
         ui->chatListView->scrollToBottom();
     } else if (transferCanceled) {
         appendSystemMessage(QString("已取消发送%1: %2 · 到 %3").arg(mediaType, info.fileName(), targetName));
