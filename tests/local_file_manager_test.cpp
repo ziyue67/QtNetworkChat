@@ -83,6 +83,10 @@ int main(int argc, char** argv) {
     LocalFileSelectionResult canceledTransferSelection = LocalFileManager::selectTransferFile(QString(), QStringLiteral("文件"));
     ok = expect(canceledTransferSelection.canceled && !canceledTransferSelection.accepted,
                 "empty transfer selection should be treated as canceled") && ok;
+    ok = expect(canceledTransferSelection.canceledHint == QString::fromUtf8("文件发送已取消")
+                    && canceledTransferSelection.canceledStatusMessage == QString::fromUtf8("已取消选择文件")
+                    && canceledTransferSelection.canceledStatusTimeoutMs == 1600,
+                "canceled transfer selection should expose reusable UI feedback") && ok;
 
     LocalFileSelectionResult warningTransferSelection = LocalFileManager::selectTransferFile(warningFilePath, QStringLiteral("文件"));
     ok = expect(warningTransferSelection.accepted
@@ -90,6 +94,22 @@ int main(int argc, char** argv) {
                     && warningTransferSelection.fileInfo.fileName() == QStringLiteral("warning.bin")
                     && !warningTransferSelection.fileSize.isEmpty(),
                 "transfer selection should preserve validation and file metadata") && ok;
+    ok = expect(warningTransferSelection.rejectedStatusMessage == QString::fromUtf8("已取消发送文件"),
+                "warning transfer selection should preserve warning-cancel status text") && ok;
+
+    LocalFileSelectionResult rejectedTransferSelection = LocalFileManager::selectTransferFile(tooLargeFilePath, QStringLiteral("文件"));
+    ok = expect(!rejectedTransferSelection.accepted
+                    && !rejectedTransferSelection.canceled
+                    && rejectedTransferSelection.rejectedStatusMessage.contains(QString::fromUtf8("超过 80 MB"))
+                    && rejectedTransferSelection.rejectedStatusTimeoutMs == 2600,
+                "rejected transfer selection should expose reusable failure UI feedback") && ok;
+
+    LocalFileSelectionResult warningCanceledSelection = LocalFileManager::cancelTransferWarningSelection(QStringLiteral("文件"));
+    ok = expect(warningCanceledSelection.warningCanceled
+                    && warningCanceledSelection.warningCanceledHint == QString::fromUtf8("已取消发送文件")
+                    && warningCanceledSelection.warningCanceledStatusMessage == QString::fromUtf8("已取消发送文件")
+                    && warningCanceledSelection.warningCanceledStatusTimeoutMs == 2600,
+                "warning-canceled transfer selection should expose reusable confirmation-cancel feedback") && ok;
 
     LocalFileValidationResult avatarOk = LocalFileManager::validateAvatarFile(QFileInfo(avatarFilePath));
     ok = expect(avatarOk.accepted, "normal avatar file should be accepted") && ok;

@@ -52,13 +52,12 @@ void LocalFileManager::rememberAvatarDirectory(const QString& filePath) {
 
 LocalFileSelectionResult LocalFileManager::selectTransferFile(const QString& selectedPath,
                                                               const QString& confirmKind) {
-    LocalFileSelectionResult result;
-    result.filePath = selectedPath;
-    result.canceled = selectedPath.trimmed().isEmpty();
-    if (result.canceled) {
-        return result;
+    if (selectedPath.trimmed().isEmpty()) {
+        return cancelTransferSelection(confirmKind);
     }
 
+    LocalFileSelectionResult result;
+    result.filePath = selectedPath;
     rememberTransferDirectory(selectedPath);
     result.fileInfo = QFileInfo(selectedPath);
     const LocalFileValidationResult validation = validateTransferFile(result.fileInfo, confirmKind);
@@ -69,8 +68,11 @@ LocalFileSelectionResult LocalFileManager::selectTransferFile(const QString& sel
     result.failureMessage = validation.failureMessage;
     result.warningTitle = validation.warningTitle;
     result.warningMessage = validation.warningMessage;
+    result.rejectedStatusMessage = validation.statusMessage;
     if (validation.accepted) {
         result.fileSize = humanFileSize(result.fileInfo.size());
+    } else {
+        result.rejectedStatusTimeoutMs = 2600;
     }
     return result;
 }
@@ -93,6 +95,24 @@ LocalFileSelectionResult LocalFileManager::selectAvatarFile(const QString& selec
     if (validation.accepted) {
         result.fileSize = humanFileSize(result.fileInfo.size());
     }
+    return result;
+}
+
+LocalFileSelectionResult LocalFileManager::cancelTransferSelection(const QString& kind) {
+    LocalFileSelectionResult result;
+    result.canceled = true;
+    result.canceledHint = QStringLiteral("%1发送已取消").arg(kind);
+    result.canceledStatusMessage = QStringLiteral("已取消选择%1").arg(kind);
+    result.canceledStatusTimeoutMs = 1600;
+    return result;
+}
+
+LocalFileSelectionResult LocalFileManager::cancelTransferWarningSelection(const QString& kind) {
+    LocalFileSelectionResult result;
+    result.warningCanceled = true;
+    result.warningCanceledHint = QStringLiteral("已取消发送%1").arg(kind);
+    result.warningCanceledStatusMessage = result.warningCanceledHint;
+    result.warningCanceledStatusTimeoutMs = 2600;
     return result;
 }
 

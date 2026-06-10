@@ -7065,14 +7065,16 @@ bool MainWindow::selectTransferFile(const QString& dialogTitle,
                                                               filters);
     const LocalFileSelectionResult selection = LocalFileManager::selectTransferFile(selectedPath, confirmKind);
     if (selection.canceled) {
-        ui->chatHintLabel->setText(canceledHint);
-        ui->statusbar->showMessage(canceledStatus, 1600);
+        ui->chatHintLabel->setText(selection.canceledHint.isEmpty() ? canceledHint : selection.canceledHint);
+        ui->statusbar->showMessage(selection.canceledStatusMessage.isEmpty() ? canceledStatus : selection.canceledStatusMessage,
+                                   selection.canceledStatusTimeoutMs);
         return false;
     }
     if (!selection.accepted) {
         QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
-        ui->chatHintLabel->setText(selection.statusMessage);
-        ui->statusbar->showMessage(selection.statusMessage, 2600);
+        ui->chatHintLabel->setText(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage : selection.rejectedStatusMessage);
+        ui->statusbar->showMessage(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage : selection.rejectedStatusMessage,
+                                   selection.rejectedStatusTimeoutMs);
         return false;
     }
     if (selection.warningRequired) {
@@ -7082,8 +7084,10 @@ bool MainWindow::selectTransferFile(const QString& dialogTitle,
                                                      QMessageBox::Yes | QMessageBox::No,
                                                      QMessageBox::No) == QMessageBox::Yes;
         if (!confirmed) {
-            ui->chatHintLabel->setText(selection.statusMessage);
-            ui->statusbar->showMessage(selection.statusMessage, 2600);
+            const LocalFileSelectionResult warningCanceled = LocalFileManager::cancelTransferWarningSelection(confirmKind);
+            ui->chatHintLabel->setText(warningCanceled.warningCanceledHint);
+            ui->statusbar->showMessage(warningCanceled.warningCanceledStatusMessage,
+                                       warningCanceled.warningCanceledStatusTimeoutMs);
             return false;
         }
     }
