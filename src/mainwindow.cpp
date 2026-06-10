@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "chatsessionmanager.h"
 #include "composermanager.h"
 #include "filetransferstatus.h"
 #include "qtnetworkchat_version.h"
@@ -2990,13 +2991,9 @@ void MainWindow::onE2ESessionStateChanged(const QString& peerId, const QJsonObje
     if (peerId != m_privateChatTarget) {
         return;
     }
-    const QString state = status.value("state").toString();
-    if (state == QLatin1String("ready")) {
-        ui->chatHintLabel->setText(QString("端到端加密已就绪 · %1").arg(contactDisplayName(peerId)));
-    } else if (state == QLatin1String("rotation-required")) {
-        ui->chatHintLabel->setText(QString("端到端加密需要轮换 · %1").arg(contactDisplayName(peerId)));
-    } else if (state == QLatin1String("missing-session")) {
-        ui->chatHintLabel->setText(QString("端到端加密未就绪 · %1").arg(contactDisplayName(peerId)));
+    const QString hint = ChatSessionManager::e2eSessionHint(contactDisplayName(peerId), status.value("state").toString());
+    if (!hint.isEmpty()) {
+        ui->chatHintLabel->setText(hint);
     }
 }
 
@@ -3011,8 +3008,7 @@ void MainWindow::onE2EIdentityStateChanged(const QString& peerId, const QJsonObj
         appendSystemMessage(QString("已信任 %1 的端到端加密身份 · 指纹:%2")
             .arg(contactDisplayName(peerId), fingerprint));
     } else if (peerId == m_privateChatTarget) {
-        ui->chatHintLabel->setText(QString("端到端加密身份待核对 · %1 · 指纹:%2")
-            .arg(contactDisplayName(peerId), fingerprint));
+        ui->chatHintLabel->setText(ChatSessionManager::e2eIdentityPendingHint(contactDisplayName(peerId), fingerprint));
     }
 }
 
@@ -3022,7 +3018,7 @@ void MainWindow::onE2ESessionRotationRequested(const QString& peerId, const QJso
     appendSystemMessage(QString("%1 请求轮换端到端加密会话 · keyId:%2 · 指纹:%3")
         .arg(contactDisplayName(peerId), keyId, fingerprint));
     if (peerId == m_privateChatTarget) {
-        ui->chatHintLabel->setText(QString("收到端到端加密轮换请求 · %1").arg(contactDisplayName(peerId)));
+        ui->chatHintLabel->setText(ChatSessionManager::e2eRotationRequestHint(contactDisplayName(peerId)));
     }
 }
 
@@ -3034,9 +3030,7 @@ void MainWindow::onE2ESessionRotationResponded(const QString& peerId, const QJso
              keyId,
              reason.trimmed().isEmpty() ? QString() : QStringLiteral(" · %1").arg(reason)));
     if (peerId == m_privateChatTarget) {
-        ui->chatHintLabel->setText(accepted
-            ? QString("端到端加密轮换已被接受 · %1").arg(contactDisplayName(peerId))
-            : QString("端到端加密轮换被拒绝 · %1").arg(contactDisplayName(peerId)));
+        ui->chatHintLabel->setText(ChatSessionManager::e2eRotationResponseHint(contactDisplayName(peerId), accepted));
     }
 }
 
@@ -3073,13 +3067,15 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     m_chatModel->clear();
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     loadHistory(targetId);
-    QString onlineText = isContactOnline(targetId) ? "在线" : "离线";
-    setWindowTitle(appWindowTitle(QString("私聊: %1").arg(userName)));
-    ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(userName));
-    const QString e2eState = m_client && m_client->hasE2ESession(targetId)
-        ? (m_client->e2eSessionNeedsRotation(targetId) ? QStringLiteral("端到端加密需轮换") : QStringLiteral("端到端加密就绪"))
-        : QStringLiteral("端到端加密未就绪");
-    ui->chatHintLabel->setText(QString("QQ: %1 · %2 · %3 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, onlineText, e2eState));
+    const PrivateChatUiState privateState = ChatSessionManager::privateChatState(
+        targetId,
+        userName,
+        isContactOnline(targetId),
+        m_client && m_client->hasE2ESession(targetId),
+        m_client && m_client->e2eSessionNeedsRotation(targetId));
+    setWindowTitle(appWindowTitle(privateState.windowSuffix));
+    ui->chatTitleLabel->setText(privateState.titleText);
+    ui->chatHintLabel->setText(privateState.hintText);
     refreshComposerState();
 }
 
@@ -3087,12 +3083,9 @@ void MainWindow::onClientDisconnected() {
     appendSystemMessage("已断开服务器连接");
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    ui->chatHintLabel->setText(isLocalGroup
-        ? QString("本地群聊 · 已断开服务器，仍可记录本地消息")
-        : QString("已断开服务器 · %1 暂停发送，消息草稿会保留").arg(targetName));
-    ui->statusbar->showMessage(isLocalGroup
-        ? QString("已断开服务器，本地群聊仍可继续记录")
-        : QString("已断开服务器，暂不能发送到 %1").arg(targetName), 3500);
+    const ConnectionUiState state = ChatSessionManager::disconnectedState(targetName, isLocalGroup);
+    ui->chatHintLabel->setText(state.hintText);
+    ui->statusbar->showMessage(state.statusMessage, 3500);
     refreshComposerState();
 }
 
@@ -3100,13 +3093,9 @@ void MainWindow::onClientError(const QString& error) {
     appendSystemMessage("连接错误: " + error);
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    const QString briefError = error.left(80);
-    ui->chatHintLabel->setText(isLocalGroup
-        ? QString("连接错误 · 本地群聊仍可记录 · %1").arg(briefError)
-        : QString("连接错误 · %1 暂停发送 · %2").arg(targetName, briefError));
-    ui->statusbar->showMessage(isLocalGroup
-        ? QString("连接错误，本地群聊仍可继续记录")
-        : QString("连接错误，暂不能发送到 %1").arg(targetName), 3500);
+    const ConnectionUiState state = ChatSessionManager::errorState(targetName, isLocalGroup, error);
+    ui->chatHintLabel->setText(state.hintText);
+    ui->statusbar->showMessage(state.statusMessage, 3500);
     refreshComposerState();
 }
 
@@ -4283,8 +4272,7 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     ui->chatTitleLabel->setText(groupName);
     const QString ownerId = groupOwnerId(groupId);
     const bool isOwner = isCurrentUserGroupOwner(groupId);
-    ui->chatHintLabel->setText(QString("本地群聊 · 群号 %1 · 群主 %2 · 我的权限:%3")
-        .arg(groupId.mid(QString("local_group_").size()), ownerId, isOwner ? "群主" : "成员"));
+    ui->chatHintLabel->setText(ChatSessionManager::localGroupHint(groupId, ownerId, isOwner));
     ui->announcementTitleLabel->setText(isOwner ? "群公告 <a href=\"edit\">编辑</a>" : "群公告");
     ui->announcementBodyLabel->setText(m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName)));
     refreshGroupMemberPanel();
