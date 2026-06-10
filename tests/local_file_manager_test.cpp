@@ -39,6 +39,8 @@ int main(int argc, char** argv) {
     QDir().mkpath(tempRoot);
     const QString nestedDir = QDir(tempRoot).filePath("nested");
     QDir().mkpath(nestedDir);
+    const QString receiveDir = QDir(tempRoot).filePath("receive");
+    QDir().mkpath(receiveDir);
 
     const QString smallFilePath = createFileWithSize(QDir(nestedDir).filePath("small.txt"), 1024);
     const QString warningFilePath = createFileWithSize(QDir(nestedDir).filePath("warning.bin"), 21 * 1024 * 1024);
@@ -93,6 +95,25 @@ int main(int argc, char** argv) {
                     && LocalFileManager::humanFileSize(2048).contains(QStringLiteral("KB"))
                     && LocalFileManager::humanFileSize(3 * 1024 * 1024).contains(QStringLiteral("MB")),
                 "human file size should cover B KB MB") && ok;
+
+    ok = expect(LocalFileManager::safeReceivedFileName(QStringLiteral("C:/downloads/report.zip"),
+                                                       QStringLiteral("fallback.bin")) == QStringLiteral("report.zip")
+                    && LocalFileManager::safeReceivedFileName(QStringLiteral("   "),
+                                                              QStringLiteral("fallback.bin")) == QStringLiteral("fallback.bin"),
+                "safe received file name should preserve leaf names and fallback when empty") && ok;
+
+    const QString firstReceivedPath = LocalFileManager::uniqueReceivedSavePath(receiveDir, QStringLiteral("report.zip"));
+    ok = expect(!firstReceivedPath.isEmpty() && firstReceivedPath.contains(QStringLiteral("report.zip")),
+                "unique received save path should create a candidate name") && ok;
+    ok = expect(LocalFileManager::writeReceivedTransferPayload(firstReceivedPath, QByteArray("payload")),
+                "received payload writer should persist bytes") && ok;
+    QFile firstReceivedFile(firstReceivedPath);
+    ok = expect(firstReceivedFile.exists() && firstReceivedFile.size() == 7,
+                "received payload writer should create the destination file") && ok;
+
+    const QString secondReceivedPath = LocalFileManager::uniqueReceivedSavePath(receiveDir, QStringLiteral("report.zip"));
+    ok = expect(secondReceivedPath != firstReceivedPath,
+                "unique received save path should avoid collisions when a file already exists") && ok;
 
     QDir(tempRoot).removeRecursively();
     settings.clear();

@@ -1,6 +1,8 @@
 #include "localfilemanager.h"
 
+#include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QSettings>
 #include <QStandardPaths>
 
@@ -46,6 +48,56 @@ void LocalFileManager::rememberAvatarDirectory(const QString& filePath) {
 
     QSettings settings("QtNetworkChat", "QtNetworkChat");
     settings.setValue("avatar/lastDirectory", directory);
+}
+
+QString LocalFileManager::safeReceivedFileName(const QString& rawName, const QString& fallbackName) {
+    QString fileName = QFileInfo(rawName).fileName().trimmed();
+    if (fileName.isEmpty()) {
+        fileName = fallbackName;
+    }
+    return fileName;
+}
+
+QString LocalFileManager::ensureReceivedDownloadDirectory(const QString& downloadSubdir) {
+    const QString saveDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)
+        + QStringLiteral("/QtNetworkChat/")
+        + downloadSubdir;
+    QDir().mkpath(saveDirPath);
+    return saveDirPath;
+}
+
+QString LocalFileManager::uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName) {
+    const QDir directory(directoryPath);
+    const QString stampedName = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_hhmmss_")) + fileName;
+    QString candidate = directory.filePath(stampedName);
+    if (!QFileInfo::exists(candidate)) {
+        return candidate;
+    }
+
+    const QFileInfo stampedInfo(stampedName);
+    const QString suffix = stampedInfo.suffix();
+    const QString baseName = stampedInfo.completeBaseName();
+    for (int index = 2; index < 1000; ++index) {
+        const QString numberedName = suffix.isEmpty()
+            ? QStringLiteral("%1_%2").arg(baseName).arg(index)
+            : QStringLiteral("%1_%2.%3").arg(baseName).arg(index).arg(suffix);
+        candidate = directory.filePath(numberedName);
+        if (!QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+
+    return directory.filePath(QStringLiteral("%1_%2").arg(stampedName).arg(QDateTime::currentMSecsSinceEpoch()));
+}
+
+bool LocalFileManager::writeReceivedTransferPayload(const QString& savePath, const QByteArray& fileData) {
+    QFile file(savePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    const qint64 bytesWritten = file.write(fileData);
+    file.close();
+    return bytesWritten == fileData.size();
 }
 
 LocalFileValidationResult LocalFileManager::validateTransferFile(const QFileInfo& info, const QString& kind) {

@@ -110,12 +110,6 @@ QIcon createChatIcon(const QString& seedText = QString()) {
     return icon;
 }
 
-QString safeReceivedFileName(const QString& rawName, const QString& fallbackName) {
-    QString fileName = QFileInfo(rawName).fileName().trimmed();
-    if (fileName.isEmpty()) fileName = fallbackName;
-    return fileName;
-}
-
 QString selectedFriendManagerEntryId(QListWidget* friendList) {
     if (!friendList || !friendList->currentItem()) return QString();
     return friendList->currentItem()->data(Qt::UserRole).toString();
@@ -255,26 +249,6 @@ QStringList visibleGroupNoticeIds(QListWidget* noticeList) {
         ids << id;
     }
     return ids;
-}
-
-QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName) {
-    const QDir directory(directoryPath);
-    const QString stampedName = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + fileName;
-    QString candidate = directory.filePath(stampedName);
-    if (!QFileInfo::exists(candidate)) return candidate;
-
-    const QFileInfo stampedInfo(stampedName);
-    const QString suffix = stampedInfo.suffix();
-    const QString baseName = stampedInfo.completeBaseName();
-    for (int index = 2; index < 1000; ++index) {
-        const QString numberedName = suffix.isEmpty()
-            ? QString("%1_%2").arg(baseName).arg(index)
-            : QString("%1_%2.%3").arg(baseName).arg(index).arg(suffix);
-        candidate = directory.filePath(numberedName);
-        if (!QFileInfo::exists(candidate)) return candidate;
-    }
-
-    return directory.filePath(QString("%1_%2").arg(stampedName).arg(QDateTime::currentMSecsSinceEpoch()));
 }
 
 QString extractSavePathFromChatText(const QString& text) {
@@ -7249,8 +7223,7 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
                                                 const QString& transferId,
                                                 const QByteArray& fileData,
                                                 qint64 totalBytes) {
-    QFile file(context.savePath);
-    if (!file.open(QIODevice::WriteOnly)) {
+    if (!LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData)) {
         appendReceivedTransferSaveFailedEvidence(context,
                                                  displayName,
                                                  transferId,
@@ -7302,7 +7275,7 @@ MainWindow::ReceivedTransferContext MainWindow::receivedTransferContext(const Me
                                                                         const QString& displayName) const {
     ReceivedTransferContext context;
     context.kind = kind;
-    context.receivedName = safeReceivedFileName(msg.fileName, fallbackName);
+    context.receivedName = LocalFileManager::safeReceivedFileName(msg.fileName, fallbackName);
     context.receivedSize = LocalFileManager::humanFileSize(msg.fileData.size());
     context.integrityText = transferIntegritySummary(msg);
     context.integritySuffix = context.integrityText.isEmpty()
@@ -7317,11 +7290,8 @@ MainWindow::ReceivedTransferContext MainWindow::receivedTransferContext(const Me
                                                                         msg.fileHash).manifestSummary;
     context.manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
 
-    const QString saveDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)
-        + QStringLiteral("/QtNetworkChat/")
-        + downloadSubdir;
-    QDir().mkpath(saveDirPath);
-    context.savePath = uniqueReceivedSavePath(saveDirPath, context.receivedName);
+    const QString saveDirPath = LocalFileManager::ensureReceivedDownloadDirectory(downloadSubdir);
+    context.savePath = LocalFileManager::uniqueReceivedSavePath(saveDirPath, context.receivedName);
     return context;
 }
 
