@@ -126,6 +126,43 @@ function Invoke-S3Request(
     Invoke-WebRequest @invokeArgs
 }
 
+function Test-TransientMinioStartupError($ErrorRecord) {
+    if ($null -eq $ErrorRecord -or $null -eq $ErrorRecord.Exception) {
+        return $false
+    }
+    $response = $ErrorRecord.Exception.Response
+    $statusCode = 0
+    if ($null -ne $response -and $null -ne $response.StatusCode) {
+        $statusCode = [int]$response.StatusCode
+    }
+    $message = [string]$ErrorRecord.Exception.Message
+    if ($null -ne $ErrorRecord.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+        $message += " " + [string]$ErrorRecord.ErrorDetails.Message
+    }
+
+    $transientServer = $statusCode -eq 0 -or $statusCode -eq 503
+    $initializing = $message -match "XMinioServerNotInitialized" `
+        -or $message -match "Server not initialized yet"
+    $transientServer -and $initializing
+}
+
+function Invoke-S3RequestWithStartupRetry(
+    [string]$Method,
+    [string]$Url,
+    [byte[]]$Body = [byte[]]::new(0)
+) {
+    for ($attempt = 1; $attempt -le 10; ++$attempt) {
+        try {
+            return Invoke-S3Request $Method $Url $Body
+        } catch {
+            if (-not (Test-TransientMinioStartupError $_) -or $attempt -eq 10) {
+                throw
+            }
+            Start-Sleep -Milliseconds (250 * $attempt)
+        }
+    }
+}
+
 function Get-ResponseBytes($Response) {
     if ($null -ne $Response.RawContentStream) {
         $stream = $Response.RawContentStream
@@ -252,7 +289,7 @@ try {
 
     $bucketUrl = "$( $Endpoint.TrimEnd('/') )/$Bucket"
     try {
-        Invoke-S3Request "PUT" $bucketUrl | Out-Null
+        Invoke-S3RequestWithStartupRetry "PUT" $bucketUrl | Out-Null
         $operations.createBucket = $true
         Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "put" "success"
     } catch {
@@ -271,15 +308,15 @@ try {
     $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($payloadText)
     $expectedHash = Get-Sha256Hex $payloadBytes
 
-    Invoke-S3Request "PUT" $objectUrl $payloadBytes | Out-Null
+    Invoke-S3RequestWithStartupRetry "PUT" $objectUrl $payloadBytes | Out-Null
     $operations.put = $true
     Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "put" "success" $payloadBytes.Length
 
-    Invoke-S3Request "HEAD" $objectUrl | Out-Null
+    Invoke-S3RequestWithStartupRetry "HEAD" $objectUrl | Out-Null
     $operations.head = $true
     Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "head" "success" $payloadBytes.Length
 
-    $download = Invoke-S3Request "GET" $objectUrl
+    $download = Invoke-S3RequestWithStartupRetry "GET" $objectUrl
     $downloadBytes = Get-ResponseBytes $download
     $actualHash = Get-Sha256Hex $downloadBytes
     if ($actualHash -ne $expectedHash) {
@@ -289,7 +326,7 @@ try {
     $operations.get = $true
     Add-SmokeRouteLine $routeLines "real_backend_smoke" "published" "get" "success" $downloadBytes.Length
 
-    Invoke-S3Request "DELETE" $objectUrl | Out-Null
+    Invoke-S3RequestWithStartupRetry "DELETE" $objectUrl | Out-Null
     $operations.delete = $true
     Add-SmokeRouteLine $routeLines "real_backend_smoke" "cleaned" "delete" "success" $payloadBytes.Length
     $smokeOk = $true
