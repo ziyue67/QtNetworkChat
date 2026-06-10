@@ -508,9 +508,7 @@ foreach ($expected in @(
     'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
     'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
     'Evidence CI head match: targetReleaseHead=`unknown`, ciHead=`unknown`, matches=`true`, currentHead=`abc1234`, targetMatchesCurrentHead=`true`, stale=`false`',
-    'Linked runtime candidate: releaseReady=`false`, promoted=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, productionLinked=`true`, ci=`disabled-by-policy/not-required`, local=`passed/passed`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`, probeFixture=`false`, releaseEligible=`false`, eligibilityGate=`not-release-eligible-stale-head`',
-    'Linked runtime candidate head match: targetReleaseHead=`linked-candidate-head`, currentHead=`abc1234`, targetMatchesCurrentHead=`false`, stale=`true`',
-    'Final production-linked promotion gate: productionLinkedReady=`false`, releaseEligible=`false`, ciOnlyBlocked=`false`, releaseGate=`blocked-production-linked-candidate-not-ready`, action=`Regenerate production-linked candidate evidence and resolve non-CI blockers before release promotion.`',
+    'Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
@@ -2255,9 +2253,7 @@ foreach ($expected in @(
     'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
     'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
     'Evidence CI head match: targetReleaseHead=`current-head-ci-stale`, ciHead=`current-head-ci-stale`, matches=`true`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`',
-    'Linked runtime candidate: releaseReady=`true`, promoted=`true`, releaseGate=`ready-local-verification-only`, productionLinked=`true`, ci=`disabled-by-policy/not-required`, local=`passed/passed`, blockers=`unknown`, probeFixture=`false`, releaseEligible=`true`, eligibilityGate=`release-eligible-current-head`',
-    'Linked runtime candidate head match: targetReleaseHead=`current-head-ci-stale`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`',
-    'Final production-linked promotion gate: productionLinkedReady=`true`, releaseEligible=`true`, ciOnlyBlocked=`false`, releaseGate=`e2e-release-artifact-promoted`, action=`Archive the promoted production-linked E2E release artifact.`'
+    'Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.`'
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }
@@ -2282,9 +2278,9 @@ $staleReleaseEvidenceMarkdownPath = Join-Path $tempDir "automation-status-stale-
 $staleReleaseEvidenceMarkdown = Get-Content -LiteralPath $staleReleaseEvidenceMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-release-artifact-stale-head`, inputs=`4`',
-    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`',
+    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-stale-head`',
     'Promotion action: `Regenerate E2E release evidence for the current HEAD before promotion.`',
-    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`release-artifact-target-head-mismatch`, releaseGate=`blocked-release-artifact-stale-head`, latestObservedHead=`not-required`',
+    'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
     'Evidence CI head match: targetReleaseHead=`linked-candidate-head`, ciHead=`linked-candidate-head`, matches=`true`, currentHead=`newer-linked-candidate-head`, targetMatchesCurrentHead=`false`, stale=`true`'
 )) {
     Assert-Contains -Text $staleReleaseEvidenceMarkdown -Expected $expected

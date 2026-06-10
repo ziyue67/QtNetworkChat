@@ -4752,20 +4752,17 @@ void MainWindow::onShowFriendManager() {
 
     auto fillList = [this, friendList, subTitleLabel, statsLabel](const QString& filter = QString()) {
         friendList->clear();
-        int onlineCount = 0;
-        int offlineCount = 0;
-        int visibleCount = 0;
+        const FriendManagerListUiState listState = m_friendManager.managerListUiState(
+            m_currentUserId,
+            m_friendIds,
+            m_localGroupIds,
+            m_friendNames,
+            m_knownUsers,
+            filter);
         for (const QString& id : m_friendIds) {
             QString name = m_friendNames.value(id, id);
-            bool online = isContactOnline(id);
-            if (online) {
-                ++onlineCount;
-            } else {
-                ++offlineCount;
-            }
-            if (!filter.isEmpty()
-                && !id.contains(filter, Qt::CaseInsensitive)
-                && !name.contains(filter, Qt::CaseInsensitive)) {
+            const bool online = isContactOnline(id);
+            if (!m_friendManager.matchesFilter(id, name, filter)) {
                 continue;
             }
             QString state = online ? "在线" : "离线";
@@ -4773,13 +4770,12 @@ void MainWindow::onShowFriendManager() {
             item->setData(Qt::UserRole, id);
             item->setSizeHint(QSize(0, 58));
             friendList->addItem(item);
-            ++visibleCount;
         }
-        subTitleLabel->setText(QString("当前 QQ：%1 · 好友 %2 人 · 可见 %3 人").arg(m_currentUserId).arg(m_friendIds.size()).arg(visibleCount));
-        statsLabel->setText(QString("在线 %1 · 离线 %2 · 本地群 %3").arg(onlineCount).arg(offlineCount).arg(m_localGroupIds.size()));
+        subTitleLabel->setText(listState.subTitle);
+        statsLabel->setText(listState.statsText);
         if (friendList->count() == 0) {
-            QListWidgetItem* emptyItem = new QListWidgetItem(filter.isEmpty() ? "暂无好友，点击下方发送好友申请" : QString("未找到好友，双击搜索并发送申请 QQ:%1").arg(filter));
-            emptyItem->setData(Qt::UserRole, filter.isEmpty() ? QString() : "search_add:" + filter);
+            QListWidgetItem* emptyItem = new QListWidgetItem(listState.emptyText);
+            emptyItem->setData(Qt::UserRole, listState.emptyEntryId);
             emptyItem->setForeground(QColor(135, 150, 165));
             friendList->addItem(emptyItem);
         }
@@ -4997,18 +4993,15 @@ void MainWindow::onShowFriendManager() {
     auto updateSelectionPreview = [this, friendList, selectionPreviewLabel]() {
         QListWidgetItem* selected = friendList->currentItem();
         if (!selected) {
-            selectionPreviewLabel->setText("选择好友后可复制名片、邀请语或邀入群");
+            selectionPreviewLabel->setText(m_friendManager.managerSelectionPreviewText(QString(), QString(), false, false));
             return;
         }
-        QString id = selected->data(Qt::UserRole).toString();
-        if (id.startsWith("search_add:")) {
-            selectionPreviewLabel->setText(QString("未找到好友，可搜索并发送申请 QQ:%1").arg(id.mid(QString("search_add:").size())));
-        } else if (!id.isEmpty()) {
-            selectionPreviewLabel->setText(QString("%1 · QQ:%2 · %3 · %4")
-                .arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线", m_privateChatTarget.startsWith("local_group_") ? "可邀入当前群" : "可发起私聊"));
-        } else {
-            selectionPreviewLabel->setText("输入 QQ 号或昵称可搜索好友");
-        }
+        const QString id = selected->data(Qt::UserRole).toString();
+        selectionPreviewLabel->setText(m_friendManager.managerSelectionPreviewText(
+            id,
+            id.isEmpty() ? QString() : contactDisplayName(id),
+            !id.isEmpty() && isContactOnline(id),
+            m_privateChatTarget.startsWith("local_group_")));
     };
     updateSelectionPreview();
 

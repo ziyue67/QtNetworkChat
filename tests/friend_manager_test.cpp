@@ -78,5 +78,35 @@ int main(int argc, char** argv) {
     ok = expect(FriendManager::relationLabel(QStringLiteral("1002"), QStringLiteral("self"), friendIds, pendingOutgoing, knownUsers) == QString::fromUtf8("可申请"),
                 "offline stranger should be applyable") && ok;
 
+    FriendManagerListUiState allVisibleState = FriendManager::managerListUiState(QStringLiteral("self"),
+                                                                                 friendIds,
+                                                                                 QStringList{QStringLiteral("local_group_1")},
+                                                                                 friendNames,
+                                                                                 knownUsers,
+                                                                                 QString());
+    ok = expect(allVisibleState.visibleCount == 2
+                    && allVisibleState.onlineCount == 1
+                    && allVisibleState.offlineCount == 1
+                    && allVisibleState.subTitle.contains(QString::fromUtf8("可见 2 人"))
+                    && allVisibleState.statsText.contains(QString::fromUtf8("本地群 1")),
+                "friend manager list state should summarize total and visible contacts") && ok;
+
+    FriendManagerListUiState filteredEmptyState = FriendManager::managerListUiState(QStringLiteral("self"),
+                                                                                    friendIds,
+                                                                                    QStringList(),
+                                                                                    friendNames,
+                                                                                    knownUsers,
+                                                                                    QStringLiteral("missing"));
+    ok = expect(filteredEmptyState.visibleCount == 0
+                    && filteredEmptyState.emptyEntryId == QStringLiteral("search_add:missing")
+                    && filteredEmptyState.emptyText.contains(QStringLiteral("missing")),
+                "friend manager list state should expose search-add placeholder when filter misses") && ok;
+
+    ok = expect(FriendManager::managerSelectionPreviewText(QString(), QStringLiteral("Alice"), true, false)
+                        == QString::fromUtf8("选择好友后可复制名片、邀请语或邀入群")
+                    && FriendManager::managerSelectionPreviewText(QStringLiteral("search_add:9988"), QStringLiteral("Alice"), true, false).contains(QStringLiteral("9988"))
+                    && FriendManager::managerSelectionPreviewText(QStringLiteral("1001"), QStringLiteral("Alice"), true, true).contains(QString::fromUtf8("可邀入当前群")),
+                "friend manager selection preview should cover empty, search, and friend entries") && ok;
+
     return ok ? 0 : 1;
 }

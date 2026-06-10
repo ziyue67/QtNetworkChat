@@ -14,6 +14,16 @@ struct FriendNoticeUiState {
     QString toolTip;
 };
 
+struct FriendManagerListUiState {
+    int visibleCount = 0;
+    int onlineCount = 0;
+    int offlineCount = 0;
+    QString subTitle;
+    QString statsText;
+    QString emptyText;
+    QString emptyEntryId;
+};
+
 class FriendManager {
 public:
     static QString contactDisplayName(const QString& userId,
@@ -28,6 +38,17 @@ public:
                                  const QStringList& friendIds,
                                  const QStringList& pendingOutgoingFriendRequests,
                                  const QMap<QString, ChatUser>& knownUsers);
+    static FriendManagerListUiState managerListUiState(
+        const QString& currentUserId,
+        const QStringList& friendIds,
+        const QStringList& localGroupIds,
+        const QMap<QString, QString>& friendNames,
+        const QMap<QString, ChatUser>& knownUsers,
+        const QString& filter);
+    static QString managerSelectionPreviewText(const QString& entryId,
+                                               const QString& displayName,
+                                               bool online,
+                                               bool canInviteCurrentGroup);
 };
 
 #endif // FRIENDMANAGER_H

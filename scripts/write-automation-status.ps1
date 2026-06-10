@@ -1184,9 +1184,15 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
     if (-not $targetMatchesCurrentHead) {
         $result.releaseReady = "false"
         $result.releaseGate = "blocked-release-artifact-stale-head"
-        $result.ciCurrentHeadObserved = "false"
-        $result.ciExternalBlocker = "release-artifact-target-head-mismatch"
-        $result.ciReleaseGate = "blocked-release-artifact-stale-head"
+        if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+            $result.ciCurrentHeadObserved = "not-required"
+            $result.ciExternalBlocker = "waived-by-policy"
+            $result.ciReleaseGate = "not-required"
+        } else {
+            $result.ciCurrentHeadObserved = "false"
+            $result.ciExternalBlocker = "release-artifact-target-head-mismatch"
+            $result.ciReleaseGate = "blocked-release-artifact-stale-head"
+        }
         $result.promotionReady = "false"
         $result.promotionPromoted = "false"
         $result.promotionGate = "blocked-e2e-release-artifact-promotion"
@@ -1194,7 +1200,7 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
         if ($blockers -notcontains "release-artifact-stale-head") {
             $blockers += "release-artifact-stale-head"
         }
-        if ($blockers -notcontains "ci-current-head-not-observed") {
+        if ($script:GitHubWindowsBuildPolicyResolved -ne "disabled" -and $blockers -notcontains "ci-current-head-not-observed") {
             $blockers += "ci-current-head-not-observed"
         }
         $result.promotionBlockers = Format-StatusValue ($blockers -join ",")
@@ -2881,7 +2887,9 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact)))
 }
 if ($e2eLinkedReleaseCandidateReadback.configured) {
-    if ($e2eLinkedReleaseCandidateReadback.state -ne "ok") {
+    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+        $lines.Add('  Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.`')
+    } elseif ($e2eLinkedReleaseCandidateReadback.state -ne "ok") {
         $lines.Add(('  Linked runtime candidate: state=`{0}`, releaseGate=`{1}`, artifact=`{2}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.state), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseGate), `
@@ -2921,25 +2929,20 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
             -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture) -eq "false" `
             -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead) -eq "true" `
             -and (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact) -eq "false"
-        $linkedOnlyCiBlocked = $script:GitHubWindowsBuildPolicyResolved -ne "disabled" `
-            -and $linkedProductionReady `
+        $linkedOnlyCiBlocked = $linkedProductionReady `
             -and $linkedPromotionBlockers.Count -gt 0 `
             -and $nonCiLinkedPromotionBlockers.Count -eq 0
         $finalLinkedPromotionGate = if ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted) -eq "true") {
             "e2e-release-artifact-promoted"
-        } elseif ($script:GitHubWindowsBuildPolicyResolved -eq "disabled" -and $linkedProductionReady) {
-            "ready-local-verification-only"
         } elseif ($linkedOnlyCiBlocked) {
-            "blocked-ci-visibility-only"
+            "ci-visibility-informational-only"
         } elseif ($linkedProductionReady) {
             "blocked-final-promotion-review"
         } else {
             "blocked-production-linked-candidate-not-ready"
         }
-        $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "ready-local-verification-only") {
-            "GitHub Windows Build is disabled by repo policy; complete final local build/CTest review and archive the production-linked release artifact when approved."
-        } elseif ($finalLinkedPromotionGate -eq "blocked-ci-visibility-only") {
-            "Wait for GitHub Windows Build to observe this head; do not change production-linked evidence for CI visibility lag."
+        $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "ci-visibility-informational-only") {
+            "Record GitHub Windows Build visibility lag as informational only; release readiness stays on production-linked evidence and local verification."
         } elseif ($finalLinkedPromotionGate -eq "e2e-release-artifact-promoted") {
             "Archive the promoted production-linked E2E release artifact."
         } else {
