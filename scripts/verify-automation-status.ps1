@@ -134,7 +134,7 @@ Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
   "configured":true,
   "explicitEnabled":true,
   "summary":{"readiness":"verified","operatorAction":"Archive the redacted S3/MinIO real-backend evidence with large-file governance artifacts."},
-  "auditSummary":{"releaseGate":"can-review-s3-real-backend-evidence","defaultCTestMode":"readiness-and-redaction-only","realBackendDefaultCI":false},
+  "auditSummary":{"releaseGate":"can-review-s3-real-backend-evidence","defaultCTestMode":"readiness-and-redaction-only","realBackendDefaultCI":false,"defaultCIReleaseGate":"s3-real-backend-default-ci-not-requested"},
   "evidence":{"s3LineCount":5,"successCount":5,"fixedFailureReasonCount":0,"sensitiveHitCount":0}
 }
 '@ | Set-Content -LiteralPath $s3ReadinessPath -Encoding UTF8
@@ -431,6 +431,7 @@ End testing: Jun 03 04:01
     -LargeFileGovernanceStatusPath $govStatusPath `
     -LargeFileGovernanceLastRunPath $govLastRunPath `
     -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
+    -S3RealBackendReadinessPath $s3ReadinessPath `
     -AutomationTaskHistoryPath $taskHistoryPath `
     -AutomationTaskAckPath $taskAckPath `
     -AutomationAckDrillPath $ackDrillPath `
@@ -486,7 +487,7 @@ foreach ($expected in @(
     'Large-file governance last run: at=`2026-06-03T02:03:04.0000000Z`, exitCode=`2`',
     'S3 Real Backend Readiness',
     'S3 real backend readiness: status=`verified`, ok=`true`, configured=`true`, explicitEnabled=`true`, readiness=`verified`, releaseGate=`can-review-s3-real-backend-evidence`',
-    'Evidence: s3Lines=`5`, success=`5`, fixedFailureReasons=`0`, sensitiveHits=`0`, defaultCTestMode=`readiness-and-redaction-only`, realBackendDefaultCI=`false`',
+    'Evidence: s3Lines=`5`, success=`5`, fixedFailureReasons=`0`, sensitiveHits=`0`, defaultCTestMode=`readiness-and-redaction-only`, realBackendDefaultCI=`false`, defaultCIGate=`s3-real-backend-default-ci-not-requested`',
     'Action: `Archive the redacted S3/MinIO real-backend evidence with large-file governance artifacts.`',
     'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
@@ -499,7 +500,7 @@ foreach ($expected in @(
     'Artifact Diagnostics',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
-    'S3 real backend readiness artifacts: `readiness=ok; status=verified; releaseGate=can-review-s3-real-backend-evidence; defaultCI=false`',
+    'S3 real backend readiness artifacts: `readiness=ok; status=verified; releaseGate=can-review-s3-real-backend-evidence; defaultCI=false; defaultCIGate=s3-real-backend-default-ci-not-requested`',
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`',
     'Automation ack drill artifacts: `state=exercised; ok=true; acknowledged=true; releaseGate=automation-ack-drill-exercised`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
@@ -640,6 +641,7 @@ $fallbackMarkdownPath = Join-Path $tempDir "automation-status-fallback-readback.
     -LargeFileGovernanceStatusPath $govStatusPath `
     -LargeFileGovernanceLastRunPath $govLastRunPath `
     -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
+    -S3RealBackendReadinessPath $s3ReadinessPath `
     -AutomationTaskHistoryPath $taskHistoryPath `
     -AutomationTaskAckPath $taskAckPath `
     -FailOnSensitive
@@ -683,6 +685,7 @@ $staleMarkdownPath = Join-Path $tempDir "automation-status-stale-ci.md"
     -LargeFileGovernanceStatusPath $govStatusPath `
     -LargeFileGovernanceLastRunPath $govLastRunPath `
     -LargeFileGovernanceTaskPreviewPath $govPreviewPath `
+    -S3RealBackendReadinessPath $s3ReadinessPath `
     -AutomationTaskHistoryPath $taskHistoryPath `
     -AutomationTaskAckPath $taskAckPath `
     -FailOnSensitive
@@ -845,7 +848,7 @@ foreach ($expected in @(
     'S3 real backend readiness: `not configured`',
     'Database health artifacts: `preview=ok; status=ok; lastRun=ok`',
     'Large-file governance artifacts: `preview=ok; status=ok; lastRun=ok`',
-    'S3 real backend readiness artifacts: `readiness=not-configured; status=not-configured; releaseGate=not-configured; defaultCI=unknown`',
+    'S3 real backend readiness artifacts: `readiness=not-configured; status=not-configured; releaseGate=not-configured; defaultCI=unknown; defaultCIGate=unknown`',
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=ok`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {
@@ -1145,7 +1148,7 @@ foreach ($expected in @(
     'Task acknowledgement gate: state=`history-unavailable`, failed=`unknown`, acknowledged=`unknown`, ackExpired=`unknown`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`automation-task-history-unavailable`, action=`restore automation task history artifact before release`',
     'Database health artifacts: `preview=not-configured; status=missing',
     'Large-file governance artifacts: `preview=not-configured; status=missing',
-    'S3 real backend readiness artifacts: `readiness=not-configured; status=not-configured; releaseGate=not-configured; defaultCI=unknown`',
+    'S3 real backend readiness artifacts: `readiness=not-configured; status=not-configured; releaseGate=not-configured; defaultCI=unknown; defaultCIGate=unknown`',
     'Automation history artifacts: `history=missing',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.'
 )) {

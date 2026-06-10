@@ -408,8 +408,9 @@ function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValu
     if ($null -eq $ObjectValue) {
         return $DefaultValue
     }
-    if ($ObjectValue.PSObject.Properties.Name -contains $Name) {
-        return $ObjectValue.$Name
+    $property = $ObjectValue.PSObject.Properties[$Name]
+    if ($null -ne $property) {
+        return $property.Value
     }
     $DefaultValue
 }
@@ -804,6 +805,7 @@ function Get-S3RealBackendReadinessReadback([object]$ArtifactState) {
         explicitEnabled = "unknown"
         defaultCTestMode = "unknown"
         realBackendDefaultCI = "unknown"
+        defaultCIReleaseGate = "unknown"
         s3LineCount = 0
         successCount = 0
         fixedFailureReasonCount = 0
@@ -838,6 +840,7 @@ function Get-S3RealBackendReadinessReadback([object]$ArtifactState) {
     $result.explicitEnabled = Format-StatusValue (Get-JsonValue $readiness "explicitEnabled" $null)
     $result.defaultCTestMode = Format-StatusValue (Get-JsonValue $auditSummary "defaultCTestMode" "unknown")
     $result.realBackendDefaultCI = Format-StatusValue (Get-JsonValue $auditSummary "realBackendDefaultCI" "unknown")
+    $result.defaultCIReleaseGate = Format-StatusValue (Get-JsonValue $auditSummary "defaultCIReleaseGate" "unknown")
     $result.s3LineCount = [int](Get-JsonValue $evidence "s3LineCount" 0)
     $result.successCount = [int](Get-JsonValue $evidence "successCount" 0)
     $result.fixedFailureReasonCount = [int](Get-JsonValue $evidence "fixedFailureReasonCount" 0)
@@ -3126,13 +3129,14 @@ if (-not $s3RealBackendReadinessReadback.configured) {
             (Format-StatusValue $s3RealBackendReadinessReadback.explicitEnabled),
             (Format-StatusValue $s3RealBackendReadinessReadback.readiness),
             (Format-StatusValue $s3RealBackendReadinessReadback.releaseGate)))
-    $lines.Add(('  Evidence: s3Lines=`{0}`, success=`{1}`, fixedFailureReasons=`{2}`, sensitiveHits=`{3}`, defaultCTestMode=`{4}`, realBackendDefaultCI=`{5}`' -f
+    $lines.Add(('  Evidence: s3Lines=`{0}`, success=`{1}`, fixedFailureReasons=`{2}`, sensitiveHits=`{3}`, defaultCTestMode=`{4}`, realBackendDefaultCI=`{5}`, defaultCIGate=`{6}`' -f
             (Format-StatusValue $s3RealBackendReadinessReadback.s3LineCount),
             (Format-StatusValue $s3RealBackendReadinessReadback.successCount),
             (Format-StatusValue $s3RealBackendReadinessReadback.fixedFailureReasonCount),
             (Format-StatusValue $s3RealBackendReadinessReadback.sensitiveHitCount),
             (Format-StatusValue $s3RealBackendReadinessReadback.defaultCTestMode),
-            (Format-StatusValue $s3RealBackendReadinessReadback.realBackendDefaultCI)))
+            (Format-StatusValue $s3RealBackendReadinessReadback.realBackendDefaultCI),
+            (Format-StatusValue $s3RealBackendReadinessReadback.defaultCIReleaseGate)))
     $lines.Add(('  Action: `{0}`' -f
             (Format-StatusValue $s3RealBackendReadinessReadback.operatorAction)))
 }
@@ -3194,7 +3198,8 @@ $s3RealBackendReadinessDiagnostics = @(
     ('readiness={0}' -f (Format-StatusValue $s3RealBackendReadinessState.state)),
     ('status={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.status)),
     ('releaseGate={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.releaseGate)),
-    ('defaultCI={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.realBackendDefaultCI))
+    ('defaultCI={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.realBackendDefaultCI)),
+    ('defaultCIGate={0}' -f (Format-StatusValue $s3RealBackendReadinessReadback.defaultCIReleaseGate))
 ) -join "; "
 $lines.Add('- Database health artifacts: `' + $databaseHealthDiagnostics + '`')
 $lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnostics + '`')

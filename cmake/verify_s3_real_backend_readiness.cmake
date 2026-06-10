@@ -49,6 +49,8 @@ string(JSON default_status GET "${default_content}" "status")
 string(JSON default_configured GET "${default_content}" "configured")
 string(JSON default_gate GET "${default_content}" "auditSummary" "releaseGate")
 string(JSON default_ci GET "${default_content}" "auditSummary" "realBackendDefaultCI")
+string(JSON default_ci_mode GET "${default_content}" "auditSummary" "defaultCTestMode")
+string(JSON default_ci_gate GET "${default_content}" "auditSummary" "defaultCIReleaseGate")
 if(NOT default_format STREQUAL "qtnetworkchat-s3-real-backend-readiness-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected default readiness format: ${default_format}")
@@ -64,6 +66,11 @@ endif()
 if(default_ci)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "S3 real backend readiness must keep default CI disabled")
+endif()
+if(NOT default_ci_mode STREQUAL "readiness-and-redaction-only"
+        OR NOT default_ci_gate STREQUAL "s3-real-backend-default-ci-not-requested")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected default CI mode/gate for not-configured readiness")
 endif()
 
 set(SMOKE_JSON "${TEMP_DIR}/smoke-summary.json")
@@ -107,6 +114,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
         "QTNETWORKCHAT_OBJECT_STORE=s3"
         "QTNETWORKCHAT_OBJECT_S3_ENABLE=1"
+        "QTNETWORKCHAT_OBJECT_S3_DEFAULT_CI=1"
         "QTNETWORKCHAT_OBJECT_S3_ENDPOINT=configured-endpoint"
         "QTNETWORKCHAT_OBJECT_S3_BUCKET=configured-bucket"
         "QTNETWORKCHAT_OBJECT_S3_REGION=configured-region"
@@ -132,6 +140,9 @@ string(JSON verified_ok GET "${verified_content}" "ok")
 string(JSON verified_status GET "${verified_content}" "status")
 string(JSON verified_configured GET "${verified_content}" "configured")
 string(JSON verified_gate GET "${verified_content}" "auditSummary" "releaseGate")
+string(JSON verified_ci GET "${verified_content}" "auditSummary" "realBackendDefaultCI")
+string(JSON verified_ci_mode GET "${verified_content}" "auditSummary" "defaultCTestMode")
+string(JSON verified_ci_gate GET "${verified_content}" "auditSummary" "defaultCIReleaseGate")
 string(JSON verified_s3_lines GET "${verified_content}" "evidence" "s3LineCount")
 string(JSON verified_success GET "${verified_content}" "evidence" "successCount")
 string(JSON verified_sensitive GET "${verified_content}" "evidence" "sensitiveHitCount")
@@ -143,6 +154,12 @@ if(NOT verified_status STREQUAL "verified" OR NOT verified_gate STREQUAL "can-re
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected verified readiness status/gate")
 endif()
+if(NOT verified_ci
+        OR NOT verified_ci_mode STREQUAL "real-backend-gated"
+        OR NOT verified_ci_gate STREQUAL "s3-real-backend-default-ci-ready")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Verified readiness with explicit opt-in should enable real backend default CI gate")
+endif()
 if(NOT verified_s3_lines EQUAL 5 OR NOT verified_success EQUAL 5 OR NOT verified_sensitive EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected verified readiness metrics")
@@ -152,13 +169,65 @@ file(READ "${VERIFIED_MD}" verified_markdown)
 foreach(expected_text
         "QtNetworkChat S3 Real Backend Readiness"
         "Status: `verified`"
-        "Release gate: `can-review-s3-real-backend-evidence`")
+        "Release gate: `can-review-s3-real-backend-evidence`"
+        "Real backend default CI: `true`"
+        "Default CI gate: `s3-real-backend-default-ci-ready`")
     string(FIND "${verified_markdown}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")
         message(FATAL_ERROR "Verified readiness markdown missing expected text: ${expected_text}")
     endif()
 endforeach()
+foreach(forbidden_text
+        "configured-endpoint"
+        "configured-bucket"
+        "configured-material")
+    string(FIND "${verified_markdown}" "${forbidden_text}" forbidden_at)
+    if(NOT forbidden_at EQUAL -1)
+        file(REMOVE_RECURSE "${TEMP_DIR}")
+        message(FATAL_ERROR "Verified readiness markdown leaked configured value: ${forbidden_text}")
+    endif()
+endforeach()
+
+set(REQUESTED_NOT_READY_JSON "${TEMP_DIR}/requested-not-ready.json")
+set(REQUESTED_NOT_READY_WRAPPER "${TEMP_DIR}/run-requested-not-ready.ps1")
+string(REPLACE "'" "''" REQUESTED_NOT_READY_JSON_PS "${REQUESTED_NOT_READY_JSON}")
+file(WRITE "${REQUESTED_NOT_READY_WRAPPER}"
+"$ErrorActionPreference = 'Stop'\n"
+"& '${SCRIPT_PATH_PS}' -OutputPath '${REQUESTED_NOT_READY_JSON_PS}' -FailOnSensitive\n"
+"exit $LASTEXITCODE\n"
+)
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "QTNETWORKCHAT_OBJECT_STORE=s3"
+        "QTNETWORKCHAT_OBJECT_S3_ENABLE=1"
+        "QTNETWORKCHAT_OBJECT_S3_DEFAULT_CI=1"
+        "QTNETWORKCHAT_OBJECT_S3_ENDPOINT=configured-endpoint"
+        "QTNETWORKCHAT_OBJECT_S3_BUCKET=configured-bucket"
+        "QTNETWORKCHAT_OBJECT_S3_REGION=configured-region"
+        "QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY=configured-material"
+        "QTNETWORKCHAT_OBJECT_S3_SECRET_KEY=configured-material"
+        powershell -ExecutionPolicy Bypass -File "${REQUESTED_NOT_READY_WRAPPER}"
+    RESULT_VARIABLE requested_not_ready_result
+    OUTPUT_VARIABLE requested_not_ready_output
+    ERROR_VARIABLE requested_not_ready_error
+)
+if(NOT requested_not_ready_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Requested-not-ready S3 readiness should report blocked state without failing the readback")
+endif()
+file(READ "${REQUESTED_NOT_READY_JSON}" requested_not_ready_content)
+string(JSON requested_not_ready_ok GET "${requested_not_ready_content}" "ok")
+string(JSON requested_not_ready_ci GET "${requested_not_ready_content}" "auditSummary" "realBackendDefaultCI")
+string(JSON requested_not_ready_ci_mode GET "${requested_not_ready_content}" "auditSummary" "defaultCTestMode")
+string(JSON requested_not_ready_ci_gate GET "${requested_not_ready_content}" "auditSummary" "defaultCIReleaseGate")
+if(requested_not_ready_ok
+        OR requested_not_ready_ci
+        OR NOT requested_not_ready_ci_mode STREQUAL "real-backend-requested-but-not-ready"
+        OR NOT requested_not_ready_ci_gate STREQUAL "blocked-s3-real-backend-default-ci-not-ready")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Explicit default CI request without smoke/evidence must stay blocked")
+endif()
 
 set(BAD_EVIDENCE_JSON "${TEMP_DIR}/bad-evidence.json")
 file(WRITE "${BAD_EVIDENCE_JSON}"

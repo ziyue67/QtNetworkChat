@@ -1,6 +1,6 @@
 # S3/MinIO 手动验收清单
 
-本文用于验证 `QTNETWORKCHAT_OBJECT_STORE=s3` 和 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 显式启用后的真实网络路径。该流程是可选人工验收，不属于默认 CTest 或 CI 前置条件。
+本文用于验证 `QTNETWORKCHAT_OBJECT_STORE=s3` 和 `QTNETWORKCHAT_OBJECT_S3_ENABLE=1` 显式启用后的真实网络路径。该流程默认是可选人工验收，不要求默认 CTest 或 CI 长驻连接真实 S3/MinIO；当真实后端 smoke、脱敏 route/S3 summary、真实后端 evidence 都已生成且确认无敏感字段后，可额外设置 `QTNETWORKCHAT_OBJECT_S3_DEFAULT_CI=1`，让 readiness 证据报告 `realBackendDefaultCI=true` 并作为默认 CI 的显式准入 gate。
 
 ## 前置条件
 
@@ -89,6 +89,29 @@ powershell -ExecutionPolicy Bypass -File scripts/write-s3-stabilization-evidence
 ```
 
 该步骤只读取脱敏 summary，不连接 Redis/S3/MinIO，不修改对象、队列或附件；脚本会检查 timeout/network/tls/auth/retryable/server/hash/size reason 桶和 PUT/HEAD/GET/DELETE/validate/read/remove 操作覆盖，并拒绝 endpoint、bucket、object URL、access key、secret key、session token、Authorization/Credential/Signature。
+
+如果要把本次真实后端证据纳入默认 CI/release gate，最后再生成 readiness：
+
+```powershell
+$env:QTNETWORKCHAT_OBJECT_STORE = "s3"
+$env:QTNETWORKCHAT_OBJECT_S3_ENABLE = "1"
+$env:QTNETWORKCHAT_OBJECT_S3_DEFAULT_CI = "1"
+$env:QTNETWORKCHAT_OBJECT_S3_ENDPOINT = "http://127.0.0.1:19000"
+$env:QTNETWORKCHAT_OBJECT_S3_BUCKET = "qtchat-large-files"
+$env:QTNETWORKCHAT_OBJECT_S3_REGION = "us-east-1"
+$env:QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY = "<access-key>"
+$env:QTNETWORKCHAT_OBJECT_S3_SECRET_KEY = "<secret-key>"
+
+powershell -ExecutionPolicy Bypass -File scripts/write-s3-real-backend-readiness.ps1 `
+  -SmokeSummaryPath "$artifactDir\real-minio-smoke-summary.json" `
+  -EvidencePath "$artifactDir\s3-real-backend-evidence.json" `
+  -S3SummaryPath "$artifactDir\real-minio-s3-summary.json" `
+  -OutputPath "$artifactDir\s3-real-backend-readiness.json" `
+  -MarkdownPath "$artifactDir\s3-real-backend-readiness.md" `
+  -FailOnSensitive
+```
+
+`realBackendDefaultCI=true` 只有在显式开关、完整 S3 配置、PUT/HEAD/GET/DELETE smoke、真实后端 evidence、脱敏 summary 和敏感扫描全部通过时才会出现；证据不足时会报告 `blocked-s3-real-backend-default-ci-not-ready`，默认未请求时仍保持 `readiness-and-redaction-only`。
 
 ## 3. 成功投递路径
 

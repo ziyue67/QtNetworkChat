@@ -117,6 +117,7 @@ foreach ($name in $requiredEnv.Keys) {
 
 $objectStoreS3 = ([string]$env:QTNETWORKCHAT_OBJECT_STORE).Trim().ToLowerInvariant() -eq "s3"
 $explicitEnabled = Normalize-Bool $env:QTNETWORKCHAT_OBJECT_S3_ENABLE $false
+$defaultCIRequested = Normalize-Bool $env:QTNETWORKCHAT_OBJECT_S3_DEFAULT_CI $false
 $configured = $objectStoreS3 -and $explicitEnabled -and $missingRequired.Count -eq 0
 
 $smoke = Read-OptionalJson $SmokeSummaryPath
@@ -202,6 +203,22 @@ if ($RequireConfigured.IsPresent -and -not $configured -and -not $ok) {
     $auditFocus = @("s3-real-backend-config")
 }
 
+$realBackendDefaultCI = $defaultCIRequested -and $configured -and $ok -and $smokeOk -and $smokeOperationsReady -and ($evidenceSensitiveHits -eq 0) -and ($s3SummarySensitiveHits -eq 0) -and ($sensitiveHits.Count -eq 0)
+$defaultCTestMode = if ($realBackendDefaultCI) {
+    "real-backend-gated"
+} elseif ($defaultCIRequested) {
+    "real-backend-requested-but-not-ready"
+} else {
+    "readiness-and-redaction-only"
+}
+$defaultCIReleaseGate = if ($realBackendDefaultCI) {
+    "s3-real-backend-default-ci-ready"
+} elseif ($defaultCIRequested) {
+    "blocked-s3-real-backend-default-ci-not-ready"
+} else {
+    "s3-real-backend-default-ci-not-requested"
+}
+
 $result = [ordered]@{
     format = "qtnetworkchat-s3-real-backend-readiness-v1"
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -220,6 +237,7 @@ $result = [ordered]@{
         accessKeyPresent = -not [string]::IsNullOrWhiteSpace($env:QTNETWORKCHAT_OBJECT_S3_ACCESS_KEY)
         secretKeyPresent = -not [string]::IsNullOrWhiteSpace($env:QTNETWORKCHAT_OBJECT_S3_SECRET_KEY)
         prefixPresent = -not [string]::IsNullOrWhiteSpace($env:QTNETWORKCHAT_OBJECT_S3_PREFIX)
+        defaultCIRequested = $defaultCIRequested
     }
     evidence = [ordered]@{
         smokeSummaryConfigured = $smokeConfigured
@@ -241,8 +259,9 @@ $result = [ordered]@{
     auditSummary = [ordered]@{
         releaseGate = $releaseGate
         auditFocus = @($auditFocus)
-        defaultCTestMode = "readiness-and-redaction-only"
-        realBackendDefaultCI = $false
+        defaultCTestMode = $defaultCTestMode
+        realBackendDefaultCI = $realBackendDefaultCI
+        defaultCIReleaseGate = $defaultCIReleaseGate
     }
     inputs = [ordered]@{
         smokeSummaryPath = if ([string]::IsNullOrWhiteSpace($SmokeSummaryPath)) { "" } else { Split-Path -Leaf $SmokeSummaryPath }
@@ -272,6 +291,9 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
     $lines.Add(('- OK: `{0}`' -f (Format-Value $ok)))
     $lines.Add(('- Configured: `{0}`' -f (Format-Value $configured)))
     $lines.Add(('- Explicit enabled: `{0}`' -f (Format-Value $explicitEnabled)))
+    $lines.Add(('- Default CI requested: `{0}`' -f (Format-Value $defaultCIRequested)))
+    $lines.Add(('- Real backend default CI: `{0}`' -f (Format-Value $realBackendDefaultCI)))
+    $lines.Add(('- Default CI gate: `{0}`' -f $defaultCIReleaseGate))
     $lines.Add(('- Evidence configured: `{0}`' -f (Format-Value $evidenceConfigured)))
     $lines.Add(('- Smoke configured: `{0}`' -f (Format-Value $smokeConfigured)))
     $lines.Add(('- S3 lines: `{0}`' -f $evidenceS3LineCount))
