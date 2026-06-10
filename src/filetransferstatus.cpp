@@ -70,7 +70,17 @@ FileTransferStatusInfo describeFileTransferReason(const QString& reason) {
                 QStringLiteral("所有分片都已确认，客户端已清理本地未完成发送记录。"),
                 false};
     }
-    if (containsAny(trimmed, QStringList{QStringLiteral("timeout"), QString::fromUtf8("超时"), QStringLiteral("chunk-ack-timeout")})) {
+    if (containsAny(trimmed, QStringList{QStringLiteral("chunk-rejected"),
+                                         QStringLiteral("chunk_ack_rejected"),
+                                         QStringLiteral("chunk-ack-rejected"),
+                                         QStringLiteral("chunk-ack-timeout"),
+                                         QStringLiteral("chunk_ack_timeout")})) {
+        return {QStringLiteral("chunk-delivery-failed"),
+                QStringLiteral("文件分片未被接收端确认"),
+                QStringLiteral("接收端拒绝分片或 ACK 超时。客户端会优先保留续传/离线兜底证据，必要时可稍后重试。"),
+                true};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("timeout"), QString::fromUtf8("超时")})) {
         return {QStringLiteral("timeout"),
                 QStringLiteral("文件传输等待确认超时"),
                 QStringLiteral("网络或接收端响应较慢，客户端会优先查询续传状态，必要时可稍后重试。"),
@@ -80,6 +90,25 @@ FileTransferStatusInfo describeFileTransferReason(const QString& reason) {
         return {QStringLiteral("receiver-disconnected"),
                 QStringLiteral("接收端暂时不可达"),
                 QStringLiteral("对方断开或离线时，服务端会尽量保留离线兜底，待对方重新登录后回放。"),
+                true};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("object-store-unavailable"),
+                                         QStringLiteral("object-read-failed"),
+                                         QStringLiteral("object-seek-failed"),
+                                         QStringLiteral("read_failed"),
+                                         QStringLiteral("read-failed")})) {
+        return {QStringLiteral("object-readback-unavailable"),
+                QStringLiteral("大文件对象暂时无法读取"),
+                QStringLiteral("跨实例或 S3/MinIO 对象读回失败时，客户端会保留离线兜底状态；请稍后重试或让发送方重新发送。"),
+                true};
+    }
+    if (containsAny(trimmed, QStringList{QStringLiteral("write_failed"),
+                                         QStringLiteral("write-failed"),
+                                         QStringLiteral("upload-failed"),
+                                         QStringLiteral("put-failed")})) {
+        return {QStringLiteral("object-write-failed"),
+                QStringLiteral("大文件对象写入失败"),
+                QStringLiteral("服务端未能写入对象存储，通常会保留源实例离线兜底；请稍后重试或切回普通文件发送路径。"),
                 true};
     }
     if (containsAny(trimmed, QStringList{QStringLiteral("hash"), QString::fromUtf8("哈希"), QString::fromUtf8("校验")})) {

@@ -17,7 +17,7 @@ int main(int argc, char** argv) {
     Q_UNUSED(app);
 
     bool ok = true;
-    FileTransferStatusInfo info = describeFileTransferReason(QStringLiteral("chunk-ack-timeout"));
+    FileTransferStatusInfo info = describeFileTransferReason(QStringLiteral("send-timeout"));
     ok = expect(info.category == QStringLiteral("timeout") && info.retryable,
                 "timeout reason should be retryable and categorized") && ok;
     info = describeFileTransferReason(QString::fromUtf8("文件哈希不一致"));
@@ -53,6 +53,21 @@ int main(int argc, char** argv) {
     info = describeFileTransferReason(QStringLiteral("large_file_failed offer_delivery failed_received"));
     ok = expect(info.category == QStringLiteral("fallback-retained") && info.retryable,
                 "cross-instance large file failure should be visible as fallback retained") && ok;
+    info = describeFileTransferReason(QStringLiteral("object-store-unavailable"));
+    ok = expect(info.category == QStringLiteral("object-readback-unavailable") && info.retryable,
+                "object store unavailable should be visible as retryable object readback failure") && ok;
+    info = describeFileTransferReason(QStringLiteral("object-read-failed"));
+    ok = expect(info.category == QStringLiteral("object-readback-unavailable") && info.retryable,
+                "object read failure should keep offline fallback guidance") && ok;
+    info = describeFileTransferReason(QStringLiteral("write_failed"));
+    ok = expect(info.category == QStringLiteral("object-write-failed") && info.retryable,
+                "object write failure should be retryable and distinguish storage write path") && ok;
+    info = describeFileTransferReason(QStringLiteral("chunk-rejected"));
+    ok = expect(info.category == QStringLiteral("chunk-delivery-failed") && info.retryable,
+                "chunk rejection should be user-visible as delivery failure") && ok;
+    info = describeFileTransferReason(QStringLiteral("chunk-ack-timeout"));
+    ok = expect(info.category == QStringLiteral("chunk-delivery-failed") && info.retryable,
+                "chunk ack timeout should keep chunk delivery guidance instead of generic timeout") && ok;
     ok = expect(fileTransferUserMessage(QStringLiteral("auth")).contains(QString::fromUtf8("权限")),
                 "auth reason should produce user-facing permission text") && ok;
     ok = expect(fileTransferUserMessage(QString(), QString::fromUtf8("备用提示")) == QString::fromUtf8("备用提示"),
@@ -91,5 +106,26 @@ int main(int argc, char** argv) {
     ok = expect(saveFailedDiagnostic.contains(QStringLiteral("category=receive-save-failed"))
                     && saveFailedDiagnostic.contains(QStringLiteral("retryable=true")),
                 "receiver save failure diagnostic should expose category and retryability") && ok;
+    const QString objectReadbackMessage = fileTransferStatusEventMessage(QStringLiteral("large.bin"),
+                                                                         QStringLiteral("large-offer-001"),
+                                                                         QStringLiteral("object-read-failed"),
+                                                                         0,
+                                                                         8192);
+    ok = expect(objectReadbackMessage.contains(QString::fromUtf8("大文件对象暂时无法读取"))
+                    && objectReadbackMessage.contains(QString::fromUtf8("可重试"))
+                    && objectReadbackMessage.contains(QStringLiteral("large.bin")),
+                "object readback failure event should provide retryable user guidance") && ok;
+    const QString objectDiagnostic = fileTransferStatusDiagnostic(QStringLiteral("large.bin"),
+                                                                  QStringLiteral("large-offer-001"),
+                                                                  QStringLiteral("write_failed"),
+                                                                  0,
+                                                                  8192);
+    ok = expect(objectDiagnostic.contains(QStringLiteral("category=object-write-failed"))
+                    && objectDiagnostic.contains(QStringLiteral("retryable=true"))
+                    && !objectDiagnostic.contains(QStringLiteral("http://"))
+                    && !objectDiagnostic.contains(QStringLiteral("Authorization"))
+                    && !objectDiagnostic.contains(QStringLiteral("Credential="))
+                    && !objectDiagnostic.contains(QStringLiteral("Signature=")),
+                "object write diagnostic should expose fixed category without S3 sensitive fields") && ok;
     return ok ? 0 : 1;
 }

@@ -173,7 +173,7 @@ int main(int argc, char** argv) {
                     && timeoutEvent.copyDiagnostic.action.enabled
                     && timeoutEvent.message.contains(QStringLiteral("report.zip"))
                     && timeoutEvent.message.contains(QStringLiteral("ID:transfer-abc"))
-                    && timeoutEvent.diagnostic.contains(QStringLiteral("category=timeout"))
+                    && timeoutEvent.diagnostic.contains(QStringLiteral("category=chunk-delivery-failed"))
                     && timeoutEvent.copyDiagnostic.clipboardText == timeoutEvent.diagnostic.trimmed()
                     && timeoutEvent.copyActionToolTip.contains(QString::fromUtf8("文件传输")),
                 "status event should carry user message, diagnostic and copy action state") && ok;
