@@ -119,6 +119,50 @@ QString safeReceivedFileName(const QString& rawName, const QString& fallbackName
     return fileName;
 }
 
+QString selectedFriendManagerEntryId(QListWidget* friendList) {
+    if (!friendList || !friendList->currentItem()) return QString();
+    return friendList->currentItem()->data(Qt::UserRole).toString();
+}
+
+bool trySelectedValidFriendId(QListWidget* friendList,
+                              QStatusBar* statusBar,
+                              const QString& emptyMessage,
+                              QString* friendId) {
+    const QString selectedId = selectedFriendManagerEntryId(friendList);
+    if (selectedId.isEmpty()) {
+        if (statusBar) statusBar->showMessage(emptyMessage, 1800);
+        return false;
+    }
+    if (selectedId.startsWith("search_add:")) {
+        if (statusBar) statusBar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+        return false;
+    }
+    if (friendId) {
+        *friendId = selectedId;
+    }
+    return true;
+}
+
+QString selectedFriendManagerTargetId(QListWidget* friendList) {
+    QString selectedId = selectedFriendManagerEntryId(friendList);
+    if (selectedId.startsWith("search_add:")) {
+        selectedId = selectedId.mid(QString("search_add:").size());
+    }
+    return selectedId;
+}
+
+QStringList visibleFriendManagerIds(QListWidget* friendList) {
+    QStringList ids;
+    if (!friendList) return ids;
+    for (int i = 0; i < friendList->count(); ++i) {
+        QListWidgetItem* item = friendList->item(i);
+        const QString id = item ? item->data(Qt::UserRole).toString() : QString();
+        if (id.isEmpty() || id.startsWith("search_add:") || ids.contains(id)) continue;
+        ids << id;
+    }
+    return ids;
+}
+
 QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName) {
     const QDir directory(directoryPath);
     const QString stampedName = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + fileName;
@@ -5110,69 +5154,47 @@ void MainWindow::onShowFriendManager() {
     connect(friendList, &QListWidget::currentItemChanged, &dialog, [updateSelectionPreview](QListWidgetItem*, QListWidgetItem*) { updateSelectionPreview(); });
     connect(friendList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedFriend](QListWidgetItem*) { openSelectedFriend(); });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
-        QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) {
-            ui->statusbar->showMessage("请先选择要复制 QQ 的好友", 1800);
+        QString id;
+        if (!trySelectedValidFriendId(friendList, ui->statusbar, "请先选择要复制 QQ 的好友", &id)) {
             return;
         }
-        QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) {
-            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
-            return;
-        }
-        QApplication::clipboard()->setText(id);
-        ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
+        copyTextWithStatus(id, "QQ 号已复制: " + id, 2500);
     });
     connect(copyAllBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QStringList cards;
-        for (int i = 0; i < friendList->count(); ++i) {
-            QListWidgetItem* item = friendList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty() || id.startsWith("search_add:")) continue;
+        const QStringList visibleIds = visibleFriendManagerIds(friendList);
+        for (const QString& id : visibleIds) {
             cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
         }
         if (cards.isEmpty()) {
             ui->statusbar->showMessage("当前筛选没有可复制好友", 2200);
             return;
         }
-        QApplication::clipboard()->setText(cards.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 个可见好友").arg(cards.size()), 2200);
+        copyTextWithStatus(cards.join('\n'), QString("已复制 %1 个可见好友").arg(cards.size()), 2200);
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
-        QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) {
-            ui->statusbar->showMessage("请先选择要复制名片的好友", 1800);
-            return;
-        }
-        QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) {
-            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+        QString id;
+        if (!trySelectedValidFriendId(friendList, ui->statusbar, "请先选择要复制名片的好友", &id)) {
             return;
         }
         QString card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
-        QApplication::clipboard()->setText(card);
-        ui->statusbar->showMessage("好友名片已复制", 1800);
+        copyTextWithStatus(card, "好友名片已复制");
     });
     connect(inviteTextBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
-        QListWidgetItem* selected = friendList->currentItem();
-        QString id = selected ? selected->data(Qt::UserRole).toString() : QString();
-        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        QString id = selectedFriendManagerTargetId(friendList);
         QString targetName = id.isEmpty() ? "朋友" : contactDisplayName(id);
         QString groupName = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
         QString text = QString("%1，你好，我是 %2（QQ:%3）。方便的话加个好友，我也可以邀请你加入 %4 一起沟通。")
             .arg(targetName, m_currentUserName, m_currentUserId, groupName);
-        QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("好友邀请话术已复制", 2200);
+        copyTextWithStatus(text, "好友邀请话术已复制", 2200);
     });
     connect(copyStatsBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         int visibleCount = 0;
         int visibleOnline = 0;
         int visibleOffline = 0;
         QStringList visibleRows;
-        for (int i = 0; i < friendList->count(); ++i) {
-            QListWidgetItem* item = friendList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty() || id.startsWith("search_add:")) continue;
+        const QStringList visibleIds = visibleFriendManagerIds(friendList);
+        for (const QString& id : visibleIds) {
             bool online = isContactOnline(id);
             ++visibleCount;
             if (online) ++visibleOnline; else ++visibleOffline;
@@ -5186,23 +5208,20 @@ void MainWindow::onShowFriendManager() {
             .arg(visibleOffline)
             .arg(m_localGroupIds.size())
             .arg(visibleRows.isEmpty() ? "无" : visibleRows.join("、"));
-        QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("好友统计已复制", 2200);
+        copyTextWithStatus(text, "好友统计已复制", 2200);
     });
     connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QStringList rows;
-        for (int i = 0; i < friendList->count(); ++i) {
-            QListWidgetItem* item = friendList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty() || id.startsWith("search_add:") || !isContactOnline(id)) continue;
+        const QStringList visibleIds = visibleFriendManagerIds(friendList);
+        for (const QString& id : visibleIds) {
+            if (!isContactOnline(id)) continue;
             rows << QString("在线好友 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
         }
         if (rows.isEmpty()) {
             ui->statusbar->showMessage("当前筛选没有在线好友", 2200);
             return;
         }
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 个在线好友").arg(rows.size()), 2200);
+        copyTextWithStatus(rows.join('\n'), QString("已复制 %1 个在线好友").arg(rows.size()), 2200);
     });
     connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
         QString keyword = searchEdit->text().trimmed();
@@ -5231,9 +5250,7 @@ void MainWindow::onShowFriendManager() {
         ui->statusbar->showMessage("好友管理搜索卡片已复制", 2200);
     });
     connect(copyFriendMediaPackBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
-        QListWidgetItem* selected = friendList->currentItem();
-        QString id = selected ? selected->data(Qt::UserRole).toString() : QString();
-        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
+        QString id = selectedFriendManagerTargetId(friendList);
         if (id.isEmpty()) id = searchEdit->text().trimmed();
         QString targetName = id.isEmpty() ? "可见好友" : contactDisplayName(id);
         QStringList rows;
@@ -5244,17 +5261,14 @@ void MainWindow::onShowFriendManager() {
         rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
         rows << QString("邀请话术：%1，你好，我是 %2（QQ:%3），我可以发图片/视频/文件给你，请注意查收。").arg(targetName, m_currentUserName, m_currentUserId);
         rows << QString("回执话术：已收到来自 %1 的媒体文件，保存后我会尽快查看。").arg(m_currentUserName);
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage("好友管理媒体包已复制", 2200);
+        copyTextWithStatus(rows.join('\n'), "好友管理媒体包已复制", 2200);
     });
     connect(copyBatchMediaPlanBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
         QStringList targets;
         int onlineCount = 0;
         int offlineCount = 0;
-        for (int i = 0; i < friendList->count(); ++i) {
-            QListWidgetItem* item = friendList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty() || id.startsWith("search_add:")) continue;
+        const QStringList visibleIds = visibleFriendManagerIds(friendList);
+        for (const QString& id : visibleIds) {
             if (isContactOnline(id)) ++onlineCount; else ++offlineCount;
             targets << QString("%1(QQ:%2,%3)").arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线");
         }
@@ -5268,36 +5282,22 @@ void MainWindow::onShowFriendManager() {
         rows << "2. 大文件用闪传文件，图片/GIF/视频用图片视频入口";
         rows << "3. 发送后在聊天记录右键复制媒体流程、查收话术和回执";
         rows << "4. 可按筛选关键词分批发送，避免漏掉目标好友";
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage("好友批量媒体计划已复制", 2200);
+        copyTextWithStatus(rows.join('\n'), "好友批量媒体计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
         QString keyword = searchEdit->text().trimmed();
         QStringList rows;
         rows << QString("好友管理上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
         rows << QString("当前筛选:%1").arg(keyword.isEmpty() ? "全部好友" : keyword);
-        int visibleCount = 0;
-        for (int i = 0; i < friendList->count(); ++i) {
-            QListWidgetItem* item = friendList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty() || id.startsWith("search_add:")) continue;
-            ++visibleCount;
-        }
+        const int visibleCount = visibleFriendManagerIds(friendList).size();
         rows << QString("可见好友:%1 · 全部好友:%2").arg(visibleCount).arg(m_friendIds.size());
         rows << "可向好友发送图片/视频，或用闪传文件发送文档、压缩包和媒体文件";
         rows << "聊天记录右键可复制媒体卡片和查收话术";
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage("好友管理上传指南已复制", 2200);
+        copyTextWithStatus(rows.join('\n'), "好友管理上传指南已复制", 2200);
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
-        QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) {
-            ui->statusbar->showMessage("请先选择要备注的好友", 1800);
-            return;
-        }
-        QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) {
-            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+        QString id;
+        if (!trySelectedValidFriendId(friendList, ui->statusbar, "请先选择要备注的好友", &id)) {
             return;
         }
         bool ok = false;
@@ -5321,14 +5321,8 @@ void MainWindow::onShowFriendManager() {
         appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(id, remark));
     });
     connect(inviteBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
-        QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) {
-            ui->statusbar->showMessage("请先选择要邀请入群的好友", 1800);
-            return;
-        }
-        QString friendId = selected->data(Qt::UserRole).toString();
-        if (friendId.isEmpty() || friendId.startsWith("search_add:")) {
-            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+        QString friendId;
+        if (!trySelectedValidFriendId(friendList, ui->statusbar, "请先选择要邀请入群的好友", &friendId)) {
             return;
         }
         if (m_localGroupIds.isEmpty()) {
@@ -5360,10 +5354,9 @@ void MainWindow::onShowFriendManager() {
         QString groupName = willCreateGroup ? "好友群聊" : m_localGroupNames.value(targetGroup, "群聊");
         QStringList currentMembers = willCreateGroup ? QStringList{m_currentUserId} : m_localGroupMembers.value(targetGroup);
         QStringList inviteIds;
-        for (int i = 0; i < friendList->count(); ++i) {
-            QListWidgetItem* item = friendList->item(i);
-            QString friendId = item->data(Qt::UserRole).toString();
-            if (friendId.isEmpty() || friendId.startsWith("search_add:") || currentMembers.contains(friendId) || inviteIds.contains(friendId)) continue;
+        const QStringList visibleIds = visibleFriendManagerIds(friendList);
+        for (const QString& friendId : visibleIds) {
+            if (currentMembers.contains(friendId) || inviteIds.contains(friendId)) continue;
             inviteIds << friendId;
         }
         if (inviteIds.isEmpty()) {
@@ -5398,14 +5391,8 @@ void MainWindow::onShowFriendManager() {
         saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 位可见好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(inviteIds.size()));
     });
     connect(deleteBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit, &dialog]() {
-        QListWidgetItem* selected = friendList->currentItem();
-        if (!selected) {
-            ui->statusbar->showMessage("请先选择要删除的好友", 1800);
-            return;
-        }
-        QString id = selected->data(Qt::UserRole).toString();
-        if (id.isEmpty() || id.startsWith("search_add:")) {
-            ui->statusbar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+        QString id;
+        if (!trySelectedValidFriendId(friendList, ui->statusbar, "请先选择要删除的好友", &id)) {
             return;
         }
         QString displayName = contactDisplayName(id);
