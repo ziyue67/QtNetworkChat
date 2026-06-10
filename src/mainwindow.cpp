@@ -532,6 +532,22 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
     ui->statusbar->showMessage(event.statusBarMessage, event.statusBarTimeoutMs);
 }
 
+MainWindow::SavedFileActionState MainWindow::savedFileActionState(const QModelIndex& index) const {
+    SavedFileActionState state;
+    if (!index.isValid()) return state;
+
+    state.savePath = extractSavePathFromChatText(index.data().toString());
+    if (state.savePath.isEmpty()) {
+        state.savePath = extractSavePathFromChatText(index.data(Qt::ToolTipRole).toString());
+    }
+    state.fileInfo = QFileInfo(state.savePath);
+    state.folderInfo = QFileInfo(state.fileInfo.absolutePath());
+    state.hasSavePath = !state.savePath.isEmpty();
+    state.canOpenFile = state.hasSavePath && state.fileInfo.exists() && state.fileInfo.isFile();
+    state.canOpenFolder = state.hasSavePath && state.folderInfo.exists() && state.folderInfo.isDir();
+    return state;
+}
+
 void MainWindow::applyReceivedTransferSaveStatus(const QString& kind,
                                                  const QString& fileName,
                                                  const QString& displayName,
@@ -1461,16 +1477,8 @@ void MainWindow::setupUi() {
         describeChatAction(forwardAction, "把消息正文整理成转发内容放入输入框");
         describeChatAction(resendAction, "把消息正文重新填入输入框并立即发送");
         describeChatAction(copyTimeAction, "复制这条消息的发送时间");
-        QString savePathForMenu = extractSavePathFromChatText(text);
-        if (savePathForMenu.isEmpty()) {
-            savePathForMenu = extractSavePathFromChatText(index.data(Qt::ToolTipRole).toString());
-        }
-        const QFileInfo savePathInfoForMenu(savePathForMenu);
-        const QFileInfo saveFolderInfoForMenu(savePathInfoForMenu.absolutePath());
-        const bool hasSavePath = !savePathForMenu.isEmpty();
-        const bool canOpenSavedFile = hasSavePath && savePathInfoForMenu.exists() && savePathInfoForMenu.isFile();
-        const bool canOpenSaveFolder = hasSavePath && saveFolderInfoForMenu.exists() && saveFolderInfoForMenu.isDir();
-        const bool isMediaMessage = hasSavePath
+        const SavedFileActionState savedFileState = savedFileActionState(index);
+        const bool isMediaMessage = savedFileState.hasSavePath
             || text.contains("文件")
             || text.contains("图片")
             || text.contains("视频")
@@ -1494,21 +1502,21 @@ void MainWindow::setupUi() {
         copyMediaCardAction->setEnabled(isMediaMessage);
         copyFileNoticeAction->setEnabled(isMediaMessage);
         copyReceiptAction->setEnabled(isMediaMessage);
-        copySavePathAction->setEnabled(hasSavePath);
-        openSavedFileAction->setEnabled(canOpenSavedFile);
-        openSaveFolderAction->setEnabled(canOpenSaveFolder);
+        copySavePathAction->setEnabled(savedFileState.hasSavePath);
+        openSavedFileAction->setEnabled(savedFileState.canOpenFile);
+        openSaveFolderAction->setEnabled(savedFileState.canOpenFolder);
         copyMediaFlowAction->setEnabled(isMediaMessage);
-        if (!hasSavePath) {
+        if (!savedFileState.hasSavePath) {
             copySavePathAction->setToolTip("这条记录还没有保存路径");
             openSavedFileAction->setToolTip("收到并保存文件后可直接打开");
             openSaveFolderAction->setToolTip("收到并保存文件后可打开目录");
         } else {
-            if (!canOpenSavedFile) {
-                openSavedFileAction->setToolTip(savePathInfoForMenu.exists()
+            if (!savedFileState.canOpenFile) {
+                openSavedFileAction->setToolTip(savedFileState.fileInfo.exists()
                     ? "当前保存路径不是文件"
                     : "保存文件不存在或文件已移动");
             }
-            if (!canOpenSaveFolder) {
+            if (!savedFileState.canOpenFolder) {
                 openSaveFolderAction->setToolTip("保存目录不存在或无权访问");
             }
         }
@@ -1577,17 +1585,17 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(QString("已收到 %1，文件已保存，我会尽快查看。").arg(fileName));
             ui->statusbar->showMessage("回执话术已复制", 2200);
         } else if (selected == copySavePathAction) {
-            if (savePathForMenu.isEmpty()) {
+            if (savedFileState.savePath.isEmpty()) {
                 ui->statusbar->showMessage("当前消息没有保存路径", 2200);
                 return;
             }
-            QApplication::clipboard()->setText(savePathForMenu);
+            QApplication::clipboard()->setText(savedFileState.savePath);
             ui->statusbar->showMessage("保存路径已复制", 2200);
         } else if (selected == openSavedFileAction) {
-            if (canOpenSavedFile && QDesktopServices::openUrl(QUrl::fromLocalFile(savePathInfoForMenu.absoluteFilePath()))) {
+            if (savedFileState.canOpenFile && QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.fileInfo.absoluteFilePath()))) {
                 ui->statusbar->showMessage("已打开保存文件", 2200);
             } else {
-                showFileTransferStatusEvent(savePathInfoForMenu.fileName(),
+                showFileTransferStatusEvent(savedFileState.fileInfo.fileName(),
                                             QString(),
                                             QStringLiteral("receive-open-failed"),
                                             0,
@@ -1595,8 +1603,8 @@ void MainWindow::setupUi() {
                 ui->statusbar->showMessage("当前消息没有可打开的文件", 2200);
             }
         } else if (selected == openSaveFolderAction) {
-            if (canOpenSaveFolder) {
-                if (QDesktopServices::openUrl(QUrl::fromLocalFile(saveFolderInfoForMenu.absoluteFilePath()))) {
+            if (savedFileState.canOpenFolder) {
+                if (QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.folderInfo.absoluteFilePath()))) {
                     ui->statusbar->showMessage("已打开保存目录", 2200);
                 } else {
                     ui->statusbar->showMessage("保存目录无法打开", 2200);

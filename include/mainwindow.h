@@ -10,6 +10,7 @@
 #include <QMap>
 #include <QEvent>
 #include <QDate>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
 #include "client.h"
@@ -92,6 +93,15 @@ private:
         QString savePath;
     };
 
+    struct SavedFileActionState {
+        QString savePath;
+        QFileInfo fileInfo;
+        QFileInfo folderInfo;
+        bool hasSavePath = false;
+        bool canOpenFile = false;
+        bool canOpenFolder = false;
+    };
+
     void setupUi();
     void setupTray();
     void appendMessage(const Message& msg);
@@ -143,6 +153,7 @@ private:
     void refreshComposerState();
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
+    SavedFileActionState savedFileActionState(const QModelIndex& index) const;
     void applyReceivedTransferSaveStatus(const QString& kind,
                                          const QString& fileName,
                                          const QString& displayName,
