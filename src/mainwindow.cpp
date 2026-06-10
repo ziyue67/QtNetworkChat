@@ -554,6 +554,51 @@ QString MainWindow::mediaTypeFromChatText(const QString& text) const {
     return QStringLiteral("文件");
 }
 
+QString MainWindow::chatMediaCardText(const QString& chatText) const {
+    QString fileName = chatText.section(" · ", 0, 0).section(']', -1).trimmed();
+    if (fileName.isEmpty()) fileName = chatText;
+
+    const QString sender = chatText.section('<', 1, 1).section('>', 0, 0).trimmed();
+    return QString("%1卡片\n文件:%2\n会话:%3\n发送者:%4\n我的QQ:%5")
+        .arg(mediaTypeFromChatText(chatText),
+             fileName,
+             m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget),
+             sender.isEmpty() ? m_currentUserName : sender,
+             m_currentUserId);
+}
+
+QString MainWindow::chatMediaNoticeText(const QString& chatText) const {
+    QString fileName = chatText.section(" · ", 0, 0).section(']', -1).trimmed();
+    if (fileName.isEmpty()) fileName = "刚发送的文件";
+
+    const QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    return QString("我已发送 %1 到 %2，请注意查收。").arg(fileName, target);
+}
+
+QString MainWindow::chatMediaReceiptText(const QString& chatText) const {
+    QString fileName = chatText.section(" · ", 1, 1).trimmed();
+    if (fileName.isEmpty()) fileName = chatText.section("已收到", 1, 1).section("，", 0, 0).trimmed();
+    if (fileName.isEmpty()) fileName = "刚收到的文件";
+    return QString("已收到 %1，文件已保存，我会尽快查看。").arg(fileName);
+}
+
+QString MainWindow::chatMediaFlowText(const QString& chatText) const {
+    QString fileName = chatText.section(" · ", 1, 1).trimmed();
+    if (fileName.isEmpty()) fileName = chatText.section(" · ", 0, 0).section(']', -1).trimmed();
+    if (fileName.isEmpty()) fileName = "当前媒体文件";
+
+    const QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
+    QStringList rows;
+    rows << QString("媒体流程 · 类型:%1 · 文件:%2").arg(mediaTypeFromChatText(chatText), fileName);
+    rows << QString("会话:%1 · 我的QQ:%2 · 昵称:%3").arg(target, m_currentUserId, m_currentUserName);
+    rows << "1. 发送方点击图片/视频或闪传文件选择媒体";
+    rows << "2. 聊天记录生成媒体卡片和查收话术";
+    rows << "3. 接收方自动保存后可复制回执话术和保存路径";
+    rows << QString("查收话术：我已发送 %1 到 %2，请注意查收。").arg(fileName, target);
+    rows << QString("回执话术：已收到 %1，文件已保存，我会尽快查看。").arg(fileName);
+    return rows.join('\n');
+}
+
 void MainWindow::applyReceivedTransferSaveStatus(const QString& kind,
                                                  const QString& fileName,
                                                  const QString& displayName,
@@ -1562,28 +1607,13 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(timeText);
             ui->statusbar->showMessage("消息时间已复制: " + timeText, 1800);
         } else if (selected == copyMediaCardAction) {
-            QString fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
-            if (fileName.isEmpty()) fileName = text;
-            const QString mediaType = mediaTypeFromChatText(text);
-            QString card = QString("%1卡片\n文件:%2\n会话:%3\n发送者:%4\n我的QQ:%5")
-                .arg(mediaType,
-                     fileName,
-                     m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget),
-                     text.section('<', 1, 1).section('>', 0, 0).trimmed().isEmpty() ? m_currentUserName : text.section('<', 1, 1).section('>', 0, 0).trimmed(),
-                     m_currentUserId);
-            QApplication::clipboard()->setText(card);
+            QApplication::clipboard()->setText(chatMediaCardText(text));
             ui->statusbar->showMessage("媒体卡片已复制", 2200);
         } else if (selected == copyFileNoticeAction) {
-            QString fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
-            if (fileName.isEmpty()) fileName = "刚发送的文件";
-            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-            QApplication::clipboard()->setText(QString("我已发送 %1 到 %2，请注意查收。").arg(fileName, target));
+            QApplication::clipboard()->setText(chatMediaNoticeText(text));
             ui->statusbar->showMessage("查收话术已复制", 2200);
         } else if (selected == copyReceiptAction) {
-            QString fileName = text.section(" · ", 1, 1).trimmed();
-            if (fileName.isEmpty()) fileName = text.section("已收到", 1, 1).section("，", 0, 0).trimmed();
-            if (fileName.isEmpty()) fileName = "刚收到的文件";
-            QApplication::clipboard()->setText(QString("已收到 %1，文件已保存，我会尽快查看。").arg(fileName));
+            QApplication::clipboard()->setText(chatMediaReceiptText(text));
             ui->statusbar->showMessage("回执话术已复制", 2200);
         } else if (selected == copySavePathAction) {
             if (savedFileState.savePath.isEmpty()) {
@@ -1614,20 +1644,7 @@ void MainWindow::setupUi() {
                 ui->statusbar->showMessage("当前消息没有可打开的保存路径", 2200);
             }
         } else if (selected == copyMediaFlowAction) {
-            QString fileName = text.section(" · ", 1, 1).trimmed();
-            if (fileName.isEmpty()) fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
-            if (fileName.isEmpty()) fileName = "当前媒体文件";
-            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-            const QString mediaType = mediaTypeFromChatText(text);
-            QStringList rows;
-            rows << QString("媒体流程 · 类型:%1 · 文件:%2").arg(mediaType, fileName);
-            rows << QString("会话:%1 · 我的QQ:%2 · 昵称:%3").arg(target, m_currentUserId, m_currentUserName);
-            rows << "1. 发送方点击图片/视频或闪传文件选择媒体";
-            rows << "2. 聊天记录生成媒体卡片和查收话术";
-            rows << "3. 接收方自动保存后可复制回执话术和保存路径";
-            rows << QString("查收话术：我已发送 %1 到 %2，请注意查收。").arg(fileName, target);
-            rows << QString("回执话术：已收到 %1，文件已保存，我会尽快查看。").arg(fileName);
-            QApplication::clipboard()->setText(rows.join('\n'));
+            QApplication::clipboard()->setText(chatMediaFlowText(text));
             ui->statusbar->showMessage("媒体流程已复制", 2200);
         } else if (selected == mentionReplyAction) {
             QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();

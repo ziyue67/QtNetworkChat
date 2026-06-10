@@ -155,6 +155,10 @@ private:
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     SavedFileActionState savedFileActionState(const QModelIndex& index) const;
     QString mediaTypeFromChatText(const QString& text) const;
+    QString chatMediaCardText(const QString& chatText) const;
+    QString chatMediaNoticeText(const QString& chatText) const;
+    QString chatMediaReceiptText(const QString& chatText) const;
+    QString chatMediaFlowText(const QString& chatText) const;
     void applyReceivedTransferSaveStatus(const QString& kind,
                                          const QString& fileName,
                                          const QString& displayName,
