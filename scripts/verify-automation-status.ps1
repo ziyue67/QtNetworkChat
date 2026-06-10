@@ -490,6 +490,7 @@ foreach ($expected in @(
     'Action: `Archive the redacted S3/MinIO real-backend evidence with large-file governance artifacts.`',
     'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
+    'Task acknowledgement aggregate: acknowledged=`true`, failed=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`',
     'Task acknowledgement gate: state=`failed-acknowledged`, failed=`2`, acknowledged=`true`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
     'Task ack gate: kind=`database-health`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
     'Task ack gate: kind=`large-file-governance`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
@@ -2007,6 +2008,7 @@ $freshAckMarkdown = Get-Content -LiteralPath $freshAckMarkdownPath -Raw -Encodin
 foreach ($expected in @(
     'Task history: runs=`2`, failed=`1`, latestAt=`2026-06-03T08:00:00.0000000Z`, latestExitCode=`1`, acknowledged=`false`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-03T09:00:00.0000000Z`, reason=`fresh ack sample`',
+    'Task acknowledgement aggregate: acknowledged=`true`, failed=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-failure-review-gated`',
     'Task acknowledgement gate: state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`'
 )) {
     Assert-Contains -Text $freshAckMarkdown -Expected $expected

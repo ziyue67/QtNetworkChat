@@ -3034,6 +3034,12 @@ if ($automationTaskAckState.state -ne "ok") {
             (Format-StatusValue (Get-JsonValue $automationTaskAck "reason" "unknown"))))
 }
 if ($automationTaskAckGate.configured) {
+    $lines.Add(('- Task acknowledgement aggregate: acknowledged=`{0}`, failed=`{1}`, blocked=`{2}`, source=`{3}`, releaseGate=`{4}`' -f
+            (Format-StatusValue $automationTaskAckGate.acknowledged),
+            (Format-StatusValue $automationTaskAckGate.failedRunCount),
+            (Format-StatusValue $automationTaskAckGate.blockedTaskCount),
+            (Format-StatusValue $automationTaskAckGate.source),
+            (Format-StatusValue $automationTaskAckGate.releaseGate)))
     $lines.Add(('- Task acknowledgement gate: state=`{0}`, failed=`{1}`, acknowledged=`{2}`, ackExpired=`{3}`, tasks=`{4}`, blocked=`{5}`, source=`{6}`, releaseGate=`{7}`, action=`{8}`' -f
             (Format-StatusValue $automationTaskAckGate.state),
             (Format-StatusValue $automationTaskAckGate.failedRunCount),
