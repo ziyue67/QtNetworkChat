@@ -2481,6 +2481,20 @@ if ([string]::IsNullOrWhiteSpace($E2ELinkedReleaseCandidateManifestPath)) {
         $E2ELinkedReleaseCandidateManifestPath = $defaultLinkedReleaseCandidateManifestPath
     }
 }
+if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityJsonPath)) {
+    $packagedRolloutJsonPath =
+        Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence\e2e-rollout-observability.json"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $packagedRolloutJsonPath) -PathType Leaf) {
+        $E2ERolloutObservabilityJsonPath = $packagedRolloutJsonPath
+    }
+}
+if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityMarkdownPath)) {
+    $packagedRolloutMarkdownPath =
+        Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence\e2e-rollout-observability.md"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $packagedRolloutMarkdownPath) -PathType Leaf) {
+        $E2ERolloutObservabilityMarkdownPath = $packagedRolloutMarkdownPath
+    }
+}
 if ([string]::IsNullOrWhiteSpace($AutomationAckDrillPath)) {
     $defaultAutomationAckDrillPath =
         Join-Path $BuildDir "automation-tasks\ack-drill\automation-ack-drill.json"
@@ -2582,6 +2596,27 @@ $e2eLinkedReleaseCandidateManifestState =
     Get-ArtifactState -PathValue $E2ELinkedReleaseCandidateManifestPath -ExpectJson
 $e2eLinkedReleaseCandidateReadback =
     Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState $Head
+
+if (($e2eRolloutReadback.state -eq "ok") `
+        -and ((Format-StatusValue $e2eRolloutReadback.releaseGate) -eq "production-rollout-observability-blocked-not-linked") `
+        -and ($e2eReleaseEvidenceReadback.state -eq "ok") `
+        -and ((Format-StatusValue $e2eReleaseEvidenceReadback.releaseReady) -eq "true") `
+        -and ((Format-StatusValue $e2eReleaseEvidenceReadback.targetMatchesCurrentHead) -eq "true")) {
+    $packagedRolloutJsonPath =
+        Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence\e2e-rollout-observability.json"
+    $packagedRolloutMarkdownPath =
+        Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence\e2e-rollout-observability.md"
+    $packagedRolloutJsonState = Get-ArtifactState -PathValue $packagedRolloutJsonPath -ExpectJson
+    $packagedRolloutMarkdownState = Get-ArtifactState -PathValue $packagedRolloutMarkdownPath
+    $packagedRolloutReadback =
+        Get-E2ERolloutObservabilityReadback $packagedRolloutJsonState $packagedRolloutMarkdownState
+    if (($packagedRolloutReadback.state -eq "ok") `
+            -and ((Format-StatusValue $packagedRolloutReadback.releaseGate) -eq "production-rollout-observability-ready")) {
+        $e2eRolloutJsonState = $packagedRolloutJsonState
+        $e2eRolloutMarkdownState = $packagedRolloutMarkdownState
+        $e2eRolloutReadback = $packagedRolloutReadback
+    }
+}
 $automationAckDrillState = Get-ArtifactState -PathValue $AutomationAckDrillPath -ExpectJson
 $s3RealBackendReadinessState = Get-ArtifactState -PathValue $S3RealBackendReadinessPath -ExpectJson
 $s3RealBackendReadinessReadback =
