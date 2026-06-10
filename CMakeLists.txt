@@ -115,12 +115,14 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/tlssecurity.cpp
     src/filetransferstatus.cpp
     src/transfermanager.cpp
+    src/composermanager.cpp
     src/friendmanager.cpp
     src/groupmanager.cpp
     src/e2eenvelope.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
     include/transfermanager.h
+    include/composermanager.h
     include/friendmanager.h
     include/groupmanager.h
     include/e2eenvelope.h
@@ -362,6 +364,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(friend_manager_test PRIVATE include)
     target_link_libraries(friend_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+
+    add_executable(composer_manager_test
+        tests/composer_manager_test.cpp
+        src/composermanager.cpp
+        include/composermanager.h
+    )
+    target_include_directories(composer_manager_test PRIVATE include)
+    target_link_libraries(composer_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(group_manager_test
         tests/group_manager_test.cpp
@@ -726,6 +736,13 @@ if(BUILD_TESTING)
         NAME FriendManagerContactState
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:friend_manager_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME ComposerManagerUiState
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:composer_manager_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

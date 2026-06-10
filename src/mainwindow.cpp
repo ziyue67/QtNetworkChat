@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "composermanager.h"
 #include "filetransferstatus.h"
 #include "qtnetworkchat_version.h"
 #include <QInputDialog>
@@ -2107,49 +2108,30 @@ void MainWindow::setupUi() {
 
 void MainWindow::refreshComposerState() {
     const QString draftText = ui->messageEdit->toPlainText().trimmed();
-    const bool hasText = !draftText.isEmpty();
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    const bool removedFromPublicGroup = m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup();
-    const bool canReachTarget = !removedFromPublicGroup && (isLocalGroup || (m_client && m_client->isConnected()));
-    const bool canSend = hasText && canReachTarget;
-    const bool encryptedReady = !m_privateChatTarget.isEmpty()
+    ComposerContext context;
+    context.draftText = draftText;
+    context.targetName = targetName;
+    context.localGroup = isLocalGroup;
+    context.removedFromPublicGroup = m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup();
+    context.clientConnected = m_client && m_client->isConnected();
+    context.encryptedReady = !m_privateChatTarget.isEmpty()
         && !isLocalGroup
         && m_client
         && m_client->hasE2ESession(m_privateChatTarget)
         && m_client->e2ePeerIdentityTrusted(m_privateChatTarget)
         && !m_client->e2eSessionNeedsRotation(m_privateChatTarget);
-    const QString composerHint = QString("发往 %1%2... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)")
-        .arg(targetName, encryptedReady ? QStringLiteral(" · 端到端加密") : QString());
+    const ComposerUiState state = ComposerManager::uiState(context);
 
-    ui->sendBtn->setEnabled(canSend);
-    ui->sendBtn->setToolTip(removedFromPublicGroup
-        ? "当前账号已不在公共群，等待群主或管理员重新邀请"
-        : (!canReachTarget
-        ? QString("当前已断开，无法发送到 %1").arg(targetName)
-        : (hasText
-        ? QString("发送到 %1 · %2 字%3 (Enter)").arg(targetName).arg(draftText.size()).arg(encryptedReady ? QStringLiteral(" · 端到端加密") : QString())
-        : QString("请输入消息后发送到 %1").arg(targetName))));
-    ui->messageEdit->setPlaceholderText(removedFromPublicGroup
-        ? "当前账号已不在公共群，等待群主或管理员重新邀请"
-        : (canReachTarget
-        ? composerHint
-        : QString("已断开连接，重新登录后可发送到 %1").arg(targetName)));
-    ui->messageEdit->setToolTip(hasText
-        ? QString("当前草稿将发送到 %1 · %2 字").arg(targetName).arg(draftText.size())
-        : ui->messageEdit->placeholderText());
-    ui->fileBtn->setEnabled(canReachTarget);
-    ui->fileBtn->setToolTip(removedFromPublicGroup
-        ? "当前账号已不在公共群，暂不能发送文件"
-        : (canReachTarget
-        ? QString("发送文件到 %1，支持文档、压缩包和媒体文件").arg(targetName)
-        : QString("当前已断开，暂不能发送文件到 %1").arg(targetName)));
-    ui->imageBtn->setEnabled(canReachTarget);
-    ui->imageBtn->setToolTip(removedFromPublicGroup
-        ? "当前账号已不在公共群，暂不能发送图片或视频"
-        : (canReachTarget
-        ? QString("发送图片或视频到 %1，图片会显示预览").arg(targetName)
-        : QString("当前已断开，暂不能发送图片/视频到 %1").arg(targetName)));
+    ui->sendBtn->setEnabled(state.canSend);
+    ui->sendBtn->setToolTip(state.sendToolTip);
+    ui->messageEdit->setPlaceholderText(state.messagePlaceholder);
+    ui->messageEdit->setToolTip(state.messageToolTip);
+    ui->fileBtn->setEnabled(state.sendFileEnabled);
+    ui->fileBtn->setToolTip(state.fileToolTip);
+    ui->imageBtn->setEnabled(state.sendImageEnabled);
+    ui->imageBtn->setToolTip(state.imageToolTip);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
