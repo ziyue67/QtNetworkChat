@@ -1432,19 +1432,14 @@ void MainWindow::setupUi() {
     connect(ui->chatListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
 
-        QString savePath = extractSavePathFromChatText(index.data().toString());
-        if (savePath.isEmpty()) {
-            savePath = extractSavePathFromChatText(index.data(Qt::ToolTipRole).toString());
-        }
-        if (savePath.isEmpty()) return;
+        const SavedFileActionState savedFileState = savedFileActionState(index);
+        if (!savedFileState.hasSavePath) return;
 
-        const QFileInfo savePathInfo(savePath);
-        if (savePathInfo.exists()
-            && savePathInfo.isFile()
-            && QDesktopServices::openUrl(QUrl::fromLocalFile(savePathInfo.absoluteFilePath()))) {
+        if (savedFileState.canOpenFile
+            && QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.fileInfo.absoluteFilePath()))) {
             ui->statusbar->showMessage("已打开保存文件", 2200);
         } else {
-            showFileTransferStatusEvent(savePathInfo.fileName(),
+            showFileTransferStatusEvent(savedFileState.fileInfo.fileName(),
                                         QString(),
                                         QStringLiteral("receive-open-failed"),
                                         0,
