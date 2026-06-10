@@ -680,6 +680,26 @@ bool MainWindow::handleChatCopyContextCommand(const QString& commandId, const QS
     return false;
 }
 
+bool MainWindow::handleChatDraftContextCommand(const QString& commandId, const QString& chatText) {
+    if (commandId == QLatin1String("quote")) {
+        quoteChatMessage(chatText);
+        return true;
+    }
+    if (commandId == QLatin1String("forward")) {
+        forwardChatMessage(chatText);
+        return true;
+    }
+    if (commandId == QLatin1String("resend")) {
+        resendChatMessage(chatText);
+        return true;
+    }
+    if (commandId == QLatin1String("mention-reply")) {
+        mentionChatSender(chatText);
+        return true;
+    }
+    return false;
+}
+
 void MainWindow::setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
     ui->messageEdit->setPlainText(text);
     ui->messageEdit->setFocus();
@@ -722,23 +742,8 @@ bool MainWindow::handleChatContextCommand(const QString& commandId,
                                           const QString& chatText,
                                           const SavedFileActionState& savedFileState) {
     if (handleChatCopyContextCommand(commandId, chatText)
-        || handleSavedFileContextCommand(commandId, savedFileState)) {
-        return true;
-    }
-    if (commandId == QLatin1String("quote")) {
-        quoteChatMessage(chatText);
-        return true;
-    }
-    if (commandId == QLatin1String("forward")) {
-        forwardChatMessage(chatText);
-        return true;
-    }
-    if (commandId == QLatin1String("resend")) {
-        resendChatMessage(chatText);
-        return true;
-    }
-    if (commandId == QLatin1String("mention-reply")) {
-        mentionChatSender(chatText);
+        || handleSavedFileContextCommand(commandId, savedFileState)
+        || handleChatDraftContextCommand(commandId, chatText)) {
         return true;
     }
     return false;
