@@ -507,8 +507,8 @@ foreach ($expected in @(
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
     'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
     'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
-    'Evidence local review focus: currentHead=`abc1234`, targetReleaseHead=`unknown`, artifactFreshness=`false`, note=`GitHub Windows Build is disabled by policy; treat release-head mismatch as local evidence refresh work, not as an external CI gate.`',
-    'Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.`',
+    'Evidence local review focus: currentHead=`abc1234`, targetReleaseHead=`unknown`, artifactFreshness=`false`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; treat release-head mismatch as local evidence refresh work, not as an external CI gate.`',
+    'Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
@@ -2252,8 +2252,8 @@ foreach ($expected in @(
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
     'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
     'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
-    'Evidence local review focus: currentHead=`current-head-ci-stale`, targetReleaseHead=`current-head-ci-stale`, artifactFreshness=`false`, note=`GitHub Windows Build is disabled by policy; treat release-head mismatch as local evidence refresh work, not as an external CI gate.`',
-    'Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.`'
+    'Evidence local review focus: currentHead=`current-head-ci-stale`, targetReleaseHead=`current-head-ci-stale`, artifactFreshness=`false`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; treat release-head mismatch as local evidence refresh work, not as an external CI gate.`',
+    'Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.`'
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }
@@ -2281,7 +2281,7 @@ foreach ($expected in @(
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-refresh-needed`',
     'Promotion action: `Refresh the E2E release evidence for the current HEAD after resolving any remaining local verification or production-linked blockers.`',
     'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
-    'Evidence local review focus: currentHead=`newer-linked-candidate-head`, targetReleaseHead=`linked-candidate-head`, artifactFreshness=`informational-only`, note=`GitHub Windows Build is disabled by policy; treat release-head mismatch as local evidence refresh work, not as an external CI gate.`'
+    'Evidence local review focus: currentHead=`newer-linked-candidate-head`, targetReleaseHead=`linked-candidate-head`, artifactFreshness=`informational-only`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; treat release-head mismatch as local evidence refresh work, not as an external CI gate.`'
 )) {
     Assert-Contains -Text $staleReleaseEvidenceMarkdown -Expected $expected
 }

@@ -1180,7 +1180,7 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
             $result.promotionReady = "true"
             $result.promotionGate = "ready-local-verification-only"
             $result.promotionOperatorAction =
-                "GitHub Windows Build is disabled by repo policy; use local build/CTest and linked production evidence for release review."
+                "GitHub Windows Build is disabled by repo policy and not part of the active release gate; use local build/CTest and linked production evidence for release review."
         }
         if (-not $targetMatchesCurrentHead) {
             $result.targetMatchesCurrentHead = "informational-only"
@@ -2784,7 +2784,7 @@ $automationTaskHistory = $automationTaskHistoryState.value
 $automationTaskAck = $automationTaskAckState.value
 
 $e2eReleaseTail = if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
-    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy, so the remaining E2E release work is final production-linked release artifact promotion plus local release review."
+    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy and removed from the active release gate, so the remaining E2E release work is final production-linked release artifact promotion plus local release review."
 } else {
     "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with current GitHub Windows Build visibility and local build/CTest readback; remaining E2E release work is external Windows Build visibility recovery and final production-linked release artifact promotion."
 }
@@ -2906,7 +2906,7 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
                 (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact), `
-                'GitHub Windows Build is disabled by policy; treat release-head mismatch as local evidence refresh work, not as an external CI gate.'))
+                'GitHub Windows Build is disabled by policy and removed from the active release gate; treat release-head mismatch as local evidence refresh work, not as an external CI gate.'))
     } else {
         $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`, currentHead=`{3}`, targetMatchesCurrentHead=`{4}`, stale=`{5}`' -f `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
@@ -2919,7 +2919,7 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
 }
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
-        $lines.Add(('  Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.` releaseReady=`{0}`, productionLinked=`{1}`, local=`{2}/{3}`, promotion=`{4}`, blockers=`{5}`' -f `
+        $lines.Add(('  Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.` releaseReady=`{0}`, productionLinked=`{1}`, local=`{2}/{3}`, promotion=`{4}`, blockers=`{5}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus), `
