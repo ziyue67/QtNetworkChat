@@ -404,6 +404,7 @@ TransferReceiveSaveUiState TransferManager::receivedTransferSaveUiState(const QS
                                                                         bool integrityFailed) {
     TransferReceiveSaveUiState result;
     if (saved) {
+        result.saved = true;
         result.savedItemText = QStringLiteral("%1已自动保存: %2 · %3%4%5")
             .arg(kind, savePath, receivedSize, manifestSuffix, integritySuffix);
         result.savedItemToolTip = QStringLiteral("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
@@ -420,6 +421,20 @@ TransferReceiveSaveUiState TransferManager::receivedTransferSaveUiState(const QS
         result.statusMessage = QStringLiteral("%1已保存到下载目录 · %2%3%4")
             .arg(kind, receivedSize, manifestSuffix, integritySuffix);
         result.statusTimeoutMs = 3000;
+        result.savedItem.text = result.savedItemText;
+        result.savedItem.toolTip = result.savedItemToolTip;
+        result.savedItem.foregroundRole = integrityFailed ? QStringLiteral("danger") : QStringLiteral("success");
+        result.savedItem.alignRight = false;
+        result.receiptCardItem.text = result.receiptCardText;
+        result.receiptCardItem.toolTip = result.receiptCardToolTip;
+        result.receiptCardItem.foregroundRole = QStringLiteral("success");
+        result.receiptCardItem.backgroundRole = QStringLiteral("success-soft");
+        result.receiptCardItem.alignRight = false;
+        result.receiptReplyItem.text = result.receiptReplyText;
+        result.receiptReplyItem.toolTip = result.receiptReplyToolTip;
+        result.receiptReplyItem.foregroundRole = QStringLiteral("muted");
+        result.receiptReplyItem.backgroundRole = QStringLiteral("muted-soft");
+        result.receiptReplyItem.alignRight = false;
         return result;
     }
 
@@ -429,6 +444,10 @@ TransferReceiveSaveUiState TransferManager::receivedTransferSaveUiState(const QS
     result.hintText = QStringLiteral("%1保存失败 · %2 · 来自 %3").arg(kind, receivedName, displayName);
     result.statusMessage = QStringLiteral("%1保存失败，请检查下载目录权限").arg(kind);
     result.statusTimeoutMs = 3200;
+    result.failedItem.text = result.failedItemText;
+    result.failedItem.foregroundRole = QStringLiteral("danger");
+    result.failedItem.backgroundRole = QStringLiteral("danger-soft");
+    result.failedItem.alignRight = false;
     return result;
 }
 

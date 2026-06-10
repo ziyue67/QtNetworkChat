@@ -127,10 +127,6 @@ private:
                                 const QPixmap& pixmap,
                                 bool isVideo,
                                 bool alignRight);
-    void appendReceivedTransferReceiptItems(const QString& cardText,
-                                            const QString& cardToolTip,
-                                            const QString& replyText,
-                                            const QString& replyToolTip);
     void appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
                                              const QString& displayName);
     void appendReceivedTransferSaveFailedEvidence(const ReceivedTransferContext& context,
@@ -143,10 +139,7 @@ private:
                                         const QString& transferId,
                                         const QByteArray& fileData,
                                         qint64 totalBytes);
-    void appendReceivedTransferSavedItem(const QString& text,
-                                         const QString& toolTip,
-                                         bool integrityFailed);
-    void appendReceivedTransferSaveFailedItem(const QString& text);
+    void appendTransferChatListItem(const TransferChatListItemUiState& itemState);
     ReceivedTransferContext receivedTransferContext(const Message& msg,
                                                     const QString& kind,
                                                     const QString& fallbackName,

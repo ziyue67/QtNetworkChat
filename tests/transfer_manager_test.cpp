@@ -336,14 +336,36 @@ int main(int argc, char** argv) {
                                                                                            false);
     ok = expect(savedReceive.savedItemText.contains(QString::fromUtf8("文件已自动保存"))
                     && savedReceive.savedItemToolTip.contains(QStringLiteral("C:/Downloads/report.zip"))
+                    && savedReceive.saved
                     && !savedReceive.savedIntegrityFailed
                     && savedReceive.receiptCardText.contains(QString::fromUtf8("来自 好友A"))
                     && savedReceive.receiptReplyText.contains(QString::fromUtf8("回执话术"))
                     && savedReceive.eventReason == QStringLiteral("receive-saved")
                     && savedReceive.hintText.contains(QString::fromUtf8("已接收文件"))
                     && savedReceive.statusMessage.contains(QString::fromUtf8("已保存到下载目录"))
+                    && savedReceive.savedItem.text == savedReceive.savedItemText
+                    && savedReceive.savedItem.toolTip == savedReceive.savedItemToolTip
+                    && savedReceive.savedItem.foregroundRole == QStringLiteral("success")
+                    && savedReceive.receiptCardItem.text == savedReceive.receiptCardText
+                    && savedReceive.receiptCardItem.backgroundRole == QStringLiteral("success-soft")
+                    && savedReceive.receiptReplyItem.text == savedReceive.receiptReplyText
+                    && savedReceive.receiptReplyItem.foregroundRole == QStringLiteral("muted")
                     && savedReceive.statusTimeoutMs == 3000,
                 "saved receive ui state should centralize saved receipt and status copy") && ok;
+
+    TransferReceiveSaveUiState integrityFailedReceive = TransferManager::receivedTransferSaveUiState(QString::fromUtf8("文件"),
+                                                                                                      QStringLiteral("report.zip"),
+                                                                                                      QStringLiteral("4.0 KB"),
+                                                                                                      QString::fromUtf8("好友A"),
+                                                                                                      QString(),
+                                                                                                      QString::fromUtf8("完整性校验失败"),
+                                                                                                      QString::fromUtf8(" · 完整性校验失败"),
+                                                                                                      QStringLiteral("C:/Downloads/report.zip"),
+                                                                                                      true,
+                                                                                                      true);
+    ok = expect(integrityFailedReceive.savedItem.foregroundRole == QStringLiteral("danger")
+                    && integrityFailedReceive.eventReason == QStringLiteral("hash"),
+                "integrity failed receive state should switch saved item role to danger and preserve hash event reason") && ok;
 
     TransferReceiveSaveUiState failedReceive = TransferManager::receivedTransferSaveUiState(QString::fromUtf8("图片"),
                                                                                             QStringLiteral("photo.png"),
@@ -356,9 +378,13 @@ int main(int argc, char** argv) {
                                                                                             false,
                                                                                             false);
     ok = expect(failedReceive.failedItemText.contains(QString::fromUtf8("图片保存失败"))
+                    && !failedReceive.saved
                     && failedReceive.eventReason == QStringLiteral("receive-save-failed")
                     && failedReceive.hintText == QString::fromUtf8("图片保存失败 · photo.png · 来自 好友A")
                     && failedReceive.statusMessage == QString::fromUtf8("图片保存失败，请检查下载目录权限")
+                    && failedReceive.failedItem.text == failedReceive.failedItemText
+                    && failedReceive.failedItem.foregroundRole == QStringLiteral("danger")
+                    && failedReceive.failedItem.backgroundRole == QStringLiteral("danger-soft")
                     && failedReceive.statusTimeoutMs == 3200,
                 "failed receive ui state should centralize save failure guidance") && ok;
 

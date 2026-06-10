@@ -111,7 +111,16 @@ struct TransferSendUiState {
     int statusTimeoutMs = 3000;
 };
 
+struct TransferChatListItemUiState {
+    QString text;
+    QString toolTip;
+    QString foregroundRole;
+    QString backgroundRole;
+    bool alignRight = false;
+};
+
 struct TransferReceiveSaveUiState {
+    bool saved = false;
     QString savedItemText;
     QString savedItemToolTip;
     bool savedIntegrityFailed = false;
@@ -124,6 +133,10 @@ struct TransferReceiveSaveUiState {
     QString hintText;
     QString statusMessage;
     int statusTimeoutMs = 3000;
+    TransferChatListItemUiState savedItem;
+    TransferChatListItemUiState receiptCardItem;
+    TransferChatListItemUiState receiptReplyItem;
+    TransferChatListItemUiState failedItem;
 };
 
 class TransferManager {

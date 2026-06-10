@@ -7152,25 +7152,6 @@ void MainWindow::appendMediaPreviewItem(const QString& text,
     m_chatModel->appendRow(previewItem);
 }
 
-void MainWindow::appendReceivedTransferReceiptItems(const QString& cardText,
-                                                    const QString& cardToolTip,
-                                                    const QString& replyText,
-                                                    const QString& replyToolTip) {
-    QStandardItem* cardItem = new QStandardItem(cardText);
-    cardItem->setEditable(false);
-    cardItem->setData(cardToolTip, Qt::ToolTipRole);
-    cardItem->setForeground(QColor(0, 121, 107));
-    cardItem->setBackground(QColor(232, 248, 245));
-    m_chatModel->appendRow(cardItem);
-
-    QStandardItem* replyItem = new QStandardItem(replyText);
-    replyItem->setEditable(false);
-    replyItem->setData(replyToolTip, Qt::ToolTipRole);
-    replyItem->setForeground(QColor(86, 116, 130));
-    replyItem->setBackground(QColor(246, 251, 253));
-    m_chatModel->appendRow(replyItem);
-}
-
 void MainWindow::appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
                                                      const QString& displayName) {
     const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(context.kind,
@@ -7183,13 +7164,9 @@ void MainWindow::appendReceivedTransferSavedEvidence(const ReceivedTransferConte
                                                                                               context.savePath,
                                                                                               true,
                                                                                               context.integrityText.startsWith("完整性校验失败"));
-    appendReceivedTransferSavedItem(uiState.savedItemText,
-                                    uiState.savedItemToolTip,
-                                    uiState.savedIntegrityFailed);
-    appendReceivedTransferReceiptItems(uiState.receiptCardText,
-                                       uiState.receiptCardToolTip,
-                                       uiState.receiptReplyText,
-                                       uiState.receiptReplyToolTip);
+    appendTransferChatListItem(uiState.savedItem);
+    appendTransferChatListItem(uiState.receiptCardItem);
+    appendTransferChatListItem(uiState.receiptReplyItem);
 }
 
 void MainWindow::appendReceivedTransferSaveFailedEvidence(const ReceivedTransferContext& context,
@@ -7207,7 +7184,7 @@ void MainWindow::appendReceivedTransferSaveFailedEvidence(const ReceivedTransfer
                                                                                               context.savePath,
                                                                                               false,
                                                                                               false);
-    appendReceivedTransferSaveFailedItem(uiState.failedItemText);
+    appendTransferChatListItem(uiState.failedItem);
     applyReceivedTransferSaveStatus(context.kind,
                                     context.receivedName,
                                     displayName,
@@ -7250,23 +7227,35 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
     return true;
 }
 
-void MainWindow::appendReceivedTransferSavedItem(const QString& text,
-                                                 const QString& toolTip,
-                                                 bool integrityFailed) {
-    QStandardItem* savedItem = new QStandardItem(text);
-    savedItem->setEditable(false);
-    savedItem->setData(toolTip, Qt::ToolTipRole);
-    savedItem->setForeground(integrityFailed ? QColor(180, 70, 70) : Qt::darkGreen);
-    savedItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_chatModel->appendRow(savedItem);
-}
+void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& itemState) {
+    if (itemState.text.isEmpty()) {
+        return;
+    }
 
-void MainWindow::appendReceivedTransferSaveFailedItem(const QString& text) {
-    QStandardItem* failedItem = new QStandardItem(text);
-    failedItem->setEditable(false);
-    failedItem->setForeground(QColor(180, 70, 70));
-    failedItem->setBackground(QColor(255, 245, 245));
-    m_chatModel->appendRow(failedItem);
+    QStandardItem* item = new QStandardItem(itemState.text);
+    item->setEditable(false);
+    if (!itemState.toolTip.isEmpty()) {
+        item->setData(itemState.toolTip, Qt::ToolTipRole);
+    }
+
+    if (itemState.foregroundRole == QStringLiteral("success")) {
+        item->setForeground(Qt::darkGreen);
+    } else if (itemState.foregroundRole == QStringLiteral("danger")) {
+        item->setForeground(QColor(180, 70, 70));
+    } else if (itemState.foregroundRole == QStringLiteral("muted")) {
+        item->setForeground(QColor(86, 116, 130));
+    }
+
+    if (itemState.backgroundRole == QStringLiteral("success-soft")) {
+        item->setBackground(QColor(232, 248, 245));
+    } else if (itemState.backgroundRole == QStringLiteral("danger-soft")) {
+        item->setBackground(QColor(255, 245, 245));
+    } else if (itemState.backgroundRole == QStringLiteral("muted-soft")) {
+        item->setBackground(QColor(246, 251, 253));
+    }
+
+    item->setTextAlignment((itemState.alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter);
+    m_chatModel->appendRow(item);
 }
 
 MainWindow::ReceivedTransferContext MainWindow::receivedTransferContext(const Message& msg,
