@@ -2694,16 +2694,7 @@ void MainWindow::onNewMessage(const Message& msg) {
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
-            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(context.savePath);
-            appendReceivedTransferSavedItem(
-                QString("图片已自动保存: %1 · %2%3%4").arg(context.savePath, context.receivedSize, context.manifestSuffix, context.integritySuffix),
-                savedFileTip,
-                context.integrityText.startsWith("完整性校验失败"));
-            appendReceivedTransferReceiptItems(
-                QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(context.receivedName, context.receivedSize, displayName, context.manifestSuffix, context.integritySuffix),
-                QString("图片已保存到：%1").arg(context.savePath),
-                QString("回执话术 · 已收到图片 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(context.receivedName, context.receivedSize, context.manifestSuffix, context.integrityText, context.savePath),
-                savedFileTip);
+            appendReceivedTransferSavedEvidence(context, displayName);
             applyReceivedTransferSaveStatus(QStringLiteral("图片"),
                                             context.receivedName,
                                             displayName,
@@ -2739,16 +2730,7 @@ void MainWindow::onNewMessage(const Message& msg) {
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
-            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(context.savePath);
-            appendReceivedTransferSavedItem(
-                QString("文件已自动保存: %1 · %2%3%4").arg(context.savePath, context.receivedSize, context.manifestSuffix, context.integritySuffix),
-                savedFileTip,
-                context.integrityText.startsWith("完整性校验失败"));
-            appendReceivedTransferReceiptItems(
-                QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(context.receivedName, context.receivedSize, displayName, context.manifestSuffix, context.integritySuffix),
-                QString("文件已保存到：%1").arg(context.savePath),
-                QString("回执话术 · 已收到文件 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(context.receivedName, context.receivedSize, context.manifestSuffix, context.integrityText, context.savePath),
-                savedFileTip);
+            appendReceivedTransferSavedEvidence(context, displayName);
             applyReceivedTransferSaveStatus(QStringLiteral("文件"),
                                             context.receivedName,
                                             displayName,
@@ -7310,6 +7292,34 @@ void MainWindow::appendReceivedTransferReceiptItems(const QString& cardText,
     replyItem->setForeground(QColor(86, 116, 130));
     replyItem->setBackground(QColor(246, 251, 253));
     m_chatModel->appendRow(replyItem);
+}
+
+void MainWindow::appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
+                                                     const QString& displayName) {
+    const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(context.savePath);
+    appendReceivedTransferSavedItem(
+        QString("%1已自动保存: %2 · %3%4%5").arg(context.kind,
+                                               context.savePath,
+                                               context.receivedSize,
+                                               context.manifestSuffix,
+                                               context.integritySuffix),
+        savedFileTip,
+        context.integrityText.startsWith("完整性校验失败"));
+    appendReceivedTransferReceiptItems(
+        QString("%1接收卡片 · %2 · %3 · 来自 %4 · 已保存到下载目录%5%6").arg(context.kind,
+                                                                       context.receivedName,
+                                                                       context.receivedSize,
+                                                                       displayName,
+                                                                       context.manifestSuffix,
+                                                                       context.integritySuffix),
+        QString("%1已保存到：%2").arg(context.kind, context.savePath),
+        QString("回执话术 · 已收到%1 %2（%3%4），%5，保存路径：%6 · 右键聊天记录可复制或打开保存目录").arg(context.kind,
+                                                                                                           context.receivedName,
+                                                                                                           context.receivedSize,
+                                                                                                           context.manifestSuffix,
+                                                                                                           context.integrityText,
+                                                                                                           context.savePath),
+        savedFileTip);
 }
 
 void MainWindow::appendReceivedTransferSavedItem(const QString& text,

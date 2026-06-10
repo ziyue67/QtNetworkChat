@@ -110,6 +110,8 @@ private:
                                             const QString& cardToolTip,
                                             const QString& replyText,
                                             const QString& replyToolTip);
+    void appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
+                                             const QString& displayName);
     void appendReceivedTransferSavedItem(const QString& text,
                                          const QString& toolTip,
                                          bool integrityFailed);
