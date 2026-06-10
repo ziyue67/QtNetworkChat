@@ -488,6 +488,7 @@ $markdown = Get-Content -LiteralPath $markdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'QtNetworkChat Automation Status',
     'HEAD: `abc1234`',
+    'HEAD note: `status source/evidence head; the commit containing this generated status file may be newer`',
     'GitHub Windows Build: `success`',
     'Local CTest count: `51`',
     'Protected untracked entries: `.polaris/, AGENTS.md`',
