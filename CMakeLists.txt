@@ -114,6 +114,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql 
 set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/tlssecurity.cpp
     src/filetransferstatus.cpp
+    src/chatcontextmanager.cpp
     src/transfermanager.cpp
     src/chatsessionmanager.cpp
     src/composermanager.cpp
@@ -123,6 +124,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/e2eenvelope.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
+    include/chatcontextmanager.h
     include/transfermanager.h
     include/chatsessionmanager.h
     include/composermanager.h
@@ -386,6 +388,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(chat_session_manager_test PRIVATE include)
     target_link_libraries(chat_session_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(chat_context_manager_test
+        tests/chat_context_manager_test.cpp
+        src/chatcontextmanager.cpp
+        include/chatcontextmanager.h
+    )
+    target_include_directories(chat_context_manager_test PRIVATE include)
+    target_link_libraries(chat_context_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(composer_manager_test
         tests/composer_manager_test.cpp
@@ -780,6 +790,13 @@ if(BUILD_TESTING)
         NAME ChatSessionManagerUiState
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:chat_session_manager_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME ChatContextManagerDispatch
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:chat_context_manager_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

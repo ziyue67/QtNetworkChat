@@ -19,6 +19,7 @@
 #include "friendmanager.h"
 #include "groupmanager.h"
 #include "historyservice.h"
+#include "chatcontextmanager.h"
 #include "message.h"
 #include "transfermanager.h"
 
@@ -178,13 +179,7 @@ private:
     bool openSavedFolderFromState(const SavedFileActionState& savedFileState);
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
     bool handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState);
-    bool handleChatCopyContextCommand(const QString& commandId, const QString& chatText);
-    bool handleChatDraftContextCommand(const QString& commandId, const QString& chatText);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
-    void quoteChatMessage(const QString& chatText);
-    void forwardChatMessage(const QString& chatText);
-    void resendChatMessage(const QString& chatText);
-    void mentionChatSender(const QString& chatText);
     QAction* addChatContextAction(QMenu& menu,
                                   const QString& title,
                                   const QString& tip,
@@ -193,16 +188,6 @@ private:
     bool handleChatContextCommand(const QString& commandId,
                                   const QString& chatText,
                                   const SavedFileActionState& savedFileState);
-    QString chatPlainContentText(const QString& chatText) const;
-    QString chatResendContentText(const QString& chatText) const;
-    QString chatSenderText(const QString& chatText) const;
-    QString chatTimeText(const QString& chatText) const;
-    QString chatMentionTargetText(const QString& chatText) const;
-    QString mediaTypeFromChatText(const QString& text) const;
-    QString chatMediaCardText(const QString& chatText) const;
-    QString chatMediaNoticeText(const QString& chatText) const;
-    QString chatMediaReceiptText(const QString& chatText) const;
-    QString chatMediaFlowText(const QString& chatText) const;
     void applyReceivedTransferSaveStatus(const QString& kind,
                                          const QString& fileName,
                                          const QString& displayName,

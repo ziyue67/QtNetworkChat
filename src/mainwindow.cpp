@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "chatsessionmanager.h"
+#include "chatcontextmanager.h"
 #include "composermanager.h"
 #include "filetransferstatus.h"
 #include "localfilemanager.h"
@@ -703,86 +704,10 @@ bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const S
     return false;
 }
 
-bool MainWindow::handleChatCopyContextCommand(const QString& commandId, const QString& chatText) {
-    if (commandId == QLatin1String("copy-message")) {
-        copyTextWithStatus(chatText, "消息已复制");
-        return true;
-    }
-    if (commandId == QLatin1String("copy-plain")) {
-        copyTextWithStatus(chatPlainContentText(chatText), "消息内容已复制");
-        return true;
-    }
-    if (commandId == QLatin1String("copy-sender")) {
-        copyTextWithStatus(chatSenderText(chatText), "发送者已复制");
-        return true;
-    }
-    if (commandId == QLatin1String("copy-time")) {
-        const QString timeText = chatTimeText(chatText);
-        copyTextWithStatus(timeText, "消息时间已复制: " + timeText);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-media-card")) {
-        copyTextWithStatus(chatMediaCardText(chatText), "媒体卡片已复制", 2200);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-file-notice")) {
-        copyTextWithStatus(chatMediaNoticeText(chatText), "查收话术已复制", 2200);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-receipt")) {
-        copyTextWithStatus(chatMediaReceiptText(chatText), "回执话术已复制", 2200);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-media-flow")) {
-        copyTextWithStatus(chatMediaFlowText(chatText), "媒体流程已复制", 2200);
-        return true;
-    }
-    return false;
-}
-
-bool MainWindow::handleChatDraftContextCommand(const QString& commandId, const QString& chatText) {
-    if (commandId == QLatin1String("quote")) {
-        quoteChatMessage(chatText);
-        return true;
-    }
-    if (commandId == QLatin1String("forward")) {
-        forwardChatMessage(chatText);
-        return true;
-    }
-    if (commandId == QLatin1String("resend")) {
-        resendChatMessage(chatText);
-        return true;
-    }
-    if (commandId == QLatin1String("mention-reply")) {
-        mentionChatSender(chatText);
-        return true;
-    }
-    return false;
-}
-
 void MainWindow::setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
     ui->messageEdit->setPlainText(text);
     ui->messageEdit->setFocus();
     ui->statusbar->showMessage(statusMessage, timeoutMs);
-}
-
-void MainWindow::quoteChatMessage(const QString& chatText) {
-    setChatDraftText(QString("> %1\n").arg(chatText), "已插入引用回复");
-}
-
-void MainWindow::forwardChatMessage(const QString& chatText) {
-    setChatDraftText(QString("转发：%1").arg(chatPlainContentText(chatText)), "已转发到输入框");
-}
-
-void MainWindow::resendChatMessage(const QString& chatText) {
-    ui->messageEdit->setPlainText(chatResendContentText(chatText));
-    ui->messageEdit->setFocus();
-    onSendMessage();
-}
-
-void MainWindow::mentionChatSender(const QString& chatText) {
-    const QString name = chatMentionTargetText(chatText);
-    setChatDraftText(QString("@%1 ").arg(name), QString("已插入 @%1 回复").arg(name));
 }
 
 QAction* MainWindow::addChatContextAction(QMenu& menu,
@@ -801,94 +726,40 @@ QAction* MainWindow::addChatContextAction(QMenu& menu,
 bool MainWindow::handleChatContextCommand(const QString& commandId,
                                           const QString& chatText,
                                           const SavedFileActionState& savedFileState) {
-    if (handleChatCopyContextCommand(commandId, chatText)
-        || handleSavedFileContextCommand(commandId, savedFileState)
-        || handleChatDraftContextCommand(commandId, chatText)) {
+    const QString targetDisplayName = m_privateChatTarget.isEmpty()
+        ? QStringLiteral("公共聊天室")
+        : contactDisplayName(m_privateChatTarget);
+    const ChatContextCopyResult copyResult = ChatContextManager::copyCommandResult(
+        commandId,
+        chatText,
+        m_privateChatTarget,
+        targetDisplayName,
+        m_currentUserId,
+        m_currentUserName);
+    if (copyResult.handled) {
+        copyTextWithStatus(copyResult.clipboardText, copyResult.statusMessage, copyResult.timeoutMs);
+        return true;
+    }
+    if (handleSavedFileContextCommand(commandId, savedFileState)) {
+        return true;
+    }
+
+    const ChatContextDraftResult draftResult = ChatContextManager::draftCommandResult(
+        commandId,
+        chatText,
+        m_privateChatTarget,
+        targetDisplayName);
+    if (draftResult.handled) {
+        if (draftResult.action == ChatContextDraftResult::Action::SetDraft) {
+            setChatDraftText(draftResult.draftText, draftResult.statusMessage, draftResult.timeoutMs);
+        } else if (draftResult.action == ChatContextDraftResult::Action::Resend) {
+            ui->messageEdit->setPlainText(draftResult.resendText);
+            ui->messageEdit->setFocus();
+            onSendMessage();
+        }
         return true;
     }
     return false;
-}
-
-QString MainWindow::chatPlainContentText(const QString& chatText) const {
-    QString content = chatText.section(']', 2).trimmed();
-    if (content.isEmpty()) content = chatText;
-    return content;
-}
-
-QString MainWindow::chatResendContentText(const QString& chatText) const {
-    QString content = chatText.section(']', 2).trimmed();
-    if (content.isEmpty()) content = chatText.section('>', 1).trimmed();
-    if (content.isEmpty()) content = chatText;
-    return content;
-}
-
-QString MainWindow::chatSenderText(const QString& chatText) const {
-    QString sender = chatText.section('<', 1, 1).section('>', 0, 0).trimmed();
-    if (sender.isEmpty()) sender = chatText.section(']', 1, 1).trimmed();
-    return sender;
-}
-
-QString MainWindow::chatTimeText(const QString& chatText) const {
-    QString timeText = chatText.section(']', 0, 0).section('[', 1).trimmed();
-    if (timeText.isEmpty()) timeText = QDateTime::currentDateTime().toString("hh:mm:ss");
-    return timeText;
-}
-
-QString MainWindow::chatMentionTargetText(const QString& chatText) const {
-    QString name = chatText.section('<', 1, 1).section('>', 0, 0).trimmed();
-    if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
-    return name;
-}
-
-QString MainWindow::mediaTypeFromChatText(const QString& text) const {
-    if (text.contains("视频")) return QStringLiteral("视频");
-    if (text.contains("图片")) return QStringLiteral("图片");
-    return QStringLiteral("文件");
-}
-
-QString MainWindow::chatMediaCardText(const QString& chatText) const {
-    QString fileName = chatText.section(" · ", 0, 0).section(']', -1).trimmed();
-    if (fileName.isEmpty()) fileName = chatText;
-
-    const QString sender = chatText.section('<', 1, 1).section('>', 0, 0).trimmed();
-    return QString("%1卡片\n文件:%2\n会话:%3\n发送者:%4\n我的QQ:%5")
-        .arg(mediaTypeFromChatText(chatText),
-             fileName,
-             m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget),
-             sender.isEmpty() ? m_currentUserName : sender,
-             m_currentUserId);
-}
-
-QString MainWindow::chatMediaNoticeText(const QString& chatText) const {
-    QString fileName = chatText.section(" · ", 0, 0).section(']', -1).trimmed();
-    if (fileName.isEmpty()) fileName = "刚发送的文件";
-
-    const QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-    return QString("我已发送 %1 到 %2，请注意查收。").arg(fileName, target);
-}
-
-QString MainWindow::chatMediaReceiptText(const QString& chatText) const {
-    QString fileName = chatText.section(" · ", 1, 1).trimmed();
-    if (fileName.isEmpty()) fileName = chatText.section("已收到", 1, 1).section("，", 0, 0).trimmed();
-    if (fileName.isEmpty()) fileName = "刚收到的文件";
-    return QString("已收到 %1，文件已保存，我会尽快查看。").arg(fileName);
-}
-
-QString MainWindow::chatMediaFlowText(const QString& chatText) const {
-    QString fileName = chatText.section(" · ", 1, 1).trimmed();
-    if (fileName.isEmpty()) fileName = chatText.section(" · ", 0, 0).section(']', -1).trimmed();
-    if (fileName.isEmpty()) fileName = "当前媒体文件";
-
-    const QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-    QStringList rows;
-    rows << QString("媒体流程 · 类型:%1 · 文件:%2").arg(mediaTypeFromChatText(chatText), fileName);
-    rows << QString("会话:%1 · 我的QQ:%2 · 昵称:%3").arg(target, m_currentUserId, m_currentUserName);
-    rows << "1. 发送方点击图片/视频或闪传文件选择媒体";
-    rows << "2. 聊天记录生成媒体卡片和查收话术";
-    rows << "3. 接收方自动保存后可复制回执话术和保存路径";
-    rows << QString("查收话术：我已发送 %1 到 %2，请注意查收。").arg(fileName, target);
-    rows << QString("回执话术：已收到 %1，文件已保存，我会尽快查看。").arg(fileName);
-    return rows.join('\n');
 }
 
 void MainWindow::applyReceivedTransferSaveStatus(const QString& kind,
