@@ -86,6 +86,7 @@ private:
     void setupTray();
     void appendMessage(const Message& msg);
     void appendSystemMessage(const QString& text);
+    void applyTransferSendState(const TransferSendUiState& state);
     void appendTransferCompletionState(const TransferSendUiState& state,
                                        bool includeSystemMessage,
                                        bool includeCard,

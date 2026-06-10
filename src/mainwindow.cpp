@@ -2403,15 +2403,13 @@ void MainWindow::onSendFile() {
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
     if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
         const TransferSendUiState state = m_transferManager.publicGroupRemovedState(QStringLiteral("文件"));
-        ui->chatHintLabel->setText(state.hintText);
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        applyTransferSendState(state);
         refreshComposerState();
         return;
     }
     if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
         const TransferSendUiState state = m_transferManager.disconnectedSendState(QStringLiteral("文件"), targetName);
-        ui->chatHintLabel->setText(state.hintText);
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        applyTransferSendState(state);
         refreshComposerState();
         return;
     }
@@ -2437,8 +2435,7 @@ void MainWindow::onSendFile() {
 
     const QString fileSize = humanFileSize(info.size());
     const TransferSendUiState preparingState = m_transferManager.preparingSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
-    ui->chatHintLabel->setText(preparingState.hintText);
-    ui->statusbar->showMessage(preparingState.statusMessage, preparingState.statusTimeoutMs);
+    applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         const TransferSendUiState completedState = m_transferManager.localSendCompletedState(QStringLiteral("文件"), info.fileName(), fileSize, targetName, completedAt);
@@ -2469,8 +2466,7 @@ void MainWindow::onSendFile() {
         refreshComposerState();
     } else {
         const TransferSendUiState state = m_transferManager.failedSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
-        ui->chatHintLabel->setText(state.hintText);
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        applyTransferSendState(state);
         QMessageBox::warning(this, state.warningTitle, state.warningMessage);
         refreshComposerState();
     }
@@ -2481,15 +2477,13 @@ void MainWindow::onSendImage() {
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
     if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
         const TransferSendUiState state = m_transferManager.publicGroupRemovedState(QStringLiteral("图片/视频"));
-        ui->chatHintLabel->setText(state.hintText);
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        applyTransferSendState(state);
         refreshComposerState();
         return;
     }
     if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
         const TransferSendUiState state = m_transferManager.disconnectedSendState(QStringLiteral("图片/视频"), targetName);
-        ui->chatHintLabel->setText(state.hintText);
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        applyTransferSendState(state);
         refreshComposerState();
         return;
     }
@@ -2518,8 +2512,7 @@ void MainWindow::onSendImage() {
     const QString mediaType = isVideo ? "视频" : "图片";
     const QString fileSize = humanFileSize(info.size());
     const TransferSendUiState preparingState = m_transferManager.preparingSendState(mediaType, info.fileName(), fileSize, targetName);
-    ui->chatHintLabel->setText(preparingState.hintText);
-    ui->statusbar->showMessage(preparingState.statusMessage, preparingState.statusTimeoutMs);
+    applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         const TransferSendUiState completedState = m_transferManager.localSendCompletedState(mediaType, info.fileName(), fileSize, targetName, completedAt);
@@ -2583,8 +2576,7 @@ void MainWindow::onSendImage() {
         refreshComposerState();
     } else {
         const TransferSendUiState state = m_transferManager.failedSendState(mediaType, info.fileName(), fileSize, targetName);
-        ui->chatHintLabel->setText(state.hintText);
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        applyTransferSendState(state);
         QMessageBox::warning(this, state.warningTitle, state.warningMessage);
         refreshComposerState();
     }
@@ -7268,6 +7260,11 @@ void MainWindow::appendSystemMessage(const QString& text) {
     item->setForeground(Qt::darkGray);
     m_chatModel->appendRow(item);
     ui->chatListView->scrollToBottom();
+}
+
+void MainWindow::applyTransferSendState(const TransferSendUiState& state) {
+    ui->chatHintLabel->setText(state.hintText);
+    ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
 }
 
 void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
