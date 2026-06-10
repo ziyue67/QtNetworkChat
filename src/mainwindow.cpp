@@ -2538,39 +2538,24 @@ void MainWindow::onSendMessage() {
 void MainWindow::onSendFile() {
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
-        const TransferSendUiState state = m_transferManager.publicGroupRemovedState(QStringLiteral("文件"));
-        applyTransferSendState(state);
-        refreshComposerState();
-        return;
-    }
-    if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
-        const TransferSendUiState state = m_transferManager.disconnectedSendState(QStringLiteral("文件"), targetName);
-        applyTransferSendState(state);
-        refreshComposerState();
+    if (!ensureTransferTargetReady(QStringLiteral("文件"), targetName, isLocalGroup)) {
         return;
     }
 
-    QString filePath = QFileDialog::getOpenFileName(this, "选择文件", lastTransferDirectory(),
-        "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
-    if (filePath.isEmpty()) {
-        ui->chatHintLabel->setText("文件发送已取消");
-        ui->statusbar->showMessage("已取消选择文件", 1600);
-        return;
-    }
-    rememberTransferDirectory(filePath);
-
-    QFileInfo info(filePath);
-    QString failureMessage;
-    if (!confirmTransferFile(this, info, "文件", &failureMessage)) {
-        if (!failureMessage.isEmpty()) {
-            ui->chatHintLabel->setText(failureMessage);
-            ui->statusbar->showMessage(failureMessage, 2600);
-        }
+    QString filePath;
+    QFileInfo info;
+    QString fileSize;
+    if (!selectTransferFile("选择文件",
+                            "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)",
+                            "文件",
+                            "文件发送已取消",
+                            "已取消选择文件",
+                            &filePath,
+                            &info,
+                            &fileSize)) {
         return;
     }
 
-    const QString fileSize = humanFileSize(info.size());
     const TransferSendUiState preparingState = m_transferManager.preparingSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
@@ -2612,42 +2597,27 @@ void MainWindow::onSendFile() {
 void MainWindow::onSendImage() {
     const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
     const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
-        const TransferSendUiState state = m_transferManager.publicGroupRemovedState(QStringLiteral("图片/视频"));
-        applyTransferSendState(state);
-        refreshComposerState();
-        return;
-    }
-    if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
-        const TransferSendUiState state = m_transferManager.disconnectedSendState(QStringLiteral("图片/视频"), targetName);
-        applyTransferSendState(state);
-        refreshComposerState();
+    if (!ensureTransferTargetReady(QStringLiteral("图片/视频"), targetName, isLocalGroup)) {
         return;
     }
 
-    QString filePath = QFileDialog::getOpenFileName(this, "选择图片或视频", lastTransferDirectory(),
-        "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
-    if (filePath.isEmpty()) {
-        ui->chatHintLabel->setText("图片/视频发送已取消");
-        ui->statusbar->showMessage("已取消选择图片/视频", 1600);
-        return;
-    }
-    rememberTransferDirectory(filePath);
-
-    QFileInfo info(filePath);
-    QString failureMessage;
-    if (!confirmTransferFile(this, info, "媒体文件", &failureMessage)) {
-        if (!failureMessage.isEmpty()) {
-            ui->chatHintLabel->setText(failureMessage);
-            ui->statusbar->showMessage(failureMessage, 2600);
-        }
+    QString filePath;
+    QFileInfo info;
+    QString fileSize;
+    if (!selectTransferFile("选择图片或视频",
+                            "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)",
+                            "媒体文件",
+                            "图片/视频发送已取消",
+                            "已取消选择图片/视频",
+                            &filePath,
+                            &info,
+                            &fileSize)) {
         return;
     }
 
     const QString suffix = info.suffix().toLower();
     const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
     const QString mediaType = isVideo ? "视频" : "图片";
-    const QString fileSize = humanFileSize(info.size());
     const TransferSendUiState preparingState = m_transferManager.preparingSendState(mediaType, info.fileName(), fileSize, targetName);
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
@@ -7308,6 +7278,58 @@ void MainWindow::appendSystemMessage(const QString& text) {
     item->setForeground(Qt::darkGray);
     m_chatModel->appendRow(item);
     ui->chatListView->scrollToBottom();
+}
+
+bool MainWindow::ensureTransferTargetReady(const QString& kind, const QString& targetName, bool isLocalGroup) {
+    if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
+        const TransferSendUiState state = m_transferManager.publicGroupRemovedState(kind);
+        applyTransferSendState(state);
+        refreshComposerState();
+        return false;
+    }
+    if (!isLocalGroup && (!m_client || !m_client->isConnected())) {
+        const TransferSendUiState state = m_transferManager.disconnectedSendState(kind, targetName);
+        applyTransferSendState(state);
+        refreshComposerState();
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::selectTransferFile(const QString& dialogTitle,
+                                    const QString& filters,
+                                    const QString& confirmKind,
+                                    const QString& canceledHint,
+                                    const QString& canceledStatus,
+                                    QString* filePath,
+                                    QFileInfo* fileInfo,
+                                    QString* fileSize) {
+    if (!filePath || !fileInfo) {
+        return false;
+    }
+
+    *filePath = QFileDialog::getOpenFileName(this, dialogTitle, lastTransferDirectory(), filters);
+    if (filePath->isEmpty()) {
+        ui->chatHintLabel->setText(canceledHint);
+        ui->statusbar->showMessage(canceledStatus, 1600);
+        return false;
+    }
+    rememberTransferDirectory(*filePath);
+
+    *fileInfo = QFileInfo(*filePath);
+    QString failureMessage;
+    if (!confirmTransferFile(this, *fileInfo, confirmKind, &failureMessage)) {
+        if (!failureMessage.isEmpty()) {
+            ui->chatHintLabel->setText(failureMessage);
+            ui->statusbar->showMessage(failureMessage, 2600);
+        }
+        return false;
+    }
+
+    if (fileSize) {
+        *fileSize = humanFileSize(fileInfo->size());
+    }
+    return true;
 }
 
 void MainWindow::applyTransferSendState(const TransferSendUiState& state) {

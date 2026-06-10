@@ -107,6 +107,15 @@ private:
     void appendMessage(const Message& msg);
     void appendSystemMessage(const QString& text);
     void applyTransferSendState(const TransferSendUiState& state);
+    bool ensureTransferTargetReady(const QString& kind, const QString& targetName, bool isLocalGroup);
+    bool selectTransferFile(const QString& dialogTitle,
+                            const QString& filters,
+                            const QString& confirmKind,
+                            const QString& canceledHint,
+                            const QString& canceledStatus,
+                            QString* filePath,
+                            QFileInfo* fileInfo,
+                            QString* fileSize = nullptr);
     void appendTransferCompletionState(const TransferSendUiState& state,
                                        bool includeSystemMessage,
                                        bool includeCard,
