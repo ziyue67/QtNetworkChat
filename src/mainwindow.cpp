@@ -602,44 +602,60 @@ ChatContextSavedFileState MainWindow::chatContextSavedFileState(const SavedFileA
 }
 
 bool MainWindow::copySavedFilePathToClipboard(const SavedFileActionState& savedFileState) {
-    if (savedFileState.savePath.isEmpty()) {
-        ui->statusbar->showMessage("当前消息没有保存路径", 2200);
+    const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
+                                                                                     chatContextSavedFileState(savedFileState),
+                                                                                     savedFileState.savePath);
+    if (!command.canExecute) {
+        ui->statusbar->showMessage(command.missingStatusMessage, command.timeoutMs);
         return false;
     }
 
-    QApplication::clipboard()->setText(savedFileState.savePath);
-    ui->statusbar->showMessage("保存路径已复制", 2200);
+    QApplication::clipboard()->setText(command.clipboardText);
+    ui->statusbar->showMessage(command.successStatusMessage, command.timeoutMs);
     return true;
 }
 
 bool MainWindow::openSavedFileFromState(const SavedFileActionState& savedFileState, const QString& missingMessage) {
-    if (savedFileState.canOpenFile
-        && QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.fileInfo.absoluteFilePath()))) {
-        ui->statusbar->showMessage("已打开保存文件", 2200);
+    ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                               chatContextSavedFileState(savedFileState),
+                                                                               savedFileState.savePath);
+    if (!missingMessage.trimmed().isEmpty()) {
+        command.failureStatusMessage = missingMessage;
+    }
+    if (!command.canExecute) {
+        ui->statusbar->showMessage(command.missingStatusMessage, command.timeoutMs);
+        return false;
+    }
+
+    if (QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.fileInfo.absoluteFilePath()))) {
+        ui->statusbar->showMessage(command.successStatusMessage, command.timeoutMs);
         return true;
     }
 
     showFileTransferStatusEvent(savedFileState.fileInfo.fileName(),
                                 QString(),
-                                QStringLiteral("receive-open-failed"),
+                                command.failureTransferReason,
                                 0,
                                 0);
-    ui->statusbar->showMessage(missingMessage, 2200);
+    ui->statusbar->showMessage(command.failureStatusMessage, command.timeoutMs);
     return false;
 }
 
 bool MainWindow::openSavedFolderFromState(const SavedFileActionState& savedFileState) {
-    if (!savedFileState.canOpenFolder) {
-        ui->statusbar->showMessage("当前消息没有可打开的保存路径", 2200);
+    const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-save-folder"),
+                                                                                     chatContextSavedFileState(savedFileState),
+                                                                                     savedFileState.savePath);
+    if (!command.canExecute) {
+        ui->statusbar->showMessage(command.missingStatusMessage, command.timeoutMs);
         return false;
     }
 
     if (QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.folderInfo.absoluteFilePath()))) {
-        ui->statusbar->showMessage("已打开保存目录", 2200);
+        ui->statusbar->showMessage(command.successStatusMessage, command.timeoutMs);
         return true;
     }
 
-    ui->statusbar->showMessage("保存目录无法打开", 2200);
+    ui->statusbar->showMessage(command.failureStatusMessage, command.timeoutMs);
     return false;
 }
 
@@ -649,7 +665,9 @@ void MainWindow::copyTextWithStatus(const QString& text, const QString& statusMe
 }
 
 bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState) {
-    const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(commandId);
+    const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(commandId,
+                                                                                     chatContextSavedFileState(savedFileState),
+                                                                                     savedFileState.savePath);
     if (!command.handled) {
         return false;
     }

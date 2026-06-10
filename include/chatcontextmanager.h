@@ -51,7 +51,13 @@ struct ChatContextSavedFileCommand {
 
     bool handled = false;
     Action action = Action::None;
+    bool canExecute = false;
+    QString clipboardText;
     QString missingStatusMessage;
+    QString successStatusMessage;
+    QString failureStatusMessage;
+    QString failureTransferReason;
+    int timeoutMs = 2200;
 };
 
 class ChatContextManager {
@@ -64,7 +70,9 @@ public:
                                                    const QString& targetDisplayName,
                                                    const QString& currentUserId,
                                                    const QString& currentUserName);
-    static ChatContextSavedFileCommand savedFileCommand(const QString& commandId);
+    static ChatContextSavedFileCommand savedFileCommand(const QString& commandId,
+                                                        const ChatContextSavedFileState& savedFileState,
+                                                        const QString& savePath = QString());
     static ChatContextDraftResult draftCommandResult(const QString& commandId,
                                                      const QString& chatText,
                                                      const QString& privateChatTarget,

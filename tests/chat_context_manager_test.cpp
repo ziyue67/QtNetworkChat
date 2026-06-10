@@ -138,19 +138,61 @@ int main(int argc, char** argv) {
                     && ChatContextManager::mediaReceiptText(QString::fromUtf8("已收到 图片 · report.png，文件已保存")).contains(QStringLiteral("report.png")),
                 "chat context parsing helpers should extract sender, media type, and receipt text") && ok;
 
-    ChatContextSavedFileCommand copySavePathCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"));
+    ChatContextSavedFileCommand copySavePathCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
+                                                                                           missingSavePathState,
+                                                                                           QString());
     ok = expect(copySavePathCommand.handled
                     && copySavePathCommand.action == ChatContextSavedFileCommand::Action::CopySavePath
+                    && !copySavePathCommand.canExecute
                     && copySavePathCommand.missingStatusMessage == QString::fromUtf8("当前消息没有保存路径"),
                 "copy save path command should map to saved file copy action and missing status") && ok;
 
-    ChatContextSavedFileCommand openSavedFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"));
+    ChatContextSavedFileCommand openSavedFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                                            missingSavePathState,
+                                                                                            QString());
     ok = expect(openSavedFileCommand.handled
                     && openSavedFileCommand.action == ChatContextSavedFileCommand::Action::OpenSavedFile
-                    && openSavedFileCommand.missingStatusMessage == QString::fromUtf8("当前消息没有可打开的文件"),
+                    && !openSavedFileCommand.canExecute
+                    && openSavedFileCommand.missingStatusMessage == QString::fromUtf8("当前消息没有可打开的文件")
+                    && openSavedFileCommand.failureTransferReason == QStringLiteral("receive-open-failed"),
                 "open saved file command should expose missing-file status") && ok;
 
-    ChatContextSavedFileCommand unknownSavedFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("noop"));
+    ChatContextSavedFileState openableSavedFileState;
+    openableSavedFileState.hasSavePath = true;
+    openableSavedFileState.canOpenFile = true;
+    openableSavedFileState.canOpenFolder = true;
+    openableSavedFileState.fileExists = true;
+    ChatContextSavedFileCommand executableCopyCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
+                                                                                             openableSavedFileState,
+                                                                                             QStringLiteral("C:/Downloads/report.zip"));
+    ok = expect(executableCopyCommand.handled
+                    && executableCopyCommand.canExecute
+                    && executableCopyCommand.clipboardText == QStringLiteral("C:/Downloads/report.zip")
+                    && executableCopyCommand.successStatusMessage == QString::fromUtf8("保存路径已复制"),
+                "copy save path command should carry clipboard text and success status when executable") && ok;
+
+    ChatContextSavedFileCommand executableOpenFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                                                 openableSavedFileState,
+                                                                                                 QStringLiteral("C:/Downloads/report.zip"));
+    ok = expect(executableOpenFileCommand.handled
+                    && executableOpenFileCommand.canExecute
+                    && executableOpenFileCommand.successStatusMessage == QString::fromUtf8("已打开保存文件")
+                    && executableOpenFileCommand.failureStatusMessage == QString::fromUtf8("保存文件不存在或无法打开")
+                    && executableOpenFileCommand.failureTransferReason == QStringLiteral("receive-open-failed"),
+                "open saved file command should centralize success/failure copy and transfer reason") && ok;
+
+    ChatContextSavedFileCommand executableOpenFolderCommand = ChatContextManager::savedFileCommand(QStringLiteral("open-save-folder"),
+                                                                                                   openableSavedFileState,
+                                                                                                   QStringLiteral("C:/Downloads/report.zip"));
+    ok = expect(executableOpenFolderCommand.handled
+                    && executableOpenFolderCommand.canExecute
+                    && executableOpenFolderCommand.successStatusMessage == QString::fromUtf8("已打开保存目录")
+                    && executableOpenFolderCommand.failureStatusMessage == QString::fromUtf8("保存目录无法打开"),
+                "open save folder command should centralize folder success/failure copy") && ok;
+
+    ChatContextSavedFileCommand unknownSavedFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("noop"),
+                                                                                               missingSavePathState,
+                                                                                               QString());
     ok = expect(!unknownSavedFileCommand.handled
                     && unknownSavedFileCommand.action == ChatContextSavedFileCommand::Action::None,
                 "unknown saved file command should remain unhandled") && ok;

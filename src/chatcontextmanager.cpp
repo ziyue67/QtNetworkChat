@@ -116,24 +116,36 @@ ChatContextCopyResult ChatContextManager::copyCommandResult(const QString& comma
     return result;
 }
 
-ChatContextSavedFileCommand ChatContextManager::savedFileCommand(const QString& commandId) {
+ChatContextSavedFileCommand ChatContextManager::savedFileCommand(const QString& commandId,
+                                                                 const ChatContextSavedFileState& savedFileState,
+                                                                 const QString& savePath) {
     ChatContextSavedFileCommand result;
     if (commandId == QLatin1String("copy-save-path")) {
         result.handled = true;
         result.action = ChatContextSavedFileCommand::Action::CopySavePath;
+        result.canExecute = savedFileState.hasSavePath && !savePath.trimmed().isEmpty();
+        result.clipboardText = savePath.trimmed();
         result.missingStatusMessage = QStringLiteral("当前消息没有保存路径");
+        result.successStatusMessage = QStringLiteral("保存路径已复制");
         return result;
     }
     if (commandId == QLatin1String("open-saved-file")) {
         result.handled = true;
         result.action = ChatContextSavedFileCommand::Action::OpenSavedFile;
         result.missingStatusMessage = QStringLiteral("当前消息没有可打开的文件");
+        result.canExecute = savedFileState.canOpenFile;
+        result.successStatusMessage = QStringLiteral("已打开保存文件");
+        result.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
+        result.failureTransferReason = QStringLiteral("receive-open-failed");
         return result;
     }
     if (commandId == QLatin1String("open-save-folder")) {
         result.handled = true;
         result.action = ChatContextSavedFileCommand::Action::OpenSaveFolder;
         result.missingStatusMessage = QStringLiteral("当前消息没有可打开的保存路径");
+        result.canExecute = savedFileState.canOpenFolder;
+        result.successStatusMessage = QStringLiteral("已打开保存目录");
+        result.failureStatusMessage = QStringLiteral("保存目录无法打开");
         return result;
     }
     return result;
