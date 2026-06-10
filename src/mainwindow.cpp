@@ -548,6 +548,12 @@ MainWindow::SavedFileActionState MainWindow::savedFileActionState(const QModelIn
     return state;
 }
 
+QString MainWindow::mediaTypeFromChatText(const QString& text) const {
+    if (text.contains("视频")) return QStringLiteral("视频");
+    if (text.contains("图片")) return QStringLiteral("图片");
+    return QStringLiteral("文件");
+}
+
 void MainWindow::applyReceivedTransferSaveStatus(const QString& kind,
                                                  const QString& fileName,
                                                  const QString& displayName,
@@ -1558,7 +1564,7 @@ void MainWindow::setupUi() {
         } else if (selected == copyMediaCardAction) {
             QString fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
             if (fileName.isEmpty()) fileName = text;
-            QString mediaType = text.contains("视频") ? "视频" : (text.contains("图片") ? "图片" : "文件");
+            const QString mediaType = mediaTypeFromChatText(text);
             QString card = QString("%1卡片\n文件:%2\n会话:%3\n发送者:%4\n我的QQ:%5")
                 .arg(mediaType,
                      fileName,
@@ -1612,7 +1618,7 @@ void MainWindow::setupUi() {
             if (fileName.isEmpty()) fileName = text.section(" · ", 0, 0).section(']', -1).trimmed();
             if (fileName.isEmpty()) fileName = "当前媒体文件";
             QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-            QString mediaType = text.contains("视频") ? "视频" : (text.contains("图片") ? "图片" : "文件");
+            const QString mediaType = mediaTypeFromChatText(text);
             QStringList rows;
             rows << QString("媒体流程 · 类型:%1 · 文件:%2").arg(mediaType, fileName);
             rows << QString("会话:%1 · 我的QQ:%2 · 昵称:%3").arg(target, m_currentUserId, m_currentUserName);

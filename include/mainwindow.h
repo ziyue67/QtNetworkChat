@@ -154,6 +154,7 @@ private:
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     SavedFileActionState savedFileActionState(const QModelIndex& index) const;
+    QString mediaTypeFromChatText(const QString& text) const;
     void applyReceivedTransferSaveStatus(const QString& kind,
                                          const QString& fileName,
                                          const QString& displayName,
