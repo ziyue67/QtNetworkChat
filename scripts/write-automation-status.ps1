@@ -2725,6 +2725,11 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers)))
+        $lines.Add(('  Linked runtime candidate head match: targetReleaseHead=`{0}`, currentHead=`{1}`, targetMatchesCurrentHead=`{2}`, stale=`{3}`' -f `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetReleaseHead), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.currentHead), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact)))
     }
 }
 $lines.Add("")
@@ -3152,6 +3157,8 @@ $e2eLinkedReleaseCandidateDiagnostics = @(
     ('releaseReady={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady)),
     ('promoted={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted)),
     ('releaseGate={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate)),
+    ('targetMatchesCurrentHead={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead)),
+    ('stale={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact)),
     ('packageSha256={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageSha256))
 ) -join "; "
 $s3RealBackendReadinessDiagnostics = @(
