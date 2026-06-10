@@ -3,6 +3,7 @@
 #include "chatsessionmanager.h"
 #include "composermanager.h"
 #include "filetransferstatus.h"
+#include "localfilemanager.h"
 #include "qtnetworkchat_version.h"
 #include "windowstatemanager.h"
 #include <QInputDialog>
@@ -105,12 +106,6 @@ QIcon createChatIcon(const QString& seedText = QString()) {
         icon.addPixmap(pixmap);
     }
     return icon;
-}
-
-QString humanFileSize(qint64 bytes) {
-    if (bytes < 1024) return QString("%1 B").arg(bytes);
-    if (bytes < 1024 * 1024) return QString("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
-    return QString::number(bytes / 1024.0 / 1024.0, 'f', 1) + " MB";
 }
 
 QString safeReceivedFileName(const QString& rawName, const QString& fallbackName) {
@@ -341,84 +336,6 @@ QString transferIntegritySummary(const Message& msg) {
     return "完整性校验失败：" + issues.join("、");
 }
 
-QString lastTransferDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
-    QString directory = settings.value("transfer/lastDirectory").toString();
-    if (directory.isEmpty()) {
-        directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    }
-    if (directory.isEmpty() || !QDir(directory).exists()) {
-        directory = QDir::homePath();
-    }
-    return directory;
-}
-
-void rememberTransferDirectory(const QString& filePath) {
-    const QString directory = QFileInfo(filePath).absolutePath();
-    if (directory.isEmpty() || !QDir(directory).exists()) return;
-
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
-    settings.setValue("transfer/lastDirectory", directory);
-}
-
-QString lastAvatarDirectory() {
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
-    QString directory = settings.value("avatar/lastDirectory").toString();
-    if (directory.isEmpty()) {
-        directory = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    }
-    if (directory.isEmpty() || !QDir(directory).exists()) {
-        directory = QDir::homePath();
-    }
-    return directory;
-}
-
-void rememberAvatarDirectory(const QString& filePath) {
-    const QString directory = QFileInfo(filePath).absolutePath();
-    if (directory.isEmpty() || !QDir(directory).exists()) return;
-
-    QSettings settings("QtNetworkChat", "QtNetworkChat");
-    settings.setValue("avatar/lastDirectory", directory);
-}
-
-bool confirmTransferFile(QWidget* parent, const QFileInfo& info, const QString& kind, QString* failureMessage = nullptr) {
-    constexpr qint64 warningBytes = 20LL * 1024 * 1024;
-    constexpr qint64 maxBytes = 80LL * 1024 * 1024;
-    auto setFailure = [failureMessage](const QString& text) {
-        if (failureMessage) *failureMessage = text;
-    };
-
-    if (!info.exists() || !info.isFile()) {
-        QMessageBox::warning(parent, "无法发送", "请选择一个可读取的本地文件。");
-        setFailure(QString("%1发送失败：文件不可读取").arg(kind));
-        return false;
-    }
-    if (info.size() <= 0) {
-        QMessageBox::warning(parent, "无法发送", "文件为空，已取消发送。");
-        setFailure(QString("%1发送失败：文件为空").arg(kind));
-        return false;
-    }
-    if (info.size() > maxBytes) {
-        QMessageBox::warning(parent,
-                             "文件过大",
-                             QString("%1大小为 %2，超过当前 80 MB 的安全发送上限。")
-                                 .arg(kind, humanFileSize(info.size())));
-        setFailure(QString("%1发送失败：超过 80 MB").arg(kind));
-        return false;
-    }
-    if (info.size() > warningBytes) {
-        const bool confirmed = QMessageBox::question(parent,
-                                                     "确认发送大文件",
-                                                     QString("%1大小为 %2，发送时可能需要等待一会儿，是否继续？")
-                                                         .arg(kind, humanFileSize(info.size())),
-                                                     QMessageBox::Yes | QMessageBox::No,
-                                                     QMessageBox::No) == QMessageBox::Yes;
-        if (!confirmed) setFailure(QString("已取消发送%1").arg(kind));
-        return confirmed;
-    }
-    return true;
-}
-
 QPixmap squareAvatarPixmap(const QPixmap& source, int side) {
     if (source.isNull() || side <= 0) return QPixmap();
     QPixmap scaled = source.scaled(side, side, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
@@ -503,7 +420,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
             ? qBound(0, static_cast<int>((bytesReceived * 100) / totalBytes), 100)
             : 0;
         const QString detail = QString("正在接收分片文件 · %1 · %2 / %3 · %4%")
-            .arg(fileName, humanFileSize(bytesReceived), humanFileSize(totalBytes))
+            .arg(fileName, LocalFileManager::humanFileSize(bytesReceived), LocalFileManager::humanFileSize(totalBytes))
             .arg(percent);
         ui->chatHintLabel->setText(detail);
         ui->statusbar->showMessage(detail, 1600);
@@ -5516,31 +5433,18 @@ void MainWindow::onShowFriendManager() {
 }
 
 void MainWindow::onUploadAvatar() {
-    QString filePath = QFileDialog::getOpenFileName(this, "选择头像", lastAvatarDirectory(), "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
+    QString filePath = QFileDialog::getOpenFileName(this, "选择头像", LocalFileManager::lastAvatarDirectory(), "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
     if (filePath.isEmpty()) {
         ui->statusbar->showMessage("已取消选择头像", 1600);
         return;
     }
-    rememberAvatarDirectory(filePath);
+    LocalFileManager::rememberAvatarDirectory(filePath);
 
     QFileInfo info(filePath);
-    if (!info.exists() || !info.isFile()) {
-        QMessageBox::warning(this, "头像上传失败", "请选择一个可读取的本地图片文件。");
-        ui->statusbar->showMessage("头像上传失败：文件不可读取", 2200);
-        return;
-    }
-    if (info.size() <= 0) {
-        QMessageBox::warning(this, "头像上传失败", "图片文件为空，请重新选择。");
-        ui->statusbar->showMessage("头像上传失败：图片文件为空", 2200);
-        return;
-    }
-    constexpr qint64 maxAvatarBytes = 10LL * 1024 * 1024;
-    if (info.size() > maxAvatarBytes) {
-        QMessageBox::warning(this,
-                             "头像过大",
-                             QString("头像图片大小为 %1，超过 10 MB 上限，请选择更小的图片。")
-                                 .arg(humanFileSize(info.size())));
-        ui->statusbar->showMessage("头像上传失败：图片超过 10 MB", 2200);
+    const LocalFileValidationResult avatarValidation = LocalFileManager::validateAvatarFile(info);
+    if (!avatarValidation.accepted) {
+        QMessageBox::warning(this, avatarValidation.failureTitle, avatarValidation.failureMessage);
+        ui->statusbar->showMessage(avatarValidation.statusMessage, 2200);
         return;
     }
 
@@ -5560,9 +5464,9 @@ void MainWindow::onUploadAvatar() {
 
     ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
     saveProfileToSqlite();
-    QString detail = QString("头像已更新 · %1 · %2 · 已保存到本地").arg(info.fileName(), humanFileSize(info.size()));
+    QString detail = QString("头像已更新 · %1 · %2 · 已保存到本地").arg(info.fileName(), LocalFileManager::humanFileSize(info.size()));
     QString avatarTip = QString("当前头像：%1 · %2；点击“换头像”重新选择")
-                            .arg(info.fileName(), humanFileSize(info.size()));
+                            .arg(info.fileName(), LocalFileManager::humanFileSize(info.size()));
     ui->avatarLabel->setToolTip(avatarTip);
     ui->uploadAvatarBtn->setToolTip(avatarTip);
     appendSystemMessage(detail);
@@ -7325,26 +7229,37 @@ bool MainWindow::selectTransferFile(const QString& dialogTitle,
         return false;
     }
 
-    *filePath = QFileDialog::getOpenFileName(this, dialogTitle, lastTransferDirectory(), filters);
+    *filePath = QFileDialog::getOpenFileName(this, dialogTitle, LocalFileManager::lastTransferDirectory(), filters);
     if (filePath->isEmpty()) {
         ui->chatHintLabel->setText(canceledHint);
         ui->statusbar->showMessage(canceledStatus, 1600);
         return false;
     }
-    rememberTransferDirectory(*filePath);
+    LocalFileManager::rememberTransferDirectory(*filePath);
 
     *fileInfo = QFileInfo(*filePath);
-    QString failureMessage;
-    if (!confirmTransferFile(this, *fileInfo, confirmKind, &failureMessage)) {
-        if (!failureMessage.isEmpty()) {
-            ui->chatHintLabel->setText(failureMessage);
-            ui->statusbar->showMessage(failureMessage, 2600);
-        }
+    const LocalFileValidationResult validation = LocalFileManager::validateTransferFile(*fileInfo, confirmKind);
+    if (!validation.accepted) {
+        QMessageBox::warning(this, validation.failureTitle, validation.failureMessage);
+        ui->chatHintLabel->setText(validation.statusMessage);
+        ui->statusbar->showMessage(validation.statusMessage, 2600);
         return false;
+    }
+    if (validation.warningRequired) {
+        const bool confirmed = QMessageBox::question(this,
+                                                     validation.warningTitle,
+                                                     validation.warningMessage,
+                                                     QMessageBox::Yes | QMessageBox::No,
+                                                     QMessageBox::No) == QMessageBox::Yes;
+        if (!confirmed) {
+            ui->chatHintLabel->setText(validation.statusMessage);
+            ui->statusbar->showMessage(validation.statusMessage, 2600);
+            return false;
+        }
     }
 
     if (fileSize) {
-        *fileSize = humanFileSize(fileInfo->size());
+        *fileSize = LocalFileManager::humanFileSize(fileInfo->size());
     }
     return true;
 }
@@ -7531,7 +7446,7 @@ MainWindow::ReceivedTransferContext MainWindow::receivedTransferContext(const Me
     ReceivedTransferContext context;
     context.kind = kind;
     context.receivedName = safeReceivedFileName(msg.fileName, fallbackName);
-    context.receivedSize = humanFileSize(msg.fileData.size());
+    context.receivedSize = LocalFileManager::humanFileSize(msg.fileData.size());
     context.integrityText = transferIntegritySummary(msg);
     context.integritySuffix = context.integrityText.isEmpty()
         ? QString()
@@ -8114,7 +8029,7 @@ void MainWindow::loadAvatar() {
         ui->avatarLabel->setPixmap(squareAvatarPixmap(pixmap, ui->avatarLabel->width()));
         QFileInfo info(avatarPath);
         const QString avatarTip = QString("当前头像：本地头像 · %1；点击“换头像”重新选择")
-                                      .arg(humanFileSize(info.size()));
+                                      .arg(LocalFileManager::humanFileSize(info.size()));
         ui->avatarLabel->setToolTip(avatarTip);
         ui->uploadAvatarBtn->setToolTip(avatarTip);
     }

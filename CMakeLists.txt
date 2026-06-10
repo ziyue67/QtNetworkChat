@@ -148,6 +148,7 @@ endfunction()
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
+    src/localfilemanager.cpp
     src/clientstorage.cpp
     src/historyservice.cpp
     src/historymetadata.cpp
@@ -161,6 +162,7 @@ add_executable(QtNetworkChat
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
+    include/localfilemanager.h
     include/clientstorage.h
     include/historyservice.h
     include/historymetadata.h
@@ -368,6 +370,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(friend_manager_test PRIVATE include)
     target_link_libraries(friend_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+
+    add_executable(local_file_manager_test
+        tests/local_file_manager_test.cpp
+        src/localfilemanager.cpp
+        include/localfilemanager.h
+    )
+    target_include_directories(local_file_manager_test PRIVATE include)
+    target_link_libraries(local_file_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
     add_executable(chat_session_manager_test
         tests/chat_session_manager_test.cpp
@@ -756,6 +766,13 @@ if(BUILD_TESTING)
         NAME FriendManagerContactState
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:friend_manager_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME LocalFileManagerValidation
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:local_file_manager_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

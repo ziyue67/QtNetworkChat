@@ -1,0 +1,119 @@
+#include "localfilemanager.h"
+
+#include <QDir>
+#include <QSettings>
+#include <QStandardPaths>
+
+QString LocalFileManager::lastTransferDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QString directory = settings.value("transfer/lastDirectory").toString();
+    if (directory.isEmpty()) {
+        directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    }
+    if (directory.isEmpty() || !QDir(directory).exists()) {
+        directory = QDir::homePath();
+    }
+    return directory;
+}
+
+void LocalFileManager::rememberTransferDirectory(const QString& filePath) {
+    const QString directory = QFileInfo(filePath).absolutePath();
+    if (directory.isEmpty() || !QDir(directory).exists()) {
+        return;
+    }
+
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.setValue("transfer/lastDirectory", directory);
+}
+
+QString LocalFileManager::lastAvatarDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QString directory = settings.value("avatar/lastDirectory").toString();
+    if (directory.isEmpty()) {
+        directory = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    }
+    if (directory.isEmpty() || !QDir(directory).exists()) {
+        directory = QDir::homePath();
+    }
+    return directory;
+}
+
+void LocalFileManager::rememberAvatarDirectory(const QString& filePath) {
+    const QString directory = QFileInfo(filePath).absolutePath();
+    if (directory.isEmpty() || !QDir(directory).exists()) {
+        return;
+    }
+
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.setValue("avatar/lastDirectory", directory);
+}
+
+LocalFileValidationResult LocalFileManager::validateTransferFile(const QFileInfo& info, const QString& kind) {
+    LocalFileValidationResult result;
+    constexpr qint64 warningBytes = 20LL * 1024 * 1024;
+    constexpr qint64 maxBytes = 80LL * 1024 * 1024;
+
+    if (!info.exists() || !info.isFile()) {
+        result.failureTitle = QStringLiteral("无法发送");
+        result.failureMessage = QStringLiteral("请选择一个可读取的本地文件。");
+        result.statusMessage = QStringLiteral("%1发送失败：文件不可读取").arg(kind);
+        return result;
+    }
+    if (info.size() <= 0) {
+        result.failureTitle = QStringLiteral("无法发送");
+        result.failureMessage = QStringLiteral("文件为空，已取消发送。");
+        result.statusMessage = QStringLiteral("%1发送失败：文件为空").arg(kind);
+        return result;
+    }
+    if (info.size() > maxBytes) {
+        result.failureTitle = QStringLiteral("文件过大");
+        result.failureMessage = QStringLiteral("%1大小为 %2，超过当前 80 MB 的安全发送上限。")
+                                    .arg(kind, humanFileSize(info.size()));
+        result.statusMessage = QStringLiteral("%1发送失败：超过 80 MB").arg(kind);
+        return result;
+    }
+
+    result.accepted = true;
+    if (info.size() > warningBytes) {
+        result.warningRequired = true;
+        result.warningTitle = QStringLiteral("确认发送大文件");
+        result.warningMessage = QStringLiteral("%1大小为 %2，发送时可能需要等待一会儿，是否继续？")
+                                    .arg(kind, humanFileSize(info.size()));
+        result.statusMessage = QStringLiteral("已取消发送%1").arg(kind);
+    }
+    return result;
+}
+
+LocalFileValidationResult LocalFileManager::validateAvatarFile(const QFileInfo& info) {
+    LocalFileValidationResult result;
+    constexpr qint64 maxAvatarBytes = 10LL * 1024 * 1024;
+
+    if (!info.exists() || !info.isFile()) {
+        result.failureTitle = QStringLiteral("头像上传失败");
+        result.failureMessage = QStringLiteral("请选择一个可读取的本地图片文件。");
+        result.statusMessage = QStringLiteral("头像上传失败：文件不可读取");
+        return result;
+    }
+    if (info.size() <= 0) {
+        result.failureTitle = QStringLiteral("头像上传失败");
+        result.failureMessage = QStringLiteral("图片文件为空，请重新选择。");
+        result.statusMessage = QStringLiteral("头像上传失败：图片文件为空");
+        return result;
+    }
+    if (info.size() > maxAvatarBytes) {
+        result.failureTitle = QStringLiteral("头像过大");
+        result.failureMessage = QStringLiteral("头像图片大小为 %1，超过 10 MB 上限，请选择更小的图片。")
+                                    .arg(humanFileSize(info.size()));
+        result.statusMessage = QStringLiteral("头像上传失败：图片超过 10 MB");
+        return result;
+    }
+
+    result.accepted = true;
+    return result;
+}
+
+QString LocalFileManager::humanFileSize(qint64 bytes) {
+    if (bytes < 1024) return QString("%1 B").arg(bytes);
+    if (bytes < 1024 * 1024) return QString("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
+    return QString::number(bytes / 1024.0 / 1024.0, 'f', 1) + " MB";
+}
