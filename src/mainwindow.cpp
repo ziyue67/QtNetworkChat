@@ -5274,27 +5274,30 @@ void MainWindow::onUploadAvatar() {
                                                               "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
     const LocalFileSelectionResult selection = LocalFileManager::selectAvatarFile(selectedPath);
     if (selection.canceled) {
-        ui->statusbar->showMessage("已取消选择头像", 1600);
+        ui->statusbar->showMessage(selection.canceledStatusMessage, selection.canceledStatusTimeoutMs);
         return;
     }
     if (!selection.accepted) {
         QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
-        ui->statusbar->showMessage(selection.statusMessage, 2200);
+        ui->statusbar->showMessage(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage : selection.rejectedStatusMessage,
+                                   selection.rejectedStatusTimeoutMs);
         return;
     }
 
     const QFileInfo info = selection.fileInfo;
     QPixmap pixmap(selection.filePath);
     if (pixmap.isNull()) {
-        QMessageBox::warning(this, "头像上传失败", "无法读取该图片，请确认文件格式是否正确。");
-        ui->statusbar->showMessage("头像上传失败：无法读取图片", 2200);
+        const LocalFileSelectionResult invalidAvatar = LocalFileManager::invalidAvatarDataResult();
+        QMessageBox::warning(this, invalidAvatar.invalidDataTitle, invalidAvatar.invalidDataMessage);
+        ui->statusbar->showMessage(invalidAvatar.invalidDataStatusMessage, invalidAvatar.invalidDataStatusTimeoutMs);
         return;
     }
 
     QPixmap savedAvatar = squareAvatarPixmap(pixmap, 256);
     if (savedAvatar.isNull() || !savedAvatar.save(getAvatarFilePath(), "PNG")) {
-        QMessageBox::warning(this, "头像保存失败", "头像已读取，但保存到本地失败，请检查应用数据目录权限。");
-        ui->statusbar->showMessage("头像保存失败，请检查应用数据目录权限", 2600);
+        const LocalFileSelectionResult saveFailed = LocalFileManager::avatarSaveFailedResult();
+        QMessageBox::warning(this, saveFailed.saveFailedTitle, saveFailed.saveFailedMessage);
+        ui->statusbar->showMessage(saveFailed.saveFailedStatusMessage, saveFailed.saveFailedStatusTimeoutMs);
         return;
     }
 

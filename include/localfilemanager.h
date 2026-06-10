@@ -36,6 +36,14 @@ struct LocalFileSelectionResult {
     QString warningCanceledHint;
     QString warningCanceledStatusMessage;
     int warningCanceledStatusTimeoutMs = 2600;
+    QString invalidDataTitle;
+    QString invalidDataMessage;
+    QString invalidDataStatusMessage;
+    int invalidDataStatusTimeoutMs = 2200;
+    QString saveFailedTitle;
+    QString saveFailedMessage;
+    QString saveFailedStatusMessage;
+    int saveFailedStatusTimeoutMs = 2600;
 };
 
 class LocalFileManager {
@@ -49,6 +57,9 @@ public:
     static LocalFileSelectionResult selectAvatarFile(const QString& selectedPath);
     static LocalFileSelectionResult cancelTransferSelection(const QString& kind);
     static LocalFileSelectionResult cancelTransferWarningSelection(const QString& kind);
+    static LocalFileSelectionResult cancelAvatarSelection();
+    static LocalFileSelectionResult invalidAvatarDataResult();
+    static LocalFileSelectionResult avatarSaveFailedResult();
     static QString safeReceivedFileName(const QString& rawName, const QString& fallbackName);
     static QString ensureReceivedDownloadDirectory(const QString& downloadSubdir);
     static QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName);

@@ -120,6 +120,12 @@ int main(int argc, char** argv) {
                     && avatarSelection.fileInfo.fileName() == QStringLiteral("avatar.png"),
                 "avatar selection should preserve accepted file metadata") && ok;
 
+    LocalFileSelectionResult canceledAvatarSelection = LocalFileManager::selectAvatarFile(QString());
+    ok = expect(canceledAvatarSelection.canceled
+                    && canceledAvatarSelection.canceledStatusMessage == QString::fromUtf8("已取消选择头像")
+                    && canceledAvatarSelection.canceledStatusTimeoutMs == 1600,
+                "empty avatar selection should expose reusable cancel feedback") && ok;
+
     LocalFileValidationResult avatarMissing = LocalFileManager::validateAvatarFile(QFileInfo(QDir(nestedDir).filePath("missing-avatar.png")));
     ok = expect(!avatarMissing.accepted && avatarMissing.statusMessage.contains(QString::fromUtf8("文件不可读取")),
                 "missing avatar file should be rejected") && ok;
@@ -127,6 +133,20 @@ int main(int argc, char** argv) {
     LocalFileValidationResult avatarLarge = LocalFileManager::validateAvatarFile(QFileInfo(avatarLargePath));
     ok = expect(!avatarLarge.accepted && avatarLarge.statusMessage.contains(QString::fromUtf8("超过 10 MB")),
                 "oversized avatar file should be rejected") && ok;
+
+    LocalFileSelectionResult invalidAvatar = LocalFileManager::invalidAvatarDataResult();
+    ok = expect(invalidAvatar.invalidDataTitle == QString::fromUtf8("头像上传失败")
+                    && invalidAvatar.invalidDataMessage.contains(QString::fromUtf8("无法读取该图片"))
+                    && invalidAvatar.invalidDataStatusMessage == QString::fromUtf8("头像上传失败：无法读取图片")
+                    && invalidAvatar.invalidDataStatusTimeoutMs == 2200,
+                "invalid avatar data result should centralize unreadable-image feedback") && ok;
+
+    LocalFileSelectionResult avatarSaveFailed = LocalFileManager::avatarSaveFailedResult();
+    ok = expect(avatarSaveFailed.saveFailedTitle == QString::fromUtf8("头像保存失败")
+                    && avatarSaveFailed.saveFailedMessage.contains(QString::fromUtf8("保存到本地失败"))
+                    && avatarSaveFailed.saveFailedStatusMessage == QString::fromUtf8("头像保存失败，请检查应用数据目录权限")
+                    && avatarSaveFailed.saveFailedStatusTimeoutMs == 2600,
+                "avatar save failed result should centralize local-save failure feedback") && ok;
 
     ok = expect(LocalFileManager::humanFileSize(512) == QStringLiteral("512 B")
                     && LocalFileManager::humanFileSize(2048).contains(QStringLiteral("KB"))

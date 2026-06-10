@@ -78,13 +78,12 @@ LocalFileSelectionResult LocalFileManager::selectTransferFile(const QString& sel
 }
 
 LocalFileSelectionResult LocalFileManager::selectAvatarFile(const QString& selectedPath) {
-    LocalFileSelectionResult result;
-    result.filePath = selectedPath;
-    result.canceled = selectedPath.trimmed().isEmpty();
-    if (result.canceled) {
-        return result;
+    if (selectedPath.trimmed().isEmpty()) {
+        return cancelAvatarSelection();
     }
 
+    LocalFileSelectionResult result;
+    result.filePath = selectedPath;
     rememberAvatarDirectory(selectedPath);
     result.fileInfo = QFileInfo(selectedPath);
     const LocalFileValidationResult validation = validateAvatarFile(result.fileInfo);
@@ -92,6 +91,7 @@ LocalFileSelectionResult LocalFileManager::selectAvatarFile(const QString& selec
     result.statusMessage = validation.statusMessage;
     result.failureTitle = validation.failureTitle;
     result.failureMessage = validation.failureMessage;
+    result.rejectedStatusMessage = validation.statusMessage;
     if (validation.accepted) {
         result.fileSize = humanFileSize(result.fileInfo.size());
     }
@@ -113,6 +113,32 @@ LocalFileSelectionResult LocalFileManager::cancelTransferWarningSelection(const 
     result.warningCanceledHint = QStringLiteral("已取消发送%1").arg(kind);
     result.warningCanceledStatusMessage = result.warningCanceledHint;
     result.warningCanceledStatusTimeoutMs = 2600;
+    return result;
+}
+
+LocalFileSelectionResult LocalFileManager::cancelAvatarSelection() {
+    LocalFileSelectionResult result;
+    result.canceled = true;
+    result.canceledStatusMessage = QStringLiteral("已取消选择头像");
+    result.canceledStatusTimeoutMs = 1600;
+    return result;
+}
+
+LocalFileSelectionResult LocalFileManager::invalidAvatarDataResult() {
+    LocalFileSelectionResult result;
+    result.invalidDataTitle = QStringLiteral("头像上传失败");
+    result.invalidDataMessage = QStringLiteral("无法读取该图片，请确认文件格式是否正确。");
+    result.invalidDataStatusMessage = QStringLiteral("头像上传失败：无法读取图片");
+    result.invalidDataStatusTimeoutMs = 2200;
+    return result;
+}
+
+LocalFileSelectionResult LocalFileManager::avatarSaveFailedResult() {
+    LocalFileSelectionResult result;
+    result.saveFailedTitle = QStringLiteral("头像保存失败");
+    result.saveFailedMessage = QStringLiteral("头像已读取，但保存到本地失败，请检查应用数据目录权限。");
+    result.saveFailedStatusMessage = QStringLiteral("头像保存失败，请检查应用数据目录权限");
+    result.saveFailedStatusTimeoutMs = 2600;
     return result;
 }
 
