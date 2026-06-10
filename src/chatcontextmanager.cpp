@@ -3,6 +3,26 @@
 #include <QDateTime>
 #include <QStringList>
 
+QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMediaMessage) {
+    return {
+        { QStringLiteral("复制消息"), QStringLiteral("复制整条聊天记录，包括时间和发送者"), QStringLiteral("copy-message"), true, false },
+        { QStringLiteral("只复制内容"), QStringLiteral("只复制消息正文内容"), QStringLiteral("copy-plain"), true, false },
+        { QStringLiteral("复制发送者"), QStringLiteral("复制这条消息的发送者名称或账号"), QStringLiteral("copy-sender"), true, false },
+        { QStringLiteral("引用回复"), QStringLiteral("把这条消息作为引用插入输入框"), QStringLiteral("quote"), true, false },
+        { QStringLiteral("转发到输入框"), QStringLiteral("把消息正文整理成转发内容放入输入框"), QStringLiteral("forward"), true, false },
+        { QStringLiteral("再次发送"), QStringLiteral("把消息正文重新填入输入框并立即发送"), QStringLiteral("resend"), true, false },
+        { QStringLiteral("复制时间"), QStringLiteral("复制这条消息的发送时间"), QStringLiteral("copy-time"), true, false },
+        { QStringLiteral("复制媒体卡片"), QStringLiteral("复制当前媒体或文件消息的卡片摘要"), QStringLiteral("copy-media-card"), isMediaMessage, true },
+        { QStringLiteral("复制查收话术"), QStringLiteral("复制提醒对方查收文件的简短话术"), QStringLiteral("copy-file-notice"), isMediaMessage, false },
+        { QStringLiteral("复制回执话术"), QStringLiteral("复制已收到文件后的回执话术"), QStringLiteral("copy-receipt"), isMediaMessage, false },
+        { QStringLiteral("复制保存路径"), QStringLiteral("复制收到文件在本机的保存路径"), QStringLiteral("copy-save-path"), true, false },
+        { QStringLiteral("打开文件"), QStringLiteral("打开这条记录关联的本地文件"), QStringLiteral("open-saved-file"), true, false },
+        { QStringLiteral("打开保存目录"), QStringLiteral("打开这条记录关联文件所在目录"), QStringLiteral("open-save-folder"), true, false },
+        { QStringLiteral("复制媒体流程"), QStringLiteral("复制媒体发送、保存和回执的操作流程"), QStringLiteral("copy-media-flow"), isMediaMessage, false },
+        { QStringLiteral("@对方回复"), QStringLiteral("把发送者作为 @ 回复对象插入输入框"), QStringLiteral("mention-reply"), true, true }
+    };
+}
+
 ChatContextCopyResult ChatContextManager::copyCommandResult(const QString& commandId,
                                                             const QString& chatText,
                                                             const QString& privateChatTarget,

@@ -23,6 +23,21 @@ int main(int argc, char** argv) {
     const QString currentUserName = QString::fromUtf8("我自己");
     const QString chatText = QStringLiteral("[12:30:45] <Alice> [图片] report.png · 4 KB");
 
+    const QList<ChatContextMenuActionSpec> mediaSpecs = ChatContextManager::menuActionSpecs(true);
+    ok = expect(mediaSpecs.size() >= 10
+                    && mediaSpecs.first().commandId == QStringLiteral("copy-message")
+                    && mediaSpecs.at(7).separatorBefore
+                    && mediaSpecs.at(7).commandId == QStringLiteral("copy-media-card")
+                    && mediaSpecs.last().separatorBefore
+                    && mediaSpecs.last().commandId == QStringLiteral("mention-reply"),
+                "menu specs should preserve action ordering and separator boundaries") && ok;
+
+    const QList<ChatContextMenuActionSpec> plainSpecs = ChatContextManager::menuActionSpecs(false);
+    ok = expect(!plainSpecs.at(7).enabled
+                    && !plainSpecs.at(8).enabled
+                    && !plainSpecs.at(13).enabled,
+                "media-only menu specs should disable media actions for plain messages") && ok;
+
     ChatContextCopyResult messageCopy = ChatContextManager::copyCommandResult(QStringLiteral("copy-message"),
                                                                               chatText,
                                                                               privateTarget,

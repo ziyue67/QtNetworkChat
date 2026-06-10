@@ -1,6 +1,7 @@
 #ifndef CHATCONTEXTMANAGER_H
 #define CHATCONTEXTMANAGER_H
 
+#include <QList>
 #include <QString>
 
 struct ChatContextCopyResult {
@@ -25,8 +26,17 @@ struct ChatContextDraftResult {
     int timeoutMs = 1400;
 };
 
+struct ChatContextMenuActionSpec {
+    QString title;
+    QString toolTip;
+    QString commandId;
+    bool enabled = true;
+    bool separatorBefore = false;
+};
+
 class ChatContextManager {
 public:
+    static QList<ChatContextMenuActionSpec> menuActionSpecs(bool isMediaMessage);
     static ChatContextCopyResult copyCommandResult(const QString& commandId,
                                                    const QString& chatText,
                                                    const QString& privateChatTarget,

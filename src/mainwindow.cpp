@@ -1628,26 +1628,30 @@ void MainWindow::setupUi() {
         QString text = index.data().toString();
         if (text.isEmpty()) return;
         QMenu menu(this);
-        addChatContextAction(menu, "复制消息", "复制整条聊天记录，包括时间和发送者", "copy-message");
-        addChatContextAction(menu, "只复制内容", "只复制消息正文内容", "copy-plain");
-        addChatContextAction(menu, "复制发送者", "复制这条消息的发送者名称或账号", "copy-sender");
-        addChatContextAction(menu, "引用回复", "把这条消息作为引用插入输入框", "quote");
-        addChatContextAction(menu, "转发到输入框", "把消息正文整理成转发内容放入输入框", "forward");
-        addChatContextAction(menu, "再次发送", "把消息正文重新填入输入框并立即发送", "resend");
-        addChatContextAction(menu, "复制时间", "复制这条消息的发送时间", "copy-time");
-        menu.addSeparator();
         const SavedFileActionState savedFileState = savedFileActionState(index);
         const bool isMediaMessage = isChatMediaMessage(text, savedFileState);
-        QAction* copyMediaCardAction = addChatContextAction(menu, "复制媒体卡片", "复制当前媒体或文件消息的卡片摘要", "copy-media-card", isMediaMessage);
-        QAction* copyFileNoticeAction = addChatContextAction(menu, "复制查收话术", "复制提醒对方查收文件的简短话术", "copy-file-notice", isMediaMessage);
-        QAction* copyReceiptAction = addChatContextAction(menu, "复制回执话术", "复制已收到文件后的回执话术", "copy-receipt", isMediaMessage);
-        QAction* copySavePathAction = addChatContextAction(menu, "复制保存路径", "复制收到文件在本机的保存路径", "copy-save-path");
-        QAction* openSavedFileAction = addChatContextAction(menu, "打开文件", "打开这条记录关联的本地文件", "open-saved-file");
-        QAction* openSaveFolderAction = addChatContextAction(menu, "打开保存目录", "打开这条记录关联文件所在目录", "open-save-folder");
-        QAction* copyMediaFlowAction = addChatContextAction(menu, "复制媒体流程", "复制媒体发送、保存和回执的操作流程", "copy-media-flow", isMediaMessage);
+        QAction* copySavePathAction = nullptr;
+        QAction* openSavedFileAction = nullptr;
+        QAction* openSaveFolderAction = nullptr;
+        const QList<ChatContextMenuActionSpec> actionSpecs = ChatContextManager::menuActionSpecs(isMediaMessage);
+        for (const ChatContextMenuActionSpec& spec : actionSpecs) {
+            if (spec.separatorBefore) {
+                menu.addSeparator();
+            }
+            QAction* action = addChatContextAction(menu,
+                                                   spec.title,
+                                                   spec.toolTip,
+                                                   spec.commandId,
+                                                   spec.enabled);
+            if (spec.commandId == QLatin1String("copy-save-path")) {
+                copySavePathAction = action;
+            } else if (spec.commandId == QLatin1String("open-saved-file")) {
+                openSavedFileAction = action;
+            } else if (spec.commandId == QLatin1String("open-save-folder")) {
+                openSaveFolderAction = action;
+            }
+        }
         configureSavedFileActions(copySavePathAction, openSavedFileAction, openSaveFolderAction, savedFileState);
-        menu.addSeparator();
-        addChatContextAction(menu, "@对方回复", "把发送者作为 @ 回复对象插入输入框", "mention-reply");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
         handleChatContextCommand(selected->data().toString(), text, savedFileState);
