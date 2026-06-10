@@ -111,6 +111,55 @@ int main(int argc, char** argv) {
                     && warningCanceledSelection.warningCanceledStatusTimeoutMs == 2600,
                 "warning-canceled transfer selection should expose reusable confirmation-cancel feedback") && ok;
 
+    LocalTransferSelectionDecision canceledTransferDecision = LocalFileManager::transferSelectionDecision(QString(),
+                                                                                                          QStringLiteral("文件"),
+                                                                                                          QString::fromUtf8("文件发送已取消"),
+                                                                                                          QString::fromUtf8("已取消选择文件"));
+    ok = expect(!canceledTransferDecision.accepted
+                    && canceledTransferDecision.action == LocalTransferSelectionDecision::Action::None
+                    && canceledTransferDecision.hintText == QString::fromUtf8("文件发送已取消")
+                    && canceledTransferDecision.statusMessage == QString::fromUtf8("已取消选择文件")
+                    && canceledTransferDecision.statusTimeoutMs == 1600,
+                "transfer selection decision should preserve canceled transfer UI feedback") && ok;
+
+    LocalTransferSelectionDecision rejectedTransferDecision = LocalFileManager::transferSelectionDecision(tooLargeFilePath,
+                                                                                                          QStringLiteral("文件"),
+                                                                                                          QString(),
+                                                                                                          QString());
+    ok = expect(!rejectedTransferDecision.accepted
+                    && rejectedTransferDecision.action == LocalTransferSelectionDecision::Action::ShowFailureDialog
+                    && rejectedTransferDecision.dialogTitle == QString::fromUtf8("文件过大")
+                    && rejectedTransferDecision.dialogMessage.contains(QString::fromUtf8("超过当前 80 MB"))
+                    && rejectedTransferDecision.statusMessage.contains(QString::fromUtf8("超过 80 MB")),
+                "transfer selection decision should centralize rejected-file dialog and status feedback") && ok;
+
+    LocalTransferSelectionDecision warningTransferDecision = LocalFileManager::transferSelectionDecision(warningFilePath,
+                                                                                                         QStringLiteral("文件"),
+                                                                                                         QString(),
+                                                                                                         QString());
+    ok = expect(!warningTransferDecision.accepted
+                    && warningTransferDecision.action == LocalTransferSelectionDecision::Action::ConfirmLargeFile
+                    && warningTransferDecision.fileInfo.fileName() == QStringLiteral("warning.bin")
+                    && warningTransferDecision.dialogTitle == QString::fromUtf8("确认发送大文件"),
+                "transfer selection decision should centralize large-file confirmation prompts") && ok;
+
+    LocalTransferSelectionDecision warningAcceptedDecision =
+        LocalFileManager::resolveTransferSelectionWarning(warningTransferDecision, true, QStringLiteral("文件"));
+    ok = expect(warningAcceptedDecision.accepted
+                    && warningAcceptedDecision.action == LocalTransferSelectionDecision::Action::None
+                    && warningAcceptedDecision.fileInfo.fileName() == QStringLiteral("warning.bin")
+                    && warningAcceptedDecision.statusMessage.isEmpty(),
+                "confirmed large-file decision should become accepted without extra UI feedback") && ok;
+
+    LocalTransferSelectionDecision warningRejectedDecision =
+        LocalFileManager::resolveTransferSelectionWarning(warningTransferDecision, false, QStringLiteral("文件"));
+    ok = expect(!warningRejectedDecision.accepted
+                    && warningRejectedDecision.action == LocalTransferSelectionDecision::Action::None
+                    && warningRejectedDecision.hintText == QString::fromUtf8("已取消发送文件")
+                    && warningRejectedDecision.statusMessage == QString::fromUtf8("已取消发送文件")
+                    && warningRejectedDecision.statusTimeoutMs == 2600,
+                "rejected large-file confirmation should reuse warning-canceled UI feedback") && ok;
+
     LocalFileValidationResult avatarOk = LocalFileManager::validateAvatarFile(QFileInfo(avatarFilePath));
     ok = expect(avatarOk.accepted, "normal avatar file should be accepted") && ok;
 

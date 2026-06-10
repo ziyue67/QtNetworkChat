@@ -46,6 +46,25 @@ struct LocalFileSelectionResult {
     int saveFailedStatusTimeoutMs = 2600;
 };
 
+struct LocalTransferSelectionDecision {
+    enum class Action {
+        None,
+        ShowFailureDialog,
+        ConfirmLargeFile
+    };
+
+    bool accepted = false;
+    Action action = Action::None;
+    QString filePath;
+    QFileInfo fileInfo;
+    QString fileSize;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 0;
+    QString dialogTitle;
+    QString dialogMessage;
+};
+
 class LocalFileManager {
 public:
     static QString lastTransferDirectory();
@@ -54,6 +73,13 @@ public:
     static void rememberAvatarDirectory(const QString& filePath);
     static LocalFileSelectionResult selectTransferFile(const QString& selectedPath,
                                                        const QString& confirmKind);
+    static LocalTransferSelectionDecision transferSelectionDecision(const QString& selectedPath,
+                                                                    const QString& confirmKind,
+                                                                    const QString& canceledHint,
+                                                                    const QString& canceledStatus);
+    static LocalTransferSelectionDecision resolveTransferSelectionWarning(const LocalTransferSelectionDecision& pendingDecision,
+                                                                          bool confirmed,
+                                                                          const QString& confirmKind);
     static LocalFileSelectionResult selectAvatarFile(const QString& selectedPath);
     static LocalFileSelectionResult cancelTransferSelection(const QString& kind);
     static LocalFileSelectionResult cancelTransferWarningSelection(const QString& kind);

@@ -77,6 +77,74 @@ LocalFileSelectionResult LocalFileManager::selectTransferFile(const QString& sel
     return result;
 }
 
+LocalTransferSelectionDecision LocalFileManager::transferSelectionDecision(const QString& selectedPath,
+                                                                           const QString& confirmKind,
+                                                                           const QString& canceledHint,
+                                                                           const QString& canceledStatus) {
+    LocalTransferSelectionDecision decision;
+    const LocalFileSelectionResult selection = selectTransferFile(selectedPath, confirmKind);
+
+    if (selection.canceled) {
+        decision.hintText = selection.canceledHint.isEmpty() ? canceledHint : selection.canceledHint;
+        decision.statusMessage = selection.canceledStatusMessage.isEmpty() ? canceledStatus : selection.canceledStatusMessage;
+        decision.statusTimeoutMs = selection.canceledStatusTimeoutMs;
+        return decision;
+    }
+
+    if (!selection.accepted) {
+        decision.action = LocalTransferSelectionDecision::Action::ShowFailureDialog;
+        decision.hintText = selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage : selection.rejectedStatusMessage;
+        decision.statusMessage = decision.hintText;
+        decision.statusTimeoutMs = selection.rejectedStatusTimeoutMs;
+        decision.dialogTitle = selection.failureTitle;
+        decision.dialogMessage = selection.failureMessage;
+        return decision;
+    }
+
+    if (selection.warningRequired) {
+        decision.action = LocalTransferSelectionDecision::Action::ConfirmLargeFile;
+        decision.filePath = selection.filePath;
+        decision.fileInfo = selection.fileInfo;
+        decision.fileSize = selection.fileSize;
+        decision.dialogTitle = selection.warningTitle;
+        decision.dialogMessage = selection.warningMessage;
+        return decision;
+    }
+
+    decision.accepted = true;
+    decision.filePath = selection.filePath;
+    decision.fileInfo = selection.fileInfo;
+    decision.fileSize = selection.fileSize;
+    return decision;
+}
+
+LocalTransferSelectionDecision LocalFileManager::resolveTransferSelectionWarning(const LocalTransferSelectionDecision& pendingDecision,
+                                                                                 bool confirmed,
+                                                                                 const QString& confirmKind) {
+    if (pendingDecision.action != LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
+        return pendingDecision;
+    }
+
+    if (confirmed) {
+        LocalTransferSelectionDecision acceptedDecision = pendingDecision;
+        acceptedDecision.accepted = true;
+        acceptedDecision.action = LocalTransferSelectionDecision::Action::None;
+        acceptedDecision.hintText.clear();
+        acceptedDecision.statusMessage.clear();
+        acceptedDecision.statusTimeoutMs = 0;
+        acceptedDecision.dialogTitle.clear();
+        acceptedDecision.dialogMessage.clear();
+        return acceptedDecision;
+    }
+
+    const LocalFileSelectionResult warningCanceled = cancelTransferWarningSelection(confirmKind);
+    LocalTransferSelectionDecision canceledDecision;
+    canceledDecision.hintText = warningCanceled.warningCanceledHint;
+    canceledDecision.statusMessage = warningCanceled.warningCanceledStatusMessage;
+    canceledDecision.statusTimeoutMs = warningCanceled.warningCanceledStatusTimeoutMs;
+    return canceledDecision;
+}
+
 LocalFileSelectionResult LocalFileManager::selectAvatarFile(const QString& selectedPath) {
     if (selectedPath.trimmed().isEmpty()) {
         return cancelAvatarSelection();

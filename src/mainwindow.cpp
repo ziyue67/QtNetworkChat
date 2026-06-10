@@ -7050,39 +7050,39 @@ bool MainWindow::selectTransferFile(const QString& dialogTitle,
                                                               dialogTitle,
                                                               LocalFileManager::lastTransferDirectory(),
                                                               filters);
-    const LocalFileSelectionResult selection = LocalFileManager::selectTransferFile(selectedPath, confirmKind);
-    if (selection.canceled) {
-        ui->chatHintLabel->setText(selection.canceledHint.isEmpty() ? canceledHint : selection.canceledHint);
-        ui->statusbar->showMessage(selection.canceledStatusMessage.isEmpty() ? canceledStatus : selection.canceledStatusMessage,
-                                   selection.canceledStatusTimeoutMs);
+    LocalTransferSelectionDecision decision = LocalFileManager::transferSelectionDecision(selectedPath,
+                                                                                          confirmKind,
+                                                                                          canceledHint,
+                                                                                          canceledStatus);
+    if (decision.action == LocalTransferSelectionDecision::Action::ShowFailureDialog) {
+        QMessageBox::warning(this, decision.dialogTitle, decision.dialogMessage);
+        ui->chatHintLabel->setText(decision.hintText);
+        ui->statusbar->showMessage(decision.statusMessage, decision.statusTimeoutMs);
         return false;
     }
-    if (!selection.accepted) {
-        QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
-        ui->chatHintLabel->setText(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage : selection.rejectedStatusMessage);
-        ui->statusbar->showMessage(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage : selection.rejectedStatusMessage,
-                                   selection.rejectedStatusTimeoutMs);
+    if (!decision.accepted && decision.action != LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
+        ui->chatHintLabel->setText(decision.hintText);
+        ui->statusbar->showMessage(decision.statusMessage, decision.statusTimeoutMs);
         return false;
     }
-    if (selection.warningRequired) {
+    if (decision.action == LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
         const bool confirmed = QMessageBox::question(this,
-                                                     selection.warningTitle,
-                                                     selection.warningMessage,
+                                                     decision.dialogTitle,
+                                                     decision.dialogMessage,
                                                      QMessageBox::Yes | QMessageBox::No,
                                                      QMessageBox::No) == QMessageBox::Yes;
-        if (!confirmed) {
-            const LocalFileSelectionResult warningCanceled = LocalFileManager::cancelTransferWarningSelection(confirmKind);
-            ui->chatHintLabel->setText(warningCanceled.warningCanceledHint);
-            ui->statusbar->showMessage(warningCanceled.warningCanceledStatusMessage,
-                                       warningCanceled.warningCanceledStatusTimeoutMs);
+        decision = LocalFileManager::resolveTransferSelectionWarning(decision, confirmed, confirmKind);
+        if (!decision.accepted) {
+            ui->chatHintLabel->setText(decision.hintText);
+            ui->statusbar->showMessage(decision.statusMessage, decision.statusTimeoutMs);
             return false;
         }
     }
 
-    *filePath = selection.filePath;
-    *fileInfo = selection.fileInfo;
+    *filePath = decision.filePath;
+    *fileInfo = decision.fileInfo;
     if (fileSize) {
-        *fileSize = selection.fileSize;
+        *fileSize = decision.fileSize;
     }
     return true;
 }
