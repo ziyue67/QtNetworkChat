@@ -48,6 +48,63 @@ int transferPercent(qint64 bytesPrepared, qint64 totalBytes) {
         ? qBound(0, static_cast<int>((bytesPrepared * 100) / totalBytes), 100)
         : 0;
 }
+
+QString transferActionHint(const FileTransferStatusInfo& info) {
+    if (info.category == QLatin1String("completed")
+            || info.category == QLatin1String("receive-completed")
+            || info.category == QLatin1String("receive-saved")) {
+        return QStringLiteral("文件状态已完成，无需处理。");
+    }
+    if (info.category == QLatin1String("prepared")
+            || info.category == QLatin1String("receive-started")
+            || info.category == QLatin1String("resumed")) {
+        return QStringLiteral("保持窗口在线，等待后续分片确认或完成回执。");
+    }
+    if (info.category == QLatin1String("fallback-retained")
+            || info.category == QLatin1String("receiver-disconnected")) {
+        return QStringLiteral("可等待对方重新上线自动回放；若长时间未送达，再重新发送。");
+    }
+    if (info.category == QLatin1String("object-readback-unavailable")
+            || info.category == QLatin1String("object-write-failed")) {
+        return QStringLiteral("保留诊断并稍后重试；若对象存储持续异常，请重新发送或切回普通文件路径。");
+    }
+    if (info.category == QLatin1String("receive-save-failed")) {
+        return QStringLiteral("请检查下载目录权限、磁盘空间或安全软件拦截后重试。");
+    }
+    if (info.category == QLatin1String("receive-open-failed")) {
+        return QStringLiteral("请从聊天记录复制保存路径后手动检查文件是否仍存在。");
+    }
+    if (info.category == QLatin1String("chunk-delivery-failed")
+            || info.category == QLatin1String("timeout")
+            || info.category == QLatin1String("retryable")) {
+        return QStringLiteral("可稍后重试；客户端会优先保留续传或离线兜底证据。");
+    }
+    if (info.category == QLatin1String("integrity")
+            || info.category == QLatin1String("missing")) {
+        return QStringLiteral("为避免错误文件送达，请重新选择原文件发送。");
+    }
+    if (info.category == QLatin1String("size")) {
+        return QStringLiteral("请确认文件未被修改，且大小在服务端允许范围内。");
+    }
+    if (info.category == QLatin1String("auth")) {
+        return QStringLiteral("请确认账号、群成员身份或会话权限后再发送。");
+    }
+    return info.retryable
+        ? QStringLiteral("可稍后重试；必要时复制诊断给值班人员。")
+        : QStringLiteral("请复制诊断并根据原因重新发送或联系值班人员。");
+}
+
+int transferStatusTimeout(const FileTransferStatusInfo& info) {
+    if (info.category == QLatin1String("completed")
+            || info.category == QLatin1String("receive-completed")
+            || info.category == QLatin1String("receive-saved")) {
+        return 2600;
+    }
+    if (info.retryable) {
+        return 5200;
+    }
+    return 4600;
+}
 }
 
 TransferRecoveryUiState TransferManager::recoveryUiState(bool hasSavedTransfer,
@@ -108,7 +165,12 @@ TransferStatusEvent TransferManager::statusEvent(const QString& fileName,
                                                  qint64 receivedBytes,
                                                  qint64 totalBytes) {
     TransferStatusEvent result;
+    const FileTransferStatusInfo info = describeFileTransferReason(reason);
     result.message = fileTransferStatusEventMessage(fileName, transferId, reason, receivedBytes, totalBytes);
+    result.actionHint = transferActionHint(info);
+    result.chatHintText = QStringLiteral("%1 · %2").arg(info.title, result.actionHint);
+    result.statusBarMessage = result.message + QStringLiteral(" · ") + result.actionHint;
+    result.statusBarTimeoutMs = transferStatusTimeout(info);
     result.diagnostic = fileTransferStatusDiagnostic(fileName, transferId, reason, receivedBytes, totalBytes);
     result.copyActionVisible = true;
     result.copyActionEnabled = true;

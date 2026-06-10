@@ -83,7 +83,11 @@ struct TransferRecoveryUiState {
 
 struct TransferStatusEvent {
     QString message;
+    QString chatHintText;
+    QString statusBarMessage;
+    QString actionHint;
     QString diagnostic;
+    int statusBarTimeoutMs = 4200;
     bool copyActionVisible = false;
     bool copyActionEnabled = false;
     QString copyActionToolTip;

@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
                 "resume result state should describe failed recovery and retained record guidance") && ok;
 
     TransferStatusEvent timeoutEvent = TransferManager::statusEvent(QStringLiteral("report.zip"),
-                                                                    QStringLiteral("transfer-abcdef1234567890"),
+                                                                    QStringLiteral("transfer-abcdefABCDEF00"),
                                                                     QStringLiteral("chunk-ack-timeout"),
                                                                     1024,
                                                                     4096);
@@ -174,9 +174,38 @@ int main(int argc, char** argv) {
                     && timeoutEvent.message.contains(QStringLiteral("report.zip"))
                     && timeoutEvent.message.contains(QStringLiteral("ID:transfer-abc"))
                     && timeoutEvent.diagnostic.contains(QStringLiteral("category=chunk-delivery-failed"))
+                    && timeoutEvent.actionHint.contains(QString::fromUtf8("稍后重试"))
+                    && timeoutEvent.chatHintText.contains(QString::fromUtf8("文件分片未被接收端确认"))
+                    && timeoutEvent.statusBarMessage.contains(timeoutEvent.actionHint)
+                    && timeoutEvent.statusBarTimeoutMs == 5200
                     && timeoutEvent.copyDiagnostic.clipboardText == timeoutEvent.diagnostic.trimmed()
                     && timeoutEvent.copyActionToolTip.contains(QString::fromUtf8("文件传输")),
                 "status event should carry user message, diagnostic and copy action state") && ok;
+
+    TransferStatusEvent objectReadbackEvent = TransferManager::statusEvent(QStringLiteral("large.bin"),
+                                                                           QStringLiteral("large-offer-001"),
+                                                                           QStringLiteral("object-read-failed"),
+                                                                           0,
+                                                                           8192);
+    ok = expect(objectReadbackEvent.message.contains(QString::fromUtf8("大文件对象暂时无法读取"))
+                    && objectReadbackEvent.actionHint.contains(QString::fromUtf8("对象存储"))
+                    && objectReadbackEvent.chatHintText.contains(QString::fromUtf8("保留诊断"))
+                    && objectReadbackEvent.statusBarMessage.contains(QString::fromUtf8("切回普通文件路径"))
+                    && objectReadbackEvent.statusBarTimeoutMs == 5200
+                    && objectReadbackEvent.diagnostic.contains(QStringLiteral("category=object-readback-unavailable")),
+                "object readback status event should provide actionable storage fallback guidance") && ok;
+
+    TransferStatusEvent completedEvent = TransferManager::statusEvent(QStringLiteral("report.zip"),
+                                                                      QStringLiteral("transfer-abcdefABCDEF00"),
+                                                                      QStringLiteral("transfer-completed"),
+                                                                      4096,
+                                                                      4096);
+    ok = expect(completedEvent.message.contains(QString::fromUtf8("文件传输已完成"))
+                    && completedEvent.actionHint.contains(QString::fromUtf8("无需处理"))
+                    && completedEvent.chatHintText.contains(QString::fromUtf8("无需处理"))
+                    && completedEvent.statusBarTimeoutMs == 2600
+                    && !completedEvent.statusBarMessage.contains(QString::fromUtf8("稍后重试")),
+                "completed status event should be short-lived and avoid retry guidance") && ok;
 
     TransferDiagnosticCopyUiState emptyCopy = TransferManager::diagnosticCopyUiState(QStringLiteral("  "));
     ok = expect(emptyCopy.action.visible
@@ -224,8 +253,8 @@ int main(int argc, char** argv) {
                                                                                    4096,
                                                                                    1024,
                                                                                    4,
-                                                                                   QStringLiteral("abcdef1234567890"));
-    ok = expect(sendingPrepared.manifestSummary == QString::fromUtf8("4片 · 分片1.0 KB · SHA-256 abcdef123456")
+                                                                                   QStringLiteral("abcdefABCDEF00"));
+    ok = expect(sendingPrepared.manifestSummary == QString::fromUtf8("4片 · 分片1.0 KB · SHA-256 abcdefABCDEF")
                     && sendingPrepared.labelText.contains(QString::fromUtf8("文件校验清单已生成")),
                 "sending prepared state should expose manifest summary and label") && ok;
 

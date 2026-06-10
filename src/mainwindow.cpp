@@ -526,8 +526,8 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
     m_lastTransferStatusDiagnostic = event.diagnostic;
     applyTransferActionState(m_copyLastTransferStatusAction, event.copyDiagnostic.action);
     appendSystemMessage(event.message);
-    ui->chatHintLabel->setText(event.message);
-    ui->statusbar->showMessage(event.message, 4200);
+    ui->chatHintLabel->setText(event.chatHintText);
+    ui->statusbar->showMessage(event.statusBarMessage, event.statusBarTimeoutMs);
 }
 
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
