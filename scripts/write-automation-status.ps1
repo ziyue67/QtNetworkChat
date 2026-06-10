@@ -1183,29 +1183,40 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
     }
     if (-not $targetMatchesCurrentHead) {
         $result.releaseReady = "false"
-        $result.releaseGate = "blocked-release-artifact-stale-head"
+        $result.promotionReady = "false"
+        $result.promotionPromoted = "false"
+        $result.promotionGate = "blocked-e2e-release-artifact-promotion"
+        $blockers = @($result.promotionBlockers -split "," | Where-Object {
+                -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne "unknown"
+            })
         if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
             $result.ciCurrentHeadObserved = "not-required"
             $result.ciExternalBlocker = "waived-by-policy"
             $result.ciReleaseGate = "not-required"
+            if ((Format-StatusValue $result.releaseGate) -eq "ready-local-verification-only") {
+                $result.releaseGate = "blocked-local-release-evidence-refresh-needed"
+                if ($blockers -notcontains "release-artifact-refresh-needed") {
+                    $blockers += "release-artifact-refresh-needed"
+                }
+            }
+            $result.promotionBlockers = Format-StatusValue ($blockers -join ",")
+            $result.promotionOperatorAction =
+                "Refresh the E2E release evidence for the current HEAD after resolving any remaining local verification or production-linked blockers."
         } else {
+            $result.releaseGate = "blocked-release-artifact-stale-head"
             $result.ciCurrentHeadObserved = "false"
             $result.ciExternalBlocker = "release-artifact-target-head-mismatch"
             $result.ciReleaseGate = "blocked-release-artifact-stale-head"
+            if ($blockers -notcontains "release-artifact-stale-head") {
+                $blockers += "release-artifact-stale-head"
+            }
+            if ($blockers -notcontains "ci-current-head-not-observed") {
+                $blockers += "ci-current-head-not-observed"
+            }
+            $result.promotionBlockers = Format-StatusValue ($blockers -join ",")
+            $result.promotionOperatorAction =
+                "Regenerate E2E release evidence for the current HEAD before promotion."
         }
-        $result.promotionReady = "false"
-        $result.promotionPromoted = "false"
-        $result.promotionGate = "blocked-e2e-release-artifact-promotion"
-        $blockers = @($result.promotionBlockers -split "," | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne "unknown" })
-        if ($blockers -notcontains "release-artifact-stale-head") {
-            $blockers += "release-artifact-stale-head"
-        }
-        if ($script:GitHubWindowsBuildPolicyResolved -ne "disabled" -and $blockers -notcontains "ci-current-head-not-observed") {
-            $blockers += "ci-current-head-not-observed"
-        }
-        $result.promotionBlockers = Format-StatusValue ($blockers -join ",")
-        $result.promotionOperatorAction =
-            "Regenerate E2E release evidence for the current HEAD before promotion."
     }
     [pscustomobject]$result
 }

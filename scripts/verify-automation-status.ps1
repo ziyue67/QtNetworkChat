@@ -2277,9 +2277,9 @@ $staleReleaseEvidenceMarkdownPath = Join-Path $tempDir "automation-status-stale-
 
 $staleReleaseEvidenceMarkdown = Get-Content -LiteralPath $staleReleaseEvidenceMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-release-artifact-stale-head`, inputs=`4`',
-    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-stale-head`',
-    'Promotion action: `Regenerate E2E release evidence for the current HEAD before promotion.`',
+    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-local-release-evidence-refresh-needed`, inputs=`4`',
+    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-refresh-needed`',
+    'Promotion action: `Refresh the E2E release evidence for the current HEAD after resolving any remaining local verification or production-linked blockers.`',
     'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
     'Evidence CI head match: targetReleaseHead=`linked-candidate-head`, ciHead=`linked-candidate-head`, matches=`true`, currentHead=`newer-linked-candidate-head`, targetMatchesCurrentHead=`false`, stale=`true`'
 )) {
