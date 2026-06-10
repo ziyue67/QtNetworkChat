@@ -215,6 +215,53 @@ QStringList visibleFriendNoticeIds(QListWidget* noticeList) {
     return ids;
 }
 
+QString selectedGroupNoticeEntryId(QListWidget* noticeList) {
+    if (!noticeList || !noticeList->currentItem()) return QString();
+    return noticeList->currentItem()->data(Qt::UserRole).toString();
+}
+
+bool isGroupCreateEntryId(const QString& groupId) {
+    return groupId.startsWith("group_create:");
+}
+
+QString groupCreateEntryName(const QString& groupId) {
+    return isGroupCreateEntryId(groupId)
+        ? groupId.mid(QString("group_create:").size()).trimmed()
+        : QString();
+}
+
+bool trySelectedInspectableGroupNoticeId(QListWidget* noticeList,
+                                         QStatusBar* statusBar,
+                                         const QString& emptyMessage,
+                                         const QString& createMessage,
+                                         QString* groupId) {
+    const QString currentId = selectedGroupNoticeEntryId(noticeList);
+    if (currentId.isEmpty()) {
+        if (statusBar) statusBar->showMessage(emptyMessage, 1800);
+        return false;
+    }
+    if (isGroupCreateEntryId(currentId)) {
+        if (statusBar) statusBar->showMessage(createMessage, 2200);
+        return false;
+    }
+    if (groupId) {
+        *groupId = currentId;
+    }
+    return true;
+}
+
+QStringList visibleGroupNoticeIds(QListWidget* noticeList) {
+    QStringList ids;
+    if (!noticeList) return ids;
+    for (int i = 0; i < noticeList->count(); ++i) {
+        QListWidgetItem* item = noticeList->item(i);
+        const QString id = item ? item->data(Qt::UserRole).toString() : QString();
+        if (ids.contains(id)) continue;
+        ids << id;
+    }
+    return ids;
+}
+
 QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName) {
     const QDir directory(directoryPath);
     const QString stampedName = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_") + fileName;
@@ -6846,14 +6893,13 @@ void MainWindow::onShowGroupNotifications() {
     layout->addLayout(actionLayout);
 
     auto openSelectedGroup = [this, noticeList, &dialog]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        if (!current) {
+        const QString groupId = selectedGroupNoticeEntryId(noticeList);
+        if (groupId.isEmpty()) {
             ui->statusbar->showMessage("请先选择要进入的群聊", 1800);
             return;
         }
-        QString groupId = current->data(Qt::UserRole).toString();
-        if (groupId.startsWith("group_create:")) {
-            QString groupName = groupId.mid(QString("group_create:").size()).trimmed();
+        if (isGroupCreateEntryId(groupId)) {
+            QString groupName = groupCreateEntryName(groupId);
             if (groupName.isEmpty()) groupName = "搜索群聊";
             QString newGroupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
             m_localGroupIds << newGroupId;
@@ -6970,9 +7016,9 @@ void MainWindow::onShowGroupNotifications() {
             groupPreviewLabel->setText("选择群聊后可复制群号、公告、成员或入群话术");
             return;
         }
-        QString groupId = current->data(Qt::UserRole).toString();
-        if (groupId.startsWith("group_create:")) {
-            QString name = groupId.mid(QString("group_create:").size()).trimmed();
+        const QString groupId = selectedGroupNoticeEntryId(noticeList);
+        if (isGroupCreateEntryId(groupId)) {
+            QString name = groupCreateEntryName(groupId);
             groupPreviewLabel->setText(QString("待创建群聊 · %1 · 创建后可邀请好友").arg(name.isEmpty() ? "搜索群聊" : name));
         } else if (groupId.startsWith("local_group_")) {
             groupPreviewLabel->setText(QString("群聊 · %1 · 群号:%2 · 成员%3人")
@@ -6982,10 +7028,9 @@ void MainWindow::onShowGroupNotifications() {
         }
     };
     auto updateGroupActionState = [=]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        const QString groupId = current ? current->data(Qt::UserRole).toString() : QString();
-        const bool hasSelection = current != nullptr;
-        const bool isCreateEntry = groupId.startsWith("group_create:");
+        const QString groupId = selectedGroupNoticeEntryId(noticeList);
+        const bool hasSelection = noticeList->currentItem() != nullptr;
+        const bool isCreateEntry = isGroupCreateEntryId(groupId);
         const bool canInspectGroup = hasSelection && !isCreateEntry;
         const bool hasSearchKeyword = !searchEdit->text().trimmed().isEmpty();
         openBtn->setEnabled(hasSelection);
@@ -7028,14 +7073,12 @@ void MainWindow::onShowGroupNotifications() {
     });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        if (!current) {
-            ui->statusbar->showMessage("请先选择要复制群号的群聊", 1800);
-            return;
-        }
-        QString groupId = current->data(Qt::UserRole).toString();
-        if (groupId.startsWith("group_create:")) {
-            ui->statusbar->showMessage("待创建群聊还没有群号，请先进入创建", 2200);
+        QString groupId;
+        if (!trySelectedInspectableGroupNoticeId(noticeList,
+                                                 ui->statusbar,
+                                                 "请先选择要复制群号的群聊",
+                                                 "待创建群聊还没有群号，请先进入创建",
+                                                 &groupId)) {
             return;
         }
         QString copyId = groupId.isEmpty() ? "公共聊天室" : groupId.mid(QString("local_group_").size());
@@ -7043,16 +7086,15 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage("群号已复制: " + copyId, 2500);
     });
     connect(cardBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QString groupId;
+        if (!trySelectedInspectableGroupNoticeId(noticeList,
+                                                 ui->statusbar,
+                                                 "请先选择要复制名片的群聊",
+                                                 "待创建群聊还没有名片，请先进入创建",
+                                                 &groupId)) {
+            return;
+        }
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) {
-            ui->statusbar->showMessage("请先选择要复制名片的群聊", 1800);
-            return;
-        }
-        QString groupId = current->data(Qt::UserRole).toString();
-        if (groupId.startsWith("group_create:")) {
-            ui->statusbar->showMessage("待创建群聊还没有名片，请先进入创建", 2200);
-            return;
-        }
         QString card;
         if (groupId.isEmpty()) {
             card = QString("公共聊天室\n当前账号:%1\n在线成员:%2").arg(m_currentUserId).arg(m_knownUsers.size());
@@ -7068,16 +7110,15 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage("群名片已复制", 1800);
     });
     connect(announceBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+        QString groupId;
+        if (!trySelectedInspectableGroupNoticeId(noticeList,
+                                                 ui->statusbar,
+                                                 "请先选择要复制公告的群聊",
+                                                 "待创建群聊还没有公告，请先进入创建",
+                                                 &groupId)) {
+            return;
+        }
         QListWidgetItem* current = noticeList->currentItem();
-        if (!current) {
-            ui->statusbar->showMessage("请先选择要复制公告的群聊", 1800);
-            return;
-        }
-        QString groupId = current->data(Qt::UserRole).toString();
-        if (groupId.startsWith("group_create:")) {
-            ui->statusbar->showMessage("待创建群聊还没有公告，请先进入创建", 2200);
-            return;
-        }
         QString announcement = groupId.isEmpty()
             ? "你已加入默认群聊，可直接发送消息、图片和文件。"
             : m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
@@ -7085,12 +7126,11 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage("群公告已复制", 1800);
     });
     connect(inviteTextBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        QString groupId = current ? current->data(Qt::UserRole).toString() : QString();
+        const QString groupId = selectedGroupNoticeEntryId(noticeList);
         QString groupName = searchEdit->text().trimmed();
         QString groupNumber = "公共聊天室";
-        if (groupId.startsWith("group_create:")) {
-            groupName = groupId.mid(QString("group_create:").size()).trimmed();
+        if (isGroupCreateEntryId(groupId)) {
+            groupName = groupCreateEntryName(groupId);
             groupNumber = "待创建";
         } else if (groupId.startsWith("local_group_")) {
             groupName = m_localGroupNames.value(groupId, "群聊");
@@ -7104,14 +7144,12 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage("入群邀请话术已复制", 2200);
     });
     connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        if (!current) {
-            ui->statusbar->showMessage("请先选择要复制成员的群聊", 1800);
-            return;
-        }
-        QString groupId = current->data(Qt::UserRole).toString();
-        if (groupId.startsWith("group_create:")) {
-            ui->statusbar->showMessage("待创建群聊还没有成员列表，请先进入创建", 2200);
+        QString groupId;
+        if (!trySelectedInspectableGroupNoticeId(noticeList,
+                                                 ui->statusbar,
+                                                 "请先选择要复制成员的群聊",
+                                                 "待创建群聊还没有成员列表，请先进入创建",
+                                                 &groupId)) {
             return;
         }
         QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
@@ -7124,14 +7162,12 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
     });
     connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        if (!current) {
-            ui->statusbar->showMessage("请先选择要复制在线成员的群聊", 1800);
-            return;
-        }
-        QString groupId = current->data(Qt::UserRole).toString();
-        if (groupId.startsWith("group_create:")) {
-            ui->statusbar->showMessage("待创建群聊还没有在线成员，请先进入创建", 2200);
+        QString groupId;
+        if (!trySelectedInspectableGroupNoticeId(noticeList,
+                                                 ui->statusbar,
+                                                 "请先选择要复制在线成员的群聊",
+                                                 "待创建群聊还没有在线成员，请先进入创建",
+                                                 &groupId)) {
             return;
         }
         QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
@@ -7149,13 +7185,12 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(cards.size()), 2200);
     });
     connect(copyGroupMediaPackBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        QString groupId = current ? current->data(Qt::UserRole).toString() : QString();
+        const QString groupId = selectedGroupNoticeEntryId(noticeList);
         QString groupName = searchEdit->text().trimmed();
         QString groupNumber = "公共聊天室";
         int memberCount = m_knownUsers.size();
-        if (groupId.startsWith("group_create:")) {
-            groupName = groupId.mid(QString("group_create:").size()).trimmed();
+        if (isGroupCreateEntryId(groupId)) {
+            groupName = groupCreateEntryName(groupId);
             groupNumber = "待创建";
             memberCount = 1;
         } else if (groupId.startsWith("local_group_")) {
@@ -7179,11 +7214,10 @@ void MainWindow::onShowGroupNotifications() {
         QStringList groups;
         int totalMembers = 0;
         int onlineMembers = 0;
-        for (int i = 0; i < noticeList->count(); ++i) {
-            QListWidgetItem* item = noticeList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.startsWith("group_create:")) {
-                groups << QString("待创建群:%1").arg(id.mid(QString("group_create:").size()));
+        const QStringList visibleIds = visibleGroupNoticeIds(noticeList);
+        for (const QString& id : visibleIds) {
+            if (isGroupCreateEntryId(id)) {
+                groups << QString("待创建群:%1").arg(groupCreateEntryName(id));
                 ++totalMembers;
                 ++onlineMembers;
             } else if (id.isEmpty()) {
@@ -7218,13 +7252,12 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage("群批量媒体计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        QString groupId = current ? current->data(Qt::UserRole).toString() : QString();
+        const QString groupId = selectedGroupNoticeEntryId(noticeList);
         QString groupName = searchEdit->text().trimmed();
         QString groupNumber = "公共聊天室";
         int memberCount = m_knownUsers.size();
-        if (groupId.startsWith("group_create:")) {
-            groupName = groupId.mid(QString("group_create:").size()).trimmed();
+        if (isGroupCreateEntryId(groupId)) {
+            groupName = groupCreateEntryName(groupId);
             groupNumber = "待创建";
             memberCount = 1;
         } else if (groupId.startsWith("local_group_")) {
