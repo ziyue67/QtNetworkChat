@@ -327,8 +327,13 @@ private:
         connect(m_nameEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
         connect(m_passwordEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
         connect(m_confirmPasswordEdit, &QLineEdit::textChanged, this, [this]() { updateFormState(); });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+        connect(m_agreementCheck, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState) { updateFormState(); });
+        connect(m_rememberCheck, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState) { updateFormState(); });
+#else
         connect(m_agreementCheck, &QCheckBox::stateChanged, this, [this](int) { updateFormState(); });
         connect(m_rememberCheck, &QCheckBox::stateChanged, this, [this](int) { updateFormState(); });
+#endif
     }
 
     void setRegisterMode(bool registerMode) {
