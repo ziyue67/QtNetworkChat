@@ -162,11 +162,20 @@ private:
     bool copySavedFilePathToClipboard(const SavedFileActionState& savedFileState);
     bool openSavedFileFromState(const SavedFileActionState& savedFileState, const QString& missingMessage);
     bool openSavedFolderFromState(const SavedFileActionState& savedFileState);
+    void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     void quoteChatMessage(const QString& chatText);
     void forwardChatMessage(const QString& chatText);
     void resendChatMessage(const QString& chatText);
     void mentionChatSender(const QString& chatText);
+    QAction* addChatContextAction(QMenu& menu,
+                                  const QString& title,
+                                  const QString& tip,
+                                  const QString& commandId,
+                                  bool enabled = true);
+    bool handleChatContextCommand(const QString& commandId,
+                                  const QString& chatText,
+                                  const SavedFileActionState& savedFileState);
     QString chatPlainContentText(const QString& chatText) const;
     QString chatResendContentText(const QString& chatText) const;
     QString chatSenderText(const QString& chatText) const;

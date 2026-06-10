@@ -625,6 +625,11 @@ bool MainWindow::openSavedFolderFromState(const SavedFileActionState& savedFileS
     return false;
 }
 
+void MainWindow::copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs) {
+    QApplication::clipboard()->setText(text);
+    ui->statusbar->showMessage(statusMessage, timeoutMs);
+}
+
 void MainWindow::setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
     ui->messageEdit->setPlainText(text);
     ui->messageEdit->setFocus();
@@ -648,6 +653,83 @@ void MainWindow::resendChatMessage(const QString& chatText) {
 void MainWindow::mentionChatSender(const QString& chatText) {
     const QString name = chatMentionTargetText(chatText);
     setChatDraftText(QString("@%1 ").arg(name), QString("已插入 @%1 回复").arg(name));
+}
+
+QAction* MainWindow::addChatContextAction(QMenu& menu,
+                                          const QString& title,
+                                          const QString& tip,
+                                          const QString& commandId,
+                                          bool enabled) {
+    QAction* action = menu.addAction(title);
+    action->setToolTip(tip);
+    action->setStatusTip(tip);
+    action->setData(commandId);
+    action->setEnabled(enabled);
+    return action;
+}
+
+bool MainWindow::handleChatContextCommand(const QString& commandId,
+                                          const QString& chatText,
+                                          const SavedFileActionState& savedFileState) {
+    if (commandId == QLatin1String("copy-message")) {
+        copyTextWithStatus(chatText, "消息已复制");
+        return true;
+    }
+    if (commandId == QLatin1String("copy-plain")) {
+        copyTextWithStatus(chatPlainContentText(chatText), "消息内容已复制");
+        return true;
+    }
+    if (commandId == QLatin1String("copy-sender")) {
+        copyTextWithStatus(chatSenderText(chatText), "发送者已复制");
+        return true;
+    }
+    if (commandId == QLatin1String("quote")) {
+        quoteChatMessage(chatText);
+        return true;
+    }
+    if (commandId == QLatin1String("forward")) {
+        forwardChatMessage(chatText);
+        return true;
+    }
+    if (commandId == QLatin1String("resend")) {
+        resendChatMessage(chatText);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-time")) {
+        const QString timeText = chatTimeText(chatText);
+        copyTextWithStatus(timeText, "消息时间已复制: " + timeText);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-media-card")) {
+        copyTextWithStatus(chatMediaCardText(chatText), "媒体卡片已复制", 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-file-notice")) {
+        copyTextWithStatus(chatMediaNoticeText(chatText), "查收话术已复制", 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-receipt")) {
+        copyTextWithStatus(chatMediaReceiptText(chatText), "回执话术已复制", 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-save-path")) {
+        return copySavedFilePathToClipboard(savedFileState);
+    }
+    if (commandId == QLatin1String("open-saved-file")) {
+        return openSavedFileFromState(savedFileState, "当前消息没有可打开的文件");
+    }
+    if (commandId == QLatin1String("open-save-folder")) {
+        return openSavedFolderFromState(savedFileState);
+    }
+    if (commandId == QLatin1String("copy-media-flow")) {
+        copyTextWithStatus(chatMediaFlowText(chatText), "媒体流程已复制", 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("mention-reply")) {
+        mentionChatSender(chatText);
+        return true;
+    }
+    return false;
 }
 
 QString MainWindow::chatPlainContentText(const QString& chatText) const {
@@ -1627,91 +1709,29 @@ void MainWindow::setupUi() {
         QString text = index.data().toString();
         if (text.isEmpty()) return;
         QMenu menu(this);
-        QAction* copyAction = menu.addAction("复制消息");
-        QAction* copyPlainAction = menu.addAction("只复制内容");
-        QAction* copySenderAction = menu.addAction("复制发送者");
-        QAction* quoteAction = menu.addAction("引用回复");
-        QAction* forwardAction = menu.addAction("转发到输入框");
-        QAction* resendAction = menu.addAction("再次发送");
-        QAction* copyTimeAction = menu.addAction("复制时间");
+        addChatContextAction(menu, "复制消息", "复制整条聊天记录，包括时间和发送者", "copy-message");
+        addChatContextAction(menu, "只复制内容", "只复制消息正文内容", "copy-plain");
+        addChatContextAction(menu, "复制发送者", "复制这条消息的发送者名称或账号", "copy-sender");
+        addChatContextAction(menu, "引用回复", "把这条消息作为引用插入输入框", "quote");
+        addChatContextAction(menu, "转发到输入框", "把消息正文整理成转发内容放入输入框", "forward");
+        addChatContextAction(menu, "再次发送", "把消息正文重新填入输入框并立即发送", "resend");
+        addChatContextAction(menu, "复制时间", "复制这条消息的发送时间", "copy-time");
         menu.addSeparator();
-        auto describeChatAction = [](QAction* action, const QString& tip) {
-            action->setToolTip(tip);
-            action->setStatusTip(tip);
-        };
-        describeChatAction(copyAction, "复制整条聊天记录，包括时间和发送者");
-        describeChatAction(copyPlainAction, "只复制消息正文内容");
-        describeChatAction(copySenderAction, "复制这条消息的发送者名称或账号");
-        describeChatAction(quoteAction, "把这条消息作为引用插入输入框");
-        describeChatAction(forwardAction, "把消息正文整理成转发内容放入输入框");
-        describeChatAction(resendAction, "把消息正文重新填入输入框并立即发送");
-        describeChatAction(copyTimeAction, "复制这条消息的发送时间");
         const SavedFileActionState savedFileState = savedFileActionState(index);
         const bool isMediaMessage = isChatMediaMessage(text, savedFileState);
-        QAction* copyMediaCardAction = menu.addAction("复制媒体卡片");
-        QAction* copyFileNoticeAction = menu.addAction("复制查收话术");
-        QAction* copyReceiptAction = menu.addAction("复制回执话术");
-        QAction* copySavePathAction = menu.addAction("复制保存路径");
-        QAction* openSavedFileAction = menu.addAction("打开文件");
-        QAction* openSaveFolderAction = menu.addAction("打开保存目录");
-        QAction* copyMediaFlowAction = menu.addAction("复制媒体流程");
-        describeChatAction(copyMediaCardAction, "复制当前媒体或文件消息的卡片摘要");
-        describeChatAction(copyFileNoticeAction, "复制提醒对方查收文件的简短话术");
-        describeChatAction(copyReceiptAction, "复制已收到文件后的回执话术");
-        describeChatAction(copySavePathAction, "复制收到文件在本机的保存路径");
-        describeChatAction(openSavedFileAction, "打开这条记录关联的本地文件");
-        describeChatAction(openSaveFolderAction, "打开这条记录关联文件所在目录");
-        describeChatAction(copyMediaFlowAction, "复制媒体发送、保存和回执的操作流程");
-        copyMediaCardAction->setEnabled(isMediaMessage);
-        copyFileNoticeAction->setEnabled(isMediaMessage);
-        copyReceiptAction->setEnabled(isMediaMessage);
-        copyMediaFlowAction->setEnabled(isMediaMessage);
+        QAction* copyMediaCardAction = addChatContextAction(menu, "复制媒体卡片", "复制当前媒体或文件消息的卡片摘要", "copy-media-card", isMediaMessage);
+        QAction* copyFileNoticeAction = addChatContextAction(menu, "复制查收话术", "复制提醒对方查收文件的简短话术", "copy-file-notice", isMediaMessage);
+        QAction* copyReceiptAction = addChatContextAction(menu, "复制回执话术", "复制已收到文件后的回执话术", "copy-receipt", isMediaMessage);
+        QAction* copySavePathAction = addChatContextAction(menu, "复制保存路径", "复制收到文件在本机的保存路径", "copy-save-path");
+        QAction* openSavedFileAction = addChatContextAction(menu, "打开文件", "打开这条记录关联的本地文件", "open-saved-file");
+        QAction* openSaveFolderAction = addChatContextAction(menu, "打开保存目录", "打开这条记录关联文件所在目录", "open-save-folder");
+        QAction* copyMediaFlowAction = addChatContextAction(menu, "复制媒体流程", "复制媒体发送、保存和回执的操作流程", "copy-media-flow", isMediaMessage);
         configureSavedFileActions(copySavePathAction, openSavedFileAction, openSaveFolderAction, savedFileState);
         menu.addSeparator();
-        QAction* mentionReplyAction = menu.addAction("@对方回复");
-        describeChatAction(mentionReplyAction, "把发送者作为 @ 回复对象插入输入框");
+        addChatContextAction(menu, "@对方回复", "把发送者作为 @ 回复对象插入输入框", "mention-reply");
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
-        if (selected == copyAction) {
-            QApplication::clipboard()->setText(text);
-            ui->statusbar->showMessage("消息已复制", 1800);
-        } else if (selected == copyPlainAction) {
-            QApplication::clipboard()->setText(chatPlainContentText(text));
-            ui->statusbar->showMessage("消息内容已复制", 1800);
-        } else if (selected == copySenderAction) {
-            QApplication::clipboard()->setText(chatSenderText(text));
-            ui->statusbar->showMessage("发送者已复制", 1800);
-        } else if (selected == quoteAction) {
-            quoteChatMessage(text);
-        } else if (selected == forwardAction) {
-            forwardChatMessage(text);
-        } else if (selected == resendAction) {
-            resendChatMessage(text);
-        } else if (selected == copyTimeAction) {
-            const QString timeText = chatTimeText(text);
-            QApplication::clipboard()->setText(timeText);
-            ui->statusbar->showMessage("消息时间已复制: " + timeText, 1800);
-        } else if (selected == copyMediaCardAction) {
-            QApplication::clipboard()->setText(chatMediaCardText(text));
-            ui->statusbar->showMessage("媒体卡片已复制", 2200);
-        } else if (selected == copyFileNoticeAction) {
-            QApplication::clipboard()->setText(chatMediaNoticeText(text));
-            ui->statusbar->showMessage("查收话术已复制", 2200);
-        } else if (selected == copyReceiptAction) {
-            QApplication::clipboard()->setText(chatMediaReceiptText(text));
-            ui->statusbar->showMessage("回执话术已复制", 2200);
-        } else if (selected == copySavePathAction) {
-            copySavedFilePathToClipboard(savedFileState);
-        } else if (selected == openSavedFileAction) {
-            openSavedFileFromState(savedFileState, "当前消息没有可打开的文件");
-        } else if (selected == openSaveFolderAction) {
-            openSavedFolderFromState(savedFileState);
-        } else if (selected == copyMediaFlowAction) {
-            QApplication::clipboard()->setText(chatMediaFlowText(text));
-            ui->statusbar->showMessage("媒体流程已复制", 2200);
-        } else if (selected == mentionReplyAction) {
-            mentionChatSender(text);
-        }
+        handleChatContextCommand(selected->data().toString(), text, savedFileState);
     });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
     ui->contactSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
