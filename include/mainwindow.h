@@ -159,6 +159,9 @@ private:
                                    QAction* openSavedFileAction,
                                    QAction* openSaveFolderAction,
                                    const SavedFileActionState& savedFileState) const;
+    bool copySavedFilePathToClipboard(const SavedFileActionState& savedFileState);
+    bool openSavedFileFromState(const SavedFileActionState& savedFileState, const QString& missingMessage);
+    bool openSavedFolderFromState(const SavedFileActionState& savedFileState);
     QString chatPlainContentText(const QString& chatText) const;
     QString chatResendContentText(const QString& chatText) const;
     QString chatSenderText(const QString& chatText) const;

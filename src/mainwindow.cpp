@@ -583,6 +583,48 @@ void MainWindow::configureSavedFileActions(QAction* copySavePathAction,
     }
 }
 
+bool MainWindow::copySavedFilePathToClipboard(const SavedFileActionState& savedFileState) {
+    if (savedFileState.savePath.isEmpty()) {
+        ui->statusbar->showMessage("当前消息没有保存路径", 2200);
+        return false;
+    }
+
+    QApplication::clipboard()->setText(savedFileState.savePath);
+    ui->statusbar->showMessage("保存路径已复制", 2200);
+    return true;
+}
+
+bool MainWindow::openSavedFileFromState(const SavedFileActionState& savedFileState, const QString& missingMessage) {
+    if (savedFileState.canOpenFile
+        && QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.fileInfo.absoluteFilePath()))) {
+        ui->statusbar->showMessage("已打开保存文件", 2200);
+        return true;
+    }
+
+    showFileTransferStatusEvent(savedFileState.fileInfo.fileName(),
+                                QString(),
+                                QStringLiteral("receive-open-failed"),
+                                0,
+                                0);
+    ui->statusbar->showMessage(missingMessage, 2200);
+    return false;
+}
+
+bool MainWindow::openSavedFolderFromState(const SavedFileActionState& savedFileState) {
+    if (!savedFileState.canOpenFolder) {
+        ui->statusbar->showMessage("当前消息没有可打开的保存路径", 2200);
+        return false;
+    }
+
+    if (QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.folderInfo.absoluteFilePath()))) {
+        ui->statusbar->showMessage("已打开保存目录", 2200);
+        return true;
+    }
+
+    ui->statusbar->showMessage("保存目录无法打开", 2200);
+    return false;
+}
+
 QString MainWindow::chatPlainContentText(const QString& chatText) const {
     QString content = chatText.section(']', 2).trimmed();
     if (content.isEmpty()) content = chatText;
@@ -1552,17 +1594,7 @@ void MainWindow::setupUi() {
         const SavedFileActionState savedFileState = savedFileActionState(index);
         if (!savedFileState.hasSavePath) return;
 
-        if (savedFileState.canOpenFile
-            && QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.fileInfo.absoluteFilePath()))) {
-            ui->statusbar->showMessage("已打开保存文件", 2200);
-        } else {
-            showFileTransferStatusEvent(savedFileState.fileInfo.fileName(),
-                                        QString(),
-                                        QStringLiteral("receive-open-failed"),
-                                        0,
-                                        0);
-            ui->statusbar->showMessage("保存文件不存在或无法打开", 2600);
-        }
+        openSavedFileFromState(savedFileState, "保存文件不存在或无法打开");
     });
     connect(ui->chatListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->chatListView->indexAt(pos);
@@ -1650,33 +1682,11 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(chatMediaReceiptText(text));
             ui->statusbar->showMessage("回执话术已复制", 2200);
         } else if (selected == copySavePathAction) {
-            if (savedFileState.savePath.isEmpty()) {
-                ui->statusbar->showMessage("当前消息没有保存路径", 2200);
-                return;
-            }
-            QApplication::clipboard()->setText(savedFileState.savePath);
-            ui->statusbar->showMessage("保存路径已复制", 2200);
+            copySavedFilePathToClipboard(savedFileState);
         } else if (selected == openSavedFileAction) {
-            if (savedFileState.canOpenFile && QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.fileInfo.absoluteFilePath()))) {
-                ui->statusbar->showMessage("已打开保存文件", 2200);
-            } else {
-                showFileTransferStatusEvent(savedFileState.fileInfo.fileName(),
-                                            QString(),
-                                            QStringLiteral("receive-open-failed"),
-                                            0,
-                                            0);
-                ui->statusbar->showMessage("当前消息没有可打开的文件", 2200);
-            }
+            openSavedFileFromState(savedFileState, "当前消息没有可打开的文件");
         } else if (selected == openSaveFolderAction) {
-            if (savedFileState.canOpenFolder) {
-                if (QDesktopServices::openUrl(QUrl::fromLocalFile(savedFileState.folderInfo.absoluteFilePath()))) {
-                    ui->statusbar->showMessage("已打开保存目录", 2200);
-                } else {
-                    ui->statusbar->showMessage("保存目录无法打开", 2200);
-                }
-            } else {
-                ui->statusbar->showMessage("当前消息没有可打开的保存路径", 2200);
-            }
+            openSavedFolderFromState(savedFileState);
         } else if (selected == copyMediaFlowAction) {
             QApplication::clipboard()->setText(chatMediaFlowText(text));
             ui->statusbar->showMessage("媒体流程已复制", 2200);
