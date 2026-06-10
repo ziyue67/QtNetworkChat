@@ -15,9 +15,9 @@ $sensitivePatterns = @(
     '(^|["''\s{,])password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
     'secret[-_\s]?key',
     'access[-_\s]?key',
-    'Authorization',
-    'Credential',
-    'Signature'
+    'Authorization\s*[:=]',
+    'Credential\s*=',
+    'Signature\s*='
 )
 
 function Resolve-OptionalPath([string]$PathValue) {
