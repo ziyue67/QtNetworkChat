@@ -548,6 +548,37 @@ MainWindow::SavedFileActionState MainWindow::savedFileActionState(const QModelIn
     return state;
 }
 
+QString MainWindow::chatPlainContentText(const QString& chatText) const {
+    QString content = chatText.section(']', 2).trimmed();
+    if (content.isEmpty()) content = chatText;
+    return content;
+}
+
+QString MainWindow::chatResendContentText(const QString& chatText) const {
+    QString content = chatText.section(']', 2).trimmed();
+    if (content.isEmpty()) content = chatText.section('>', 1).trimmed();
+    if (content.isEmpty()) content = chatText;
+    return content;
+}
+
+QString MainWindow::chatSenderText(const QString& chatText) const {
+    QString sender = chatText.section('<', 1, 1).section('>', 0, 0).trimmed();
+    if (sender.isEmpty()) sender = chatText.section(']', 1, 1).trimmed();
+    return sender;
+}
+
+QString MainWindow::chatTimeText(const QString& chatText) const {
+    QString timeText = chatText.section(']', 0, 0).section('[', 1).trimmed();
+    if (timeText.isEmpty()) timeText = QDateTime::currentDateTime().toString("hh:mm:ss");
+    return timeText;
+}
+
+QString MainWindow::chatMentionTargetText(const QString& chatText) const {
+    QString name = chatText.section('<', 1, 1).section('>', 0, 0).trimmed();
+    if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
+    return name;
+}
+
 QString MainWindow::mediaTypeFromChatText(const QString& text) const {
     if (text.contains("视频")) return QStringLiteral("视频");
     if (text.contains("图片")) return QStringLiteral("图片");
@@ -1575,35 +1606,25 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(text);
             ui->statusbar->showMessage("消息已复制", 1800);
         } else if (selected == copyPlainAction) {
-            QString content = text.section(']', 2).trimmed();
-            if (content.isEmpty()) content = text;
-            QApplication::clipboard()->setText(content);
+            QApplication::clipboard()->setText(chatPlainContentText(text));
             ui->statusbar->showMessage("消息内容已复制", 1800);
         } else if (selected == copySenderAction) {
-            QString sender = text.section('<', 1, 1).section('>', 0, 0).trimmed();
-            if (sender.isEmpty()) sender = text.section(']', 1, 1).trimmed();
-            QApplication::clipboard()->setText(sender);
+            QApplication::clipboard()->setText(chatSenderText(text));
             ui->statusbar->showMessage("发送者已复制", 1800);
         } else if (selected == quoteAction) {
             ui->messageEdit->setPlainText(QString("> %1\n").arg(text));
             ui->messageEdit->setFocus();
             ui->statusbar->showMessage("已插入引用回复", 1400);
         } else if (selected == forwardAction) {
-            QString content = text.section(']', 2).trimmed();
-            if (content.isEmpty()) content = text;
-            ui->messageEdit->setPlainText(QString("转发：%1").arg(content));
+            ui->messageEdit->setPlainText(QString("转发：%1").arg(chatPlainContentText(text)));
             ui->messageEdit->setFocus();
             ui->statusbar->showMessage("已转发到输入框", 1400);
         } else if (selected == resendAction) {
-            QString content = text.section(']', 2).trimmed();
-            if (content.isEmpty()) content = text.section('>', 1).trimmed();
-            if (content.isEmpty()) content = text;
-            ui->messageEdit->setPlainText(content);
+            ui->messageEdit->setPlainText(chatResendContentText(text));
             ui->messageEdit->setFocus();
             onSendMessage();
         } else if (selected == copyTimeAction) {
-            QString timeText = text.section(']', 0, 0).section('[', 1).trimmed();
-            if (timeText.isEmpty()) timeText = QDateTime::currentDateTime().toString("hh:mm:ss");
+            const QString timeText = chatTimeText(text);
             QApplication::clipboard()->setText(timeText);
             ui->statusbar->showMessage("消息时间已复制: " + timeText, 1800);
         } else if (selected == copyMediaCardAction) {
@@ -1647,8 +1668,7 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(chatMediaFlowText(text));
             ui->statusbar->showMessage("媒体流程已复制", 2200);
         } else if (selected == mentionReplyAction) {
-            QString name = text.section('<', 1, 1).section('>', 0, 0).trimmed();
-            if (name.isEmpty()) name = contactDisplayName(m_privateChatTarget);
+            const QString name = chatMentionTargetText(text);
             ui->messageEdit->setPlainText(QString("@%1 ").arg(name));
             ui->messageEdit->setFocus();
             ui->statusbar->showMessage(QString("已插入 @%1 回复").arg(name), 1400);
