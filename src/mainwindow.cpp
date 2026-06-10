@@ -5270,22 +5270,23 @@ void MainWindow::onShowFriendManager() {
 }
 
 void MainWindow::onUploadAvatar() {
-    QString filePath = QFileDialog::getOpenFileName(this, "选择头像", LocalFileManager::lastAvatarDirectory(), "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
-    if (filePath.isEmpty()) {
+    const QString selectedPath = QFileDialog::getOpenFileName(this,
+                                                              "选择头像",
+                                                              LocalFileManager::lastAvatarDirectory(),
+                                                              "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
+    const LocalFileSelectionResult selection = LocalFileManager::selectAvatarFile(selectedPath);
+    if (selection.canceled) {
         ui->statusbar->showMessage("已取消选择头像", 1600);
         return;
     }
-    LocalFileManager::rememberAvatarDirectory(filePath);
-
-    QFileInfo info(filePath);
-    const LocalFileValidationResult avatarValidation = LocalFileManager::validateAvatarFile(info);
-    if (!avatarValidation.accepted) {
-        QMessageBox::warning(this, avatarValidation.failureTitle, avatarValidation.failureMessage);
-        ui->statusbar->showMessage(avatarValidation.statusMessage, 2200);
+    if (!selection.accepted) {
+        QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
+        ui->statusbar->showMessage(selection.statusMessage, 2200);
         return;
     }
 
-    QPixmap pixmap(filePath);
+    const QFileInfo info = selection.fileInfo;
+    QPixmap pixmap(selection.filePath);
     if (pixmap.isNull()) {
         QMessageBox::warning(this, "头像上传失败", "无法读取该图片，请确认文件格式是否正确。");
         ui->statusbar->showMessage("头像上传失败：无法读取图片", 2200);
@@ -7060,37 +7061,39 @@ bool MainWindow::selectTransferFile(const QString& dialogTitle,
         return false;
     }
 
-    *filePath = QFileDialog::getOpenFileName(this, dialogTitle, LocalFileManager::lastTransferDirectory(), filters);
-    if (filePath->isEmpty()) {
+    const QString selectedPath = QFileDialog::getOpenFileName(this,
+                                                              dialogTitle,
+                                                              LocalFileManager::lastTransferDirectory(),
+                                                              filters);
+    const LocalFileSelectionResult selection = LocalFileManager::selectTransferFile(selectedPath, confirmKind);
+    if (selection.canceled) {
         ui->chatHintLabel->setText(canceledHint);
         ui->statusbar->showMessage(canceledStatus, 1600);
         return false;
     }
-    LocalFileManager::rememberTransferDirectory(*filePath);
-
-    *fileInfo = QFileInfo(*filePath);
-    const LocalFileValidationResult validation = LocalFileManager::validateTransferFile(*fileInfo, confirmKind);
-    if (!validation.accepted) {
-        QMessageBox::warning(this, validation.failureTitle, validation.failureMessage);
-        ui->chatHintLabel->setText(validation.statusMessage);
-        ui->statusbar->showMessage(validation.statusMessage, 2600);
+    if (!selection.accepted) {
+        QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
+        ui->chatHintLabel->setText(selection.statusMessage);
+        ui->statusbar->showMessage(selection.statusMessage, 2600);
         return false;
     }
-    if (validation.warningRequired) {
+    if (selection.warningRequired) {
         const bool confirmed = QMessageBox::question(this,
-                                                     validation.warningTitle,
-                                                     validation.warningMessage,
+                                                     selection.warningTitle,
+                                                     selection.warningMessage,
                                                      QMessageBox::Yes | QMessageBox::No,
                                                      QMessageBox::No) == QMessageBox::Yes;
         if (!confirmed) {
-            ui->chatHintLabel->setText(validation.statusMessage);
-            ui->statusbar->showMessage(validation.statusMessage, 2600);
+            ui->chatHintLabel->setText(selection.statusMessage);
+            ui->statusbar->showMessage(selection.statusMessage, 2600);
             return false;
         }
     }
 
+    *filePath = selection.filePath;
+    *fileInfo = selection.fileInfo;
     if (fileSize) {
-        *fileSize = LocalFileManager::humanFileSize(fileInfo->size());
+        *fileSize = selection.fileSize;
     }
     return true;
 }

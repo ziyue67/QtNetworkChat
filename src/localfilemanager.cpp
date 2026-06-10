@@ -50,6 +50,52 @@ void LocalFileManager::rememberAvatarDirectory(const QString& filePath) {
     settings.setValue("avatar/lastDirectory", directory);
 }
 
+LocalFileSelectionResult LocalFileManager::selectTransferFile(const QString& selectedPath,
+                                                              const QString& confirmKind) {
+    LocalFileSelectionResult result;
+    result.filePath = selectedPath;
+    result.canceled = selectedPath.trimmed().isEmpty();
+    if (result.canceled) {
+        return result;
+    }
+
+    rememberTransferDirectory(selectedPath);
+    result.fileInfo = QFileInfo(selectedPath);
+    const LocalFileValidationResult validation = validateTransferFile(result.fileInfo, confirmKind);
+    result.accepted = validation.accepted;
+    result.warningRequired = validation.warningRequired;
+    result.statusMessage = validation.statusMessage;
+    result.failureTitle = validation.failureTitle;
+    result.failureMessage = validation.failureMessage;
+    result.warningTitle = validation.warningTitle;
+    result.warningMessage = validation.warningMessage;
+    if (validation.accepted) {
+        result.fileSize = humanFileSize(result.fileInfo.size());
+    }
+    return result;
+}
+
+LocalFileSelectionResult LocalFileManager::selectAvatarFile(const QString& selectedPath) {
+    LocalFileSelectionResult result;
+    result.filePath = selectedPath;
+    result.canceled = selectedPath.trimmed().isEmpty();
+    if (result.canceled) {
+        return result;
+    }
+
+    rememberAvatarDirectory(selectedPath);
+    result.fileInfo = QFileInfo(selectedPath);
+    const LocalFileValidationResult validation = validateAvatarFile(result.fileInfo);
+    result.accepted = validation.accepted;
+    result.statusMessage = validation.statusMessage;
+    result.failureTitle = validation.failureTitle;
+    result.failureMessage = validation.failureMessage;
+    if (validation.accepted) {
+        result.fileSize = humanFileSize(result.fileInfo.size());
+    }
+    return result;
+}
+
 QString LocalFileManager::safeReceivedFileName(const QString& rawName, const QString& fallbackName) {
     QString fileName = QFileInfo(rawName).fileName().trimmed();
     if (fileName.isEmpty()) {

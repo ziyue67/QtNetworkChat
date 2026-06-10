@@ -80,8 +80,25 @@ int main(int argc, char** argv) {
     ok = expect(normalTransfer.accepted && !normalTransfer.warningRequired,
                 "small transfer file should be accepted without warning") && ok;
 
+    LocalFileSelectionResult canceledTransferSelection = LocalFileManager::selectTransferFile(QString(), QStringLiteral("文件"));
+    ok = expect(canceledTransferSelection.canceled && !canceledTransferSelection.accepted,
+                "empty transfer selection should be treated as canceled") && ok;
+
+    LocalFileSelectionResult warningTransferSelection = LocalFileManager::selectTransferFile(warningFilePath, QStringLiteral("文件"));
+    ok = expect(warningTransferSelection.accepted
+                    && warningTransferSelection.warningRequired
+                    && warningTransferSelection.fileInfo.fileName() == QStringLiteral("warning.bin")
+                    && !warningTransferSelection.fileSize.isEmpty(),
+                "transfer selection should preserve validation and file metadata") && ok;
+
     LocalFileValidationResult avatarOk = LocalFileManager::validateAvatarFile(QFileInfo(avatarFilePath));
     ok = expect(avatarOk.accepted, "normal avatar file should be accepted") && ok;
+
+    LocalFileSelectionResult avatarSelection = LocalFileManager::selectAvatarFile(avatarFilePath);
+    ok = expect(avatarSelection.accepted
+                    && !avatarSelection.canceled
+                    && avatarSelection.fileInfo.fileName() == QStringLiteral("avatar.png"),
+                "avatar selection should preserve accepted file metadata") && ok;
 
     LocalFileValidationResult avatarMissing = LocalFileManager::validateAvatarFile(QFileInfo(QDir(nestedDir).filePath("missing-avatar.png")));
     ok = expect(!avatarMissing.accepted && avatarMissing.statusMessage.contains(QString::fromUtf8("文件不可读取")),

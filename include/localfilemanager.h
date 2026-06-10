@@ -15,12 +15,29 @@ struct LocalFileValidationResult {
     QString warningMessage;
 };
 
+struct LocalFileSelectionResult {
+    bool accepted = false;
+    bool canceled = false;
+    bool warningRequired = false;
+    QString filePath;
+    QFileInfo fileInfo;
+    QString fileSize;
+    QString statusMessage;
+    QString failureTitle;
+    QString failureMessage;
+    QString warningTitle;
+    QString warningMessage;
+};
+
 class LocalFileManager {
 public:
     static QString lastTransferDirectory();
     static void rememberTransferDirectory(const QString& filePath);
     static QString lastAvatarDirectory();
     static void rememberAvatarDirectory(const QString& filePath);
+    static LocalFileSelectionResult selectTransferFile(const QString& selectedPath,
+                                                       const QString& confirmKind);
+    static LocalFileSelectionResult selectAvatarFile(const QString& selectedPath);
     static QString safeReceivedFileName(const QString& rawName, const QString& fallbackName);
     static QString ensureReceivedDownloadDirectory(const QString& downloadSubdir);
     static QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName);
