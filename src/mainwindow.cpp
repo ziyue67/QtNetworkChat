@@ -746,25 +746,23 @@ void MainWindow::applyReceivedTransferSaveStatus(const QString& kind,
                                                  qint64 totalBytes,
                                                  bool saved,
                                                  bool integrityFailed) {
-    if (saved) {
-        showFileTransferStatusEvent(fileName,
-                                    transferId,
-                                    integrityFailed ? QStringLiteral("hash") : QStringLiteral("receive-saved"),
-                                    receivedBytes,
-                                    totalBytes);
-        ui->chatHintLabel->setText(QString("已接收%1 · %2 · %3 · 来自 %4%5%6")
-            .arg(kind, fileName, receivedSize, displayName, manifestSuffix, integritySuffix));
-        ui->statusbar->showMessage(QString("%1已保存到下载目录 · %2%3%4").arg(kind, receivedSize, manifestSuffix, integritySuffix), 3000);
-        return;
-    }
-
+    const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(kind,
+                                                                                              fileName,
+                                                                                              receivedSize,
+                                                                                              displayName,
+                                                                                              manifestSuffix,
+                                                                                              QString(),
+                                                                                              integritySuffix,
+                                                                                              QString(),
+                                                                                              saved,
+                                                                                              integrityFailed);
     showFileTransferStatusEvent(fileName,
                                 transferId,
-                                QStringLiteral("receive-save-failed"),
+                                uiState.eventReason,
                                 receivedBytes,
                                 totalBytes);
-    ui->chatHintLabel->setText(QString("%1保存失败 · %2 · 来自 %3").arg(kind, fileName, displayName));
-    ui->statusbar->showMessage(QString("%1保存失败，请检查下载目录权限").arg(kind), 3200);
+    ui->chatHintLabel->setText(uiState.hintText);
+    ui->statusbar->showMessage(uiState.statusMessage, uiState.statusTimeoutMs);
 }
 
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
@@ -7175,30 +7173,23 @@ void MainWindow::appendReceivedTransferReceiptItems(const QString& cardText,
 
 void MainWindow::appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
                                                      const QString& displayName) {
-    const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(context.savePath);
-    appendReceivedTransferSavedItem(
-        QString("%1已自动保存: %2 · %3%4%5").arg(context.kind,
-                                               context.savePath,
-                                               context.receivedSize,
-                                               context.manifestSuffix,
-                                               context.integritySuffix),
-        savedFileTip,
-        context.integrityText.startsWith("完整性校验失败"));
-    appendReceivedTransferReceiptItems(
-        QString("%1接收卡片 · %2 · %3 · 来自 %4 · 已保存到下载目录%5%6").arg(context.kind,
-                                                                       context.receivedName,
-                                                                       context.receivedSize,
-                                                                       displayName,
-                                                                       context.manifestSuffix,
-                                                                       context.integritySuffix),
-        QString("%1已保存到：%2").arg(context.kind, context.savePath),
-        QString("回执话术 · 已收到%1 %2（%3%4），%5，保存路径：%6 · 右键聊天记录可复制或打开保存目录").arg(context.kind,
-                                                                                                           context.receivedName,
-                                                                                                           context.receivedSize,
-                                                                                                           context.manifestSuffix,
-                                                                                                           context.integrityText,
-                                                                                                           context.savePath),
-        savedFileTip);
+    const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(context.kind,
+                                                                                              context.receivedName,
+                                                                                              context.receivedSize,
+                                                                                              displayName,
+                                                                                              context.manifestSuffix,
+                                                                                              context.integrityText,
+                                                                                              context.integritySuffix,
+                                                                                              context.savePath,
+                                                                                              true,
+                                                                                              context.integrityText.startsWith("完整性校验失败"));
+    appendReceivedTransferSavedItem(uiState.savedItemText,
+                                    uiState.savedItemToolTip,
+                                    uiState.savedIntegrityFailed);
+    appendReceivedTransferReceiptItems(uiState.receiptCardText,
+                                       uiState.receiptCardToolTip,
+                                       uiState.receiptReplyText,
+                                       uiState.receiptReplyToolTip);
 }
 
 void MainWindow::appendReceivedTransferSaveFailedEvidence(const ReceivedTransferContext& context,
@@ -7206,8 +7197,17 @@ void MainWindow::appendReceivedTransferSaveFailedEvidence(const ReceivedTransfer
                                                           const QString& transferId,
                                                           qint64 receivedBytes,
                                                           qint64 totalBytes) {
-    appendReceivedTransferSaveFailedItem(QString("%1保存失败 · %2 · %3 · 请检查下载目录权限")
-        .arg(context.kind, context.receivedName, context.receivedSize));
+    const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(context.kind,
+                                                                                              context.receivedName,
+                                                                                              context.receivedSize,
+                                                                                              displayName,
+                                                                                              context.manifestSuffix,
+                                                                                              context.integrityText,
+                                                                                              context.integritySuffix,
+                                                                                              context.savePath,
+                                                                                              false,
+                                                                                              false);
+    appendReceivedTransferSaveFailedItem(uiState.failedItemText);
     applyReceivedTransferSaveStatus(context.kind,
                                     context.receivedName,
                                     displayName,
@@ -7235,8 +7235,6 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
         return false;
     }
 
-    file.write(fileData);
-    file.close();
     appendReceivedTransferSavedEvidence(context, displayName);
     applyReceivedTransferSaveStatus(context.kind,
                                     context.receivedName,

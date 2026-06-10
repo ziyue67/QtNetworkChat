@@ -392,6 +392,46 @@ TransferSendUiState TransferManager::remoteSendCompletedState(const QString& kin
     return result;
 }
 
+TransferReceiveSaveUiState TransferManager::receivedTransferSaveUiState(const QString& kind,
+                                                                        const QString& receivedName,
+                                                                        const QString& receivedSize,
+                                                                        const QString& displayName,
+                                                                        const QString& manifestSuffix,
+                                                                        const QString& integrityText,
+                                                                        const QString& integritySuffix,
+                                                                        const QString& savePath,
+                                                                        bool saved,
+                                                                        bool integrityFailed) {
+    TransferReceiveSaveUiState result;
+    if (saved) {
+        result.savedItemText = QStringLiteral("%1已自动保存: %2 · %3%4%5")
+            .arg(kind, savePath, receivedSize, manifestSuffix, integritySuffix);
+        result.savedItemToolTip = QStringLiteral("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
+        result.savedIntegrityFailed = integrityFailed;
+        result.receiptCardText = QStringLiteral("%1接收卡片 · %2 · %3 · 来自 %4 · 已保存到下载目录%5%6")
+            .arg(kind, receivedName, receivedSize, displayName, manifestSuffix, integritySuffix);
+        result.receiptCardToolTip = QStringLiteral("%1已保存到：%2").arg(kind, savePath);
+        result.receiptReplyText = QStringLiteral("回执话术 · 已收到%1 %2（%3%4），%5，保存路径：%6 · 右键聊天记录可复制或打开保存目录")
+            .arg(kind, receivedName, receivedSize, manifestSuffix, integrityText, savePath);
+        result.receiptReplyToolTip = result.savedItemToolTip;
+        result.eventReason = integrityFailed ? QStringLiteral("hash") : QStringLiteral("receive-saved");
+        result.hintText = QStringLiteral("已接收%1 · %2 · %3 · 来自 %4%5%6")
+            .arg(kind, receivedName, receivedSize, displayName, manifestSuffix, integritySuffix);
+        result.statusMessage = QStringLiteral("%1已保存到下载目录 · %2%3%4")
+            .arg(kind, receivedSize, manifestSuffix, integritySuffix);
+        result.statusTimeoutMs = 3000;
+        return result;
+    }
+
+    result.failedItemText = QStringLiteral("%1保存失败 · %2 · %3 · 请检查下载目录权限")
+        .arg(kind, receivedName, receivedSize);
+    result.eventReason = QStringLiteral("receive-save-failed");
+    result.hintText = QStringLiteral("%1保存失败 · %2 · 来自 %3").arg(kind, receivedName, displayName);
+    result.statusMessage = QStringLiteral("%1保存失败，请检查下载目录权限").arg(kind);
+    result.statusTimeoutMs = 3200;
+    return result;
+}
+
 TransferProgressUiState TransferManager::resumeInitialState(const QString& fileName,
                                                             const QString& targetName) {
     TransferProgressUiState result;

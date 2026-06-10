@@ -111,6 +111,21 @@ struct TransferSendUiState {
     int statusTimeoutMs = 3000;
 };
 
+struct TransferReceiveSaveUiState {
+    QString savedItemText;
+    QString savedItemToolTip;
+    bool savedIntegrityFailed = false;
+    QString receiptCardText;
+    QString receiptCardToolTip;
+    QString receiptReplyText;
+    QString receiptReplyToolTip;
+    QString failedItemText;
+    QString eventReason;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 3000;
+};
+
 class TransferManager {
 public:
     static TransferRecoveryUiState recoveryUiState(bool hasSavedTransfer,
@@ -171,6 +186,16 @@ public:
                                                         const QString& targetName,
                                                         const QString& completedAt,
                                                         const QString& transferSummary = QString());
+    static TransferReceiveSaveUiState receivedTransferSaveUiState(const QString& kind,
+                                                                  const QString& receivedName,
+                                                                  const QString& receivedSize,
+                                                                  const QString& displayName,
+                                                                  const QString& manifestSuffix,
+                                                                  const QString& integrityText,
+                                                                  const QString& integritySuffix,
+                                                                  const QString& savePath,
+                                                                  bool saved,
+                                                                  bool integrityFailed);
     static TransferProgressUiState resumeInitialState(const QString& fileName,
                                                       const QString& targetName);
     static TransferProgressUiState resumeCancelState(const QString& fileName);
