@@ -177,6 +177,8 @@ private:
     bool openSavedFileFromState(const SavedFileActionState& savedFileState, const QString& missingMessage);
     bool openSavedFolderFromState(const SavedFileActionState& savedFileState);
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
+    bool handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState);
+    bool handleChatCopyContextCommand(const QString& commandId, const QString& chatText);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     void quoteChatMessage(const QString& chatText);
     void forwardChatMessage(const QString& chatText);

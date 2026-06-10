@@ -630,6 +630,56 @@ void MainWindow::copyTextWithStatus(const QString& text, const QString& statusMe
     ui->statusbar->showMessage(statusMessage, timeoutMs);
 }
 
+bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState) {
+    if (commandId == QLatin1String("copy-save-path")) {
+        return copySavedFilePathToClipboard(savedFileState);
+    }
+    if (commandId == QLatin1String("open-saved-file")) {
+        return openSavedFileFromState(savedFileState, "当前消息没有可打开的文件");
+    }
+    if (commandId == QLatin1String("open-save-folder")) {
+        return openSavedFolderFromState(savedFileState);
+    }
+    return false;
+}
+
+bool MainWindow::handleChatCopyContextCommand(const QString& commandId, const QString& chatText) {
+    if (commandId == QLatin1String("copy-message")) {
+        copyTextWithStatus(chatText, "消息已复制");
+        return true;
+    }
+    if (commandId == QLatin1String("copy-plain")) {
+        copyTextWithStatus(chatPlainContentText(chatText), "消息内容已复制");
+        return true;
+    }
+    if (commandId == QLatin1String("copy-sender")) {
+        copyTextWithStatus(chatSenderText(chatText), "发送者已复制");
+        return true;
+    }
+    if (commandId == QLatin1String("copy-time")) {
+        const QString timeText = chatTimeText(chatText);
+        copyTextWithStatus(timeText, "消息时间已复制: " + timeText);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-media-card")) {
+        copyTextWithStatus(chatMediaCardText(chatText), "媒体卡片已复制", 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-file-notice")) {
+        copyTextWithStatus(chatMediaNoticeText(chatText), "查收话术已复制", 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-receipt")) {
+        copyTextWithStatus(chatMediaReceiptText(chatText), "回执话术已复制", 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-media-flow")) {
+        copyTextWithStatus(chatMediaFlowText(chatText), "媒体流程已复制", 2200);
+        return true;
+    }
+    return false;
+}
+
 void MainWindow::setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
     ui->messageEdit->setPlainText(text);
     ui->messageEdit->setFocus();
@@ -671,16 +721,8 @@ QAction* MainWindow::addChatContextAction(QMenu& menu,
 bool MainWindow::handleChatContextCommand(const QString& commandId,
                                           const QString& chatText,
                                           const SavedFileActionState& savedFileState) {
-    if (commandId == QLatin1String("copy-message")) {
-        copyTextWithStatus(chatText, "消息已复制");
-        return true;
-    }
-    if (commandId == QLatin1String("copy-plain")) {
-        copyTextWithStatus(chatPlainContentText(chatText), "消息内容已复制");
-        return true;
-    }
-    if (commandId == QLatin1String("copy-sender")) {
-        copyTextWithStatus(chatSenderText(chatText), "发送者已复制");
+    if (handleChatCopyContextCommand(commandId, chatText)
+        || handleSavedFileContextCommand(commandId, savedFileState)) {
         return true;
     }
     if (commandId == QLatin1String("quote")) {
@@ -693,36 +735,6 @@ bool MainWindow::handleChatContextCommand(const QString& commandId,
     }
     if (commandId == QLatin1String("resend")) {
         resendChatMessage(chatText);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-time")) {
-        const QString timeText = chatTimeText(chatText);
-        copyTextWithStatus(timeText, "消息时间已复制: " + timeText);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-media-card")) {
-        copyTextWithStatus(chatMediaCardText(chatText), "媒体卡片已复制", 2200);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-file-notice")) {
-        copyTextWithStatus(chatMediaNoticeText(chatText), "查收话术已复制", 2200);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-receipt")) {
-        copyTextWithStatus(chatMediaReceiptText(chatText), "回执话术已复制", 2200);
-        return true;
-    }
-    if (commandId == QLatin1String("copy-save-path")) {
-        return copySavedFilePathToClipboard(savedFileState);
-    }
-    if (commandId == QLatin1String("open-saved-file")) {
-        return openSavedFileFromState(savedFileState, "当前消息没有可打开的文件");
-    }
-    if (commandId == QLatin1String("open-save-folder")) {
-        return openSavedFolderFromState(savedFileState);
-    }
-    if (commandId == QLatin1String("copy-media-flow")) {
-        copyTextWithStatus(chatMediaFlowText(chatText), "媒体流程已复制", 2200);
         return true;
     }
     if (commandId == QLatin1String("mention-reply")) {
