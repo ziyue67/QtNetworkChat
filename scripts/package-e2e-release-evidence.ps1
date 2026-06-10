@@ -11,6 +11,8 @@ param(
     [string]$LocalVerificationStatusPath,
     [string]$AutomationStatusPath,
     [string]$ReleaseHead,
+    [string]$GitHubWindowsBuildPolicy = "",
+    [string]$AutomationPolicyPath = "",
 
     [switch]$FailOnSensitive,
     [switch]$NoFailOnSensitive
@@ -38,6 +40,16 @@ function Resolve-OptionalPath([string]$PathValue) {
     $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathValue)
 }
 
+function Resolve-RepoPath([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return ""
+    }
+    if ([System.IO.Path]::IsPathRooted($PathValue)) {
+        return $PathValue
+    }
+    Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
+}
+
 function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
     if ($null -eq $ObjectValue) {
         return $DefaultValue
@@ -46,6 +58,52 @@ function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValu
         return $ObjectValue.$Name
     }
     $DefaultValue
+}
+
+function Normalize-GitHubWindowsBuildPolicy([string]$Value) {
+    $normalized = ([string]$Value).Trim().ToLowerInvariant()
+    switch ($normalized) {
+        "disabled" { return "disabled" }
+        "optional" { return "optional" }
+        "required" { return "required" }
+        default { return "" }
+    }
+}
+
+function Get-AutomationPolicyReadback([string]$PathValue) {
+    $result = [ordered]@{
+        configured = $false
+        readable = $false
+        valid = $false
+        githubWindowsBuildPolicy = ""
+        source = "automation-policy"
+    }
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    try {
+        $resolved = Resolve-OptionalPath $PathValue
+        if ([string]::IsNullOrWhiteSpace($resolved) -or -not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            return [pscustomobject]$result
+        }
+        $policy = Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        $result.readable = $true
+        if ((Get-JsonValue $policy "format" "") -ne "qtnetworkchat-automation-policy-v1") {
+            $result.source = "automation-policy-invalid-format"
+            return [pscustomobject]$result
+        }
+        $policyValue = Normalize-GitHubWindowsBuildPolicy ([string](Get-JsonValue $policy "gitHubWindowsBuildPolicy" ""))
+        if ([string]::IsNullOrWhiteSpace($policyValue)) {
+            $result.source = "automation-policy-invalid-github-windows-build-policy"
+            return [pscustomobject]$result
+        }
+        $result.valid = $true
+        $result.githubWindowsBuildPolicy = $policyValue
+    } catch {
+        $result.source = "automation-policy-unreadable"
+    }
+    [pscustomobject]$result
 }
 
 function Format-Value([object]$Value) {
@@ -180,6 +238,14 @@ if ([string]::IsNullOrWhiteSpace($ManifestPath)) {
 if ([string]::IsNullOrWhiteSpace($PromotionPath)) {
     $PromotionPath = Join-Path $resolvedOutputDir "e2e-release-promotion.json"
 }
+if ([string]::IsNullOrWhiteSpace($AutomationPolicyPath)) {
+    $defaultAutomationPolicyPath = "docs\automation-policy.json"
+    $resolvedDefaultAutomationPolicyPath = Resolve-RepoPath $defaultAutomationPolicyPath
+    if (-not [string]::IsNullOrWhiteSpace($resolvedDefaultAutomationPolicyPath) `
+            -and (Test-Path -LiteralPath $resolvedDefaultAutomationPolicyPath -PathType Leaf)) {
+        $AutomationPolicyPath = $resolvedDefaultAutomationPolicyPath
+    }
+}
 
 $resolvedPackagePath = Resolve-OptionalPath $PackagePath
 $resolvedManifestPath = Resolve-OptionalPath $ManifestPath
@@ -223,6 +289,16 @@ if ($sensitiveHits.Count -gt 0 -and -not $NoFailOnSensitive) {
 $rollout = Read-OptionalJson $RolloutJsonPath
 $ci = Read-OptionalJson $GitHubWindowsBuildStatusPath
 $local = Read-OptionalJson $LocalVerificationStatusPath
+$automationPolicyReadback = Get-AutomationPolicyReadback $AutomationPolicyPath
+$gitHubWindowsBuildPolicyResolved = Normalize-GitHubWindowsBuildPolicy $GitHubWindowsBuildPolicy
+if ([string]::IsNullOrWhiteSpace($gitHubWindowsBuildPolicyResolved)) {
+    if ($automationPolicyReadback.valid) {
+        $gitHubWindowsBuildPolicyResolved = $automationPolicyReadback.githubWindowsBuildPolicy
+    } else {
+        $gitHubWindowsBuildPolicyResolved = "required"
+    }
+}
+$gitHubWindowsBuildPolicyDisabled = $gitHubWindowsBuildPolicyResolved -eq "disabled"
 
 $rolloutAudit = Get-JsonValue $rollout "auditSummary" $null
 $rolloutSummary = Get-JsonValue $rollout "summary" $null
@@ -334,19 +410,34 @@ $productionLinkedGate = if ($productionLinkedEvidenceReady) {
 } else {
     "blocked-production-linked-rollout-not-ready"
 }
-$packageOk = $sensitiveHits.Count -eq 0 -and $rolloutArtifactPresent -and $ciArtifactPresent -and $localArtifactPresent
+$packageOk = $sensitiveHits.Count -eq 0 `
+    -and $rolloutArtifactPresent `
+    -and $localArtifactPresent `
+    -and ($gitHubWindowsBuildPolicyDisabled -or $ciArtifactPresent)
 $releaseReady = $packageOk `
     -and $releaseEligible `
     -and $productionLinkedEvidenceReady `
-    -and $ciStatus -eq "success" `
     -and $localOk `
-    -and $ciHeadMatchesReleaseHead
+    -and ($gitHubWindowsBuildPolicyDisabled -or ($ciStatus -eq "success" -and $ciHeadMatchesReleaseHead))
+
+if ($gitHubWindowsBuildPolicyDisabled) {
+    $ciStatus = "disabled-by-policy"
+    $ciVisibility = "not-required"
+    $ciRunId = "not-required"
+    $ciSource = "automation-policy"
+    $ciCurrentHeadObserved = $true
+    $ciExternalBlocker = "waived-by-policy"
+    $ciReleaseGate = "not-required"
+    $ciLatestObservedHead = "not-required"
+    $ciHeadSha = $targetReleaseHead
+    $ciHeadMatchesReleaseHead = $true
+}
 
 $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-sensitive-evidence"
 } elseif (-not $rolloutArtifactPresent) {
     "blocked-missing-rollout-observability"
-} elseif (-not $ciArtifactPresent) {
+} elseif (-not $gitHubWindowsBuildPolicyDisabled -and -not $ciArtifactPresent) {
     "blocked-missing-github-windows-build-status"
 } elseif (-not $localArtifactPresent) {
     "blocked-missing-local-verification-status"
@@ -354,7 +445,7 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-ci-head-mismatch"
 } elseif (-not $releaseEligible) {
     "blocked-release-artifact-probe-fixture"
-} elseif ($ciStatus -ne "success") {
+} elseif (-not $gitHubWindowsBuildPolicyDisabled -and $ciStatus -ne "success") {
     if ($ciReleaseGate -ne "unknown") {
         $ciReleaseGate
     } elseif ($ciStatus -eq "external-visibility-stale") {
@@ -366,6 +457,8 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-local-verification"
 } elseif (-not $productionLinkedEvidenceReady) {
     $productionLinkedGate
+} elseif ($gitHubWindowsBuildPolicyDisabled) {
+    "ready-local-verification-only"
 } else {
     "e2e-release-evidence-ready"
 }
@@ -387,9 +480,9 @@ if (-not $rolloutArtifactPresent) {
         [void]$promotionBlockers.Add("production-linked-rollout-not-ready")
     }
 }
-if (-not $ciArtifactPresent) {
+if (-not $gitHubWindowsBuildPolicyDisabled -and -not $ciArtifactPresent) {
     [void]$promotionBlockers.Add("missing-github-windows-build-status")
-} else {
+} elseif (-not $gitHubWindowsBuildPolicyDisabled) {
     if ($ciStatus -ne "success") {
         [void]$promotionBlockers.Add(("ci-status-{0}" -f $ciStatus))
     }
@@ -408,12 +501,15 @@ if (-not $localArtifactPresent) {
 
 $promotionReady = $releaseReady `
     -and $releaseEligible `
-    -and $ciCurrentHeadObserved `
-    -and $ciHeadMatchesReleaseHead `
     -and $productionLinkedEvidenceReady `
+    -and ($gitHubWindowsBuildPolicyDisabled -or ($ciCurrentHeadObserved -and $ciHeadMatchesReleaseHead)) `
     -and $promotionBlockers.Count -eq 0
 $promotionGate = if ($promotionReady) {
-    "e2e-release-artifact-promoted"
+    if ($gitHubWindowsBuildPolicyDisabled) {
+        "ready-local-verification-only"
+    } else {
+        "e2e-release-artifact-promoted"
+    }
 } else {
     "blocked-e2e-release-artifact-promotion"
 }
@@ -535,9 +631,17 @@ $manifest = [ordered]@{
         noSensitiveExportProof = $sensitiveHits.Count -eq 0
         blockers = @($promotionBlockers.ToArray())
         operatorAction = if ($promotionReady) {
-            "Promote the packaged E2E release artifact using the recorded package SHA-256 and attached evidence."
+            if ($gitHubWindowsBuildPolicyDisabled) {
+                "GitHub Windows Build is disabled by repo policy; use local build/CTest and linked production evidence for release review."
+            } else {
+                "Promote the packaged E2E release artifact using the recorded package SHA-256 and attached evidence."
+            }
         } else {
-            "Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision."
+            if ($gitHubWindowsBuildPolicyDisabled) {
+                "Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision."
+            } else {
+                "Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision."
+            }
         }
     }
     sensitiveHits = @($sensitiveHits.ToArray())

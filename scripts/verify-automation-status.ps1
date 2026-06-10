@@ -499,15 +499,16 @@ foreach ($expected in @(
     'Recovery gates: filesystemReady=`true`, filesystemGate=`e2e-filesystem-object-ciphertext-readback-ready`, offlineReady=`true`, offlineScope=`offline-ciphertext-readback`, offlineGate=`e2e-offline-ciphertext-readback-reviewed-opt-in`',
     'Offline recovery evidence: action=`enable-reviewed-offline-ciphertext-mirror-or-fail-closed-to-resend`, capturePolicy=`safe-object-token-hash-size-envelope-header-session-metadata-only`, noSensitiveExport=`true`',
     'Sensitive export proof: noSensitiveExport=`false`, suppressed=`true`',
-    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-ci-head-not-observed`, inputs=`4`',
-    'Evidence CI/local: ciStatus=`external-visibility-stale`, ciVisibility=`head-not-observed`, localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`',
+    'GitHub Windows Build policy: `disabled`',
+    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, inputs=`4`',
+    'Evidence CI/local: ciStatus=`disabled-by-policy`, ciVisibility=`not-required`, localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`',
     'Evidence artifact: manifestPackagedAs=`manifest.json`, manifestEmbedded=`true`, packageSha256=`',
     'Production-linked release: ready=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, blockers=`rollout-not-ready,production-acceptance-not-accepted,production-acceptance-not-linked,production-acceptance-not-ready,production-acceptance-gate-not-accepted,production-rollout-not-accepted,production-rollout-not-linked,production-rollout-not-ready,production-rollout-gate-not-ready,production-release-run-not-observable,release-run-not-production-required,production-backend-mismatch,release-run-requested-backend-mismatch,release-run-backend-mismatch,production-operation-counts-not-ready,production-no-sensitive-proof-missing`, acceptanceBackend=`unknown`, rolloutBackend=`unknown`, releaseRunBackend=`unknown`, operationCountsReady=`false`, noSensitiveReady=`false`',
-    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready,ci-status-external-visibility-stale,ci-current-head-not-observed`',
-    'Promotion action: `Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision.`',
-    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`auto1234567890abcdef`',
-    'Evidence CI head match: targetReleaseHead=`unknown`, ciHead=`missing-release-head`, matches=`true`, currentHead=`abc1234`, targetMatchesCurrentHead=`true`, stale=`false`',
-    'Linked runtime candidate: releaseReady=`false`, promoted=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, productionLinked=`true`, ci=`success/current-head-observed`, local=`passed/passed`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`, probeFixture=`false`, releaseEligible=`false`, eligibilityGate=`not-release-eligible-stale-head`',
+    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
+    'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
+    'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
+    'Evidence CI head match: targetReleaseHead=`unknown`, ciHead=`unknown`, matches=`true`, currentHead=`abc1234`, targetMatchesCurrentHead=`true`, stale=`false`',
+    'Linked runtime candidate: releaseReady=`false`, promoted=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, productionLinked=`true`, ci=`disabled-by-policy/not-required`, local=`passed/passed`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`, probeFixture=`false`, releaseEligible=`false`, eligibilityGate=`not-release-eligible-stale-head`',
     'Linked runtime candidate head match: targetReleaseHead=`linked-candidate-head`, currentHead=`abc1234`, targetMatchesCurrentHead=`false`, stale=`true`',
     'Final production-linked promotion gate: productionLinkedReady=`false`, releaseEligible=`false`, ciOnlyBlocked=`false`, releaseGate=`blocked-production-linked-candidate-not-ready`, action=`Regenerate production-linked candidate evidence and resolve non-CI blockers before release promotion.`',
     'Automation Guardrails',
@@ -570,8 +571,8 @@ foreach ($expected in @(
     'QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_REVIEWED=1 plus QTNETWORKCHAT_E2E_OFFLINE_OBJECT_RECOVERY_ROOT enables canonical safe-token ciphertext readback',
     'S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates',
     'legacy URL/path-like object locators are suppressed from recovery status',
-    'Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with current GitHub Windows Build visibility and local build/CTest readback',
-    'remaining E2E release work is external Windows Build visibility recovery and final production-linked release artifact promotion',
+    'Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback',
+    'remaining E2E release work is final production-linked release artifact promotion plus local release review',
     'Group productization is closed for the current automation lane',
     'Mainwindow structure split is no longer the active lane but remains partially complete',
     'README information architecture is closed for now',
@@ -616,12 +617,13 @@ $autoMarkdownPath = Join-Path $tempDir "automation-status-auto-readback.md"
 $autoMarkdown = Get-Content -LiteralPath $autoMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'HEAD: `auto1234567890abcdef`',
-    'GitHub Windows Build: `success`',
-    'GitHub run id: `99112233`',
+    'GitHub Windows Build policy: `disabled`',
+    'GitHub Windows Build: `disabled-by-policy`',
+    'GitHub run id: `not-required`',
     'Local MinGW build: `passed`',
     'Local CTest: `passed`',
     'Local CTest count: `2`',
-    'Status readback: `ci=json-artifact; build=local-verification-status; ctest=local-verification-status`'
+    'Status readback: `ci=automation-policy; build=local-verification-status; ctest=local-verification-status`'
 )) {
     Assert-Contains -Text $autoMarkdown -Expected $expected
 }
@@ -662,9 +664,10 @@ $artifactCiMarkdownPath = Join-Path $tempDir "automation-status-ci-artifact-read
 $artifactCiMarkdown = Get-Content -LiteralPath $artifactCiMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'HEAD: `auto1234567890abcdef`',
-    'GitHub Windows Build: `success`',
-    'GitHub run id: `99112233`',
-    'Status readback: `ci=json-artifact/current-head-observed; build=local-verification-status; ctest=local-verification-status`'
+    'GitHub Windows Build policy: `disabled`',
+    'GitHub Windows Build: `disabled-by-policy`',
+    'GitHub run id: `not-required`',
+    'Status readback: `ci=automation-policy; build=local-verification-status; ctest=local-verification-status`'
 )) {
     Assert-Contains -Text $artifactCiMarkdown -Expected $expected
 }
@@ -694,7 +697,7 @@ foreach ($expected in @(
     'Local MinGW build: `missing-executable`',
     'Local CTest: `passed`',
     'Local CTest count: `2`',
-    'Status readback: `ci=json-artifact; build=auto-build-artifact; ctest=auto-ctest-last-log`'
+    'Status readback: `ci=automation-policy; build=auto-build-artifact; ctest=auto-ctest-last-log`'
 )) {
     Assert-Contains -Text $fallbackMarkdown -Expected $expected
 }
@@ -735,9 +738,10 @@ $staleMarkdownPath = Join-Path $tempDir "automation-status-stale-ci.md"
 $staleOutput = Get-Content -LiteralPath $staleMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'HEAD: `newer1234567890abcdef`',
-    'GitHub Windows Build: `external-visibility-stale`',
-    'GitHub run id: `unknown`',
-    'Status readback: `ci=json-artifact; build=local-verification-status; ctest=local-verification-status`'
+    'GitHub Windows Build policy: `disabled`',
+    'GitHub Windows Build: `disabled-by-policy`',
+    'GitHub run id: `not-required`',
+    'Status readback: `ci=automation-policy; build=local-verification-status; ctest=local-verification-status`'
 )) {
     Assert-Contains -Text $staleOutput -Expected $expected
 }
@@ -813,12 +817,12 @@ $authBlockedEvidenceManifestPath =
 $authBlockedEvidenceManifestJson =
     Get-Content -LiteralPath $authBlockedEvidenceManifestPath -Raw -Encoding UTF8
 $authBlockedEvidenceManifest = $authBlockedEvidenceManifestJson | ConvertFrom-Json
-if ($authBlockedEvidenceManifest.releaseGate -ne "blocked-ci-gh-auth-invalid" `
-        -or $authBlockedEvidenceManifest.ci.status -ne "external-auth-blocked" `
-        -or $authBlockedEvidenceManifest.ci.externalBlocker -ne "github-windows-build-gh-auth-invalid" `
-        -or $authBlockedEvidenceManifest.ci.releaseGate -ne "blocked-ci-gh-auth-invalid" `
+if ($authBlockedEvidenceManifest.releaseGate -ne "blocked-production-linked-rollout-not-ready" `
+        -or $authBlockedEvidenceManifest.ci.status -ne "disabled-by-policy" `
+        -or $authBlockedEvidenceManifest.ci.externalBlocker -ne "waived-by-policy" `
+        -or $authBlockedEvidenceManifest.ci.releaseGate -ne "not-required" `
         -or $authBlockedEvidenceManifest.releaseReady) {
-    throw "E2E release evidence package did not preserve the GitHub auth blocker release gate."
+    throw "E2E release evidence package did not preserve the disabled-by-policy CI override."
 }
 Assert-NotContains -Text $authBlockedEvidenceManifestJson -Forbidden "ziyue67"
 Assert-NotContains -Text $authBlockedEvidenceManifestJson -Forbidden "keyring"
@@ -2246,14 +2250,14 @@ $currentHeadCiStaleMarkdownPath =
 $currentHeadCiStaleMarkdown =
     Get-Content -LiteralPath $currentHeadCiStaleMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-ci-head-not-observed`, inputs=`4`',
-    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready,ci-status-external-visibility-stale,ci-current-head-not-observed`',
-    'Promotion action: `Do not promote the E2E release artifact; resolve blockers and regenerate this promotion decision.`',
-    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`github-windows-build-current-head-not-observed`, releaseGate=`blocked-ci-head-not-observed`, latestObservedHead=`older-ci-head`',
+    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, inputs=`4`',
+    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
+    'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
+    'Evidence CI gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
     'Evidence CI head match: targetReleaseHead=`current-head-ci-stale`, ciHead=`current-head-ci-stale`, matches=`true`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`',
-    'Linked runtime candidate: releaseReady=`false`, promoted=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, productionLinked=`true`, ci=`external-visibility-stale/head-not-observed`, local=`passed/passed`, blockers=`ci-status-external-visibility-stale,ci-current-head-not-observed`, probeFixture=`false`, releaseEligible=`true`, eligibilityGate=`release-eligible-current-head`',
+    'Linked runtime candidate: releaseReady=`true`, promoted=`true`, releaseGate=`ready-local-verification-only`, productionLinked=`true`, ci=`disabled-by-policy/not-required`, local=`passed/passed`, blockers=`unknown`, probeFixture=`false`, releaseEligible=`true`, eligibilityGate=`release-eligible-current-head`',
     'Linked runtime candidate head match: targetReleaseHead=`current-head-ci-stale`, currentHead=`current-head-ci-stale`, targetMatchesCurrentHead=`true`, stale=`false`',
-    'Final production-linked promotion gate: productionLinkedReady=`true`, releaseEligible=`true`, ciOnlyBlocked=`true`, releaseGate=`blocked-ci-visibility-only`, action=`Wait for GitHub Windows Build to observe this head; do not change production-linked evidence for CI visibility lag.`'
+    'Final production-linked promotion gate: productionLinkedReady=`true`, releaseEligible=`true`, ciOnlyBlocked=`false`, releaseGate=`e2e-release-artifact-promoted`, action=`Archive the promoted production-linked E2E release artifact.`'
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }
@@ -2280,7 +2284,7 @@ foreach ($expected in @(
     'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-release-artifact-stale-head`, inputs=`4`',
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-stale-head,ci-current-head-not-observed`',
     'Promotion action: `Regenerate E2E release evidence for the current HEAD before promotion.`',
-    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`release-artifact-target-head-mismatch`, releaseGate=`blocked-release-artifact-stale-head`, latestObservedHead=`unknown`',
+    'Evidence CI gate: currentHeadObserved=`false`, externalBlocker=`release-artifact-target-head-mismatch`, releaseGate=`blocked-release-artifact-stale-head`, latestObservedHead=`not-required`',
     'Evidence CI head match: targetReleaseHead=`linked-candidate-head`, ciHead=`linked-candidate-head`, matches=`true`, currentHead=`newer-linked-candidate-head`, targetMatchesCurrentHead=`false`, stale=`true`'
 )) {
     Assert-Contains -Text $staleReleaseEvidenceMarkdown -Expected $expected

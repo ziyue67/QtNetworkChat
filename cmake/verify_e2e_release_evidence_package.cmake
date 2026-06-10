@@ -84,6 +84,9 @@ string(JSON input0_sha256 GET "${manifest_content}" "inputs" 0 "sha256")
 string(JSON ci_status GET "${manifest_content}" "ci" "status")
 string(JSON ci_head_sha GET "${manifest_content}" "ci" "headSha")
 string(JSON ci_visibility GET "${manifest_content}" "ci" "visibility")
+string(JSON ci_current_head_observed GET "${manifest_content}" "ci" "currentHeadObserved")
+string(JSON ci_external_blocker GET "${manifest_content}" "ci" "externalBlocker")
+string(JSON ci_release_gate GET "${manifest_content}" "ci" "releaseGate")
 string(JSON ci_head_matches_release_head GET "${manifest_content}" "ci" "headMatchesReleaseHead")
 string(JSON probe_fixture GET "${manifest_content}" "probeFixture")
 string(JSON release_eligible GET "${manifest_content}" "releaseEligible")
@@ -117,15 +120,15 @@ if(NOT format STREQUAL "qtnetworkchat-e2e-release-evidence-package-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected E2E evidence manifest format: ${format}")
 endif()
-if(NOT ok OR release_ready OR NOT release_gate STREQUAL "blocked-ci-head-not-observed")
+if(NOT ok OR release_ready OR NOT release_gate STREQUAL "blocked-production-linked-rollout-not-ready")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "E2E release evidence should package cleanly but stay blocked by stale CI")
+    message(FATAL_ERROR "E2E release evidence should package cleanly and stay blocked only by incomplete production-linked rollout evidence when Windows Build is disabled by policy")
 endif()
 if(NOT promotion_format STREQUAL "qtnetworkchat-e2e-release-artifact-promotion-v1"
         OR promotion_ready
         OR promotion_promoted
         OR NOT promotion_gate STREQUAL "blocked-e2e-release-artifact-promotion"
-        OR NOT promotion_evidence_gate STREQUAL "blocked-ci-head-not-observed"
+        OR NOT promotion_evidence_gate STREQUAL "blocked-production-linked-rollout-not-ready"
         OR NOT promotion_blocker0 STREQUAL "rollout-not-ready"
         OR NOT promotion_blocker1 STREQUAL "production-linked-rollout-not-ready"
         OR NOT promotion_embedded_gate STREQUAL promotion_gate
@@ -149,9 +152,12 @@ if(production_linked_ready
     message(FATAL_ERROR "E2E release evidence should keep production-linked promotion fail-closed for unlinked rollout evidence")
 endif()
 if(NOT input_count EQUAL 5
-        OR NOT ci_status STREQUAL "external-visibility-stale"
+        OR NOT ci_status STREQUAL "disabled-by-policy"
         OR NOT ci_head_sha STREQUAL "abc123"
-        OR NOT ci_visibility STREQUAL "head-not-observed"
+        OR NOT ci_visibility STREQUAL "not-required"
+        OR NOT ci_current_head_observed
+        OR NOT ci_external_blocker STREQUAL "waived-by-policy"
+        OR NOT ci_release_gate STREQUAL "not-required"
         OR NOT ci_head_matches_release_head
         OR probe_fixture
         OR NOT release_eligible
@@ -231,17 +237,17 @@ string(JSON ready_selected_backend_match GET "${ready_manifest}" "productionLink
 string(JSON ready_operation_counts GET "${ready_manifest}" "productionLinkedEvidence" "operationCountsReady")
 string(JSON ready_sensitive_exported GET "${ready_manifest}" "productionLinkedEvidence" "sensitiveMaterialExported")
 if(NOT ready_release_ready
-        OR NOT ready_release_gate STREQUAL "e2e-release-evidence-ready"
+        OR NOT ready_release_gate STREQUAL "ready-local-verification-only"
         OR NOT ready_promotion_ready
         OR NOT ready_promotion_promoted
-        OR NOT ready_promotion_gate STREQUAL "e2e-release-artifact-promoted"
+        OR NOT ready_promotion_gate STREQUAL "ready-local-verification-only"
         OR ready_probe_fixture
         OR NOT ready_release_eligible
         OR NOT ready_eligibility_gate STREQUAL "release-eligible-current-head"
         OR ready_promotion_probe_fixture
         OR NOT ready_promotion_release_eligible)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "E2E release evidence ready path should promote only when rollout, CI, and local verification are ready")
+    message(FATAL_ERROR "E2E release evidence ready path should promote via local verification when rollout evidence is ready and Windows Build is disabled by policy")
 endif()
 if(NOT ready_production_linked_ready
         OR NOT ready_production_linked_gate STREQUAL "production-linked-rollout-ready"
@@ -377,18 +383,20 @@ string(JSON mismatch_ci_head GET "${mismatch_manifest}" "ci" "headSha")
 string(JSON mismatch_promotion_ready GET "${mismatch_promotion}" "promotionReady")
 string(JSON mismatch_promotion_promoted GET "${mismatch_promotion}" "promoted")
 string(JSON mismatch_promotion_ci_head_matches GET "${mismatch_promotion}" "ciHeadMatchesReleaseHead")
-string(JSON mismatch_promotion_blocker0 GET "${mismatch_promotion}" "blockers" 0)
-if(mismatch_release_ready
-        OR NOT mismatch_release_gate STREQUAL "blocked-ci-head-mismatch"
-        OR mismatch_ci_head_matches
+string(JSON mismatch_promotion_gate GET "${mismatch_promotion}" "releaseGate")
+string(JSON mismatch_promotion_blocker_count LENGTH "${mismatch_promotion}" "blockers")
+if(NOT mismatch_release_ready
+        OR NOT mismatch_release_gate STREQUAL "ready-local-verification-only"
+        OR NOT mismatch_ci_head_matches
         OR NOT mismatch_target_head STREQUAL "def456"
-        OR NOT mismatch_ci_head STREQUAL "abc123"
-        OR mismatch_promotion_ready
-        OR mismatch_promotion_promoted
-        OR mismatch_promotion_ci_head_matches
-        OR NOT mismatch_promotion_blocker0 STREQUAL "ci-head-mismatch")
+        OR NOT mismatch_ci_head STREQUAL "def456"
+        OR NOT mismatch_promotion_ready
+        OR NOT mismatch_promotion_promoted
+        OR NOT mismatch_promotion_ci_head_matches
+        OR NOT mismatch_promotion_gate STREQUAL "ready-local-verification-only"
+        OR NOT mismatch_promotion_blocker_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "E2E release evidence should block promotion when the CI artifact head does not match the release head")
+    message(FATAL_ERROR "E2E release evidence should stay locally promotable when Windows Build is disabled by policy, even if the original CI artifact head differed")
 endif()
 
 file(MAKE_DIRECTORY "${EXTRACT_DIR}")
@@ -436,14 +444,21 @@ execute_process(
 )
 if(NOT missing_ci_result EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "E2E release evidence packager should emit a blocked manifest for missing CI, not fail")
+    message(FATAL_ERROR "E2E release evidence packager should still emit a manifest when GitHub Windows Build is disabled by policy")
 endif()
 file(READ "${OUTPUT_DIR}/missing-ci/e2e-release-evidence-manifest.json" missing_ci_manifest)
 string(JSON missing_ci_ok GET "${missing_ci_manifest}" "ok")
 string(JSON missing_ci_gate GET "${missing_ci_manifest}" "releaseGate")
-if(missing_ci_ok OR NOT missing_ci_gate STREQUAL "blocked-missing-github-windows-build-status")
+string(JSON missing_ci_status GET "${missing_ci_manifest}" "ci" "status")
+string(JSON missing_ci_visibility GET "${missing_ci_manifest}" "ci" "visibility")
+string(JSON missing_ci_external_blocker GET "${missing_ci_manifest}" "ci" "externalBlocker")
+if(NOT missing_ci_ok
+        OR NOT missing_ci_gate STREQUAL "blocked-production-linked-rollout-not-ready"
+        OR NOT missing_ci_status STREQUAL "disabled-by-policy"
+        OR NOT missing_ci_visibility STREQUAL "not-required"
+        OR NOT missing_ci_external_blocker STREQUAL "waived-by-policy")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Missing CI should produce a blocked E2E release evidence manifest")
+    message(FATAL_ERROR "Missing CI should be waived by policy and leave only the production-linked rollout blockers")
 endif()
 
 set(BAD "${TEMP_DIR}/bad-rollout.json")

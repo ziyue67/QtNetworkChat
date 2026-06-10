@@ -1,10 +1,12 @@
 param(
-    [string]$SourceCandidateDir = "build-qt6-mingw\e2e_release_evidence_linked_candidate",
+    [string]$SourceCandidateDir = "build-qt6-mingw\e2e_release_evidence",
     [string]$OutputDir = "build-qt6-mingw\e2e_release_evidence_linked_candidate",
     [string]$GitHubWindowsBuildStatusPath = "build-qt6-mingw\github-windows-build-status.json",
     [string]$LocalVerificationStatusPath = "build-qt6-mingw\local-verification-status.json",
     [string]$AutomationStatusPath = "docs\automation-status.md",
     [string]$ReleaseHead = "",
+    [string]$GitHubWindowsBuildPolicy = "",
+    [string]$AutomationPolicyPath = "",
     [switch]$FailOnSensitive
 )
 
@@ -34,18 +36,63 @@ function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValu
     $DefaultValue
 }
 
+function Normalize-GitHubWindowsBuildPolicy([string]$Value) {
+    $normalized = ([string]$Value).Trim().ToLowerInvariant()
+    switch ($normalized) {
+        "disabled" { return "disabled" }
+        "optional" { return "optional" }
+        "required" { return "required" }
+        default { return "" }
+    }
+}
+
+function Get-AutomationPolicyReadback([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return ""
+    }
+    try {
+        $resolved = Resolve-RepoPath $PathValue
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            return ""
+        }
+        $policy = Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        if ((Get-JsonValue $policy "format" "") -ne "qtnetworkchat-automation-policy-v1") {
+            return ""
+        }
+        Normalize-GitHubWindowsBuildPolicy ([string](Get-JsonValue $policy "gitHubWindowsBuildPolicy" ""))
+    } catch {
+        ""
+    }
+}
+
 $resolvedSourceCandidateDir = Resolve-RepoPath $SourceCandidateDir
 $resolvedOutputDir = Resolve-RepoPath $OutputDir
 $resolvedCiPath = Resolve-RepoPath $GitHubWindowsBuildStatusPath
 $resolvedLocalPath = Resolve-RepoPath $LocalVerificationStatusPath
 $resolvedAutomationStatusPath = Resolve-RepoPath $AutomationStatusPath
+if ([string]::IsNullOrWhiteSpace($AutomationPolicyPath)) {
+    $defaultAutomationPolicyPath = "docs\automation-policy.json"
+    $resolvedDefaultAutomationPolicyPath = Resolve-RepoPath $defaultAutomationPolicyPath
+    if (Test-Path -LiteralPath $resolvedDefaultAutomationPolicyPath -PathType Leaf) {
+        $AutomationPolicyPath = $defaultAutomationPolicyPath
+    }
+}
+$gitHubWindowsBuildPolicyResolved = Normalize-GitHubWindowsBuildPolicy $GitHubWindowsBuildPolicy
+if ([string]::IsNullOrWhiteSpace($gitHubWindowsBuildPolicyResolved)) {
+    $gitHubWindowsBuildPolicyResolved = Get-AutomationPolicyReadback $AutomationPolicyPath
+}
+if ([string]::IsNullOrWhiteSpace($gitHubWindowsBuildPolicyResolved)) {
+    $gitHubWindowsBuildPolicyResolved = "required"
+}
 
 $sourceEvidenceDir = Join-Path $resolvedSourceCandidateDir "e2e-release-evidence"
 $sourceRolloutJson = Join-Path $sourceEvidenceDir "e2e-rollout-observability.json"
 $sourceRolloutMarkdown = Join-Path $sourceEvidenceDir "e2e-rollout-observability.md"
 Ensure-File $sourceRolloutJson "linked rollout JSON"
 Ensure-File $sourceRolloutMarkdown "linked rollout Markdown"
-Ensure-File $resolvedCiPath "GitHub Windows Build status"
+if ($gitHubWindowsBuildPolicyResolved -ne "disabled") {
+    Ensure-File $resolvedCiPath "GitHub Windows Build status"
+}
 Ensure-File $resolvedLocalPath "local verification status"
 
 $rollout = Get-Content -LiteralPath $sourceRolloutJson -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -78,10 +125,14 @@ try {
         "-RolloutMarkdownPath", $inputRolloutMarkdown,
         "-GitHubWindowsBuildStatusPath", $resolvedCiPath,
         "-LocalVerificationStatusPath", $resolvedLocalPath,
-        "-ReleaseHead", $ReleaseHead
+        "-ReleaseHead", $ReleaseHead,
+        "-GitHubWindowsBuildPolicy", $gitHubWindowsBuildPolicyResolved
     )
     if (Test-Path -LiteralPath $resolvedAutomationStatusPath -PathType Leaf) {
         $packagerArgs += @("-AutomationStatusPath", $resolvedAutomationStatusPath)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($AutomationPolicyPath)) {
+        $packagerArgs += @("-AutomationPolicyPath", (Resolve-RepoPath $AutomationPolicyPath))
     }
     if ($FailOnSensitive.IsPresent) {
         $packagerArgs += "-FailOnSensitive"

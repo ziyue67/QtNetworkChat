@@ -131,27 +131,29 @@ string(JSON production_linked_ready GET "${manifest_content}" "productionLinkedE
 string(JSON production_linked_gate GET "${manifest_content}" "productionLinkedEvidence" "releaseGate")
 string(JSON ci_head_match GET "${manifest_content}" "ci" "headMatchesReleaseHead")
 string(JSON ci_current_observed GET "${manifest_content}" "ci" "currentHeadObserved")
+string(JSON ci_status GET "${manifest_content}" "ci" "status")
+string(JSON ci_visibility GET "${manifest_content}" "ci" "visibility")
 string(JSON promotion_ready GET "${promotion_content}" "promotionReady")
 string(JSON promotion_promoted GET "${promotion_content}" "promoted")
 string(JSON promotion_blocker_count LENGTH "${promotion_content}" "blockers")
-string(JSON promotion_blocker0 GET "${promotion_content}" "blockers" 0)
-string(JSON promotion_blocker1 GET "${promotion_content}" "blockers" 1)
+string(JSON promotion_ci_status GET "${promotion_content}" "ciStatus")
 if(NOT target_head STREQUAL "current-linked-head"
-        OR release_ready
-        OR NOT release_gate STREQUAL "blocked-ci-head-not-observed"
+        OR NOT release_ready
+        OR NOT release_gate STREQUAL "ready-local-verification-only"
         OR probe_fixture
         OR NOT release_eligible
         OR NOT production_linked_ready
         OR NOT production_linked_gate STREQUAL "production-linked-rollout-ready"
         OR NOT ci_head_match
-        OR ci_current_observed
-        OR promotion_ready
-        OR promotion_promoted
-        OR NOT promotion_blocker_count EQUAL 2
-        OR NOT promotion_blocker0 STREQUAL "ci-status-external-visibility-stale"
-        OR NOT promotion_blocker1 STREQUAL "ci-current-head-not-observed")
+        OR NOT ci_current_observed
+        OR NOT ci_status STREQUAL "disabled-by-policy"
+        OR NOT ci_visibility STREQUAL "not-required"
+        OR NOT promotion_ready
+        OR NOT promotion_promoted
+        OR NOT promotion_ci_status STREQUAL "disabled-by-policy"
+        OR NOT promotion_blocker_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Linked candidate should be current-head, production-linked, non-probe, and blocked only by CI visibility")
+    message(FATAL_ERROR "Linked candidate should be current-head, production-linked, non-probe, and ready via local verification when Windows Build is disabled by policy")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")
