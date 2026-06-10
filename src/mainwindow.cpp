@@ -625,6 +625,31 @@ bool MainWindow::openSavedFolderFromState(const SavedFileActionState& savedFileS
     return false;
 }
 
+void MainWindow::setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
+    ui->messageEdit->setPlainText(text);
+    ui->messageEdit->setFocus();
+    ui->statusbar->showMessage(statusMessage, timeoutMs);
+}
+
+void MainWindow::quoteChatMessage(const QString& chatText) {
+    setChatDraftText(QString("> %1\n").arg(chatText), "已插入引用回复");
+}
+
+void MainWindow::forwardChatMessage(const QString& chatText) {
+    setChatDraftText(QString("转发：%1").arg(chatPlainContentText(chatText)), "已转发到输入框");
+}
+
+void MainWindow::resendChatMessage(const QString& chatText) {
+    ui->messageEdit->setPlainText(chatResendContentText(chatText));
+    ui->messageEdit->setFocus();
+    onSendMessage();
+}
+
+void MainWindow::mentionChatSender(const QString& chatText) {
+    const QString name = chatMentionTargetText(chatText);
+    setChatDraftText(QString("@%1 ").arg(name), QString("已插入 @%1 回复").arg(name));
+}
+
 QString MainWindow::chatPlainContentText(const QString& chatText) const {
     QString content = chatText.section(']', 2).trimmed();
     if (content.isEmpty()) content = chatText;
@@ -1657,17 +1682,11 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(chatSenderText(text));
             ui->statusbar->showMessage("发送者已复制", 1800);
         } else if (selected == quoteAction) {
-            ui->messageEdit->setPlainText(QString("> %1\n").arg(text));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入引用回复", 1400);
+            quoteChatMessage(text);
         } else if (selected == forwardAction) {
-            ui->messageEdit->setPlainText(QString("转发：%1").arg(chatPlainContentText(text)));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已转发到输入框", 1400);
+            forwardChatMessage(text);
         } else if (selected == resendAction) {
-            ui->messageEdit->setPlainText(chatResendContentText(text));
-            ui->messageEdit->setFocus();
-            onSendMessage();
+            resendChatMessage(text);
         } else if (selected == copyTimeAction) {
             const QString timeText = chatTimeText(text);
             QApplication::clipboard()->setText(timeText);
@@ -1691,10 +1710,7 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(chatMediaFlowText(text));
             ui->statusbar->showMessage("媒体流程已复制", 2200);
         } else if (selected == mentionReplyAction) {
-            const QString name = chatMentionTargetText(text);
-            ui->messageEdit->setPlainText(QString("@%1 ").arg(name));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage(QString("已插入 @%1 回复").arg(name), 1400);
+            mentionChatSender(text);
         }
     });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
