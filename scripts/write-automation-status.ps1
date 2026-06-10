@@ -1156,7 +1156,9 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
         $result.ciStatus = "disabled-by-policy"
         $result.ciVisibility = "not-required"
         $result.ciSource = "automation-policy"
+        $result.ciHeadSha = "not-required"
         $result.ciCurrentHeadObserved = "not-required"
+        $result.ciHeadMatchesReleaseHead = "not-required"
         $result.ciExternalBlocker = "waived-by-policy"
         $result.ciReleaseGate = "not-required"
         $result.ciLatestObservedHead = "not-required"
@@ -1179,6 +1181,16 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
             $result.promotionGate = "ready-local-verification-only"
             $result.promotionOperatorAction =
                 "GitHub Windows Build is disabled by repo policy; use local build/CTest and linked production evidence for release review."
+        }
+        if (-not $targetMatchesCurrentHead) {
+            $result.targetMatchesCurrentHead = "informational-only"
+            $result.staleReleaseArtifact = "informational-only"
+            $result.releaseEligible = if ((Format-StatusValue $result.probeFixture) -eq "true") { "false" } else { "informational-only" }
+            $result.releaseEligibilityGate = if ((Format-StatusValue $result.probeFixture) -eq "true") {
+                "not-release-eligible-probe-fixture"
+            } else {
+                "informational-only-policy-disabled"
+            }
         }
     }
     if (-not $targetMatchesCurrentHead) {
@@ -2889,17 +2901,31 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciReleaseGate), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.ciLatestObservedHead)))
-    $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`, currentHead=`{3}`, targetMatchesCurrentHead=`{4}`, stale=`{5}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadSha), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadMatchesReleaseHead), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.targetMatchesCurrentHead), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact)))
+    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+        $lines.Add(('  Evidence local review focus: currentHead=`{0}`, targetReleaseHead=`{1}`, artifactFreshness=`{2}`, note=`{3}`' -f `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact), `
+                'GitHub Windows Build is disabled by policy; treat release-head mismatch as local evidence refresh work, not as an external CI gate.'))
+    } else {
+        $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`, currentHead=`{3}`, targetMatchesCurrentHead=`{4}`, stale=`{5}`' -f `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadSha), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadMatchesReleaseHead), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.targetMatchesCurrentHead), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact)))
+    }
 }
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
-        $lines.Add('  Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.`')
+        $lines.Add(('  Linked runtime candidate: `informational-only while GitHub Windows Build is disabled by policy; current release review follows the main E2E release evidence artifact plus local build/CTest.` releaseReady=`{0}`, productionLinked=`{1}`, local=`{2}/{3}`, promotion=`{4}`, blockers=`{5}`' -f `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers)))
     } elseif ($e2eLinkedReleaseCandidateReadback.state -ne "ok") {
         $lines.Add(('  Linked runtime candidate: state=`{0}`, releaseGate=`{1}`, artifact=`{2}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.state), `
@@ -3399,10 +3425,10 @@ $e2eLinkedReleaseCandidateDiagnostics = @(
     ('releaseReady={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady)),
     ('promoted={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted)),
     ('releaseGate={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate)),
-    ('targetMatchesCurrentHead={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead)),
-    ('stale={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.staleReleaseArtifact)),
     ('probeFixture={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture)),
     ('releaseEligible={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible)),
+    ('localBuild={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus)),
+    ('localCTest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus)),
     ('packageSha256={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageSha256))
 ) -join "; "
 $s3RealBackendReadinessDiagnostics = @(
