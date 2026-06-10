@@ -34,15 +34,37 @@ struct ChatContextMenuActionSpec {
     bool separatorBefore = false;
 };
 
+struct ChatContextSavedFileState {
+    bool hasSavePath = false;
+    bool canOpenFile = false;
+    bool canOpenFolder = false;
+    bool fileExists = false;
+};
+
+struct ChatContextSavedFileCommand {
+    enum class Action {
+        None,
+        CopySavePath,
+        OpenSavedFile,
+        OpenSaveFolder
+    };
+
+    bool handled = false;
+    Action action = Action::None;
+    QString missingStatusMessage;
+};
+
 class ChatContextManager {
 public:
-    static QList<ChatContextMenuActionSpec> menuActionSpecs(bool isMediaMessage);
+    static QList<ChatContextMenuActionSpec> menuActionSpecs(bool isMediaMessage,
+                                                            const ChatContextSavedFileState& savedFileState = ChatContextSavedFileState());
     static ChatContextCopyResult copyCommandResult(const QString& commandId,
                                                    const QString& chatText,
                                                    const QString& privateChatTarget,
                                                    const QString& targetDisplayName,
                                                    const QString& currentUserId,
                                                    const QString& currentUserName);
+    static ChatContextSavedFileCommand savedFileCommand(const QString& commandId);
     static ChatContextDraftResult draftCommandResult(const QString& commandId,
                                                      const QString& chatText,
                                                      const QString& privateChatTarget,

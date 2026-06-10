@@ -3,7 +3,37 @@
 #include <QDateTime>
 #include <QStringList>
 
-QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMediaMessage) {
+namespace {
+QString copySavePathToolTip(const ChatContextSavedFileState& savedFileState) {
+    return savedFileState.hasSavePath
+        ? QStringLiteral("复制收到文件在本机的保存路径")
+        : QStringLiteral("这条记录还没有保存路径");
+}
+
+QString openSavedFileToolTip(const ChatContextSavedFileState& savedFileState) {
+    if (!savedFileState.hasSavePath) {
+        return QStringLiteral("收到并保存文件后可直接打开");
+    }
+    if (savedFileState.canOpenFile) {
+        return QStringLiteral("打开这条记录关联的本地文件");
+    }
+    return savedFileState.fileExists
+        ? QStringLiteral("当前保存路径不是文件")
+        : QStringLiteral("保存文件不存在或文件已移动");
+}
+
+QString openSavedFolderToolTip(const ChatContextSavedFileState& savedFileState) {
+    if (!savedFileState.hasSavePath) {
+        return QStringLiteral("收到并保存文件后可打开目录");
+    }
+    return savedFileState.canOpenFolder
+        ? QStringLiteral("打开这条记录关联文件所在目录")
+        : QStringLiteral("保存目录不存在或无权访问");
+}
+}
+
+QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMediaMessage,
+                                                                     const ChatContextSavedFileState& savedFileState) {
     return {
         { QStringLiteral("复制消息"), QStringLiteral("复制整条聊天记录，包括时间和发送者"), QStringLiteral("copy-message"), true, false },
         { QStringLiteral("只复制内容"), QStringLiteral("只复制消息正文内容"), QStringLiteral("copy-plain"), true, false },
@@ -15,9 +45,9 @@ QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMedi
         { QStringLiteral("复制媒体卡片"), QStringLiteral("复制当前媒体或文件消息的卡片摘要"), QStringLiteral("copy-media-card"), isMediaMessage, true },
         { QStringLiteral("复制查收话术"), QStringLiteral("复制提醒对方查收文件的简短话术"), QStringLiteral("copy-file-notice"), isMediaMessage, false },
         { QStringLiteral("复制回执话术"), QStringLiteral("复制已收到文件后的回执话术"), QStringLiteral("copy-receipt"), isMediaMessage, false },
-        { QStringLiteral("复制保存路径"), QStringLiteral("复制收到文件在本机的保存路径"), QStringLiteral("copy-save-path"), true, false },
-        { QStringLiteral("打开文件"), QStringLiteral("打开这条记录关联的本地文件"), QStringLiteral("open-saved-file"), true, false },
-        { QStringLiteral("打开保存目录"), QStringLiteral("打开这条记录关联文件所在目录"), QStringLiteral("open-save-folder"), true, false },
+        { QStringLiteral("复制保存路径"), copySavePathToolTip(savedFileState), QStringLiteral("copy-save-path"), savedFileState.hasSavePath, false },
+        { QStringLiteral("打开文件"), openSavedFileToolTip(savedFileState), QStringLiteral("open-saved-file"), savedFileState.canOpenFile, false },
+        { QStringLiteral("打开保存目录"), openSavedFolderToolTip(savedFileState), QStringLiteral("open-save-folder"), savedFileState.canOpenFolder, false },
         { QStringLiteral("复制媒体流程"), QStringLiteral("复制媒体发送、保存和回执的操作流程"), QStringLiteral("copy-media-flow"), isMediaMessage, false },
         { QStringLiteral("@对方回复"), QStringLiteral("把发送者作为 @ 回复对象插入输入框"), QStringLiteral("mention-reply"), true, true }
     };
@@ -81,6 +111,29 @@ ChatContextCopyResult ChatContextManager::copyCommandResult(const QString& comma
         result.clipboardText = mediaFlowText(chatText, privateChatTarget, targetDisplayName, currentUserId, currentUserName);
         result.statusMessage = QStringLiteral("媒体流程已复制");
         result.timeoutMs = 2200;
+        return result;
+    }
+    return result;
+}
+
+ChatContextSavedFileCommand ChatContextManager::savedFileCommand(const QString& commandId) {
+    ChatContextSavedFileCommand result;
+    if (commandId == QLatin1String("copy-save-path")) {
+        result.handled = true;
+        result.action = ChatContextSavedFileCommand::Action::CopySavePath;
+        result.missingStatusMessage = QStringLiteral("当前消息没有保存路径");
+        return result;
+    }
+    if (commandId == QLatin1String("open-saved-file")) {
+        result.handled = true;
+        result.action = ChatContextSavedFileCommand::Action::OpenSavedFile;
+        result.missingStatusMessage = QStringLiteral("当前消息没有可打开的文件");
+        return result;
+    }
+    if (commandId == QLatin1String("open-save-folder")) {
+        result.handled = true;
+        result.action = ChatContextSavedFileCommand::Action::OpenSaveFolder;
+        result.missingStatusMessage = QStringLiteral("当前消息没有可打开的保存路径");
         return result;
     }
     return result;

@@ -592,29 +592,13 @@ bool MainWindow::isChatMediaMessage(const QString& chatText, const SavedFileActi
         || chatText.contains("回执话术");
 }
 
-void MainWindow::configureSavedFileActions(QAction* copySavePathAction,
-                                           QAction* openSavedFileAction,
-                                           QAction* openSaveFolderAction,
-                                           const SavedFileActionState& savedFileState) const {
-    copySavePathAction->setEnabled(savedFileState.hasSavePath);
-    openSavedFileAction->setEnabled(savedFileState.canOpenFile);
-    openSaveFolderAction->setEnabled(savedFileState.canOpenFolder);
-
-    if (!savedFileState.hasSavePath) {
-        copySavePathAction->setToolTip("这条记录还没有保存路径");
-        openSavedFileAction->setToolTip("收到并保存文件后可直接打开");
-        openSaveFolderAction->setToolTip("收到并保存文件后可打开目录");
-        return;
-    }
-
-    if (!savedFileState.canOpenFile) {
-        openSavedFileAction->setToolTip(savedFileState.fileInfo.exists()
-            ? "当前保存路径不是文件"
-            : "保存文件不存在或文件已移动");
-    }
-    if (!savedFileState.canOpenFolder) {
-        openSaveFolderAction->setToolTip("保存目录不存在或无权访问");
-    }
+ChatContextSavedFileState MainWindow::chatContextSavedFileState(const SavedFileActionState& savedFileState) const {
+    ChatContextSavedFileState state;
+    state.hasSavePath = savedFileState.hasSavePath;
+    state.canOpenFile = savedFileState.canOpenFile;
+    state.canOpenFolder = savedFileState.canOpenFolder;
+    state.fileExists = savedFileState.fileInfo.exists();
+    return state;
 }
 
 bool MainWindow::copySavedFilePathToClipboard(const SavedFileActionState& savedFileState) {
@@ -665,13 +649,18 @@ void MainWindow::copyTextWithStatus(const QString& text, const QString& statusMe
 }
 
 bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState) {
-    if (commandId == QLatin1String("copy-save-path")) {
+    const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(commandId);
+    if (!command.handled) {
+        return false;
+    }
+
+    if (command.action == ChatContextSavedFileCommand::Action::CopySavePath) {
         return copySavedFilePathToClipboard(savedFileState);
     }
-    if (commandId == QLatin1String("open-saved-file")) {
-        return openSavedFileFromState(savedFileState, "当前消息没有可打开的文件");
+    if (command.action == ChatContextSavedFileCommand::Action::OpenSavedFile) {
+        return openSavedFileFromState(savedFileState, command.missingStatusMessage);
     }
-    if (commandId == QLatin1String("open-save-folder")) {
+    if (command.action == ChatContextSavedFileCommand::Action::OpenSaveFolder) {
         return openSavedFolderFromState(savedFileState);
     }
     return false;
@@ -1630,28 +1619,19 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         const SavedFileActionState savedFileState = savedFileActionState(index);
         const bool isMediaMessage = isChatMediaMessage(text, savedFileState);
-        QAction* copySavePathAction = nullptr;
-        QAction* openSavedFileAction = nullptr;
-        QAction* openSaveFolderAction = nullptr;
-        const QList<ChatContextMenuActionSpec> actionSpecs = ChatContextManager::menuActionSpecs(isMediaMessage);
+        const QList<ChatContextMenuActionSpec> actionSpecs = ChatContextManager::menuActionSpecs(
+            isMediaMessage,
+            chatContextSavedFileState(savedFileState));
         for (const ChatContextMenuActionSpec& spec : actionSpecs) {
             if (spec.separatorBefore) {
                 menu.addSeparator();
             }
-            QAction* action = addChatContextAction(menu,
-                                                   spec.title,
-                                                   spec.toolTip,
-                                                   spec.commandId,
-                                                   spec.enabled);
-            if (spec.commandId == QLatin1String("copy-save-path")) {
-                copySavePathAction = action;
-            } else if (spec.commandId == QLatin1String("open-saved-file")) {
-                openSavedFileAction = action;
-            } else if (spec.commandId == QLatin1String("open-save-folder")) {
-                openSaveFolderAction = action;
-            }
+            addChatContextAction(menu,
+                                 spec.title,
+                                 spec.toolTip,
+                                 spec.commandId,
+                                 spec.enabled);
         }
-        configureSavedFileActions(copySavePathAction, openSavedFileAction, openSaveFolderAction, savedFileState);
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
         handleChatContextCommand(selected->data().toString(), text, savedFileState);

@@ -38,6 +38,27 @@ int main(int argc, char** argv) {
                     && !plainSpecs.at(13).enabled,
                 "media-only menu specs should disable media actions for plain messages") && ok;
 
+    ChatContextSavedFileState missingSavePathState;
+    const QList<ChatContextMenuActionSpec> noSavedFileSpecs = ChatContextManager::menuActionSpecs(true, missingSavePathState);
+    ok = expect(!noSavedFileSpecs.at(10).enabled
+                    && noSavedFileSpecs.at(10).toolTip == QString::fromUtf8("这条记录还没有保存路径")
+                    && !noSavedFileSpecs.at(11).enabled
+                    && noSavedFileSpecs.at(11).toolTip == QString::fromUtf8("收到并保存文件后可直接打开")
+                    && !noSavedFileSpecs.at(12).enabled
+                    && noSavedFileSpecs.at(12).toolTip == QString::fromUtf8("收到并保存文件后可打开目录"),
+                "saved file actions should expose missing-path guidance when no saved path exists") && ok;
+
+    ChatContextSavedFileState existingSavedFileState;
+    existingSavedFileState.hasSavePath = true;
+    existingSavedFileState.canOpenFolder = true;
+    existingSavedFileState.fileExists = true;
+    const QList<ChatContextMenuActionSpec> nonFileSavedSpecs = ChatContextManager::menuActionSpecs(true, existingSavedFileState);
+    ok = expect(nonFileSavedSpecs.at(10).enabled
+                    && !nonFileSavedSpecs.at(11).enabled
+                    && nonFileSavedSpecs.at(11).toolTip == QString::fromUtf8("当前保存路径不是文件")
+                    && nonFileSavedSpecs.at(12).enabled,
+                "saved file specs should reflect existing non-file paths and accessible folders") && ok;
+
     ChatContextCopyResult messageCopy = ChatContextManager::copyCommandResult(QStringLiteral("copy-message"),
                                                                               chatText,
                                                                               privateTarget,
@@ -116,6 +137,23 @@ int main(int argc, char** argv) {
                     && ChatContextManager::mediaTypeFromChatText(chatText) == QString::fromUtf8("图片")
                     && ChatContextManager::mediaReceiptText(QString::fromUtf8("已收到 图片 · report.png，文件已保存")).contains(QStringLiteral("report.png")),
                 "chat context parsing helpers should extract sender, media type, and receipt text") && ok;
+
+    ChatContextSavedFileCommand copySavePathCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"));
+    ok = expect(copySavePathCommand.handled
+                    && copySavePathCommand.action == ChatContextSavedFileCommand::Action::CopySavePath
+                    && copySavePathCommand.missingStatusMessage == QString::fromUtf8("当前消息没有保存路径"),
+                "copy save path command should map to saved file copy action and missing status") && ok;
+
+    ChatContextSavedFileCommand openSavedFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"));
+    ok = expect(openSavedFileCommand.handled
+                    && openSavedFileCommand.action == ChatContextSavedFileCommand::Action::OpenSavedFile
+                    && openSavedFileCommand.missingStatusMessage == QString::fromUtf8("当前消息没有可打开的文件"),
+                "open saved file command should expose missing-file status") && ok;
+
+    ChatContextSavedFileCommand unknownSavedFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("noop"));
+    ok = expect(!unknownSavedFileCommand.handled
+                    && unknownSavedFileCommand.action == ChatContextSavedFileCommand::Action::None,
+                "unknown saved file command should remain unhandled") && ok;
 
     return ok ? 0 : 1;
 }
