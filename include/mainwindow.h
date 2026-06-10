@@ -127,13 +127,11 @@ private:
                                 const QPixmap& pixmap,
                                 bool isVideo,
                                 bool alignRight);
-    void appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
-                                             const QString& displayName);
-    void appendReceivedTransferSaveFailedEvidence(const ReceivedTransferContext& context,
-                                                  const QString& displayName,
-                                                  const QString& transferId,
-                                                  qint64 receivedBytes,
-                                                  qint64 totalBytes);
+    void applyReceivedTransferRenderPlan(const TransferReceiveRenderPlan& plan,
+                                         const QString& fileName,
+                                         const QString& transferId,
+                                         qint64 receivedBytes,
+                                         qint64 totalBytes);
     bool persistReceivedTransferPayload(const ReceivedTransferContext& context,
                                         const QString& displayName,
                                         const QString& transferId,
@@ -179,17 +177,6 @@ private:
     bool handleChatContextCommand(const QString& commandId,
                                   const QString& chatText,
                                   const SavedFileActionState& savedFileState);
-    void applyReceivedTransferSaveStatus(const QString& kind,
-                                         const QString& fileName,
-                                         const QString& displayName,
-                                         const QString& receivedSize,
-                                         const QString& manifestSuffix,
-                                         const QString& integritySuffix,
-                                         const QString& transferId,
-                                         qint64 receivedBytes,
-                                         qint64 totalBytes,
-                                         bool saved,
-                                         bool integrityFailed);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);

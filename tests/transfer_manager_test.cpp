@@ -352,6 +352,16 @@ int main(int argc, char** argv) {
                     && savedReceive.receiptReplyItem.foregroundRole == QStringLiteral("muted")
                     && savedReceive.statusTimeoutMs == 3000,
                 "saved receive ui state should centralize saved receipt and status copy") && ok;
+    TransferReceiveRenderPlan savedReceivePlan = TransferManager::receivedTransferRenderPlan(savedReceive);
+    ok = expect(savedReceivePlan.chatItems.size() == 3
+                    && savedReceivePlan.chatItems.at(0).text == savedReceive.savedItemText
+                    && savedReceivePlan.chatItems.at(1).text == savedReceive.receiptCardText
+                    && savedReceivePlan.chatItems.at(2).text == savedReceive.receiptReplyText
+                    && savedReceivePlan.eventReason == QStringLiteral("receive-saved")
+                    && savedReceivePlan.hintText == savedReceive.hintText
+                    && savedReceivePlan.statusMessage == savedReceive.statusMessage
+                    && savedReceivePlan.statusTimeoutMs == 3000,
+                "saved receive render plan should centralize chat items and status surfaces") && ok;
 
     TransferReceiveSaveUiState integrityFailedReceive = TransferManager::receivedTransferSaveUiState(QString::fromUtf8("文件"),
                                                                                                       QStringLiteral("report.zip"),
@@ -387,6 +397,14 @@ int main(int argc, char** argv) {
                     && failedReceive.failedItem.backgroundRole == QStringLiteral("danger-soft")
                     && failedReceive.statusTimeoutMs == 3200,
                 "failed receive ui state should centralize save failure guidance") && ok;
+    TransferReceiveRenderPlan failedReceivePlan = TransferManager::receivedTransferRenderPlan(failedReceive);
+    ok = expect(failedReceivePlan.chatItems.size() == 1
+                    && failedReceivePlan.chatItems.at(0).text == failedReceive.failedItemText
+                    && failedReceivePlan.eventReason == QStringLiteral("receive-save-failed")
+                    && failedReceivePlan.hintText == failedReceive.hintText
+                    && failedReceivePlan.statusMessage == failedReceive.statusMessage
+                    && failedReceivePlan.statusTimeoutMs == 3200,
+                "failed receive render plan should centralize failure item and status surfaces") && ok;
 
     TransferProgressUiState resumeCancel = TransferManager::resumeCancelState(QStringLiteral("report.zip"));
     ok = expect(resumeCancel.labelText.contains(QString::fromUtf8("正在取消恢复发送"))

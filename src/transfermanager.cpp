@@ -451,6 +451,22 @@ TransferReceiveSaveUiState TransferManager::receivedTransferSaveUiState(const QS
     return result;
 }
 
+TransferReceiveRenderPlan TransferManager::receivedTransferRenderPlan(const TransferReceiveSaveUiState& uiState) {
+    TransferReceiveRenderPlan result;
+    result.eventReason = uiState.eventReason;
+    result.hintText = uiState.hintText;
+    result.statusMessage = uiState.statusMessage;
+    result.statusTimeoutMs = uiState.statusTimeoutMs;
+    if (uiState.saved) {
+        result.chatItems.append(uiState.savedItem);
+        result.chatItems.append(uiState.receiptCardItem);
+        result.chatItems.append(uiState.receiptReplyItem);
+    } else {
+        result.chatItems.append(uiState.failedItem);
+    }
+    return result;
+}
+
 TransferProgressUiState TransferManager::resumeInitialState(const QString& fileName,
                                                             const QString& targetName) {
     TransferProgressUiState result;

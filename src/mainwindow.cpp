@@ -724,36 +724,6 @@ bool MainWindow::handleChatContextCommand(const QString& commandId,
     return false;
 }
 
-void MainWindow::applyReceivedTransferSaveStatus(const QString& kind,
-                                                 const QString& fileName,
-                                                 const QString& displayName,
-                                                 const QString& receivedSize,
-                                                 const QString& manifestSuffix,
-                                                 const QString& integritySuffix,
-                                                 const QString& transferId,
-                                                 qint64 receivedBytes,
-                                                 qint64 totalBytes,
-                                                 bool saved,
-                                                 bool integrityFailed) {
-    const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(kind,
-                                                                                              fileName,
-                                                                                              receivedSize,
-                                                                                              displayName,
-                                                                                              manifestSuffix,
-                                                                                              QString(),
-                                                                                              integritySuffix,
-                                                                                              QString(),
-                                                                                              saved,
-                                                                                              integrityFailed);
-    showFileTransferStatusEvent(fileName,
-                                transferId,
-                                uiState.eventReason,
-                                receivedBytes,
-                                totalBytes);
-    ui->chatHintLabel->setText(uiState.hintText);
-    ui->statusbar->showMessage(uiState.statusMessage, uiState.statusTimeoutMs);
-}
-
 void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
     if (!m_resumeSavedTransferAction || !m_clearSavedTransferAction) return;
 
@@ -7143,8 +7113,48 @@ void MainWindow::appendMediaPreviewItem(const QString& text,
     m_chatModel->appendRow(previewItem);
 }
 
-void MainWindow::appendReceivedTransferSavedEvidence(const ReceivedTransferContext& context,
-                                                     const QString& displayName) {
+void MainWindow::applyReceivedTransferRenderPlan(const TransferReceiveRenderPlan& plan,
+                                                 const QString& fileName,
+                                                 const QString& transferId,
+                                                 qint64 receivedBytes,
+                                                 qint64 totalBytes) {
+    for (const TransferChatListItemUiState& itemState : plan.chatItems) {
+        appendTransferChatListItem(itemState);
+    }
+    showFileTransferStatusEvent(fileName,
+                                transferId,
+                                plan.eventReason,
+                                receivedBytes,
+                                totalBytes);
+    ui->chatHintLabel->setText(plan.hintText);
+    ui->statusbar->showMessage(plan.statusMessage, plan.statusTimeoutMs);
+}
+
+bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& context,
+                                                const QString& displayName,
+                                                const QString& transferId,
+                                                const QByteArray& fileData,
+                                                qint64 totalBytes) {
+    if (!LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData)) {
+        const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(context.kind,
+                                                                                                  context.receivedName,
+                                                                                                  context.receivedSize,
+                                                                                                  displayName,
+                                                                                                  context.manifestSuffix,
+                                                                                                  context.integrityText,
+                                                                                                  context.integritySuffix,
+                                                                                                  context.savePath,
+                                                                                                  false,
+                                                                                                  false);
+        applyReceivedTransferRenderPlan(m_transferManager.receivedTransferRenderPlan(uiState),
+                                        context.receivedName,
+                                        transferId,
+                                        fileData.size(),
+                                        totalBytes);
+        return false;
+    }
+
+    const bool integrityFailed = context.integrityText.startsWith("完整性校验失败");
     const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(context.kind,
                                                                                               context.receivedName,
                                                                                               context.receivedSize,
@@ -7154,67 +7164,12 @@ void MainWindow::appendReceivedTransferSavedEvidence(const ReceivedTransferConte
                                                                                               context.integritySuffix,
                                                                                               context.savePath,
                                                                                               true,
-                                                                                              context.integrityText.startsWith("完整性校验失败"));
-    appendTransferChatListItem(uiState.savedItem);
-    appendTransferChatListItem(uiState.receiptCardItem);
-    appendTransferChatListItem(uiState.receiptReplyItem);
-}
-
-void MainWindow::appendReceivedTransferSaveFailedEvidence(const ReceivedTransferContext& context,
-                                                          const QString& displayName,
-                                                          const QString& transferId,
-                                                          qint64 receivedBytes,
-                                                          qint64 totalBytes) {
-    const TransferReceiveSaveUiState uiState = m_transferManager.receivedTransferSaveUiState(context.kind,
-                                                                                              context.receivedName,
-                                                                                              context.receivedSize,
-                                                                                              displayName,
-                                                                                              context.manifestSuffix,
-                                                                                              context.integrityText,
-                                                                                              context.integritySuffix,
-                                                                                              context.savePath,
-                                                                                              false,
-                                                                                              false);
-    appendTransferChatListItem(uiState.failedItem);
-    applyReceivedTransferSaveStatus(context.kind,
+                                                                                              integrityFailed);
+    applyReceivedTransferRenderPlan(m_transferManager.receivedTransferRenderPlan(uiState),
                                     context.receivedName,
-                                    displayName,
-                                    context.receivedSize,
-                                    context.manifestSuffix,
-                                    context.integritySuffix,
-                                    transferId,
-                                    receivedBytes,
-                                    totalBytes,
-                                    false,
-                                    false);
-}
-
-bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& context,
-                                                const QString& displayName,
-                                                const QString& transferId,
-                                                const QByteArray& fileData,
-                                                qint64 totalBytes) {
-    if (!LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData)) {
-        appendReceivedTransferSaveFailedEvidence(context,
-                                                 displayName,
-                                                 transferId,
-                                                 fileData.size(),
-                                                 totalBytes);
-        return false;
-    }
-
-    appendReceivedTransferSavedEvidence(context, displayName);
-    applyReceivedTransferSaveStatus(context.kind,
-                                    context.receivedName,
-                                    displayName,
-                                    context.receivedSize,
-                                    context.manifestSuffix,
-                                    context.integritySuffix,
                                     transferId,
                                     fileData.size(),
-                                    totalBytes,
-                                    true,
-                                    context.integrityText.startsWith("完整性校验失败"));
+                                    totalBytes);
     return true;
 }
 

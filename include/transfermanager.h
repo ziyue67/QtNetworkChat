@@ -1,6 +1,7 @@
 #ifndef TRANSFERMANAGER_H
 #define TRANSFERMANAGER_H
 
+#include <QList>
 #include <QJsonObject>
 #include <QString>
 
@@ -139,6 +140,14 @@ struct TransferReceiveSaveUiState {
     TransferChatListItemUiState failedItem;
 };
 
+struct TransferReceiveRenderPlan {
+    QList<TransferChatListItemUiState> chatItems;
+    QString eventReason;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 3000;
+};
+
 class TransferManager {
 public:
     static TransferRecoveryUiState recoveryUiState(bool hasSavedTransfer,
@@ -209,6 +218,7 @@ public:
                                                                   const QString& savePath,
                                                                   bool saved,
                                                                   bool integrityFailed);
+    static TransferReceiveRenderPlan receivedTransferRenderPlan(const TransferReceiveSaveUiState& uiState);
     static TransferProgressUiState resumeInitialState(const QString& fileName,
                                                       const QString& targetName);
     static TransferProgressUiState resumeCancelState(const QString& fileName);
