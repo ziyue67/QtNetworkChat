@@ -96,6 +96,10 @@ private:
                                 const QPixmap& pixmap,
                                 bool isVideo,
                                 bool alignRight);
+    void appendReceivedTransferReceiptItems(const QString& cardText,
+                                            const QString& cardToolTip,
+                                            const QString& replyText,
+                                            const QString& replyToolTip);
     void loadHistory(const QString& peerId = QString());
     void saveHistory(const QString& peerId, const QString& content);
     void saveHistory(const QString& peerId,

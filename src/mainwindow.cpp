@@ -2679,18 +2679,11 @@ void MainWindow::onNewMessage(const Message& msg) {
             savedItem->setForeground(integrityText.startsWith("完整性校验失败") ? QColor(180, 70, 70) : Qt::darkGreen);
             savedItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(savedItem);
-            QStandardItem* cardItem = new QStandardItem(QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
-            cardItem->setEditable(false);
-            cardItem->setData(QString("图片已保存到：%1").arg(savePath), Qt::ToolTipRole);
-            cardItem->setForeground(QColor(0, 121, 107));
-            cardItem->setBackground(QColor(232, 248, 245));
-            m_chatModel->appendRow(cardItem);
-            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到图片 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath));
-            replyItem->setEditable(false);
-            replyItem->setData(savedFileTip, Qt::ToolTipRole);
-            replyItem->setForeground(QColor(86, 116, 130));
-            replyItem->setBackground(QColor(246, 251, 253));
-            m_chatModel->appendRow(replyItem);
+            appendReceivedTransferReceiptItems(
+                QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix),
+                QString("图片已保存到：%1").arg(savePath),
+                QString("回执话术 · 已收到图片 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath),
+                savedFileTip);
             showFileTransferStatusEvent(receivedName,
                                         msg.transferId,
                                         integrityText.startsWith("完整性校验失败")
@@ -2741,18 +2734,11 @@ void MainWindow::onNewMessage(const Message& msg) {
             item2->setForeground(integrityText.startsWith("完整性校验失败") ? QColor(180, 70, 70) : Qt::darkGreen);
             item2->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             m_chatModel->appendRow(item2);
-            QStandardItem* cardItem = new QStandardItem(QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix));
-            cardItem->setEditable(false);
-            cardItem->setData(QString("文件已保存到：%1").arg(savePath), Qt::ToolTipRole);
-            cardItem->setForeground(QColor(0, 121, 107));
-            cardItem->setBackground(QColor(232, 248, 245));
-            m_chatModel->appendRow(cardItem);
-            QStandardItem* replyItem = new QStandardItem(QString("回执话术 · 已收到文件 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath));
-            replyItem->setEditable(false);
-            replyItem->setData(savedFileTip, Qt::ToolTipRole);
-            replyItem->setForeground(QColor(86, 116, 130));
-            replyItem->setBackground(QColor(246, 251, 253));
-            m_chatModel->appendRow(replyItem);
+            appendReceivedTransferReceiptItems(
+                QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix),
+                QString("文件已保存到：%1").arg(savePath),
+                QString("回执话术 · 已收到文件 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath),
+                savedFileTip);
             showFileTransferStatusEvent(receivedName,
                                         msg.transferId,
                                         integrityText.startsWith("完整性校验失败")
@@ -7293,6 +7279,25 @@ void MainWindow::appendMediaPreviewItem(const QString& text,
         previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
     }
     m_chatModel->appendRow(previewItem);
+}
+
+void MainWindow::appendReceivedTransferReceiptItems(const QString& cardText,
+                                                    const QString& cardToolTip,
+                                                    const QString& replyText,
+                                                    const QString& replyToolTip) {
+    QStandardItem* cardItem = new QStandardItem(cardText);
+    cardItem->setEditable(false);
+    cardItem->setData(cardToolTip, Qt::ToolTipRole);
+    cardItem->setForeground(QColor(0, 121, 107));
+    cardItem->setBackground(QColor(232, 248, 245));
+    m_chatModel->appendRow(cardItem);
+
+    QStandardItem* replyItem = new QStandardItem(replyText);
+    replyItem->setEditable(false);
+    replyItem->setData(replyToolTip, Qt::ToolTipRole);
+    replyItem->setForeground(QColor(86, 116, 130));
+    replyItem->setBackground(QColor(246, 251, 253));
+    m_chatModel->appendRow(replyItem);
 }
 
 void MainWindow::loadHistory(const QString& peerId) {
