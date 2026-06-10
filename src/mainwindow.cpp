@@ -2680,59 +2680,49 @@ void MainWindow::onNewMessage(const Message& msg) {
                 envelopeMatchesLocalSession ? e2eStatus.value("keyFingerprintSha256").toString() : QString());
 
     if (msg.type == MessageType::Image && !msg.fileData.isEmpty()) {
-        const QString receivedName = safeReceivedFileName(msg.fileName, "received_image");
-        const QString receivedSize = humanFileSize(msg.fileData.size());
-        const QString integrityText = transferIntegritySummary(msg);
-        const QString integritySuffix = integrityText.isEmpty() ? QString() : QString(" · %1").arg(integrityText);
-        const QString manifestText = m_transferManager.sendingPreparedState(QStringLiteral("图片"),
-                                                                            receivedName,
-                                                                            displayName,
-                                                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
-                                                                            msg.chunkSize,
-                                                                            msg.chunkCount,
-                                                                            msg.fileHash).manifestSummary;
-        const QString manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
+        const ReceivedTransferContext context = receivedTransferContext(msg,
+                                                                        QStringLiteral("图片"),
+                                                                        QStringLiteral("received_image"),
+                                                                        QStringLiteral("Images"),
+                                                                        displayName);
         QPixmap pixmap;
         if (pixmap.loadFromData(msg.fileData)) {
-            appendMediaPreviewItem(QString("%1 · %2%3").arg(receivedName, receivedSize, manifestSuffix), pixmap, false, false);
+            appendMediaPreviewItem(QString("%1 · %2%3").arg(context.receivedName, context.receivedSize, context.manifestSuffix), pixmap, false, false);
         }
 
-        QString imageDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Images";
-        QDir().mkpath(imageDirPath);
-        QString savePath = uniqueReceivedSavePath(imageDirPath, receivedName);
-        QFile f(savePath);
+        QFile f(context.savePath);
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
-            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
+            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(context.savePath);
             appendReceivedTransferSavedItem(
-                QString("图片已自动保存: %1 · %2%3%4").arg(savePath, receivedSize, manifestSuffix, integritySuffix),
+                QString("图片已自动保存: %1 · %2%3%4").arg(context.savePath, context.receivedSize, context.manifestSuffix, context.integritySuffix),
                 savedFileTip,
-                integrityText.startsWith("完整性校验失败"));
+                context.integrityText.startsWith("完整性校验失败"));
             appendReceivedTransferReceiptItems(
-                QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix),
-                QString("图片已保存到：%1").arg(savePath),
-                QString("回执话术 · 已收到图片 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath),
+                QString("图片接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(context.receivedName, context.receivedSize, displayName, context.manifestSuffix, context.integritySuffix),
+                QString("图片已保存到：%1").arg(context.savePath),
+                QString("回执话术 · 已收到图片 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(context.receivedName, context.receivedSize, context.manifestSuffix, context.integrityText, context.savePath),
                 savedFileTip);
             applyReceivedTransferSaveStatus(QStringLiteral("图片"),
-                                            receivedName,
+                                            context.receivedName,
                                             displayName,
-                                            receivedSize,
-                                            manifestSuffix,
-                                            integritySuffix,
+                                            context.receivedSize,
+                                            context.manifestSuffix,
+                                            context.integritySuffix,
                                             msg.transferId,
                                             msg.fileData.size(),
                                             msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
                                             true,
-                                            integrityText.startsWith("完整性校验失败"));
+                                            context.integrityText.startsWith("完整性校验失败"));
         } else {
-            appendReceivedTransferSaveFailedItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
+            appendReceivedTransferSaveFailedItem(QString("图片保存失败 · %1 · %2 · 请检查下载目录权限").arg(context.receivedName, context.receivedSize));
             applyReceivedTransferSaveStatus(QStringLiteral("图片"),
-                                            receivedName,
+                                            context.receivedName,
                                             displayName,
-                                            receivedSize,
-                                            manifestSuffix,
-                                            integritySuffix,
+                                            context.receivedSize,
+                                            context.manifestSuffix,
+                                            context.integritySuffix,
                                             msg.transferId,
                                             msg.fileData.size(),
                                             msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
@@ -2740,54 +2730,44 @@ void MainWindow::onNewMessage(const Message& msg) {
                                             false);
         }
     } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
-        const QString receivedName = safeReceivedFileName(msg.fileName, "received_file");
-        const QString receivedSize = humanFileSize(msg.fileData.size());
-        const QString integrityText = transferIntegritySummary(msg);
-        const QString integritySuffix = integrityText.isEmpty() ? QString() : QString(" · %1").arg(integrityText);
-        const QString manifestText = m_transferManager.sendingPreparedState(QStringLiteral("文件"),
-                                                                            receivedName,
-                                                                            displayName,
-                                                                            msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
-                                                                            msg.chunkSize,
-                                                                            msg.chunkCount,
-                                                                            msg.fileHash).manifestSummary;
-        const QString manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
-        QString fileDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Files";
-        QDir().mkpath(fileDirPath);
-        QString savePath = uniqueReceivedSavePath(fileDirPath, receivedName);
-        QFile f(savePath);
+        const ReceivedTransferContext context = receivedTransferContext(msg,
+                                                                        QStringLiteral("文件"),
+                                                                        QStringLiteral("received_file"),
+                                                                        QStringLiteral("Files"),
+                                                                        displayName);
+        QFile f(context.savePath);
         if (f.open(QIODevice::WriteOnly)) {
             f.write(msg.fileData);
             f.close();
-            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
+            const QString savedFileTip = QString("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(context.savePath);
             appendReceivedTransferSavedItem(
-                QString("文件已自动保存: %1 · %2%3%4").arg(savePath, receivedSize, manifestSuffix, integritySuffix),
+                QString("文件已自动保存: %1 · %2%3%4").arg(context.savePath, context.receivedSize, context.manifestSuffix, context.integritySuffix),
                 savedFileTip,
-                integrityText.startsWith("完整性校验失败"));
+                context.integrityText.startsWith("完整性校验失败"));
             appendReceivedTransferReceiptItems(
-                QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(receivedName, receivedSize, displayName, manifestSuffix, integritySuffix),
-                QString("文件已保存到：%1").arg(savePath),
-                QString("回执话术 · 已收到文件 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(receivedName, receivedSize, manifestSuffix, integrityText, savePath),
+                QString("文件接收卡片 · %1 · %2 · 来自 %3 · 已保存到下载目录%4%5").arg(context.receivedName, context.receivedSize, displayName, context.manifestSuffix, context.integritySuffix),
+                QString("文件已保存到：%1").arg(context.savePath),
+                QString("回执话术 · 已收到文件 %1（%2%3），%4，保存路径：%5 · 右键聊天记录可复制或打开保存目录").arg(context.receivedName, context.receivedSize, context.manifestSuffix, context.integrityText, context.savePath),
                 savedFileTip);
             applyReceivedTransferSaveStatus(QStringLiteral("文件"),
-                                            receivedName,
+                                            context.receivedName,
                                             displayName,
-                                            receivedSize,
-                                            manifestSuffix,
-                                            integritySuffix,
+                                            context.receivedSize,
+                                            context.manifestSuffix,
+                                            context.integritySuffix,
                                             msg.transferId,
                                             msg.fileData.size(),
                                             msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
                                             true,
-                                            integrityText.startsWith("完整性校验失败"));
+                                            context.integrityText.startsWith("完整性校验失败"));
         } else {
-            appendReceivedTransferSaveFailedItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(receivedName, receivedSize));
+            appendReceivedTransferSaveFailedItem(QString("文件保存失败 · %1 · %2 · 请检查下载目录权限").arg(context.receivedName, context.receivedSize));
             applyReceivedTransferSaveStatus(QStringLiteral("文件"),
-                                            receivedName,
+                                            context.receivedName,
                                             displayName,
-                                            receivedSize,
-                                            manifestSuffix,
-                                            integritySuffix,
+                                            context.receivedSize,
+                                            context.manifestSuffix,
+                                            context.integritySuffix,
                                             msg.transferId,
                                             msg.fileData.size(),
                                             msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
@@ -7349,6 +7329,36 @@ void MainWindow::appendReceivedTransferSaveFailedItem(const QString& text) {
     failedItem->setForeground(QColor(180, 70, 70));
     failedItem->setBackground(QColor(255, 245, 245));
     m_chatModel->appendRow(failedItem);
+}
+
+MainWindow::ReceivedTransferContext MainWindow::receivedTransferContext(const Message& msg,
+                                                                        const QString& kind,
+                                                                        const QString& fallbackName,
+                                                                        const QString& downloadSubdir,
+                                                                        const QString& displayName) const {
+    ReceivedTransferContext context;
+    context.kind = kind;
+    context.receivedName = safeReceivedFileName(msg.fileName, fallbackName);
+    context.receivedSize = humanFileSize(msg.fileData.size());
+    context.integrityText = transferIntegritySummary(msg);
+    context.integritySuffix = context.integrityText.isEmpty()
+        ? QString()
+        : QString(" · %1").arg(context.integrityText);
+    const QString manifestText = m_transferManager.sendingPreparedState(kind,
+                                                                        context.receivedName,
+                                                                        displayName,
+                                                                        msg.fileSize > 0 ? msg.fileSize : msg.fileData.size(),
+                                                                        msg.chunkSize,
+                                                                        msg.chunkCount,
+                                                                        msg.fileHash).manifestSummary;
+    context.manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
+
+    const QString saveDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)
+        + QStringLiteral("/QtNetworkChat/")
+        + downloadSubdir;
+    QDir().mkpath(saveDirPath);
+    context.savePath = uniqueReceivedSavePath(saveDirPath, context.receivedName);
+    return context;
 }
 
 void MainWindow::loadHistory(const QString& peerId) {

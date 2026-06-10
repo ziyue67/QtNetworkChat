@@ -82,6 +82,16 @@ signals:
     void logoutRequested();
 
 private:
+    struct ReceivedTransferContext {
+        QString kind;
+        QString receivedName;
+        QString receivedSize;
+        QString integrityText;
+        QString integritySuffix;
+        QString manifestSuffix;
+        QString savePath;
+    };
+
     void setupUi();
     void setupTray();
     void appendMessage(const Message& msg);
@@ -104,6 +114,11 @@ private:
                                          const QString& toolTip,
                                          bool integrityFailed);
     void appendReceivedTransferSaveFailedItem(const QString& text);
+    ReceivedTransferContext receivedTransferContext(const Message& msg,
+                                                    const QString& kind,
+                                                    const QString& fallbackName,
+                                                    const QString& downloadSubdir,
+                                                    const QString& displayName) const;
     void loadHistory(const QString& peerId = QString());
     void saveHistory(const QString& peerId, const QString& content);
     void saveHistory(const QString& peerId,
