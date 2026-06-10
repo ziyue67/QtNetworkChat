@@ -2662,12 +2662,7 @@ void MainWindow::onNewMessage(const Message& msg) {
         const QString manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
         QPixmap pixmap;
         if (pixmap.loadFromData(msg.fileData)) {
-            QStandardItem* previewItem = new QStandardItem;
-            previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
-            previewItem->setText(QString("%1 · %2%3").arg(receivedName, receivedSize, manifestSuffix));
-            previewItem->setEditable(false);
-            previewItem->setBackground(QColor(246, 250, 253));
-            m_chatModel->appendRow(previewItem);
+            appendMediaPreviewItem(QString("%1 · %2%3").arg(receivedName, receivedSize, manifestSuffix), pixmap, false, false);
         }
 
         QString imageDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/QtNetworkChat/Images";
