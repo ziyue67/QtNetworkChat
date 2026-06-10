@@ -7936,61 +7936,35 @@ bool MainWindow::canCurrentUserManageServerGroup(const QString& groupId) const {
 }
 
 bool MainWindow::requestServerGroupMemberUpdate(const QString& memberId, const QString& action) {
-    const QString targetId = memberId.trimmed();
-    const QString normalizedAction = action.trimmed().toLower();
     const QStringList members = m_serverGroupMembers.value("public");
-    const bool roleAction = normalizedAction == "promote_admin" || normalizedAction == "demote_admin";
-    if (targetId.isEmpty() || (normalizedAction != "add" && normalizedAction != "remove" && !roleAction)) {
-        ui->statusbar->showMessage("公共群成员变更参数无效", 2200);
-        return false;
-    }
-    if (!m_client || !m_client->isConnected()) {
-        ui->statusbar->showMessage("公共群成员变更失败：当前未连接服务器", 2600);
-        return false;
-    }
-    if (!canCurrentUserManageServerGroup("public")) {
-        ui->statusbar->showMessage("只有群主或管理员可以管理公共群成员", 2600);
-        appendSystemMessage("公共群成员变更被权限保护拦截：当前账号不是群主或管理员");
-        return false;
-    }
-    if (roleAction
-        && m_serverGroupOwners.value("public") != m_currentUserId
-        && m_serverGroupMemberRoles.value("public|" + m_currentUserId).toLower() != "owner") {
-        ui->statusbar->showMessage("只有群主可以设置或取消公共群管理员", 2600);
-        appendSystemMessage("公共群管理员变更被权限保护拦截：当前账号不是群主");
-        return false;
-    }
-    if (normalizedAction == "add" && members.contains(targetId)) {
-        ui->statusbar->showMessage("该 QQ 已在公共群中", 1800);
-        return false;
-    }
-    if (normalizedAction == "remove" || roleAction) {
-        if (!members.contains(targetId)) {
-            ui->statusbar->showMessage("该 QQ 不在公共群中", 1800);
-            return false;
+    const ServerGroupMemberUpdateDecision decision = m_groupManager.serverGroupMemberUpdateDecision(
+        memberId,
+        action,
+        m_client && m_client->isConnected(),
+        QStringLiteral("public"),
+        m_currentUserId,
+        members,
+        m_serverGroupOwners,
+        m_serverGroupMemberRoles);
+    if (!decision.allowed) {
+        ui->statusbar->showMessage(decision.statusMessage, decision.statusTimeoutMs);
+        if (!decision.auditMessage.isEmpty()) {
+            appendSystemMessage(decision.auditMessage);
         }
-        if (targetId == m_currentUserId) {
-            ui->statusbar->showMessage("不能通过管理操作移出自己", 2200);
-            return false;
-        }
-        if (targetId == m_serverGroupOwners.value("public")
-            || m_serverGroupMemberRoles.value("public|" + targetId).toLower() == "owner") {
-            ui->statusbar->showMessage("群主不能被移出公共群", 2200);
-            return false;
-        }
+        return false;
     }
-    if (!m_client->sendServerGroupMemberUpdate("public", targetId, normalizedAction)) {
+    if (!m_client->sendServerGroupMemberUpdate("public", decision.targetId, decision.normalizedAction)) {
         ui->statusbar->showMessage("公共群成员变更提交失败", 2600);
         return false;
     }
 
-    const QString displayName = m_serverGroupMemberNames.value("public|" + targetId, contactDisplayName(targetId));
-    const QString actionText = normalizedAction == "add"
+    const QString displayName = m_serverGroupMemberNames.value("public|" + decision.targetId, contactDisplayName(decision.targetId));
+    const QString actionText = decision.normalizedAction == "add"
         ? QStringLiteral("邀请")
-        : (normalizedAction == "remove"
+        : (decision.normalizedAction == "remove"
             ? QStringLiteral("移出")
-            : (normalizedAction == "promote_admin" ? QStringLiteral("设置管理员") : QStringLiteral("取消管理员")));
-    appendSystemMessage(QString("已提交公共群%1成员请求：%2（QQ:%3），等待服务端同步").arg(actionText, displayName, targetId));
+            : (decision.normalizedAction == "promote_admin" ? QStringLiteral("设置管理员") : QStringLiteral("取消管理员")));
+    appendSystemMessage(QString("已提交公共群%1成员请求：%2（QQ:%3），等待服务端同步").arg(actionText, displayName, decision.targetId));
     ui->statusbar->showMessage(QString("公共群%1请求已提交，等待服务端同步").arg(actionText), 2400);
     return true;
 }

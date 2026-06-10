@@ -51,11 +51,77 @@ int main(int argc, char** argv) {
     roles.insert(QStringLiteral("public|owner"), QStringLiteral("owner"));
     roles.insert(QStringLiteral("public|admin"), QStringLiteral("admin"));
     roles.insert(QStringLiteral("public|member"), QStringLiteral("member"));
+    roles.insert(QStringLiteral("public|coowner"), QStringLiteral("owner"));
     ok = expect(GroupManager::canManageServerGroup(QStringLiteral("public"), QStringLiteral("owner"), owners, roles)
                     && GroupManager::canManageServerGroup(QStringLiteral("public"), QStringLiteral("admin"), owners, roles)
                     && !GroupManager::canManageServerGroup(QStringLiteral("public"), QStringLiteral("member"), owners, roles)
                     && !GroupManager::canManageServerGroup(QString(), QStringLiteral("owner"), owners, roles),
                 "server group management should allow owner/admin only") && ok;
+
+    const QStringList publicMembers{QStringLiteral("owner"), QStringLiteral("admin"), QStringLiteral("member"), QStringLiteral("coowner")};
+    ServerGroupMemberUpdateDecision invalidUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QString(), QStringLiteral("add"), true, QStringLiteral("public"), QStringLiteral("owner"), publicMembers, owners, roles);
+    ok = expect(!invalidUpdate.allowed
+                    && invalidUpdate.statusMessage.contains(QString::fromUtf8("参数无效"))
+                    && invalidUpdate.statusTimeoutMs == 2200,
+                "server group update should reject empty targets") && ok;
+    ServerGroupMemberUpdateDecision disconnectedUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("newbie"), QStringLiteral("add"), false, QStringLiteral("public"), QStringLiteral("owner"), publicMembers, owners, roles);
+    ok = expect(!disconnectedUpdate.allowed
+                    && disconnectedUpdate.statusMessage.contains(QString::fromUtf8("未连接服务器"))
+                    && disconnectedUpdate.statusTimeoutMs == 2600,
+                "server group update should reject disconnected clients") && ok;
+    ServerGroupMemberUpdateDecision unmanagedUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("newbie"), QStringLiteral("add"), true, QStringLiteral("public"), QStringLiteral("member"), publicMembers, owners, roles);
+    ok = expect(!unmanagedUpdate.allowed
+                    && unmanagedUpdate.auditMessage.contains(QString::fromUtf8("不是群主或管理员"))
+                    && unmanagedUpdate.statusMessage.contains(QString::fromUtf8("群主或管理员")),
+                "server group update should reject non-manager members with audit text") && ok;
+    ServerGroupMemberUpdateDecision adminPromoteUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("member"), QStringLiteral("promote_admin"), true, QStringLiteral("public"), QStringLiteral("admin"), publicMembers, owners, roles);
+    ok = expect(!adminPromoteUpdate.allowed
+                    && adminPromoteUpdate.roleAction
+                    && adminPromoteUpdate.auditMessage.contains(QString::fromUtf8("当前账号不是群主")),
+                "server group role updates should require owner privileges") && ok;
+    ServerGroupMemberUpdateDecision duplicateAddUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("member"), QStringLiteral("add"), true, QStringLiteral("public"), QStringLiteral("owner"), publicMembers, owners, roles);
+    ok = expect(!duplicateAddUpdate.allowed
+                    && duplicateAddUpdate.statusMessage.contains(QString::fromUtf8("已在公共群"))
+                    && duplicateAddUpdate.statusTimeoutMs == 1800,
+                "server group update should reject duplicate add requests") && ok;
+    ServerGroupMemberUpdateDecision missingRemoveUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("ghost"), QStringLiteral("remove"), true, QStringLiteral("public"), QStringLiteral("owner"), publicMembers, owners, roles);
+    ok = expect(!missingRemoveUpdate.allowed
+                    && missingRemoveUpdate.statusMessage.contains(QString::fromUtf8("不在公共群")),
+                "server group update should reject removing absent users") && ok;
+    ServerGroupMemberUpdateDecision selfRemoveUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("owner"), QStringLiteral("remove"), true, QStringLiteral("public"), QStringLiteral("owner"), publicMembers, owners, roles);
+    ok = expect(!selfRemoveUpdate.allowed
+                    && selfRemoveUpdate.statusMessage.contains(QString::fromUtf8("移出自己")),
+                "server group update should reject self removal") && ok;
+    ServerGroupMemberUpdateDecision adminRoleUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("owner"), QStringLiteral("demote_admin"), true, QStringLiteral("public"), QStringLiteral("admin"), publicMembers, owners, roles);
+    ok = expect(!adminRoleUpdate.allowed
+                    && adminRoleUpdate.statusMessage.contains(QString::fromUtf8("只有群主")),
+                "server group role update should reject admin demoting owner before owner-target checks") && ok;
+    ServerGroupMemberUpdateDecision ownerTargetUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("coowner"), QStringLiteral("remove"), true, QStringLiteral("public"), QStringLiteral("owner"), publicMembers, owners, roles);
+    ok = expect(!ownerTargetUpdate.allowed
+                    && ownerTargetUpdate.statusMessage.contains(QString::fromUtf8("群主不能被移出")),
+                "server group update should reject removing owner-role targets") && ok;
+    ServerGroupMemberUpdateDecision allowedAddUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("newbie"), QStringLiteral("ADD"), true, QStringLiteral("public"), QStringLiteral("admin"), publicMembers, owners, roles);
+    ok = expect(allowedAddUpdate.allowed
+                    && allowedAddUpdate.targetId == QStringLiteral("newbie")
+                    && allowedAddUpdate.normalizedAction == QStringLiteral("add")
+                    && !allowedAddUpdate.roleAction,
+                "server group update should allow admin add and normalize action") && ok;
+    ServerGroupMemberUpdateDecision allowedPromoteUpdate = GroupManager::serverGroupMemberUpdateDecision(
+        QStringLiteral("member"), QStringLiteral("promote_admin"), true, QStringLiteral("public"), QStringLiteral("owner"), publicMembers, owners, roles);
+    ok = expect(allowedPromoteUpdate.allowed
+                    && allowedPromoteUpdate.roleAction
+                    && allowedPromoteUpdate.normalizedAction == QStringLiteral("promote_admin"),
+                "server group update should allow owner role changes for members") && ok;
 
     GroupMemberDisplayState ownerDisplay = GroupManager::memberDisplayState(QStringLiteral("owner"),
                                                                             QStringLiteral("owner"),

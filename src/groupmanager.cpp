@@ -83,3 +83,75 @@ GroupMemberDisplayState GroupManager::memberDisplayState(const QString& memberId
     }
     return state;
 }
+
+ServerGroupMemberUpdateDecision GroupManager::serverGroupMemberUpdateDecision(
+    const QString& memberId,
+    const QString& action,
+    bool clientConnected,
+    const QString& groupId,
+    const QString& currentUserId,
+    const QStringList& members,
+    const QMap<QString, QString>& serverGroupOwners,
+    const QMap<QString, QString>& serverGroupMemberRoles) {
+    ServerGroupMemberUpdateDecision decision;
+    decision.targetId = memberId.trimmed();
+    decision.normalizedAction = action.trimmed().toLower();
+    decision.roleAction = decision.normalizedAction == QLatin1String("promote_admin")
+        || decision.normalizedAction == QLatin1String("demote_admin");
+
+    if (decision.targetId.isEmpty()
+            || (decision.normalizedAction != QLatin1String("add")
+                && decision.normalizedAction != QLatin1String("remove")
+                && !decision.roleAction)) {
+        decision.statusMessage = QStringLiteral("公共群成员变更参数无效");
+        decision.statusTimeoutMs = 2200;
+        return decision;
+    }
+    if (!clientConnected) {
+        decision.statusMessage = QStringLiteral("公共群成员变更失败：当前未连接服务器");
+        decision.statusTimeoutMs = 2600;
+        return decision;
+    }
+    if (!canManageServerGroup(groupId, currentUserId, serverGroupOwners, serverGroupMemberRoles)) {
+        decision.statusMessage = QStringLiteral("只有群主或管理员可以管理公共群成员");
+        decision.auditMessage = QStringLiteral("公共群成员变更被权限保护拦截：当前账号不是群主或管理员");
+        decision.statusTimeoutMs = 2600;
+        return decision;
+    }
+
+    const QString currentUserRole = serverGroupMemberRoles.value(groupId + QStringLiteral("|") + currentUserId).toLower();
+    const QString targetRole = serverGroupMemberRoles.value(groupId + QStringLiteral("|") + decision.targetId).toLower();
+    const bool currentUserIsOwner = serverGroupOwners.value(groupId) == currentUserId
+        || currentUserRole == QLatin1String("owner");
+    if (decision.roleAction && !currentUserIsOwner) {
+        decision.statusMessage = QStringLiteral("只有群主可以设置或取消公共群管理员");
+        decision.auditMessage = QStringLiteral("公共群管理员变更被权限保护拦截：当前账号不是群主");
+        decision.statusTimeoutMs = 2600;
+        return decision;
+    }
+    if (decision.normalizedAction == QLatin1String("add") && members.contains(decision.targetId)) {
+        decision.statusMessage = QStringLiteral("该 QQ 已在公共群中");
+        decision.statusTimeoutMs = 1800;
+        return decision;
+    }
+    if (decision.normalizedAction == QLatin1String("remove") || decision.roleAction) {
+        if (!members.contains(decision.targetId)) {
+            decision.statusMessage = QStringLiteral("该 QQ 不在公共群中");
+            decision.statusTimeoutMs = 1800;
+            return decision;
+        }
+        if (decision.targetId == currentUserId) {
+            decision.statusMessage = QStringLiteral("不能通过管理操作移出自己");
+            decision.statusTimeoutMs = 2200;
+            return decision;
+        }
+        if (decision.targetId == serverGroupOwners.value(groupId) || targetRole == QLatin1String("owner")) {
+            decision.statusMessage = QStringLiteral("群主不能被移出公共群");
+            decision.statusTimeoutMs = 2200;
+            return decision;
+        }
+    }
+
+    decision.allowed = true;
+    return decision;
+}
