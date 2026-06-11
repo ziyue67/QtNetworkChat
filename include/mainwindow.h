@@ -125,6 +125,19 @@ private:
                                                  bool isVideo,
                                                  const QString& targetName,
                                                  const QString& completedAt);
+    void appendRemoteMediaTransferCompletion(const QString& filePath,
+                                             const TransferSendUiState& completedState,
+                                             bool isVideo);
+    void handleRemoteTransferResult(bool ok,
+                                    bool transferCanceled,
+                                    const QString& filePath,
+                                    const QFileInfo& info,
+                                    const QString& fileSize,
+                                    const QString& targetName,
+                                    const QString& kind,
+                                    bool media,
+                                    bool isVideo,
+                                    const QString& transferSummary);
     void appendMediaPreviewItem(const QString& text,
                                 const QPixmap& pixmap,
                                 bool isVideo,

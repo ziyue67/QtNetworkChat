@@ -2370,21 +2370,16 @@ void MainWindow::onSendFile() {
     bool transferCanceled = false;
     bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary, &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
-    if (ok) {
-        const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
-        appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
-    } else if (transferCanceled) {
-        appendSystemMessage(QString("已取消发送文件: %1 · 到 %2").arg(info.fileName(), targetName));
-        const TransferSendUiState state = m_transferManager.canceledSendState(selectionPlan.preparingKind, info.fileName());
-        ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
-        refreshComposerState();
-    } else {
-        const TransferSendUiState state = m_transferManager.failedSendState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName);
-        applyTransferSendState(state);
-        QMessageBox::warning(this, state.warningTitle, state.warningMessage);
-        refreshComposerState();
-    }
+    handleRemoteTransferResult(ok,
+                               transferCanceled,
+                               filePath,
+                               info,
+                               fileSize,
+                               targetName,
+                               selectionPlan.preparingKind,
+                               false,
+                               false,
+                               transferSummary);
 }
 
 void MainWindow::onSendImage() {
@@ -2420,31 +2415,16 @@ void MainWindow::onSendImage() {
     bool transferCanceled = false;
     bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo, &transferSummary, &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
-    if (ok) {
-        const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(mediaType, info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
-        appendSystemMessage(completedState.systemMessage);
-        const TransferMediaPreviewPlan previewPlan = m_transferManager.remoteMediaPreviewPlan(completedState.cardText, isVideo);
-        if (!isVideo) {
-            QPixmap pixmap(filePath);
-            if (!pixmap.isNull()) {
-                appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
-            }
-        } else {
-            appendMediaPreviewItem(previewPlan.text, QPixmap(), previewPlan.isVideo, previewPlan.alignRight);
-        }
-        appendTransferCompletionState(completedState, false, false, QColor(), QColor());
-    } else if (transferCanceled) {
-        appendSystemMessage(QString("已取消发送%1: %2 · 到 %3").arg(mediaType, info.fileName(), targetName));
-        const TransferSendUiState state = m_transferManager.canceledSendState(mediaType, info.fileName());
-        ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
-        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
-        refreshComposerState();
-    } else {
-        const TransferSendUiState state = m_transferManager.failedSendState(mediaType, info.fileName(), fileSize, targetName);
-        applyTransferSendState(state);
-        QMessageBox::warning(this, state.warningTitle, state.warningMessage);
-        refreshComposerState();
-    }
+    handleRemoteTransferResult(ok,
+                               transferCanceled,
+                               filePath,
+                               info,
+                               fileSize,
+                               targetName,
+                               mediaType,
+                               true,
+                               isVideo,
+                               transferSummary);
 }
 
 void MainWindow::onNewMessage(const Message& msg) {
@@ -6985,6 +6965,63 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
         appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
     }
     appendTransferCompletionState(completedState, true, false, QColor(), QColor());
+}
+
+void MainWindow::appendRemoteMediaTransferCompletion(const QString& filePath,
+                                                     const TransferSendUiState& completedState,
+                                                     bool isVideo) {
+    appendSystemMessage(completedState.systemMessage);
+    const TransferMediaPreviewPlan previewPlan = m_transferManager.remoteMediaPreviewPlan(completedState.cardText, isVideo);
+    if (!isVideo) {
+        QPixmap pixmap(filePath);
+        if (!pixmap.isNull()) {
+            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
+        }
+    } else {
+        appendMediaPreviewItem(previewPlan.text, QPixmap(), previewPlan.isVideo, previewPlan.alignRight);
+    }
+    appendTransferCompletionState(completedState, false, false, QColor(), QColor());
+}
+
+void MainWindow::handleRemoteTransferResult(bool ok,
+                                            bool transferCanceled,
+                                            const QString& filePath,
+                                            const QFileInfo& info,
+                                            const QString& fileSize,
+                                            const QString& targetName,
+                                            const QString& kind,
+                                            bool media,
+                                            bool isVideo,
+                                            const QString& transferSummary) {
+    if (ok) {
+        const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(
+            kind,
+            info.fileName(),
+            fileSize,
+            targetName,
+            QDateTime::currentDateTime().toString("hh:mm:ss"),
+            transferSummary);
+        if (media) {
+            appendRemoteMediaTransferCompletion(filePath, completedState, isVideo);
+        } else {
+            appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
+        }
+        return;
+    }
+
+    if (transferCanceled) {
+        appendSystemMessage(QString("已取消发送%1: %2 · 到 %3").arg(kind, info.fileName(), targetName));
+        const TransferSendUiState state = m_transferManager.canceledSendState(kind, info.fileName());
+        ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
+        ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        refreshComposerState();
+        return;
+    }
+
+    const TransferSendUiState state = m_transferManager.failedSendState(kind, info.fileName(), fileSize, targetName);
+    applyTransferSendState(state);
+    QMessageBox::warning(this, state.warningTitle, state.warningMessage);
+    refreshComposerState();
 }
 
 void MainWindow::appendMediaPreviewItem(const QString& text,
