@@ -221,3 +221,32 @@ ServerGroupMemberUpdateDecision GroupManager::serverGroupMemberUpdateDecision(
     decision.allowed = true;
     return decision;
 }
+
+GroupAnnouncementEditDecision GroupManager::announcementEditDecision(const QString& oldText,
+                                                                     const QString& inputText,
+                                                                     bool localGroup,
+                                                                     const QString& localGroupName) {
+    GroupAnnouncementEditDecision decision;
+    const QString oldAnnouncement = oldText.trimmed();
+    decision.text = inputText.trimmed();
+    if (decision.text.isEmpty()) {
+        const QString safeGroupName = localGroupName.trimmed().isEmpty()
+            ? QStringLiteral("群聊")
+            : localGroupName.trimmed();
+        decision.text = localGroup
+            ? QStringLiteral("%1 已创建，可继续邀请好友并发送消息。").arg(safeGroupName)
+            : QStringLiteral("欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。");
+        decision.usedDefaultAnnouncement = true;
+    }
+    decision.changed = decision.text != oldAnnouncement;
+    decision.unchangedStatusMessage = decision.usedDefaultAnnouncement
+        ? QStringLiteral("群公告已是默认内容")
+        : QStringLiteral("群公告未改变");
+    decision.submittedStatusMessage = decision.usedDefaultAnnouncement
+        ? QStringLiteral("群公告为空，已提交默认公告")
+        : QStringLiteral("群公告更新已提交");
+    decision.appliedStatusMessage = decision.usedDefaultAnnouncement
+        ? QStringLiteral("群公告为空，已使用默认公告")
+        : QStringLiteral("群公告已更新");
+    return decision;
+}

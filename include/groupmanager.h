@@ -52,6 +52,15 @@ struct ServerGroupMemberUpdateDecision {
     int statusTimeoutMs = 2200;
 };
 
+struct GroupAnnouncementEditDecision {
+    QString text;
+    bool usedDefaultAnnouncement = false;
+    bool changed = false;
+    QString unchangedStatusMessage;
+    QString submittedStatusMessage;
+    QString appliedStatusMessage;
+};
+
 class GroupManager {
 public:
     static GroupNoticeUiState noticeUiState(int localGroupCount);
@@ -89,6 +98,10 @@ public:
         const QStringList& members,
         const QMap<QString, QString>& serverGroupOwners,
         const QMap<QString, QString>& serverGroupMemberRoles);
+    static GroupAnnouncementEditDecision announcementEditDecision(const QString& oldText,
+                                                                  const QString& inputText,
+                                                                  bool localGroup,
+                                                                  const QString& localGroupName);
 };
 
 #endif // GROUPMANAGER_H

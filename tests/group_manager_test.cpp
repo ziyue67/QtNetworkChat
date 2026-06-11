@@ -123,6 +123,49 @@ int main(int argc, char** argv) {
                     && allowedPromoteUpdate.normalizedAction == QStringLiteral("promote_admin"),
                 "server group update should allow owner role changes for members") && ok;
 
+    GroupAnnouncementEditDecision localDefaultAnnouncement =
+        GroupManager::announcementEditDecision(QStringLiteral("旧公告"),
+                                               QString(),
+                                               true,
+                                               QStringLiteral("产品群"));
+    ok = expect(localDefaultAnnouncement.changed
+                    && localDefaultAnnouncement.usedDefaultAnnouncement
+                    && localDefaultAnnouncement.text == QString::fromUtf8("产品群 已创建，可继续邀请好友并发送消息。")
+                    && localDefaultAnnouncement.appliedStatusMessage == QString::fromUtf8("群公告为空，已使用默认公告"),
+                "local empty announcement should fall back to local group default copy") && ok;
+
+    GroupAnnouncementEditDecision publicDefaultAnnouncement =
+        GroupManager::announcementEditDecision(QStringLiteral("旧公告"),
+                                               QString(),
+                                               false,
+                                               QString());
+    ok = expect(publicDefaultAnnouncement.changed
+                    && publicDefaultAnnouncement.usedDefaultAnnouncement
+                    && publicDefaultAnnouncement.text == QString::fromUtf8("欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。")
+                    && publicDefaultAnnouncement.submittedStatusMessage == QString::fromUtf8("群公告为空，已提交默认公告"),
+                "public empty announcement should fall back to public group default copy") && ok;
+
+    GroupAnnouncementEditDecision unchangedAnnouncement =
+        GroupManager::announcementEditDecision(QString::fromUtf8("已有公告"),
+                                               QString::fromUtf8(" 已有公告 "),
+                                               true,
+                                               QStringLiteral("产品群"));
+    ok = expect(!unchangedAnnouncement.changed
+                    && !unchangedAnnouncement.usedDefaultAnnouncement
+                    && unchangedAnnouncement.unchangedStatusMessage == QString::fromUtf8("群公告未改变"),
+                "trimmed unchanged announcement should not update") && ok;
+
+    GroupAnnouncementEditDecision changedAnnouncement =
+        GroupManager::announcementEditDecision(QStringLiteral("旧公告"),
+                                               QStringLiteral("新公告"),
+                                               true,
+                                               QStringLiteral("产品群"));
+    ok = expect(changedAnnouncement.changed
+                    && !changedAnnouncement.usedDefaultAnnouncement
+                    && changedAnnouncement.text == QString::fromUtf8("新公告")
+                    && changedAnnouncement.appliedStatusMessage == QString::fromUtf8("群公告已更新"),
+                "non-empty changed announcement should keep input copy") && ok;
+
     GroupMemberDisplayState ownerDisplay = GroupManager::memberDisplayState(QStringLiteral("owner"),
                                                                             QStringLiteral("owner"),
                                                                             QStringLiteral("owner"),

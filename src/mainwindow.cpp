@@ -3979,7 +3979,7 @@ void MainWindow::onEditGroupAnnouncement() {
 
     bool ok = false;
     const QString oldText = ui->announcementBodyLabel->text().trimmed();
-    QString text = QInputDialog::getMultiLineText(
+    const QString inputText = QInputDialog::getMultiLineText(
         this,
         "编辑群公告",
         "群公告内容:",
@@ -3989,37 +3989,36 @@ void MainWindow::onEditGroupAnnouncement() {
         ui->statusbar->showMessage("已取消编辑群公告", 1600);
         return;
     }
-    bool usedDefaultAnnouncement = false;
-    if (text.isEmpty()) {
-        if (isLocalGroup) {
-            text = QString("%1 已创建，可继续邀请好友并发送消息。").arg(ui->chatTitleLabel->text().trimmed().isEmpty() ? "群聊" : ui->chatTitleLabel->text().trimmed());
-        } else {
-            text = "欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。";
-        }
-        usedDefaultAnnouncement = true;
-    }
-    if (text == oldText) {
-        ui->statusbar->showMessage(usedDefaultAnnouncement ? "群公告已是默认内容" : "群公告未改变", 1600);
+    const GroupAnnouncementEditDecision announcementDecision =
+        GroupManager::announcementEditDecision(oldText,
+                                               inputText,
+                                               isLocalGroup,
+                                               ui->chatTitleLabel->text());
+    if (!announcementDecision.changed) {
+        ui->statusbar->showMessage(announcementDecision.unchangedStatusMessage, 1600);
         return;
     }
     if (isServerPublicGroup) {
-        if (!m_client || !m_client->sendServerGroupAnnouncementUpdate("public", text)) {
+        if (!m_client || !m_client->sendServerGroupAnnouncementUpdate("public", announcementDecision.text)) {
             ui->statusbar->showMessage("群公告提交失败，请检查连接状态", 2400);
             appendSystemMessage("群公告提交失败：客户端未连接或发送失败");
             return;
         }
         appendSystemMessage("群公告更新已提交，等待服务端同步");
-        ui->statusbar->showMessage(usedDefaultAnnouncement ? "群公告为空，已提交默认公告" : "群公告更新已提交", 2200);
+        ui->statusbar->showMessage(announcementDecision.submittedStatusMessage, 2200);
         return;
     }
-    ui->announcementBodyLabel->setText(text);
+    ui->announcementBodyLabel->setText(announcementDecision.text);
     if (isLocalGroup) {
-        m_localGroupAnnouncements[m_privateChatTarget] = text;
+        m_localGroupAnnouncements[m_privateChatTarget] = announcementDecision.text;
         saveLocalGroups();
-        saveHistory(m_privateChatTarget, QString("[%1] [系统] 群公告已更新: %2").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), text));
+        saveHistory(m_privateChatTarget,
+                    QString("[%1] [系统] 群公告已更新: %2")
+                        .arg(QDateTime::currentDateTime().toString("hh:mm:ss"),
+                             announcementDecision.text));
     }
     appendSystemMessage("群公告已更新");
-    ui->statusbar->showMessage(usedDefaultAnnouncement ? "群公告为空，已使用默认公告" : "群公告已更新", 2200);
+    ui->statusbar->showMessage(announcementDecision.appliedStatusMessage, 2200);
 }
 
 void MainWindow::onInsertEmoji() {
