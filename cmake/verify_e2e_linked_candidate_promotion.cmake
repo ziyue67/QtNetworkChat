@@ -145,8 +145,8 @@ if(NOT target_head STREQUAL "current-linked-head"
         OR NOT release_eligible
         OR NOT production_linked_ready
         OR NOT production_linked_gate STREQUAL "production-linked-rollout-ready"
-        OR NOT ci_head_match
-        OR NOT ci_current_observed
+        OR NOT ci_head_match STREQUAL "not-required"
+        OR NOT ci_current_observed STREQUAL "not-required"
         OR NOT ci_status STREQUAL "disabled-by-policy"
         OR NOT ci_visibility STREQUAL "not-required"
         OR NOT promotion_ready

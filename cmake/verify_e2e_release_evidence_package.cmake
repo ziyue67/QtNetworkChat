@@ -153,24 +153,24 @@ if(production_linked_ready
 endif()
 if(NOT input_count EQUAL 5
         OR NOT ci_status STREQUAL "disabled-by-policy"
-        OR NOT ci_head_sha STREQUAL "abc123"
+        OR NOT ci_head_sha STREQUAL "not-required"
         OR NOT ci_visibility STREQUAL "not-required"
-        OR NOT ci_current_head_observed
+        OR NOT ci_current_head_observed STREQUAL "not-required"
         OR NOT ci_external_blocker STREQUAL "waived-by-policy"
         OR NOT ci_release_gate STREQUAL "not-required"
-        OR NOT ci_head_matches_release_head
+        OR NOT ci_head_matches_release_head STREQUAL "not-required"
         OR probe_fixture
         OR NOT release_eligible
         OR NOT release_eligibility_gate STREQUAL "release-eligible-current-head"
         OR NOT target_release_head STREQUAL "abc123"
         OR NOT promotion_target_release_head STREQUAL "abc123"
-        OR NOT promotion_ci_head_sha STREQUAL "abc123"
-        OR NOT promotion_ci_head_matches_release_head
+        OR NOT promotion_ci_head_sha STREQUAL "not-required"
+        OR NOT promotion_ci_head_matches_release_head STREQUAL "not-required"
         OR promotion_probe_fixture
         OR NOT promotion_release_eligible
         OR NOT promotion_release_eligibility_gate STREQUAL "release-eligible-current-head")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "E2E release evidence manifest did not preserve CI readback")
+    message(FATAL_ERROR "E2E release evidence manifest did not preserve disabled-by-policy CI override")
 endif()
 if(NOT package_path STREQUAL "e2e-release-evidence.zip"
         OR NOT package_sha256_length EQUAL 64
@@ -387,16 +387,16 @@ string(JSON mismatch_promotion_gate GET "${mismatch_promotion}" "releaseGate")
 string(JSON mismatch_promotion_blocker_count LENGTH "${mismatch_promotion}" "blockers")
 if(NOT mismatch_release_ready
         OR NOT mismatch_release_gate STREQUAL "ready-local-verification-only"
-        OR NOT mismatch_ci_head_matches
+        OR NOT mismatch_ci_head_matches STREQUAL "not-required"
         OR NOT mismatch_target_head STREQUAL "def456"
-        OR NOT mismatch_ci_head STREQUAL "def456"
+        OR NOT mismatch_ci_head STREQUAL "not-required"
         OR NOT mismatch_promotion_ready
         OR NOT mismatch_promotion_promoted
-        OR NOT mismatch_promotion_ci_head_matches
+        OR NOT mismatch_promotion_ci_head_matches STREQUAL "not-required"
         OR NOT mismatch_promotion_gate STREQUAL "ready-local-verification-only"
         OR NOT mismatch_promotion_blocker_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "E2E release evidence should stay locally promotable when Windows Build is disabled by policy, even if the original CI artifact head differed")
+    message(FATAL_ERROR "E2E release evidence should stay locally promotable and mark CI head checks not-required when Windows Build is disabled by policy")
 endif()
 
 file(MAKE_DIRECTORY "${EXTRACT_DIR}")

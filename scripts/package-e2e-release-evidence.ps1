@@ -425,12 +425,12 @@ if ($gitHubWindowsBuildPolicyDisabled) {
     $ciVisibility = "not-required"
     $ciRunId = "not-required"
     $ciSource = "automation-policy"
-    $ciCurrentHeadObserved = $true
+    $ciCurrentHeadObserved = "not-required"
     $ciExternalBlocker = "waived-by-policy"
     $ciReleaseGate = "not-required"
     $ciLatestObservedHead = "not-required"
-    $ciHeadSha = $targetReleaseHead
-    $ciHeadMatchesReleaseHead = $true
+    $ciHeadSha = "not-required"
+    $ciHeadMatchesReleaseHead = "not-required"
 }
 
 $releaseGate = if ($sensitiveHits.Count -gt 0) {

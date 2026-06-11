@@ -817,8 +817,14 @@ $authBlockedEvidenceManifestJson =
 $authBlockedEvidenceManifest = $authBlockedEvidenceManifestJson | ConvertFrom-Json
 if ($authBlockedEvidenceManifest.releaseGate -ne "blocked-production-linked-rollout-not-ready" `
         -or $authBlockedEvidenceManifest.ci.status -ne "disabled-by-policy" `
+        -or $authBlockedEvidenceManifest.ci.headSha -ne "not-required" `
+        -or $authBlockedEvidenceManifest.ci.currentHeadObserved -ne "not-required" `
+        -or $authBlockedEvidenceManifest.ci.headMatchesReleaseHead -ne "not-required" `
         -or $authBlockedEvidenceManifest.ci.externalBlocker -ne "waived-by-policy" `
         -or $authBlockedEvidenceManifest.ci.releaseGate -ne "not-required" `
+        -or $authBlockedEvidenceManifest.promotion.ciHeadSha -ne "not-required" `
+        -or $authBlockedEvidenceManifest.promotion.currentHeadObserved -ne "not-required" `
+        -or $authBlockedEvidenceManifest.promotion.ciHeadMatchesReleaseHead -ne "not-required" `
         -or $authBlockedEvidenceManifest.releaseReady) {
     throw "E2E release evidence package did not preserve the disabled-by-policy CI override."
 }
