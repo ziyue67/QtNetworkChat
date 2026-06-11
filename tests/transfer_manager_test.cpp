@@ -1,6 +1,8 @@
 #include "transfermanager.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QJsonObject>
 
 namespace {
@@ -30,6 +32,18 @@ QJsonObject recoveryStatus(bool canAutoResume,
     status["e2eFileEncrypted"] = e2eFileEncrypted;
     return status;
 }
+
+QString createFileWithSize(const QString& path, qint64 bytes) {
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return QString();
+    }
+    if (bytes > 0) {
+        file.write(QByteArray(static_cast<int>(bytes), 'a'));
+    }
+    file.close();
+    return path;
+}
 }
 
 int main(int argc, char** argv) {
@@ -37,6 +51,12 @@ int main(int argc, char** argv) {
     Q_UNUSED(app);
 
     bool ok = true;
+    const QString tempRoot = QDir::temp().filePath("qtnetworkchat_transfer_manager_test");
+    QDir().mkpath(tempRoot);
+    const QString warningFilePath = createFileWithSize(QDir(tempRoot).filePath("warning.bin"), 21 * 1024 * 1024);
+    const QString tooLargeFilePath = createFileWithSize(QDir(tempRoot).filePath("large.bin"), 81 * 1024 * 1024);
+    ok = expect(!warningFilePath.isEmpty() && !tooLargeFilePath.isEmpty(),
+                "transfer manager selection test files should be created") && ok;
 
     TransferRecoveryUiState empty = TransferManager::recoveryUiState(false, true, QJsonObject(), QJsonObject(), true);
     ok = expect(!empty.resumeVisible
@@ -297,6 +317,55 @@ int main(int argc, char** argv) {
                     && mediaSelectionPlan.preparingKind == QString::fromUtf8("媒体文件")
                     && mediaSelectionPlan.filters.contains(QStringLiteral("*.mp4")),
                 "media selection plan should centralize media dialog and cancel copy") && ok;
+
+    TransferSelectionUiState canceledSelectionUiState =
+        TransferManager::transferSelectionUiState(fileSelectionPlan, QString());
+    ok = expect(!canceledSelectionUiState.accepted
+                    && !canceledSelectionUiState.showFailureDialog
+                    && !canceledSelectionUiState.showConfirmDialog
+                    && canceledSelectionUiState.hintText == QString::fromUtf8("文件发送已取消")
+                    && canceledSelectionUiState.statusMessage == QString::fromUtf8("已取消选择文件")
+                    && canceledSelectionUiState.statusTimeoutMs == 1600,
+                "transfer selection ui state should centralize canceled-file feedback") && ok;
+
+    TransferSelectionUiState rejectedSelectionUiState =
+        TransferManager::transferSelectionUiState(fileSelectionPlan, tooLargeFilePath);
+    ok = expect(!rejectedSelectionUiState.accepted
+                    && rejectedSelectionUiState.showFailureDialog
+                    && !rejectedSelectionUiState.showConfirmDialog
+                    && rejectedSelectionUiState.dialogTitle == QString::fromUtf8("文件过大")
+                    && rejectedSelectionUiState.dialogMessage.contains(QString::fromUtf8("超过当前 80 MB"))
+                    && rejectedSelectionUiState.statusMessage.contains(QString::fromUtf8("超过 80 MB")),
+                "transfer selection ui state should centralize rejected-file dialog guidance") && ok;
+
+    TransferSelectionUiState warningSelectionUiState =
+        TransferManager::transferSelectionUiState(fileSelectionPlan, warningFilePath);
+    ok = expect(!warningSelectionUiState.accepted
+                    && !warningSelectionUiState.showFailureDialog
+                    && warningSelectionUiState.showConfirmDialog
+                    && warningSelectionUiState.fileInfo.fileName() == QStringLiteral("warning.bin")
+                    && warningSelectionUiState.dialogTitle == QString::fromUtf8("确认发送大文件")
+                    && !warningSelectionUiState.fileSize.isEmpty(),
+                "transfer selection ui state should centralize large-file confirmation prompts") && ok;
+
+    TransferSelectionUiState confirmedSelectionUiState =
+        TransferManager::resolveTransferSelectionUiState(warningSelectionUiState, true);
+    ok = expect(confirmedSelectionUiState.accepted
+                    && !confirmedSelectionUiState.showFailureDialog
+                    && !confirmedSelectionUiState.showConfirmDialog
+                    && confirmedSelectionUiState.fileInfo.fileName() == QStringLiteral("warning.bin")
+                    && confirmedSelectionUiState.statusMessage.isEmpty(),
+                "confirmed transfer selection ui state should become accepted without extra feedback") && ok;
+
+    TransferSelectionUiState rejectedWarningSelectionUiState =
+        TransferManager::resolveTransferSelectionUiState(warningSelectionUiState, false);
+    ok = expect(!rejectedWarningSelectionUiState.accepted
+                    && !rejectedWarningSelectionUiState.showFailureDialog
+                    && !rejectedWarningSelectionUiState.showConfirmDialog
+                    && rejectedWarningSelectionUiState.hintText == QString::fromUtf8("已取消发送文件")
+                    && rejectedWarningSelectionUiState.statusMessage == QString::fromUtf8("已取消发送文件")
+                    && rejectedWarningSelectionUiState.statusTimeoutMs == 2600,
+                "rejected transfer selection confirmation should reuse warning-canceled feedback") && ok;
 
     TransferMediaSelection imageSelection = TransferManager::mediaSelection(QFileInfo(QStringLiteral("C:/tmp/photo.png")));
     ok = expect(!imageSelection.isVideo

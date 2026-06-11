@@ -122,6 +122,21 @@ struct TransferSelectionPlan {
     QString preparingKind;
 };
 
+struct TransferSelectionUiState {
+    bool accepted = false;
+    bool showFailureDialog = false;
+    bool showConfirmDialog = false;
+    QString filePath;
+    QFileInfo fileInfo;
+    QString fileSize;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 0;
+    QString dialogTitle;
+    QString dialogMessage;
+    QString confirmKind;
+};
+
 struct TransferMediaSelection {
     bool isVideo = false;
     QString mediaType;
@@ -216,6 +231,10 @@ public:
                                                const QString& targetName);
     static TransferSelectionPlan fileSelectionPlan();
     static TransferSelectionPlan mediaSelectionPlan();
+    static TransferSelectionUiState transferSelectionUiState(const TransferSelectionPlan& selectionPlan,
+                                                             const QString& selectedPath);
+    static TransferSelectionUiState resolveTransferSelectionUiState(const TransferSelectionUiState& pendingState,
+                                                                    bool confirmed);
     static TransferMediaSelection mediaSelection(const QFileInfo& info);
     static TransferMediaPreviewPlan localMediaPreviewPlan(const QString& fileName,
                                                           const QString& fileSize,

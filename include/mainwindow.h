@@ -21,6 +21,7 @@
 #include "historyservice.h"
 #include "chatcontextmanager.h"
 #include "notificationpanelmanager.h"
+#include "localfilemanager.h"
 #include "message.h"
 #include "transfermanager.h"
 
