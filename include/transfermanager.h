@@ -137,6 +137,23 @@ struct TransferSelectionUiState {
     QString confirmKind;
 };
 
+struct TransferSelectionFeedbackPlan {
+    enum class DialogKind {
+        None,
+        Warning,
+        Question
+    };
+
+    DialogKind dialogKind = DialogKind::None;
+    bool requiresConfirmation = false;
+    bool stopSelection = false;
+    QString dialogTitle;
+    QString dialogMessage;
+    QString hintText;
+    QString statusMessage;
+    int statusTimeoutMs = 0;
+};
+
 struct TransferMediaSelection {
     bool isVideo = false;
     QString mediaType;
@@ -233,6 +250,7 @@ public:
     static TransferSelectionPlan mediaSelectionPlan();
     static TransferSelectionUiState transferSelectionUiState(const TransferSelectionPlan& selectionPlan,
                                                              const QString& selectedPath);
+    static TransferSelectionFeedbackPlan transferSelectionFeedbackPlan(const TransferSelectionUiState& selectionState);
     static TransferSelectionUiState resolveTransferSelectionUiState(const TransferSelectionUiState& pendingState,
                                                                     bool confirmed);
     static TransferMediaSelection mediaSelection(const QFileInfo& info);

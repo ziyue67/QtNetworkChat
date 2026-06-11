@@ -114,8 +114,7 @@ private:
                             QString* fileSize = nullptr);
     bool selectTransferFileContext(const TransferSelectionPlan& selectionPlan,
                                    SelectedTransferFile* selectedFile);
-    bool applyTransferSelectionUiStateFeedback(const TransferSelectionUiState& selectionState);
-    bool confirmTransferSelectionWarning(TransferSelectionUiState* selectionState);
+    bool handleTransferSelectionUiState(TransferSelectionUiState* selectionState);
     void appendTransferCompletionState(const TransferSendUiState& state,
                                        bool includeSystemMessage,
                                        bool includeCard,

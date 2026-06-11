@@ -327,6 +327,13 @@ int main(int argc, char** argv) {
                     && canceledSelectionUiState.statusMessage == QString::fromUtf8("已取消选择文件")
                     && canceledSelectionUiState.statusTimeoutMs == 1600,
                 "transfer selection ui state should centralize canceled-file feedback") && ok;
+    const TransferSelectionFeedbackPlan canceledFeedbackPlan =
+        TransferManager::transferSelectionFeedbackPlan(canceledSelectionUiState);
+    ok = expect(canceledFeedbackPlan.dialogKind == TransferSelectionFeedbackPlan::DialogKind::None
+                    && !canceledFeedbackPlan.requiresConfirmation
+                    && canceledFeedbackPlan.stopSelection
+                    && canceledFeedbackPlan.hintText == QString::fromUtf8("文件发送已取消"),
+                "transfer selection feedback plan should stop canceled selections without extra dialog") && ok;
 
     TransferSelectionUiState rejectedSelectionUiState =
         TransferManager::transferSelectionUiState(fileSelectionPlan, tooLargeFilePath);
@@ -337,6 +344,13 @@ int main(int argc, char** argv) {
                     && rejectedSelectionUiState.dialogMessage.contains(QString::fromUtf8("超过当前 80 MB"))
                     && rejectedSelectionUiState.statusMessage.contains(QString::fromUtf8("超过 80 MB")),
                 "transfer selection ui state should centralize rejected-file dialog guidance") && ok;
+    const TransferSelectionFeedbackPlan rejectedFeedbackPlan =
+        TransferManager::transferSelectionFeedbackPlan(rejectedSelectionUiState);
+    ok = expect(rejectedFeedbackPlan.dialogKind == TransferSelectionFeedbackPlan::DialogKind::Warning
+                    && !rejectedFeedbackPlan.requiresConfirmation
+                    && rejectedFeedbackPlan.stopSelection
+                    && rejectedFeedbackPlan.dialogTitle == QString::fromUtf8("文件过大"),
+                "transfer selection feedback plan should centralize rejected-file warning dialogs") && ok;
 
     TransferSelectionUiState warningSelectionUiState =
         TransferManager::transferSelectionUiState(fileSelectionPlan, warningFilePath);
@@ -347,6 +361,13 @@ int main(int argc, char** argv) {
                     && warningSelectionUiState.dialogTitle == QString::fromUtf8("确认发送大文件")
                     && !warningSelectionUiState.fileSize.isEmpty(),
                 "transfer selection ui state should centralize large-file confirmation prompts") && ok;
+    const TransferSelectionFeedbackPlan warningFeedbackPlan =
+        TransferManager::transferSelectionFeedbackPlan(warningSelectionUiState);
+    ok = expect(warningFeedbackPlan.dialogKind == TransferSelectionFeedbackPlan::DialogKind::Question
+                    && warningFeedbackPlan.requiresConfirmation
+                    && !warningFeedbackPlan.stopSelection
+                    && warningFeedbackPlan.dialogTitle == QString::fromUtf8("确认发送大文件"),
+                "transfer selection feedback plan should centralize large-file confirmation dialogs") && ok;
 
     TransferSelectionUiState confirmedSelectionUiState =
         TransferManager::resolveTransferSelectionUiState(warningSelectionUiState, true);
@@ -356,6 +377,12 @@ int main(int argc, char** argv) {
                     && confirmedSelectionUiState.fileInfo.fileName() == QStringLiteral("warning.bin")
                     && confirmedSelectionUiState.statusMessage.isEmpty(),
                 "confirmed transfer selection ui state should become accepted without extra feedback") && ok;
+    const TransferSelectionFeedbackPlan confirmedFeedbackPlan =
+        TransferManager::transferSelectionFeedbackPlan(confirmedSelectionUiState);
+    ok = expect(confirmedFeedbackPlan.dialogKind == TransferSelectionFeedbackPlan::DialogKind::None
+                    && !confirmedFeedbackPlan.requiresConfirmation
+                    && !confirmedFeedbackPlan.stopSelection,
+                "accepted transfer selection feedback plan should allow the send flow to continue") && ok;
 
     TransferSelectionUiState rejectedWarningSelectionUiState =
         TransferManager::resolveTransferSelectionUiState(warningSelectionUiState, false);

@@ -410,6 +410,34 @@ TransferSelectionUiState TransferManager::transferSelectionUiState(const Transfe
     return state;
 }
 
+TransferSelectionFeedbackPlan TransferManager::transferSelectionFeedbackPlan(const TransferSelectionUiState& selectionState) {
+    TransferSelectionFeedbackPlan plan;
+    plan.hintText = selectionState.hintText;
+    plan.statusMessage = selectionState.statusMessage;
+    plan.statusTimeoutMs = selectionState.statusTimeoutMs;
+
+    if (selectionState.showFailureDialog) {
+        plan.dialogKind = TransferSelectionFeedbackPlan::DialogKind::Warning;
+        plan.dialogTitle = selectionState.dialogTitle;
+        plan.dialogMessage = selectionState.dialogMessage;
+        plan.stopSelection = true;
+        return plan;
+    }
+
+    if (selectionState.showConfirmDialog) {
+        plan.dialogKind = TransferSelectionFeedbackPlan::DialogKind::Question;
+        plan.dialogTitle = selectionState.dialogTitle;
+        plan.dialogMessage = selectionState.dialogMessage;
+        plan.requiresConfirmation = true;
+        return plan;
+    }
+
+    if (!selectionState.accepted) {
+        plan.stopSelection = true;
+    }
+    return plan;
+}
+
 TransferSelectionUiState TransferManager::resolveTransferSelectionUiState(const TransferSelectionUiState& pendingState,
                                                                           bool confirmed) {
     if (!pendingState.showConfirmDialog) {
