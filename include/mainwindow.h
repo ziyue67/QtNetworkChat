@@ -188,6 +188,8 @@ private:
     void refreshFriendList();
     void refreshGroupMemberPanel();
     void refreshComposerState();
+    void refreshWorkspaceChrome();
+    void refreshSessionSummary();
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     LocalSavedFileState savedFileActionState(const QModelIndex& index) const;

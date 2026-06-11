@@ -406,6 +406,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     } else {
         ui->statusbar->showMessage("已连接 - 用户ID: " + m_currentUserId);
     }
+    refreshWorkspaceChrome();
     loadHistory("group");
     updateSavedOutgoingTransferRecoveryUi(true);
 }
@@ -1647,6 +1648,15 @@ void MainWindow::setupUi() {
     ui->messageEdit->setFocus();
     ui->messageEdit->installEventFilter(this);
     ui->messageEdit->setContextMenuPolicy(Qt::CustomContextMenu);
+    ui->chatSubtitleLabel->setText("Redis 在线工作台 · 多实例状态同步中");
+    ui->chatStatusBadgeLabel->setText("公共群会话");
+    ui->composerStateLabel->setText("Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿");
+    ui->sideSummaryTitleLabel->setText("工作台概览");
+    ui->sideSummaryStatsLabel->setText("好友 0 · 群聊 0 · 在线 0");
+    ui->sideSummaryStateLabel->setText("等待服务端在线状态同步");
+    ui->groupOverviewTitleLabel->setText("会话状态");
+    ui->groupOverviewStateLabel->setText("公共群在线视图已准备");
+    ui->groupOverviewMetaLabel->setText("成员面板会随着当前会话自动刷新");
     ui->contactSearchEdit->installEventFilter(this);
     ui->memberSearchEdit->installEventFilter(this);
     ui->contactSearchEdit->setToolTip("搜索联系人、QQ 号或群聊；按 Enter 搜索账号，Esc 清空");
@@ -1675,13 +1685,13 @@ void MainWindow::setupUi() {
     ui->uploadAvatarBtn->setToolTip("更换当前头像");
     setStyleSheet(R"(
         QMainWindow, QWidget#centralwidget {
-            background: #EEF4F7;
+            background: #E8EFF4;
             font-family: "Microsoft YaHei", "Segoe UI";
             font-size: 13px;
-            color: #253342;
+            color: #203243;
         }
         QFrame#sidePanel {
-            background: qlineargradient(x1:0, y1:0, x2:0.9, y2:1, stop:0 #20D6C5, stop:0.44 #149EE9, stop:1 #5B5CE2);
+            background: qlineargradient(x1:0, y1:0, x2:0.9, y2:1, stop:0 #102A43, stop:0.48 #155C8A, stop:1 #1EA896);
         }
         QLabel#appTitleLabel {
             color: white;
@@ -1690,8 +1700,8 @@ void MainWindow::setupUi() {
             padding-bottom: 2px;
         }
         QLabel#avatarLabel {
-            background: white;
-            color: #1289DF;
+            background: rgba(255, 255, 255, 245);
+            color: #155C8A;
             border-radius: 36px;
             font-size: 30px;
             font-weight: 700;
@@ -1699,22 +1709,42 @@ void MainWindow::setupUi() {
             margin-right: 63px;
         }
         QFrame#profileCard {
-            background: rgba(255, 255, 255, 48);
-            border: 1px solid rgba(255, 255, 255, 86);
-            border-radius: 14px;
+            background: rgba(255, 255, 255, 30);
+            border: 1px solid rgba(255, 255, 255, 68);
+            border-radius: 18px;
+        }
+        QFrame#sideSummaryCard {
+            background: rgba(255, 255, 255, 20);
+            border: 1px solid rgba(255, 255, 255, 54);
+            border-radius: 16px;
         }
         QLabel#profileNameLabel {
             color: white;
-            font-size: 15px;
+            font-size: 16px;
             font-weight: 800;
         }
         QLabel#profileIdLabel {
             color: rgba(255, 255, 255, 215);
             font-size: 12px;
         }
+        QLabel#sideSummaryTitleLabel {
+            color: rgba(255, 255, 255, 232);
+            font-size: 13px;
+            font-weight: 800;
+        }
+        QLabel#sideSummaryStatsLabel {
+            color: white;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        QLabel#sideSummaryStateLabel {
+            color: rgba(255, 255, 255, 210);
+            font-size: 12px;
+            line-height: 18px;
+        }
         QPushButton#copyAccountBtn, QPushButton#addFriendBtn, QPushButton#friendManagerBtn, QPushButton#groupChatBtn, QPushButton#uploadAvatarBtn {
             background: rgba(255, 255, 255, 232);
-            color: #1278D4;
+            color: #155C8A;
             border: none;
             border-radius: 11px;
             min-height: 28px;
@@ -1732,7 +1762,7 @@ void MainWindow::setupUi() {
         }
         QPushButton#friendNoticeBtn, QPushButton#groupNoticeBtn {
             background: rgba(255, 255, 255, 232);
-            color: #1278D4;
+            color: #155C8A;
             border: none;
             border-radius: 13px;
             min-height: 28px;
@@ -1744,7 +1774,7 @@ void MainWindow::setupUi() {
         }
         QLineEdit#contactSearchEdit {
             background: rgba(255, 255, 255, 235);
-            color: #253342;
+            color: #203243;
             border: 1px solid rgba(255, 255, 255, 105);
             border-radius: 15px;
             min-height: 30px;
@@ -1752,7 +1782,7 @@ void MainWindow::setupUi() {
         }
         QPushButton#globalSearchBtn, QPushButton#createMenuBtn {
             background: rgba(255, 255, 255, 232);
-            color: #1278D4;
+            color: #155C8A;
             border: none;
             border-radius: 15px;
             min-height: 30px;
@@ -1780,79 +1810,105 @@ void MainWindow::setupUi() {
             alternate-background-color: rgba(255, 255, 255, 18);
         }
         QListView#userListView::item {
-            height: 48px;
-            border-radius: 11px;
-            padding-left: 8px;
+            height: 52px;
+            border-radius: 13px;
+            padding-left: 10px;
         }
         QListView#userListView::item:selected, QListView#userListView::item:hover {
             background: rgba(255, 255, 255, 86);
         }
         QFrame#chatHeader, QFrame#inputPanel, QListView#chatListView {
-            background: #FFFFFF;
-            border: 1px solid #DDE8F0;
-            border-radius: 18px;
+            background: rgba(255, 255, 255, 248);
+            border: 1px solid #D5E1E9;
+            border-radius: 22px;
         }
         QFrame#chatPanel {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F3F8FB, stop:0.56 #F8FBFD, stop:1 #EEF8F5);
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #EFF5F8, stop:0.56 #F7FBFC, stop:1 #EAF6F0);
         }
         QFrame#groupInfoPanel {
-            background: #F8FBFC;
-            border-left: 1px solid #E1EAF1;
+            background: #F5F9FB;
+            border-left: 1px solid #D9E5EC;
         }
-        QFrame#announcementCard {
+        QFrame#announcementCard, QFrame#groupOverviewCard {
             background: white;
-            border: 1px solid #E2EAF1;
-            border-radius: 14px;
+            border: 1px solid #DCE7EE;
+            border-radius: 18px;
         }
-        QLabel#announcementTitleLabel, QLabel#memberTitleLabel {
-            color: #203144;
+        QLabel#announcementTitleLabel, QLabel#memberTitleLabel, QLabel#groupOverviewTitleLabel {
+            color: #17324D;
             font-size: 14px;
             font-weight: 800;
         }
         QLabel#announcementTitleLabel a {
-            color: #168BE8;
+            color: #1B8B84;
             text-decoration: none;
         }
         QLabel#announcementBodyLabel {
-            color: #6E7F90;
+            color: #5B6F82;
+            font-size: 12px;
+            line-height: 18px;
+        }
+        QLabel#groupOverviewStateLabel {
+            color: #1D4968;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 18px;
+        }
+        QLabel#groupOverviewMetaLabel {
+            color: #6A7C8E;
             font-size: 12px;
             line-height: 18px;
         }
         QLineEdit#memberSearchEdit {
             background: white;
-            color: #253342;
-            border: 1px solid #DAE6EF;
+            color: #203243;
+            border: 1px solid #D2E0E8;
             border-radius: 15px;
             min-height: 30px;
             padding: 3px 12px;
         }
         QLineEdit#memberSearchEdit:focus {
-            border: 1px solid #17A8F3;
+            border: 1px solid #1EA896;
         }
         QListView#groupMemberListView {
             background: white;
-            border: 1px solid #E1EAF1;
-            border-radius: 14px;
+            border: 1px solid #DCE7EE;
+            border-radius: 16px;
             padding: 6px;
             outline: none;
         }
         QListView#groupMemberListView::item {
-            min-height: 34px;
-            border-radius: 9px;
-            padding-left: 6px;
+            min-height: 38px;
+            border-radius: 11px;
+            padding-left: 8px;
         }
         QListView#groupMemberListView::item:selected, QListView#groupMemberListView::item:hover {
-            background: #EAF7FF;
-            color: #166BAF;
+            background: #E5F6F2;
+            color: #155C8A;
         }
         QLabel#chatTitleLabel {
-            color: #203144;
-            font-size: 18px;
-            font-weight: 700;
+            color: #17324D;
+            font-size: 20px;
+            font-weight: 800;
+        }
+        QLabel#chatSubtitleLabel {
+            color: #6B8093;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#chatStatusBadgeLabel {
+            color: #155C8A;
+            background: #E3F4F1;
+            border: 1px solid #C6E8E1;
+            border-radius: 12px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 800;
         }
         QLabel#chatHintLabel {
-            color: #7F8D9B;
+            color: #6F8192;
             font-size: 12px;
+            line-height: 18px;
         }
         QListView#chatListView {
             padding: 14px;
@@ -1868,30 +1924,38 @@ void MainWindow::setupUi() {
             background: #F2F8FC;
         }
         QTextEdit#messageEdit {
-            background: #F9FBFD;
-            border: 1px solid #DAE6EF;
-            border-radius: 14px;
+            background: #F8FBFC;
+            border: 1px solid #D6E2E9;
+            border-radius: 16px;
             padding: 8px 10px;
-            selection-background-color: #17B8F2;
+            selection-background-color: #1EA896;
             selection-color: white;
         }
         QTextEdit#messageEdit:focus {
             background: white;
-            border: 1px solid #17A8F3;
+            border: 1px solid #1EA896;
+        }
+        QLabel#composerStateLabel {
+            color: #64798C;
+            background: #F1F7FA;
+            border: 1px solid #DFEBF1;
+            border-radius: 12px;
+            padding: 6px 10px;
+            font-size: 12px;
         }
         QPushButton {
-            background: #F1F6FA;
-            color: #34495B;
-            border: 1px solid #D2E0EA;
-            border-radius: 12px;
+            background: #F0F6F8;
+            color: #32475A;
+            border: 1px solid #D1E0E7;
+            border-radius: 13px;
             padding: 7px 14px;
         }
         QPushButton:hover {
-            background: #E8F2F9;
-            border-color: #BBD3E5;
+            background: #E4F1F5;
+            border-color: #B8D5DF;
         }
         QPushButton:pressed {
-            background: #DCEBF5;
+            background: #D5E8EE;
         }
         QPushButton:disabled {
             background: #EEF2F5;
@@ -1899,16 +1963,16 @@ void MainWindow::setupUi() {
             border-color: #E0E7ED;
         }
         QPushButton#sendBtn {
-            background: #18A8F2;
+            background: #1EA896;
             color: white;
             border: none;
             font-weight: 700;
         }
         QPushButton#sendBtn:hover {
-            background: #0E95DF;
+            background: #178E80;
         }
         QPushButton#sendBtn:pressed {
-            background: #0B7EC6;
+            background: #12796E;
         }
         QPushButton#sendBtn:disabled {
             background: #BFD0DE;
@@ -1930,8 +1994,8 @@ void MainWindow::setupUi() {
             padding: 4px 6px;
         }
         QPushButton#toolBtn:hover, QPushButton#iconToolBtn:hover {
-            background: #EAF7FF;
-            color: #168BE8;
+            background: #E4F5F1;
+            color: #155C8A;
         }
         QPushButton#toolBtn:disabled, QPushButton#iconToolBtn:disabled {
             background: transparent;
@@ -1943,7 +2007,7 @@ void MainWindow::setupUi() {
         QMenuBar {
             background: #F8FBFD;
             color: #435367;
-            border-bottom: 1px solid #DDE8F0;
+            border-bottom: 1px solid #D5E1E9;
             spacing: 4px;
         }
         QMenuBar::item {
@@ -1952,13 +2016,13 @@ void MainWindow::setupUi() {
             border-radius: 6px;
         }
         QMenuBar::item:selected {
-            background: #EAF4FB;
-            color: #1679CA;
+            background: #E4F5F1;
+            color: #155C8A;
         }
         QMenu {
             background: #FFFFFF;
-            color: #253342;
-            border: 1px solid #D7E3EC;
+            color: #203243;
+            border: 1px solid #D5E1E9;
             border-radius: 8px;
             padding: 6px;
         }
@@ -1967,8 +2031,8 @@ void MainWindow::setupUi() {
             border-radius: 6px;
         }
         QMenu::item:selected {
-            background: #EAF7FF;
-            color: #1679CA;
+            background: #E4F5F1;
+            color: #155C8A;
         }
         QMenu::separator {
             height: 1px;
@@ -1976,7 +2040,7 @@ void MainWindow::setupUi() {
             margin: 6px 4px;
         }
         QToolTip {
-            background: #203144;
+            background: #17324D;
             color: white;
             border: none;
             border-radius: 6px;
@@ -1988,12 +2052,12 @@ void MainWindow::setupUi() {
             margin: 4px 2px 4px 2px;
         }
         QScrollBar::handle:vertical {
-            background: #C5D7E5;
+            background: #BDD0DB;
             border-radius: 5px;
             min-height: 36px;
         }
         QScrollBar::handle:vertical:hover {
-            background: #9FBCD2;
+            background: #98B6C7;
         }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
         QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
@@ -2001,9 +2065,9 @@ void MainWindow::setupUi() {
             height: 0px;
         }
         QStatusBar {
-            background: #EEF4F7;
-            color: #5F7183;
-            border-top: 1px solid #DCE7EF;
+            background: #EDF3F6;
+            color: #5B6E80;
+            border-top: 1px solid #D5E1E9;
             padding-left: 6px;
         }
         QStatusBar::item {
@@ -2732,6 +2796,77 @@ void MainWindow::refreshComposerState() {
     ui->fileBtn->setToolTip(state.fileToolTip);
     ui->imageBtn->setEnabled(state.sendImageEnabled);
     ui->imageBtn->setToolTip(state.imageToolTip);
+
+    QString composerStateText = state.canSend
+        ? QString("发送目标：%1 · 输入区已就绪").arg(targetName)
+        : QString("发送目标：%1 · %2").arg(targetName, state.sendToolTip);
+    if (!draftText.isEmpty()) {
+        composerStateText += QString(" · 草稿 %1 字").arg(draftText.size());
+    }
+    ui->composerStateLabel->setText(composerStateText);
+    refreshSessionSummary();
+}
+
+void MainWindow::refreshWorkspaceChrome() {
+    const bool connected = m_client && m_client->isConnected();
+    const bool inPublicSession = m_privateChatTarget.isEmpty();
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    const QString sessionName = inPublicSession ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget);
+    const QString redisStateText = connected
+        ? QStringLiteral("Redis 就绪工作流已接入")
+        : QStringLiteral("等待重连，当前处于只读/暂缓发送态");
+    const QString sessionKind = inPublicSession
+        ? QStringLiteral("公共群会话")
+        : (isLocalGroup ? QStringLiteral("本地群会话") : QStringLiteral("私聊会话"));
+
+    ui->chatSubtitleLabel->setText(QString("%1 · %2").arg(redisStateText, sessionName));
+    ui->chatStatusBadgeLabel->setText(sessionKind);
+    ui->sideSummaryStatsLabel->setText(QString("好友 %1 · 群聊 %2 · 在线 %3")
+        .arg(m_friendIds.size())
+        .arg(m_localGroupIds.size())
+        .arg(m_knownUsers.size()));
+    ui->sideSummaryStateLabel->setText(connected
+        ? QString("当前会话：%1 · 服务端在线视图已同步").arg(sessionName)
+        : QString("当前会话：%1 · 连接中断时只保留本地视图与草稿").arg(sessionName));
+}
+
+void MainWindow::refreshSessionSummary() {
+    const bool inPublicSession = m_privateChatTarget.isEmpty();
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
+    const QString sessionName = inPublicSession ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget);
+
+    QString overviewState;
+    QString overviewMeta;
+    if (inPublicSession) {
+        overviewState = isCurrentUserRemovedFromPublicGroup()
+            ? QStringLiteral("公共群当前为只读历史态")
+            : QStringLiteral("公共群在线成员与公告联动刷新中");
+        overviewMeta = QString("会话：%1 · 在线 %2 · 好友 %3")
+            .arg(sessionName)
+            .arg(m_knownUsers.size())
+            .arg(m_friendIds.size());
+    } else if (isLocalGroup) {
+        const QStringList members = m_localGroupMembers.value(m_privateChatTarget);
+        int onlineMembers = 0;
+        for (const QString& memberId : members) {
+            if (memberId == m_currentUserId || isContactOnline(memberId)) {
+                ++onlineMembers;
+            }
+        }
+        overviewState = QString("本地群聊 %1 · 成员 %2").arg(sessionName).arg(members.size());
+        overviewMeta = QString("群主：%1 · 在线 %2 · 可继续邀请好友扩展会话")
+            .arg(contactDisplayName(groupOwnerId(m_privateChatTarget)))
+            .arg(onlineMembers);
+    } else {
+        overviewState = QString("私聊对象：%1 · %2")
+            .arg(sessionName, isContactOnline(m_privateChatTarget) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        overviewMeta = QString("端到端状态：%1")
+            .arg(e2eSessionStatusText(m_privateChatTarget));
+    }
+
+    ui->groupOverviewStateLabel->setText(overviewState);
+    ui->groupOverviewMetaLabel->setText(overviewMeta);
+    refreshWorkspaceChrome();
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -3234,6 +3369,7 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
         .arg(m_friendIds.size())
         .arg(m_currentUserId));
     refreshGroupMemberPanel();
+    refreshSessionSummary();
 }
 
 void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
@@ -3326,6 +3462,7 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
         refreshGroupMemberPanel();
         refreshComposerState();
     }
+    refreshSessionSummary();
 }
 
 void MainWindow::onE2ESessionStateChanged(const QString& peerId, const QJsonObject& status) {
@@ -3418,6 +3555,7 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     ui->chatTitleLabel->setText(privateState.titleText);
     ui->chatHintLabel->setText(privateState.hintText);
     refreshComposerState();
+    refreshSessionSummary();
 }
 
 void MainWindow::onClientDisconnected() {
@@ -3428,6 +3566,7 @@ void MainWindow::onClientDisconnected() {
     ui->chatHintLabel->setText(state.hintText);
     ui->statusbar->showMessage(state.statusMessage, 3500);
     refreshComposerState();
+    refreshSessionSummary();
 }
 
 void MainWindow::onClientError(const QString& error) {
@@ -3438,6 +3577,7 @@ void MainWindow::onClientError(const QString& error) {
     ui->chatHintLabel->setText(state.hintText);
     ui->statusbar->showMessage(state.statusMessage, 3500);
     refreshComposerState();
+    refreshSessionSummary();
 }
 
 void MainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason) {
@@ -4323,6 +4463,7 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
     ui->announcementBodyLabel->setText(m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName)));
     refreshGroupMemberPanel();
     refreshComposerState();
+    refreshSessionSummary();
 }
 
 void MainWindow::onEditGroupAnnouncement() {
@@ -5422,6 +5563,7 @@ void MainWindow::onBackToGroupChat() {
     }
     refreshGroupMemberPanel();
     refreshComposerState();
+    refreshSessionSummary();
 }
 
 void MainWindow::onFriendRequestReceived(const QString& senderId, const QString& senderName) {
@@ -7448,6 +7590,7 @@ void MainWindow::refreshFriendList() {
     ui->friendNoticeBtn->setToolTip(noticeState.toolTip);
     ui->groupNoticeBtn->setText(groupNoticeState.text);
     ui->groupNoticeBtn->setToolTip(groupNoticeState.toolTip);
+    refreshWorkspaceChrome();
 
     auto appendSection = [this](const QString& title) {
         QStandardItem* section = new QStandardItem(title);
@@ -7617,6 +7760,7 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(visibleMembers));
         }
+        refreshSessionSummary();
         return;
     }
 
@@ -7643,6 +7787,7 @@ void MainWindow::refreshGroupMemberPanel() {
             delete removedItem;
         }
         ui->memberTitleLabel->setText("公共群成员 · 当前账号已被移出 · 历史只读");
+        refreshSessionSummary();
         return;
     }
 
@@ -7743,6 +7888,7 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(visibleMembers)
                 .arg(auditVisibleCount > 0 ? QString(" · 审计%1").arg(auditVisibleCount) : QString()));
+        refreshSessionSummary();
         return;
     }
 
@@ -7795,6 +7941,7 @@ void MainWindow::refreshGroupMemberPanel() {
     ui->memberTitleLabel->setText(filter.isEmpty()
         ? QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
         : QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
+    refreshSessionSummary();
 }
 
 void MainWindow::loadAvatar() {

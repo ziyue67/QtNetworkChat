@@ -186,6 +186,57 @@
         </widget>
        </item>
        <item>
+        <widget class="QFrame" name="sideSummaryCard">
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
+         </property>
+         <layout class="QVBoxLayout" name="sideSummaryLayout">
+          <property name="spacing">
+           <number>4</number>
+          </property>
+          <property name="leftMargin">
+           <number>10</number>
+          </property>
+          <property name="topMargin">
+           <number>10</number>
+          </property>
+          <property name="rightMargin">
+           <number>10</number>
+          </property>
+          <property name="bottomMargin">
+           <number>10</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="sideSummaryTitleLabel">
+            <property name="text">
+             <string>工作台概览</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="sideSummaryStatsLabel">
+            <property name="text">
+             <string>好友 0 · 群聊 0 · 在线 0</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="sideSummaryStateLabel">
+            <property name="text">
+             <string>等待服务端在线状态同步</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
         <widget class="QPushButton" name="friendNoticeBtn">
          <property name="text">
           <string>好友通知  ›</string>
@@ -269,13 +320,13 @@
          <property name="minimumSize">
           <size>
            <width>0</width>
-           <height>54</height>
+           <height>86</height>
           </size>
          </property>
          <property name="maximumSize">
           <size>
            <width>16777215</width>
-           <height>54</height>
+           <height>108</height>
           </size>
          </property>
          <layout class="QHBoxLayout" name="chatHeaderLayout">
@@ -292,11 +343,25 @@
            <number>8</number>
           </property>
           <item>
-           <widget class="QLabel" name="chatTitleLabel">
-            <property name="text">
-             <string>公共聊天室</string>
+           <layout class="QVBoxLayout" name="chatHeaderTextLayout">
+            <property name="spacing">
+             <number>3</number>
             </property>
-           </widget>
+            <item>
+             <widget class="QLabel" name="chatTitleLabel">
+              <property name="text">
+               <string>公共聊天室</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="chatSubtitleLabel">
+              <property name="text">
+               <string>Redis 在线工作台 · 多实例状态同步中</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </item>
           <item>
            <spacer name="chatHeaderSpacer">
@@ -312,11 +377,34 @@
            </spacer>
           </item>
           <item>
-           <widget class="QLabel" name="chatHintLabel">
-            <property name="text">
-             <string>双击左侧成员可私聊</string>
+           <layout class="QVBoxLayout" name="chatHeaderMetaLayout">
+            <property name="spacing">
+             <number>6</number>
             </property>
-           </widget>
+            <item>
+             <widget class="QLabel" name="chatStatusBadgeLabel">
+              <property name="text">
+               <string>公共群会话</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignRight|Qt::AlignVCenter</set>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="chatHintLabel">
+              <property name="text">
+               <string>双击左侧成员可私聊</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignRight|Qt::AlignVCenter</set>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </item>
          </layout>
         </widget>
@@ -367,6 +455,16 @@
           <property name="bottomMargin">
            <number>12</number>
           </property>
+          <item>
+           <widget class="QLabel" name="composerStateLabel">
+            <property name="text">
+             <string>Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
           <item>
            <widget class="QTextEdit" name="messageEdit">
             <property name="placeholderText">
@@ -510,6 +608,57 @@
            <widget class="QLabel" name="announcementBodyLabel">
             <property name="text">
              <string>欢迎来到公共聊天室，支持 QQ 号搜索、好友、私聊和文件发送。</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="groupOverviewCard">
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
+         </property>
+         <layout class="QVBoxLayout" name="groupOverviewLayout">
+          <property name="spacing">
+           <number>4</number>
+          </property>
+          <property name="leftMargin">
+           <number>10</number>
+          </property>
+          <property name="topMargin">
+           <number>10</number>
+          </property>
+          <property name="rightMargin">
+           <number>10</number>
+          </property>
+          <property name="bottomMargin">
+           <number>10</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="groupOverviewTitleLabel">
+            <property name="text">
+             <string>会话状态</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="groupOverviewStateLabel">
+            <property name="text">
+             <string>公共群在线视图已准备</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="groupOverviewMetaLabel">
+            <property name="text">
+             <string>成员面板会随着当前会话自动刷新</string>
             </property>
             <property name="wordWrap">
              <bool>true</bool>
