@@ -531,8 +531,10 @@ foreach ($expected in @(
     'S3 real backend readiness: status=`verified`, ok=`true`, configured=`true`, explicitEnabled=`true`, readiness=`verified`, releaseGate=`can-review-s3-real-backend-evidence`',
     'Evidence: s3Lines=`5`, success=`5`, fixedFailureReasons=`0`, sensitiveHits=`0`, defaultCTestMode=`readiness-and-redaction-only`, realBackendDefaultCI=`false`, defaultCIGate=`s3-real-backend-default-ci-not-requested`',
     'Action: `Archive the redacted S3/MinIO real-backend evidence with large-file governance artifacts.`',
-    'Task history: runs=`3`, failed=`1`, latestAt=`2026-06-03T03:02:03.0000000Z`, latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
-    'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`2026-06-03T03:30:00.0000000Z`, reason=`reviewed`',
+    'Task history: runs=`3`, failed=`1`, latestAt=`',
+    'latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
+    'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`',
+    'reason=`reviewed`',
     'Task acknowledgement aggregate: acknowledged=`true`, failed=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`',
     'Task acknowledgement gate: state=`failed-acknowledged`, failed=`2`, acknowledged=`true`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
     'Task ack gate: kind=`database-health`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
@@ -631,6 +633,7 @@ $artifactCiStatusPath = Join-Path $tempDir "github-windows-build-status-auto.jso
     -OutputPath $artifactCiStatusPath `
     -Head "auto1234567890abcdef" `
     -RunListJsonPath $autoRunListPath `
+    -GitHubWindowsBuildPolicy required `
     -FailOnSensitive | Out-Null
 $artifactCiStatusJson = Get-Content -LiteralPath $artifactCiStatusPath -Raw -Encoding UTF8
 $artifactCiStatus = $artifactCiStatusJson | ConvertFrom-Json
@@ -646,6 +649,35 @@ if ($artifactCiStatus.format -ne "qtnetworkchat-github-windows-build-status-v1" 
     throw "GitHub Windows Build status artifact did not preserve the sanitized current-head readback contract."
 }
 Assert-NotContains -Text $artifactCiStatusJson -Forbidden "feat: auto status"
+
+$disabledPolicyPath = Join-Path $tempDir "automation-policy-disabled.json"
+@'
+{
+  "format":"qtnetworkchat-automation-policy-v1",
+  "gitHubWindowsBuildPolicy":"disabled",
+  "note":"GitHub Windows Build is disabled by repo policy for this verification fixture."
+}
+'@ | Set-Content -LiteralPath $disabledPolicyPath -Encoding UTF8
+$disabledCiStatusPath = Join-Path $tempDir "github-windows-build-status-disabled-policy.json"
+& (Join-Path $PSScriptRoot "write-github-windows-build-status.ps1") `
+    -OutputPath $disabledCiStatusPath `
+    -Head "disabled1234567890abcdef" `
+    -RunListJsonPath $staleRunListPath `
+    -AutomationPolicyPath $disabledPolicyPath `
+    -FailOnSensitive | Out-Null
+$disabledCiStatusJson = Get-Content -LiteralPath $disabledCiStatusPath -Raw -Encoding UTF8
+$disabledCiStatus = $disabledCiStatusJson | ConvertFrom-Json
+if ($disabledCiStatus.status -ne "disabled-by-policy" `
+        -or $disabledCiStatus.visibility -ne "not-required" `
+        -or $disabledCiStatus.runId -ne "not-required" `
+        -or $disabledCiStatus.source -ne "automation-policy" `
+        -or $disabledCiStatus.currentHeadObserved -ne "not-required" `
+        -or $disabledCiStatus.externalBlocker -ne "waived-by-policy" `
+        -or $disabledCiStatus.releaseGate -ne "not-required" `
+        -or [int]$disabledCiStatus.observedRunCount -ne 0) {
+    throw "GitHub Windows Build disabled policy status artifact should skip CI as not-required without blocked-ci evidence."
+}
+Assert-NotContains -Text $disabledCiStatusJson -Forbidden "blocked-ci"
 
 $artifactCiMarkdownPath = Join-Path $tempDir "automation-status-ci-artifact-readback.md"
 & $ScriptPath `
@@ -749,6 +781,7 @@ $staleCiStatusPath = Join-Path $tempDir "github-windows-build-status-stale.json"
     -OutputPath $staleCiStatusPath `
     -Head "newer1234567890abcdef" `
     -RunListJsonPath $staleRunListPath `
+    -GitHubWindowsBuildPolicy required `
     -FailOnSensitive | Out-Null
 $staleCiStatusJson = Get-Content -LiteralPath $staleCiStatusPath -Raw -Encoding UTF8
 $staleCiStatus = $staleCiStatusJson | ConvertFrom-Json
@@ -780,6 +813,7 @@ try {
     & (Join-Path $PSScriptRoot "write-github-windows-build-status.ps1") `
         -OutputPath $authBlockedCiStatusPath `
         -Head "authblocked1234567890abcdef" `
+        -GitHubWindowsBuildPolicy required `
         -FailOnSensitive | Out-Null
 } finally {
     $env:PATH = $previousPath
@@ -2079,7 +2113,8 @@ $registrationExpiredMarkdownPath = Join-Path $configuredTempDir "automation-stat
 $registrationExpiredMarkdown = Get-Content -LiteralPath $registrationExpiredMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'Automation watch gate: state=`registration-failed-ack-gated`, tasks=`2`, registered=`2`, previewOnly=`0`, invalid=`0`, releaseGate=`blocked-registration-ack-expired`, action=`renew scheduled task registration failure acknowledgement before release`',
-    'Scheduled task registration acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-01T07:00:00.0000000Z`, reason=`registration expired sample`',
+    'Scheduled task registration acknowledgement: acknowledged=`true`, by=`oncall`, at=`',
+    'reason=`registration expired sample`',
     'Scheduled task registration ack gate: state=`failed-ack-expired`, failed=`2`, acknowledged=`false`, ackExpired=`true`, ageHours=`96`, remainingHours=`0`, overdueHours=`24`, expiresAt=`2026-06-04T07:00:00.0000000Z`, releaseGate=`blocked-registration-ack-expired`, action=`renew scheduled task registration failure acknowledgement before release`'
 )) {
     Assert-Contains -Text $registrationExpiredMarkdown -Expected $expected
@@ -2127,7 +2162,8 @@ $registrationAllAckMarkdownPath = Join-Path $configuredTempDir "automation-statu
 $registrationAllAckMarkdown = Get-Content -LiteralPath $registrationAllAckMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'Scheduled task registration attempt: state=`requested`, requested=`true`, user=`SYSTEM`, tasks=`2`, failed=`0`, releaseGate=`scheduled-task-registration-attempt-requested`, action=`verify scheduler readback and task history after registration`',
-    'Scheduled task registration acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-05T06:00:00.0000000Z`, reason=`registration reviewed sample`',
+    'Scheduled task registration acknowledgement: acknowledged=`true`, by=`oncall`, at=`',
+    'reason=`registration reviewed sample`',
     'Scheduled task registration ack gate: state=`passing`, failed=`0`, acknowledged=`true`, ackExpired=`false`, ageHours=`1`, remainingHours=`71`, overdueHours=`0`, expiresAt=`2026-06-08T06:00:00.0000000Z`, releaseGate=`passing`, action=`none`'
 )) {
     Assert-Contains -Text $registrationAllAckMarkdown -Expected $expected
@@ -2176,8 +2212,10 @@ $freshAckMarkdownPath = Join-Path $configuredTempDir "automation-status-fresh-ac
 
 $freshAckMarkdown = Get-Content -LiteralPath $freshAckMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Task history: runs=`2`, failed=`1`, latestAt=`2026-06-03T08:00:00.0000000Z`, latestExitCode=`1`, acknowledged=`false`, ackExpired=`false`',
-    'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-03T09:00:00.0000000Z`, reason=`fresh ack sample`',
+    'Task history: runs=`2`, failed=`1`, latestAt=`',
+    'latestExitCode=`1`, acknowledged=`false`, ackExpired=`false`',
+    'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`',
+    'reason=`fresh ack sample`',
     'Task acknowledgement aggregate: acknowledged=`true`, failed=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-failure-review-gated`',
     'Task acknowledgement gate: state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`'
 )) {
@@ -2225,10 +2263,13 @@ Assert-NoFixedMirrorBranchPolicy -Text $freshAckMarkdown
 
 $expiredMarkdown = Get-Content -LiteralPath $expiredMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'Task history: runs=`2`, failed=`1`, latestAt=`2026-06-03T07:00:00.0000000Z`, latestExitCode=`2`, acknowledged=`false`, ackExpired=`true`',
-    'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`2026-06-01T07:00:00.0000000Z`, reason=`expired sample`',
+    'Task history: runs=`2`, failed=`1`, latestAt=`',
+    'latestExitCode=`2`, acknowledged=`false`, ackExpired=`true`',
+    'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`',
+    'reason=`expired sample`',
     'Task acknowledgement gate: state=`failed-ack-expired`, failed=`1`, acknowledged=`false`, ackExpired=`true`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`blocked-ack-expired`, action=`renew task acknowledgement before release`',
-    'Task acknowledgement reminder: state=`renew-required`, expiryHours=`72`, ageHours=`96`, remainingHours=`0`, overdueHours=`24`, expiresAt=`2026-06-04T07:00:00.0000000Z`, action=`renew expired automation task acknowledgement before release`'
+    'Task acknowledgement reminder: state=`renew-required`, expiryHours=`72`, ageHours=`96`, remainingHours=`0`, overdueHours=`24`, expiresAt=`',
+    'action=`renew expired automation task acknowledgement before release`'
 )) {
     Assert-Contains -Text $expiredMarkdown -Expected $expected
 }

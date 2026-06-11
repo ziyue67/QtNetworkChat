@@ -3,6 +3,8 @@ param(
     [string]$Head,
     [string]$Workflow = "Windows Build",
     [string]$RunListJsonPath,
+    [string]$GitHubWindowsBuildPolicy = "",
+    [string]$AutomationPolicyPath = "docs\automation-policy.json",
     [int]$Limit = 20,
     [switch]$PlanOnly,
     [switch]$FailOnSensitive
@@ -76,6 +78,45 @@ function Format-StatusValue([object]$Value) {
     $text
 }
 
+function Normalize-GitHubWindowsBuildPolicy([string]$Value) {
+    $normalized = ([string]$Value).Trim().ToLowerInvariant()
+    if ($normalized -in @("disabled", "optional", "required")) {
+        return $normalized
+    }
+    ""
+}
+
+function Read-GitHubWindowsBuildPolicy([string]$PathValue) {
+    $result = [ordered]@{
+        policy = ""
+        source = "automation-policy-missing"
+    }
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $result
+    }
+    $resolvedPath = Resolve-RepoPath $PathValue
+    if (-not (Test-Path -LiteralPath $resolvedPath)) {
+        return $result
+    }
+    try {
+        $policyJson = Get-Content -LiteralPath $resolvedPath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        if ((Format-StatusValue $policyJson.format) -ne "qtnetworkchat-automation-policy-v1") {
+            $result.source = "automation-policy-invalid-format"
+            return $result
+        }
+        $policyValue = Normalize-GitHubWindowsBuildPolicy ([string]$policyJson.gitHubWindowsBuildPolicy)
+        if ([string]::IsNullOrWhiteSpace($policyValue)) {
+            $result.source = "automation-policy-invalid-github-windows-build-policy"
+            return $result
+        }
+        $result.policy = $policyValue
+        $result.source = "automation-policy"
+    } catch {
+        $result.source = "automation-policy-unreadable"
+    }
+    $result
+}
+
 function New-StatusPayload(
     [string]$Status,
     [string]$RunId,
@@ -98,7 +139,15 @@ function New-StatusPayload(
     $externalBlocker = "none"
     $releaseGate = "github-windows-build-status-unknown"
     $operatorAction = "inspect GitHub Windows Build status before release"
-    if ($Status -eq "success") {
+    $currentHeadObserved = -not [string]::IsNullOrWhiteSpace($RunId)
+    $runMatched = -not [string]::IsNullOrWhiteSpace($RunId)
+    if ($Status -eq "disabled-by-policy") {
+        $externalBlocker = "waived-by-policy"
+        $releaseGate = "not-required"
+        $operatorAction = "skip GitHub Windows Build; local build and local CTest are the active release verification path"
+        $currentHeadObserved = "not-required"
+        $runMatched = "not-required"
+    } elseif ($Status -eq "success") {
         $releaseGate = "github-windows-build-current-head-success"
         $operatorAction = "continue release evidence review"
     } elseif ($Visibility -eq "run-list-auth-blocked") {
@@ -135,9 +184,9 @@ function New-StatusPayload(
         source = $Source
         visibility = $Visibility
         runListFailureClass = $RunListFailureClass
-        runMatched = -not [string]::IsNullOrWhiteSpace($RunId)
+        runMatched = $runMatched
         observedRunCount = $Runs.Count
-        currentHeadObserved = -not [string]::IsNullOrWhiteSpace($RunId)
+        currentHeadObserved = $currentHeadObserved
         externalBlocker = $externalBlocker
         releaseGate = $releaseGate
         operatorAction = $operatorAction
@@ -165,6 +214,17 @@ if ([string]::IsNullOrWhiteSpace($Head)) {
     }
 }
 
+$policySource = "parameter"
+$policyResolved = Normalize-GitHubWindowsBuildPolicy $GitHubWindowsBuildPolicy
+if ([string]::IsNullOrWhiteSpace($policyResolved)) {
+    $policyReadback = Read-GitHubWindowsBuildPolicy $AutomationPolicyPath
+    $policyResolved = $policyReadback.policy
+    $policySource = $policyReadback.source
+}
+if ([string]::IsNullOrWhiteSpace($policyResolved)) {
+    $policyResolved = "required"
+}
+
 $runs = @()
 $source = "auto-gh-run-list"
 $status = "unknown"
@@ -172,7 +232,12 @@ $runId = ""
 $visibility = "unknown"
 $runListJson = ""
 
-if ($PlanOnly.IsPresent) {
+if ($policyResolved -eq "disabled") {
+    $source = $policySource
+    $status = "disabled-by-policy"
+    $runId = "not-required"
+    $visibility = "not-required"
+} elseif ($PlanOnly.IsPresent) {
     $source = "plan-only"
     $status = "unknown"
     $visibility = "plan-only"
