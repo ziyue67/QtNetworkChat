@@ -6933,36 +6933,43 @@ bool MainWindow::selectTransferFile(const TransferSelectionPlan& selectionPlan,
                                                               selectionPlan.dialogTitle,
                                                               LocalFileManager::lastTransferDirectory(),
                                                               selectionPlan.filters);
-    TransferSelectionUiState selectionState = m_transferManager.transferSelectionUiState(selectionPlan, selectedPath);
-    if (selectionState.showFailureDialog) {
-        QMessageBox::warning(this, selectionState.dialogTitle, selectionState.dialogMessage);
-        ui->chatHintLabel->setText(selectionState.hintText);
-        ui->statusbar->showMessage(selectionState.statusMessage, selectionState.statusTimeoutMs);
+    LocalTransferSelectionDecision selectionDecision =
+        LocalFileManager::transferSelectionDecision(selectedPath,
+                                                    selectionPlan.confirmKind,
+                                                    selectionPlan.canceledHint,
+                                                    selectionPlan.canceledStatus);
+    if (selectionDecision.action == LocalTransferSelectionDecision::Action::ShowFailureDialog) {
+        QMessageBox::warning(this, selectionDecision.dialogTitle, selectionDecision.dialogMessage);
+        ui->chatHintLabel->setText(selectionDecision.hintText);
+        ui->statusbar->showMessage(selectionDecision.statusMessage, selectionDecision.statusTimeoutMs);
         return false;
     }
-    if (!selectionState.accepted && !selectionState.showConfirmDialog) {
-        ui->chatHintLabel->setText(selectionState.hintText);
-        ui->statusbar->showMessage(selectionState.statusMessage, selectionState.statusTimeoutMs);
+    if (!selectionDecision.accepted
+        && selectionDecision.action != LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
+        ui->chatHintLabel->setText(selectionDecision.hintText);
+        ui->statusbar->showMessage(selectionDecision.statusMessage, selectionDecision.statusTimeoutMs);
         return false;
     }
-    if (selectionState.showConfirmDialog) {
+    if (selectionDecision.action == LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
         const bool confirmed = QMessageBox::question(this,
-                                                     selectionState.dialogTitle,
-                                                     selectionState.dialogMessage,
+                                                     selectionDecision.dialogTitle,
+                                                     selectionDecision.dialogMessage,
                                                      QMessageBox::Yes | QMessageBox::No,
                                                      QMessageBox::No) == QMessageBox::Yes;
-        selectionState = m_transferManager.resolveTransferSelectionUiState(selectionState, confirmed);
-        if (!selectionState.accepted) {
-            ui->chatHintLabel->setText(selectionState.hintText);
-            ui->statusbar->showMessage(selectionState.statusMessage, selectionState.statusTimeoutMs);
+        selectionDecision = LocalFileManager::resolveTransferSelectionWarning(selectionDecision,
+                                                                              confirmed,
+                                                                              selectionPlan.confirmKind);
+        if (!selectionDecision.accepted) {
+            ui->chatHintLabel->setText(selectionDecision.hintText);
+            ui->statusbar->showMessage(selectionDecision.statusMessage, selectionDecision.statusTimeoutMs);
             return false;
         }
     }
 
-    *filePath = selectionState.filePath;
-    *fileInfo = selectionState.fileInfo;
+    *filePath = selectionDecision.filePath;
+    *fileInfo = selectionDecision.fileInfo;
     if (fileSize) {
-        *fileSize = selectionState.fileSize;
+        *fileSize = selectionDecision.fileSize;
     }
     return true;
 }
