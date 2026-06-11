@@ -647,6 +647,43 @@ QString NotificationPanelManager::groupNoticePreviewText(const QString& currentI
         .arg(groupName, groupNumber, QString::number(memberCount));
 }
 
+GroupNoticeSelectionSnapshot NotificationPanelManager::groupNoticeSelectionSnapshot(
+    const QString& currentId,
+    const QString& fallbackName,
+    int publicOnlineCount,
+    const QString& localGroupName,
+    int localGroupMemberCount,
+    const QString& localAnnouncement,
+    const QString& currentUserId) {
+    GroupNoticeSelectionSnapshot snapshot;
+    snapshot.currentId = currentId.trimmed();
+    snapshot.createEntry = isGroupCreateEntryId(snapshot.currentId);
+    snapshot.publicGroup = snapshot.currentId.isEmpty();
+    snapshot.inspectable = isInspectableGroupNoticeId(snapshot.currentId);
+    snapshot.copyContext = groupNoticeCopyContext(snapshot.currentId,
+                                                  fallbackName,
+                                                  publicOnlineCount,
+                                                  localGroupName,
+                                                  localGroupMemberCount);
+    snapshot.previewText = groupNoticePreviewText(snapshot.currentId,
+                                                  localGroupName,
+                                                  snapshot.copyContext.groupNumber,
+                                                  localGroupMemberCount,
+                                                  publicOnlineCount);
+    snapshot.copyId = snapshot.publicGroup
+        ? QStringLiteral("公共聊天室")
+        : snapshot.copyContext.groupNumber;
+    snapshot.announcementText = groupNoticeAnnouncementText(snapshot.publicGroup, localAnnouncement);
+    snapshot.cardText = groupNoticeCardText(snapshot.publicGroup,
+                                            snapshot.copyContext.groupName,
+                                            snapshot.copyContext.groupNumber,
+                                            snapshot.copyContext.memberCount,
+                                            localAnnouncement,
+                                            currentUserId,
+                                            publicOnlineCount);
+    return snapshot;
+}
+
 GroupNoticeCopyContext NotificationPanelManager::groupNoticeCopyContext(const QString& currentId,
                                                                         const QString& fallbackName,
                                                                         int publicOnlineCount,

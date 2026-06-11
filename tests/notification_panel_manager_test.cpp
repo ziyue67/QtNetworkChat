@@ -280,6 +280,35 @@ int main(int argc, char** argv) {
                     && localContext.memberCount == 1,
                 "local group copy context should derive group number and guard minimum member count") && ok;
 
+    const GroupNoticeSelectionSnapshot publicSnapshot =
+        NotificationPanelManager::groupNoticeSelectionSnapshot(QString(),
+                                                               QStringLiteral(""),
+                                                               9,
+                                                               QStringLiteral(""),
+                                                               0,
+                                                               QStringLiteral(""),
+                                                               QStringLiteral("10001"));
+    const GroupNoticeSelectionSnapshot localSnapshot =
+        NotificationPanelManager::groupNoticeSelectionSnapshot(QStringLiteral("local_group_123"),
+                                                               QStringLiteral("ignored"),
+                                                               9,
+                                                               QString::fromUtf8("项目群"),
+                                                               6,
+                                                               QString::fromUtf8("同步发布计划"),
+                                                               QStringLiteral("10001"));
+    ok = expect(publicSnapshot.publicGroup
+                    && !publicSnapshot.inspectable
+                    && publicSnapshot.previewText.contains(QString::fromUtf8("公共聊天室"))
+                    && publicSnapshot.copyId == QString::fromUtf8("公共聊天室")
+                    && publicSnapshot.announcementText.contains(QString::fromUtf8("默认群聊"))
+                    && localSnapshot.inspectable
+                    && !localSnapshot.createEntry
+                    && localSnapshot.previewText.contains(QString::fromUtf8("成员6人"))
+                    && localSnapshot.copyId == QStringLiteral("123")
+                    && localSnapshot.copyContext.groupName == QString::fromUtf8("项目群")
+                    && localSnapshot.cardText.contains(QString::fromUtf8("公告:同步发布计划")),
+                "group notice selection snapshot should centralize preview and copy context") && ok;
+
     const QString inviteText = NotificationPanelManager::groupNoticeInviteText(
         QString::fromUtf8("项目群"), QStringLiteral("123"), QString::fromUtf8("小明"), QStringLiteral("10001"));
     ok = expect(inviteText.contains(QString::fromUtf8("项目群"))

@@ -175,6 +175,18 @@ struct GroupNoticeCopyContext {
     int memberCount = 0;
 };
 
+struct GroupNoticeSelectionSnapshot {
+    QString currentId;
+    QString previewText;
+    QString copyId;
+    QString announcementText;
+    QString cardText;
+    GroupNoticeCopyContext copyContext;
+    bool inspectable = false;
+    bool createEntry = false;
+    bool publicGroup = false;
+};
+
 class NotificationPanelManager {
 public:
     static FriendNoticeDialogChrome friendNoticeDialogChrome();
@@ -209,6 +221,14 @@ public:
                                           const QString& groupNumber,
                                           int memberCount,
                                           int publicOnlineCount);
+    static GroupNoticeSelectionSnapshot groupNoticeSelectionSnapshot(
+        const QString& currentId,
+        const QString& fallbackName,
+        int publicOnlineCount,
+        const QString& localGroupName,
+        int localGroupMemberCount,
+        const QString& localAnnouncement,
+        const QString& currentUserId);
     static GroupNoticeCopyContext groupNoticeCopyContext(const QString& currentId,
                                                          const QString& fallbackName,
                                                          int publicOnlineCount,
