@@ -7,6 +7,7 @@
 #include "localfilemanager.h"
 #include "notificationpanelmanager.h"
 #include "qtnetworkchat_version.h"
+#include "transferchatitemrenderer.h"
 #include "windowstatemanager.h"
 #include <QInputDialog>
 #include <QFileDialog>
@@ -7081,59 +7082,12 @@ TransferReceiveRenderPlan MainWindow::receivedTransferPersistencePlan(const Rece
                                                                   saved);
 }
 
-QColor MainWindow::transferChatItemForeground(const QString& role) const {
-    if (role == QStringLiteral("success")) {
-        return Qt::darkGreen;
-    }
-    if (role == QStringLiteral("danger")) {
-        return QColor(180, 70, 70);
-    }
-    if (role == QStringLiteral("muted")) {
-        return QColor(86, 116, 130);
-    }
-    return QColor();
-}
-
-QColor MainWindow::transferChatItemBackground(const QString& role) const {
-    if (role == QStringLiteral("success-soft")) {
-        return QColor(232, 248, 245);
-    }
-    if (role == QStringLiteral("danger-soft")) {
-        return QColor(255, 245, 245);
-    }
-    if (role == QStringLiteral("muted-soft")) {
-        return QColor(246, 251, 253);
-    }
-    return QColor();
-}
-
-QStandardItem* MainWindow::createTransferChatListItem(const TransferChatListItemUiState& itemState) const {
-    QStandardItem* item = new QStandardItem(itemState.text);
-    item->setEditable(false);
-    if (!itemState.toolTip.isEmpty()) {
-        item->setData(itemState.toolTip, Qt::ToolTipRole);
-    }
-
-    const QColor foreground = transferChatItemForeground(itemState.foregroundRole);
-    if (foreground.isValid()) {
-        item->setForeground(foreground);
-    }
-
-    const QColor background = transferChatItemBackground(itemState.backgroundRole);
-    if (background.isValid()) {
-        item->setBackground(background);
-    }
-
-    item->setTextAlignment((itemState.alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter);
-    return item;
-}
-
 void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& itemState) {
     if (itemState.text.isEmpty()) {
         return;
     }
 
-    QStandardItem* item = createTransferChatListItem(itemState);
+    QStandardItem* item = TransferChatItemRenderer::createItem(itemState);
     m_chatModel->appendRow(item);
 }
 

@@ -131,9 +131,6 @@ private:
     TransferReceiveRenderPlan receivedTransferPersistencePlan(const ReceivedTransferContext& context,
                                                               const QString& displayName,
                                                               bool saved) const;
-    QColor transferChatItemForeground(const QString& role) const;
-    QColor transferChatItemBackground(const QString& role) const;
-    QStandardItem* createTransferChatListItem(const TransferChatListItemUiState& itemState) const;
     void appendTransferChatListItem(const TransferChatListItemUiState& itemState);
     ReceivedTransferContext receivedTransferContext(const Message& msg,
                                                     const QString& kind,

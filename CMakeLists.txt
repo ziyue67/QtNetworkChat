@@ -154,6 +154,7 @@ endfunction()
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
+    src/transferchatitemrenderer.cpp
     src/notificationpanelmanager.cpp
     src/clientstorage.cpp
     src/historyservice.cpp
@@ -168,6 +169,7 @@ add_executable(QtNetworkChat
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
+    include/transferchatitemrenderer.h
     include/notificationpanelmanager.h
     include/clientstorage.h
     include/historyservice.h
@@ -369,6 +371,15 @@ if(BUILD_TESTING)
     )
     target_include_directories(transfer_manager_test PRIVATE include)
     target_link_libraries(transfer_manager_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(transfer_chat_item_renderer_test
+        tests/transfer_chat_item_renderer_test.cpp
+        src/transferchatitemrenderer.cpp
+        include/transferchatitemrenderer.h
+        include/transfermanager.h
+    )
+    target_include_directories(transfer_chat_item_renderer_test PRIVATE include)
+    target_link_libraries(transfer_chat_item_renderer_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Widgets)
 
     add_executable(friend_manager_test
         tests/friend_manager_test.cpp
@@ -722,6 +733,13 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/promote-e2e-linked-candidate.ps1
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_linked_candidate_promotion.cmake
+    )
+    add_test(
+        NAME TransferChatItemRendererUi
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:transfer_chat_item_renderer_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
     add_test(
         NAME E2EPrivateMessageDelivery
