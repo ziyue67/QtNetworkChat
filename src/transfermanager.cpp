@@ -382,6 +382,37 @@ TransferMediaSelection TransferManager::mediaSelection(const QFileInfo& info) {
     return result;
 }
 
+TransferMediaPreviewPlan TransferManager::localMediaPreviewPlan(const QString& fileName,
+                                                                const QString& fileSize,
+                                                                bool isVideo) {
+    TransferMediaPreviewPlan result;
+    result.isVideo = isVideo;
+    result.alignRight = false;
+    result.text = isVideo
+        ? QStringLiteral("视频文件 · %1 · %2 · 可在文件目录中打开").arg(fileName, fileSize)
+        : QStringLiteral("%1 · %2").arg(fileName, fileSize);
+    return result;
+}
+
+TransferMediaPreviewPlan TransferManager::remoteMediaPreviewPlan(const QString& cardText,
+                                                                 bool isVideo) {
+    TransferMediaPreviewPlan result;
+    result.text = cardText;
+    result.isVideo = isVideo;
+    result.alignRight = true;
+    return result;
+}
+
+TransferMediaPreviewPlan TransferManager::receivedMediaPreviewPlan(const QString& receivedName,
+                                                                   const QString& receivedSize,
+                                                                   const QString& manifestSuffix) {
+    TransferMediaPreviewPlan result;
+    result.text = QStringLiteral("%1 · %2%3").arg(receivedName, receivedSize, manifestSuffix);
+    result.isVideo = false;
+    result.alignRight = false;
+    return result;
+}
+
 TransferSendUiState TransferManager::preparingSendState(const QString& kind,
                                                         const QString& fileName,
                                                         const QString& fileSize,

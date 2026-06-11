@@ -127,6 +127,12 @@ struct TransferMediaSelection {
     QString mediaType;
 };
 
+struct TransferMediaPreviewPlan {
+    QString text;
+    bool isVideo = false;
+    bool alignRight = false;
+};
+
 struct TransferChatListItemUiState {
     QString text;
     QString toolTip;
@@ -211,6 +217,14 @@ public:
     static TransferSelectionPlan fileSelectionPlan();
     static TransferSelectionPlan mediaSelectionPlan();
     static TransferMediaSelection mediaSelection(const QFileInfo& info);
+    static TransferMediaPreviewPlan localMediaPreviewPlan(const QString& fileName,
+                                                          const QString& fileSize,
+                                                          bool isVideo);
+    static TransferMediaPreviewPlan remoteMediaPreviewPlan(const QString& cardText,
+                                                           bool isVideo);
+    static TransferMediaPreviewPlan receivedMediaPreviewPlan(const QString& receivedName,
+                                                             const QString& receivedSize,
+                                                             const QString& manifestSuffix);
     static TransferSendUiState preparingSendState(const QString& kind,
                                                   const QString& fileName,
                                                   const QString& fileSize,

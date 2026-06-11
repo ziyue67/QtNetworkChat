@@ -308,6 +308,37 @@ int main(int argc, char** argv) {
                     && videoSelection.mediaType == QString::fromUtf8("视频"),
                 "media selection should classify video suffixes as videos") && ok;
 
+    TransferMediaPreviewPlan localImagePreview = TransferManager::localMediaPreviewPlan(QStringLiteral("photo.png"),
+                                                                                        QStringLiteral("512 KB"),
+                                                                                        false);
+    ok = expect(localImagePreview.text == QString::fromUtf8("photo.png · 512 KB")
+                    && !localImagePreview.isVideo
+                    && !localImagePreview.alignRight,
+                "local image preview plan should keep compact left-aligned copy") && ok;
+
+    TransferMediaPreviewPlan localVideoPreview = TransferManager::localMediaPreviewPlan(QStringLiteral("clip.mp4"),
+                                                                                        QStringLiteral("2.0 MB"),
+                                                                                        true);
+    ok = expect(localVideoPreview.text == QString::fromUtf8("视频文件 · clip.mp4 · 2.0 MB · 可在文件目录中打开")
+                    && localVideoPreview.isVideo
+                    && !localVideoPreview.alignRight,
+                "local video preview plan should expose open-in-folder guidance") && ok;
+
+    TransferMediaPreviewPlan remotePreview = TransferManager::remoteMediaPreviewPlan(QString::fromUtf8("图片卡片 · photo.png · 512 KB · 已发送到 好友A"),
+                                                                                     false);
+    ok = expect(remotePreview.text == QString::fromUtf8("图片卡片 · photo.png · 512 KB · 已发送到 好友A")
+                    && !remotePreview.isVideo
+                    && remotePreview.alignRight,
+                "remote media preview plan should keep card copy and right alignment") && ok;
+
+    TransferMediaPreviewPlan receivedPreview = TransferManager::receivedMediaPreviewPlan(QStringLiteral("photo.png"),
+                                                                                         QStringLiteral("512 KB"),
+                                                                                         QString::fromUtf8(" · 4片"));
+    ok = expect(receivedPreview.text == QString::fromUtf8("photo.png · 512 KB · 4片")
+                    && !receivedPreview.isVideo
+                    && !receivedPreview.alignRight,
+                "received media preview plan should centralize inbound preview text") && ok;
+
     TransferSendUiState canceledSend = TransferManager::canceledSendState(QString::fromUtf8("文件"), QStringLiteral("report.zip"));
     ok = expect(canceledSend.hintText == QString::fromUtf8("已取消发送文件 · report.zip")
                     && canceledSend.statusMessage == QString::fromUtf8("已取消发送文件：report.zip")

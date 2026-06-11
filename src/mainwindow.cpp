@@ -2453,9 +2453,15 @@ void MainWindow::onSendImage() {
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         if (!isVideo && !pixmap.isNull()) {
-            appendMediaPreviewItem(QString("%1 · %2").arg(info.fileName(), fileSize), pixmap, false, false);
+            const TransferMediaPreviewPlan previewPlan = m_transferManager.localMediaPreviewPlan(info.fileName(),
+                                                                                                 fileSize,
+                                                                                                 false);
+            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
         } else if (isVideo) {
-            appendMediaPreviewItem(QString("视频文件 · %1 · %2 · 可在文件目录中打开").arg(info.fileName(), fileSize), QPixmap(), true, false);
+            const TransferMediaPreviewPlan previewPlan = m_transferManager.localMediaPreviewPlan(info.fileName(),
+                                                                                                 fileSize,
+                                                                                                 true);
+            appendMediaPreviewItem(previewPlan.text, QPixmap(), previewPlan.isVideo, previewPlan.alignRight);
         }
         appendTransferCompletionState(completedState, true, false, QColor(), QColor());
         return;
@@ -2468,13 +2474,14 @@ void MainWindow::onSendImage() {
     if (ok) {
         const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(mediaType, info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
         appendSystemMessage(completedState.systemMessage);
+        const TransferMediaPreviewPlan previewPlan = m_transferManager.remoteMediaPreviewPlan(completedState.cardText, isVideo);
         if (!isVideo) {
             QPixmap pixmap(filePath);
             if (!pixmap.isNull()) {
-                appendMediaPreviewItem(completedState.cardText, pixmap, false, true);
+                appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
             }
         } else {
-            appendMediaPreviewItem(completedState.cardText, QPixmap(), true, true);
+            appendMediaPreviewItem(previewPlan.text, QPixmap(), previewPlan.isVideo, previewPlan.alignRight);
         }
         appendTransferCompletionState(completedState, false, false, QColor(), QColor());
     } else if (transferCanceled) {
@@ -2582,7 +2589,10 @@ void MainWindow::onNewMessage(const Message& msg) {
                                                                         displayName);
         QPixmap pixmap;
         if (pixmap.loadFromData(msg.fileData)) {
-            appendMediaPreviewItem(QString("%1 · %2%3").arg(context.receivedName, context.receivedSize, context.manifestSuffix), pixmap, false, false);
+            const TransferMediaPreviewPlan previewPlan = m_transferManager.receivedMediaPreviewPlan(context.receivedName,
+                                                                                                    context.receivedSize,
+                                                                                                    context.manifestSuffix);
+            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
         }
         persistReceivedTransferPayload(context,
                                        displayName,
