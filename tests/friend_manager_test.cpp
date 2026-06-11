@@ -102,6 +102,33 @@ int main(int argc, char** argv) {
                     && filteredEmptyState.emptyText.contains(QStringLiteral("missing")),
                 "friend manager list state should expose search-add placeholder when filter misses") && ok;
 
+    FriendManagerListRenderUiState renderState = FriendManager::managerListRenderUiState(QStringLiteral("self"),
+                                                                                          friendIds,
+                                                                                          QStringList{QStringLiteral("local_group_1")},
+                                                                                          friendNames,
+                                                                                          knownUsers,
+                                                                                          QString());
+    ok = expect(renderState.summary.visibleCount == 2
+                    && renderState.entries.size() == 2
+                    && renderState.entries.at(0).entryId == QStringLiteral("1001")
+                    && renderState.entries.at(0).text.contains(QString::fromUtf8("在线"))
+                    && !renderState.entries.at(0).muted
+                    && renderState.entries.at(0).rowHeight == 58,
+                "friend manager render state should provide visible friend entries with row metadata") && ok;
+
+    FriendManagerListRenderUiState emptyRenderState = FriendManager::managerListRenderUiState(QStringLiteral("self"),
+                                                                                               friendIds,
+                                                                                               QStringList(),
+                                                                                               friendNames,
+                                                                                               knownUsers,
+                                                                                               QStringLiteral("missing"));
+    ok = expect(emptyRenderState.entries.size() == 1
+                    && emptyRenderState.entries.at(0).placeholder
+                    && emptyRenderState.entries.at(0).muted
+                    && emptyRenderState.entries.at(0).entryId == QStringLiteral("search_add:missing")
+                    && emptyRenderState.entries.at(0).text.contains(QStringLiteral("missing")),
+                "friend manager render state should provide muted placeholder entries for empty filters") && ok;
+
     ok = expect(FriendManager::managerSelectionPreviewText(QString(), QStringLiteral("Alice"), true, false)
                         == QString::fromUtf8("选择好友后可复制名片、邀请语或邀入群")
                     && FriendManager::managerSelectionPreviewText(QStringLiteral("search_add:9988"), QStringLiteral("Alice"), true, false).contains(QStringLiteral("9988"))

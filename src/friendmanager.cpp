@@ -101,6 +101,41 @@ FriendManagerListUiState FriendManager::managerListUiState(
     return state;
 }
 
+FriendManagerListRenderUiState FriendManager::managerListRenderUiState(
+    const QString& currentUserId,
+    const QStringList& friendIds,
+    const QStringList& localGroupIds,
+    const QMap<QString, QString>& friendNames,
+    const QMap<QString, ChatUser>& knownUsers,
+    const QString& filter) {
+    FriendManagerListRenderUiState state;
+    state.summary = managerListUiState(currentUserId, friendIds, localGroupIds, friendNames, knownUsers, filter);
+
+    for (const QString& id : friendIds) {
+        const QString name = friendNames.value(id, id);
+        const bool online = isContactOnline(id, knownUsers);
+        if (!matchesFilter(id, name, filter)) {
+            continue;
+        }
+
+        FriendManagerListEntryUiState entry;
+        entry.entryId = id;
+        entry.text = QStringLiteral("QQ:%1\n%2 · %3").arg(id, name, online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        state.entries.append(entry);
+    }
+
+    if (state.entries.isEmpty()) {
+        FriendManagerListEntryUiState placeholder;
+        placeholder.entryId = state.summary.emptyEntryId;
+        placeholder.text = state.summary.emptyText;
+        placeholder.placeholder = true;
+        placeholder.muted = true;
+        state.entries.append(placeholder);
+    }
+
+    return state;
+}
+
 QString FriendManager::managerSelectionPreviewText(const QString& entryId,
                                                    const QString& displayName,
                                                    bool online,

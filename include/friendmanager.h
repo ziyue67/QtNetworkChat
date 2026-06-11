@@ -3,6 +3,7 @@
 
 #include "chatuser.h"
 
+#include <QList>
 #include <QMap>
 #include <QString>
 #include <QStringList>
@@ -24,6 +25,19 @@ struct FriendManagerListUiState {
     QString emptyEntryId;
 };
 
+struct FriendManagerListEntryUiState {
+    QString entryId;
+    QString text;
+    bool placeholder = false;
+    bool muted = false;
+    int rowHeight = 58;
+};
+
+struct FriendManagerListRenderUiState {
+    FriendManagerListUiState summary;
+    QList<FriendManagerListEntryUiState> entries;
+};
+
 class FriendManager {
 public:
     static QString contactDisplayName(const QString& userId,
@@ -39,6 +53,13 @@ public:
                                  const QStringList& pendingOutgoingFriendRequests,
                                  const QMap<QString, ChatUser>& knownUsers);
     static FriendManagerListUiState managerListUiState(
+        const QString& currentUserId,
+        const QStringList& friendIds,
+        const QStringList& localGroupIds,
+        const QMap<QString, QString>& friendNames,
+        const QMap<QString, ChatUser>& knownUsers,
+        const QString& filter);
+    static FriendManagerListRenderUiState managerListRenderUiState(
         const QString& currentUserId,
         const QStringList& friendIds,
         const QStringList& localGroupIds,

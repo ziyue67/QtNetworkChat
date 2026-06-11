@@ -4610,33 +4610,24 @@ void MainWindow::onShowFriendManager() {
 
     auto fillList = [this, friendList, subTitleLabel, statsLabel](const QString& filter = QString()) {
         friendList->clear();
-        const FriendManagerListUiState listState = m_friendManager.managerListUiState(
+        const FriendManagerListRenderUiState listState = m_friendManager.managerListRenderUiState(
             m_currentUserId,
             m_friendIds,
             m_localGroupIds,
             m_friendNames,
             m_knownUsers,
             filter);
-        for (const QString& id : m_friendIds) {
-            QString name = m_friendNames.value(id, id);
-            const bool online = isContactOnline(id);
-            if (!m_friendManager.matchesFilter(id, name, filter)) {
-                continue;
+        for (const FriendManagerListEntryUiState& entry : listState.entries) {
+            QListWidgetItem* item = new QListWidgetItem(entry.text);
+            item->setData(Qt::UserRole, entry.entryId);
+            item->setSizeHint(QSize(0, entry.rowHeight));
+            if (entry.muted) {
+                item->setForeground(QColor(135, 150, 165));
             }
-            QString state = online ? "在线" : "离线";
-            QListWidgetItem* item = new QListWidgetItem(QString("QQ:%1\n%2 · %3").arg(id, name, state));
-            item->setData(Qt::UserRole, id);
-            item->setSizeHint(QSize(0, 58));
             friendList->addItem(item);
         }
-        subTitleLabel->setText(listState.subTitle);
-        statsLabel->setText(listState.statsText);
-        if (friendList->count() == 0) {
-            QListWidgetItem* emptyItem = new QListWidgetItem(listState.emptyText);
-            emptyItem->setData(Qt::UserRole, listState.emptyEntryId);
-            emptyItem->setForeground(QColor(135, 150, 165));
-            friendList->addItem(emptyItem);
-        }
+        subTitleLabel->setText(listState.summary.subTitle);
+        statsLabel->setText(listState.summary.statsText);
     };
     fillList();
 
