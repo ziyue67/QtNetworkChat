@@ -401,6 +401,32 @@ QList<ChatContextComposerMenuAction> ChatContextManager::composerMenuActions() {
     };
 }
 
+QList<ChatContextComposerMenuAction> ChatContextManager::composerRuntimeActions(const ChatContextComposerRuntimeState& state) {
+    const QString pasteToolTip = state.hasClipboardText
+        ? QStringLiteral("把剪贴板文字插入输入框")
+        : QStringLiteral("剪贴板里没有可粘贴的文字");
+    const QString pasteSendToolTip = !state.canReachTarget
+        ? QStringLiteral("当前已断开，暂不能粘贴并发送到 %1").arg(state.targetDisplayName)
+        : (state.hasClipboardText
+            ? QStringLiteral("粘贴剪贴板文字后立即发送")
+            : QStringLiteral("剪贴板里没有可发送的文字"));
+    const QString sendToolTip = !state.canReachTarget
+        ? QStringLiteral("当前已断开，暂不能发送到 %1").arg(state.targetDisplayName)
+        : (state.hasDraft
+            ? QStringLiteral("发送当前输入 · %1 字").arg(state.draftTextLength)
+            : QStringLiteral("请输入消息后再发送"));
+    const QString clearToolTip = state.hasDraft
+        ? QStringLiteral("清空当前输入框内容")
+        : QStringLiteral("输入框已经是空的");
+    return {
+        { QStringLiteral("粘贴"), pasteToolTip, QStringLiteral("composer-paste") },
+        { QStringLiteral("粘贴并发送"), pasteSendToolTip, QStringLiteral("composer-paste-send") },
+        { QStringLiteral("立即发送"), sendToolTip, QStringLiteral("composer-send") },
+        { QStringLiteral("清空输入"), clearToolTip, QStringLiteral("composer-clear") },
+        { QStringLiteral("@成员"), QStringLiteral("打开 @ 成员菜单，插入群成员或在线成员提醒"), QStringLiteral("composer-mention") }
+    };
+}
+
 QString ChatContextManager::plainContentText(const QString& chatText) {
     QString content = chatText.section(']', 2).trimmed();
     if (content.isEmpty()) content = chatText;

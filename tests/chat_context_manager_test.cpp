@@ -227,6 +227,25 @@ int main(int argc, char** argv) {
                     && composerMenuActions.last().commandId == QStringLiteral("current-summary-template"),
                 "composer menu actions should centralize menu titles, tooltips, and command ids") && ok;
 
+    ChatContextComposerRuntimeState runtimeState;
+    runtimeState.hasDraft = true;
+    runtimeState.hasClipboardText = false;
+    runtimeState.canReachTarget = false;
+    runtimeState.draftTextLength = 12;
+    runtimeState.targetDisplayName = QString::fromUtf8("好友A");
+    const QList<ChatContextComposerMenuAction> runtimeActions = ChatContextManager::composerRuntimeActions(runtimeState);
+    ok = expect(runtimeActions.size() == 5
+                    && runtimeActions.at(0).commandId == QStringLiteral("composer-paste")
+                    && runtimeActions.at(0).toolTip == QString::fromUtf8("剪贴板里没有可粘贴的文字")
+                    && runtimeActions.at(1).commandId == QStringLiteral("composer-paste-send")
+                    && runtimeActions.at(1).toolTip.contains(QString::fromUtf8("当前已断开"))
+                    && runtimeActions.at(2).commandId == QStringLiteral("composer-send")
+                    && runtimeActions.at(2).toolTip.contains(QString::fromUtf8("当前已断开"))
+                    && runtimeActions.at(3).commandId == QStringLiteral("composer-clear")
+                    && runtimeActions.at(3).toolTip == QString::fromUtf8("清空当前输入框内容")
+                    && runtimeActions.at(4).commandId == QStringLiteral("composer-mention"),
+                "composer runtime actions should centralize enabled-state tooltip copy") && ok;
+
     ChatContextSavedFileCommand copySavePathCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
                                                                                            missingSavePathState,
                                                                                            QString());

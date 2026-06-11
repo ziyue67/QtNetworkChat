@@ -1404,30 +1404,42 @@ void MainWindow::setupUi() {
         const QString targetName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
         const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
         const bool canReachTarget = isLocalGroup || (m_client && m_client->isConnected());
-        QAction* pasteAction = menu.addAction("粘贴");
-        QAction* pasteSendAction = menu.addAction("粘贴并发送");
-        QAction* sendAction = menu.addAction("立即发送");
-        QAction* clearAction = menu.addAction("清空输入");
-        pasteAction->setEnabled(hasClipboardText);
-        pasteSendAction->setEnabled(hasClipboardText && canReachTarget);
-        sendAction->setEnabled(hasDraft && canReachTarget);
-        clearAction->setEnabled(hasDraft);
-        pasteAction->setToolTip(hasClipboardText ? "把剪贴板文字插入输入框" : "剪贴板里没有可粘贴的文字");
-        pasteSendAction->setToolTip(!canReachTarget
-            ? QString("当前已断开，暂不能粘贴并发送到 %1").arg(targetName)
-            : (hasClipboardText ? "粘贴剪贴板文字后立即发送" : "剪贴板里没有可发送的文字"));
-        sendAction->setToolTip(!canReachTarget
-            ? QString("当前已断开，暂不能发送到 %1").arg(targetName)
-            : (hasDraft ? QString("发送当前输入 · %1 字").arg(draftText.size()) : "请输入消息后再发送"));
-        clearAction->setToolTip(hasDraft ? "清空当前输入框内容" : "输入框已经是空的");
         auto describeInputAction = [](QAction* action, const QString& tip) {
             action->setToolTip(tip);
             action->setStatusTip(tip);
         };
-        pasteAction->setStatusTip(pasteAction->toolTip());
-        pasteSendAction->setStatusTip(pasteSendAction->toolTip());
-        sendAction->setStatusTip(sendAction->toolTip());
-        clearAction->setStatusTip(clearAction->toolTip());
+        ChatContextComposerRuntimeState runtimeState;
+        runtimeState.hasDraft = hasDraft;
+        runtimeState.hasClipboardText = hasClipboardText;
+        runtimeState.canReachTarget = canReachTarget;
+        runtimeState.draftTextLength = draftText.size();
+        runtimeState.targetDisplayName = targetName;
+        const QList<ChatContextComposerMenuAction> runtimeActions = ChatContextManager::composerRuntimeActions(runtimeState);
+        QAction* pasteAction = nullptr;
+        QAction* pasteSendAction = nullptr;
+        QAction* sendAction = nullptr;
+        QAction* clearAction = nullptr;
+        QAction* mentionAction = nullptr;
+        for (const ChatContextComposerMenuAction& spec : runtimeActions) {
+            QAction* action = menu.addAction(spec.title);
+            describeInputAction(action, spec.toolTip);
+            action->setData(spec.commandId);
+            if (spec.commandId == QLatin1String("composer-paste")) {
+                action->setEnabled(hasClipboardText);
+                pasteAction = action;
+            } else if (spec.commandId == QLatin1String("composer-paste-send")) {
+                action->setEnabled(hasClipboardText && canReachTarget);
+                pasteSendAction = action;
+            } else if (spec.commandId == QLatin1String("composer-send")) {
+                action->setEnabled(hasDraft && canReachTarget);
+                sendAction = action;
+            } else if (spec.commandId == QLatin1String("composer-clear")) {
+                action->setEnabled(hasDraft);
+                clearAction = action;
+            } else if (spec.commandId == QLatin1String("composer-mention")) {
+                mentionAction = action;
+            }
+        }
         menu.addSeparator();
         const QList<ChatContextComposerMenuAction> composerActions = ChatContextManager::composerMenuActions();
         QList<QAction*> composerMenuQtActions;
@@ -1450,8 +1462,6 @@ void MainWindow::setupUi() {
                 });
             }
         }
-        QAction* mentionAction = menu.addAction("@成员");
-        describeInputAction(mentionAction, "打开 @ 成员菜单，插入群成员或在线成员提醒");
         for (int i = 8; i < composerActions.size(); ++i) {
             const ChatContextComposerMenuAction& spec = composerActions.at(i);
             QAction* action = menu.addAction(spec.title);

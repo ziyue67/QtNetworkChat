@@ -39,6 +39,14 @@ struct ChatContextComposerState {
     int knownUserCount = 0;
 };
 
+struct ChatContextComposerRuntimeState {
+    bool hasDraft = false;
+    bool hasClipboardText = false;
+    bool canReachTarget = false;
+    int draftTextLength = 0;
+    QString targetDisplayName;
+};
+
 struct ChatContextComposerCommand {
     enum class Action {
         None,
@@ -116,6 +124,7 @@ public:
                                                      const QString& chatText,
                                                      const QString& privateChatTarget,
                                                      const QString& targetDisplayName);
+    static QList<ChatContextComposerMenuAction> composerRuntimeActions(const ChatContextComposerRuntimeState& state);
     static ChatContextComposerCommand composerCommand(const QString& commandId,
                                                       const ChatContextComposerState& state);
     static QList<ChatContextPhraseMenuPlan> composerPhraseMenuPlans();
