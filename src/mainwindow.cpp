@@ -7081,6 +7081,32 @@ TransferReceiveRenderPlan MainWindow::receivedTransferPersistencePlan(const Rece
                                                                   saved);
 }
 
+QColor MainWindow::transferChatItemForeground(const QString& role) const {
+    if (role == QStringLiteral("success")) {
+        return Qt::darkGreen;
+    }
+    if (role == QStringLiteral("danger")) {
+        return QColor(180, 70, 70);
+    }
+    if (role == QStringLiteral("muted")) {
+        return QColor(86, 116, 130);
+    }
+    return QColor();
+}
+
+QColor MainWindow::transferChatItemBackground(const QString& role) const {
+    if (role == QStringLiteral("success-soft")) {
+        return QColor(232, 248, 245);
+    }
+    if (role == QStringLiteral("danger-soft")) {
+        return QColor(255, 245, 245);
+    }
+    if (role == QStringLiteral("muted-soft")) {
+        return QColor(246, 251, 253);
+    }
+    return QColor();
+}
+
 void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& itemState) {
     if (itemState.text.isEmpty()) {
         return;
@@ -7092,20 +7118,14 @@ void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& i
         item->setData(itemState.toolTip, Qt::ToolTipRole);
     }
 
-    if (itemState.foregroundRole == QStringLiteral("success")) {
-        item->setForeground(Qt::darkGreen);
-    } else if (itemState.foregroundRole == QStringLiteral("danger")) {
-        item->setForeground(QColor(180, 70, 70));
-    } else if (itemState.foregroundRole == QStringLiteral("muted")) {
-        item->setForeground(QColor(86, 116, 130));
+    const QColor foreground = transferChatItemForeground(itemState.foregroundRole);
+    if (foreground.isValid()) {
+        item->setForeground(foreground);
     }
 
-    if (itemState.backgroundRole == QStringLiteral("success-soft")) {
-        item->setBackground(QColor(232, 248, 245));
-    } else if (itemState.backgroundRole == QStringLiteral("danger-soft")) {
-        item->setBackground(QColor(255, 245, 245));
-    } else if (itemState.backgroundRole == QStringLiteral("muted-soft")) {
-        item->setBackground(QColor(246, 251, 253));
+    const QColor background = transferChatItemBackground(itemState.backgroundRole);
+    if (background.isValid()) {
+        item->setBackground(background);
     }
 
     item->setTextAlignment((itemState.alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter);
