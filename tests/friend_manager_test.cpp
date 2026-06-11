@@ -59,6 +59,35 @@ int main(int argc, char** argv) {
     ok = expect(!negativeNotice.hasPending && negativeNotice.pendingCount == 0,
                 "negative pending counts should be clamped to zero") && ok;
 
+    const FriendNoticeRequestDecisionState acceptedFriendDecision =
+        FriendManager::friendNoticeRequestDecisionState(QStringLiteral("1001"),
+                                                        QStringLiteral("Alice"),
+                                                        true);
+    const FriendNoticeRequestDecisionState rejectedFriendDecision =
+        FriendManager::friendNoticeRequestDecisionState(QStringLiteral("1001"),
+                                                        QString(),
+                                                        false);
+    ok = expect(acceptedFriendDecision.statusMessage == QString::fromUtf8("已同意 Alice 的好友申请")
+                    && acceptedFriendDecision.systemMessage == QString::fromUtf8("已同意好友申请 QQ: 1001")
+                    && rejectedFriendDecision.statusMessage == QString::fromUtf8("已拒绝 QQ:1001 的好友申请")
+                    && rejectedFriendDecision.systemMessage == QString::fromUtf8("已拒绝好友申请 QQ: 1001"),
+                "friend notice decision state should centralize accept/reject copy") && ok;
+
+    const FriendNoticeBulkActionState acceptAllAction =
+        FriendManager::friendNoticeBulkActionState(FriendNoticeBulkActionKind::AcceptAll, 3);
+    const FriendNoticeBulkActionState rejectAllAction =
+        FriendManager::friendNoticeBulkActionState(FriendNoticeBulkActionKind::RejectAll, 2);
+    const FriendNoticeBulkActionState clearAllAction =
+        FriendManager::friendNoticeBulkActionState(FriendNoticeBulkActionKind::ClearAll, 4);
+    ok = expect(acceptAllAction.title == QString::fromUtf8("一键同意好友申请")
+                    && acceptAllAction.questionText.contains(QString::fromUtf8("全部 3 个好友申请"))
+                    && acceptAllAction.successStatusMessage == QString::fromUtf8("已一键同意 3 个好友申请")
+                    && rejectAllAction.emptyStatusMessage == QString::fromUtf8("暂无好友申请可拒绝")
+                    && rejectAllAction.systemMessage == QString::fromUtf8("已一键拒绝 2 个好友申请")
+                    && clearAllAction.cancelledStatusMessage == QString::fromUtf8("已取消清空好友申请")
+                    && clearAllAction.successStatusMessage == QString::fromUtf8("好友申请已清空"),
+                "friend notice bulk action state should centralize confirm and status copy") && ok;
+
     ok = expect(FriendManager::matchesFilter(QStringLiteral("920001"), QStringLiteral("Alice"), QStringLiteral("920"))
                     && FriendManager::matchesFilter(QStringLiteral("920001"), QStringLiteral("Alice"), QStringLiteral("ali"))
                     && FriendManager::matchesFilter(QStringLiteral("920001"), QStringLiteral("Alice"), QString())

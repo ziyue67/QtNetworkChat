@@ -15,6 +15,26 @@ struct FriendNoticeUiState {
     QString toolTip;
 };
 
+enum class FriendNoticeBulkActionKind {
+    AcceptAll,
+    RejectAll,
+    ClearAll
+};
+
+struct FriendNoticeRequestDecisionState {
+    QString statusMessage;
+    QString systemMessage;
+};
+
+struct FriendNoticeBulkActionState {
+    QString title;
+    QString questionText;
+    QString emptyStatusMessage;
+    QString cancelledStatusMessage;
+    QString successStatusMessage;
+    QString systemMessage;
+};
+
 struct FriendManagerListUiState {
     int visibleCount = 0;
     int onlineCount = 0;
@@ -106,6 +126,13 @@ public:
     static bool isContactOnline(const QString& userId,
                                 const QMap<QString, ChatUser>& knownUsers);
     static FriendNoticeUiState noticeUiState(int pendingIncomingCount);
+    static FriendNoticeRequestDecisionState friendNoticeRequestDecisionState(
+        const QString& userId,
+        const QString& displayName,
+        bool accepted);
+    static FriendNoticeBulkActionState friendNoticeBulkActionState(
+        FriendNoticeBulkActionKind action,
+        int pendingCount);
     static bool matchesFilter(const QString& id, const QString& name, const QString& filter);
     static QString relationLabel(const QString& userId,
                                  const QString& currentUserId,

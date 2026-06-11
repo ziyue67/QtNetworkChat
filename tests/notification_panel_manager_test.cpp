@@ -357,6 +357,31 @@ int main(int argc, char** argv) {
                     && batchPlanText.contains(QString::fromUtf8("在线:4")),
                 "group batch plan text should summarize visible group counts") && ok;
 
+    GroupNoticeBatchTargetInput createTarget;
+    createTarget.entryId = QStringLiteral("group_create:项目群");
+    createTarget.memberCount = 1;
+    createTarget.onlineCount = 1;
+    GroupNoticeBatchTargetInput publicTarget;
+    publicTarget.entryId = QString();
+    publicTarget.memberCount = 9;
+    publicTarget.onlineCount = 9;
+    GroupNoticeBatchTargetInput localTarget;
+    localTarget.entryId = QStringLiteral("local_group_123");
+    localTarget.groupName = QString::fromUtf8("项目群");
+    localTarget.groupNumber = QStringLiteral("123");
+    localTarget.memberCount = 6;
+    localTarget.onlineCount = 4;
+    const GroupNoticeBatchPlanState batchPlanState = NotificationPanelManager::groupNoticeBatchPlanState(
+        QString::fromUtf8("项目"),
+        QList<GroupNoticeBatchTargetInput>{createTarget, publicTarget, localTarget},
+        QString::fromUtf8("小明"),
+        QStringLiteral("10001"));
+    ok = expect(batchPlanState.text.contains(QString::fromUtf8("待创建群:项目群"))
+                    && batchPlanState.text.contains(QString::fromUtf8("公共聊天室(成员:9,在线:9)"))
+                    && batchPlanState.text.contains(QString::fromUtf8("项目群(群号:123,成员:6,在线:4)"))
+                    && batchPlanState.statusMessage == QString::fromUtf8("群批量媒体计划已复制"),
+                "group batch plan state should centralize visible target aggregation and copy feedback") && ok;
+
     ok = expect(NotificationPanelManager::groupNoticeBatchTargetText(
                     QStringLiteral("group_create:项目群"),
                     QStringLiteral(""),

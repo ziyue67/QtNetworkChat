@@ -721,6 +721,36 @@ QStringList NotificationPanelManager::uniqueGroupNoticeEntryIds(const QStringLis
     return ids;
 }
 
+GroupNoticeBatchPlanState NotificationPanelManager::groupNoticeBatchPlanState(
+    const QString& keyword,
+    const QList<GroupNoticeBatchTargetInput>& targets,
+    const QString& currentUserName,
+    const QString& currentUserId) {
+    GroupNoticeBatchPlanState state;
+    QStringList groups;
+    int totalMembers = 0;
+    int onlineMembers = 0;
+    for (const GroupNoticeBatchTargetInput& target : targets) {
+        const int memberCount = qMax(0, target.memberCount);
+        const int onlineCount = qMax(0, target.onlineCount);
+        totalMembers += memberCount;
+        onlineMembers += onlineCount;
+        groups << groupNoticeBatchTargetText(target.entryId,
+                                             target.groupName,
+                                             target.groupNumber,
+                                             memberCount,
+                                             onlineCount);
+    }
+    state.text = groupNoticeBatchPlanText(keyword,
+                                          groups,
+                                          totalMembers,
+                                          onlineMembers,
+                                          currentUserName,
+                                          currentUserId);
+    state.statusMessage = QStringLiteral("群批量媒体计划已复制");
+    return state;
+}
+
 QString NotificationPanelManager::groupNoticeInviteText(const QString& groupName,
                                                         const QString& groupNumber,
                                                         const QString& currentUserName,

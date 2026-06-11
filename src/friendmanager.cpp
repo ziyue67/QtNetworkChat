@@ -64,6 +64,59 @@ FriendNoticeUiState FriendManager::noticeUiState(int pendingIncomingCount) {
     return state;
 }
 
+FriendNoticeRequestDecisionState FriendManager::friendNoticeRequestDecisionState(
+    const QString& userId,
+    const QString& displayName,
+    bool accepted) {
+    FriendNoticeRequestDecisionState state;
+    const QString trimmedId = userId.trimmed();
+    const QString safeName = displayName.trimmed().isEmpty() ? trimmedId : displayName.trimmed();
+    if (accepted) {
+        state.statusMessage = QStringLiteral("已同意 %1 的好友申请").arg(safeName);
+        state.systemMessage = QStringLiteral("已同意好友申请 QQ: %1").arg(trimmedId);
+    } else {
+        state.statusMessage = QStringLiteral("已拒绝 QQ:%1 的好友申请").arg(trimmedId);
+        state.systemMessage = QStringLiteral("已拒绝好友申请 QQ: %1").arg(trimmedId);
+    }
+    return state;
+}
+
+FriendNoticeBulkActionState FriendManager::friendNoticeBulkActionState(
+    FriendNoticeBulkActionKind action,
+    int pendingCount) {
+    FriendNoticeBulkActionState state;
+    const int safeCount = qMax(0, pendingCount);
+    switch (action) {
+    case FriendNoticeBulkActionKind::AcceptAll:
+        state.title = QStringLiteral("一键同意好友申请");
+        state.questionText = QStringLiteral("确定同意全部 %1 个好友申请吗？同意后会加入好友列表。")
+                                 .arg(safeCount);
+        state.emptyStatusMessage = QStringLiteral("暂无好友申请可同意");
+        state.cancelledStatusMessage = QStringLiteral("已取消一键同意");
+        state.successStatusMessage = QStringLiteral("已一键同意 %1 个好友申请").arg(safeCount);
+        state.systemMessage = state.successStatusMessage;
+        break;
+    case FriendNoticeBulkActionKind::RejectAll:
+        state.title = QStringLiteral("一键拒绝好友申请");
+        state.questionText = QStringLiteral("确定拒绝全部 %1 个好友申请吗？").arg(safeCount);
+        state.emptyStatusMessage = QStringLiteral("暂无好友申请可拒绝");
+        state.cancelledStatusMessage = QStringLiteral("已取消一键拒绝");
+        state.successStatusMessage = QStringLiteral("已一键拒绝 %1 个好友申请").arg(safeCount);
+        state.systemMessage = state.successStatusMessage;
+        break;
+    case FriendNoticeBulkActionKind::ClearAll:
+        state.title = QStringLiteral("清空好友申请");
+        state.questionText = QStringLiteral("确定清空 %1 个待处理好友申请吗？清空不会自动回复对方。")
+                                 .arg(safeCount);
+        state.emptyStatusMessage = QStringLiteral("暂无好友申请可清空");
+        state.cancelledStatusMessage = QStringLiteral("已取消清空好友申请");
+        state.successStatusMessage = QStringLiteral("好友申请已清空");
+        state.systemMessage.clear();
+        break;
+    }
+    return state;
+}
+
 bool FriendManager::matchesFilter(const QString& id, const QString& name, const QString& filter) {
     const QString trimmed = filter.trimmed();
     return trimmed.isEmpty()

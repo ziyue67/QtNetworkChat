@@ -5951,21 +5951,26 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         updateRequestActionState();
-        ui->statusbar->showMessage(QString("已同意 %1 的好友申请").arg(name), 2200);
-        appendSystemMessage("已同意好友申请 QQ: " + id);
+        const FriendNoticeRequestDecisionState state =
+            FriendManager::friendNoticeRequestDecisionState(id, name, true);
+        ui->statusbar->showMessage(state.statusMessage, 2200);
+        appendSystemMessage(state.systemMessage);
     });
     connect(acceptAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, updateRequestActionState, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
+        const FriendNoticeBulkActionState actionState =
+            FriendManager::friendNoticeBulkActionState(FriendNoticeBulkActionKind::AcceptAll,
+                                                       pending.size());
         if (pending.isEmpty()) {
-            ui->statusbar->showMessage("暂无好友申请可同意", 1800);
+            ui->statusbar->showMessage(actionState.emptyStatusMessage, 1800);
             return;
         }
         if (QMessageBox::question(&dialog,
-                                  "一键同意好友申请",
-                                  QString("确定同意全部 %1 个好友申请吗？同意后会加入好友列表。").arg(pending.size()),
+                                  actionState.title,
+                                  actionState.questionText,
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消一键同意", 1600);
+            ui->statusbar->showMessage(actionState.cancelledStatusMessage, 1600);
             return;
         }
         for (const QString& id : pending) {
@@ -5983,8 +5988,8 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         updateRequestActionState();
-        ui->statusbar->showMessage(QString("已一键同意 %1 个好友申请").arg(pending.size()), 2200);
-        appendSystemMessage(QString("已一键同意 %1 个好友申请").arg(pending.size()));
+        ui->statusbar->showMessage(actionState.successStatusMessage, 2200);
+        appendSystemMessage(actionState.systemMessage);
     });
     connect(rejectBtn, &QPushButton::clicked, &dialog, [this, noticeList, fillList, updateBadge, updateRequestActionState]() {
         QString id;
@@ -6001,21 +6006,26 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         updateRequestActionState();
-        ui->statusbar->showMessage(QString("已拒绝 QQ:%1 的好友申请").arg(id), 2200);
-        appendSystemMessage("已拒绝好友申请 QQ: " + id);
+        const FriendNoticeRequestDecisionState state =
+            FriendManager::friendNoticeRequestDecisionState(id, QString(), false);
+        ui->statusbar->showMessage(state.statusMessage, 2200);
+        appendSystemMessage(state.systemMessage);
     });
     connect(rejectAllBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, updateRequestActionState, &dialog]() {
         QStringList pending = m_pendingFriendRequests;
+        const FriendNoticeBulkActionState actionState =
+            FriendManager::friendNoticeBulkActionState(FriendNoticeBulkActionKind::RejectAll,
+                                                       pending.size());
         if (pending.isEmpty()) {
-            ui->statusbar->showMessage("暂无好友申请可拒绝", 1800);
+            ui->statusbar->showMessage(actionState.emptyStatusMessage, 1800);
             return;
         }
         if (QMessageBox::question(&dialog,
-                                  "一键拒绝好友申请",
-                                  QString("确定拒绝全部 %1 个好友申请吗？").arg(pending.size()),
+                                  actionState.title,
+                                  actionState.questionText,
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消一键拒绝", 1600);
+            ui->statusbar->showMessage(actionState.cancelledStatusMessage, 1600);
             return;
         }
         for (const QString& id : pending) {
@@ -6028,8 +6038,8 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         updateRequestActionState();
-        ui->statusbar->showMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()), 2200);
-        appendSystemMessage(QString("已一键拒绝 %1 个好友申请").arg(pending.size()));
+        ui->statusbar->showMessage(actionState.successStatusMessage, 2200);
+        appendSystemMessage(actionState.systemMessage);
     });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QString id;
@@ -6094,16 +6104,19 @@ void MainWindow::onShowFriendNotifications() {
             2200);
     });
     connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, updateRequestActionState, &dialog]() {
+        const FriendNoticeBulkActionState actionState =
+            FriendManager::friendNoticeBulkActionState(FriendNoticeBulkActionKind::ClearAll,
+                                                       m_pendingFriendRequests.size());
         if (m_pendingFriendRequests.isEmpty()) {
-            ui->statusbar->showMessage("暂无好友申请可清空", 1600);
+            ui->statusbar->showMessage(actionState.emptyStatusMessage, 1600);
             return;
         }
         if (QMessageBox::question(&dialog,
-                                  "清空好友申请",
-                                  QString("确定清空 %1 个待处理好友申请吗？清空不会自动回复对方。").arg(m_pendingFriendRequests.size()),
+                                  actionState.title,
+                                  actionState.questionText,
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消清空好友申请", 1600);
+            ui->statusbar->showMessage(actionState.cancelledStatusMessage, 1600);
             return;
         }
         m_pendingFriendRequests.clear();
@@ -6111,7 +6124,7 @@ void MainWindow::onShowFriendNotifications() {
         updateBadge();
         fillList();
         updateRequestActionState();
-        ui->statusbar->showMessage("好友申请已清空", 1800);
+        ui->statusbar->showMessage(actionState.successStatusMessage, 1800);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
     dialog.exec();
@@ -6490,43 +6503,38 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage("群媒体包已复制", 2200);
     });
     connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit, publicGroupMemberIds]() {
-        QStringList groups;
-        int totalMembers = 0;
-        int onlineMembers = 0;
+        QList<GroupNoticeBatchTargetInput> targets;
         const QStringList visibleIds = visibleGroupNoticeIds(noticeList);
         for (const QString& id : visibleIds) {
+            GroupNoticeBatchTargetInput target;
+            target.entryId = id;
             if (isGroupCreateEntryId(id)) {
-                groups << NotificationPanelManager::groupNoticeBatchTargetText(
-                    id, QString(), QString(), 1, 1);
-                ++totalMembers;
-                ++onlineMembers;
+                target.memberCount = 1;
+                target.onlineCount = 1;
             } else if (id.isEmpty()) {
                 const QStringList publicMembers = publicGroupMemberIds();
-                totalMembers += publicMembers.size();
-                onlineMembers += publicMembers.size();
-                groups << NotificationPanelManager::groupNoticeBatchTargetText(
-                    id, QString(), QString(), publicMembers.size(), publicMembers.size());
+                target.memberCount = publicMembers.size();
+                target.onlineCount = publicMembers.size();
             } else if (id.startsWith("local_group_")) {
                 QStringList members = m_localGroupMembers.value(id);
                 int groupOnline = 0;
                 for (const QString& memberId : members) {
                     if (memberId == m_currentUserId || isContactOnline(memberId)) ++groupOnline;
                 }
-                const int memberCount = qMax(1, members.size());
-                totalMembers += memberCount;
-                onlineMembers += groupOnline;
-                groups << NotificationPanelManager::groupNoticeBatchTargetText(
-                    id,
-                    m_localGroupNames.value(id, "群聊"),
-                    id.mid(QString("local_group_").size()),
-                    memberCount,
-                    groupOnline);
+                target.groupName = m_localGroupNames.value(id, "群聊");
+                target.groupNumber = id.mid(QString("local_group_").size());
+                target.memberCount = qMax(1, members.size());
+                target.onlineCount = groupOnline;
             }
+            targets << target;
         }
-        QString keyword = searchEdit->text().trimmed();
-        QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeBatchPlanText(
-            keyword, groups, totalMembers, onlineMembers, m_currentUserName, m_currentUserId));
-        ui->statusbar->showMessage("群批量媒体计划已复制", 2200);
+        const GroupNoticeBatchPlanState state = NotificationPanelManager::groupNoticeBatchPlanState(
+            searchEdit->text().trimmed(),
+            targets,
+            m_currentUserName,
+            m_currentUserId);
+        QApplication::clipboard()->setText(state.text);
+        ui->statusbar->showMessage(state.statusMessage, 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         const QString groupId = selectedGroupNoticeEntryId(noticeList);

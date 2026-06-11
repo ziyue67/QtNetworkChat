@@ -131,6 +131,19 @@ struct GroupNoticeMemberCopyState {
     QString copiedStatusMessage;
 };
 
+struct GroupNoticeBatchTargetInput {
+    QString entryId;
+    QString groupName;
+    QString groupNumber;
+    int memberCount = 0;
+    int onlineCount = 0;
+};
+
+struct GroupNoticeBatchPlanState {
+    QString text;
+    QString statusMessage;
+};
+
 struct GroupNoticeActionState {
     bool openEnabled = false;
     QString openText;
@@ -207,6 +220,11 @@ public:
     static QStringList visibleFriendNoticeTargetIds(const QStringList& entryIds);
     static bool isInspectableGroupNoticeId(const QString& entryId);
     static QStringList uniqueGroupNoticeEntryIds(const QStringList& entryIds);
+    static GroupNoticeBatchPlanState groupNoticeBatchPlanState(
+        const QString& keyword,
+        const QList<GroupNoticeBatchTargetInput>& targets,
+        const QString& currentUserName,
+        const QString& currentUserId);
     static QString groupNoticeInviteText(const QString& groupName,
                                          const QString& groupNumber,
                                          const QString& currentUserName,
