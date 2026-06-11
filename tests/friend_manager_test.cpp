@@ -134,6 +134,16 @@ int main(int argc, char** argv) {
                     && FriendManager::managerSelectionPreviewText(QStringLiteral("search_add:9988"), QStringLiteral("Alice"), true, false).contains(QStringLiteral("9988"))
                     && FriendManager::managerSelectionPreviewText(QStringLiteral("1001"), QStringLiteral("Alice"), true, true).contains(QString::fromUtf8("可邀入当前群")),
                 "friend manager selection preview should cover empty, search, and friend entries") && ok;
+    FriendManagerSelectionPreviewUiState emptyPreviewState =
+        FriendManager::managerSelectionPreviewUiState(QString(), QStringLiteral("Alice"), true, false);
+    FriendManagerSelectionPreviewUiState searchPreviewState =
+        FriendManager::managerSelectionPreviewUiState(QStringLiteral("search_add:9988"), QStringLiteral("Alice"), true, false);
+    FriendManagerSelectionPreviewUiState friendPreviewState =
+        FriendManager::managerSelectionPreviewUiState(QStringLiteral("1001"), QStringLiteral("Alice"), true, true);
+    ok = expect(emptyPreviewState.text == QString::fromUtf8("选择好友后可复制名片、邀请语或邀入群")
+                    && searchPreviewState.text.contains(QStringLiteral("9988"))
+                    && friendPreviewState.text.contains(QString::fromUtf8("可邀入当前群")),
+                "friend manager selection preview ui state should mirror preview text") && ok;
 
     return ok ? 0 : 1;
 }

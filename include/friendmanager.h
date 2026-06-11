@@ -38,6 +38,10 @@ struct FriendManagerListRenderUiState {
     QList<FriendManagerListEntryUiState> entries;
 };
 
+struct FriendManagerSelectionPreviewUiState {
+    QString text;
+};
+
 class FriendManager {
 public:
     static QString contactDisplayName(const QString& userId,
@@ -66,6 +70,10 @@ public:
         const QMap<QString, QString>& friendNames,
         const QMap<QString, ChatUser>& knownUsers,
         const QString& filter);
+    static FriendManagerSelectionPreviewUiState managerSelectionPreviewUiState(const QString& entryId,
+                                                                               const QString& displayName,
+                                                                               bool online,
+                                                                               bool canInviteCurrentGroup);
     static QString managerSelectionPreviewText(const QString& entryId,
                                                const QString& displayName,
                                                bool online,

@@ -136,6 +136,15 @@ FriendManagerListRenderUiState FriendManager::managerListRenderUiState(
     return state;
 }
 
+FriendManagerSelectionPreviewUiState FriendManager::managerSelectionPreviewUiState(const QString& entryId,
+                                                                                   const QString& displayName,
+                                                                                   bool online,
+                                                                                   bool canInviteCurrentGroup) {
+    FriendManagerSelectionPreviewUiState state;
+    state.text = managerSelectionPreviewText(entryId, displayName, online, canInviteCurrentGroup);
+    return state;
+}
+
 QString FriendManager::managerSelectionPreviewText(const QString& entryId,
                                                    const QString& displayName,
                                                    bool online,

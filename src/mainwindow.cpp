@@ -4842,15 +4842,17 @@ void MainWindow::onShowFriendManager() {
     auto updateSelectionPreview = [this, friendList, selectionPreviewLabel]() {
         QListWidgetItem* selected = friendList->currentItem();
         if (!selected) {
-            selectionPreviewLabel->setText(m_friendManager.managerSelectionPreviewText(QString(), QString(), false, false));
+            selectionPreviewLabel->setText(
+                m_friendManager.managerSelectionPreviewUiState(QString(), QString(), false, false).text);
             return;
         }
         const QString id = selected->data(Qt::UserRole).toString();
-        selectionPreviewLabel->setText(m_friendManager.managerSelectionPreviewText(
-            id,
-            id.isEmpty() ? QString() : contactDisplayName(id),
-            !id.isEmpty() && isContactOnline(id),
-            m_privateChatTarget.startsWith("local_group_")));
+        selectionPreviewLabel->setText(
+            m_friendManager.managerSelectionPreviewUiState(
+                id,
+                id.isEmpty() ? QString() : contactDisplayName(id),
+                !id.isEmpty() && isContactOnline(id),
+                m_privateChatTarget.startsWith("local_group_")).text);
     };
     updateSelectionPreview();
 
