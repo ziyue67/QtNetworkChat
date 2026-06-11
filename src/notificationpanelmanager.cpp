@@ -675,6 +675,52 @@ GroupNoticeCopyContext NotificationPanelManager::groupNoticeCopyContext(const QS
     return context;
 }
 
+QString NotificationPanelManager::friendNoticeTargetId(const QString& entryId,
+                                                       const QString& searchText) {
+    QString id = entryId.trimmed();
+    if (isSearchAddEntryId(id)) {
+        id = searchAddEntryTarget(id);
+    }
+    if (id.isEmpty()) {
+        id = searchText.trimmed();
+    }
+    return id;
+}
+
+bool NotificationPanelManager::isRealFriendNoticeRequestId(const QString& entryId) {
+    const QString id = entryId.trimmed();
+    return !id.isEmpty() && !isSearchAddEntryId(id);
+}
+
+QStringList NotificationPanelManager::visibleFriendNoticeTargetIds(const QStringList& entryIds) {
+    QStringList ids;
+    for (const QString& entryId : entryIds) {
+        const QString id = friendNoticeTargetId(entryId);
+        if (id.isEmpty() || ids.contains(id)) {
+            continue;
+        }
+        ids << id;
+    }
+    return ids;
+}
+
+bool NotificationPanelManager::isInspectableGroupNoticeId(const QString& entryId) {
+    const QString id = entryId.trimmed();
+    return !id.isEmpty() && !isGroupCreateEntryId(id);
+}
+
+QStringList NotificationPanelManager::uniqueGroupNoticeEntryIds(const QStringList& entryIds) {
+    QStringList ids;
+    for (const QString& entryId : entryIds) {
+        const QString id = entryId.trimmed();
+        if (ids.contains(id)) {
+            continue;
+        }
+        ids << id;
+    }
+    return ids;
+}
+
 QString NotificationPanelManager::groupNoticeInviteText(const QString& groupName,
                                                         const QString& groupNumber,
                                                         const QString& currentUserName,

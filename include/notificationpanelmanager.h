@@ -201,6 +201,12 @@ public:
                                                          int publicOnlineCount,
                                                          const QString& localGroupName,
                                                          int localGroupMemberCount);
+    static QString friendNoticeTargetId(const QString& entryId,
+                                        const QString& searchText = QString());
+    static bool isRealFriendNoticeRequestId(const QString& entryId);
+    static QStringList visibleFriendNoticeTargetIds(const QStringList& entryIds);
+    static bool isInspectableGroupNoticeId(const QString& entryId);
+    static QStringList uniqueGroupNoticeEntryIds(const QStringList& entryIds);
     static QString groupNoticeInviteText(const QString& groupName,
                                          const QString& groupNumber,
                                          const QString& currentUserName,

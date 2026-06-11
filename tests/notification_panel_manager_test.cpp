@@ -233,6 +233,18 @@ int main(int argc, char** argv) {
                     && publicContext.memberCount == 9,
                 "public group copy context should fall back to public group defaults") && ok;
 
+    ok = expect(NotificationPanelManager::friendNoticeTargetId(QStringLiteral("search_add:9988")) == QStringLiteral("9988")
+                    && NotificationPanelManager::friendNoticeTargetId(QString(), QStringLiteral(" 5566 ")) == QStringLiteral("5566")
+                    && NotificationPanelManager::isRealFriendNoticeRequestId(QStringLiteral("9988"))
+                    && !NotificationPanelManager::isRealFriendNoticeRequestId(QStringLiteral("search_add:9988"))
+                    && NotificationPanelManager::visibleFriendNoticeTargetIds(
+                        QStringList{QStringLiteral("10001"),
+                                    QStringLiteral("search_add:9988"),
+                                    QStringLiteral("10001"),
+                                    QString()})
+                           == QStringList({QStringLiteral("10001"), QStringLiteral("9988")}),
+                "friend notice target helpers should normalize search entries and deduplicate visible ids") && ok;
+
     const GroupNoticeCopyContext createContext = NotificationPanelManager::groupNoticeCopyContext(
         QStringLiteral("group_create:项目群"),
         QStringLiteral("ignored"),
@@ -243,6 +255,19 @@ int main(int argc, char** argv) {
                     && createContext.groupNumber == QString::fromUtf8("待创建")
                     && createContext.memberCount == 1,
                 "create group copy context should keep create target name") && ok;
+
+    ok = expect(NotificationPanelManager::isInspectableGroupNoticeId(QStringLiteral("local_group_123"))
+                    && !NotificationPanelManager::isInspectableGroupNoticeId(QStringLiteral("group_create:项目群"))
+                    && !NotificationPanelManager::isInspectableGroupNoticeId(QString())
+                    && NotificationPanelManager::uniqueGroupNoticeEntryIds(
+                        QStringList{QStringLiteral(""),
+                                    QStringLiteral("local_group_123"),
+                                    QStringLiteral("local_group_123"),
+                                    QStringLiteral("group_create:项目群")})
+                           == QStringList({QStringLiteral(""),
+                                           QStringLiteral("local_group_123"),
+                                           QStringLiteral("group_create:项目群")}),
+                "group notice entry helpers should distinguish inspectable entries and keep unique order") && ok;
 
     const GroupNoticeCopyContext localContext = NotificationPanelManager::groupNoticeCopyContext(
         QStringLiteral("local_group_123"),

@@ -161,14 +161,9 @@ QString selectedFriendNoticeEntryId(QListWidget* noticeList) {
 }
 
 QString selectedFriendNoticeTargetId(QListWidget* noticeList, QLineEdit* searchEdit = nullptr) {
-    QString id = selectedFriendNoticeEntryId(noticeList);
-    if (id.startsWith("search_add:")) {
-        id = id.mid(QString("search_add:").size());
-    }
-    if (id.isEmpty() && searchEdit) {
-        id = searchEdit->text().trimmed();
-    }
-    return id;
+    return NotificationPanelManager::friendNoticeTargetId(
+        selectedFriendNoticeEntryId(noticeList),
+        searchEdit ? searchEdit->text() : QString());
 }
 
 bool trySelectedRealFriendNoticeId(QListWidget* noticeList,
@@ -181,7 +176,7 @@ bool trySelectedRealFriendNoticeId(QListWidget* noticeList,
         if (statusBar) statusBar->showMessage(emptyMessage, 1800);
         return false;
     }
-    if (currentId.startsWith("search_add:")) {
+    if (!NotificationPanelManager::isRealFriendNoticeRequestId(currentId)) {
         if (statusBar) statusBar->showMessage(searchAddMessage, 2200);
         return false;
     }
@@ -192,19 +187,15 @@ bool trySelectedRealFriendNoticeId(QListWidget* noticeList,
 }
 
 QStringList visibleFriendNoticeIds(QListWidget* noticeList) {
-    QStringList ids;
-    if (!noticeList) return ids;
+    QStringList entryIds;
+    if (!noticeList) return entryIds;
     for (int i = 0; i < noticeList->count(); ++i) {
         QListWidgetItem* item = noticeList->item(i);
-        QString id = item ? item->data(Qt::UserRole).toString() : QString();
+        const QString id = item ? item->data(Qt::UserRole).toString() : QString();
         if (id.isEmpty()) continue;
-        if (id.startsWith("search_add:")) {
-            id = id.mid(QString("search_add:").size());
-        }
-        if (id.isEmpty() || ids.contains(id)) continue;
-        ids << id;
+        entryIds << id;
     }
-    return ids;
+    return NotificationPanelManager::visibleFriendNoticeTargetIds(entryIds);
 }
 
 QString selectedGroupNoticeEntryId(QListWidget* noticeList) {
@@ -230,7 +221,7 @@ bool trySelectedInspectableGroupNoticeId(QListWidget* noticeList,
         if (statusBar) statusBar->showMessage(emptyMessage, 1800);
         return false;
     }
-    if (isGroupCreateEntryId(currentId)) {
+    if (!NotificationPanelManager::isInspectableGroupNoticeId(currentId)) {
         if (statusBar) statusBar->showMessage(createMessage, 2200);
         return false;
     }
@@ -241,15 +232,14 @@ bool trySelectedInspectableGroupNoticeId(QListWidget* noticeList,
 }
 
 QStringList visibleGroupNoticeIds(QListWidget* noticeList) {
-    QStringList ids;
-    if (!noticeList) return ids;
+    QStringList entryIds;
+    if (!noticeList) return entryIds;
     for (int i = 0; i < noticeList->count(); ++i) {
         QListWidgetItem* item = noticeList->item(i);
         const QString id = item ? item->data(Qt::UserRole).toString() : QString();
-        if (ids.contains(id)) continue;
-        ids << id;
+        entryIds << id;
     }
-    return ids;
+    return NotificationPanelManager::uniqueGroupNoticeEntryIds(entryIds);
 }
 
 QString serverGroupAuditActionText(const QString& action) {
