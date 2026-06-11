@@ -68,6 +68,26 @@ int main(int argc, char** argv) {
                     && nonFileSavedSpecs.at(12).enabled,
                 "saved file specs should reflect existing non-file paths and accessible folders") && ok;
 
+    ChatContextCommandRoute copyRoute = ChatContextManager::commandRoute(QStringLiteral("copy-message"));
+    ok = expect(copyRoute.handled
+                    && copyRoute.kind == ChatContextCommandRoute::Kind::Copy,
+                "copy-message should route through copy command handling") && ok;
+
+    ChatContextCommandRoute savedFileRoute = ChatContextManager::commandRoute(QStringLiteral("open-saved-file"));
+    ok = expect(savedFileRoute.handled
+                    && savedFileRoute.kind == ChatContextCommandRoute::Kind::SavedFile,
+                "open-saved-file should route through saved-file command handling") && ok;
+
+    ChatContextCommandRoute draftRoute = ChatContextManager::commandRoute(QStringLiteral("quote"));
+    ok = expect(draftRoute.handled
+                    && draftRoute.kind == ChatContextCommandRoute::Kind::Draft,
+                "quote should route through draft command handling") && ok;
+
+    ChatContextCommandRoute unknownRoute = ChatContextManager::commandRoute(QStringLiteral("noop"));
+    ok = expect(!unknownRoute.handled
+                    && unknownRoute.kind == ChatContextCommandRoute::Kind::None,
+                "unknown command should remain unhandled in command routing") && ok;
+
     ChatContextCopyResult messageCopy = ChatContextManager::copyCommandResult(QStringLiteral("copy-message"),
                                                                               chatText,
                                                                               privateTarget,

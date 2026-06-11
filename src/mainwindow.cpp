@@ -695,30 +695,43 @@ QAction* MainWindow::addChatContextAction(QMenu& menu,
 bool MainWindow::handleChatContextCommand(const QString& commandId,
                                           const QString& chatText,
                                           const LocalSavedFileState& savedFileState) {
+    const ChatContextCommandRoute route = ChatContextManager::commandRoute(commandId);
+    if (!route.handled) {
+        return false;
+    }
+
     const QString targetDisplayName = m_privateChatTarget.isEmpty()
         ? QStringLiteral("公共聊天室")
         : contactDisplayName(m_privateChatTarget);
-    const ChatContextCopyResult copyResult = ChatContextManager::copyCommandResult(
-        commandId,
-        chatText,
-        m_privateChatTarget,
-        targetDisplayName,
-        m_currentUserId,
-        m_currentUserName);
-    if (copyResult.handled) {
+
+    if (route.kind == ChatContextCommandRoute::Kind::Copy) {
+        const ChatContextCopyResult copyResult = ChatContextManager::copyCommandResult(
+            commandId,
+            chatText,
+            m_privateChatTarget,
+            targetDisplayName,
+            m_currentUserId,
+            m_currentUserName);
+        if (!copyResult.handled) {
+            return false;
+        }
         copyTextWithStatus(copyResult.clipboardText, copyResult.statusMessage, copyResult.timeoutMs);
         return true;
     }
-    if (handleSavedFileContextCommand(commandId, savedFileState)) {
-        return true;
+
+    if (route.kind == ChatContextCommandRoute::Kind::SavedFile) {
+        return handleSavedFileContextCommand(commandId, savedFileState);
     }
 
-    const ChatContextDraftResult draftResult = ChatContextManager::draftCommandResult(
-        commandId,
-        chatText,
-        m_privateChatTarget,
-        targetDisplayName);
-    if (draftResult.handled) {
+    if (route.kind == ChatContextCommandRoute::Kind::Draft) {
+        const ChatContextDraftResult draftResult = ChatContextManager::draftCommandResult(
+            commandId,
+            chatText,
+            m_privateChatTarget,
+            targetDisplayName);
+        if (!draftResult.handled) {
+            return false;
+        }
         if (draftResult.action == ChatContextDraftResult::Action::SetDraft) {
             setChatDraftText(draftResult.draftText, draftResult.statusMessage, draftResult.timeoutMs);
         } else if (draftResult.action == ChatContextDraftResult::Action::Resend) {
@@ -728,6 +741,7 @@ bool MainWindow::handleChatContextCommand(const QString& commandId,
         }
         return true;
     }
+
     return false;
 }
 

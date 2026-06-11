@@ -107,10 +107,23 @@ struct ChatContextSavedFileCommand {
     int timeoutMs = 2200;
 };
 
+struct ChatContextCommandRoute {
+    enum class Kind {
+        None,
+        Copy,
+        SavedFile,
+        Draft
+    };
+
+    bool handled = false;
+    Kind kind = Kind::None;
+};
+
 class ChatContextManager {
 public:
     static QList<ChatContextMenuActionSpec> menuActionSpecs(bool isMediaMessage,
                                                             const ChatContextSavedFileState& savedFileState = ChatContextSavedFileState());
+    static ChatContextCommandRoute commandRoute(const QString& commandId);
     static ChatContextCopyResult copyCommandResult(const QString& commandId,
                                                    const QString& chatText,
                                                    const QString& privateChatTarget,

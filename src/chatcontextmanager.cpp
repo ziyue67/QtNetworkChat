@@ -63,6 +63,38 @@ QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMedi
     };
 }
 
+ChatContextCommandRoute ChatContextManager::commandRoute(const QString& commandId) {
+    ChatContextCommandRoute result;
+    if (commandId == QLatin1String("copy-message")
+            || commandId == QLatin1String("copy-plain")
+            || commandId == QLatin1String("copy-sender")
+            || commandId == QLatin1String("copy-time")
+            || commandId == QLatin1String("copy-media-card")
+            || commandId == QLatin1String("copy-file-notice")
+            || commandId == QLatin1String("copy-receipt")
+            || commandId == QLatin1String("copy-media-flow")) {
+        result.handled = true;
+        result.kind = ChatContextCommandRoute::Kind::Copy;
+        return result;
+    }
+    if (commandId == QLatin1String("copy-save-path")
+            || commandId == QLatin1String("open-saved-file")
+            || commandId == QLatin1String("open-save-folder")) {
+        result.handled = true;
+        result.kind = ChatContextCommandRoute::Kind::SavedFile;
+        return result;
+    }
+    if (commandId == QLatin1String("quote")
+            || commandId == QLatin1String("forward")
+            || commandId == QLatin1String("resend")
+            || commandId == QLatin1String("mention-reply")) {
+        result.handled = true;
+        result.kind = ChatContextCommandRoute::Kind::Draft;
+        return result;
+    }
+    return result;
+}
+
 ChatContextCopyResult ChatContextManager::copyCommandResult(const QString& commandId,
                                                             const QString& chatText,
                                                             const QString& privateChatTarget,
