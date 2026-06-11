@@ -351,6 +351,36 @@ ChatContextComposerCommand ChatContextManager::composerCommand(const QString& co
     return result;
 }
 
+QList<ChatContextPhraseMenuPlan> ChatContextManager::composerPhraseMenuPlans() {
+    return {
+        {
+            QStringLiteral("常用话术"),
+            QStringLiteral("已插入常用话术"),
+            {
+                QStringLiteral("在吗？"),
+                QStringLiteral("收到，我马上看。"),
+                QStringLiteral("稍等一下"),
+                QStringLiteral("我发你文件"),
+                QStringLiteral("我们群里说"),
+                QStringLiteral("方便的话加个好友"),
+                QStringLiteral("拉我进群聊一下"),
+                QStringLiteral("这个 QQ 号是我")
+            }
+        },
+        {
+            QStringLiteral("QQ快捷话术"),
+            QStringLiteral("已插入 QQ 快捷话术"),
+            {
+                QStringLiteral("你好，我是通过 QQ 搜索找到你的，方便加个好友吗？"),
+                QStringLiteral("我已经发送好友申请了，通过后我们私聊。"),
+                QStringLiteral("我建了一个群聊，等下把大家拉进去一起沟通。"),
+                QStringLiteral("这个是我的 QQ 号，请复制保存。"),
+                QStringLiteral("收到文件后麻烦回复一下。")
+            }
+        }
+    };
+}
+
 QString ChatContextManager::plainContentText(const QString& chatText) {
     QString content = chatText.section(']', 2).trimmed();
     if (content.isEmpty()) content = chatText;

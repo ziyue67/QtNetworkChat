@@ -1438,31 +1438,15 @@ void MainWindow::setupUi() {
         QAction* inviteGroupAction = menu.addAction("插入入群邀请话术");
         QAction* quoteTemplateAction = menu.addAction("插入引用模板");
         menu.addSeparator();
-        QMenu* phraseMenu = menu.addMenu("常用话术");
-        QMenu* qqPhraseMenu = menu.addMenu("QQ快捷话术");
-        const QStringList quickPhrases = {"在吗？", "收到，我马上看。", "稍等一下", "我发你文件", "我们群里说", "方便的话加个好友", "拉我进群聊一下", "这个 QQ 号是我"};
-        const QStringList qqPhrases = {
-            "你好，我是通过 QQ 搜索找到你的，方便加个好友吗？",
-            "我已经发送好友申请了，通过后我们私聊。",
-            "我建了一个群聊，等下把大家拉进去一起沟通。",
-            "这个是我的 QQ 号，请复制保存。",
-            "收到文件后麻烦回复一下。"
-        };
-        for (const QString& phrase : quickPhrases) {
-            QAction* phraseAction = phraseMenu->addAction(phrase);
-            connect(phraseAction, &QAction::triggered, ui->messageEdit, [this, phrase]() {
-                ui->messageEdit->insertPlainText(phrase);
-                ui->messageEdit->setFocus();
-                ui->statusbar->showMessage("已插入常用话术", 1400);
-            });
-        }
-        for (const QString& phrase : qqPhrases) {
-            QAction* phraseAction = qqPhraseMenu->addAction(phrase);
-            connect(phraseAction, &QAction::triggered, ui->messageEdit, [this, phrase]() {
-                ui->messageEdit->insertPlainText(phrase);
-                ui->messageEdit->setFocus();
-                ui->statusbar->showMessage("已插入 QQ 快捷话术", 1400);
-            });
+        const QList<ChatContextPhraseMenuPlan> phraseMenuPlans = ChatContextManager::composerPhraseMenuPlans();
+        for (const ChatContextPhraseMenuPlan& plan : phraseMenuPlans) {
+            QMenu* phraseMenu = menu.addMenu(plan.title);
+            for (const QString& phrase : plan.phrases) {
+                QAction* phraseAction = phraseMenu->addAction(phrase);
+                connect(phraseAction, &QAction::triggered, ui->messageEdit, [this, phrase, plan]() {
+                    insertChatDraftText(phrase, plan.insertedStatusMessage, 1400);
+                });
+            }
         }
         QAction* mentionAction = menu.addAction("@成员");
         QAction* friendCardAction = menu.addAction("插入我的QQ名片");

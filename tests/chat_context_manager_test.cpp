@@ -207,6 +207,16 @@ int main(int argc, char** argv) {
                     && publicSummaryCommand.text.contains(QStringLiteral("在线成员8人")),
                 "current summary command should render public chat aggregate summary") && ok;
 
+    const QList<ChatContextPhraseMenuPlan> phrasePlans = ChatContextManager::composerPhraseMenuPlans();
+    ok = expect(phrasePlans.size() == 2
+                    && phrasePlans.first().title == QString::fromUtf8("常用话术")
+                    && phrasePlans.first().insertedStatusMessage == QString::fromUtf8("已插入常用话术")
+                    && phrasePlans.first().phrases.contains(QString::fromUtf8("收到，我马上看。"))
+                    && phrasePlans.last().title == QString::fromUtf8("QQ快捷话术")
+                    && phrasePlans.last().insertedStatusMessage == QString::fromUtf8("已插入 QQ 快捷话术")
+                    && phrasePlans.last().phrases.contains(QString::fromUtf8("收到文件后麻烦回复一下。")),
+                "composer phrase menu plans should centralize phrase menus and status copy") && ok;
+
     ChatContextSavedFileCommand copySavePathCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
                                                                                            missingSavePathState,
                                                                                            QString());

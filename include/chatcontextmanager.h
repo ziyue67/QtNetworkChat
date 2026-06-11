@@ -53,6 +53,12 @@ struct ChatContextComposerCommand {
     int timeoutMs = 1400;
 };
 
+struct ChatContextPhraseMenuPlan {
+    QString title;
+    QString insertedStatusMessage;
+    QStringList phrases;
+};
+
 struct ChatContextMenuActionSpec {
     QString title;
     QString toolTip;
@@ -106,6 +112,7 @@ public:
                                                      const QString& targetDisplayName);
     static ChatContextComposerCommand composerCommand(const QString& commandId,
                                                       const ChatContextComposerState& state);
+    static QList<ChatContextPhraseMenuPlan> composerPhraseMenuPlans();
     static QString plainContentText(const QString& chatText);
     static QString resendContentText(const QString& chatText);
     static QString senderText(const QString& chatText);
