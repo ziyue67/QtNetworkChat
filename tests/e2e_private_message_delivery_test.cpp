@@ -25,7 +25,12 @@ QString testAppDataDir() {
     if (!overrideDir.isEmpty()) {
         return QDir::cleanPath(overrideDir);
     }
-    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString baseDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    const QString appName = QCoreApplication::applicationName().trimmed().isEmpty()
+        ? QStringLiteral("qtnetworkchat-e2e-private-message-delivery")
+        : QCoreApplication::applicationName().trimmed();
+    return QDir(baseDir).filePath(QStringLiteral("%1-%2")
+                                      .arg(appName, QString::number(QCoreApplication::applicationPid())));
 }
 
 bool expect(bool condition, const char* message) {
