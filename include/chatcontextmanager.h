@@ -59,6 +59,12 @@ struct ChatContextPhraseMenuPlan {
     QStringList phrases;
 };
 
+struct ChatContextComposerMenuAction {
+    QString title;
+    QString toolTip;
+    QString commandId;
+};
+
 struct ChatContextMenuActionSpec {
     QString title;
     QString toolTip;
@@ -113,6 +119,7 @@ public:
     static ChatContextComposerCommand composerCommand(const QString& commandId,
                                                       const ChatContextComposerState& state);
     static QList<ChatContextPhraseMenuPlan> composerPhraseMenuPlans();
+    static QList<ChatContextComposerMenuAction> composerMenuActions();
     static QString plainContentText(const QString& chatText);
     static QString resendContentText(const QString& chatText);
     static QString senderText(const QString& chatText);

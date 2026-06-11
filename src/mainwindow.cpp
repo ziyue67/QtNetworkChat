@@ -1429,14 +1429,16 @@ void MainWindow::setupUi() {
         sendAction->setStatusTip(sendAction->toolTip());
         clearAction->setStatusTip(clearAction->toolTip());
         menu.addSeparator();
-        QAction* quickAction = menu.addAction("插入快捷语");
-        QAction* commandCardAction = menu.addAction("插入/card指令");
-        QAction* commandInviteAction = menu.addAction("插入/invite指令");
-        QAction* commandQqAction = menu.addAction("插入/qq指令");
-        QAction* searchFriendAction = menu.addAction("插入QQ搜索话术");
-        QAction* addFriendAction = menu.addAction("插入申请话术");
-        QAction* inviteGroupAction = menu.addAction("插入入群邀请话术");
-        QAction* quoteTemplateAction = menu.addAction("插入引用模板");
+        const QList<ChatContextComposerMenuAction> composerActions = ChatContextManager::composerMenuActions();
+        QList<QAction*> composerMenuQtActions;
+        composerMenuQtActions.reserve(composerActions.size());
+        for (int i = 0; i < 8 && i < composerActions.size(); ++i) {
+            const ChatContextComposerMenuAction& spec = composerActions.at(i);
+            QAction* action = menu.addAction(spec.title);
+            describeInputAction(action, spec.toolTip);
+            action->setData(spec.commandId);
+            composerMenuQtActions.append(action);
+        }
         menu.addSeparator();
         const QList<ChatContextPhraseMenuPlan> phraseMenuPlans = ChatContextManager::composerPhraseMenuPlans();
         for (const ChatContextPhraseMenuPlan& plan : phraseMenuPlans) {
@@ -1449,44 +1451,14 @@ void MainWindow::setupUi() {
             }
         }
         QAction* mentionAction = menu.addAction("@成员");
-        QAction* friendCardAction = menu.addAction("插入我的QQ名片");
-        QAction* groupCardAction = menu.addAction("插入当前会话名片");
-        QAction* fileTemplateAction = menu.addAction("插入发文件模板");
-        QAction* imageTemplateAction = menu.addAction("插入发图片模板");
-        QAction* videoTemplateAction = menu.addAction("插入发视频模板");
-        QAction* groupInviteTemplateAction = menu.addAction("插入拉群模板");
-        QAction* currentSummaryAction = menu.addAction("插入当前会话摘要");
-        describeInputAction(quickAction, "插入一句常用确认回复");
-        describeInputAction(commandCardAction, "插入 /card 指令，发送时展开为我的 QQ 名片");
-        describeInputAction(commandInviteAction, "插入 /invite 指令，发送时展开为入群邀请");
-        describeInputAction(commandQqAction, "插入 /qq 指令，发送时展开为当前 QQ 号");
-        describeInputAction(searchFriendAction, "插入一段引导对方通过 QQ 搜索加好友的话术");
-        describeInputAction(addFriendAction, "插入面向当前会话对象的好友申请话术");
-        describeInputAction(inviteGroupAction, "插入邀请对方加入当前群聊的话术");
-        describeInputAction(quoteTemplateAction, "插入引用回复模板，方便补充上下文");
         describeInputAction(mentionAction, "打开 @ 成员菜单，插入群成员或在线成员提醒");
-        describeInputAction(friendCardAction, "插入我的 QQ 名片到输入框");
-        describeInputAction(groupCardAction, "插入当前私聊或群聊名片");
-        describeInputAction(fileTemplateAction, "插入发送文件前的提醒话术");
-        describeInputAction(imageTemplateAction, "插入发送图片前的提醒话术");
-        describeInputAction(videoTemplateAction, "插入发送视频前的提醒话术");
-        describeInputAction(groupInviteTemplateAction, "插入拉群邀请模板");
-        describeInputAction(currentSummaryAction, "插入当前会话、账号和在线状态摘要");
-        quickAction->setData(QStringLiteral("quick-reply"));
-        commandCardAction->setData(QStringLiteral("command-card"));
-        commandInviteAction->setData(QStringLiteral("command-invite"));
-        commandQqAction->setData(QStringLiteral("command-qq"));
-        searchFriendAction->setData(QStringLiteral("search-friend-template"));
-        addFriendAction->setData(QStringLiteral("add-friend-template"));
-        inviteGroupAction->setData(QStringLiteral("invite-group-template"));
-        quoteTemplateAction->setData(QStringLiteral("quote-template"));
-        friendCardAction->setData(QStringLiteral("friend-card-template"));
-        groupCardAction->setData(QStringLiteral("group-card-template"));
-        fileTemplateAction->setData(QStringLiteral("file-template"));
-        imageTemplateAction->setData(QStringLiteral("image-template"));
-        videoTemplateAction->setData(QStringLiteral("video-template"));
-        groupInviteTemplateAction->setData(QStringLiteral("group-invite-template"));
-        currentSummaryAction->setData(QStringLiteral("current-summary-template"));
+        for (int i = 8; i < composerActions.size(); ++i) {
+            const ChatContextComposerMenuAction& spec = composerActions.at(i);
+            QAction* action = menu.addAction(spec.title);
+            describeInputAction(action, spec.toolTip);
+            action->setData(spec.commandId);
+            composerMenuQtActions.append(action);
+        }
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (!selected) return;
         if (selected == pasteAction) {

@@ -381,6 +381,26 @@ QList<ChatContextPhraseMenuPlan> ChatContextManager::composerPhraseMenuPlans() {
     };
 }
 
+QList<ChatContextComposerMenuAction> ChatContextManager::composerMenuActions() {
+    return {
+        { QStringLiteral("插入快捷语"), QStringLiteral("插入一句常用确认回复"), QStringLiteral("quick-reply") },
+        { QStringLiteral("插入/card指令"), QStringLiteral("插入 /card 指令，发送时展开为我的 QQ 名片"), QStringLiteral("command-card") },
+        { QStringLiteral("插入/invite指令"), QStringLiteral("插入 /invite 指令，发送时展开为入群邀请"), QStringLiteral("command-invite") },
+        { QStringLiteral("插入/qq指令"), QStringLiteral("插入 /qq 指令，发送时展开为当前 QQ 号"), QStringLiteral("command-qq") },
+        { QStringLiteral("插入QQ搜索话术"), QStringLiteral("插入一段引导对方通过 QQ 搜索加好友的话术"), QStringLiteral("search-friend-template") },
+        { QStringLiteral("插入申请话术"), QStringLiteral("插入面向当前会话对象的好友申请话术"), QStringLiteral("add-friend-template") },
+        { QStringLiteral("插入入群邀请话术"), QStringLiteral("插入邀请对方加入当前群聊的话术"), QStringLiteral("invite-group-template") },
+        { QStringLiteral("插入引用模板"), QStringLiteral("插入引用回复模板，方便补充上下文"), QStringLiteral("quote-template") },
+        { QStringLiteral("插入我的QQ名片"), QStringLiteral("插入我的 QQ 名片到输入框"), QStringLiteral("friend-card-template") },
+        { QStringLiteral("插入当前会话名片"), QStringLiteral("插入当前私聊或群聊名片"), QStringLiteral("group-card-template") },
+        { QStringLiteral("插入发文件模板"), QStringLiteral("插入发送文件前的提醒话术"), QStringLiteral("file-template") },
+        { QStringLiteral("插入发图片模板"), QStringLiteral("插入发送图片前的提醒话术"), QStringLiteral("image-template") },
+        { QStringLiteral("插入发视频模板"), QStringLiteral("插入发送视频前的提醒话术"), QStringLiteral("video-template") },
+        { QStringLiteral("插入拉群模板"), QStringLiteral("插入拉群邀请模板"), QStringLiteral("group-invite-template") },
+        { QStringLiteral("插入当前会话摘要"), QStringLiteral("插入当前会话、账号和在线状态摘要"), QStringLiteral("current-summary-template") }
+    };
+}
+
 QString ChatContextManager::plainContentText(const QString& chatText) {
     QString content = chatText.section(']', 2).trimmed();
     if (content.isEmpty()) content = chatText;

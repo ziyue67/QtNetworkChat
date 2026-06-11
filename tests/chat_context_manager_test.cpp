@@ -217,6 +217,16 @@ int main(int argc, char** argv) {
                     && phrasePlans.last().phrases.contains(QString::fromUtf8("收到文件后麻烦回复一下。")),
                 "composer phrase menu plans should centralize phrase menus and status copy") && ok;
 
+    const QList<ChatContextComposerMenuAction> composerMenuActions = ChatContextManager::composerMenuActions();
+    ok = expect(composerMenuActions.size() == 15
+                    && composerMenuActions.first().title == QString::fromUtf8("插入快捷语")
+                    && composerMenuActions.first().toolTip == QString::fromUtf8("插入一句常用确认回复")
+                    && composerMenuActions.first().commandId == QStringLiteral("quick-reply")
+                    && composerMenuActions.at(7).commandId == QStringLiteral("quote-template")
+                    && composerMenuActions.last().title == QString::fromUtf8("插入当前会话摘要")
+                    && composerMenuActions.last().commandId == QStringLiteral("current-summary-template"),
+                "composer menu actions should centralize menu titles, tooltips, and command ids") && ok;
+
     ChatContextSavedFileCommand copySavePathCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
                                                                                            missingSavePathState,
                                                                                            QString());
