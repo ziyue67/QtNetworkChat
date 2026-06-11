@@ -658,6 +658,43 @@ void MainWindow::insertChatDraftText(const QString& text, const QString& statusM
     ui->statusbar->showMessage(statusMessage, timeoutMs);
 }
 
+ChatContextComposerState MainWindow::currentChatContextComposerState() const {
+    ChatContextComposerState composerState;
+    composerState.privateChatTarget = m_privateChatTarget;
+    composerState.targetDisplayName = m_privateChatTarget.isEmpty()
+        ? QStringLiteral("公共聊天室")
+        : contactDisplayName(m_privateChatTarget);
+    composerState.currentUserId = m_currentUserId;
+    composerState.currentUserName = m_currentUserName;
+    composerState.currentGroupName = m_privateChatTarget.startsWith("local_group_")
+        ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
+        : QStringLiteral("群聊");
+    composerState.currentGroupMemberCount = m_localGroupMembers.value(m_privateChatTarget).size();
+    composerState.currentTargetOnline = isContactOnline(m_privateChatTarget);
+    composerState.friendCount = m_friendIds.size();
+    composerState.localGroupCount = m_localGroupIds.size();
+    composerState.knownUserCount = m_knownUsers.size();
+    return composerState;
+}
+
+bool MainWindow::applyChatContextComposerCommand(const QString& commandId) {
+    const ChatContextComposerCommand command =
+        ChatContextManager::composerCommand(commandId, currentChatContextComposerState());
+    if (!command.handled) {
+        return false;
+    }
+
+    if (command.action == ChatContextComposerCommand::Action::SetDraft) {
+        setChatDraftText(command.text, command.statusMessage, command.timeoutMs);
+        return true;
+    }
+    if (command.action == ChatContextComposerCommand::Action::InsertText) {
+        insertChatDraftText(command.text, command.statusMessage, command.timeoutMs);
+        return true;
+    }
+    return false;
+}
+
 QAction* MainWindow::addChatContextAction(QMenu& menu,
                                           const QString& title,
                                           const QString& tip,
@@ -1465,30 +1502,7 @@ void MainWindow::setupUi() {
         } else {
             const QString commandId = selected->data().toString();
             if (!commandId.isEmpty()) {
-                ChatContextComposerState composerState;
-                composerState.privateChatTarget = m_privateChatTarget;
-                composerState.targetDisplayName = m_privateChatTarget.isEmpty()
-                    ? QStringLiteral("公共聊天室")
-                    : contactDisplayName(m_privateChatTarget);
-                composerState.currentUserId = m_currentUserId;
-                composerState.currentUserName = m_currentUserName;
-                composerState.currentGroupName = m_privateChatTarget.startsWith("local_group_")
-                    ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
-                    : QStringLiteral("群聊");
-                composerState.currentGroupMemberCount = m_localGroupMembers.value(m_privateChatTarget).size();
-                composerState.currentTargetOnline = isContactOnline(m_privateChatTarget);
-                composerState.friendCount = m_friendIds.size();
-                composerState.localGroupCount = m_localGroupIds.size();
-                composerState.knownUserCount = m_knownUsers.size();
-
-                const ChatContextComposerCommand command = ChatContextManager::composerCommand(commandId, composerState);
-                if (command.handled) {
-                    if (command.action == ChatContextComposerCommand::Action::SetDraft) {
-                        setChatDraftText(command.text, command.statusMessage, command.timeoutMs);
-                    } else if (command.action == ChatContextComposerCommand::Action::InsertText) {
-                        insertChatDraftText(command.text, command.statusMessage, command.timeoutMs);
-                    }
-                }
+                applyChatContextComposerCommand(commandId);
             }
         }
     });
@@ -4086,48 +4100,25 @@ void MainWindow::onInsertEmoji() {
     }
     menu.addSeparator();
     QMenu* commandMenu = menu.addMenu("QQ快捷指令");
-    const QMap<QString, QString> commands = {
-        {"/card", "发送我的QQ名片"},
-        {"/invite", "发送好友申请/入群邀请"},
-        {"/qq", "发送我的QQ号"},
-        {"/summary", "发送当前会话摘要"},
-        {"/file", "发送文件查收话术"},
-        {"/image", "发送图片预览话术"},
-        {"/video", "发送视频查收话术"},
-        {"名片", "中文名片快捷语"},
-        {"邀请", "中文邀请快捷语"},
-        {"QQ", "中文QQ号快捷语"},
-        {"摘要", "中文会话摘要"},
-        {"文件", "中文文件查收话术"},
-        {"图片", "中文图片预览话术"},
-        {"视频", "中文视频查收话术"}
-    };
-    for (auto it = commands.begin(); it != commands.end(); ++it) {
-        QAction* action = commandMenu->addAction(QString("%1 · %2").arg(it.key(), it.value()));
-        QString command = it.key();
-        connect(action, &QAction::triggered, this, [this, command]() {
-            ui->messageEdit->setPlainText(command);
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage(QString("已插入快捷指令：%1").arg(command), 1600);
+    const QList<ChatContextComposerMenuAction> composerActions = ChatContextManager::composerMenuActions();
+    for (const ChatContextComposerMenuAction& spec : composerActions) {
+        QAction* action = commandMenu->addAction(spec.title);
+        action->setToolTip(spec.toolTip);
+        action->setStatusTip(spec.toolTip);
+        connect(action, &QAction::triggered, this, [this, commandId = spec.commandId]() {
+            applyChatContextComposerCommand(commandId);
         });
     }
-    const QStringList quickMessages = {
-        "在吗？",
-        "收到，我马上看。",
-        "稍等一下",
-        "我发你文件",
-        "我们群里说",
-        "你好，我是通过 QQ 搜索找到你的。",
-        "方便的话加个好友。",
-        "我建了群聊，拉大家一起沟通。"
-    };
-    for (const QString& message : quickMessages) {
-        QAction* action = menu.addAction("快捷语 · " + message);
-        connect(action, &QAction::triggered, this, [this, message]() {
-            ui->messageEdit->setPlainText(message);
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入快捷语", 1400);
-        });
+
+    const QList<ChatContextPhraseMenuPlan> phrasePlans = ChatContextManager::composerPhraseMenuPlans();
+    for (const ChatContextPhraseMenuPlan& plan : phrasePlans) {
+        QMenu* phraseMenu = menu.addMenu(plan.title);
+        for (const QString& phrase : plan.phrases) {
+            QAction* action = phraseMenu->addAction(phrase);
+            connect(action, &QAction::triggered, this, [this, phrase, plan]() {
+                setChatDraftText(phrase, plan.insertedStatusMessage, 1400);
+            });
+        }
     }
     menu.exec(ui->emojiBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
 }
