@@ -4125,29 +4125,33 @@ void MainWindow::onInsertEmoji() {
 
 void MainWindow::onInsertMention() {
     QMenu menu(this);
-    QAction* allAction = menu.addAction("@全体成员");
-    connect(allAction, &QAction::triggered, this, [this]() {
-        ui->messageEdit->insertPlainText("@全体成员 ");
-        ui->messageEdit->setFocus();
-        ui->statusbar->showMessage("已插入 @全体成员", 1400);
-    });
     QStringList mentionIds;
+    QMap<QString, QString> mentionNames;
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         mentionIds = m_localGroupMembers.value(m_privateChatTarget);
     } else {
         for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
             mentionIds << it.key();
+            mentionNames[it.key()] = it.value().name;
         }
     }
-    mentionIds.removeAll(m_currentUserId);
-    if (!mentionIds.isEmpty()) menu.addSeparator();
+
     for (const QString& memberId : mentionIds) {
-        QString name = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
-        QAction* action = menu.addAction(QString("@%1 (QQ:%2)").arg(name, memberId));
-        connect(action, &QAction::triggered, this, [this, name]() {
-            ui->messageEdit->insertPlainText(QString("@%1 ").arg(name));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage(QString("已插入 @%1").arg(name), 1400);
+        if (!mentionNames.contains(memberId)) {
+            mentionNames[memberId] = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
+        }
+    }
+
+    const ComposerMentionMenuPlan mentionPlan =
+        ComposerManager::mentionMenuPlan(mentionIds, m_currentUserId, mentionNames);
+    for (int i = 0; i < mentionPlan.actions.size(); ++i) {
+        if (i == 1 && mentionPlan.separatorAfterAll) {
+            menu.addSeparator();
+        }
+        const ComposerMentionAction actionPlan = mentionPlan.actions.at(i);
+        QAction* action = menu.addAction(actionPlan.title);
+        connect(action, &QAction::triggered, this, [this, actionPlan]() {
+            insertChatDraftText(actionPlan.insertText, actionPlan.statusMessage, 1400);
         });
     }
     menu.exec(ui->mentionBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));

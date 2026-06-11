@@ -81,5 +81,39 @@ int main(int argc, char** argv) {
     ok = expect(defaultTargetState.messagePlaceholder.contains(QString::fromUtf8("公共聊天室")),
                 "empty target name should fall back to public chat copy") && ok;
 
+    QMap<QString, QString> mentionNames;
+    mentionNames[QStringLiteral("10001")] = QString::fromUtf8("好友A");
+    mentionNames[QStringLiteral("10002")] = QString::fromUtf8("好友B");
+    const ComposerMentionMenuPlan mentionPlan = ComposerManager::mentionMenuPlan(
+        QStringList{QStringLiteral("me"), QStringLiteral("10001"), QStringLiteral("10002"), QStringLiteral("10001")},
+        QStringLiteral("me"),
+        mentionNames);
+    ok = expect(mentionPlan.actions.size() == 3
+                    && mentionPlan.separatorAfterAll
+                    && mentionPlan.actions.first().title == QString::fromUtf8("@全体成员")
+                    && mentionPlan.actions.first().insertText == QString::fromUtf8("@全体成员 ")
+                    && mentionPlan.actions.at(1).title == QString::fromUtf8("@好友A (QQ:10001)")
+                    && mentionPlan.actions.at(1).insertText == QString::fromUtf8("@好友A ")
+                    && mentionPlan.actions.at(2).statusMessage == QString::fromUtf8("已插入 @好友B"),
+                "mention menu plan should include all-members action, filter self, and keep unique member mentions") && ok;
+
+    const ComposerMentionMenuPlan emptyMentionPlan = ComposerManager::mentionMenuPlan(
+        QStringList{QStringLiteral("me")},
+        QStringLiteral("me"),
+        mentionNames);
+    ok = expect(emptyMentionPlan.actions.size() == 1
+                    && !emptyMentionPlan.separatorAfterAll
+                    && emptyMentionPlan.actions.first().statusMessage == QString::fromUtf8("已插入 @全体成员"),
+                "empty mention menu plan should keep only all-members action without separator") && ok;
+
+    const ComposerMentionMenuPlan fallbackMentionPlan = ComposerManager::mentionMenuPlan(
+        QStringList{QStringLiteral("30003")},
+        QStringLiteral("me"),
+        QMap<QString, QString>());
+    ok = expect(fallbackMentionPlan.actions.size() == 2
+                    && fallbackMentionPlan.actions.at(1).title == QStringLiteral("@30003 (QQ:30003)")
+                    && fallbackMentionPlan.actions.at(1).insertText == QStringLiteral("@30003 "),
+                "mention menu plan should fall back to account id when display name is missing") && ok;
+
     return ok ? 0 : 1;
 }

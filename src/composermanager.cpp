@@ -44,3 +44,39 @@ ComposerUiState ComposerManager::uiState(const ComposerContext& context) {
             : QStringLiteral("当前已断开，暂不能发送图片/视频到 %1").arg(targetName));
     return state;
 }
+
+ComposerMentionMenuPlan ComposerManager::mentionMenuPlan(const QStringList& memberIds,
+                                                         const QString& currentUserId,
+                                                         const QMap<QString, QString>& displayNames) {
+    ComposerMentionMenuPlan plan;
+    ComposerMentionAction allAction;
+    allAction.title = QStringLiteral("@全体成员");
+    allAction.insertText = QStringLiteral("@全体成员 ");
+    allAction.statusMessage = QStringLiteral("已插入 @全体成员");
+    plan.actions.append(allAction);
+
+    QStringList uniqueMemberIds;
+    for (const QString& memberId : memberIds) {
+        const QString normalizedId = memberId.trimmed();
+        if (normalizedId.isEmpty()
+                || normalizedId == currentUserId
+                || uniqueMemberIds.contains(normalizedId)) {
+            continue;
+        }
+        uniqueMemberIds.append(normalizedId);
+    }
+    plan.separatorAfterAll = !uniqueMemberIds.isEmpty();
+
+    for (const QString& memberId : uniqueMemberIds) {
+        const QString name = displayNames.value(memberId).trimmed().isEmpty()
+            ? memberId
+            : displayNames.value(memberId).trimmed();
+        ComposerMentionAction action;
+        action.title = QStringLiteral("@%1 (QQ:%2)").arg(name, memberId);
+        action.insertText = QStringLiteral("@%1 ").arg(name);
+        action.statusMessage = QStringLiteral("已插入 @%1").arg(name);
+        plan.actions.append(action);
+    }
+
+    return plan;
+}
