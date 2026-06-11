@@ -149,7 +149,6 @@ private:
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     LocalSavedFileState savedFileActionState(const QModelIndex& index) const;
-    bool isChatMediaMessage(const QString& chatText, const LocalSavedFileState& savedFileState) const;
     ChatContextSavedFileState chatContextSavedFileState(const LocalSavedFileState& savedFileState) const;
     bool copySavedFilePathToClipboard(const ChatContextSavedFileCommand& command);
     bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);

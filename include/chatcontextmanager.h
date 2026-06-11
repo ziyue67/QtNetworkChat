@@ -123,6 +123,8 @@ class ChatContextManager {
 public:
     static QList<ChatContextMenuActionSpec> menuActionSpecs(bool isMediaMessage,
                                                             const ChatContextSavedFileState& savedFileState = ChatContextSavedFileState());
+    static bool isMediaMessage(const QString& chatText,
+                               const ChatContextSavedFileState& savedFileState = ChatContextSavedFileState());
     static ChatContextCommandRoute commandRoute(const QString& commandId);
     static ChatContextCopyResult copyCommandResult(const QString& commandId,
                                                    const QString& chatText,

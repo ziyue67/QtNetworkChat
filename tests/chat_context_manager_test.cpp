@@ -68,6 +68,12 @@ int main(int argc, char** argv) {
                     && nonFileSavedSpecs.at(12).enabled,
                 "saved file specs should reflect existing non-file paths and accessible folders") && ok;
 
+    ok = expect(ChatContextManager::isMediaMessage(chatText)
+                    && ChatContextManager::isMediaMessage(QString::fromUtf8("已收到 文件 · report.zip"))
+                    && ChatContextManager::isMediaMessage(QString::fromUtf8("普通消息"), existingSavedFileState)
+                    && !ChatContextManager::isMediaMessage(QString::fromUtf8("普通聊天内容"), missingSavePathState),
+                "media message detection should centralize chat text markers and saved-path state") && ok;
+
     ChatContextCommandRoute copyRoute = ChatContextManager::commandRoute(QStringLiteral("copy-message"));
     ok = expect(copyRoute.handled
                     && copyRoute.kind == ChatContextCommandRoute::Kind::Copy,

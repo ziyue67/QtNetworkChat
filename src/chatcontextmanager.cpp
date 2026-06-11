@@ -63,6 +63,17 @@ QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMedi
     };
 }
 
+bool ChatContextManager::isMediaMessage(const QString& chatText,
+                                        const ChatContextSavedFileState& savedFileState) {
+    return savedFileState.hasSavePath
+        || chatText.contains(QStringLiteral("文件"))
+        || chatText.contains(QStringLiteral("图片"))
+        || chatText.contains(QStringLiteral("视频"))
+        || chatText.contains(QStringLiteral("媒体"))
+        || chatText.contains(QStringLiteral("查收话术"))
+        || chatText.contains(QStringLiteral("回执话术"));
+}
+
 ChatContextCommandRoute ChatContextManager::commandRoute(const QString& commandId) {
     ChatContextCommandRoute result;
     if (commandId == QLatin1String("copy-message")

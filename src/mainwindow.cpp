@@ -565,16 +565,6 @@ LocalSavedFileState MainWindow::savedFileActionState(const QModelIndex& index) c
                                                         index.data(Qt::ToolTipRole).toString());
 }
 
-bool MainWindow::isChatMediaMessage(const QString& chatText, const LocalSavedFileState& savedFileState) const {
-    return savedFileState.hasSavePath
-        || chatText.contains("文件")
-        || chatText.contains("图片")
-        || chatText.contains("视频")
-        || chatText.contains("媒体")
-        || chatText.contains("查收话术")
-        || chatText.contains("回执话术");
-}
-
 ChatContextSavedFileState MainWindow::chatContextSavedFileState(const LocalSavedFileState& savedFileState) const {
     ChatContextSavedFileState state;
     state.hasSavePath = savedFileState.hasSavePath;
@@ -1522,10 +1512,11 @@ void MainWindow::setupUi() {
         if (text.isEmpty()) return;
         QMenu menu(this);
         const LocalSavedFileState savedFileState = savedFileActionState(index);
-        const bool isMediaMessage = isChatMediaMessage(text, savedFileState);
+        const ChatContextSavedFileState savedContextState = chatContextSavedFileState(savedFileState);
+        const bool isMediaMessage = ChatContextManager::isMediaMessage(text, savedContextState);
         const QList<ChatContextMenuActionSpec> actionSpecs = ChatContextManager::menuActionSpecs(
             isMediaMessage,
-            chatContextSavedFileState(savedFileState));
+            savedContextState);
         for (const ChatContextMenuActionSpec& spec : actionSpecs) {
             if (spec.separatorBefore) {
                 menu.addSeparator();
