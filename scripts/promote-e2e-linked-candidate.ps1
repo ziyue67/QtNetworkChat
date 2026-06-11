@@ -109,6 +109,10 @@ if ([string]::IsNullOrWhiteSpace($ReleaseHead)) {
     throw "ReleaseHead is required"
 }
 
+if ($gitHubWindowsBuildPolicyResolved -eq "disabled") {
+    Write-Host "GitHub Windows Build policy: disabled; linked candidate promotion will use local verification plus production-linked evidence."
+}
+
 $inputDirName = "e2e-linked-candidate-input-{0}" -f ([guid]::NewGuid().ToString("N"))
 $inputDir = Join-Path (Split-Path -Parent $resolvedOutputDir) $inputDirName
 New-Item -ItemType Directory -Path $inputDir -Force | Out-Null

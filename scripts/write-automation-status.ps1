@@ -3017,13 +3017,19 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
         $finalLinkedPromotionGate = if ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionPromoted) -eq "true") {
             "e2e-release-artifact-promoted"
         } elseif ($linkedOnlyCiBlocked) {
-            "ci-visibility-informational-only"
+            if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+                "policy-verification-informational-only"
+            } else {
+                "ci-visibility-informational-only"
+            }
         } elseif ($linkedProductionReady) {
             "blocked-final-promotion-review"
         } else {
             "blocked-production-linked-candidate-not-ready"
         }
-        $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "ci-visibility-informational-only") {
+        $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "policy-verification-informational-only") {
+            "Record disabled Windows Build policy as informational only; release readiness stays on production-linked evidence and local build/CTest."
+        } elseif ($finalLinkedPromotionGate -eq "ci-visibility-informational-only") {
             "Record CI visibility lag as informational only; release readiness stays on production-linked evidence and the active local/CI verification policy."
         } elseif ($finalLinkedPromotionGate -eq "e2e-release-artifact-promoted") {
             "Archive the promoted production-linked E2E release artifact."
