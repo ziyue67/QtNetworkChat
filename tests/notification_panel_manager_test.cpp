@@ -262,12 +262,47 @@ int main(int argc, char** argv) {
                     && inviteText.contains(QStringLiteral("10001")),
                 "group invite text should include target group and current user") && ok;
 
+    const QString publicGroupCard = NotificationPanelManager::groupNoticeCardText(
+        true,
+        QStringLiteral(""),
+        QStringLiteral(""),
+        0,
+        QStringLiteral(""),
+        QStringLiteral("10001"),
+        9);
+    const QString localGroupCard = NotificationPanelManager::groupNoticeCardText(
+        false,
+        QString::fromUtf8("项目群"),
+        QStringLiteral("123"),
+        6,
+        QString::fromUtf8("同步发布计划"),
+        QStringLiteral("10001"),
+        9);
+    ok = expect(publicGroupCard.contains(QString::fromUtf8("公共聊天室"))
+                    && publicGroupCard.contains(QString::fromUtf8("在线成员:9"))
+                    && localGroupCard.contains(QString::fromUtf8("群聊 QQ:123"))
+                    && localGroupCard.contains(QString::fromUtf8("公告:同步发布计划")),
+                "group notice card text should cover public and local group variants") && ok;
+
+    ok = expect(NotificationPanelManager::groupNoticeAnnouncementText(true, QStringLiteral("")).contains(QString::fromUtf8("默认群聊"))
+                    && NotificationPanelManager::groupNoticeAnnouncementText(false, QString::fromUtf8("同步发布计划"))
+                        == QString::fromUtf8("同步发布计划"),
+                "group notice announcement helper should centralize public and local copy") && ok;
+
     const QString mediaPackText = NotificationPanelManager::groupNoticeMediaPackText(
         QString::fromUtf8("项目群"), QStringLiteral("123"), 6, QString::fromUtf8("小明"), QStringLiteral("10001"));
     ok = expect(mediaPackText.contains(QString::fromUtf8("群媒体包"))
                     && mediaPackText.contains(QString::fromUtf8("群成员:6"))
                     && mediaPackText.contains(QString::fromUtf8("入群话术")),
                 "group media pack text should include member summary and invite copy") && ok;
+
+    const QString friendDialogStyle = NotificationPanelManager::friendNoticeDialogStyleSheet();
+    const QString groupDialogStyle = NotificationPanelManager::groupNoticeDialogStyleSheet();
+    ok = expect(friendDialogStyle.contains(QStringLiteral("QDialog#noticeDialog"))
+                    && friendDialogStyle.contains(QStringLiteral("QPushButton#noticeDangerBtn"))
+                    && groupDialogStyle.contains(QStringLiteral("QLabel#noticeHint"))
+                    && groupDialogStyle.contains(QStringLiteral("QListWidget#noticeList::item:selected")),
+                "notice dialog styles should be centralized in notification panel manager") && ok;
 
     const QString batchPlanText = NotificationPanelManager::groupNoticeBatchPlanText(
         QString::fromUtf8("项目"),

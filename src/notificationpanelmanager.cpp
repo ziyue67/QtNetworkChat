@@ -5,6 +5,169 @@ const QString kSearchAddPrefix = QStringLiteral("search_add:");
 const QString kGroupCreatePrefix = QStringLiteral("group_create:");
 }
 
+QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
+    return QStringLiteral(R"(
+        QDialog#noticeDialog {
+            background: #F4F4F4;
+            font-family: "Microsoft YaHei", "Segoe UI";
+        }
+        QLabel#noticeTitle {
+            color: #111111;
+            font-size: 20px;
+            font-weight: 900;
+        }
+        QLabel#noticeSubTitle {
+            color: #6B7A88;
+            font-size: 13px;
+            font-weight: 800;
+            padding-left: 4px;
+        }
+        QLabel#noticePreviewLabel {
+            color: #3A4A5A;
+            background: #EAF7FF;
+            border: 1px solid #DCEFFF;
+            border-radius: 14px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLineEdit#noticeSearch {
+            min-height: 38px;
+            background: white;
+            border: 1px solid #DDE7F0;
+            border-radius: 18px;
+            padding: 4px 14px;
+            color: #263238;
+        }
+        QLineEdit#noticeSearch:focus {
+            border: 1px solid #12B7F5;
+        }
+        QListWidget#noticeList {
+            background: #F4F4F4;
+            border: none;
+            outline: none;
+        }
+        QListWidget#noticeList::item {
+            background: white;
+            border-radius: 10px;
+            margin: 8px 80px;
+            padding: 14px 18px;
+            color: #263238;
+        }
+        QListWidget#noticeList::item:selected, QListWidget#noticeList::item:hover {
+            background: #EAF7FF;
+        }
+        QPushButton {
+            min-height: 34px;
+            border-radius: 17px;
+            padding: 6px 18px;
+            font-weight: 700;
+        }
+        QPushButton#noticePrimaryBtn {
+            background: #1296F7;
+            color: white;
+            border: none;
+        }
+        QPushButton#noticeDangerBtn {
+            background: white;
+            color: #D35454;
+            border: 1px solid #F1CCCC;
+        }
+        QPushButton#noticeGhostBtn {
+            background: white;
+            color: #3A4A5A;
+            border: 1px solid #D4E1EC;
+        }
+        QPushButton#noticePrimaryBtn:disabled,
+        QPushButton#noticeDangerBtn:disabled,
+        QPushButton#noticeGhostBtn:disabled {
+            background: #F3F6F9;
+            color: #9AA8B6;
+            border: 1px solid #E3EAF1;
+        }
+    )");
+}
+
+QString NotificationPanelManager::groupNoticeDialogStyleSheet() {
+    return QStringLiteral(R"(
+        QDialog#noticeDialog {
+            background: #F4F4F4;
+            font-family: "Microsoft YaHei", "Segoe UI";
+        }
+        QLabel#noticeTitle {
+            color: #111111;
+            font-size: 20px;
+            font-weight: 900;
+        }
+        QLabel#noticeSubTitle, QLabel#noticeHint {
+            color: #6B7A88;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        QLabel#noticePreviewLabel {
+            color: #3A4A5A;
+            background: #EAF7FF;
+            border: 1px solid #DCEFFF;
+            border-radius: 14px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLineEdit#noticeSearch {
+            min-height: 38px;
+            background: white;
+            border: 1px solid #DDE7F0;
+            border-radius: 18px;
+            padding: 4px 14px;
+            color: #263238;
+        }
+        QLineEdit#noticeSearch:focus {
+            border: 1px solid #12B7F5;
+        }
+        QListWidget#noticeList {
+            background: #F4F4F4;
+            border: none;
+            outline: none;
+        }
+        QListWidget#noticeList::item {
+            background: white;
+            border-radius: 10px;
+            margin: 7px 44px;
+            padding: 14px 18px;
+            color: #263238;
+        }
+        QListWidget#noticeList::item:selected {
+            background: #DFF2FF;
+            color: #102A43;
+        }
+        QPushButton#noticePrimaryBtn {
+            min-height: 34px;
+            border-radius: 17px;
+            padding: 6px 18px;
+            font-weight: 800;
+            background: #12B7F5;
+            color: white;
+            border: none;
+        }
+        QPushButton#noticePrimaryBtn:disabled,
+        QPushButton#noticeDangerBtn:disabled,
+        QPushButton#noticeGhostBtn:disabled {
+            background: #F3F6F9;
+            color: #9AA8B6;
+            border: 1px solid #E3EAF1;
+        }
+        QPushButton#noticeGhostBtn {
+            min-height: 34px;
+            border-radius: 17px;
+            padding: 6px 18px;
+            font-weight: 700;
+            background: white;
+            color: #3A4A5A;
+            border: 1px solid #D4E1EC;
+        }
+    )");
+}
+
 FriendNoticeListRenderUiState NotificationPanelManager::friendNoticeListRenderUiState(
     const QStringList& pendingFriendRequests,
     const QMap<QString, QString>& friendNames,
@@ -379,6 +542,36 @@ QString NotificationPanelManager::groupNoticeInviteText(const QString& groupName
                                                         const QString& currentUserId) {
     return QStringLiteral("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后可以一起聊天、发图片和传文件。")
         .arg(groupName, groupNumber, currentUserName, currentUserId);
+}
+
+QString NotificationPanelManager::groupNoticeCardText(bool publicGroup,
+                                                      const QString& groupName,
+                                                      const QString& groupNumber,
+                                                      int memberCount,
+                                                      const QString& announcement,
+                                                      const QString& currentUserId,
+                                                      int publicOnlineCount) {
+    if (publicGroup) {
+        return QStringLiteral("公共聊天室\n当前账号:%1\n在线成员:%2")
+            .arg(currentUserId, QString::number(publicOnlineCount));
+    }
+    return QStringLiteral("群聊 QQ:%1\n%2\n成员:%3\n公告:%4")
+        .arg(groupNumber,
+             groupName.trimmed().isEmpty() ? QStringLiteral("群聊") : groupName.trimmed(),
+             QString::number(qMax(1, memberCount)),
+             announcement.trimmed().isEmpty()
+                 ? QStringLiteral("该群暂未设置公告")
+                 : announcement.trimmed());
+}
+
+QString NotificationPanelManager::groupNoticeAnnouncementText(bool publicGroup,
+                                                              const QString& announcement) {
+    if (publicGroup) {
+        return QStringLiteral("你已加入默认群聊，可直接发送消息、图片和文件。");
+    }
+    return announcement.trimmed().isEmpty()
+        ? QStringLiteral("该群暂未设置公告")
+        : announcement.trimmed();
 }
 
 QString NotificationPanelManager::groupNoticeMediaPackText(const QString& groupName,

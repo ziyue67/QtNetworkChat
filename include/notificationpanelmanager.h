@@ -114,6 +114,8 @@ struct GroupNoticeCopyContext {
 
 class NotificationPanelManager {
 public:
+    static QString friendNoticeDialogStyleSheet();
+    static QString groupNoticeDialogStyleSheet();
     static FriendNoticeListRenderUiState friendNoticeListRenderUiState(
         const QStringList& pendingFriendRequests,
         const QMap<QString, QString>& friendNames,
@@ -151,6 +153,15 @@ public:
                                          const QString& groupNumber,
                                          const QString& currentUserName,
                                          const QString& currentUserId);
+    static QString groupNoticeCardText(bool publicGroup,
+                                       const QString& groupName,
+                                       const QString& groupNumber,
+                                       int memberCount,
+                                       const QString& announcement,
+                                       const QString& currentUserId,
+                                       int publicOnlineCount);
+    static QString groupNoticeAnnouncementText(bool publicGroup,
+                                               const QString& announcement);
     static QString groupNoticeMediaPackText(const QString& groupName,
                                             const QString& groupNumber,
                                             int memberCount,

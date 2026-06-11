@@ -447,6 +447,45 @@ GlobalSearchSelectionCopyState FriendManager::friendNoticeMediaPackState(
     return state;
 }
 
+QString FriendManager::friendNoticeApplicantCardText(const QString& userId,
+                                                     const QString& displayName) {
+    const QString trimmedId = userId.trimmed();
+    const QString trimmedName = displayName.trimmed().isEmpty() ? trimmedId : displayName.trimmed();
+    return QStringLiteral("QQ:%1\n昵称:%2\n来源:好友申请")
+        .arg(trimmedId, trimmedName);
+}
+
+QString FriendManager::friendNoticeReplyText(const QString& targetName,
+                                             const QString& currentUserName,
+                                             const QString& currentUserId) {
+    const QString safeTargetName = targetName.trimmed().isEmpty()
+        ? QStringLiteral("朋友")
+        : targetName.trimmed();
+    return QStringLiteral("%1，你好，我是 %2（QQ:%3）。我已看到你的好友申请，稍后可以通过后继续私聊，也可以邀请你加入群聊沟通。")
+        .arg(safeTargetName, currentUserName, currentUserId);
+}
+
+QString FriendManager::friendNoticeBulkCopyText(const QStringList& pendingFriendRequests,
+                                                const QMap<QString, QString>& friendNames,
+                                                const QString& currentUserName,
+                                                const QString& currentUserId) {
+    QStringList rows;
+    for (const QString& id : pendingFriendRequests) {
+        const QString trimmedId = id.trimmed();
+        if (trimmedId.isEmpty()) {
+            continue;
+        }
+        const QString displayName = friendNames.value(trimmedId, trimmedId).trimmed().isEmpty()
+            ? trimmedId
+            : friendNames.value(trimmedId, trimmedId).trimmed();
+        rows << QStringLiteral("好友申请 QQ:%1 昵称:%2 回复:%3")
+                    .arg(trimmedId,
+                         displayName,
+                         friendNoticeReplyText(displayName, currentUserName, currentUserId));
+    }
+    return rows.join(QChar('\n'));
+}
+
 GlobalSearchSelectionCopyState FriendManager::friendNoticeBatchPlanState(
     const QString& currentUserId,
     const QString& currentUserName,

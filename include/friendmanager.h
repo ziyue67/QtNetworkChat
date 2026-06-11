@@ -178,6 +178,15 @@ public:
         const QString& currentUserName,
         int pendingCount,
         const FriendManagerVisibleTargetSummary& target);
+    static QString friendNoticeApplicantCardText(const QString& userId,
+                                                 const QString& displayName);
+    static QString friendNoticeReplyText(const QString& targetName,
+                                         const QString& currentUserName,
+                                         const QString& currentUserId);
+    static QString friendNoticeBulkCopyText(const QStringList& pendingFriendRequests,
+                                            const QMap<QString, QString>& friendNames,
+                                            const QString& currentUserName,
+                                            const QString& currentUserId);
     static GlobalSearchSelectionCopyState friendNoticeBatchPlanState(
         const QString& currentUserId,
         const QString& currentUserName,

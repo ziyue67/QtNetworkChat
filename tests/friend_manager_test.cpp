@@ -299,6 +299,23 @@ int main(int argc, char** argv) {
                     && friendNoticeMediaPack.text.contains(QString::fromUtf8("通过话术：Alice，你好，我是 Tester（QQ:9000）")),
                 "friend notice media pack should summarize selected applicant and pending count") && ok;
 
+    ok = expect(FriendManager::friendNoticeApplicantCardText(QStringLiteral("1001"), QStringLiteral("Alice"))
+                        == QString::fromUtf8("QQ:1001\n昵称:Alice\n来源:好友申请")
+                    && FriendManager::friendNoticeReplyText(QStringLiteral("Alice"),
+                                                            QStringLiteral("Tester"),
+                                                            QStringLiteral("9000")).contains(QString::fromUtf8("Alice，你好，我是 Tester（QQ:9000）")),
+                "friend notice card/reply helpers should centralize applicant copy") && ok;
+
+    const QString friendNoticeBulkCopy = FriendManager::friendNoticeBulkCopyText(
+        QStringList{QStringLiteral("1001"), QStringLiteral("1003")},
+        friendNames,
+        QStringLiteral("Tester"),
+        QStringLiteral("9000"));
+    ok = expect(friendNoticeBulkCopy.contains(QString::fromUtf8("好友申请 QQ:1001 昵称:Alice Remark"))
+                    && friendNoticeBulkCopy.contains(QString::fromUtf8("回复:Alice Remark，你好，我是 Tester（QQ:9000）。"))
+                    && friendNoticeBulkCopy.contains(QString::fromUtf8("好友申请 QQ:1003 昵称:Carol Remark")),
+                "friend notice bulk copy helper should summarize all pending applicants") && ok;
+
     const GlobalSearchSelectionCopyState friendNoticeBatchPlan =
         FriendManager::friendNoticeBatchPlanState(
             QStringLiteral("9000"),

@@ -5844,86 +5844,7 @@ void MainWindow::onShowFriendNotifications() {
     buttonLayout->addLayout(mediaButtonLayout);
     layout->addLayout(buttonLayout);
 
-    dialog.setStyleSheet(R"(
-        QDialog#noticeDialog {
-            background: #F4F4F4;
-            font-family: "Microsoft YaHei", "Segoe UI";
-        }
-        QLabel#noticeTitle {
-            color: #111111;
-            font-size: 20px;
-            font-weight: 900;
-        }
-        QLabel#noticeSubTitle {
-            color: #6B7A88;
-            font-size: 13px;
-            font-weight: 800;
-            padding-left: 4px;
-        }
-        QLabel#noticePreviewLabel {
-            color: #3A4A5A;
-            background: #EAF7FF;
-            border: 1px solid #DCEFFF;
-            border-radius: 14px;
-            padding: 7px 12px;
-            font-size: 12px;
-            font-weight: 800;
-        }
-        QLineEdit#noticeSearch {
-            min-height: 38px;
-            background: white;
-            border: 1px solid #DDE7F0;
-            border-radius: 18px;
-            padding: 4px 14px;
-            color: #263238;
-        }
-        QLineEdit#noticeSearch:focus {
-            border: 1px solid #12B7F5;
-        }
-        QListWidget#noticeList {
-            background: #F4F4F4;
-            border: none;
-            outline: none;
-        }
-        QListWidget#noticeList::item {
-            background: white;
-            border-radius: 10px;
-            margin: 8px 80px;
-            padding: 14px 18px;
-            color: #263238;
-        }
-        QListWidget#noticeList::item:selected, QListWidget#noticeList::item:hover {
-            background: #EAF7FF;
-        }
-        QPushButton {
-            min-height: 34px;
-            border-radius: 17px;
-            padding: 6px 18px;
-            font-weight: 700;
-        }
-        QPushButton#noticePrimaryBtn {
-            background: #1296F7;
-            color: white;
-            border: none;
-        }
-        QPushButton#noticeDangerBtn {
-            background: white;
-            color: #D35454;
-            border: 1px solid #F1CCCC;
-        }
-        QPushButton#noticeGhostBtn {
-            background: white;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
-        }
-        QPushButton#noticePrimaryBtn:disabled,
-        QPushButton#noticeDangerBtn:disabled,
-        QPushButton#noticeGhostBtn:disabled {
-            background: #F3F6F9;
-            color: #9AA8B6;
-            border: 1px solid #E3EAF1;
-        }
-    )");
+    dialog.setStyleSheet(NotificationPanelManager::friendNoticeDialogStyleSheet());
 
     auto updateBadge = [this]() {
         const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
@@ -6128,28 +6049,32 @@ void MainWindow::onShowFriendNotifications() {
                                            &id)) {
             return;
         }
-        QString card = QString("QQ:%1\n昵称:%2\n来源:好友申请").arg(id, m_friendNames.value(id, id));
-        copyTextWithStatus(card, "申请人名片已复制");
+        copyTextWithStatus(
+            FriendManager::friendNoticeApplicantCardText(id, m_friendNames.value(id, id)),
+            "申请人名片已复制");
     });
     connect(copyInviteBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QString id = selectedFriendNoticeTargetId(noticeList, searchEdit);
         QString name = id.isEmpty() ? "朋友" : m_friendNames.value(id, contactDisplayName(id));
-        QString text = QString("%1，你好，我是 %2（QQ:%3）。我已看到你的好友申请，稍后可以通过后继续私聊，也可以邀请你加入群聊沟通。")
-            .arg(name, m_currentUserName, m_currentUserId);
-        copyTextWithStatus(text, "申请回复话术已复制", 2200);
+        copyTextWithStatus(
+            FriendManager::friendNoticeReplyText(name, m_currentUserName, m_currentUserId),
+            "申请回复话术已复制",
+            2200);
     });
     connect(copyAllBtn, &QPushButton::clicked, &dialog, [this]() {
-        QStringList rows;
-        for (const QString& id : m_pendingFriendRequests) {
-            if (id.isEmpty()) continue;
-            rows << QString("好友申请 QQ:%1 昵称:%2 回复:%3，你好，我是 %4（QQ:%5），已看到你的好友申请。")
-                .arg(id, m_friendNames.value(id, contactDisplayName(id)), m_friendNames.value(id, contactDisplayName(id)), m_currentUserName, m_currentUserId);
-        }
-        if (rows.isEmpty()) {
+        const QString bulkText = FriendManager::friendNoticeBulkCopyText(
+            m_pendingFriendRequests,
+            m_friendNames,
+            m_currentUserName,
+            m_currentUserId);
+        if (bulkText.isEmpty()) {
             ui->statusbar->showMessage("暂无好友申请可复制", 2200);
             return;
         }
-        copyTextWithStatus(rows.join('\n'), QString("已复制 %1 条好友申请").arg(rows.size()), 2200);
+        copyTextWithStatus(
+            bulkText,
+            QString("已复制 %1 条好友申请").arg(m_pendingFriendRequests.size()),
+            2200);
     });
     connect(copyRequestMediaPackBtn, &QPushButton::clicked, &dialog, [this, selectedFriendNoticeTarget]() {
         const GlobalSearchSelectionCopyState state = FriendManager::friendNoticeMediaPackState(
@@ -6389,83 +6314,7 @@ void MainWindow::onShowGroupNotifications() {
         return inputs;
     };
 
-    dialog.setStyleSheet(R"(
-        QDialog#noticeDialog {
-            background: #F4F4F4;
-            font-family: "Microsoft YaHei", "Segoe UI";
-        }
-        QLabel#noticeTitle {
-            color: #111111;
-            font-size: 20px;
-            font-weight: 900;
-        }
-        QLabel#noticeSubTitle, QLabel#noticeHint {
-            color: #6B7A88;
-            font-size: 13px;
-            font-weight: 700;
-        }
-        QLabel#noticePreviewLabel {
-            color: #3A4A5A;
-            background: #EAF7FF;
-            border: 1px solid #DCEFFF;
-            border-radius: 14px;
-            padding: 7px 12px;
-            font-size: 12px;
-            font-weight: 800;
-        }
-        QLineEdit#noticeSearch {
-            min-height: 38px;
-            background: white;
-            border: 1px solid #DDE7F0;
-            border-radius: 18px;
-            padding: 4px 14px;
-            color: #263238;
-        }
-        QLineEdit#noticeSearch:focus {
-            border: 1px solid #12B7F5;
-        }
-        QListWidget#noticeList {
-            background: #F4F4F4;
-            border: none;
-            outline: none;
-        }
-        QListWidget#noticeList::item {
-            background: white;
-            border-radius: 10px;
-            margin: 7px 44px;
-            padding: 14px 18px;
-            color: #263238;
-        }
-        QListWidget#noticeList::item:selected {
-            background: #DFF2FF;
-            color: #102A43;
-        }
-        QPushButton#noticePrimaryBtn {
-            min-height: 34px;
-            border-radius: 17px;
-            padding: 6px 18px;
-            font-weight: 800;
-            background: #12B7F5;
-            color: white;
-            border: none;
-        }
-        QPushButton#noticePrimaryBtn:disabled,
-        QPushButton#noticeDangerBtn:disabled,
-        QPushButton#noticeGhostBtn:disabled {
-            background: #F3F6F9;
-            color: #9AA8B6;
-            border: 1px solid #E3EAF1;
-        }
-        QPushButton#noticeGhostBtn {
-            min-height: 34px;
-            border-radius: 17px;
-            padding: 6px 18px;
-            font-weight: 700;
-            background: white;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
-        }
-    )");
+    dialog.setStyleSheet(NotificationPanelManager::groupNoticeDialogStyleSheet());
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
     auto updateGroupPreview = [this, noticeList, groupPreviewLabel]() {
         QListWidgetItem* current = noticeList->currentItem();
@@ -6554,18 +6403,18 @@ void MainWindow::onShowGroupNotifications() {
             return;
         }
         QListWidgetItem* current = noticeList->currentItem();
-        QString card;
-        if (groupId.isEmpty()) {
-            card = QString("公共聊天室\n当前账号:%1\n在线成员:%2").arg(m_currentUserId).arg(m_knownUsers.size());
-        } else {
-            QString groupNumber = groupId.mid(QString("local_group_").size());
-            QString groupName = m_localGroupNames.value(groupId, "群聊");
-            QStringList members = m_localGroupMembers.value(groupId);
-            QString announcement = m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
-            card = QString("群聊 QQ:%1\n%2\n成员:%3\n公告:%4")
-                .arg(groupNumber, groupName, QString::number(members.size()), announcement);
-        }
-        QApplication::clipboard()->setText(card);
+        const QString groupNumber = groupId.mid(QString("local_group_").size());
+        const QString groupName = m_localGroupNames.value(groupId, "群聊");
+        const QStringList members = m_localGroupMembers.value(groupId);
+        const QString announcement = m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
+        QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeCardText(
+            groupId.isEmpty(),
+            groupName,
+            groupNumber,
+            members.size(),
+            announcement,
+            m_currentUserId,
+            m_knownUsers.size()));
         ui->statusbar->showMessage("群名片已复制", 1800);
     });
     connect(announceBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
@@ -6578,9 +6427,9 @@ void MainWindow::onShowGroupNotifications() {
             return;
         }
         QListWidgetItem* current = noticeList->currentItem();
-        QString announcement = groupId.isEmpty()
-            ? "你已加入默认群聊，可直接发送消息、图片和文件。"
-            : m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2));
+        const QString announcement = NotificationPanelManager::groupNoticeAnnouncementText(
+            groupId.isEmpty(),
+            m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2)));
         QApplication::clipboard()->setText(announcement);
         ui->statusbar->showMessage("群公告已复制", 1800);
     });
