@@ -2922,7 +2922,7 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
     }
 }
 if ($e2eLinkedReleaseCandidateReadback.configured) {
-    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled" -and $e2eLinkedReleaseCandidateReadback.state -eq "ok") {
         $lines.Add(('  Linked runtime candidate: `windows-build-disabled-by-policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.` releaseReady=`{0}`, productionLinked=`{1}`, local=`{2}/{3}`, promotion=`{4}`, blockers=`{5}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady), `
