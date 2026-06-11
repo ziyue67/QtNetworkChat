@@ -156,6 +156,23 @@ public:
                                                const QString& keyword,
                                                int visibleCount,
                                                int totalFriendCount);
+    static GlobalSearchSelectionCopyState quickAddSearchSummaryCardState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const QString& keyword,
+        const QList<FriendManagerVisibleTargetSummary>& candidates);
+    static GlobalSearchSelectionCopyState quickAddMediaPackState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const FriendManagerVisibleTargetSummary& target);
+    static GlobalSearchSelectionCopyState quickAddChecklistState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        int currentFriendCount,
+        const FriendManagerVisibleTargetSummary& target);
+    static QString quickAddMediaGuideText(const QString& currentUserId,
+                                          const QString& currentUserName,
+                                          const QString& targetId);
     static GlobalSearchResultCopyState globalSearchResultCopyState(
         const QList<GlobalSearchResultCopyInput>& results,
         bool onlineOnly);

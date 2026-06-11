@@ -241,6 +241,52 @@ int main(int argc, char** argv) {
                     && friendManagerGuide.contains(QString::fromUtf8("可见好友:2 · 全部好友:6")),
                 "friend manager media guide should summarize filter and visible count") && ok;
 
+    const GlobalSearchSelectionCopyState quickAddSearchCard =
+        FriendManager::quickAddSearchSummaryCardState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            QStringLiteral("1001"),
+            QList<FriendManagerVisibleTargetSummary>{visibleAlice, visibleCarol});
+    ok = expect(quickAddSearchCard.valid
+                    && quickAddSearchCard.text.contains(QString::fromUtf8("好友申请搜索卡片"))
+                    && quickAddSearchCard.text.contains(QString::fromUtf8("关键词:1001"))
+                    && quickAddSearchCard.text.contains(QString::fromUtf8("候选 QQ:1001 昵称:Alice 状态:在线"))
+                    && quickAddSearchCard.text.contains(QString::fromUtf8("候选 QQ:1003 昵称:Carol 状态:待搜索")),
+                "quick add search card should summarize candidate accounts") && ok;
+
+    const GlobalSearchSelectionCopyState quickAddMediaPack =
+        FriendManager::quickAddMediaPackState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            visibleAlice);
+    ok = expect(quickAddMediaPack.valid
+                    && quickAddMediaPack.text.contains(QString::fromUtf8("好友媒体包 · 目标:Alice · QQ:1001"))
+                    && quickAddMediaPack.text.contains(QString::fromUtf8("申请话术：Alice，你好，我是 Tester（QQ:9000）"))
+                    && quickAddMediaPack.text.contains(QString::fromUtf8("查收话术：我已发送媒体文件给 Alice")),
+                "quick add media pack should summarize selected friend request target") && ok;
+
+    const GlobalSearchSelectionCopyState quickAddChecklist =
+        FriendManager::quickAddChecklistState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            6,
+            visibleAlice);
+    ok = expect(quickAddChecklist.valid
+                    && quickAddChecklist.text.contains(QString::fromUtf8("好友申请清单 · 目标:Alice · QQ:1001"))
+                    && quickAddChecklist.text.contains(QString::fromUtf8("已有好友:6"))
+                    && quickAddChecklist.text.contains(QString::fromUtf8("1. 输入或选择 QQ 账号"))
+                    && quickAddChecklist.text.contains(QString::fromUtf8("申请话术：Alice，你好，我是 Tester（QQ:9000）")),
+                "quick add checklist should summarize request flow and target") && ok;
+
+    const QString quickAddGuide =
+        FriendManager::quickAddMediaGuideText(QStringLiteral("9000"),
+                                              QStringLiteral("Tester"),
+                                              QStringLiteral("1001"));
+    ok = expect(quickAddGuide.contains(QString::fromUtf8("好友申请上传指南 · 我的QQ:9000 · 昵称:Tester"))
+                    && quickAddGuide.contains(QString::fromUtf8("目标QQ:1001"))
+                    && quickAddGuide.contains(QString::fromUtf8("通过好友申请后可直接发送图片/视频")),
+                "quick add media guide should summarize target and media path") && ok;
+
     GlobalSearchResultCopyInput searchAddResult;
     searchAddResult.entryId = QStringLiteral("search_add:9988");
     GlobalSearchResultCopyInput groupResult;

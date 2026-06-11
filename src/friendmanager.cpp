@@ -336,6 +336,92 @@ QString FriendManager::friendManagerMediaGuideText(const QString& currentUserId,
     return rows.join(QChar('\n'));
 }
 
+GlobalSearchSelectionCopyState FriendManager::quickAddSearchSummaryCardState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const QString& keyword,
+    const QList<FriendManagerVisibleTargetSummary>& candidates) {
+    GlobalSearchSelectionCopyState state;
+    QStringList rows;
+    rows << QStringLiteral("好友申请搜索卡片");
+    rows << QStringLiteral("关键词:%1").arg(keyword.trimmed().isEmpty() ? QStringLiteral("推荐好友") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    for (const FriendManagerVisibleTargetSummary& candidate : candidates) {
+        const QString userId = candidate.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        const QString displayName = candidate.displayName.trimmed().isEmpty() ? userId : candidate.displayName.trimmed();
+        rows << QStringLiteral("候选 QQ:%1 昵称:%2 状态:%3")
+            .arg(userId,
+                 displayName,
+                 candidate.online ? QStringLiteral("在线") : QStringLiteral("待搜索"));
+    }
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::quickAddMediaPackState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    const FriendManagerVisibleTargetSummary& target) {
+    GlobalSearchSelectionCopyState state;
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("待搜索好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友媒体包 · 目标:%1 · QQ:%2")
+        .arg(targetName, userId.isEmpty() ? QStringLiteral("待搜索") : userId);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("通过好友申请后可直接发送图片/视频，也可使用闪传文件");
+    rows << QStringLiteral("支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和文档压缩包");
+    rows << QStringLiteral("申请话术：%1，你好，我是 %2（QQ:%3），通过好友申请后我可以把图片/视频/文件发给你。")
+        .arg(targetName, currentUserName, currentUserId);
+    rows << QStringLiteral("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(targetName);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::quickAddChecklistState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    int currentFriendCount,
+    const FriendManagerVisibleTargetSummary& target) {
+    GlobalSearchSelectionCopyState state;
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("待搜索好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友申请清单 · 目标:%1 · QQ:%2")
+        .arg(targetName, userId.isEmpty() ? QStringLiteral("待搜索") : userId);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 已有好友:%3")
+        .arg(currentUserId, currentUserName, QString::number(currentFriendCount));
+    rows << QStringLiteral("1. 输入或选择 QQ 账号，先确认昵称和在线状态");
+    rows << QStringLiteral("2. 点击搜索申请，或复制申请话术发给对方");
+    rows << QStringLiteral("3. 通过后可发送图片/GIF/视频，也可闪传文件和压缩包");
+    rows << QStringLiteral("4. 发送后在聊天记录右键复制媒体卡片、查收话术和回执");
+    rows << QStringLiteral("申请话术：%1，你好，我是 %2（QQ:%3），方便通过好友申请后收发图片视频和文件吗？")
+        .arg(targetName, currentUserName, currentUserId);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+QString FriendManager::quickAddMediaGuideText(const QString& currentUserId,
+                                              const QString& currentUserName,
+                                              const QString& targetId) {
+    QStringList rows;
+    rows << QStringLiteral("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("目标QQ:%1").arg(targetId.trimmed().isEmpty() ? QStringLiteral("待搜索好友") : targetId.trimmed());
+    rows << QStringLiteral("通过好友申请后可直接发送图片/视频，也可用闪传文件发送文档和压缩包");
+    rows << QStringLiteral("支持 mp4、mov、avi、mkv、wmv、flv、webm，聊天记录可复制媒体卡片");
+    return rows.join(QChar('\n'));
+}
+
 GlobalSearchResultCopyState FriendManager::globalSearchResultCopyState(
     const QList<GlobalSearchResultCopyInput>& results,
     bool onlineOnly) {

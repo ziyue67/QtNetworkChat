@@ -4272,6 +4272,37 @@ void MainWindow::onShowQuickAddFriend() {
         searchAndAddAccount(account, &dialog);
         dialog.accept();
     };
+    auto quickAddCandidateTargets = [this, suggestionList]() {
+        QList<FriendManagerVisibleTargetSummary> targets;
+        for (int i = 0; i < suggestionList->count(); ++i) {
+            QListWidgetItem* item = suggestionList->item(i);
+            const QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) {
+                continue;
+            }
+            FriendManagerVisibleTargetSummary target;
+            target.userId = id;
+            target.displayName = contactDisplayName(id);
+            target.online = isContactOnline(id);
+            targets << target;
+        }
+        return targets;
+    };
+    auto selectedQuickAddTarget = [this, accountEdit, suggestionList]() {
+        FriendManagerVisibleTargetSummary target;
+        target.userId = accountEdit->text().trimmed();
+        if (target.userId.isEmpty()) {
+            QListWidgetItem* item = suggestionList->currentItem();
+            if (item) {
+                target.userId = item->data(Qt::UserRole).toString();
+            }
+        }
+        if (!target.userId.isEmpty()) {
+            target.displayName = contactDisplayName(target.userId);
+            target.online = isContactOnline(target.userId);
+        }
+        return target;
+    };
     connect(accountEdit, &QLineEdit::textChanged, &dialog, [fillSuggestions]() { fillSuggestions(); });
     connect(copyPreviewBtn, &QPushButton::clicked, &dialog, [this, cardLabel]() {
         QApplication::clipboard()->setText(cardLabel->text());
@@ -4289,64 +4320,37 @@ void MainWindow::onShowQuickAddFriend() {
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("好友申请话术已复制", 2200);
     });
-    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, accountEdit, suggestionList]() {
-        QString keyword = accountEdit->text().trimmed();
-        QStringList rows;
-        rows << QString("好友申请搜索卡片");
-        rows << QString("关键词:%1").arg(keyword.isEmpty() ? "推荐好友" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        for (int i = 0; i < suggestionList->count(); ++i) {
-            QListWidgetItem* item = suggestionList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty()) continue;
-            rows << QString("候选 QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "待搜索");
-        }
-        QApplication::clipboard()->setText(rows.join('\n'));
+    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, accountEdit, quickAddCandidateTargets]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::quickAddSearchSummaryCardState(
+            m_currentUserId,
+            m_currentUserName,
+            accountEdit->text().trimmed(),
+            quickAddCandidateTargets());
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("好友申请搜索卡片已复制", 2200);
     });
-    connect(copyFriendMediaPackBtn, &QPushButton::clicked, &dialog, [this, accountEdit, suggestionList]() {
-        QString target = accountEdit->text().trimmed();
-        if (target.isEmpty()) {
-            QListWidgetItem* item = suggestionList->currentItem();
-            if (item) target = item->data(Qt::UserRole).toString();
-        }
-        QString targetName = target.isEmpty() ? "待搜索好友" : contactDisplayName(target);
-        QStringList rows;
-        rows << QString("好友媒体包 · 目标:%1 · QQ:%2").arg(targetName, target.isEmpty() ? "待搜索" : target);
-        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << "通过好友申请后可直接发送图片/视频，也可使用闪传文件";
-        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和文档压缩包";
-        rows << QString("申请话术：%1，你好，我是 %2（QQ:%3），通过好友申请后我可以把图片/视频/文件发给你。").arg(targetName, m_currentUserName, m_currentUserId);
-        rows << QString("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(targetName);
-        QApplication::clipboard()->setText(rows.join('\n'));
+    connect(copyFriendMediaPackBtn, &QPushButton::clicked, &dialog, [this, selectedQuickAddTarget]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::quickAddMediaPackState(
+            m_currentUserId,
+            m_currentUserName,
+            selectedQuickAddTarget());
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("好友媒体包已复制", 2200);
     });
-    connect(copyAddChecklistBtn, &QPushButton::clicked, &dialog, [this, accountEdit, suggestionList]() {
-        QString target = accountEdit->text().trimmed();
-        if (target.isEmpty()) {
-            QListWidgetItem* item = suggestionList->currentItem();
-            if (item) target = item->data(Qt::UserRole).toString();
-        }
-        QString targetName = target.isEmpty() ? "待搜索好友" : contactDisplayName(target);
-        QStringList rows;
-        rows << QString("好友申请清单 · 目标:%1 · QQ:%2").arg(targetName, target.isEmpty() ? "待搜索" : target);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 已有好友:%3").arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()));
-        rows << "1. 输入或选择 QQ 账号，先确认昵称和在线状态";
-        rows << "2. 点击搜索申请，或复制申请话术发给对方";
-        rows << "3. 通过后可发送图片/GIF/视频，也可闪传文件和压缩包";
-        rows << "4. 发送后在聊天记录右键复制媒体卡片、查收话术和回执";
-        rows << QString("申请话术：%1，你好，我是 %2（QQ:%3），方便通过好友申请后收发图片视频和文件吗？").arg(targetName, m_currentUserName, m_currentUserId);
-        QApplication::clipboard()->setText(rows.join('\n'));
+    connect(copyAddChecklistBtn, &QPushButton::clicked, &dialog, [this, selectedQuickAddTarget]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::quickAddChecklistState(
+            m_currentUserId,
+            m_currentUserName,
+            m_friendIds.size(),
+            selectedQuickAddTarget());
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("好友申请清单已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, accountEdit]() {
-        QString target = accountEdit->text().trimmed();
-        QStringList rows;
-        rows << QString("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << QString("目标QQ:%1").arg(target.isEmpty() ? "待搜索好友" : target);
-        rows << "通过好友申请后可直接发送图片/视频，也可用闪传文件发送文档和压缩包";
-        rows << "支持 mp4、mov、avi、mkv、wmv、flv、webm，聊天记录可复制媒体卡片";
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(FriendManager::quickAddMediaGuideText(
+            m_currentUserId,
+            m_currentUserName,
+            accountEdit->text().trimmed()));
         ui->statusbar->showMessage("好友申请上传指南已复制", 2200);
     });
     connect(suggestionList, &QListWidget::itemDoubleClicked, &dialog, [accountEdit, runQuickAdd](QListWidgetItem* item) {
