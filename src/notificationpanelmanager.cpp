@@ -215,6 +215,40 @@ QStringList NotificationPanelManager::publicGroupMemberIds(const QString& curren
     return members;
 }
 
+GroupNoticeMemberCopyState NotificationPanelManager::groupMemberCopyState(
+    const QList<GroupNoticeMemberInput>& members,
+    bool onlineOnly) {
+    GroupNoticeMemberCopyState state;
+    for (const GroupNoticeMemberInput& member : members) {
+        const QString userId = member.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        if (onlineOnly && !member.self && !member.online) {
+            continue;
+        }
+        const QString displayName = member.displayName.trimmed().isEmpty()
+            ? userId
+            : member.displayName.trimmed();
+        if (onlineOnly) {
+            state.rows << QStringLiteral("在线群成员 QQ:%1 昵称:%2")
+                .arg(userId, displayName);
+        } else {
+            state.rows << QStringLiteral("QQ:%1 昵称:%2 状态:%3")
+                .arg(userId,
+                     displayName,
+                     (member.online || member.self) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+    }
+    state.emptyStatusMessage = onlineOnly
+        ? QStringLiteral("当前群聊没有在线成员可复制")
+        : QStringLiteral("当前群聊没有成员可复制");
+    state.copiedStatusMessage = onlineOnly
+        ? QStringLiteral("已复制 %1 个在线群成员").arg(state.rows.size())
+        : QStringLiteral("已复制 %1 个群成员").arg(state.rows.size());
+    return state;
+}
+
 QString NotificationPanelManager::friendNoticePreviewText(const QString& currentId,
                                                           const QString& displayName) {
     if (currentId.isEmpty()) {

@@ -68,6 +68,19 @@ struct GroupNoticeListRenderUiState {
     QList<GroupNoticeListEntryUiState> entries;
 };
 
+struct GroupNoticeMemberInput {
+    QString userId;
+    QString displayName;
+    bool online = false;
+    bool self = false;
+};
+
+struct GroupNoticeMemberCopyState {
+    QStringList rows;
+    QString emptyStatusMessage;
+    QString copiedStatusMessage;
+};
+
 struct GroupNoticeActionState {
     bool openEnabled = false;
     QString openText;
@@ -106,6 +119,9 @@ public:
         const QString& filter);
     static QStringList publicGroupMemberIds(const QString& currentUserId,
                                             const QStringList& onlineUserIds);
+    static GroupNoticeMemberCopyState groupMemberCopyState(
+        const QList<GroupNoticeMemberInput>& members,
+        bool onlineOnly);
     static FriendNoticeActionState friendNoticeActionState(const QString& currentId,
                                                            bool hasPending,
                                                            bool hasSearchKeyword);

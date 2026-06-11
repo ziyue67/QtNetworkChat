@@ -5297,6 +5297,18 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
         QAction* copyOnlineMembersAction = menu.addAction("复制在线成员");
         QAction* renameGroupAction = menu.addAction("重命名群聊");
         QAction* deleteGroupAction = menu.addAction("删除群聊");
+        auto groupMemberCopyInputs = [this](const QStringList& memberIds) {
+            QList<GroupNoticeMemberInput> inputs;
+            for (const QString& id : memberIds) {
+                GroupNoticeMemberInput input;
+                input.userId = id;
+                input.displayName = contactDisplayName(id);
+                input.self = id == m_currentUserId;
+                input.online = isContactOnline(id);
+                inputs << input;
+            }
+            return inputs;
+        };
         describeUserAction(openGroupAction, "进入当前本地群聊并加载聊天记录");
         describeUserAction(copyGroupAction, "复制当前群聊的群号");
         describeUserAction(copyGroupCardAction, "复制群名、群号、成员数和公告摘要");
@@ -5332,16 +5344,14 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             QApplication::clipboard()->setText(inviteText);
             ui->statusbar->showMessage("群邀请语已复制", 2200);
         } else if (selected == copyMembersAction) {
-            QStringList cards;
-            for (const QString& id : m_localGroupMembers.value(userId)) {
-                cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
-            }
-            if (cards.isEmpty()) {
-                ui->statusbar->showMessage("当前群聊没有成员可复制", 2200);
+            const GroupNoticeMemberCopyState state =
+                NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(m_localGroupMembers.value(userId)), false);
+            if (state.rows.isEmpty()) {
+                ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
                 return;
             }
-            QApplication::clipboard()->setText(cards.join('\n'));
-            ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
+            QApplication::clipboard()->setText(state.rows.join('\n'));
+            ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
         } else if (selected == inviteFriendAction) {
             if (m_friendIds.isEmpty()) {
                 appendSystemMessage("当前没有好友可邀请");
@@ -5430,17 +5440,14 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
             appendSystemMessage(QString("已自动邀请 %1 位好友加入群聊").arg(inviteIds.size()));
             saveHistory(userId, QString("[%1] [系统] 已自动邀请 %2 位好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(inviteIds.size()));
         } else if (selected == copyOnlineMembersAction) {
-            QStringList rows;
-            for (const QString& id : m_localGroupMembers.value(userId)) {
-                if (id != m_currentUserId && !isContactOnline(id)) continue;
-                rows << QString("在线成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
-            }
-            if (rows.isEmpty()) {
-                ui->statusbar->showMessage("当前群聊没有在线成员可复制", 2200);
+            const GroupNoticeMemberCopyState state =
+                NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(m_localGroupMembers.value(userId)), true);
+            if (state.rows.isEmpty()) {
+                ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
                 return;
             }
-            QApplication::clipboard()->setText(rows.join('\n'));
-            ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(rows.size()), 2200);
+            QApplication::clipboard()->setText(state.rows.join('\n'));
+            ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
         } else if (selected == renameGroupAction) {
             bool ok = false;
             const QString oldName = m_localGroupNames.value(userId, "群聊");
@@ -6400,6 +6407,18 @@ void MainWindow::onShowGroupNotifications() {
         }
         return NotificationPanelManager::publicGroupMemberIds(m_currentUserId, onlineUserIds);
     };
+    auto groupMemberCopyInputs = [this](const QStringList& memberIds) {
+        QList<GroupNoticeMemberInput> inputs;
+        for (const QString& id : memberIds) {
+            GroupNoticeMemberInput input;
+            input.userId = id;
+            input.displayName = contactDisplayName(id);
+            input.self = id == m_currentUserId;
+            input.online = isContactOnline(id);
+            inputs << input;
+        }
+        return inputs;
+    };
 
     dialog.setStyleSheet(R"(
         QDialog#noticeDialog {
@@ -6613,7 +6632,7 @@ void MainWindow::onShowGroupNotifications() {
             groupName, groupNumber, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("入群邀请话术已复制", 2200);
     });
-    connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds]() {
+    connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds, groupMemberCopyInputs]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
                                                  ui->statusbar,
@@ -6624,14 +6643,16 @@ void MainWindow::onShowGroupNotifications() {
         }
         QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
-        QStringList cards;
-        for (const QString& id : members) {
-            cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
+        const GroupNoticeMemberCopyState state =
+            NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(members), false);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
+            return;
         }
-        QApplication::clipboard()->setText(cards.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 个群成员").arg(cards.size()), 2200);
+        QApplication::clipboard()->setText(state.rows.join('\n'));
+        ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
     });
-    connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds]() {
+    connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds, groupMemberCopyInputs]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
                                                  ui->statusbar,
@@ -6642,17 +6663,14 @@ void MainWindow::onShowGroupNotifications() {
         }
         QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
-        QStringList cards;
-        for (const QString& id : members) {
-            if (id != m_currentUserId && !isContactOnline(id)) continue;
-            cards << QString("在线群成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
-        }
-        if (cards.isEmpty()) {
-            ui->statusbar->showMessage("当前群聊没有在线成员可复制", 2200);
+        const GroupNoticeMemberCopyState state =
+            NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(members), true);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
             return;
         }
-        QApplication::clipboard()->setText(cards.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(cards.size()), 2200);
+        QApplication::clipboard()->setText(state.rows.join('\n'));
+        ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
     });
     connect(copyGroupMediaPackBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         const QString groupId = selectedGroupNoticeEntryId(noticeList);

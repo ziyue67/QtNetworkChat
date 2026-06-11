@@ -130,6 +130,37 @@ int main(int argc, char** argv) {
                                               QStringLiteral("30003")}),
                 "public group member helper should keep current user first and deduplicate online ids") && ok;
 
+    GroupNoticeMemberInput selfMember;
+    selfMember.userId = QStringLiteral("10001");
+    selfMember.displayName = QString::fromUtf8("我");
+    selfMember.self = true;
+    GroupNoticeMemberInput onlineMember;
+    onlineMember.userId = QStringLiteral("20002");
+    onlineMember.displayName = QString::fromUtf8("小红");
+    onlineMember.online = true;
+    GroupNoticeMemberInput offlineMember;
+    offlineMember.userId = QStringLiteral("30003");
+    offlineMember.displayName = QString::fromUtf8("小蓝");
+    const GroupNoticeMemberCopyState allMemberCopy =
+        NotificationPanelManager::groupMemberCopyState(
+            QList<GroupNoticeMemberInput>{selfMember, onlineMember, offlineMember},
+            false);
+    ok = expect(allMemberCopy.rows.size() == 3
+                    && allMemberCopy.rows.first() == QString::fromUtf8("QQ:10001 昵称:我 状态:在线")
+                    && allMemberCopy.rows.last() == QString::fromUtf8("QQ:30003 昵称:小蓝 状态:离线")
+                    && allMemberCopy.copiedStatusMessage == QString::fromUtf8("已复制 3 个群成员"),
+                "group member copy state should render all members with online state") && ok;
+
+    const GroupNoticeMemberCopyState onlineMemberCopy =
+        NotificationPanelManager::groupMemberCopyState(
+            QList<GroupNoticeMemberInput>{selfMember, onlineMember, offlineMember},
+            true);
+    ok = expect(onlineMemberCopy.rows.size() == 2
+                    && onlineMemberCopy.rows.first() == QString::fromUtf8("在线群成员 QQ:10001 昵称:我")
+                    && onlineMemberCopy.rows.last() == QString::fromUtf8("在线群成员 QQ:20002 昵称:小红")
+                    && onlineMemberCopy.emptyStatusMessage == QString::fromUtf8("当前群聊没有在线成员可复制"),
+                "group online member copy state should keep self and online members only") && ok;
+
     const FriendNoticeActionState emptyFriendState =
         NotificationPanelManager::friendNoticeActionState(QString(), false, false);
     ok = expect(!emptyFriendState.acceptEnabled
