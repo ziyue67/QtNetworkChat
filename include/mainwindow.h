@@ -128,6 +128,9 @@ private:
                                         const QString& transferId,
                                         const QByteArray& fileData,
                                         qint64 totalBytes);
+    TransferReceiveRenderPlan receivedTransferPersistencePlan(const ReceivedTransferContext& context,
+                                                              const QString& displayName,
+                                                              bool saved) const;
     void appendTransferChatListItem(const TransferChatListItemUiState& itemState);
     ReceivedTransferContext receivedTransferContext(const Message& msg,
                                                     const QString& kind,

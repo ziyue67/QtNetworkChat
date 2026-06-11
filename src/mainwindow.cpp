@@ -7051,15 +7051,7 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
                                                 const QByteArray& fileData,
                                                 qint64 totalBytes) {
     if (!LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData)) {
-        applyReceivedTransferRenderPlan(m_transferManager.receivedTransferPersistenceRenderPlan(context.kind,
-                                                                                               context.receivedName,
-                                                                                               context.receivedSize,
-                                                                                               displayName,
-                                                                                               context.manifestSuffix,
-                                                                                               context.integrityText,
-                                                                                               context.integritySuffix,
-                                                                                               context.savePath,
-                                                                                               false),
+        applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, false),
                                         context.receivedName,
                                         transferId,
                                         fileData.size(),
@@ -7067,20 +7059,26 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
         return false;
     }
 
-    applyReceivedTransferRenderPlan(m_transferManager.receivedTransferPersistenceRenderPlan(context.kind,
-                                                                                           context.receivedName,
-                                                                                           context.receivedSize,
-                                                                                           displayName,
-                                                                                           context.manifestSuffix,
-                                                                                           context.integrityText,
-                                                                                           context.integritySuffix,
-                                                                                           context.savePath,
-                                                                                           true),
+    applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, true),
                                     context.receivedName,
                                     transferId,
                                     fileData.size(),
                                     totalBytes);
     return true;
+}
+
+TransferReceiveRenderPlan MainWindow::receivedTransferPersistencePlan(const ReceivedTransferContext& context,
+                                                                      const QString& displayName,
+                                                                      bool saved) const {
+    return m_transferManager.receivedTransferPersistenceRenderPlan(context.kind,
+                                                                  context.receivedName,
+                                                                  context.receivedSize,
+                                                                  displayName,
+                                                                  context.manifestSuffix,
+                                                                  context.integrityText,
+                                                                  context.integritySuffix,
+                                                                  context.savePath,
+                                                                  saved);
 }
 
 void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& itemState) {
