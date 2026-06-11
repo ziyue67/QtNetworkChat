@@ -2362,16 +2362,7 @@ void MainWindow::onSendFile() {
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        const TransferSendUiState completedState = m_transferManager.localSendCompletedState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName, completedAt);
-        QString line = QString("[%1] <%2> 发送了文件: %3 · %4").arg(completedAt, m_currentUserName, info.fileName(), fileSize);
-        saveHistory(m_privateChatTarget, line);
-        QStandardItem* item = new QStandardItem(line);
-        item->setEditable(false);
-        item->setForeground(QColor(20, 92, 160));
-        item->setBackground(QColor(218, 241, 255));
-        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(item);
-        appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
+        appendLocalGroupFileTransferCompletion(selectionPlan, info, fileSize, targetName, completedAt);
         return;
     }
 
@@ -2421,28 +2412,7 @@ void MainWindow::onSendImage() {
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        const TransferSendUiState completedState = m_transferManager.localSendCompletedState(mediaType, info.fileName(), fileSize, targetName, completedAt);
-        QPixmap pixmap(filePath);
-        QString line = QString("[%1] <%2> [%3] %4 · %5").arg(completedAt, m_currentUserName, mediaType, info.fileName(), fileSize);
-        saveHistory(m_privateChatTarget, line);
-        QStandardItem* item = new QStandardItem(line);
-        item->setEditable(false);
-        item->setForeground(QColor(20, 92, 160));
-        item->setBackground(QColor(218, 241, 255));
-        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_chatModel->appendRow(item);
-        if (!isVideo && !pixmap.isNull()) {
-            const TransferMediaPreviewPlan previewPlan = m_transferManager.localMediaPreviewPlan(info.fileName(),
-                                                                                                 fileSize,
-                                                                                                 false);
-            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
-        } else if (isVideo) {
-            const TransferMediaPreviewPlan previewPlan = m_transferManager.localMediaPreviewPlan(info.fileName(),
-                                                                                                 fileSize,
-                                                                                                 true);
-            appendMediaPreviewItem(previewPlan.text, QPixmap(), previewPlan.isVideo, previewPlan.alignRight);
-        }
-        appendTransferCompletionState(completedState, true, false, QColor(), QColor());
+        appendLocalGroupMediaTransferCompletion(filePath, info, fileSize, mediaType, isVideo, targetName, completedAt);
         return;
     }
 
@@ -6955,6 +6925,66 @@ void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
     ui->chatHintLabel->setText(state.hintText);
     ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
     ui->chatListView->scrollToBottom();
+}
+
+void MainWindow::appendLocalGroupFileTransferCompletion(const TransferSelectionPlan& selectionPlan,
+                                                        const QFileInfo& info,
+                                                        const QString& fileSize,
+                                                        const QString& targetName,
+                                                        const QString& completedAt) {
+    const TransferSendUiState completedState = m_transferManager.localSendCompletedState(
+        selectionPlan.preparingKind,
+        info.fileName(),
+        fileSize,
+        targetName,
+        completedAt);
+    const QString line = QString("[%1] <%2> 发送了文件: %3 · %4")
+        .arg(completedAt, m_currentUserName, info.fileName(), fileSize);
+    saveHistory(m_privateChatTarget, line);
+    QStandardItem* item = new QStandardItem(line);
+    item->setEditable(false);
+    item->setForeground(QColor(20, 92, 160));
+    item->setBackground(QColor(218, 241, 255));
+    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_chatModel->appendRow(item);
+    appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
+}
+
+void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath,
+                                                         const QFileInfo& info,
+                                                         const QString& fileSize,
+                                                         const QString& mediaType,
+                                                         bool isVideo,
+                                                         const QString& targetName,
+                                                         const QString& completedAt) {
+    const TransferSendUiState completedState = m_transferManager.localSendCompletedState(
+        mediaType,
+        info.fileName(),
+        fileSize,
+        targetName,
+        completedAt);
+    const QString line = QString("[%1] <%2> [%3] %4 · %5")
+        .arg(completedAt, m_currentUserName, mediaType, info.fileName(), fileSize);
+    saveHistory(m_privateChatTarget, line);
+    QStandardItem* item = new QStandardItem(line);
+    item->setEditable(false);
+    item->setForeground(QColor(20, 92, 160));
+    item->setBackground(QColor(218, 241, 255));
+    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_chatModel->appendRow(item);
+
+    QPixmap pixmap;
+    if (!isVideo) {
+        pixmap.load(filePath);
+    }
+    if ((!isVideo && !pixmap.isNull()) || isVideo) {
+        const TransferMediaPreviewPlan previewPlan = m_transferManager.localMediaPreviewPlan(
+            info.fileName(),
+            fileSize,
+            isVideo);
+        appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
+    }
+    appendTransferCompletionState(completedState, true, false, QColor(), QColor());
 }
 
 void MainWindow::appendMediaPreviewItem(const QString& text,

@@ -113,6 +113,18 @@ private:
                                        bool includeCard,
                                        const QColor& cardForeground,
                                        const QColor& cardBackground);
+    void appendLocalGroupFileTransferCompletion(const TransferSelectionPlan& selectionPlan,
+                                                const QFileInfo& info,
+                                                const QString& fileSize,
+                                                const QString& targetName,
+                                                const QString& completedAt);
+    void appendLocalGroupMediaTransferCompletion(const QString& filePath,
+                                                 const QFileInfo& info,
+                                                 const QString& fileSize,
+                                                 const QString& mediaType,
+                                                 bool isVideo,
+                                                 const QString& targetName,
+                                                 const QString& completedAt);
     void appendMediaPreviewItem(const QString& text,
                                 const QPixmap& pixmap,
                                 bool isVideo,
