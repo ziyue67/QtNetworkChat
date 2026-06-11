@@ -2827,7 +2827,7 @@ $automationTaskAck = $automationTaskAckState.value
 $e2eReleaseTail = if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
     "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy and removed from the active release gate, so current verification closes on local build plus local CTest, and the remaining E2E release work is final production-linked release artifact promotion plus local release review."
 } else {
-    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with current GitHub Windows Build visibility and local build/CTest readback; remaining E2E release work is external Windows Build visibility recovery and final production-linked release artifact promotion."
+    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with the active verification policy, current CI readback, and local build/CTest readback; remaining E2E release work stays on production-linked release artifact promotion plus whichever CI/local verification path the active policy requires."
 }
 $e2eProductionBacklog = @(
     "1. E2E production crypto is the active automation lane again. Linked OpenSSL builds now run the reviewed provider table through public API dispatch. The default status surface keeps the callable manifest, sanitized execution result contract, explicit reviewed runtime-preflight/arming/execution-acceptance probe readiness, and production rotation dry-run/execute evidence, promotes sanitized provider invocation probe evidence through reviewed candidate, call handoff, stub, callable bridge/interface, runtime preflight, arming, execution acceptance, data-plane bridge, and public primitive execution, and linked reviewed builds can pass the early operation, provider control, and explicit reviewed tail probe evidence gates to reach productionAcceptance.accepted=true / releaseGate=production-crypto-accepted."
@@ -3024,7 +3024,7 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
             "blocked-production-linked-candidate-not-ready"
         }
         $finalLinkedPromotionAction = if ($finalLinkedPromotionGate -eq "ci-visibility-informational-only") {
-            "Record GitHub Windows Build visibility lag as informational only; release readiness stays on production-linked evidence and local verification."
+            "Record CI visibility lag as informational only; release readiness stays on production-linked evidence and the active local/CI verification policy."
         } elseif ($finalLinkedPromotionGate -eq "e2e-release-artifact-promoted") {
             "Archive the promoted production-linked E2E release artifact."
         } else {
