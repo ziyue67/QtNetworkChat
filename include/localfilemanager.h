@@ -74,6 +74,17 @@ struct LocalSavedFileState {
     bool canOpenFolder = false;
 };
 
+struct LocalAvatarSelectionPlan {
+    QString dialogTitle;
+    QString filters;
+};
+
+struct LocalAvatarAppliedState {
+    QString detail;
+    QString toolTip;
+    int statusTimeoutMs = 2600;
+};
+
 class LocalFileManager {
 public:
     static QString lastTransferDirectory();
@@ -89,7 +100,9 @@ public:
     static LocalTransferSelectionDecision resolveTransferSelectionWarning(const LocalTransferSelectionDecision& pendingDecision,
                                                                           bool confirmed,
                                                                           const QString& confirmKind);
+    static LocalAvatarSelectionPlan avatarSelectionPlan();
     static LocalFileSelectionResult selectAvatarFile(const QString& selectedPath);
+    static LocalAvatarAppliedState avatarAppliedState(const QFileInfo& info);
     static LocalFileSelectionResult cancelTransferSelection(const QString& kind);
     static LocalFileSelectionResult cancelTransferWarningSelection(const QString& kind);
     static LocalFileSelectionResult cancelAvatarSelection();

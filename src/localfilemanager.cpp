@@ -145,6 +145,13 @@ LocalTransferSelectionDecision LocalFileManager::resolveTransferSelectionWarning
     return canceledDecision;
 }
 
+LocalAvatarSelectionPlan LocalFileManager::avatarSelectionPlan() {
+    LocalAvatarSelectionPlan result;
+    result.dialogTitle = QStringLiteral("选择头像");
+    result.filters = QStringLiteral("图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
+    return result;
+}
+
 LocalFileSelectionResult LocalFileManager::selectAvatarFile(const QString& selectedPath) {
     if (selectedPath.trimmed().isEmpty()) {
         return cancelAvatarSelection();
@@ -163,6 +170,15 @@ LocalFileSelectionResult LocalFileManager::selectAvatarFile(const QString& selec
     if (validation.accepted) {
         result.fileSize = humanFileSize(result.fileInfo.size());
     }
+    return result;
+}
+
+LocalAvatarAppliedState LocalFileManager::avatarAppliedState(const QFileInfo& info) {
+    LocalAvatarAppliedState result;
+    const QString fileSize = humanFileSize(info.size());
+    result.detail = QStringLiteral("头像已更新 · %1 · %2 · 已保存到本地").arg(info.fileName(), fileSize);
+    result.toolTip = QStringLiteral("当前头像：%1 · %2；点击“换头像”重新选择").arg(info.fileName(), fileSize);
+    result.statusTimeoutMs = 2600;
     return result;
 }
 

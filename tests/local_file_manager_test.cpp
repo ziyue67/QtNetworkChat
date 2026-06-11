@@ -160,6 +160,12 @@ int main(int argc, char** argv) {
                     && warningRejectedDecision.statusTimeoutMs == 2600,
                 "rejected large-file confirmation should reuse warning-canceled UI feedback") && ok;
 
+    LocalAvatarSelectionPlan avatarSelectionPlan = LocalFileManager::avatarSelectionPlan();
+    ok = expect(avatarSelectionPlan.dialogTitle == QString::fromUtf8("选择头像")
+                    && avatarSelectionPlan.filters.contains(QStringLiteral("*.png"))
+                    && avatarSelectionPlan.filters.contains(QStringLiteral("*.gif")),
+                "avatar selection plan should centralize avatar dialog copy and filters") && ok;
+
     LocalFileValidationResult avatarOk = LocalFileManager::validateAvatarFile(QFileInfo(avatarFilePath));
     ok = expect(avatarOk.accepted, "normal avatar file should be accepted") && ok;
 
@@ -196,6 +202,12 @@ int main(int argc, char** argv) {
                     && avatarSaveFailed.saveFailedStatusMessage == QString::fromUtf8("头像保存失败，请检查应用数据目录权限")
                     && avatarSaveFailed.saveFailedStatusTimeoutMs == 2600,
                 "avatar save failed result should centralize local-save failure feedback") && ok;
+
+    const LocalAvatarAppliedState avatarApplied = LocalFileManager::avatarAppliedState(QFileInfo(avatarFilePath));
+    ok = expect(avatarApplied.detail == QString::fromUtf8("头像已更新 · avatar.png · 4 KB · 已保存到本地")
+                    && avatarApplied.toolTip == QString::fromUtf8("当前头像：avatar.png · 4 KB；点击“换头像”重新选择")
+                    && avatarApplied.statusTimeoutMs == 2600,
+                "avatar applied state should centralize success detail and tooltip copy") && ok;
 
     ok = expect(LocalFileManager::humanFileSize(512) == QStringLiteral("512 B")
                     && LocalFileManager::humanFileSize(2048).contains(QStringLiteral("KB"))

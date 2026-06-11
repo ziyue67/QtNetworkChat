@@ -5154,10 +5154,11 @@ void MainWindow::onShowFriendManager() {
 }
 
 void MainWindow::onUploadAvatar() {
+    const LocalAvatarSelectionPlan selectionPlan = LocalFileManager::avatarSelectionPlan();
     const QString selectedPath = QFileDialog::getOpenFileName(this,
-                                                              "选择头像",
+                                                              selectionPlan.dialogTitle,
                                                               LocalFileManager::lastAvatarDirectory(),
-                                                              "图片 (*.png *.jpg *.jpeg *.bmp *.gif)");
+                                                              selectionPlan.filters);
     const LocalFileSelectionResult selection = LocalFileManager::selectAvatarFile(selectedPath);
     if (selection.canceled) {
         ui->statusbar->showMessage(selection.canceledStatusMessage, selection.canceledStatusTimeoutMs);
@@ -5189,14 +5190,12 @@ void MainWindow::onUploadAvatar() {
 
     ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
     saveProfileToSqlite();
-    QString detail = QString("头像已更新 · %1 · %2 · 已保存到本地").arg(info.fileName(), LocalFileManager::humanFileSize(info.size()));
-    QString avatarTip = QString("当前头像：%1 · %2；点击“换头像”重新选择")
-                            .arg(info.fileName(), LocalFileManager::humanFileSize(info.size()));
-    ui->avatarLabel->setToolTip(avatarTip);
-    ui->uploadAvatarBtn->setToolTip(avatarTip);
-    appendSystemMessage(detail);
-    ui->chatHintLabel->setText(detail);
-    ui->statusbar->showMessage(detail, 2600);
+    const LocalAvatarAppliedState appliedState = LocalFileManager::avatarAppliedState(info);
+    ui->avatarLabel->setToolTip(appliedState.toolTip);
+    ui->uploadAvatarBtn->setToolTip(appliedState.toolTip);
+    appendSystemMessage(appliedState.detail);
+    ui->chatHintLabel->setText(appliedState.detail);
+    ui->statusbar->showMessage(appliedState.detail, appliedState.statusTimeoutMs);
 }
 
 void MainWindow::onBackToGroupChat() {
