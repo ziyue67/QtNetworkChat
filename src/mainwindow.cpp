@@ -2510,35 +2510,8 @@ void MainWindow::onNewMessage(const Message& msg) {
                 msg.e2eEnvelope.keyId,
                 envelopeMatchesLocalSession ? e2eStatus.value("keyFingerprintSha256").toString() : QString());
 
-    if (msg.type == MessageType::Image && !msg.fileData.isEmpty()) {
-        const ReceivedTransferContext context = receivedTransferContext(msg,
-                                                                        QStringLiteral("图片"),
-                                                                        QStringLiteral("received_image"),
-                                                                        QStringLiteral("Images"),
-                                                                        displayName);
-        QPixmap pixmap;
-        if (pixmap.loadFromData(msg.fileData)) {
-            const TransferMediaPreviewPlan previewPlan = m_transferManager.receivedMediaPreviewPlan(context.receivedName,
-                                                                                                    context.receivedSize,
-                                                                                                    context.manifestSuffix);
-            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
-        }
-        persistReceivedTransferPayload(context,
-                                       displayName,
-                                       msg.transferId,
-                                       msg.fileData,
-                                       msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
-    } else if (msg.type == MessageType::File && !msg.fileData.isEmpty()) {
-        const ReceivedTransferContext context = receivedTransferContext(msg,
-                                                                        QStringLiteral("文件"),
-                                                                        QStringLiteral("received_file"),
-                                                                        QStringLiteral("Files"),
-                                                                        displayName);
-        persistReceivedTransferPayload(context,
-                                       displayName,
-                                       msg.transferId,
-                                       msg.fileData,
-                                       msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+    if (msg.type == MessageType::Image || msg.type == MessageType::File) {
+        handleReceivedTransferMessage(msg, displayName);
     }
 
     int rowCount = m_chatModel->rowCount();
@@ -7080,6 +7053,36 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
                                     fileData.size(),
                                     totalBytes);
     return true;
+}
+
+bool MainWindow::handleReceivedTransferMessage(const Message& msg,
+                                               const QString& displayName) {
+    if (msg.fileData.isEmpty()) {
+        return false;
+    }
+
+    const bool image = msg.type == MessageType::Image;
+    const ReceivedTransferContext context = receivedTransferContext(
+        msg,
+        image ? QStringLiteral("图片") : QStringLiteral("文件"),
+        image ? QStringLiteral("received_image") : QStringLiteral("received_file"),
+        image ? QStringLiteral("Images") : QStringLiteral("Files"),
+        displayName);
+    if (image) {
+        QPixmap pixmap;
+        if (pixmap.loadFromData(msg.fileData)) {
+            const TransferMediaPreviewPlan previewPlan = m_transferManager.receivedMediaPreviewPlan(
+                context.receivedName,
+                context.receivedSize,
+                context.manifestSuffix);
+            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
+        }
+    }
+    return persistReceivedTransferPayload(context,
+                                          displayName,
+                                          msg.transferId,
+                                          msg.fileData,
+                                          msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
 }
 
 TransferReceiveRenderPlan MainWindow::receivedTransferPersistencePlan(const ReceivedTransferContext& context,

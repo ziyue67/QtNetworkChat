@@ -152,6 +152,8 @@ private:
                                         const QString& transferId,
                                         const QByteArray& fileData,
                                         qint64 totalBytes);
+    bool handleReceivedTransferMessage(const Message& msg,
+                                       const QString& displayName);
     TransferReceiveRenderPlan receivedTransferPersistencePlan(const ReceivedTransferContext& context,
                                                               const QString& displayName,
                                                               bool saved) const;
