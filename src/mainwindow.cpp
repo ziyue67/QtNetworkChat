@@ -2995,37 +2995,33 @@ void MainWindow::onExportHistory() {
         return;
     }
 
-    QString defaultDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (defaultDir.isEmpty()) defaultDir = QDir::homePath();
-    const QString safeSessionName = sessionName.simplified().replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
-    const QString defaultPath = QDir(defaultDir).filePath(QString("QtNetworkChat_%1_%2.txt")
-        .arg(safeSessionName, QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")));
-    const QString savePath = QFileDialog::getSaveFileName(this, "导出聊天记录", defaultPath, "文本文件 (*.txt);;所有文件 (*.*)");
+    const QDateTime exportedAt = QDateTime::currentDateTime();
+    const HistoryExportSelectionPlan exportPlan =
+        m_historyService.exportSelectionPlan(sessionName, exportedAt);
+    const QString savePath = QFileDialog::getSaveFileName(this,
+                                                          exportPlan.dialogTitle,
+                                                          exportPlan.defaultPath,
+                                                          exportPlan.filters);
     if (savePath.isEmpty()) {
-        ui->statusbar->showMessage("已取消导出聊天记录", 1600);
+        ui->statusbar->showMessage(exportPlan.canceledStatusMessage, exportPlan.canceledStatusTimeoutMs);
         return;
     }
 
-    QFile file(savePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, "导出失败", "无法写入导出文件，请检查保存位置权限。");
-        ui->statusbar->showMessage("聊天记录导出失败", 2600);
+    const HistoryExportWriteResult exportResult =
+        m_historyService.writeExportFile(savePath,
+                                         sessionName,
+                                         m_currentUserId,
+                                         m_currentUserName,
+                                         rows,
+                                         exportedAt);
+    if (!exportResult.written) {
+        QMessageBox::warning(this, exportResult.failureTitle, exportResult.failureMessage);
+        ui->statusbar->showMessage(exportResult.failureStatusMessage, exportResult.failureStatusTimeoutMs);
         return;
     }
 
-    QTextStream out(&file);
-    out << "QtNetworkChat 聊天记录导出\n";
-    out << "会话: " << sessionName << "\n";
-    out << "账号: " << m_currentUserId << " / " << m_currentUserName << "\n";
-    out << "导出时间: " << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << "\n";
-    out << "记录数: " << rows.size() << "\n\n";
-    for (const QString& row : rows) {
-        out << row << "\n";
-    }
-    file.close();
-
-    ui->statusbar->showMessage(QString("已导出 %1 条聊天记录").arg(rows.size()), 2600);
-    appendSystemMessage(QString("已导出 %1 的聊天记录：%2").arg(sessionName, savePath));
+    ui->statusbar->showMessage(exportResult.successStatusMessage, exportResult.successStatusTimeoutMs);
+    appendSystemMessage(exportResult.systemMessage);
 }
 
 void MainWindow::onAddFriend() {

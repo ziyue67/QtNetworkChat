@@ -241,6 +241,57 @@ QStringList HistoryService::rowsForExport(const QString& peerId) const {
     return legacyExportRows(peerId);
 }
 
+HistoryExportSelectionPlan HistoryService::exportSelectionPlan(const QString& sessionName,
+                                                               const QDateTime& exportedAt) const {
+    HistoryExportSelectionPlan plan;
+    plan.dialogTitle = QStringLiteral("导出聊天记录");
+    plan.filters = QStringLiteral("文本文件 (*.txt);;所有文件 (*.*)");
+    QString defaultDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (defaultDir.isEmpty()) {
+        defaultDir = QDir::homePath();
+    }
+    plan.defaultPath = QDir(defaultDir).filePath(
+        QStringLiteral("QtNetworkChat_%1_%2.txt")
+            .arg(sanitizedFileSegment(sessionName, QStringLiteral("会话")),
+                 exportedAt.toString(QStringLiteral("yyyyMMdd_hhmmss"))));
+    plan.canceledStatusMessage = QStringLiteral("已取消导出聊天记录");
+    plan.canceledStatusTimeoutMs = 1600;
+    return plan;
+}
+
+HistoryExportWriteResult HistoryService::writeExportFile(const QString& savePath,
+                                                         const QString& sessionName,
+                                                         const QString& currentUserId,
+                                                         const QString& currentUserName,
+                                                         const QStringList& rows,
+                                                         const QDateTime& exportedAt) const {
+    HistoryExportWriteResult result;
+    QFile file(savePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        result.failureTitle = QStringLiteral("导出失败");
+        result.failureMessage = QStringLiteral("无法写入导出文件，请检查保存位置权限。");
+        result.failureStatusMessage = QStringLiteral("聊天记录导出失败");
+        return result;
+    }
+
+    QTextStream out(&file);
+    out << QStringLiteral("QtNetworkChat 聊天记录导出\n");
+    out << QStringLiteral("会话: ") << sessionName << QStringLiteral("\n");
+    out << QStringLiteral("账号: ") << currentUserId << QStringLiteral(" / ") << currentUserName << QStringLiteral("\n");
+    out << QStringLiteral("导出时间: ") << exportedAt.toString(QStringLiteral("yyyy-MM-dd hh:mm:ss")) << QStringLiteral("\n");
+    out << QStringLiteral("记录数: ") << rows.size() << QStringLiteral("\n\n");
+    for (const QString& row : rows) {
+        out << row << QStringLiteral("\n");
+    }
+    file.close();
+
+    result.written = true;
+    result.successStatusMessage = QStringLiteral("已导出 %1 条聊天记录").arg(rows.size());
+    result.successStatusTimeoutMs = 2600;
+    result.systemMessage = QStringLiteral("已导出 %1 的聊天记录：%2").arg(sessionName, savePath);
+    return result;
+}
+
 void HistoryService::clear(const QString& peerId) const {
     if (peerId.isEmpty() || !ensureDatabase()) {
         return;
@@ -273,6 +324,15 @@ QString HistoryService::appDataDirectory() const {
 QString HistoryService::sanitizedId(const QString& value, const QString& fallback) const {
     QString safe = value.isEmpty() ? fallback : value;
     safe.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")), QStringLiteral("_"));
+    return safe;
+}
+
+QString HistoryService::sanitizedFileSegment(const QString& value, const QString& fallback) const {
+    QString safe = value.simplified().trimmed();
+    if (safe.isEmpty()) {
+        safe = fallback;
+    }
+    safe.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")), QStringLiteral("_"));
     return safe;
 }
 

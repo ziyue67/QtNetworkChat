@@ -98,6 +98,57 @@ int main(int argc, char** argv) {
                     && !exportRows.last().contains(QString(64, QLatin1Char('c'))),
                 "export rows should include created_at and redact full fingerprints") && ok;
 
+    const QDateTime exportedAt = QDateTime::fromString(QStringLiteral("2026-06-11T23:15:00"), Qt::ISODate);
+    const HistoryExportSelectionPlan exportPlan =
+        service.exportSelectionPlan(QString::fromUtf8("公共聊天室/项目群"), exportedAt);
+    ok = expect(exportPlan.dialogTitle == QString::fromUtf8("导出聊天记录")
+                    && exportPlan.filters.contains(QStringLiteral("*.txt"))
+                    && exportPlan.defaultPath.contains(QStringLiteral("QtNetworkChat_公共聊天室_项目群_20260611_231500.txt"))
+                    && exportPlan.canceledStatusMessage == QString::fromUtf8("已取消导出聊天记录")
+                    && exportPlan.canceledStatusTimeoutMs == 1600,
+                "export selection plan should centralize dialog copy, default path, and cancel feedback") && ok;
+
+    const QString exportOutputPath = QDir(appDataDir).filePath(QStringLiteral("history-export.txt"));
+    const HistoryExportWriteResult exportWriteResult =
+        service.writeExportFile(exportOutputPath,
+                                QString::fromUtf8("公共聊天室"),
+                                QStringLiteral("10001"),
+                                QString::fromUtf8("测试用户"),
+                                exportRows,
+                                exportedAt);
+    ok = expect(exportWriteResult.written
+                    && exportWriteResult.successStatusMessage == QString::fromUtf8("已导出 2 条聊天记录")
+                    && exportWriteResult.successStatusTimeoutMs == 2600
+                    && exportWriteResult.systemMessage == QString::fromUtf8("已导出 公共聊天室 的聊天记录：") + exportOutputPath,
+                "export writer should centralize success status and system message") && ok;
+    QFile exportedFile(exportOutputPath);
+    ok = expect(exportedFile.open(QIODevice::ReadOnly | QIODevice::Text),
+                "history export output should be readable after writing") && ok;
+    const QString exportedContent = QString::fromUtf8(exportedFile.readAll());
+    exportedFile.close();
+    ok = expect(exportedContent.contains(QString::fromUtf8("QtNetworkChat 聊天记录导出"))
+                    && exportedContent.contains(QString::fromUtf8("会话: 公共聊天室"))
+                    && exportedContent.contains(QString::fromUtf8("账号: 10001 / 测试用户"))
+                    && exportedContent.contains(QString::fromUtf8("记录数: 2"))
+                    && exportedContent.contains(exportRows.first())
+                    && exportedContent.contains(exportRows.last()),
+                "export writer should render header metadata and all exported rows") && ok;
+
+    const QString exportMissingDirPath = QDir(appDataDir).filePath(QStringLiteral("missing-dir/history-export.txt"));
+    const HistoryExportWriteResult exportFailedResult =
+        service.writeExportFile(exportMissingDirPath,
+                                QString::fromUtf8("公共聊天室"),
+                                QStringLiteral("10001"),
+                                QString::fromUtf8("测试用户"),
+                                exportRows,
+                                exportedAt);
+    ok = expect(!exportFailedResult.written
+                    && exportFailedResult.failureTitle == QString::fromUtf8("导出失败")
+                    && exportFailedResult.failureMessage == QString::fromUtf8("无法写入导出文件，请检查保存位置权限。")
+                    && exportFailedResult.failureStatusMessage == QString::fromUtf8("聊天记录导出失败")
+                    && exportFailedResult.failureStatusTimeoutMs == 2600,
+                "export writer should centralize failure dialog and status feedback when the destination cannot be opened") && ok;
+
     service.clear(peerId);
     ok = expect(!service.hasRecords(peerId)
                     && service.recentRows(peerId, 5).isEmpty()
