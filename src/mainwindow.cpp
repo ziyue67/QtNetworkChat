@@ -6586,19 +6586,14 @@ void MainWindow::onShowGroupNotifications() {
     });
     connect(inviteTextBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        QString groupName = searchEdit->text().trimmed();
-        QString groupNumber = "公共聊天室";
-        if (isGroupCreateEntryId(groupId)) {
-            groupName = groupCreateEntryName(groupId);
-            groupNumber = "待创建";
-        } else if (groupId.startsWith("local_group_")) {
-            groupName = m_localGroupNames.value(groupId, "群聊");
-            groupNumber = groupId.mid(QString("local_group_").size());
-        } else if (groupName.isEmpty()) {
-            groupName = "公共聊天室";
-        }
+        const GroupNoticeCopyContext context = NotificationPanelManager::groupNoticeCopyContext(
+            groupId,
+            searchEdit->text().trimmed(),
+            m_knownUsers.size(),
+            m_localGroupNames.value(groupId, "群聊"),
+            m_localGroupMembers.value(groupId).size());
         QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeInviteText(
-            groupName, groupNumber, m_currentUserName, m_currentUserId));
+            context.groupName, context.groupNumber, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("入群邀请话术已复制", 2200);
     });
     connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds, groupMemberCopyInputs]() {
@@ -6643,22 +6638,14 @@ void MainWindow::onShowGroupNotifications() {
     });
     connect(copyGroupMediaPackBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        QString groupName = searchEdit->text().trimmed();
-        QString groupNumber = "公共聊天室";
-        int memberCount = m_knownUsers.size();
-        if (isGroupCreateEntryId(groupId)) {
-            groupName = groupCreateEntryName(groupId);
-            groupNumber = "待创建";
-            memberCount = 1;
-        } else if (groupId.startsWith("local_group_")) {
-            groupName = m_localGroupNames.value(groupId, "群聊");
-            groupNumber = groupId.mid(QString("local_group_").size());
-            memberCount = qMax(1, m_localGroupMembers.value(groupId).size());
-        } else if (groupName.isEmpty()) {
-            groupName = "公共聊天室";
-        }
+        const GroupNoticeCopyContext context = NotificationPanelManager::groupNoticeCopyContext(
+            groupId,
+            searchEdit->text().trimmed(),
+            m_knownUsers.size(),
+            m_localGroupNames.value(groupId, "群聊"),
+            m_localGroupMembers.value(groupId).size());
         QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeMediaPackText(
-            groupName, groupNumber, memberCount, m_currentUserName, m_currentUserId));
+            context.groupName, context.groupNumber, context.memberCount, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("群媒体包已复制", 2200);
     });
     connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit, publicGroupMemberIds]() {
@@ -6668,25 +6655,31 @@ void MainWindow::onShowGroupNotifications() {
         const QStringList visibleIds = visibleGroupNoticeIds(noticeList);
         for (const QString& id : visibleIds) {
             if (isGroupCreateEntryId(id)) {
-                groups << QString("待创建群:%1").arg(groupCreateEntryName(id));
+                groups << NotificationPanelManager::groupNoticeBatchTargetText(
+                    id, QString(), QString(), 1, 1);
                 ++totalMembers;
                 ++onlineMembers;
             } else if (id.isEmpty()) {
                 const QStringList publicMembers = publicGroupMemberIds();
                 totalMembers += publicMembers.size();
                 onlineMembers += publicMembers.size();
-                groups << QString("公共聊天室(成员:%1,在线:%2)")
-                    .arg(QString::number(publicMembers.size()), QString::number(publicMembers.size()));
+                groups << NotificationPanelManager::groupNoticeBatchTargetText(
+                    id, QString(), QString(), publicMembers.size(), publicMembers.size());
             } else if (id.startsWith("local_group_")) {
                 QStringList members = m_localGroupMembers.value(id);
                 int groupOnline = 0;
                 for (const QString& memberId : members) {
                     if (memberId == m_currentUserId || isContactOnline(memberId)) ++groupOnline;
                 }
-                totalMembers += qMax(1, members.size());
+                const int memberCount = qMax(1, members.size());
+                totalMembers += memberCount;
                 onlineMembers += groupOnline;
-                groups << QString("%1(群号:%2,成员:%3,在线:%4)")
-                    .arg(m_localGroupNames.value(id, "群聊"), id.mid(QString("local_group_").size()), QString::number(qMax(1, members.size())), QString::number(groupOnline));
+                groups << NotificationPanelManager::groupNoticeBatchTargetText(
+                    id,
+                    m_localGroupNames.value(id, "群聊"),
+                    id.mid(QString("local_group_").size()),
+                    memberCount,
+                    groupOnline);
             }
         }
         QString keyword = searchEdit->text().trimmed();
@@ -6696,22 +6689,14 @@ void MainWindow::onShowGroupNotifications() {
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        QString groupName = searchEdit->text().trimmed();
-        QString groupNumber = "公共聊天室";
-        int memberCount = m_knownUsers.size();
-        if (isGroupCreateEntryId(groupId)) {
-            groupName = groupCreateEntryName(groupId);
-            groupNumber = "待创建";
-            memberCount = 1;
-        } else if (groupId.startsWith("local_group_")) {
-            groupName = m_localGroupNames.value(groupId, "群聊");
-            groupNumber = groupId.mid(QString("local_group_").size());
-            memberCount = qMax(1, m_localGroupMembers.value(groupId).size());
-        } else if (groupName.isEmpty()) {
-            groupName = "公共聊天室";
-        }
+        const GroupNoticeCopyContext context = NotificationPanelManager::groupNoticeCopyContext(
+            groupId,
+            searchEdit->text().trimmed(),
+            m_knownUsers.size(),
+            m_localGroupNames.value(groupId, "群聊"),
+            m_localGroupMembers.value(groupId).size());
         QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeMediaGuideText(
-            groupName, groupNumber, memberCount, m_currentUserName, m_currentUserId));
+            context.groupName, context.groupNumber, context.memberCount, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("群上传指南已复制", 2200);
     });
     connect(noticeList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedGroup](QListWidgetItem*) { openSelectedGroup(); });

@@ -106,6 +106,12 @@ struct GroupNoticeActionState {
     QString hintText;
 };
 
+struct GroupNoticeCopyContext {
+    QString groupName;
+    QString groupNumber;
+    int memberCount = 0;
+};
+
 class NotificationPanelManager {
 public:
     static FriendNoticeListRenderUiState friendNoticeListRenderUiState(
@@ -136,6 +142,11 @@ public:
                                           const QString& groupNumber,
                                           int memberCount,
                                           int publicOnlineCount);
+    static GroupNoticeCopyContext groupNoticeCopyContext(const QString& currentId,
+                                                         const QString& fallbackName,
+                                                         int publicOnlineCount,
+                                                         const QString& localGroupName,
+                                                         int localGroupMemberCount);
     static QString groupNoticeInviteText(const QString& groupName,
                                          const QString& groupNumber,
                                          const QString& currentUserName,
@@ -151,6 +162,11 @@ public:
                                             int onlineMembers,
                                             const QString& currentUserName,
                                             const QString& currentUserId);
+    static QString groupNoticeBatchTargetText(const QString& currentId,
+                                              const QString& groupName,
+                                              const QString& groupNumber,
+                                              int memberCount,
+                                              int onlineCount);
     static QString groupNoticeMediaGuideText(const QString& groupName,
                                              const QString& groupNumber,
                                              int memberCount,

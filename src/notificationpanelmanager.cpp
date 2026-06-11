@@ -345,6 +345,34 @@ QString NotificationPanelManager::groupNoticePreviewText(const QString& currentI
         .arg(groupName, groupNumber, QString::number(memberCount));
 }
 
+GroupNoticeCopyContext NotificationPanelManager::groupNoticeCopyContext(const QString& currentId,
+                                                                        const QString& fallbackName,
+                                                                        int publicOnlineCount,
+                                                                        const QString& localGroupName,
+                                                                        int localGroupMemberCount) {
+    GroupNoticeCopyContext context;
+    if (isGroupCreateEntryId(currentId)) {
+        context.groupName = groupCreateEntryName(currentId);
+        context.groupNumber = QStringLiteral("待创建");
+        context.memberCount = 1;
+        return context;
+    }
+    if (currentId.startsWith(QStringLiteral("local_group_"))) {
+        context.groupName = localGroupName.trimmed().isEmpty()
+            ? QStringLiteral("群聊")
+            : localGroupName.trimmed();
+        context.groupNumber = currentId.mid(QStringLiteral("local_group_").size());
+        context.memberCount = qMax(1, localGroupMemberCount);
+        return context;
+    }
+    context.groupName = fallbackName.trimmed().isEmpty()
+        ? QStringLiteral("公共聊天室")
+        : fallbackName.trimmed();
+    context.groupNumber = QStringLiteral("公共聊天室");
+    context.memberCount = publicOnlineCount;
+    return context;
+}
+
 QString NotificationPanelManager::groupNoticeInviteText(const QString& groupName,
                                                         const QString& groupNumber,
                                                         const QString& currentUserName,
@@ -390,6 +418,26 @@ QString NotificationPanelManager::groupNoticeBatchPlanText(const QString& keywor
     rows << QStringLiteral("3. 发送后复制群媒体包、上传指南和查收话术给群成员");
     rows << QStringLiteral("4. 可按筛选关键词分批发送，优先覆盖在线成员较多的群聊");
     return rows.join('\n');
+}
+
+QString NotificationPanelManager::groupNoticeBatchTargetText(const QString& currentId,
+                                                             const QString& groupName,
+                                                             const QString& groupNumber,
+                                                             int memberCount,
+                                                             int onlineCount) {
+    if (isGroupCreateEntryId(currentId)) {
+        return QStringLiteral("待创建群:%1")
+            .arg(groupCreateEntryName(currentId));
+    }
+    if (currentId.isEmpty()) {
+        return QStringLiteral("公共聊天室(成员:%1,在线:%2)")
+            .arg(QString::number(memberCount), QString::number(onlineCount));
+    }
+    return QStringLiteral("%1(群号:%2,成员:%3,在线:%4)")
+        .arg(groupName,
+             groupNumber,
+             QString::number(memberCount),
+             QString::number(onlineCount));
 }
 
 QString NotificationPanelManager::groupNoticeMediaGuideText(const QString& groupName,

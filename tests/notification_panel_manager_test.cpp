@@ -222,6 +222,39 @@ int main(int argc, char** argv) {
                     && NotificationPanelManager::groupNoticePreviewText(QStringLiteral("local_group_123"), QString::fromUtf8("项目群"), QStringLiteral("123"), 6, 0).contains(QString::fromUtf8("成员6人")),
                 "group preview text should cover public, create, and local group modes") && ok;
 
+    const GroupNoticeCopyContext publicContext = NotificationPanelManager::groupNoticeCopyContext(
+        QString(),
+        QStringLiteral(""),
+        9,
+        QStringLiteral(""),
+        0);
+    ok = expect(publicContext.groupName == QString::fromUtf8("公共聊天室")
+                    && publicContext.groupNumber == QString::fromUtf8("公共聊天室")
+                    && publicContext.memberCount == 9,
+                "public group copy context should fall back to public group defaults") && ok;
+
+    const GroupNoticeCopyContext createContext = NotificationPanelManager::groupNoticeCopyContext(
+        QStringLiteral("group_create:项目群"),
+        QStringLiteral("ignored"),
+        9,
+        QStringLiteral(""),
+        0);
+    ok = expect(createContext.groupName == QString::fromUtf8("项目群")
+                    && createContext.groupNumber == QString::fromUtf8("待创建")
+                    && createContext.memberCount == 1,
+                "create group copy context should keep create target name") && ok;
+
+    const GroupNoticeCopyContext localContext = NotificationPanelManager::groupNoticeCopyContext(
+        QStringLiteral("local_group_123"),
+        QStringLiteral("ignored"),
+        9,
+        QString::fromUtf8("项目群"),
+        0);
+    ok = expect(localContext.groupName == QString::fromUtf8("项目群")
+                    && localContext.groupNumber == QStringLiteral("123")
+                    && localContext.memberCount == 1,
+                "local group copy context should derive group number and guard minimum member count") && ok;
+
     const QString inviteText = NotificationPanelManager::groupNoticeInviteText(
         QString::fromUtf8("项目群"), QStringLiteral("123"), QString::fromUtf8("小明"), QStringLiteral("10001"));
     ok = expect(inviteText.contains(QString::fromUtf8("项目群"))
@@ -247,6 +280,26 @@ int main(int argc, char** argv) {
                     && batchPlanText.contains(QString::fromUtf8("可见群:1"))
                     && batchPlanText.contains(QString::fromUtf8("在线:4")),
                 "group batch plan text should summarize visible group counts") && ok;
+
+    ok = expect(NotificationPanelManager::groupNoticeBatchTargetText(
+                    QStringLiteral("group_create:项目群"),
+                    QStringLiteral(""),
+                    QStringLiteral(""),
+                    1,
+                    1) == QString::fromUtf8("待创建群:项目群")
+                    && NotificationPanelManager::groupNoticeBatchTargetText(
+                        QString(),
+                        QStringLiteral(""),
+                        QStringLiteral(""),
+                        9,
+                        9) == QString::fromUtf8("公共聊天室(成员:9,在线:9)")
+                    && NotificationPanelManager::groupNoticeBatchTargetText(
+                        QStringLiteral("local_group_123"),
+                        QString::fromUtf8("项目群"),
+                        QStringLiteral("123"),
+                        6,
+                        4) == QString::fromUtf8("项目群(群号:123,成员:6,在线:4)"),
+                "group batch target text should format create, public, and local groups") && ok;
 
     const QString mediaGuideText = NotificationPanelManager::groupNoticeMediaGuideText(
         QString::fromUtf8("项目群"), QStringLiteral("123"), 6, QString::fromUtf8("小明"), QStringLiteral("10001"));
