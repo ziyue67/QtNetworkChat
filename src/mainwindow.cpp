@@ -5784,51 +5784,26 @@ void MainWindow::onShowFriendNotifications() {
 
     auto fillList = [this, noticeList, statsLabel, searchEdit]() {
         noticeList->clear();
-        QString filter = searchEdit->text().trimmed();
-        int visibleCount = 0;
-        statsLabel->setText(QString("待处理 %1 个申请 · 已有好友 %2 人").arg(m_pendingFriendRequests.size()).arg(m_friendIds.size()));
-        if (m_pendingFriendRequests.isEmpty()) {
-            if (filter.isEmpty()) {
-                QListWidgetItem* emptyItem = new QListWidgetItem("暂无新的好友申请");
-                emptyItem->setFlags(Qt::NoItemFlags);
-                emptyItem->setForeground(QColor(135, 150, 165));
-                emptyItem->setSizeHint(QSize(0, 68));
-                emptyItem->setToolTip("当前没有待处理好友申请，可在搜索框输入 QQ 号后回车查找");
-                noticeList->addItem(emptyItem);
-            } else {
-                statsLabel->setText(QString("暂无待处理申请 · 可搜索 QQ:%1").arg(filter));
-                QListWidgetItem* searchItem = new QListWidgetItem(QString("暂无待处理申请，可直接搜索并添加 QQ:%1").arg(filter));
-                searchItem->setData(Qt::UserRole, "search_add:" + filter);
-                searchItem->setForeground(QColor(18, 150, 247));
-                searchItem->setSizeHint(QSize(0, 68));
-                searchItem->setToolTip(QString("选择后点击“搜索并添加”，或按回车搜索 QQ:%1").arg(filter));
-                noticeList->addItem(searchItem);
-                noticeList->setCurrentRow(0);
+        const FriendNoticeListRenderUiState renderState =
+            NotificationPanelManager::friendNoticeListRenderUiState(m_pendingFriendRequests,
+                                                                    m_friendNames,
+                                                                    m_friendIds.size(),
+                                                                    searchEdit->text());
+        statsLabel->setText(renderState.statsText);
+        for (const FriendNoticeListEntryUiState& entry : renderState.entries) {
+            QListWidgetItem* item = new QListWidgetItem(entry.text);
+            item->setData(Qt::UserRole, entry.entryId);
+            item->setSizeHint(QSize(0, entry.rowHeight));
+            item->setToolTip(entry.toolTip);
+            if (!entry.enabled) {
+                item->setFlags(Qt::NoItemFlags);
             }
-            return;
-        }
-        for (const QString& id : m_pendingFriendRequests) {
-            QString name = m_friendNames.value(id, id);
-            if (!filter.isEmpty()
-                && !id.contains(filter, Qt::CaseInsensitive)
-                && !name.contains(filter, Qt::CaseInsensitive)) continue;
-            QListWidgetItem* item = new QListWidgetItem(QString("%1  请求加为好友\n留言：请求添加对方为好友\n来源：QQ号-%2").arg(name, id));
-            item->setData(Qt::UserRole, id);
-            item->setSizeHint(QSize(0, 92));
-            item->setToolTip(QString("申请人 %1（QQ:%2），可同意、拒绝、复制名片或回复话术").arg(name, id));
+            if (entry.muted) {
+                item->setForeground(QColor(135, 150, 165));
+            } else if (entry.accent) {
+                item->setForeground(QColor(18, 150, 247));
+            }
             noticeList->addItem(item);
-            ++visibleCount;
-        }
-        statsLabel->setText(filter.isEmpty()
-            ? QString("待处理 %1 个申请 · 已有好友 %2 人").arg(m_pendingFriendRequests.size()).arg(m_friendIds.size())
-            : QString("待处理 %1 个申请 · 匹配 %2 个 · 已有好友 %3 人").arg(m_pendingFriendRequests.size()).arg(visibleCount).arg(m_friendIds.size()));
-        if (visibleCount == 0 && !filter.isEmpty()) {
-            QListWidgetItem* emptyItem = new QListWidgetItem(QString("未找到申请人，可清空搜索或直接添加 QQ:%1").arg(filter));
-            emptyItem->setData(Qt::UserRole, "search_add:" + filter);
-            emptyItem->setForeground(QColor(18, 150, 247));
-            emptyItem->setSizeHint(QSize(0, 68));
-            emptyItem->setToolTip(QString("没有匹配的好友申请，可直接搜索并添加 QQ:%1").arg(filter));
-            noticeList->addItem(emptyItem);
         }
         for (int i = 0; i < noticeList->count(); ++i) {
             if (noticeList->item(i)->flags().testFlag(Qt::ItemIsEnabled)) {

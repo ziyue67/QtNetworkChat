@@ -3,6 +3,8 @@
 
 #include <QString>
 #include <QStringList>
+#include <QList>
+#include <QMap>
 
 struct FriendNoticeActionState {
     bool acceptEnabled = false;
@@ -28,6 +30,21 @@ struct FriendNoticeActionState {
     QString rejectAllToolTip;
     bool clearEnabled = false;
     QString clearToolTip;
+};
+
+struct FriendNoticeListEntryUiState {
+    QString entryId;
+    QString text;
+    QString toolTip;
+    bool enabled = true;
+    bool muted = false;
+    bool accent = false;
+    int rowHeight = 68;
+};
+
+struct FriendNoticeListRenderUiState {
+    QString statsText;
+    QList<FriendNoticeListEntryUiState> entries;
 };
 
 struct GroupNoticeActionState {
@@ -57,6 +74,11 @@ struct GroupNoticeActionState {
 
 class NotificationPanelManager {
 public:
+    static FriendNoticeListRenderUiState friendNoticeListRenderUiState(
+        const QStringList& pendingFriendRequests,
+        const QMap<QString, QString>& friendNames,
+        int friendCount,
+        const QString& filter);
     static FriendNoticeActionState friendNoticeActionState(const QString& currentId,
                                                            bool hasPending,
                                                            bool hasSearchKeyword);

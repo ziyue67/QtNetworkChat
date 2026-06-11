@@ -18,6 +18,57 @@ int main(int argc, char** argv) {
 
     bool ok = true;
 
+    const FriendNoticeListRenderUiState emptyNoticeList =
+        NotificationPanelManager::friendNoticeListRenderUiState(QStringList(),
+                                                                QMap<QString, QString>(),
+                                                                2,
+                                                                QString());
+    ok = expect(emptyNoticeList.statsText == QString::fromUtf8("待处理 0 个申请 · 已有好友 2 人")
+                    && emptyNoticeList.entries.size() == 1
+                    && !emptyNoticeList.entries.first().enabled
+                    && emptyNoticeList.entries.first().muted
+                    && emptyNoticeList.entries.first().text == QString::fromUtf8("暂无新的好友申请"),
+                "empty friend notice list should render a muted placeholder") && ok;
+
+    const FriendNoticeListRenderUiState emptySearchNoticeList =
+        NotificationPanelManager::friendNoticeListRenderUiState(QStringList(),
+                                                                QMap<QString, QString>(),
+                                                                2,
+                                                                QStringLiteral("9988"));
+    ok = expect(emptySearchNoticeList.statsText == QString::fromUtf8("暂无待处理申请 · 可搜索 QQ:9988")
+                    && emptySearchNoticeList.entries.size() == 1
+                    && emptySearchNoticeList.entries.first().entryId == QStringLiteral("search_add:9988")
+                    && emptySearchNoticeList.entries.first().accent,
+                "empty filtered friend notice list should render a search-add entry") && ok;
+
+    QMap<QString, QString> applicantNames;
+    applicantNames.insert(QStringLiteral("10001"), QString::fromUtf8("小明"));
+    applicantNames.insert(QStringLiteral("20002"), QString::fromUtf8("小红"));
+    const FriendNoticeListRenderUiState filteredNoticeList =
+        NotificationPanelManager::friendNoticeListRenderUiState(
+            QStringList{QStringLiteral("10001"), QStringLiteral("20002")},
+            applicantNames,
+            3,
+            QString::fromUtf8("小明"));
+    ok = expect(filteredNoticeList.statsText == QString::fromUtf8("待处理 2 个申请 · 匹配 1 个 · 已有好友 3 人")
+                    && filteredNoticeList.entries.size() == 1
+                    && filteredNoticeList.entries.first().entryId == QStringLiteral("10001")
+                    && filteredNoticeList.entries.first().rowHeight == 92
+                    && filteredNoticeList.entries.first().text.contains(QString::fromUtf8("小明")),
+                "filtered friend notice list should keep matching applicants") && ok;
+
+    const FriendNoticeListRenderUiState missingFilteredNoticeList =
+        NotificationPanelManager::friendNoticeListRenderUiState(
+            QStringList{QStringLiteral("10001"), QStringLiteral("20002")},
+            applicantNames,
+            3,
+            QStringLiteral("9988"));
+    ok = expect(missingFilteredNoticeList.statsText == QString::fromUtf8("待处理 2 个申请 · 匹配 0 个 · 已有好友 3 人")
+                    && missingFilteredNoticeList.entries.size() == 1
+                    && missingFilteredNoticeList.entries.first().entryId == QStringLiteral("search_add:9988")
+                    && missingFilteredNoticeList.entries.first().accent,
+                "filtered friend notice list without matches should render search-add entry") && ok;
+
     const FriendNoticeActionState emptyFriendState =
         NotificationPanelManager::friendNoticeActionState(QString(), false, false);
     ok = expect(!emptyFriendState.acceptEnabled

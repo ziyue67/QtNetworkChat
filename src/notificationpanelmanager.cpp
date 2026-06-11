@@ -5,6 +5,78 @@ const QString kSearchAddPrefix = QStringLiteral("search_add:");
 const QString kGroupCreatePrefix = QStringLiteral("group_create:");
 }
 
+FriendNoticeListRenderUiState NotificationPanelManager::friendNoticeListRenderUiState(
+    const QStringList& pendingFriendRequests,
+    const QMap<QString, QString>& friendNames,
+    int friendCount,
+    const QString& filter) {
+    FriendNoticeListRenderUiState state;
+    const QString keyword = filter.trimmed();
+    int visibleCount = 0;
+    state.statsText = QStringLiteral("待处理 %1 个申请 · 已有好友 %2 人")
+        .arg(pendingFriendRequests.size())
+        .arg(friendCount);
+
+    if (pendingFriendRequests.isEmpty()) {
+        FriendNoticeListEntryUiState entry;
+        entry.enabled = false;
+        entry.muted = true;
+        entry.rowHeight = 68;
+        if (keyword.isEmpty()) {
+            entry.text = QStringLiteral("暂无新的好友申请");
+            entry.toolTip = QStringLiteral("当前没有待处理好友申请，可在搜索框输入 QQ 号后回车查找");
+        } else {
+            state.statsText = QStringLiteral("暂无待处理申请 · 可搜索 QQ:%1").arg(keyword);
+            entry.entryId = kSearchAddPrefix + keyword;
+            entry.text = QStringLiteral("暂无待处理申请，可直接搜索并添加 QQ:%1").arg(keyword);
+            entry.toolTip = QStringLiteral("选择后点击“搜索并添加”，或按回车搜索 QQ:%1").arg(keyword);
+            entry.enabled = true;
+            entry.muted = false;
+            entry.accent = true;
+        }
+        state.entries << entry;
+        return state;
+    }
+
+    for (const QString& id : pendingFriendRequests) {
+        const QString name = friendNames.value(id, id);
+        if (!keyword.isEmpty()
+                && !id.contains(keyword, Qt::CaseInsensitive)
+                && !name.contains(keyword, Qt::CaseInsensitive)) {
+            continue;
+        }
+        FriendNoticeListEntryUiState entry;
+        entry.entryId = id;
+        entry.text = QStringLiteral("%1  请求加为好友\n留言：请求添加对方为好友\n来源：QQ号-%2")
+            .arg(name, id);
+        entry.toolTip = QStringLiteral("申请人 %1（QQ:%2），可同意、拒绝、复制名片或回复话术")
+            .arg(name, id);
+        entry.rowHeight = 92;
+        state.entries << entry;
+        ++visibleCount;
+    }
+
+    state.statsText = keyword.isEmpty()
+        ? QStringLiteral("待处理 %1 个申请 · 已有好友 %2 人")
+            .arg(pendingFriendRequests.size())
+            .arg(friendCount)
+        : QStringLiteral("待处理 %1 个申请 · 匹配 %2 个 · 已有好友 %3 人")
+            .arg(pendingFriendRequests.size())
+            .arg(visibleCount)
+            .arg(friendCount);
+
+    if (visibleCount == 0 && !keyword.isEmpty()) {
+        FriendNoticeListEntryUiState entry;
+        entry.entryId = kSearchAddPrefix + keyword;
+        entry.text = QStringLiteral("未找到申请人，可清空搜索或直接添加 QQ:%1").arg(keyword);
+        entry.toolTip = QStringLiteral("没有匹配的好友申请，可直接搜索并添加 QQ:%1").arg(keyword);
+        entry.accent = true;
+        entry.rowHeight = 68;
+        state.entries << entry;
+    }
+    return state;
+}
+
 FriendNoticeActionState NotificationPanelManager::friendNoticeActionState(const QString& currentId,
                                                                           bool hasPending,
                                                                           bool hasSearchKeyword) {
