@@ -5,6 +5,145 @@ const QString kSearchAddPrefix = QStringLiteral("search_add:");
 const QString kGroupCreatePrefix = QStringLiteral("group_create:");
 }
 
+FriendNoticeDialogChrome NotificationPanelManager::friendNoticeDialogChrome() {
+    FriendNoticeDialogChrome chrome;
+    chrome.dialogSize = QSize(860, 660);
+    chrome.windowTitle = QStringLiteral("好友通知");
+    chrome.titleText = QStringLiteral("好友通知");
+    chrome.clearButton = {
+        QStringLiteral("清空"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("清空全部待处理好友申请，不会自动回复对方")
+    };
+    chrome.searchPlaceholder = QStringLiteral("搜索申请人 QQ 号 / 昵称");
+    chrome.searchToolTip = QStringLiteral("按 QQ 号或昵称筛选好友申请；回车可搜索账号");
+    chrome.previewPlaceholder = QStringLiteral("选择申请后可同意、拒绝、复制名片或回复话术");
+    chrome.acceptButton = {
+        QStringLiteral("同意"),
+        QStringLiteral("noticePrimaryBtn"),
+        QStringLiteral("同意当前选中的好友申请并加入好友列表")
+    };
+    chrome.acceptAllButton = {
+        QStringLiteral("一键同意全部"),
+        QStringLiteral("noticePrimaryBtn"),
+        QStringLiteral("确认后批量同意所有待处理好友申请")
+    };
+    chrome.rejectButton = {
+        QStringLiteral("拒绝"),
+        QStringLiteral("noticeDangerBtn"),
+        QStringLiteral("拒绝当前选中的好友申请")
+    };
+    chrome.rejectAllButton = {
+        QStringLiteral("一键拒绝全部"),
+        QStringLiteral("noticeDangerBtn"),
+        QStringLiteral("确认后批量拒绝所有待处理好友申请")
+    };
+    chrome.copyCardButton = {
+        QStringLiteral("复制名片"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制当前申请人的 QQ、昵称和来源")
+    };
+    chrome.copyInviteButton = {
+        QStringLiteral("复制申请话术"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制一段回复好友申请的礼貌话术")
+    };
+    chrome.copyAllButton = {
+        QStringLiteral("复制全部申请"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制所有待处理申请的 QQ、昵称和回复话术")
+    };
+    chrome.copyMediaPackButton = {
+        QStringLiteral("复制申请媒体包"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制同意好友后发送图片、视频或文件的准备摘要")
+    };
+    chrome.copyBatchPlanButton = {
+        QStringLiteral("复制申请处理计划"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制当前筛选申请的批量处理和媒体发送清单")
+    };
+    chrome.copyMediaGuideButton = {
+        QStringLiteral("复制上传指南"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制同意好友后发送图片、视频和文件的简短指南")
+    };
+    chrome.closeButton = {
+        QStringLiteral("关闭"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("关闭好友通知窗口")
+    };
+    return chrome;
+}
+
+GroupNoticeDialogChrome NotificationPanelManager::groupNoticeDialogChrome() {
+    GroupNoticeDialogChrome chrome;
+    chrome.dialogSize = QSize(880, 620);
+    chrome.windowTitle = QStringLiteral("群通知");
+    chrome.titleText = QStringLiteral("群通知");
+    chrome.countTextTemplate = QStringLiteral("已加入 %1 个群聊");
+    chrome.searchPlaceholder = QStringLiteral("搜索群名 / 群号 / 公告");
+    chrome.searchToolTip = QStringLiteral("按群名、群号或公告筛选；无结果时可按回车创建新群");
+    chrome.previewPlaceholder = QStringLiteral("选择群聊后可复制群号、公告、成员或入群话术");
+    chrome.hintPlaceholder = QStringLiteral("双击群通知可直接进入群聊");
+    chrome.openButton = {
+        QStringLiteral("进入选中群聊"),
+        QStringLiteral("noticePrimaryBtn"),
+        QStringLiteral("进入当前选中的公共聊天室或本地群聊")
+    };
+    chrome.copyIdButton = {
+        QStringLiteral("复制群号"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制当前选中群聊的群号")
+    };
+    chrome.copyCardButton = {
+        QStringLiteral("复制群名片"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制群名、群号、成员数和公告摘要")
+    };
+    chrome.copyAnnouncementButton = {
+        QStringLiteral("复制公告"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制当前选中群聊的公告内容")
+    };
+    chrome.copyInviteButton = {
+        QStringLiteral("复制入群话术"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制一段可直接发给好友的入群邀请")
+    };
+    chrome.copyMembersButton = {
+        QStringLiteral("复制成员"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制当前选中群聊的全部成员列表")
+    };
+    chrome.copyOnlineMembersButton = {
+        QStringLiteral("复制在线成员"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制当前群里在线成员的 QQ 和昵称")
+    };
+    chrome.copyMediaPackButton = {
+        QStringLiteral("复制群媒体包"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制群聊媒体发送前的目标、成员和话术摘要")
+    };
+    chrome.copyBatchPlanButton = {
+        QStringLiteral("复制群批量媒体计划"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制群聊批量发送图片、视频或文件的操作清单")
+    };
+    chrome.copyMediaGuideButton = {
+        QStringLiteral("复制上传指南"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("复制群聊中发送图片、视频和文件的简短指南")
+    };
+    chrome.closeButton = {
+        QStringLiteral("关闭"),
+        QStringLiteral("noticeGhostBtn"),
+        QStringLiteral("关闭群通知窗口")
+    };
+    return chrome;
+}
+
 QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
     return QStringLiteral(R"(
         QDialog#noticeDialog {

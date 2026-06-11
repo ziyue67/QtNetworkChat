@@ -296,6 +296,22 @@ int main(int argc, char** argv) {
                     && mediaPackText.contains(QString::fromUtf8("入群话术")),
                 "group media pack text should include member summary and invite copy") && ok;
 
+    const FriendNoticeDialogChrome friendChrome = NotificationPanelManager::friendNoticeDialogChrome();
+    ok = expect(friendChrome.dialogSize == QSize(860, 660)
+                    && friendChrome.windowTitle == QString::fromUtf8("好友通知")
+                    && friendChrome.searchPlaceholder.contains(QString::fromUtf8("申请人"))
+                    && friendChrome.acceptButton.objectName == QStringLiteral("noticePrimaryBtn")
+                    && friendChrome.copyMediaGuideButton.text == QString::fromUtf8("复制上传指南"),
+                "friend notice dialog chrome should centralize dialog shell and button copy") && ok;
+
+    const GroupNoticeDialogChrome groupChrome = NotificationPanelManager::groupNoticeDialogChrome();
+    ok = expect(groupChrome.dialogSize == QSize(880, 620)
+                    && groupChrome.windowTitle == QString::fromUtf8("群通知")
+                    && groupChrome.countTextTemplate == QString::fromUtf8("已加入 %1 个群聊")
+                    && groupChrome.openButton.objectName == QStringLiteral("noticePrimaryBtn")
+                    && groupChrome.copyBatchPlanButton.text == QString::fromUtf8("复制群批量媒体计划"),
+                "group notice dialog chrome should centralize title, count, and action copy") && ok;
+
     const QString friendDialogStyle = NotificationPanelManager::friendNoticeDialogStyleSheet();
     const QString groupDialogStyle = NotificationPanelManager::groupNoticeDialogStyleSheet();
     ok = expect(friendDialogStyle.contains(QStringLiteral("QDialog#noticeDialog"))

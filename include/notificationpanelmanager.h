@@ -5,6 +5,56 @@
 #include <QStringList>
 #include <QList>
 #include <QMap>
+#include <QSize>
+
+struct NoticeButtonSpec {
+    QString text;
+    QString objectName;
+    QString toolTip;
+};
+
+struct FriendNoticeDialogChrome {
+    QSize dialogSize;
+    QString windowTitle;
+    QString titleText;
+    NoticeButtonSpec clearButton;
+    QString searchPlaceholder;
+    QString searchToolTip;
+    QString previewPlaceholder;
+    NoticeButtonSpec acceptButton;
+    NoticeButtonSpec acceptAllButton;
+    NoticeButtonSpec rejectButton;
+    NoticeButtonSpec rejectAllButton;
+    NoticeButtonSpec copyCardButton;
+    NoticeButtonSpec copyInviteButton;
+    NoticeButtonSpec copyAllButton;
+    NoticeButtonSpec copyMediaPackButton;
+    NoticeButtonSpec copyBatchPlanButton;
+    NoticeButtonSpec copyMediaGuideButton;
+    NoticeButtonSpec closeButton;
+};
+
+struct GroupNoticeDialogChrome {
+    QSize dialogSize;
+    QString windowTitle;
+    QString titleText;
+    QString countTextTemplate;
+    QString searchPlaceholder;
+    QString searchToolTip;
+    QString previewPlaceholder;
+    QString hintPlaceholder;
+    NoticeButtonSpec openButton;
+    NoticeButtonSpec copyIdButton;
+    NoticeButtonSpec copyCardButton;
+    NoticeButtonSpec copyAnnouncementButton;
+    NoticeButtonSpec copyInviteButton;
+    NoticeButtonSpec copyMembersButton;
+    NoticeButtonSpec copyOnlineMembersButton;
+    NoticeButtonSpec copyMediaPackButton;
+    NoticeButtonSpec copyBatchPlanButton;
+    NoticeButtonSpec copyMediaGuideButton;
+    NoticeButtonSpec closeButton;
+};
 
 struct FriendNoticeActionState {
     bool acceptEnabled = false;
@@ -114,6 +164,8 @@ struct GroupNoticeCopyContext {
 
 class NotificationPanelManager {
 public:
+    static FriendNoticeDialogChrome friendNoticeDialogChrome();
+    static GroupNoticeDialogChrome groupNoticeDialogChrome();
     static QString friendNoticeDialogStyleSheet();
     static QString groupNoticeDialogStyleSheet();
     static FriendNoticeListRenderUiState friendNoticeListRenderUiState(

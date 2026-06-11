@@ -5712,23 +5712,24 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
 }
 
 void MainWindow::onShowFriendNotifications() {
+    const FriendNoticeDialogChrome chrome = NotificationPanelManager::friendNoticeDialogChrome();
     QDialog dialog(this);
     dialog.setObjectName("noticeDialog");
-    dialog.setWindowTitle("好友通知");
-    dialog.setFixedSize(860, 660);
+    dialog.setWindowTitle(chrome.windowTitle);
+    dialog.setFixedSize(chrome.dialogSize);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(18);
 
     QHBoxLayout* titleLayout = new QHBoxLayout;
-    QLabel* titleLabel = new QLabel("好友通知", &dialog);
+    QLabel* titleLabel = new QLabel(chrome.titleText, &dialog);
     titleLabel->setObjectName("noticeTitle");
     titleLayout->addWidget(titleLabel);
     titleLayout->addStretch();
-    QPushButton* clearBtn = new QPushButton("清空", &dialog);
-    clearBtn->setObjectName("noticeGhostBtn");
-    clearBtn->setToolTip("清空全部待处理好友申请，不会自动回复对方");
+    QPushButton* clearBtn = new QPushButton(chrome.clearButton.text, &dialog);
+    clearBtn->setObjectName(chrome.clearButton.objectName);
+    clearBtn->setToolTip(chrome.clearButton.toolTip);
     titleLayout->addWidget(clearBtn);
     layout->addLayout(titleLayout);
 
@@ -5738,9 +5739,9 @@ void MainWindow::onShowFriendNotifications() {
 
     QLineEdit* searchEdit = new QLineEdit(&dialog);
     searchEdit->setObjectName("noticeSearch");
-    searchEdit->setPlaceholderText("搜索申请人 QQ 号 / 昵称");
+    searchEdit->setPlaceholderText(chrome.searchPlaceholder);
     searchEdit->setClearButtonEnabled(true);
-    searchEdit->setToolTip("按 QQ 号或昵称筛选好友申请；回车可搜索账号");
+    searchEdit->setToolTip(chrome.searchToolTip);
     layout->addWidget(searchEdit);
 
     QListWidget* noticeList = new QListWidget(&dialog);
@@ -5780,7 +5781,7 @@ void MainWindow::onShowFriendNotifications() {
     };
     fillList();
 
-    QLabel* requestPreviewLabel = new QLabel("选择申请后可同意、拒绝、复制名片或回复话术", &dialog);
+    QLabel* requestPreviewLabel = new QLabel(chrome.previewPlaceholder, &dialog);
     requestPreviewLabel->setObjectName("noticePreviewLabel");
     layout->addWidget(requestPreviewLabel);
 
@@ -5792,39 +5793,39 @@ void MainWindow::onShowFriendNotifications() {
     copyButtonLayout->setSpacing(8);
     QHBoxLayout* mediaButtonLayout = new QHBoxLayout;
     mediaButtonLayout->setSpacing(8);
-    QPushButton* acceptBtn = new QPushButton("同意", &dialog);
-    acceptBtn->setObjectName("noticePrimaryBtn");
-    acceptBtn->setToolTip("同意当前选中的好友申请并加入好友列表");
-    QPushButton* acceptAllBtn = new QPushButton("一键同意全部", &dialog);
-    acceptAllBtn->setObjectName("noticePrimaryBtn");
-    acceptAllBtn->setToolTip("确认后批量同意所有待处理好友申请");
-    QPushButton* rejectBtn = new QPushButton("拒绝", &dialog);
-    rejectBtn->setObjectName("noticeDangerBtn");
-    rejectBtn->setToolTip("拒绝当前选中的好友申请");
-    QPushButton* rejectAllBtn = new QPushButton("一键拒绝全部", &dialog);
-    rejectAllBtn->setObjectName("noticeDangerBtn");
-    rejectAllBtn->setToolTip("确认后批量拒绝所有待处理好友申请");
-    QPushButton* copyBtn = new QPushButton("复制名片", &dialog);
-    copyBtn->setObjectName("noticeGhostBtn");
-    copyBtn->setToolTip("复制当前申请人的 QQ、昵称和来源");
-    QPushButton* copyInviteBtn = new QPushButton("复制申请话术", &dialog);
-    copyInviteBtn->setObjectName("noticeGhostBtn");
-    copyInviteBtn->setToolTip("复制一段回复好友申请的礼貌话术");
-    QPushButton* copyAllBtn = new QPushButton("复制全部申请", &dialog);
-    copyAllBtn->setObjectName("noticeGhostBtn");
-    copyAllBtn->setToolTip("复制所有待处理申请的 QQ、昵称和回复话术");
-    QPushButton* copyRequestMediaPackBtn = new QPushButton("复制申请媒体包", &dialog);
-    copyRequestMediaPackBtn->setObjectName("noticeGhostBtn");
-    copyRequestMediaPackBtn->setToolTip("复制同意好友后发送图片、视频或文件的准备摘要");
-    QPushButton* copyRequestBatchPlanBtn = new QPushButton("复制申请处理计划", &dialog);
-    copyRequestBatchPlanBtn->setObjectName("noticeGhostBtn");
-    copyRequestBatchPlanBtn->setToolTip("复制当前筛选申请的批量处理和媒体发送清单");
-    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
-    copyMediaGuideBtn->setObjectName("noticeGhostBtn");
-    copyMediaGuideBtn->setToolTip("复制同意好友后发送图片、视频和文件的简短指南");
-    QPushButton* closeBtn = new QPushButton("关闭", &dialog);
-    closeBtn->setObjectName("noticeGhostBtn");
-    closeBtn->setToolTip("关闭好友通知窗口");
+    QPushButton* acceptBtn = new QPushButton(chrome.acceptButton.text, &dialog);
+    acceptBtn->setObjectName(chrome.acceptButton.objectName);
+    acceptBtn->setToolTip(chrome.acceptButton.toolTip);
+    QPushButton* acceptAllBtn = new QPushButton(chrome.acceptAllButton.text, &dialog);
+    acceptAllBtn->setObjectName(chrome.acceptAllButton.objectName);
+    acceptAllBtn->setToolTip(chrome.acceptAllButton.toolTip);
+    QPushButton* rejectBtn = new QPushButton(chrome.rejectButton.text, &dialog);
+    rejectBtn->setObjectName(chrome.rejectButton.objectName);
+    rejectBtn->setToolTip(chrome.rejectButton.toolTip);
+    QPushButton* rejectAllBtn = new QPushButton(chrome.rejectAllButton.text, &dialog);
+    rejectAllBtn->setObjectName(chrome.rejectAllButton.objectName);
+    rejectAllBtn->setToolTip(chrome.rejectAllButton.toolTip);
+    QPushButton* copyBtn = new QPushButton(chrome.copyCardButton.text, &dialog);
+    copyBtn->setObjectName(chrome.copyCardButton.objectName);
+    copyBtn->setToolTip(chrome.copyCardButton.toolTip);
+    QPushButton* copyInviteBtn = new QPushButton(chrome.copyInviteButton.text, &dialog);
+    copyInviteBtn->setObjectName(chrome.copyInviteButton.objectName);
+    copyInviteBtn->setToolTip(chrome.copyInviteButton.toolTip);
+    QPushButton* copyAllBtn = new QPushButton(chrome.copyAllButton.text, &dialog);
+    copyAllBtn->setObjectName(chrome.copyAllButton.objectName);
+    copyAllBtn->setToolTip(chrome.copyAllButton.toolTip);
+    QPushButton* copyRequestMediaPackBtn = new QPushButton(chrome.copyMediaPackButton.text, &dialog);
+    copyRequestMediaPackBtn->setObjectName(chrome.copyMediaPackButton.objectName);
+    copyRequestMediaPackBtn->setToolTip(chrome.copyMediaPackButton.toolTip);
+    QPushButton* copyRequestBatchPlanBtn = new QPushButton(chrome.copyBatchPlanButton.text, &dialog);
+    copyRequestBatchPlanBtn->setObjectName(chrome.copyBatchPlanButton.objectName);
+    copyRequestBatchPlanBtn->setToolTip(chrome.copyBatchPlanButton.toolTip);
+    QPushButton* copyMediaGuideBtn = new QPushButton(chrome.copyMediaGuideButton.text, &dialog);
+    copyMediaGuideBtn->setObjectName(chrome.copyMediaGuideButton.objectName);
+    copyMediaGuideBtn->setToolTip(chrome.copyMediaGuideButton.toolTip);
+    QPushButton* closeBtn = new QPushButton(chrome.closeButton.text, &dialog);
+    closeBtn->setObjectName(chrome.closeButton.objectName);
+    closeBtn->setToolTip(chrome.closeButton.toolTip);
     decisionButtonLayout->addWidget(acceptBtn);
     decisionButtonLayout->addWidget(acceptAllBtn);
     decisionButtonLayout->addWidget(rejectBtn);
@@ -6127,30 +6128,31 @@ void MainWindow::onShowFriendNotifications() {
 }
 
 void MainWindow::onShowGroupNotifications() {
+    const GroupNoticeDialogChrome chrome = NotificationPanelManager::groupNoticeDialogChrome();
     QDialog dialog(this);
     dialog.setObjectName("noticeDialog");
-    dialog.setWindowTitle("群通知");
-    dialog.setFixedSize(880, 620);
+    dialog.setWindowTitle(chrome.windowTitle);
+    dialog.setFixedSize(chrome.dialogSize);
 
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(18);
 
     QHBoxLayout* titleLayout = new QHBoxLayout;
-    QLabel* titleLabel = new QLabel("群通知", &dialog);
+    QLabel* titleLabel = new QLabel(chrome.titleText, &dialog);
     titleLabel->setObjectName("noticeTitle");
     titleLayout->addWidget(titleLabel);
     titleLayout->addStretch();
-    QLabel* countLabel = new QLabel(QString("已加入 %1 个群聊").arg(m_localGroupIds.size() + 1), &dialog);
+    QLabel* countLabel = new QLabel(chrome.countTextTemplate.arg(m_localGroupIds.size() + 1), &dialog);
     countLabel->setObjectName("noticeSubTitle");
     titleLayout->addWidget(countLabel);
     layout->addLayout(titleLayout);
 
     QLineEdit* searchEdit = new QLineEdit(&dialog);
     searchEdit->setObjectName("noticeSearch");
-    searchEdit->setPlaceholderText("搜索群名 / 群号 / 公告");
+    searchEdit->setPlaceholderText(chrome.searchPlaceholder);
     searchEdit->setClearButtonEnabled(true);
-    searchEdit->setToolTip("按群名、群号或公告筛选；无结果时可按回车创建新群");
+    searchEdit->setToolTip(chrome.searchToolTip);
     layout->addWidget(searchEdit);
 
     QListWidget* noticeList = new QListWidget(&dialog);
@@ -6192,7 +6194,7 @@ void MainWindow::onShowGroupNotifications() {
     };
     fillGroups();
 
-    QLabel* groupPreviewLabel = new QLabel("选择群聊后可复制群号、公告、成员或入群话术", &dialog);
+    QLabel* groupPreviewLabel = new QLabel(chrome.previewPlaceholder, &dialog);
     groupPreviewLabel->setObjectName("noticePreviewLabel");
     layout->addWidget(groupPreviewLabel);
     layout->addWidget(noticeList, 1);
@@ -6206,43 +6208,43 @@ void MainWindow::onShowGroupNotifications() {
     groupMemberActionLayout->setSpacing(8);
     QHBoxLayout* groupMediaActionLayout = new QHBoxLayout;
     groupMediaActionLayout->setSpacing(8);
-    QLabel* hintLabel = new QLabel("双击群通知可直接进入群聊", &dialog);
+    QLabel* hintLabel = new QLabel(chrome.hintPlaceholder, &dialog);
     hintLabel->setObjectName("noticeHint");
     hintLayout->addWidget(hintLabel);
     hintLayout->addStretch();
-    QPushButton* openBtn = new QPushButton("进入选中群聊", &dialog);
-    openBtn->setObjectName("noticePrimaryBtn");
-    openBtn->setToolTip("进入当前选中的公共聊天室或本地群聊");
-    QPushButton* copyBtn = new QPushButton("复制群号", &dialog);
-    copyBtn->setObjectName("noticeGhostBtn");
-    copyBtn->setToolTip("复制当前选中群聊的群号");
-    QPushButton* cardBtn = new QPushButton("复制群名片", &dialog);
-    cardBtn->setObjectName("noticeGhostBtn");
-    cardBtn->setToolTip("复制群名、群号、成员数和公告摘要");
-    QPushButton* announceBtn = new QPushButton("复制公告", &dialog);
-    announceBtn->setObjectName("noticeGhostBtn");
-    announceBtn->setToolTip("复制当前选中群聊的公告内容");
-    QPushButton* inviteTextBtn = new QPushButton("复制入群话术", &dialog);
-    inviteTextBtn->setObjectName("noticeGhostBtn");
-    inviteTextBtn->setToolTip("复制一段可直接发给好友的入群邀请");
-    QPushButton* memberBtn = new QPushButton("复制成员", &dialog);
-    memberBtn->setObjectName("noticeGhostBtn");
-    memberBtn->setToolTip("复制当前选中群聊的全部成员列表");
-    QPushButton* onlineMemberBtn = new QPushButton("复制在线成员", &dialog);
-    onlineMemberBtn->setObjectName("noticeGhostBtn");
-    onlineMemberBtn->setToolTip("复制当前群里在线成员的 QQ 和昵称");
-    QPushButton* copyGroupMediaPackBtn = new QPushButton("复制群媒体包", &dialog);
-    copyGroupMediaPackBtn->setObjectName("noticeGhostBtn");
-    copyGroupMediaPackBtn->setToolTip("复制群聊媒体发送前的目标、成员和话术摘要");
-    QPushButton* copyGroupBatchPlanBtn = new QPushButton("复制群批量媒体计划", &dialog);
-    copyGroupBatchPlanBtn->setObjectName("noticeGhostBtn");
-    copyGroupBatchPlanBtn->setToolTip("复制群聊批量发送图片、视频或文件的操作清单");
-    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
-    copyMediaGuideBtn->setObjectName("noticeGhostBtn");
-    copyMediaGuideBtn->setToolTip("复制群聊中发送图片、视频和文件的简短指南");
-    QPushButton* closeBtn = new QPushButton("关闭", &dialog);
-    closeBtn->setObjectName("noticeGhostBtn");
-    closeBtn->setToolTip("关闭群通知窗口");
+    QPushButton* openBtn = new QPushButton(chrome.openButton.text, &dialog);
+    openBtn->setObjectName(chrome.openButton.objectName);
+    openBtn->setToolTip(chrome.openButton.toolTip);
+    QPushButton* copyBtn = new QPushButton(chrome.copyIdButton.text, &dialog);
+    copyBtn->setObjectName(chrome.copyIdButton.objectName);
+    copyBtn->setToolTip(chrome.copyIdButton.toolTip);
+    QPushButton* cardBtn = new QPushButton(chrome.copyCardButton.text, &dialog);
+    cardBtn->setObjectName(chrome.copyCardButton.objectName);
+    cardBtn->setToolTip(chrome.copyCardButton.toolTip);
+    QPushButton* announceBtn = new QPushButton(chrome.copyAnnouncementButton.text, &dialog);
+    announceBtn->setObjectName(chrome.copyAnnouncementButton.objectName);
+    announceBtn->setToolTip(chrome.copyAnnouncementButton.toolTip);
+    QPushButton* inviteTextBtn = new QPushButton(chrome.copyInviteButton.text, &dialog);
+    inviteTextBtn->setObjectName(chrome.copyInviteButton.objectName);
+    inviteTextBtn->setToolTip(chrome.copyInviteButton.toolTip);
+    QPushButton* memberBtn = new QPushButton(chrome.copyMembersButton.text, &dialog);
+    memberBtn->setObjectName(chrome.copyMembersButton.objectName);
+    memberBtn->setToolTip(chrome.copyMembersButton.toolTip);
+    QPushButton* onlineMemberBtn = new QPushButton(chrome.copyOnlineMembersButton.text, &dialog);
+    onlineMemberBtn->setObjectName(chrome.copyOnlineMembersButton.objectName);
+    onlineMemberBtn->setToolTip(chrome.copyOnlineMembersButton.toolTip);
+    QPushButton* copyGroupMediaPackBtn = new QPushButton(chrome.copyMediaPackButton.text, &dialog);
+    copyGroupMediaPackBtn->setObjectName(chrome.copyMediaPackButton.objectName);
+    copyGroupMediaPackBtn->setToolTip(chrome.copyMediaPackButton.toolTip);
+    QPushButton* copyGroupBatchPlanBtn = new QPushButton(chrome.copyBatchPlanButton.text, &dialog);
+    copyGroupBatchPlanBtn->setObjectName(chrome.copyBatchPlanButton.objectName);
+    copyGroupBatchPlanBtn->setToolTip(chrome.copyBatchPlanButton.toolTip);
+    QPushButton* copyMediaGuideBtn = new QPushButton(chrome.copyMediaGuideButton.text, &dialog);
+    copyMediaGuideBtn->setObjectName(chrome.copyMediaGuideButton.objectName);
+    copyMediaGuideBtn->setToolTip(chrome.copyMediaGuideButton.toolTip);
+    QPushButton* closeBtn = new QPushButton(chrome.closeButton.text, &dialog);
+    closeBtn->setObjectName(chrome.closeButton.objectName);
+    closeBtn->setToolTip(chrome.closeButton.toolTip);
     groupMainActionLayout->addWidget(openBtn);
     groupMainActionLayout->addWidget(copyBtn);
     groupMainActionLayout->addWidget(cardBtn);
