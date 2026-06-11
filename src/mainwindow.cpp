@@ -4785,17 +4785,25 @@ void MainWindow::onShowFriendManager() {
         }
         copyTextWithStatus(id, "QQ 号已复制: " + id, 2500);
     });
-    connect(copyAllBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
-        QStringList cards;
-        const QStringList visibleIds = visibleFriendManagerIds(friendList);
-        for (const QString& id : visibleIds) {
-            cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+    auto friendCopyInputs = [this](const QStringList& friendIds) {
+        QList<FriendManagerContactCopyInput> inputs;
+        for (const QString& id : friendIds) {
+            FriendManagerContactCopyInput input;
+            input.userId = id;
+            input.displayName = contactDisplayName(id);
+            input.online = isContactOnline(id);
+            inputs << input;
         }
-        if (cards.isEmpty()) {
-            ui->statusbar->showMessage("当前筛选没有可复制好友", 2200);
+        return inputs;
+    };
+    connect(copyAllBtn, &QPushButton::clicked, &dialog, [this, friendList, friendCopyInputs]() {
+        const FriendManagerContactCopyState state =
+            FriendManager::managerContactCopyState(friendCopyInputs(visibleFriendManagerIds(friendList)), false);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
             return;
         }
-        copyTextWithStatus(cards.join('\n'), QString("已复制 %1 个可见好友").arg(cards.size()), 2200);
+        copyTextWithStatus(state.rows.join('\n'), state.copiedStatusMessage, 2200);
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QString id;
@@ -4835,18 +4843,14 @@ void MainWindow::onShowFriendManager() {
             .arg(visibleRows.isEmpty() ? "无" : visibleRows.join("、"));
         copyTextWithStatus(text, "好友统计已复制", 2200);
     });
-    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
-        QStringList rows;
-        const QStringList visibleIds = visibleFriendManagerIds(friendList);
-        for (const QString& id : visibleIds) {
-            if (!isContactOnline(id)) continue;
-            rows << QString("在线好友 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
-        }
-        if (rows.isEmpty()) {
-            ui->statusbar->showMessage("当前筛选没有在线好友", 2200);
+    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, friendList, friendCopyInputs]() {
+        const FriendManagerContactCopyState state =
+            FriendManager::managerContactCopyState(friendCopyInputs(visibleFriendManagerIds(friendList)), true);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
             return;
         }
-        copyTextWithStatus(rows.join('\n'), QString("已复制 %1 个在线好友").arg(rows.size()), 2200);
+        copyTextWithStatus(state.rows.join('\n'), state.copiedStatusMessage, 2200);
     });
     connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
         QString keyword = searchEdit->text().trimmed();

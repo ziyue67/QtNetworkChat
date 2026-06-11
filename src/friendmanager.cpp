@@ -145,6 +145,40 @@ FriendManagerSelectionPreviewUiState FriendManager::managerSelectionPreviewUiSta
     return state;
 }
 
+FriendManagerContactCopyState FriendManager::managerContactCopyState(
+    const QList<FriendManagerContactCopyInput>& contacts,
+    bool onlineOnly) {
+    FriendManagerContactCopyState state;
+    for (const FriendManagerContactCopyInput& contact : contacts) {
+        const QString userId = contact.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        if (onlineOnly && !contact.online) {
+            continue;
+        }
+        const QString displayName = contact.displayName.trimmed().isEmpty()
+            ? userId
+            : contact.displayName.trimmed();
+        if (onlineOnly) {
+            state.rows << QStringLiteral("在线好友 QQ:%1 昵称:%2")
+                .arg(userId, displayName);
+        } else {
+            state.rows << QStringLiteral("QQ:%1 昵称:%2 状态:%3")
+                .arg(userId,
+                     displayName,
+                     contact.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+    }
+    state.emptyStatusMessage = onlineOnly
+        ? QStringLiteral("当前筛选没有在线好友")
+        : QStringLiteral("当前筛选没有可复制好友");
+    state.copiedStatusMessage = onlineOnly
+        ? QStringLiteral("已复制 %1 个在线好友").arg(state.rows.size())
+        : QStringLiteral("已复制 %1 个可见好友").arg(state.rows.size());
+    return state;
+}
+
 QString FriendManager::managerSelectionPreviewText(const QString& entryId,
                                                    const QString& displayName,
                                                    bool online,

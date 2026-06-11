@@ -42,6 +42,18 @@ struct FriendManagerSelectionPreviewUiState {
     QString text;
 };
 
+struct FriendManagerContactCopyInput {
+    QString userId;
+    QString displayName;
+    bool online = false;
+};
+
+struct FriendManagerContactCopyState {
+    QStringList rows;
+    QString emptyStatusMessage;
+    QString copiedStatusMessage;
+};
+
 struct FriendQuickAddSuggestionEntryUiState {
     QString entryId;
     QString text;
@@ -92,6 +104,9 @@ public:
                                                                                const QString& displayName,
                                                                                bool online,
                                                                                bool canInviteCurrentGroup);
+    static FriendManagerContactCopyState managerContactCopyState(
+        const QList<FriendManagerContactCopyInput>& contacts,
+        bool onlineOnly);
     static QString managerSelectionPreviewText(const QString& entryId,
                                                const QString& displayName,
                                                bool online,

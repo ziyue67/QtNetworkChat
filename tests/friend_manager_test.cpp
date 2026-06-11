@@ -145,6 +145,38 @@ int main(int argc, char** argv) {
                     && friendPreviewState.text.contains(QString::fromUtf8("可邀入当前群")),
                 "friend manager selection preview ui state should mirror preview text") && ok;
 
+    FriendManagerContactCopyInput aliceCopy;
+    aliceCopy.userId = QStringLiteral("1001");
+    aliceCopy.displayName = QStringLiteral("Alice");
+    aliceCopy.online = true;
+    FriendManagerContactCopyInput carolCopy;
+    carolCopy.userId = QStringLiteral("1003");
+    carolCopy.displayName = QStringLiteral("Carol");
+    carolCopy.online = false;
+    const FriendManagerContactCopyState allCopy =
+        FriendManager::managerContactCopyState(QList<FriendManagerContactCopyInput>{aliceCopy, carolCopy},
+                                               false);
+    ok = expect(allCopy.rows.size() == 2
+                    && allCopy.rows.first() == QString::fromUtf8("QQ:1001 昵称:Alice 状态:在线")
+                    && allCopy.rows.last() == QString::fromUtf8("QQ:1003 昵称:Carol 状态:离线")
+                    && allCopy.copiedStatusMessage == QString::fromUtf8("已复制 2 个可见好友"),
+                "friend manager copy state should render visible friends with online status") && ok;
+
+    const FriendManagerContactCopyState onlineCopy =
+        FriendManager::managerContactCopyState(QList<FriendManagerContactCopyInput>{aliceCopy, carolCopy},
+                                               true);
+    ok = expect(onlineCopy.rows.size() == 1
+                    && onlineCopy.rows.first() == QString::fromUtf8("在线好友 QQ:1001 昵称:Alice")
+                    && onlineCopy.emptyStatusMessage == QString::fromUtf8("当前筛选没有在线好友"),
+                "friend manager online copy state should keep online friends only") && ok;
+
+    const FriendManagerContactCopyState emptyOnlineCopy =
+        FriendManager::managerContactCopyState(QList<FriendManagerContactCopyInput>{carolCopy},
+                                               true);
+    ok = expect(emptyOnlineCopy.rows.isEmpty()
+                    && emptyOnlineCopy.copiedStatusMessage == QString::fromUtf8("已复制 0 个在线好友"),
+                "friend manager online copy state should expose empty guidance when no rows remain") && ok;
+
     QMap<QString, ChatUser> quickKnownUsers;
     quickKnownUsers.insert(QStringLiteral("self"), user(QStringLiteral("self"), QStringLiteral("Me"), true));
     quickKnownUsers.insert(QStringLiteral("1001"), user(QStringLiteral("1001"), QStringLiteral("Alice"), true));
