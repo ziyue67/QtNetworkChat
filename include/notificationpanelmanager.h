@@ -2,6 +2,7 @@
 #define NOTIFICATIONPANELMANAGER_H
 
 #include <QString>
+#include <QStringList>
 
 struct FriendNoticeActionState {
     bool acceptEnabled = false;
@@ -70,6 +71,26 @@ public:
                                           const QString& groupNumber,
                                           int memberCount,
                                           int publicOnlineCount);
+    static QString groupNoticeInviteText(const QString& groupName,
+                                         const QString& groupNumber,
+                                         const QString& currentUserName,
+                                         const QString& currentUserId);
+    static QString groupNoticeMediaPackText(const QString& groupName,
+                                            const QString& groupNumber,
+                                            int memberCount,
+                                            const QString& currentUserName,
+                                            const QString& currentUserId);
+    static QString groupNoticeBatchPlanText(const QString& keyword,
+                                            const QStringList& groups,
+                                            int totalMembers,
+                                            int onlineMembers,
+                                            const QString& currentUserName,
+                                            const QString& currentUserId);
+    static QString groupNoticeMediaGuideText(const QString& groupName,
+                                             const QString& groupNumber,
+                                             int memberCount,
+                                             const QString& currentUserName,
+                                             const QString& currentUserId);
     static bool isSearchAddEntryId(const QString& entryId);
     static QString searchAddEntryTarget(const QString& entryId);
     static bool isGroupCreateEntryId(const QString& entryId);

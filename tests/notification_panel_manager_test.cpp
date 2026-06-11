@@ -79,6 +79,39 @@ int main(int argc, char** argv) {
                     && NotificationPanelManager::groupNoticePreviewText(QStringLiteral("local_group_123"), QString::fromUtf8("项目群"), QStringLiteral("123"), 6, 0).contains(QString::fromUtf8("成员6人")),
                 "group preview text should cover public, create, and local group modes") && ok;
 
+    const QString inviteText = NotificationPanelManager::groupNoticeInviteText(
+        QString::fromUtf8("项目群"), QStringLiteral("123"), QString::fromUtf8("小明"), QStringLiteral("10001"));
+    ok = expect(inviteText.contains(QString::fromUtf8("项目群"))
+                    && inviteText.contains(QStringLiteral("123"))
+                    && inviteText.contains(QStringLiteral("10001")),
+                "group invite text should include target group and current user") && ok;
+
+    const QString mediaPackText = NotificationPanelManager::groupNoticeMediaPackText(
+        QString::fromUtf8("项目群"), QStringLiteral("123"), 6, QString::fromUtf8("小明"), QStringLiteral("10001"));
+    ok = expect(mediaPackText.contains(QString::fromUtf8("群媒体包"))
+                    && mediaPackText.contains(QString::fromUtf8("群成员:6"))
+                    && mediaPackText.contains(QString::fromUtf8("入群话术")),
+                "group media pack text should include member summary and invite copy") && ok;
+
+    const QString batchPlanText = NotificationPanelManager::groupNoticeBatchPlanText(
+        QString::fromUtf8("项目"),
+        QStringList{QString::fromUtf8("项目群(群号:123,成员:6,在线:4)")},
+        6,
+        4,
+        QString::fromUtf8("小明"),
+        QStringLiteral("10001"));
+    ok = expect(batchPlanText.contains(QString::fromUtf8("筛选:项目"))
+                    && batchPlanText.contains(QString::fromUtf8("可见群:1"))
+                    && batchPlanText.contains(QString::fromUtf8("在线:4")),
+                "group batch plan text should summarize visible group counts") && ok;
+
+    const QString mediaGuideText = NotificationPanelManager::groupNoticeMediaGuideText(
+        QString::fromUtf8("项目群"), QStringLiteral("123"), 6, QString::fromUtf8("小明"), QStringLiteral("10001"));
+    ok = expect(mediaGuideText.contains(QString::fromUtf8("群上传指南"))
+                    && mediaGuideText.contains(QString::fromUtf8("群成员:6"))
+                    && mediaGuideText.contains(QString::fromUtf8("图片/视频")),
+                "group media guide text should cover upload guidance") && ok;
+
     ok = expect(NotificationPanelManager::isSearchAddEntryId(QStringLiteral("search_add:1"))
                     && NotificationPanelManager::searchAddEntryTarget(QStringLiteral("search_add:9988")) == QStringLiteral("9988")
                     && NotificationPanelManager::isGroupCreateEntryId(QStringLiteral("group_create:abc"))

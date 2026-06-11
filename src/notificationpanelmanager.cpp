@@ -165,6 +165,69 @@ QString NotificationPanelManager::groupNoticePreviewText(const QString& currentI
         .arg(groupName, groupNumber, QString::number(memberCount));
 }
 
+QString NotificationPanelManager::groupNoticeInviteText(const QString& groupName,
+                                                        const QString& groupNumber,
+                                                        const QString& currentUserName,
+                                                        const QString& currentUserId) {
+    return QStringLiteral("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后可以一起聊天、发图片和传文件。")
+        .arg(groupName, groupNumber, currentUserName, currentUserId);
+}
+
+QString NotificationPanelManager::groupNoticeMediaPackText(const QString& groupName,
+                                                           const QString& groupNumber,
+                                                           int memberCount,
+                                                           const QString& currentUserName,
+                                                           const QString& currentUserId) {
+    QStringList rows;
+    rows << QStringLiteral("群媒体包 · %1 · 群号:%2").arg(groupName, groupNumber);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 群成员:%3")
+                .arg(currentUserId, currentUserName, QString::number(memberCount));
+    rows << QStringLiteral("群内可直接发送图片/视频，也可用闪传文件发送文档和压缩包");
+    rows << QStringLiteral("支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包");
+    rows << QStringLiteral("入群话术：%1")
+                .arg(groupNoticeInviteText(groupName, groupNumber, currentUserName, currentUserId));
+    rows << QStringLiteral("查收话术：我已发送媒体文件到群聊“%1”，请注意查收。").arg(groupName);
+    return rows.join('\n');
+}
+
+QString NotificationPanelManager::groupNoticeBatchPlanText(const QString& keyword,
+                                                           const QStringList& groups,
+                                                           int totalMembers,
+                                                           int onlineMembers,
+                                                           const QString& currentUserName,
+                                                           const QString& currentUserId) {
+    QStringList rows;
+    rows << QStringLiteral("群批量媒体计划 · 筛选:%1").arg(keyword.isEmpty() ? QStringLiteral("全部群通知") : keyword);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 可见群:%3 · 成员:%4 · 在线:%5")
+                .arg(currentUserId,
+                     currentUserName,
+                     QString::number(groups.size()),
+                     QString::number(totalMembers),
+                     QString::number(onlineMembers));
+    rows << QStringLiteral("群聊目标:%1").arg(groups.isEmpty() ? QStringLiteral("无可见群聊") : groups.join(QStringLiteral("、")));
+    rows << QStringLiteral("1. 先处理待创建群或打开已有群聊");
+    rows << QStringLiteral("2. 图片/GIF/视频走图片视频入口，文档和压缩包走闪传文件");
+    rows << QStringLiteral("3. 发送后复制群媒体包、上传指南和查收话术给群成员");
+    rows << QStringLiteral("4. 可按筛选关键词分批发送，优先覆盖在线成员较多的群聊");
+    return rows.join('\n');
+}
+
+QString NotificationPanelManager::groupNoticeMediaGuideText(const QString& groupName,
+                                                            const QString& groupNumber,
+                                                            int memberCount,
+                                                            const QString& currentUserName,
+                                                            const QString& currentUserId) {
+    QStringList rows;
+    rows << QStringLiteral("群上传指南 · %1 · 群号:%2").arg(groupName, groupNumber);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 群成员:%3")
+                .arg(currentUserId, currentUserName, QString::number(memberCount));
+    rows << QStringLiteral("图片/视频：支持 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm");
+    rows << QStringLiteral("闪传文件：支持文档、压缩包和媒体文件");
+    rows << QStringLiteral("聊天记录右键可复制媒体卡片和查收话术");
+    rows << QStringLiteral("可先复制入群话术邀请好友，进群后直接发送图片/视频/文件");
+    return rows.join('\n');
+}
+
 bool NotificationPanelManager::isSearchAddEntryId(const QString& entryId) {
     return entryId.startsWith(kSearchAddPrefix);
 }

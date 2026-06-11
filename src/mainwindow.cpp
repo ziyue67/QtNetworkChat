@@ -6767,9 +6767,8 @@ void MainWindow::onShowGroupNotifications() {
         } else if (groupName.isEmpty()) {
             groupName = "公共聊天室";
         }
-        QString text = QString("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后可以一起聊天、发图片和传文件。")
-            .arg(groupName, groupNumber, m_currentUserName, m_currentUserId);
-        QApplication::clipboard()->setText(text);
+        QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeInviteText(
+            groupName, groupNumber, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("入群邀请话术已复制", 2200);
     });
     connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds]() {
@@ -6829,14 +6828,8 @@ void MainWindow::onShowGroupNotifications() {
         } else if (groupName.isEmpty()) {
             groupName = "公共聊天室";
         }
-        QStringList rows;
-        rows << QString("群媒体包 · %1 · 群号:%2").arg(groupName, groupNumber);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 群成员:%3").arg(m_currentUserId, m_currentUserName, QString::number(memberCount));
-        rows << "群内可直接发送图片/视频，也可用闪传文件发送文档和压缩包";
-        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
-        rows << QString("入群话术：我邀请你加入群聊“%1”（群号:%2），进群后可以一起聊天、发图片和传文件。").arg(groupName, groupNumber);
-        rows << QString("查收话术：我已发送媒体文件到群聊“%1”，请注意查收。").arg(groupName);
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeMediaPackText(
+            groupName, groupNumber, memberCount, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("群媒体包已复制", 2200);
     });
     connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit, publicGroupMemberIds]() {
@@ -6868,16 +6861,8 @@ void MainWindow::onShowGroupNotifications() {
             }
         }
         QString keyword = searchEdit->text().trimmed();
-        QStringList rows;
-        rows << QString("群批量媒体计划 · 筛选:%1").arg(keyword.isEmpty() ? "全部群通知" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 可见群:%3 · 成员:%4 · 在线:%5")
-            .arg(m_currentUserId, m_currentUserName, QString::number(groups.size()), QString::number(totalMembers), QString::number(onlineMembers));
-        rows << QString("群聊目标:%1").arg(groups.isEmpty() ? "无可见群聊" : groups.join("、"));
-        rows << "1. 先处理待创建群或打开已有群聊";
-        rows << "2. 图片/GIF/视频走图片视频入口，文档和压缩包走闪传文件";
-        rows << "3. 发送后复制群媒体包、上传指南和查收话术给群成员";
-        rows << "4. 可按筛选关键词分批发送，优先覆盖在线成员较多的群聊";
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeBatchPlanText(
+            keyword, groups, totalMembers, onlineMembers, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("群批量媒体计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
@@ -6896,14 +6881,8 @@ void MainWindow::onShowGroupNotifications() {
         } else if (groupName.isEmpty()) {
             groupName = "公共聊天室";
         }
-        QStringList rows;
-        rows << QString("群上传指南 · %1 · 群号:%2").arg(groupName, groupNumber);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 群成员:%3").arg(m_currentUserId, m_currentUserName, QString::number(memberCount));
-        rows << "图片/视频：支持 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm";
-        rows << "闪传文件：支持文档、压缩包和媒体文件";
-        rows << "聊天记录右键可复制媒体卡片和查收话术";
-        rows << "可先复制入群话术邀请好友，进群后直接发送图片/视频/文件";
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeMediaGuideText(
+            groupName, groupNumber, memberCount, m_currentUserName, m_currentUserId));
         ui->statusbar->showMessage("群上传指南已复制", 2200);
     });
     connect(noticeList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedGroup](QListWidgetItem*) { openSelectedGroup(); });
