@@ -5933,6 +5933,30 @@ void MainWindow::onShowFriendNotifications() {
     auto currentRequestId = [noticeList]() -> QString {
         return selectedFriendNoticeEntryId(noticeList);
     };
+    auto selectedFriendNoticeTarget = [this, noticeList, searchEdit]() {
+        FriendManagerVisibleTargetSummary target;
+        target.userId = selectedFriendNoticeTargetId(noticeList, searchEdit);
+        if (!target.userId.isEmpty()) {
+            target.displayName = m_friendNames.value(target.userId, contactDisplayName(target.userId));
+            target.online = isContactOnline(target.userId);
+        }
+        return target;
+    };
+    auto visibleFriendNoticeTargets = [this, noticeList]() {
+        QList<FriendManagerVisibleTargetSummary> targets;
+        const QStringList visibleIds = visibleFriendNoticeIds(noticeList);
+        for (const QString& id : visibleIds) {
+            if (id.isEmpty()) {
+                continue;
+            }
+            FriendManagerVisibleTargetSummary target;
+            target.userId = id;
+            target.displayName = m_friendNames.value(id, contactDisplayName(id));
+            target.online = isContactOnline(id);
+            targets << target;
+        }
+        return targets;
+    };
     auto updateRequestActionState = [=]() {
         const FriendNoticeActionState state = NotificationPanelManager::friendNoticeActionState(
             currentRequestId(),
@@ -6127,45 +6151,31 @@ void MainWindow::onShowFriendNotifications() {
         }
         copyTextWithStatus(rows.join('\n'), QString("已复制 %1 条好友申请").arg(rows.size()), 2200);
     });
-    connect(copyRequestMediaPackBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        QString id = selectedFriendNoticeTargetId(noticeList, searchEdit);
-        QString name = id.isEmpty() ? "新好友" : m_friendNames.value(id, contactDisplayName(id));
-        QStringList rows;
-        rows << QString("好友申请媒体包 · 申请人:%1 · QQ:%2").arg(name, id.isEmpty() ? "待选择" : id);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 待处理申请:%3").arg(m_currentUserId, m_currentUserName, QString::number(m_pendingFriendRequests.size()));
-        rows << "同意好友后可直接私聊，点击 图片/视频 或 闪传文件 发送媒体";
-        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
-        rows << QString("通过话术：%1，你好，我是 %2（QQ:%3），我会通过你的好友申请，之后可以发图片/视频/文件给你。").arg(name, m_currentUserName, m_currentUserId);
-        rows << QString("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(name);
-        copyTextWithStatus(rows.join('\n'), "好友申请媒体包已复制", 2200);
+    connect(copyRequestMediaPackBtn, &QPushButton::clicked, &dialog, [this, selectedFriendNoticeTarget]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::friendNoticeMediaPackState(
+            m_currentUserId,
+            m_currentUserName,
+            m_pendingFriendRequests.size(),
+            selectedFriendNoticeTarget());
+        copyTextWithStatus(state.text, "好友申请媒体包已复制", 2200);
     });
-    connect(copyRequestBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        QStringList applicants;
-        const QStringList visibleIds = visibleFriendNoticeIds(noticeList);
-        for (const QString& id : visibleIds) {
-            applicants << QString("%1(QQ:%2)").arg(m_friendNames.value(id, contactDisplayName(id)), id);
-        }
-        QString keyword = searchEdit->text().trimmed();
-        QStringList rows;
-        rows << QString("好友申请处理计划 · 筛选:%1").arg(keyword.isEmpty() ? "全部申请" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 待处理:%3 · 可见:%4")
-            .arg(m_currentUserId, m_currentUserName, QString::number(m_pendingFriendRequests.size()), QString::number(applicants.size()));
-        rows << QString("申请人:%1").arg(applicants.isEmpty() ? "无可见申请" : applicants.join("、"));
-        rows << "1. 先复制申请媒体包确认目标和后续发送内容";
-        rows << "2. 同意后从好友管理或私聊入口发送图片/视频/闪传文件";
-        rows << "3. 对方离线时复制查收话术，在线时直接发送媒体";
-        rows << "4. 聊天记录右键复制媒体流程、回执话术和保存路径";
-        copyTextWithStatus(rows.join('\n'), "好友申请处理计划已复制", 2200);
+    connect(copyRequestBatchPlanBtn, &QPushButton::clicked, &dialog, [this, visibleFriendNoticeTargets, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::friendNoticeBatchPlanState(
+            m_currentUserId,
+            m_currentUserName,
+            m_pendingFriendRequests.size(),
+            searchEdit->text().trimmed(),
+            visibleFriendNoticeTargets());
+        copyTextWithStatus(state.text, "好友申请处理计划已复制", 2200);
     });
-    connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        QString id = selectedFriendNoticeTargetId(noticeList, searchEdit);
-        QString name = id.isEmpty() ? "新好友" : m_friendNames.value(id, contactDisplayName(id));
-        QStringList rows;
-        rows << QString("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << QString("申请人:%1 · QQ:%2").arg(name, id.isEmpty() ? "待选择" : id);
-        rows << "同意好友后可发送图片/视频，也可用闪传文件发送文档、压缩包和媒体文件";
-        rows << "聊天记录右键可复制媒体卡片和查收话术";
-        copyTextWithStatus(rows.join('\n'), "好友申请上传指南已复制", 2200);
+    connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, selectedFriendNoticeTarget]() {
+        copyTextWithStatus(
+            FriendManager::friendNoticeMediaGuideText(
+                m_currentUserId,
+                m_currentUserName,
+                selectedFriendNoticeTarget()),
+            "好友申请上传指南已复制",
+            2200);
     });
     connect(clearBtn, &QPushButton::clicked, &dialog, [this, fillList, updateBadge, updateRequestActionState, &dialog]() {
         if (m_pendingFriendRequests.isEmpty()) {

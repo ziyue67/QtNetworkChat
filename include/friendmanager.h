@@ -173,6 +173,20 @@ public:
     static QString quickAddMediaGuideText(const QString& currentUserId,
                                           const QString& currentUserName,
                                           const QString& targetId);
+    static GlobalSearchSelectionCopyState friendNoticeMediaPackState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        int pendingCount,
+        const FriendManagerVisibleTargetSummary& target);
+    static GlobalSearchSelectionCopyState friendNoticeBatchPlanState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        int pendingCount,
+        const QString& keyword,
+        const QList<FriendManagerVisibleTargetSummary>& applicants);
+    static QString friendNoticeMediaGuideText(const QString& currentUserId,
+                                              const QString& currentUserName,
+                                              const FriendManagerVisibleTargetSummary& target);
     static GlobalSearchResultCopyState globalSearchResultCopyState(
         const QList<GlobalSearchResultCopyInput>& results,
         bool onlineOnly);

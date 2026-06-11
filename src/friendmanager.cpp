@@ -422,6 +422,80 @@ QString FriendManager::quickAddMediaGuideText(const QString& currentUserId,
     return rows.join(QChar('\n'));
 }
 
+GlobalSearchSelectionCopyState FriendManager::friendNoticeMediaPackState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    int pendingCount,
+    const FriendManagerVisibleTargetSummary& target) {
+    GlobalSearchSelectionCopyState state;
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("新好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友申请媒体包 · 申请人:%1 · QQ:%2")
+        .arg(targetName, userId.isEmpty() ? QStringLiteral("待选择") : userId);
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 待处理申请:%3")
+        .arg(currentUserId, currentUserName, QString::number(pendingCount));
+    rows << QStringLiteral("同意好友后可直接私聊，点击 图片/视频 或 闪传文件 发送媒体");
+    rows << QStringLiteral("支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包");
+    rows << QStringLiteral("通过话术：%1，你好，我是 %2（QQ:%3），我会通过你的好友申请，之后可以发图片/视频/文件给你。")
+        .arg(targetName, currentUserName, currentUserId);
+    rows << QStringLiteral("查收话术：我已发送媒体文件给 %1，请注意查收。").arg(targetName);
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+GlobalSearchSelectionCopyState FriendManager::friendNoticeBatchPlanState(
+    const QString& currentUserId,
+    const QString& currentUserName,
+    int pendingCount,
+    const QString& keyword,
+    const QList<FriendManagerVisibleTargetSummary>& applicants) {
+    GlobalSearchSelectionCopyState state;
+    QStringList applicantRows;
+    for (const FriendManagerVisibleTargetSummary& applicant : applicants) {
+        const QString userId = applicant.userId.trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        const QString displayName = applicant.displayName.trimmed().isEmpty() ? userId : applicant.displayName.trimmed();
+        applicantRows << QStringLiteral("%1(QQ:%2)").arg(displayName, userId);
+    }
+    QStringList rows;
+    rows << QStringLiteral("好友申请处理计划 · 筛选:%1")
+        .arg(keyword.trimmed().isEmpty() ? QStringLiteral("全部申请") : keyword.trimmed());
+    rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 待处理:%3 · 可见:%4")
+        .arg(currentUserId,
+             currentUserName,
+             QString::number(pendingCount),
+             QString::number(applicantRows.size()));
+    rows << QStringLiteral("申请人:%1").arg(applicantRows.isEmpty() ? QStringLiteral("无可见申请") : applicantRows.join(QStringLiteral("、")));
+    rows << QStringLiteral("1. 先复制申请媒体包确认目标和后续发送内容");
+    rows << QStringLiteral("2. 同意后从好友管理或私聊入口发送图片/视频/闪传文件");
+    rows << QStringLiteral("3. 对方离线时复制查收话术，在线时直接发送媒体");
+    rows << QStringLiteral("4. 聊天记录右键复制媒体流程、回执话术和保存路径");
+    state.text = rows.join(QChar('\n'));
+    state.valid = true;
+    return state;
+}
+
+QString FriendManager::friendNoticeMediaGuideText(const QString& currentUserId,
+                                                  const QString& currentUserName,
+                                                  const FriendManagerVisibleTargetSummary& target) {
+    const QString userId = target.userId.trimmed();
+    const QString targetName = target.displayName.trimmed().isEmpty()
+        ? (userId.isEmpty() ? QStringLiteral("新好友") : userId)
+        : target.displayName.trimmed();
+    QStringList rows;
+    rows << QStringLiteral("好友申请上传指南 · 我的QQ:%1 · 昵称:%2").arg(currentUserId, currentUserName);
+    rows << QStringLiteral("申请人:%1 · QQ:%2").arg(targetName, userId.isEmpty() ? QStringLiteral("待选择") : userId);
+    rows << QStringLiteral("同意好友后可发送图片/视频，也可用闪传文件发送文档、压缩包和媒体文件");
+    rows << QStringLiteral("聊天记录右键可复制媒体卡片和查收话术");
+    return rows.join(QChar('\n'));
+}
+
 GlobalSearchResultCopyState FriendManager::globalSearchResultCopyState(
     const QList<GlobalSearchResultCopyInput>& results,
     bool onlineOnly) {

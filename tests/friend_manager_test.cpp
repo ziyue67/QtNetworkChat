@@ -287,6 +287,40 @@ int main(int argc, char** argv) {
                     && quickAddGuide.contains(QString::fromUtf8("通过好友申请后可直接发送图片/视频")),
                 "quick add media guide should summarize target and media path") && ok;
 
+    const GlobalSearchSelectionCopyState friendNoticeMediaPack =
+        FriendManager::friendNoticeMediaPackState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            3,
+            visibleAlice);
+    ok = expect(friendNoticeMediaPack.valid
+                    && friendNoticeMediaPack.text.contains(QString::fromUtf8("好友申请媒体包 · 申请人:Alice · QQ:1001"))
+                    && friendNoticeMediaPack.text.contains(QString::fromUtf8("待处理申请:3"))
+                    && friendNoticeMediaPack.text.contains(QString::fromUtf8("通过话术：Alice，你好，我是 Tester（QQ:9000）")),
+                "friend notice media pack should summarize selected applicant and pending count") && ok;
+
+    const GlobalSearchSelectionCopyState friendNoticeBatchPlan =
+        FriendManager::friendNoticeBatchPlanState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            3,
+            QStringLiteral("ali"),
+            QList<FriendManagerVisibleTargetSummary>{visibleAlice, visibleCarol});
+    ok = expect(friendNoticeBatchPlan.valid
+                    && friendNoticeBatchPlan.text.contains(QString::fromUtf8("好友申请处理计划 · 筛选:ali"))
+                    && friendNoticeBatchPlan.text.contains(QString::fromUtf8("待处理:3 · 可见:2"))
+                    && friendNoticeBatchPlan.text.contains(QString::fromUtf8("申请人:Alice(QQ:1001)、Carol(QQ:1003)")),
+                "friend notice batch plan should summarize visible applicants") && ok;
+
+    const QString friendNoticeGuide =
+        FriendManager::friendNoticeMediaGuideText(QStringLiteral("9000"),
+                                                  QStringLiteral("Tester"),
+                                                  visibleAlice);
+    ok = expect(friendNoticeGuide.contains(QString::fromUtf8("好友申请上传指南 · 我的QQ:9000 · 昵称:Tester"))
+                    && friendNoticeGuide.contains(QString::fromUtf8("申请人:Alice · QQ:1001"))
+                    && friendNoticeGuide.contains(QString::fromUtf8("同意好友后可发送图片/视频")),
+                "friend notice media guide should summarize selected applicant") && ok;
+
     GlobalSearchResultCopyInput searchAddResult;
     searchAddResult.entryId = QStringLiteral("search_add:9988");
     GlobalSearchResultCopyInput groupResult;
