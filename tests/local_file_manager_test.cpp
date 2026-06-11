@@ -220,6 +220,18 @@ int main(int argc, char** argv) {
                                                               QStringLiteral("fallback.bin")) == QStringLiteral("fallback.bin"),
                 "safe received file name should preserve leaf names and fallback when empty") && ok;
 
+    const LocalReceivedTransferPlan receivedTransferPlan =
+        LocalFileManager::receivedTransferPlan(QStringLiteral("C:/downloads/report.zip"),
+                                               QStringLiteral("fallback.bin"),
+                                               7,
+                                               QStringLiteral("receive"));
+    ok = expect(receivedTransferPlan.receivedName == QStringLiteral("report.zip")
+                    && receivedTransferPlan.receivedSize == QStringLiteral("7 B")
+                    && receivedTransferPlan.savePath.contains(QStringLiteral("QtNetworkChat"))
+                    && receivedTransferPlan.savePath.contains(QStringLiteral("receive"))
+                    && receivedTransferPlan.savePath.contains(QStringLiteral("report.zip")),
+                "received transfer plan should centralize local file naming, size text, and save path preparation") && ok;
+
     const QString firstReceivedPath = LocalFileManager::uniqueReceivedSavePath(receiveDir, QStringLiteral("report.zip"));
     ok = expect(!firstReceivedPath.isEmpty() && firstReceivedPath.contains(QStringLiteral("report.zip")),
                 "unique received save path should create a candidate name") && ok;

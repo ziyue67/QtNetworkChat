@@ -7115,8 +7115,13 @@ MainWindow::ReceivedTransferContext MainWindow::receivedTransferContext(const Me
                                                                         const QString& displayName) const {
     ReceivedTransferContext context;
     context.kind = kind;
-    context.receivedName = LocalFileManager::safeReceivedFileName(msg.fileName, fallbackName);
-    context.receivedSize = LocalFileManager::humanFileSize(msg.fileData.size());
+    const LocalReceivedTransferPlan localPlan = LocalFileManager::receivedTransferPlan(msg.fileName,
+                                                                                       fallbackName,
+                                                                                       msg.fileData.size(),
+                                                                                       downloadSubdir);
+    context.receivedName = localPlan.receivedName;
+    context.receivedSize = localPlan.receivedSize;
+    context.savePath = localPlan.savePath;
     context.integrityText = transferIntegritySummary(msg);
     context.integritySuffix = context.integrityText.isEmpty()
         ? QString()
@@ -7129,9 +7134,6 @@ MainWindow::ReceivedTransferContext MainWindow::receivedTransferContext(const Me
                                                                         msg.chunkCount,
                                                                         msg.fileHash).manifestSummary;
     context.manifestSuffix = manifestText.isEmpty() ? QString() : QString(" · %1").arg(manifestText);
-
-    const QString saveDirPath = LocalFileManager::ensureReceivedDownloadDirectory(downloadSubdir);
-    context.savePath = LocalFileManager::uniqueReceivedSavePath(saveDirPath, context.receivedName);
     return context;
 }
 

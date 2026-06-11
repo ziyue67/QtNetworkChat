@@ -234,6 +234,18 @@ QString LocalFileManager::safeReceivedFileName(const QString& rawName, const QSt
     return fileName;
 }
 
+LocalReceivedTransferPlan LocalFileManager::receivedTransferPlan(const QString& rawName,
+                                                                 const QString& fallbackName,
+                                                                 qint64 receivedBytes,
+                                                                 const QString& downloadSubdir) {
+    LocalReceivedTransferPlan result;
+    result.receivedName = safeReceivedFileName(rawName, fallbackName);
+    result.receivedSize = humanFileSize(receivedBytes);
+    const QString saveDirPath = ensureReceivedDownloadDirectory(downloadSubdir);
+    result.savePath = uniqueReceivedSavePath(saveDirPath, result.receivedName);
+    return result;
+}
+
 QString LocalFileManager::ensureReceivedDownloadDirectory(const QString& downloadSubdir) {
     const QString saveDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)
         + QStringLiteral("/QtNetworkChat/")

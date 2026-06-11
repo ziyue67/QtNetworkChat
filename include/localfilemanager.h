@@ -74,6 +74,12 @@ struct LocalSavedFileState {
     bool canOpenFolder = false;
 };
 
+struct LocalReceivedTransferPlan {
+    QString receivedName;
+    QString receivedSize;
+    QString savePath;
+};
+
 struct LocalAvatarSelectionPlan {
     QString dialogTitle;
     QString filters;
@@ -109,6 +115,10 @@ public:
     static LocalFileSelectionResult invalidAvatarDataResult();
     static LocalFileSelectionResult avatarSaveFailedResult();
     static QString safeReceivedFileName(const QString& rawName, const QString& fallbackName);
+    static LocalReceivedTransferPlan receivedTransferPlan(const QString& rawName,
+                                                          const QString& fallbackName,
+                                                          qint64 receivedBytes,
+                                                          const QString& downloadSubdir);
     static QString ensureReceivedDownloadDirectory(const QString& downloadSubdir);
     static QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName);
     static bool writeReceivedTransferPayload(const QString& savePath, const QByteArray& fileData);
