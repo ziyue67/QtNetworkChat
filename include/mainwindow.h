@@ -106,9 +106,8 @@ private:
                             QString* filePath,
                             QFileInfo* fileInfo,
                             QString* fileSize = nullptr);
-    bool applyTransferSelectionDecisionFeedback(const LocalTransferSelectionDecision& selectionDecision);
-    bool confirmTransferSelectionWarning(LocalTransferSelectionDecision* selectionDecision,
-                                         const QString& confirmKind);
+    bool applyTransferSelectionUiStateFeedback(const TransferSelectionUiState& selectionState);
+    bool confirmTransferSelectionWarning(TransferSelectionUiState* selectionState);
     void appendTransferCompletionState(const TransferSendUiState& state,
                                        bool includeSystemMessage,
                                        bool includeCard,

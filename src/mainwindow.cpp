@@ -6917,60 +6917,52 @@ bool MainWindow::selectTransferFile(const TransferSelectionPlan& selectionPlan,
                                                               selectionPlan.dialogTitle,
                                                               LocalFileManager::lastTransferDirectory(),
                                                               selectionPlan.filters);
-    LocalTransferSelectionDecision selectionDecision =
-        LocalFileManager::transferSelectionDecision(selectedPath,
-                                                    selectionPlan.confirmKind,
-                                                    selectionPlan.canceledHint,
-                                                    selectionPlan.canceledStatus);
-    if (applyTransferSelectionDecisionFeedback(selectionDecision)) {
+    TransferSelectionUiState selectionState =
+        m_transferManager.transferSelectionUiState(selectionPlan, selectedPath);
+    if (applyTransferSelectionUiStateFeedback(selectionState)) {
         return false;
     }
-    if (selectionDecision.action == LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
-        if (!confirmTransferSelectionWarning(&selectionDecision, selectionPlan.confirmKind)) {
+    if (selectionState.showConfirmDialog) {
+        if (!confirmTransferSelectionWarning(&selectionState)) {
             return false;
         }
     }
 
-    *filePath = selectionDecision.filePath;
-    *fileInfo = selectionDecision.fileInfo;
+    *filePath = selectionState.filePath;
+    *fileInfo = selectionState.fileInfo;
     if (fileSize) {
-        *fileSize = selectionDecision.fileSize;
+        *fileSize = selectionState.fileSize;
     }
     return true;
 }
 
-bool MainWindow::applyTransferSelectionDecisionFeedback(const LocalTransferSelectionDecision& selectionDecision) {
-    if (selectionDecision.action == LocalTransferSelectionDecision::Action::ShowFailureDialog) {
-        QMessageBox::warning(this, selectionDecision.dialogTitle, selectionDecision.dialogMessage);
-        ui->chatHintLabel->setText(selectionDecision.hintText);
-        ui->statusbar->showMessage(selectionDecision.statusMessage, selectionDecision.statusTimeoutMs);
+bool MainWindow::applyTransferSelectionUiStateFeedback(const TransferSelectionUiState& selectionState) {
+    if (selectionState.showFailureDialog) {
+        QMessageBox::warning(this, selectionState.dialogTitle, selectionState.dialogMessage);
+        ui->chatHintLabel->setText(selectionState.hintText);
+        ui->statusbar->showMessage(selectionState.statusMessage, selectionState.statusTimeoutMs);
         return true;
     }
-    if (!selectionDecision.accepted
-        && selectionDecision.action != LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
-        ui->chatHintLabel->setText(selectionDecision.hintText);
-        ui->statusbar->showMessage(selectionDecision.statusMessage, selectionDecision.statusTimeoutMs);
+    if (!selectionState.accepted && !selectionState.showConfirmDialog) {
+        ui->chatHintLabel->setText(selectionState.hintText);
+        ui->statusbar->showMessage(selectionState.statusMessage, selectionState.statusTimeoutMs);
         return true;
     }
     return false;
 }
 
-bool MainWindow::confirmTransferSelectionWarning(LocalTransferSelectionDecision* selectionDecision,
-                                                 const QString& confirmKind) {
-    if (!selectionDecision
-        || selectionDecision->action != LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
-        return selectionDecision && selectionDecision->accepted;
+bool MainWindow::confirmTransferSelectionWarning(TransferSelectionUiState* selectionState) {
+    if (!selectionState || !selectionState->showConfirmDialog) {
+        return selectionState && selectionState->accepted;
     }
 
     const bool confirmed = QMessageBox::question(this,
-                                                 selectionDecision->dialogTitle,
-                                                 selectionDecision->dialogMessage,
+                                                 selectionState->dialogTitle,
+                                                 selectionState->dialogMessage,
                                                  QMessageBox::Yes | QMessageBox::No,
                                                  QMessageBox::No) == QMessageBox::Yes;
-    *selectionDecision = LocalFileManager::resolveTransferSelectionWarning(*selectionDecision,
-                                                                           confirmed,
-                                                                           confirmKind);
-    return !applyTransferSelectionDecisionFeedback(*selectionDecision);
+    *selectionState = m_transferManager.resolveTransferSelectionUiState(*selectionState, confirmed);
+    return !applyTransferSelectionUiStateFeedback(*selectionState);
 }
 
 void MainWindow::applyTransferSendState(const TransferSendUiState& state) {
