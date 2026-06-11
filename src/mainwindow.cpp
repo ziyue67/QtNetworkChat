@@ -736,6 +736,512 @@ bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const L
     return false;
 }
 
+bool MainWindow::confirmAction(const QString& title,
+                               const QString& message,
+                               const QString& canceledStatusMessage,
+                               int canceledStatusTimeoutMs,
+                               QWidget* parent) {
+    QWidget* dialogParent = parent ? parent : this;
+    const QMessageBox::StandardButton choice = QMessageBox::question(dialogParent,
+                                                                     title,
+                                                                     message,
+                                                                     QMessageBox::Yes | QMessageBox::No,
+                                                                     QMessageBox::No);
+    if (choice == QMessageBox::Yes) {
+        return true;
+    }
+    if (!canceledStatusMessage.isEmpty()) {
+        ui->statusbar->showMessage(canceledStatusMessage, canceledStatusTimeoutMs);
+    }
+    return false;
+}
+
+QString MainWindow::promptTextValue(const QString& title,
+                                    const QString& label,
+                                    const QString& initialValue,
+                                    bool* accepted,
+                                    QWidget* parent) const {
+    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
+    return QInputDialog::getText(dialogParent,
+                                 title,
+                                 label,
+                                 QLineEdit::Normal,
+                                 initialValue,
+                                 accepted).trimmed();
+}
+
+QString MainWindow::promptMultilineValue(const QString& title,
+                                         const QString& label,
+                                         const QString& initialValue,
+                                         bool* accepted,
+                                         QWidget* parent) const {
+    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
+    return QInputDialog::getMultiLineText(dialogParent,
+                                          title,
+                                          label,
+                                          initialValue,
+                                          accepted).trimmed();
+}
+
+QString MainWindow::promptItemValue(const QString& title,
+                                    const QString& label,
+                                    const QStringList& items,
+                                    bool* accepted,
+                                    QWidget* parent) const {
+    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
+    return QInputDialog::getItem(dialogParent,
+                                 title,
+                                 label,
+                                 items,
+                                 0,
+                                 false,
+                                 accepted).trimmed();
+}
+
+QStringList MainWindow::currentSessionMemberIds() const {
+    if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+        return m_localGroupMembers.value(m_privateChatTarget);
+    }
+
+    QStringList ids;
+    for (auto it = m_knownUsers.constBegin(); it != m_knownUsers.constEnd(); ++it) {
+        ids << it.key();
+    }
+    return ids;
+}
+
+bool MainWindow::applyAvatarSelection(const LocalFileSelectionResult& selection) {
+    if (selection.canceled) {
+        ui->statusbar->showMessage(selection.canceledStatusMessage, selection.canceledStatusTimeoutMs);
+        return false;
+    }
+    if (!selection.accepted) {
+        QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
+        ui->statusbar->showMessage(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage
+                                                                             : selection.rejectedStatusMessage,
+                                   selection.rejectedStatusTimeoutMs);
+        return false;
+    }
+
+    const QPixmap pixmap(selection.filePath);
+    if (pixmap.isNull()) {
+        const LocalFileSelectionResult invalidAvatar = LocalFileManager::invalidAvatarDataResult();
+        QMessageBox::warning(this, invalidAvatar.invalidDataTitle, invalidAvatar.invalidDataMessage);
+        ui->statusbar->showMessage(invalidAvatar.invalidDataStatusMessage, invalidAvatar.invalidDataStatusTimeoutMs);
+        return false;
+    }
+
+    return persistAvatarPixmap(pixmap, selection.fileInfo);
+}
+
+bool MainWindow::persistAvatarPixmap(const QPixmap& pixmap, const QFileInfo& info) {
+    QPixmap savedAvatar = squareAvatarPixmap(pixmap, 256);
+    if (savedAvatar.isNull() || !savedAvatar.save(getAvatarFilePath(), "PNG")) {
+        const LocalFileSelectionResult saveFailed = LocalFileManager::avatarSaveFailedResult();
+        QMessageBox::warning(this, saveFailed.saveFailedTitle, saveFailed.saveFailedMessage);
+        ui->statusbar->showMessage(saveFailed.saveFailedStatusMessage, saveFailed.saveFailedStatusTimeoutMs);
+        return false;
+    }
+
+    ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
+    saveProfileToSqlite();
+    const LocalAvatarAppliedState appliedState = LocalFileManager::avatarAppliedState(info);
+    ui->avatarLabel->setToolTip(appliedState.toolTip);
+    ui->uploadAvatarBtn->setToolTip(appliedState.toolTip);
+    appendSystemMessage(appliedState.detail);
+    ui->chatHintLabel->setText(appliedState.detail);
+    ui->statusbar->showMessage(appliedState.detail, appliedState.statusTimeoutMs);
+    return true;
+}
+
+void MainWindow::openPrivateSession(const QString& userId) {
+    if (userId.isEmpty()) {
+        return;
+    }
+    const QString userName = contactDisplayName(userId);
+    m_privateChatTarget = userId;
+    m_chatModel->clear();
+    m_chatModel->setHorizontalHeaderLabels({QStringLiteral("聊天记录")});
+    loadHistory(userId);
+    const PrivateChatUiState privateState = ChatSessionManager::privateChatState(
+        userId,
+        userName,
+        isContactOnline(userId),
+        m_client && m_client->hasE2ESession(userId),
+        m_client && m_client->e2eSessionNeedsRotation(userId));
+    setWindowTitle(appWindowTitle(privateState.windowSuffix));
+    ui->chatTitleLabel->setText(privateState.titleText);
+    ui->chatHintLabel->setText(privateState.hintText);
+    refreshComposerState();
+}
+
+bool MainWindow::ensureFriendRequestQueued(const QString& userId,
+                                           const QString& successTemplate,
+                                           bool refreshGroups) {
+    if (userId.isEmpty() || userId == m_currentUserId) {
+        return false;
+    }
+    const QString displayName = contactDisplayName(userId);
+    if (m_friendIds.contains(userId)) {
+        return true;
+    }
+    if (m_pendingOutgoingFriendRequests.contains(userId)) {
+        ui->statusbar->showMessage(QStringLiteral("已向 %1 发送过好友申请，等待对方处理").arg(displayName), 2500);
+        return false;
+    }
+    if (!m_client || !m_client->sendFriendRequest(userId)) {
+        ui->statusbar->showMessage(QStringLiteral("好友申请发送失败：%1").arg(displayName), 3000);
+        return false;
+    }
+    m_friendNames[userId] = displayName;
+    m_pendingOutgoingFriendRequests << userId;
+    refreshFriendList();
+    if (refreshGroups) {
+        refreshGroupMemberPanel();
+    }
+    if (!successTemplate.isEmpty()) {
+        appendSystemMessage(successTemplate.arg(userId));
+    }
+    return true;
+}
+
+QString MainWindow::createLocalGroupSession(const QString& groupName,
+                                            const QStringList& members,
+                                            const QString& announcement) {
+    const QString normalizedName = groupName.trimmed().isEmpty() ? QStringLiteral("我的群聊") : groupName.trimmed();
+    const QString groupId = QStringLiteral("local_group_")
+        + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz"));
+    QStringList normalizedMembers = members;
+    if (!normalizedMembers.contains(m_currentUserId)) {
+        normalizedMembers.prepend(m_currentUserId);
+    }
+    normalizedMembers.removeAll(QString());
+    normalizedMembers.removeDuplicates();
+    m_localGroupIds << groupId;
+    m_localGroupNames[groupId] = normalizedName;
+    m_localGroupAnnouncements[groupId] = announcement.isEmpty()
+        ? QStringLiteral("%1 已创建，可继续邀请好友并发送消息。").arg(normalizedName)
+        : announcement;
+    m_localGroupMembers[groupId] = normalizedMembers;
+    saveLocalGroups();
+    refreshFriendList();
+    return groupId;
+}
+
+int MainWindow::appendMembersToLocalGroup(const QString& groupId, const QStringList& memberIds) {
+    if (groupId.isEmpty() || !m_localGroupIds.contains(groupId)) {
+        return 0;
+    }
+    int appended = 0;
+    QStringList& members = m_localGroupMembers[groupId];
+    if (!members.contains(m_currentUserId)) {
+        members.prepend(m_currentUserId);
+    }
+    for (const QString& memberId : memberIds) {
+        if (memberId.isEmpty() || memberId == m_currentUserId || members.contains(memberId)) {
+            continue;
+        }
+        members << memberId;
+        ++appended;
+    }
+    if (appended > 0) {
+        saveLocalGroups();
+        refreshFriendList();
+        refreshGroupMemberPanel();
+    }
+    return appended;
+}
+
+bool MainWindow::handleCreateMenuCommand(const QString& commandId) {
+    if (commandId == QLatin1String("create-group")) {
+        bool ok = false;
+        QString groupName = promptTextValue(QStringLiteral("创建群聊"),
+                                            QStringLiteral("群聊名称:"),
+                                            QStringLiteral("我的群聊"),
+                                            &ok);
+        if (!ok) {
+            return true;
+        }
+        if (groupName.isEmpty()) {
+            groupName = QStringLiteral("我的群聊");
+        }
+
+        const QString groupId = createLocalGroupSession(groupName);
+        switchToLocalGroup(groupId, groupName);
+        appendSystemMessage(QStringLiteral("已创建群聊: ") + groupName);
+        return true;
+    }
+
+    if (commandId == QLatin1String("create-group-with-friends")) {
+        QString groupName = ui->contactSearchEdit->text().trimmed();
+        if (groupName.isEmpty()) {
+            groupName = QStringLiteral("好友群聊");
+        }
+
+        const QStringList members = m_friendIds;
+        const QString groupId = createLocalGroupSession(
+            groupName,
+            members,
+            QStringLiteral("%1 已创建，已自动邀请全部好友。").arg(groupName));
+        switchToLocalGroup(groupId, groupName);
+        const int invitedCount = members.size();
+        appendSystemMessage(QStringLiteral("已创建群聊并邀请 %1 位好友").arg(invitedCount));
+        saveHistory(groupId,
+                    QStringLiteral("[%1] [系统] 已创建群聊并邀请 %2 位好友")
+                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")))
+                        .arg(invitedCount));
+        return true;
+    }
+
+    if (commandId == QLatin1String("open-global-search")) {
+        onShowGlobalSearch();
+        return true;
+    }
+    if (commandId == QLatin1String("focus-contact-search")) {
+        ui->contactSearchEdit->setFocus();
+        ui->contactSearchEdit->selectAll();
+        ui->statusbar->showMessage(QStringLiteral("已定位到 QQ 搜索框，输入账号后回车自动查找"), 2500);
+        return true;
+    }
+    if (commandId == QLatin1String("refresh-contacts")) {
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        ui->statusbar->showMessage(QStringLiteral("联系人和群成员已刷新"), 2000);
+        return true;
+    }
+    if (commandId == QLatin1String("clear-search")) {
+        ui->contactSearchEdit->clear();
+        ui->memberSearchEdit->clear();
+        m_contactFilter.clear();
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        ui->statusbar->showMessage(QStringLiteral("搜索条件已清空"), 1800);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-chat-id")) {
+        QString chatId = m_privateChatTarget;
+        if (chatId.startsWith(QStringLiteral("local_group_"))) {
+            chatId = chatId.mid(QStringLiteral("local_group_").size());
+        }
+        if (chatId.isEmpty()) {
+            chatId = m_currentUserId;
+        }
+        copyTextWithStatus(chatId, QStringLiteral("当前会话号已复制: ") + chatId, 2500);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-chat-card")) {
+        QString card;
+        if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+            card = QStringLiteral("群聊 QQ:%1\n%2\n公告:%3")
+                .arg(m_privateChatTarget.mid(QStringLiteral("local_group_").size()),
+                     m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊")),
+                     m_localGroupAnnouncements.value(m_privateChatTarget, ui->announcementBodyLabel->text()));
+        } else if (!m_privateChatTarget.isEmpty()) {
+            card = QStringLiteral("QQ:%1\n昵称:%2\n状态:%3")
+                .arg(m_privateChatTarget,
+                     contactDisplayName(m_privateChatTarget),
+                     isContactOnline(m_privateChatTarget) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        } else {
+            card = QStringLiteral("公共聊天室\n当前账号:%1\n在线成员:%2")
+                .arg(m_currentUserId)
+                .arg(m_knownUsers.size());
+        }
+        copyTextWithStatus(card, QStringLiteral("当前会话名片已复制"), 1800);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-current-invite")) {
+        QString text;
+        if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+            text = QStringLiteral("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后我们一起沟通。")
+                .arg(m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊")),
+                     m_privateChatTarget.mid(QStringLiteral("local_group_").size()),
+                     m_currentUserName,
+                     m_currentUserId);
+        } else if (!m_privateChatTarget.isEmpty()) {
+            text = QStringLiteral("你好 %1，我是 %2（QQ:%3）。方便的话加个好友，我们可以继续私聊。")
+                .arg(contactDisplayName(m_privateChatTarget), m_currentUserName, m_currentUserId);
+        } else {
+            text = QStringLiteral("你好，我是 %1（QQ:%2），欢迎加入公共聊天室，也可以通过 QQ 搜索加我好友。")
+                .arg(m_currentUserName, m_currentUserId);
+        }
+        copyTextWithStatus(text, QStringLiteral("当前会话邀请语已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-current-members")) {
+        QStringList cards;
+        const QStringList ids = currentSessionMemberIds();
+        for (const QString& id : ids) {
+            cards << QStringLiteral("QQ:%1 昵称:%2 状态:%3")
+                .arg(id,
+                     contactDisplayName(id),
+                     (id == m_currentUserId || isContactOnline(id)) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+        if (cards.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("当前会话没有成员可复制"), 2200);
+            return true;
+        }
+        copyTextWithStatus(cards.join(QLatin1Char('\n')),
+                           QStringLiteral("已复制 %1 个当前成员").arg(cards.size()),
+                           2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-current-online")) {
+        QStringList cards;
+        const QStringList ids = currentSessionMemberIds();
+        for (const QString& id : ids) {
+            if (id != m_currentUserId && !isContactOnline(id)) {
+                continue;
+            }
+            cards << QStringLiteral("在线 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
+        }
+        if (cards.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("当前会话没有在线成员可复制"), 2200);
+            return true;
+        }
+        copyTextWithStatus(cards.join(QLatin1Char('\n')),
+                           QStringLiteral("已复制 %1 个在线成员").arg(cards.size()),
+                           2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-all-contacts")) {
+        QStringList rows;
+        rows << QStringLiteral("我的QQ:%1 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QStringLiteral("好友:%1 群聊:%2 在线:%3")
+            .arg(m_friendIds.size())
+            .arg(m_localGroupIds.size())
+            .arg(m_knownUsers.size());
+        for (const QString& id : m_friendIds) {
+            rows << QStringLiteral("好友 QQ:%1 昵称:%2 状态:%3")
+                .arg(id,
+                     contactDisplayName(id),
+                     isContactOnline(id) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+        for (const QString& groupId : m_localGroupIds) {
+            rows << QStringLiteral("群聊 QQ:%1 名称:%2 成员:%3")
+                .arg(groupId.mid(QStringLiteral("local_group_").size()),
+                     m_localGroupNames.value(groupId, QStringLiteral("群聊")),
+                     QString::number(m_localGroupMembers.value(groupId).size()));
+        }
+        copyTextWithStatus(rows.join(QLatin1Char('\n')),
+                           QStringLiteral("已复制联系人摘要 %1 行").arg(rows.size()),
+                           2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-search-summary")) {
+        QString filter = ui->contactSearchEdit->text().trimmed();
+        if (filter.isEmpty()) {
+            filter = QStringLiteral("全部");
+        }
+        const QString summary = QStringLiteral("QQ搜索:%1\n好友:%2\n本地群:%3\n在线成员:%4\n当前会话:%5")
+            .arg(filter)
+            .arg(m_friendIds.size())
+            .arg(m_localGroupIds.size())
+            .arg(m_knownUsers.size())
+            .arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+        copyTextWithStatus(summary, QStringLiteral("QQ 搜索摘要已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-quick-guide")) {
+        QStringList rows;
+        rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QStringLiteral("1. 点击综合搜索可按 QQ 号/昵称查找用户、好友和群聊");
+        rows << QStringLiteral("2. 搜索结果可直接打开、发送好友申请、复制名片或复制邀请卡");
+        rows << QStringLiteral("3. 好友申请支持推荐在线用户、复制申请话术和自动发送申请");
+        rows << QStringLiteral("4. 好友管理器可搜索、备注、邀入群、复制在线好友和统计");
+        rows << QStringLiteral("当前好友:%1 · 群聊:%2 · 在线:%3")
+            .arg(m_friendIds.size())
+            .arg(m_localGroupIds.size())
+            .arg(m_knownUsers.size());
+        copyTextWithStatus(rows.join(QLatin1Char('\n')), QStringLiteral("QQ 功能指南已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-media-guide")) {
+        QStringList rows;
+        rows << QStringLiteral("上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        rows << QStringLiteral("1. 点击 图片/视频 可发送 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm");
+        rows << QStringLiteral("2. 图片会显示预览卡片，视频会以文件卡片发送");
+        rows << QStringLiteral("3. 点击 闪传文件 可发送文档、压缩包和媒体文件");
+        rows << QStringLiteral("4. 聊天记录右键可复制媒体卡片或查收话术");
+        rows << QStringLiteral("当前会话:%1")
+            .arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+        copyTextWithStatus(rows.join(QLatin1Char('\n')), QStringLiteral("上传指南已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-current-media-pack")) {
+        const QString sessionName = m_privateChatTarget.isEmpty()
+            ? QStringLiteral("公共聊天室")
+            : contactDisplayName(m_privateChatTarget);
+        QString sessionId = m_privateChatTarget;
+        if (sessionId.startsWith(QStringLiteral("local_group_"))) {
+            sessionId = sessionId.mid(QStringLiteral("local_group_").size());
+        }
+        if (sessionId.isEmpty()) {
+            sessionId = QStringLiteral("public");
+        }
+        QStringList rows;
+        rows << QStringLiteral("媒体发送包 · 会话:%1 · 会话号:%2").arg(sessionName, sessionId);
+        rows << QStringLiteral("发送者:%1 · QQ:%2").arg(m_currentUserName, m_currentUserId);
+        rows << QStringLiteral("图片/视频入口：点击工具栏 图片/视频，或菜单栏 发送图片/视频");
+        rows << QStringLiteral("文件入口：点击工具栏 闪传文件，或菜单栏 闪传文件");
+        rows << QStringLiteral("支持格式：png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm + 文档/压缩包");
+        rows << QStringLiteral("查收话术：我已准备发送图片/视频/文件到 %1，请注意查收。").arg(sessionName);
+        copyTextWithStatus(rows.join(QLatin1Char('\n')), QStringLiteral("当前媒体发送包已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-full-media-plan")) {
+        const QString sessionName = m_privateChatTarget.isEmpty()
+            ? QStringLiteral("公共聊天室")
+            : contactDisplayName(m_privateChatTarget);
+        QString sessionId = m_privateChatTarget;
+        if (sessionId.startsWith(QStringLiteral("local_group_"))) {
+            sessionId = sessionId.mid(QStringLiteral("local_group_").size());
+        }
+        if (sessionId.isEmpty()) {
+            sessionId = QStringLiteral("public");
+        }
+        QStringList rows;
+        rows << QStringLiteral("完整媒体计划 · 当前会话:%1 · 会话号:%2").arg(sessionName, sessionId);
+        rows << QStringLiteral("我的QQ:%1 · 昵称:%2 · 好友:%3 · 群聊:%4 · 在线:%5")
+            .arg(m_currentUserId,
+                 m_currentUserName,
+                 QString::number(m_friendIds.size()),
+                 QString::number(m_localGroupIds.size()),
+                 QString::number(m_knownUsers.size()));
+        rows << QStringLiteral("1. 先用综合搜索/好友申请确认目标 QQ 或群聊");
+        rows << QStringLiteral("2. 通过好友管理/群通知复制媒体包、邀请语和成员列表");
+        rows << QStringLiteral("3. 点击 图片/视频 发送图片、GIF 或视频；点击 闪传文件 发送文档和压缩包");
+        rows << QStringLiteral("4. 发送后聊天记录会生成媒体卡片、查收话术；接收后生成回执话术和保存路径");
+        rows << QStringLiteral("当前查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(sessionName);
+        copyTextWithStatus(rows.join(QLatin1Char('\n')), QStringLiteral("完整媒体计划已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("edit-announcement")) {
+        onEditGroupAnnouncement();
+        return true;
+    }
+    if (commandId == QLatin1String("copy-announcement")) {
+        copyTextWithStatus(ui->announcementBodyLabel->text(), QStringLiteral("群公告已复制"), 1800);
+        return true;
+    }
+    if (commandId == QLatin1String("show-friend-notice")) {
+        onShowFriendNotifications();
+        return true;
+    }
+    if (commandId == QLatin1String("show-group-notice")) {
+        onShowGroupNotifications();
+        return true;
+    }
+    if (commandId == QLatin1String("send-image")) {
+        onSendImage();
+        return true;
+    }
+    if (commandId == QLatin1String("send-file")) {
+        onSendFile();
+        return true;
+    }
+    return false;
+}
+
 void MainWindow::setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
     ui->messageEdit->setPlainText(text);
     ui->messageEdit->setFocus();
@@ -1945,26 +2451,10 @@ void MainWindow::setupUi() {
             return;
         }
         if (targetId.isEmpty() || targetId == m_currentUserId) return;
-        if (!m_friendIds.contains(targetId)) {
-            if (m_pendingOutgoingFriendRequests.contains(targetId)) {
-                ui->statusbar->showMessage(QString("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(targetId)), 2500);
-            } else if (m_client->sendFriendRequest(targetId)) {
-                m_friendNames[targetId] = contactDisplayName(targetId);
-                m_pendingOutgoingFriendRequests << targetId;
-                refreshFriendList();
-                refreshGroupMemberPanel();
-                appendSystemMessage(QString("已向群成员发送好友申请 QQ:%1，等待对方同意").arg(targetId));
-            } else {
-                ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(contactDisplayName(targetId)), 3000);
-            }
-        }
-        m_privateChatTarget = targetId;
-        m_chatModel->clear();
-        m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
-        loadHistory(targetId);
-        ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(targetId)));
-        ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(targetId, isContactOnline(targetId) ? "在线" : "离线"));
-        refreshComposerState();
+        ensureFriendRequestQueued(targetId,
+                                  QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                  true);
+        openPrivateSession(targetId);
     });
     connect(ui->groupMemberListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->groupMemberListView->indexAt(pos);
@@ -2019,26 +2509,10 @@ void MainWindow::setupUi() {
         removeAction->setEnabled(plan.removeEnabled);
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
-            if (!m_friendIds.contains(memberId)) {
-                if (m_pendingOutgoingFriendRequests.contains(memberId)) {
-                    ui->statusbar->showMessage(QString("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(memberId)), 2500);
-                } else if (m_client->sendFriendRequest(memberId)) {
-                    m_friendNames[memberId] = contactDisplayName(memberId);
-                    m_pendingOutgoingFriendRequests << memberId;
-                    refreshFriendList();
-                    refreshGroupMemberPanel();
-                    appendSystemMessage(QString("已向群成员发送好友申请 QQ:%1，等待对方同意").arg(memberId));
-                } else {
-                    ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(contactDisplayName(memberId)), 3000);
-                }
-            }
-            m_privateChatTarget = memberId;
-            m_chatModel->clear();
-            m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
-            loadHistory(memberId);
-            ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(memberId)));
-            ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(memberId, isContactOnline(memberId) ? "在线" : "离线"));
-            refreshComposerState();
+            ensureFriendRequestQueued(memberId,
+                                      QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                      true);
+            openPrivateSession(memberId);
         } else if (selected == copyAction) {
             QApplication::clipboard()->setText(memberId);
             ui->statusbar->showMessage("QQ 号已复制: " + memberId, 2500);
@@ -3385,27 +3859,13 @@ void MainWindow::onShowGlobalSearch() {
             ui->statusbar->showMessage("已进入群聊: " + m_localGroupNames.value(id, "群聊"), 1800);
             return;
         }
-        if (!m_friendIds.contains(id) && !m_pendingOutgoingFriendRequests.contains(id)) {
-            const QString displayName = contactDisplayName(id);
-            if (m_client->sendFriendRequest(id)) {
-                m_friendNames[id] = displayName;
-                m_pendingOutgoingFriendRequests << id;
-                refreshFriendList();
-                appendSystemMessage(QString("已从综合搜索向 %1（QQ:%2）发送好友申请").arg(displayName, id));
-            } else {
-                ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(displayName), 3000);
-            }
-        } else if (m_pendingOutgoingFriendRequests.contains(id)) {
+        if (!m_friendIds.contains(id) && m_pendingOutgoingFriendRequests.contains(id)) {
             ui->statusbar->showMessage(QString("%1 的好友申请正在等待确认").arg(contactDisplayName(id)), 2200);
+        } else {
+            ensureFriendRequestQueued(id, QStringLiteral("已从综合搜索向 %1（QQ:%2）发送好友申请"));
         }
         dialog.accept();
-        m_privateChatTarget = id;
-        m_chatModel->clear();
-        m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
-        loadHistory(id);
-        ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
-        ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
-        refreshComposerState();
+        openPrivateSession(id);
         ui->statusbar->showMessage(QString("已打开与 %1 的私聊").arg(contactDisplayName(id)), 1800);
     };
 
@@ -3429,13 +3889,7 @@ void MainWindow::onShowGlobalSearch() {
     connect(createGroupBtn, &QPushButton::clicked, &dialog, [this, searchEdit, &dialog]() {
         QString groupName = searchEdit->text().trimmed();
         if (groupName.isEmpty()) groupName = "我的群聊";
-        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-        m_localGroupIds << groupId;
-        m_localGroupNames[groupId] = groupName;
-        m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
-        m_localGroupMembers[groupId] = QStringList{m_currentUserId};
-        saveLocalGroups();
-        refreshFriendList();
+        const QString groupId = createLocalGroupSession(groupName);
         dialog.accept();
         switchToLocalGroup(groupId, groupName);
         appendSystemMessage("已从搜索创建群聊: " + groupName);
@@ -3443,8 +3897,7 @@ void MainWindow::onShowGlobalSearch() {
     connect(inviteVisibleBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit, &dialog]() {
         QString groupName = searchEdit->text().trimmed();
         if (groupName.isEmpty()) groupName = "搜索群聊";
-        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-        QStringList members = QStringList{m_currentUserId};
+        QStringList members;
         QStringList requestIds;
         int pendingSkipped = 0;
         for (int i = 0; i < resultList->count(); ++i) {
@@ -3460,42 +3913,35 @@ void MainWindow::onShowGlobalSearch() {
                 }
             }
         }
-        int invitedCount = qMax(0, members.size() - 1);
+        int invitedCount = members.size();
         if (invitedCount == 0) {
             ui->statusbar->showMessage("当前没有可邀请的可见用户", 2200);
             return;
         }
-        if (QMessageBox::question(&dialog,
-                                  "可见用户建群",
-                                  QString("确定创建群聊“%1”并邀请 %2 位可见用户吗？其中 %3 位会同时发送好友申请。")
-                                      .arg(groupName)
-                                      .arg(invitedCount)
-                                      .arg(requestIds.size()),
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消可见用户建群", 1600);
+        if (!confirmAction(QStringLiteral("可见用户建群"),
+                           QStringLiteral("确定创建群聊“%1”并邀请 %2 位可见用户吗？其中 %3 位会同时发送好友申请。")
+                               .arg(groupName)
+                               .arg(invitedCount)
+                               .arg(requestIds.size()),
+                           QStringLiteral("已取消可见用户建群"),
+                           1600,
+                           &dialog)) {
             return;
         }
         QStringList sentNames;
         QStringList failedNames;
         for (const QString& id : requestIds) {
             const QString displayName = contactDisplayName(id);
-            if (m_client->sendFriendRequest(id)) {
-                m_friendNames[id] = displayName;
-                if (!m_pendingOutgoingFriendRequests.contains(id)) {
-                    m_pendingOutgoingFriendRequests << id;
-                }
+            if (ensureFriendRequestQueued(id)) {
                 sentNames << QString("%1(%2)").arg(displayName, id);
             } else {
                 failedNames << QString("%1(%2)").arg(displayName, id);
             }
         }
-        m_localGroupIds << groupId;
-        m_localGroupNames[groupId] = groupName;
-        m_localGroupAnnouncements[groupId] = QString("%1 已从综合搜索创建，已邀请可见用户。").arg(groupName);
-        m_localGroupMembers[groupId] = members;
-        saveLocalGroups();
-        refreshFriendList();
+        const QString groupId = createLocalGroupSession(
+            groupName,
+            members,
+            QString("%1 已从综合搜索创建，已邀请可见用户。").arg(groupName));
         dialog.accept();
         switchToLocalGroup(groupId, groupName);
         QString detail = QString("已从综合搜索建群并邀请 %1 位可见用户").arg(invitedCount);
@@ -3522,12 +3968,11 @@ void MainWindow::onShowGlobalSearch() {
             searchEdit->setFocus();
             return;
         }
-        if (QMessageBox::question(&dialog,
-                                  "发送可见用户申请",
-                                  QString("确定向 %1 位可见用户发送好友申请吗？").arg(addIds.size()),
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消发送可见用户申请", 1600);
+        if (!confirmAction(QStringLiteral("发送可见用户申请"),
+                           QString("确定向 %1 位可见用户发送好友申请吗？").arg(addIds.size()),
+                           QStringLiteral("已取消发送可见用户申请"),
+                           1600,
+                           &dialog)) {
             searchEdit->setFocus();
             return;
         }
@@ -3535,11 +3980,7 @@ void MainWindow::onShowGlobalSearch() {
         QStringList failedNames;
         for (const QString& id : addIds) {
             const QString displayName = contactDisplayName(id);
-            if (m_client->sendFriendRequest(id)) {
-                m_friendNames[id] = displayName;
-                if (!m_pendingOutgoingFriendRequests.contains(id)) {
-                    m_pendingOutgoingFriendRequests << id;
-                }
+            if (ensureFriendRequestQueued(id)) {
                 sentNames << QString("%1(%2)").arg(displayName, id);
             } else {
                 failedNames << QString("%1(%2)").arg(displayName, id);
@@ -3730,260 +4171,49 @@ void MainWindow::onShowGlobalSearch() {
 
 void MainWindow::onShowCreateMenu() {
     QMenu menu(this);
-    QAction* createGroupAction = menu.addAction("创建群聊");
-    QAction* createGroupWithFriendsAction = menu.addAction("创建群并拉全部好友");
-    QAction* addFriendAction = menu.addAction("申请好友/群");
-    QAction* focusSearchAction = menu.addAction("定位QQ搜索框");
-    QAction* refreshContactsAction = menu.addAction("刷新联系人");
-    QAction* clearSearchAction = menu.addAction("清空搜索");
-    QAction* copyChatIdAction = menu.addAction("复制当前会话号");
-    QAction* copyChatCardAction = menu.addAction("复制当前会话名片");
-    QAction* copyCurrentInviteAction = menu.addAction("复制当前邀请语");
-    QAction* copyCurrentMembersAction = menu.addAction("复制当前成员列表");
-    QAction* copyCurrentOnlineAction = menu.addAction("复制当前在线成员");
-    QAction* copyAllContactsAction = menu.addAction("复制全部联系人");
-    QAction* copySearchSummaryAction = menu.addAction("复制搜索摘要");
-    QAction* copyQuickGuideAction = menu.addAction("复制QQ功能指南");
-    QAction* copyMediaGuideAction = menu.addAction("复制上传指南");
-    QAction* copyCurrentMediaPackAction = menu.addAction("复制当前媒体包");
-    QAction* copyFullMediaPlanAction = menu.addAction("复制完整媒体计划");
-    QAction* editAnnouncementAction = menu.addAction("编辑群公告");
-    QAction* copyAnnouncementAction = menu.addAction("复制群公告");
-    QAction* friendNoticeAction = menu.addAction("好友通知");
-    QAction* groupNoticeAction = menu.addAction("群通知");
-    QAction* sendImageAction = menu.addAction("发送图片/视频");
-    QAction* sendFileAction = menu.addAction("闪传文件");
     auto describeAction = [](QAction* action, const QString& tip) {
         action->setToolTip(tip);
         action->setStatusTip(tip);
     };
-    describeAction(createGroupAction, "创建一个新的本地群聊并立即进入");
-    describeAction(createGroupWithFriendsAction, "创建群聊并自动邀请当前全部好友");
-    describeAction(addFriendAction, "打开好友申请窗口，搜索 QQ 号并发送申请");
-    describeAction(focusSearchAction, "把焦点定位到左侧 QQ 搜索框");
-    describeAction(refreshContactsAction, "重新加载好友、群聊和在线联系人列表");
-    describeAction(clearSearchAction, "清空联系人搜索条件");
-    describeAction(copyChatIdAction, "复制当前私聊 QQ 号或群聊号");
-    describeAction(copyChatCardAction, "复制当前会话的名称、账号和成员摘要");
-    describeAction(copyCurrentInviteAction, "复制当前会话可用的邀请话术");
-    describeAction(copyCurrentMembersAction, "复制当前群聊的成员列表");
-    describeAction(copyCurrentOnlineAction, "复制当前群聊在线成员列表");
-    describeAction(copyAllContactsAction, "复制全部好友、群聊和在线成员摘要");
-    describeAction(copySearchSummaryAction, "复制当前搜索条件和联系人统计");
-    describeAction(copyQuickGuideAction, "复制 QQ 搜索、好友、群聊和媒体操作指南");
-    describeAction(copyMediaGuideAction, "复制图片、视频和文件上传指南");
-    describeAction(copyCurrentMediaPackAction, "复制当前会话的媒体发送准备包");
-    describeAction(copyFullMediaPlanAction, "复制好友、群聊和媒体发送的完整计划");
-    describeAction(editAnnouncementAction, "编辑当前本地群聊公告");
-    describeAction(copyAnnouncementAction, "复制当前本地群聊公告");
-    describeAction(friendNoticeAction, "打开好友通知并处理好友申请");
-    describeAction(groupNoticeAction, "打开群通知并查看群聊、公告和邀请");
-    describeAction(sendImageAction, "选择图片或视频发送到当前会话");
-    describeAction(sendFileAction, "选择文件闪传到当前会话");
-    QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
-    if (selected == createGroupAction) {
-        bool ok = false;
-        QString groupName = QInputDialog::getText(this, "创建群聊", "群聊名称:", QLineEdit::Normal, "我的群聊", &ok).trimmed();
-        if (!ok) return;
-        if (groupName.isEmpty()) groupName = "我的群聊";
-        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-        m_localGroupIds << groupId;
-        m_localGroupNames[groupId] = groupName;
-        m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
-        m_localGroupMembers[groupId] = QStringList{m_currentUserId};
-        saveLocalGroups();
-        refreshFriendList();
-        switchToLocalGroup(groupId, groupName);
-        appendSystemMessage("已创建群聊: " + groupName);
-    } else if (selected == createGroupWithFriendsAction) {
-        QString groupName = ui->contactSearchEdit->text().trimmed();
-        if (groupName.isEmpty()) groupName = "好友群聊";
-        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-        QStringList members = QStringList{m_currentUserId};
-        for (const QString& friendId : m_friendIds) {
-            if (!members.contains(friendId)) members << friendId;
-        }
-        m_localGroupIds << groupId;
-        m_localGroupNames[groupId] = groupName;
-        m_localGroupAnnouncements[groupId] = QString("%1 已创建，已自动邀请全部好友。").arg(groupName);
-        m_localGroupMembers[groupId] = members;
-        saveLocalGroups();
-        refreshFriendList();
-        switchToLocalGroup(groupId, groupName);
-        appendSystemMessage(QString("已创建群聊并邀请 %1 位好友").arg(qMax(0, members.size() - 1)));
-        saveHistory(groupId, QString("[%1] [系统] 已创建群聊并邀请 %2 位好友").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(qMax(0, members.size() - 1)));
-    } else if (selected == addFriendAction) {
-        onShowGlobalSearch();
-    } else if (selected == focusSearchAction) {
-        ui->contactSearchEdit->setFocus();
-        ui->contactSearchEdit->selectAll();
-        ui->statusbar->showMessage("已定位到 QQ 搜索框，输入账号后回车自动查找", 2500);
-    } else if (selected == refreshContactsAction) {
-        refreshFriendList();
-        refreshGroupMemberPanel();
-        ui->statusbar->showMessage("联系人和群成员已刷新", 2000);
-    } else if (selected == clearSearchAction) {
-        ui->contactSearchEdit->clear();
-        ui->memberSearchEdit->clear();
-        m_contactFilter.clear();
-        refreshFriendList();
-        refreshGroupMemberPanel();
-        ui->statusbar->showMessage("搜索条件已清空", 1800);
-    } else if (selected == copyChatIdAction) {
-        QString chatId = m_privateChatTarget;
-        if (chatId.startsWith("local_group_")) chatId = chatId.mid(QString("local_group_").size());
-        if (chatId.isEmpty()) chatId = m_currentUserId;
-        QApplication::clipboard()->setText(chatId);
-        ui->statusbar->showMessage("当前会话号已复制: " + chatId, 2500);
-    } else if (selected == copyChatCardAction) {
-        QString card;
-        if (m_privateChatTarget.startsWith("local_group_")) {
-            card = QString("群聊 QQ:%1\n%2\n公告:%3")
-                .arg(m_privateChatTarget.mid(QString("local_group_").size()),
-                     m_localGroupNames.value(m_privateChatTarget, "群聊"),
-                     m_localGroupAnnouncements.value(m_privateChatTarget, ui->announcementBodyLabel->text()));
-        } else if (!m_privateChatTarget.isEmpty()) {
-            card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(m_privateChatTarget, contactDisplayName(m_privateChatTarget), isContactOnline(m_privateChatTarget) ? "在线" : "离线");
-        } else {
-            card = QString("公共聊天室\n当前账号:%1\n在线成员:%2").arg(m_currentUserId).arg(m_knownUsers.size());
-        }
-        QApplication::clipboard()->setText(card);
-        ui->statusbar->showMessage("当前会话名片已复制", 1800);
-    } else if (selected == copyCurrentInviteAction) {
-        QString text;
-        if (m_privateChatTarget.startsWith("local_group_")) {
-            text = QString("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后我们一起沟通。")
-                .arg(m_localGroupNames.value(m_privateChatTarget, "群聊"),
-                     m_privateChatTarget.mid(QString("local_group_").size()),
-                     m_currentUserName,
-                     m_currentUserId);
-        } else if (!m_privateChatTarget.isEmpty()) {
-            text = QString("你好 %1，我是 %2（QQ:%3）。方便的话加个好友，我们可以继续私聊。")
-                .arg(contactDisplayName(m_privateChatTarget), m_currentUserName, m_currentUserId);
-        } else {
-            text = QString("你好，我是 %1（QQ:%2），欢迎加入公共聊天室，也可以通过 QQ 搜索加我好友。").arg(m_currentUserName, m_currentUserId);
-        }
-        QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("当前会话邀请语已复制", 2200);
-    } else if (selected == copyCurrentMembersAction) {
-        QStringList cards;
-        QStringList ids = m_privateChatTarget.startsWith("local_group_") ? m_localGroupMembers.value(m_privateChatTarget) : QStringList();
-        if (ids.isEmpty()) {
-            for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) ids << it.key();
-        }
-        for (const QString& id : ids) {
-            cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
-        }
-        if (cards.isEmpty()) {
-            ui->statusbar->showMessage("当前会话没有成员可复制", 2200);
-            return;
-        }
-        QApplication::clipboard()->setText(cards.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 个当前成员").arg(cards.size()), 2200);
-    } else if (selected == copyCurrentOnlineAction) {
-        QStringList cards;
-        QStringList ids = m_privateChatTarget.startsWith("local_group_") ? m_localGroupMembers.value(m_privateChatTarget) : QStringList();
-        if (ids.isEmpty()) {
-            for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) ids << it.key();
-        }
-        for (const QString& id : ids) {
-            if (id != m_currentUserId && !isContactOnline(id)) continue;
-            cards << QString("在线 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
-        }
-        if (cards.isEmpty()) {
-            ui->statusbar->showMessage("当前会话没有在线成员可复制", 2200);
-            return;
-        }
-        QApplication::clipboard()->setText(cards.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 个在线成员").arg(cards.size()), 2200);
-    } else if (selected == copyAllContactsAction) {
-        QStringList rows;
-        rows << QString("我的QQ:%1 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << QString("好友:%1 群聊:%2 在线:%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
-        for (const QString& id : m_friendIds) {
-            rows << QString("好友 QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
-        }
-        for (const QString& groupId : m_localGroupIds) {
-            rows << QString("群聊 QQ:%1 名称:%2 成员:%3").arg(groupId.mid(QString("local_group_").size()), m_localGroupNames.value(groupId, "群聊"), QString::number(m_localGroupMembers.value(groupId).size()));
-        }
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage(QString("已复制联系人摘要 %1 行").arg(rows.size()), 2200);
-    } else if (selected == copySearchSummaryAction) {
-        QString filter = ui->contactSearchEdit->text().trimmed();
-        if (filter.isEmpty()) filter = "全部";
-        QString summary = QString("QQ搜索:%1\n好友:%2\n本地群:%3\n在线成员:%4\n当前会话:%5")
-            .arg(filter)
-            .arg(m_friendIds.size())
-            .arg(m_localGroupIds.size())
-            .arg(m_knownUsers.size())
-            .arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
-        QApplication::clipboard()->setText(summary);
-        ui->statusbar->showMessage("QQ 搜索摘要已复制", 2200);
-    } else if (selected == copyQuickGuideAction) {
-        QStringList rows;
-        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << "1. 点击综合搜索可按 QQ 号/昵称查找用户、好友和群聊";
-        rows << "2. 搜索结果可直接打开、发送好友申请、复制名片或复制邀请卡";
-        rows << "3. 好友申请支持推荐在线用户、复制申请话术和自动发送申请";
-        rows << "4. 好友管理器可搜索、备注、邀入群、复制在线好友和统计";
-        rows << QString("当前好友:%1 · 群聊:%2 · 在线:%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage("QQ 功能指南已复制", 2200);
-    } else if (selected == copyMediaGuideAction) {
-        QStringList rows;
-        rows << QString("上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << "1. 点击 图片/视频 可发送 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm";
-        rows << "2. 图片会显示预览卡片，视频会以文件卡片发送";
-        rows << "3. 点击 闪传文件 可发送文档、压缩包和媒体文件";
-        rows << "4. 聊天记录右键可复制媒体卡片或查收话术";
-        rows << QString("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage("上传指南已复制", 2200);
-    } else if (selected == copyCurrentMediaPackAction) {
-        QString sessionName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-        QString sessionId = m_privateChatTarget;
-        if (sessionId.startsWith("local_group_")) sessionId = sessionId.mid(QString("local_group_").size());
-        if (sessionId.isEmpty()) sessionId = "public";
-        QStringList rows;
-        rows << QString("媒体发送包 · 会话:%1 · 会话号:%2").arg(sessionName, sessionId);
-        rows << QString("发送者:%1 · QQ:%2").arg(m_currentUserName, m_currentUserId);
-        rows << "图片/视频入口：点击工具栏 图片/视频，或菜单栏 发送图片/视频";
-        rows << "文件入口：点击工具栏 闪传文件，或菜单栏 闪传文件";
-        rows << "支持格式：png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm + 文档/压缩包";
-        rows << QString("查收话术：我已准备发送图片/视频/文件到 %1，请注意查收。").arg(sessionName);
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage("当前媒体发送包已复制", 2200);
-    } else if (selected == copyFullMediaPlanAction) {
-        QString sessionName = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-        QString sessionId = m_privateChatTarget;
-        if (sessionId.startsWith("local_group_")) sessionId = sessionId.mid(QString("local_group_").size());
-        if (sessionId.isEmpty()) sessionId = "public";
-        QStringList rows;
-        rows << QString("完整媒体计划 · 当前会话:%1 · 会话号:%2").arg(sessionName, sessionId);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 好友:%3 · 群聊:%4 · 在线:%5")
-            .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()), QString::number(m_knownUsers.size()));
-        rows << "1. 先用综合搜索/好友申请确认目标 QQ 或群聊";
-        rows << "2. 通过好友管理/群通知复制媒体包、邀请语和成员列表";
-        rows << "3. 点击 图片/视频 发送图片、GIF 或视频；点击 闪传文件 发送文档和压缩包";
-        rows << "4. 发送后聊天记录会生成媒体卡片、查收话术；接收后生成回执话术和保存路径";
-        rows << QString("当前查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(sessionName);
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage("完整媒体计划已复制", 2200);
-    } else if (selected == editAnnouncementAction) {
-        onEditGroupAnnouncement();
-    } else if (selected == copyAnnouncementAction) {
-        QString announcement = ui->announcementBodyLabel->text();
-        QApplication::clipboard()->setText(announcement);
-        ui->statusbar->showMessage("群公告已复制", 1800);
-    } else if (selected == friendNoticeAction) {
-        onShowFriendNotifications();
-    } else if (selected == groupNoticeAction) {
-        onShowGroupNotifications();
-    } else if (selected == sendImageAction) {
-        onSendImage();
-    } else if (selected == sendFileAction) {
-        onSendFile();
+    const struct MenuSpec {
+        const char* commandId;
+        const char* title;
+        const char* tip;
+    } specs[] = {
+        {"create-group", "创建群聊", "创建一个新的本地群聊并立即进入"},
+        {"create-group-with-friends", "创建群并拉全部好友", "创建群聊并自动邀请当前全部好友"},
+        {"open-global-search", "申请好友/群", "打开好友申请窗口，搜索 QQ 号并发送申请"},
+        {"focus-contact-search", "定位QQ搜索框", "把焦点定位到左侧 QQ 搜索框"},
+        {"refresh-contacts", "刷新联系人", "重新加载好友、群聊和在线联系人列表"},
+        {"clear-search", "清空搜索", "清空联系人搜索条件"},
+        {"copy-chat-id", "复制当前会话号", "复制当前私聊 QQ 号或群聊号"},
+        {"copy-chat-card", "复制当前会话名片", "复制当前会话的名称、账号和成员摘要"},
+        {"copy-current-invite", "复制当前邀请语", "复制当前会话可用的邀请话术"},
+        {"copy-current-members", "复制当前成员列表", "复制当前群聊的成员列表"},
+        {"copy-current-online", "复制当前在线成员", "复制当前群聊在线成员列表"},
+        {"copy-all-contacts", "复制全部联系人", "复制全部好友、群聊和在线成员摘要"},
+        {"copy-search-summary", "复制搜索摘要", "复制当前搜索条件和联系人统计"},
+        {"copy-quick-guide", "复制QQ功能指南", "复制 QQ 搜索、好友、群聊和媒体操作指南"},
+        {"copy-media-guide", "复制上传指南", "复制图片、视频和文件上传指南"},
+        {"copy-current-media-pack", "复制当前媒体包", "复制当前会话的媒体发送准备包"},
+        {"copy-full-media-plan", "复制完整媒体计划", "复制好友、群聊和媒体发送的完整计划"},
+        {"edit-announcement", "编辑群公告", "编辑当前本地群聊公告"},
+        {"copy-announcement", "复制群公告", "复制当前本地群聊公告"},
+        {"show-friend-notice", "好友通知", "打开好友通知并处理好友申请"},
+        {"show-group-notice", "群通知", "打开群通知并查看群聊、公告和邀请"},
+        {"send-image", "发送图片/视频", "选择图片或视频发送到当前会话"},
+        {"send-file", "闪传文件", "选择文件闪传到当前会话"}
+    };
+    for (const MenuSpec& spec : specs) {
+        QAction* action = menu.addAction(QString::fromUtf8(spec.title));
+        action->setData(QString::fromLatin1(spec.commandId));
+        describeAction(action, QString::fromUtf8(spec.tip));
     }
+    QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
+    if (!selected) {
+        return;
+    }
+    handleCreateMenuCommand(selected->data().toString());
 }
 
 void MainWindow::switchToLocalGroup(const QString& groupId, const QString& groupName) {
@@ -4767,13 +4997,7 @@ void MainWindow::onShowFriendManager() {
             return;
         }
         dialog.accept();
-        m_privateChatTarget = id;
-        m_chatModel->clear();
-        m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
-        loadHistory(id);
-        ui->chatTitleLabel->setText(QString("与 %1 私聊中").arg(contactDisplayName(id)));
-        ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室").arg(id, isContactOnline(id) ? "在线" : "离线"));
-        refreshComposerState();
+        openPrivateSession(id);
         ui->statusbar->showMessage(QString("已打开与 %1 的私聊").arg(contactDisplayName(id)), 1800);
     };
 
@@ -4965,14 +5189,18 @@ void MainWindow::onShowFriendManager() {
             "好友管理上传指南已复制",
             2200);
     });
-    connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
+    connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit, &dialog]() {
         QString id;
         if (!trySelectedValidFriendId(friendList, ui->statusbar, "请先选择要备注的好友", &id)) {
             return;
         }
-        bool ok = false;
         const QString oldRemark = contactDisplayName(id);
-        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, oldRemark, &ok).trimmed();
+        bool ok = false;
+        const QString remark = promptTextValue(QStringLiteral("设置备注"),
+                                               QStringLiteral("备注名称:"),
+                                               oldRemark,
+                                               &ok,
+                                               &dialog);
         if (!ok) return;
         if (remark.isEmpty()) {
             ui->statusbar->showMessage("备注名称不能为空", 1800);
@@ -4996,23 +5224,14 @@ void MainWindow::onShowFriendManager() {
             return;
         }
         if (m_localGroupIds.isEmpty()) {
-            QString groupName = "我的群聊";
-            QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-            m_localGroupIds << groupId;
-            m_localGroupNames[groupId] = groupName;
-            m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
-            m_localGroupMembers[groupId] = QStringList{m_currentUserId};
+            createLocalGroupSession(QStringLiteral("我的群聊"));
         }
         QString targetGroup = m_privateChatTarget.startsWith("local_group_") ? m_privateChatTarget : m_localGroupIds.last();
-        if (m_localGroupMembers[targetGroup].contains(friendId)) {
+        if (appendMembersToLocalGroup(targetGroup, QStringList{friendId}) == 0) {
             ui->statusbar->showMessage(QString("%1 已在目标群聊中").arg(contactDisplayName(friendId)), 1800);
             return;
         }
-        m_localGroupMembers[targetGroup] << friendId;
-        saveLocalGroups();
-        refreshFriendList();
         switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
-        refreshGroupMemberPanel();
         appendSystemMessage(QString("已邀请 %1 加入群聊").arg(contactDisplayName(friendId)));
         saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), contactDisplayName(friendId)));
     });
@@ -5033,30 +5252,16 @@ void MainWindow::onShowFriendManager() {
             ui->statusbar->showMessage("当前没有可邀请的可见好友", 2200);
             return;
         }
-        if (QMessageBox::question(this,
-                                  "邀请可见好友",
-                                  QString("确定邀请 %1 位可见好友加入群聊“%2”吗？").arg(inviteIds.size()).arg(groupName),
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消邀请可见好友", 1600);
+        if (!confirmAction(QStringLiteral("邀请可见好友"),
+                           QString("确定邀请 %1 位可见好友加入群聊“%2”吗？").arg(inviteIds.size()).arg(groupName),
+                           QStringLiteral("已取消邀请可见好友"))) {
             return;
         }
         if (willCreateGroup) {
-            QString groupName = "好友群聊";
-            m_localGroupIds << targetGroup;
-            m_localGroupNames[targetGroup] = groupName;
-            m_localGroupAnnouncements[targetGroup] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
-            m_localGroupMembers[targetGroup] = QStringList{m_currentUserId};
+            targetGroup = createLocalGroupSession(QStringLiteral("好友群聊"));
         }
-        for (const QString& friendId : inviteIds) {
-            if (!m_localGroupMembers[targetGroup].contains(friendId)) {
-                m_localGroupMembers[targetGroup] << friendId;
-            }
-        }
-        saveLocalGroups();
-        refreshFriendList();
+        appendMembersToLocalGroup(targetGroup, inviteIds);
         switchToLocalGroup(targetGroup, m_localGroupNames.value(targetGroup, "群聊"));
-        refreshGroupMemberPanel();
         appendSystemMessage(QString("已邀请 %1 位可见好友加入群聊").arg(inviteIds.size()));
         saveHistory(targetGroup, QString("[%1] [系统] 已邀请 %2 位可见好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(inviteIds.size()));
     });
@@ -5066,12 +5271,11 @@ void MainWindow::onShowFriendManager() {
             return;
         }
         QString displayName = contactDisplayName(id);
-        if (QMessageBox::question(&dialog,
-                                  "删除好友",
-                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, id),
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消删除好友", 1600);
+        if (!confirmAction(QStringLiteral("删除好友"),
+                           QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, id),
+                           QStringLiteral("已取消删除好友"),
+                           1600,
+                           &dialog)) {
             return;
         }
         m_friendIds.removeAll(id);
@@ -5093,42 +5297,7 @@ void MainWindow::onUploadAvatar() {
                                                               LocalFileManager::lastAvatarDirectory(),
                                                               selectionPlan.filters);
     const LocalFileSelectionResult selection = LocalFileManager::selectAvatarFile(selectedPath);
-    if (selection.canceled) {
-        ui->statusbar->showMessage(selection.canceledStatusMessage, selection.canceledStatusTimeoutMs);
-        return;
-    }
-    if (!selection.accepted) {
-        QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
-        ui->statusbar->showMessage(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage : selection.rejectedStatusMessage,
-                                   selection.rejectedStatusTimeoutMs);
-        return;
-    }
-
-    const QFileInfo info = selection.fileInfo;
-    QPixmap pixmap(selection.filePath);
-    if (pixmap.isNull()) {
-        const LocalFileSelectionResult invalidAvatar = LocalFileManager::invalidAvatarDataResult();
-        QMessageBox::warning(this, invalidAvatar.invalidDataTitle, invalidAvatar.invalidDataMessage);
-        ui->statusbar->showMessage(invalidAvatar.invalidDataStatusMessage, invalidAvatar.invalidDataStatusTimeoutMs);
-        return;
-    }
-
-    QPixmap savedAvatar = squareAvatarPixmap(pixmap, 256);
-    if (savedAvatar.isNull() || !savedAvatar.save(getAvatarFilePath(), "PNG")) {
-        const LocalFileSelectionResult saveFailed = LocalFileManager::avatarSaveFailedResult();
-        QMessageBox::warning(this, saveFailed.saveFailedTitle, saveFailed.saveFailedMessage);
-        ui->statusbar->showMessage(saveFailed.saveFailedStatusMessage, saveFailed.saveFailedStatusTimeoutMs);
-        return;
-    }
-
-    ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
-    saveProfileToSqlite();
-    const LocalAvatarAppliedState appliedState = LocalFileManager::avatarAppliedState(info);
-    ui->avatarLabel->setToolTip(appliedState.toolTip);
-    ui->uploadAvatarBtn->setToolTip(appliedState.toolTip);
-    appendSystemMessage(appliedState.detail);
-    ui->chatHintLabel->setText(appliedState.detail);
-    ui->statusbar->showMessage(appliedState.detail, appliedState.statusTimeoutMs);
+    applyAvatarSelection(selection);
 }
 
 void MainWindow::onBackToGroupChat() {
@@ -5313,6 +5482,475 @@ void MainWindow::onFriendResponseReceived(const QString& senderId, const QString
     }
 }
 
+bool MainWindow::handleLocalGroupContextCommand(const QString& groupId,
+                                                const QString& groupLabel,
+                                                const QString& commandId) {
+    auto groupMemberCopyInputs = [this](const QStringList& memberIds) {
+        QList<GroupNoticeMemberInput> inputs;
+        for (const QString& id : memberIds) {
+            GroupNoticeMemberInput input;
+            input.userId = id;
+            input.displayName = contactDisplayName(id);
+            input.self = id == m_currentUserId;
+            input.online = isContactOnline(id);
+            inputs << input;
+        }
+        return inputs;
+    };
+
+    if (commandId == QLatin1String("open-group")) {
+        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
+        return true;
+    }
+    if (commandId == QLatin1String("copy-group-id")) {
+        const QString groupNumber = groupId.mid(QStringLiteral("local_group_").size());
+        copyTextWithStatus(groupNumber, QStringLiteral("群号已复制: ") + groupNumber, 2500);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-group-card")) {
+        const QString groupNumber = groupId.mid(QStringLiteral("local_group_").size());
+        const QString card = QStringLiteral("群聊 QQ:%1\n%2\n成员:%3\n公告:%4")
+            .arg(groupNumber,
+                 m_localGroupNames.value(groupId, QStringLiteral("群聊")),
+                 QString::number(m_localGroupMembers.value(groupId).size()),
+                 m_localGroupAnnouncements.value(groupId,
+                                                 QStringLiteral("%1 已创建，可继续邀请好友并发送消息。")
+                                                     .arg(m_localGroupNames.value(groupId, QStringLiteral("群聊")))));
+        copyTextWithStatus(card, QStringLiteral("群名片已复制"), 1800);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-group-invite")) {
+        const QString groupName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+        const QString groupNumber = groupId.mid(QStringLiteral("local_group_").size());
+        const QString inviteText = QStringLiteral("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后我们一起沟通。")
+            .arg(groupName, groupNumber, m_currentUserName, m_currentUserId);
+        copyTextWithStatus(inviteText, QStringLiteral("群邀请语已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-group-members")) {
+        const GroupNoticeMemberCopyState state =
+            NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(m_localGroupMembers.value(groupId)), false);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
+            return true;
+        }
+        copyTextWithStatus(state.rows.join(QLatin1Char('\n')), state.copiedStatusMessage, 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("invite-friend")) {
+        if (m_friendIds.isEmpty()) {
+            appendSystemMessage(QStringLiteral("当前没有好友可邀请"));
+            return true;
+        }
+        QStringList friendLabels;
+        QMap<QString, QString> labelToId;
+        for (const QString& friendId : m_friendIds) {
+            const QString label = QStringLiteral("%1 (QQ:%2)").arg(m_friendNames.value(friendId, friendId), friendId);
+            friendLabels << label;
+            labelToId[label] = friendId;
+        }
+        bool ok = false;
+        const QString selectedFriend = promptItemValue(QStringLiteral("邀请好友"),
+                                                       QStringLiteral("选择好友:"),
+                                                       friendLabels,
+                                                       &ok);
+        if (!ok || selectedFriend.isEmpty()) {
+            return true;
+        }
+        const QString friendId = labelToId.value(selectedFriend);
+        const QString friendName = m_friendNames.value(friendId, friendId);
+        if (!m_localGroupMembers[groupId].contains(friendId)) {
+            m_localGroupMembers[groupId] << friendId;
+            saveLocalGroups();
+        }
+        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
+        appendSystemMessage(QStringLiteral("已邀请 %1 加入群聊").arg(friendName));
+        saveHistory(groupId,
+                    QStringLiteral("[%1] [系统] 已邀请 %2 加入群聊")
+                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")), friendName));
+        return true;
+    }
+    if (commandId == QLatin1String("invite-by-account")) {
+        bool ok = false;
+        const QString account = promptTextValue(QStringLiteral("按QQ号邀请"),
+                                                QStringLiteral("输入 QQ 账号:"),
+                                                QString(),
+                                                &ok);
+        if (!ok) {
+            return true;
+        }
+        if (account.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("请输入 QQ 号后再邀请入群"), 1800);
+            return true;
+        }
+        if (account == m_currentUserId) {
+            ui->statusbar->showMessage(QStringLiteral("你已在当前群聊中，无需重复邀请"), 1800);
+            return true;
+        }
+        if (m_localGroupMembers[groupId].contains(account)) {
+            ui->statusbar->showMessage(QStringLiteral("该 QQ 已在当前群聊中"), 1800);
+            return true;
+        }
+        QString requestNote;
+        m_localGroupMembers[groupId] << account;
+        if (!m_friendIds.contains(account) && !m_pendingOutgoingFriendRequests.contains(account)) {
+            const QString displayName = contactDisplayName(account);
+            if (m_client && m_client->sendFriendRequest(account)) {
+                m_friendNames[account] = displayName;
+                m_pendingOutgoingFriendRequests << account;
+                requestNote = QStringLiteral("，好友申请等待确认");
+            } else {
+                requestNote = QStringLiteral("，好友申请发送失败");
+                ui->statusbar->showMessage(QStringLiteral("已邀请入群，但好友申请发送失败：%1").arg(displayName), 3000);
+            }
+        } else if (m_pendingOutgoingFriendRequests.contains(account)) {
+            requestNote = QStringLiteral("，好友申请已在等待确认");
+        }
+        saveLocalGroups();
+        refreshFriendList();
+        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
+        refreshGroupMemberPanel();
+        appendSystemMessage(QStringLiteral("已按 QQ 号邀请 %1 加入群聊%2").arg(account, requestNote));
+        saveHistory(groupId,
+                    QStringLiteral("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊")
+                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")), account));
+        return true;
+    }
+    if (commandId == QLatin1String("invite-all-friends")) {
+        QStringList inviteIds;
+        for (const QString& friendId : m_friendIds) {
+            if (!m_localGroupMembers[groupId].contains(friendId)) {
+                inviteIds << friendId;
+            }
+        }
+        if (inviteIds.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("全部好友已在该群聊中"), 1800);
+            return true;
+        }
+        const QString groupName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+        if (!confirmAction(QStringLiteral("邀请全部好友"),
+                           QStringLiteral("确定邀请 %1 位好友加入群聊“%2”吗？").arg(inviteIds.size()).arg(groupName),
+                           QStringLiteral("已取消邀请全部好友"))) {
+            return true;
+        }
+        for (const QString& friendId : inviteIds) {
+            m_localGroupMembers[groupId] << friendId;
+        }
+        saveLocalGroups();
+        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
+        appendSystemMessage(QStringLiteral("已自动邀请 %1 位好友加入群聊").arg(inviteIds.size()));
+        saveHistory(groupId,
+                    QStringLiteral("[%1] [系统] 已自动邀请 %2 位好友加入群聊")
+                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")))
+                        .arg(inviteIds.size()));
+        return true;
+    }
+    if (commandId == QLatin1String("copy-group-online-members")) {
+        const GroupNoticeMemberCopyState state =
+            NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(m_localGroupMembers.value(groupId)), true);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
+            return true;
+        }
+        copyTextWithStatus(state.rows.join(QLatin1Char('\n')), state.copiedStatusMessage, 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("rename-group")) {
+        bool ok = false;
+        const QString oldName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+        const QString newName = promptTextValue(QStringLiteral("重命名群聊"),
+                                                QStringLiteral("群聊名称:"),
+                                                oldName,
+                                                &ok);
+        if (!ok) {
+            return true;
+        }
+        if (newName.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("群聊名称不能为空"), 1800);
+            return true;
+        }
+        if (newName == oldName) {
+            ui->statusbar->showMessage(QStringLiteral("群聊名称未改变"), 1600);
+            return true;
+        }
+        m_localGroupNames[groupId] = newName;
+        saveLocalGroups();
+        refreshFriendList();
+        if (m_privateChatTarget == groupId) {
+            switchToLocalGroup(groupId, newName);
+        }
+        ui->statusbar->showMessage(QStringLiteral("群聊已重命名为：%1").arg(newName), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("delete-group")) {
+        const QString groupName = m_localGroupNames.value(groupId, groupLabel);
+        const int memberCount = qMax(1, m_localGroupMembers.value(groupId).size());
+        if (!confirmAction(QStringLiteral("删除群聊"),
+                           QStringLiteral("确定删除群聊“%1”吗？本地群成员 %2 人，聊天记录不会在此步骤删除。")
+                               .arg(groupName)
+                               .arg(memberCount),
+                           QStringLiteral("已取消删除群聊"))) {
+            return true;
+        }
+        m_localGroupIds.removeAll(groupId);
+        m_localGroupNames.remove(groupId);
+        m_localGroupAnnouncements.remove(groupId);
+        m_localGroupMembers.remove(groupId);
+        saveLocalGroups();
+        refreshFriendList();
+        if (m_privateChatTarget == groupId) {
+            onBackToGroupChat();
+        }
+        appendSystemMessage(QStringLiteral("已删除群聊: ") + groupName);
+        return true;
+    }
+
+    return false;
+}
+
+bool MainWindow::handleContactContextCommand(const QString& userId,
+                                             const QString& commandId) {
+    if (commandId == QLatin1String("copy-account")) {
+        copyTextWithStatus(userId, QStringLiteral("QQ 号已复制: ") + userId, 2500);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-profile-card")) {
+        const QString card = QStringLiteral("QQ:%1\n昵称:%2\n状态:%3")
+            .arg(userId,
+                 contactDisplayName(userId),
+                 isContactOnline(userId) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        copyTextWithStatus(card, QStringLiteral("联系人名片已复制"), 1800);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-add-text")) {
+        const QString text = QStringLiteral("你好，我是 %1（QQ:%2），通过 QQ 搜索看到你。方便的话加个好友，我们可以私聊或一起进群沟通。")
+            .arg(m_currentUserName, m_currentUserId);
+        copyTextWithStatus(text, QStringLiteral("好友申请话术已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-online-card")) {
+        const QString card = QStringLiteral("QQ:%1\n昵称:%2\n状态:%3\n关系:%4\n当前会话:%5")
+            .arg(userId,
+                 contactDisplayName(userId),
+                 isContactOnline(userId) ? QStringLiteral("在线") : QStringLiteral("离线"),
+                 m_friendIds.contains(userId) ? QStringLiteral("好友")
+                                              : (m_pendingOutgoingFriendRequests.contains(userId) ? QStringLiteral("申请中")
+                                                                                                  : QStringLiteral("陌生人")),
+                 m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+        copyTextWithStatus(card, QStringLiteral("在线名片已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-chat-starter")) {
+        const QString text = m_friendIds.contains(userId)
+            ? QStringLiteral("%1，在吗？我是 %2（QQ:%3），想和你私聊确认一下刚才的消息。")
+                  .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
+            : m_pendingOutgoingFriendRequests.contains(userId)
+                ? QStringLiteral("%1，你好，我是 %2（QQ:%3），我已经发送好友申请了，通过后我们可以继续私聊。")
+                      .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
+                : QStringLiteral("你好 %1，我是 %2（QQ:%3）。通过 QQ 搜索看到你，方便通过好友申请后再聊吗？")
+                      .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId);
+        copyTextWithStatus(text, QStringLiteral("开聊话术已复制"), 2200);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-e2e-status")) {
+        copyE2ESessionStatus(userId);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-e2e-identity")) {
+        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
+        const QString text = identity.value(QStringLiteral("configured")).toBool(false)
+            ? QStringLiteral("端到端加密身份\n对端QQ：%1\n信任状态：%2\n验证状态：%3\n公钥指纹：%4\n验证短码：%5\n首次看到：%6\n最近看到：%7")
+                  .arg(userId,
+                       identity.value(QStringLiteral("trustState")).toString(),
+                       identity.value(QStringLiteral("verified")).toBool(false) ? QStringLiteral("verified")
+                                                                                 : QStringLiteral("unverified"),
+                       identity.value(QStringLiteral("publicKeyFingerprintSha256")).toString(),
+                       identity.value(QStringLiteral("verificationCodeDisplay")).toString(),
+                       identity.value(QStringLiteral("firstSeenAt")).toString(),
+                       identity.value(QStringLiteral("lastSeenAt")).toString())
+            : QStringLiteral("端到端加密身份\n对端QQ：%1\n信任状态：unknown\n说明：尚未收到该联系人的身份公告").arg(userId);
+        copyTextWithStatus(text, QStringLiteral("端到端加密身份指纹已复制"), 2400);
+        return true;
+    }
+    if (commandId == QLatin1String("copy-e2e-verification")) {
+        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
+        const QString code = identity.value(QStringLiteral("verificationCodeDisplay")).toString();
+        const QString text = identity.value(QStringLiteral("configured")).toBool(false) && !code.isEmpty()
+            ? QStringLiteral("端到端加密验证短码\n对端QQ：%1\n短码：%2\n核对方式：请通过另一个可信渠道与对方屏幕上的短码一致后再验证信任。")
+                  .arg(userId, code)
+            : QStringLiteral("端到端加密验证短码\n对端QQ：%1\n说明：尚未收到该联系人的身份公告").arg(userId);
+        copyTextWithStatus(text, QStringLiteral("端到端加密验证短码已复制"), 2400);
+        return true;
+    }
+    if (commandId == QLatin1String("trust-e2e-identity")) {
+        QString rejectReason;
+        if (m_client && m_client->pinE2EPeerIdentity(userId, QString(), &rejectReason)) {
+            appendSystemMessage(QStringLiteral("已固定 %1 的端到端加密身份指纹；完成验证短码核对前不会启用默认加密")
+                                    .arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage(QStringLiteral("端到端加密身份已固定，等待验证"), 2600);
+        } else {
+            appendSystemMessage(QStringLiteral("信任端到端加密身份失败：%1")
+                                    .arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage(QStringLiteral("信任端到端加密身份失败"), 3000);
+        }
+        return true;
+    }
+    if (commandId == QLatin1String("verify-e2e-identity")) {
+        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
+        const QString suggestedCode = identity.value(QStringLiteral("verificationCodeDisplay")).toString();
+        bool ok = false;
+        const QString code = promptTextValue(QStringLiteral("验证加密身份"),
+                                             QStringLiteral("请输入与 %1 通过可信渠道核对一致的验证短码:")
+                                                 .arg(contactDisplayName(userId)),
+                                             suggestedCode,
+                                             &ok);
+        if (!ok) {
+            ui->statusbar->showMessage(QStringLiteral("已取消端到端加密身份验证"), 1800);
+            return true;
+        }
+        QString rejectReason;
+        if (m_client && m_client->verifyAndPinE2EPeerIdentity(userId, code, &rejectReason)) {
+            appendSystemMessage(QStringLiteral("已验证并信任 %1 的端到端加密身份").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage(QStringLiteral("端到端加密身份已验证"), 2400);
+        } else {
+            appendSystemMessage(QStringLiteral("验证端到端加密身份失败：%1")
+                                    .arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage(QStringLiteral("验证端到端加密身份失败"), 3000);
+        }
+        return true;
+    }
+    if (commandId == QLatin1String("clear-e2e-identity-trust")) {
+        QString rejectReason;
+        if (m_client && m_client->clearE2EPeerIdentityPin(userId, &rejectReason)) {
+            appendSystemMessage(QStringLiteral("已清除 %1 的端到端加密身份信任固定").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage(QStringLiteral("端到端加密身份信任已清除"), 2400);
+        } else {
+            appendSystemMessage(QStringLiteral("清除端到端加密身份信任失败：%1")
+                                    .arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage(QStringLiteral("清除端到端加密身份信任失败"), 3000);
+        }
+        return true;
+    }
+    if (commandId == QLatin1String("request-e2e-rotation")) {
+        QString rejectReason;
+        if (m_client && m_client->requestE2ESessionRotation(userId, &rejectReason)) {
+            appendSystemMessage(QStringLiteral("已向 %1 发送端到端加密轮换请求").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage(QStringLiteral("端到端加密轮换请求已发送"), 2400);
+        } else {
+            appendSystemMessage(QStringLiteral("端到端加密轮换请求发送失败：%1")
+                                    .arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage(QStringLiteral("端到端加密轮换请求发送失败"), 3000);
+        }
+        return true;
+    }
+    if (commandId == QLatin1String("clear-e2e-session")) {
+        if (m_client) {
+            m_client->clearE2ESessionKey(userId);
+            appendSystemMessage(QStringLiteral("已关闭 %1 的本机端到端加密会话").arg(contactDisplayName(userId)));
+            ui->statusbar->showMessage(QStringLiteral("本机端到端加密会话已关闭"), 2400);
+        }
+        return true;
+    }
+    if (commandId == QLatin1String("clear-e2e-backend-migration")) {
+        QString rejectReason;
+        if (m_client && m_client->clearE2EBackendMigrationState(&rejectReason)) {
+            appendSystemMessage(QStringLiteral("已清理本机端到端加密后端迁移状态；需要重新接收身份公告、核对短码并建立会话后才能继续默认加密"));
+            ui->statusbar->showMessage(QStringLiteral("端到端加密迁移状态已清理"), 3200);
+        } else {
+            appendSystemMessage(QStringLiteral("清理端到端加密迁移状态失败：%1")
+                                    .arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
+            ui->statusbar->showMessage(QStringLiteral("清理端到端加密迁移状态失败"), 3000);
+        }
+        return true;
+    }
+    if (commandId == QLatin1String("invite-current-group")) {
+        QString requestNote;
+        if (!m_friendIds.contains(userId)) {
+            if (m_pendingOutgoingFriendRequests.contains(userId)) {
+                requestNote = QStringLiteral("，好友申请已在等待确认");
+            } else if (m_client && m_client->sendFriendRequest(userId)) {
+                m_friendNames[userId] = contactDisplayName(userId);
+                m_pendingOutgoingFriendRequests << userId;
+                requestNote = QStringLiteral("，好友申请等待确认");
+            } else {
+                requestNote = QStringLiteral("，好友申请发送失败");
+                ui->statusbar->showMessage(QStringLiteral("已邀请入群，但好友申请发送失败：%1").arg(contactDisplayName(userId)), 3000);
+            }
+        }
+        if (!m_localGroupMembers[m_privateChatTarget].contains(userId)) {
+            m_localGroupMembers[m_privateChatTarget] << userId;
+            saveLocalGroups();
+        }
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        appendSystemMessage(QStringLiteral("已邀请 %1 加入当前群聊%2").arg(contactDisplayName(userId), requestNote));
+        saveHistory(m_privateChatTarget,
+                    QStringLiteral("[%1] [系统] 已邀请 %2 加入群聊")
+                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")), contactDisplayName(userId)));
+        return true;
+    }
+    if (commandId == QLatin1String("rename-friend")) {
+        bool ok = false;
+        const QString oldRemark = contactDisplayName(userId);
+        const QString remark = promptTextValue(QStringLiteral("设置备注"),
+                                               QStringLiteral("备注名称:"),
+                                               oldRemark,
+                                               &ok);
+        if (!ok) {
+            return true;
+        }
+        if (remark.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("备注名称不能为空"), 1800);
+            return true;
+        }
+        if (remark == oldRemark) {
+            ui->statusbar->showMessage(QStringLiteral("备注未改变"), 1600);
+            return true;
+        }
+        m_friendNames[userId] = remark;
+        saveFriends();
+        refreshFriendList();
+        refreshGroupMemberPanel();
+        ui->statusbar->showMessage(QStringLiteral("已设置备注：%1").arg(remark), 2200);
+        appendSystemMessage(QStringLiteral("已设置 %1 的备注为 %2").arg(userId, remark));
+        return true;
+    }
+    if (commandId == QLatin1String("add-friend")) {
+        if (m_pendingOutgoingFriendRequests.contains(userId)) {
+            ui->statusbar->showMessage(QStringLiteral("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(userId)), 2500);
+            return true;
+        }
+        if (!m_friendIds.contains(userId)) {
+            const QString displayName = contactDisplayName(userId);
+            if (!m_client || !m_client->sendFriendRequest(userId)) {
+                ui->statusbar->showMessage(QStringLiteral("好友申请发送失败：%1").arg(displayName), 3000);
+                appendSystemMessage(QStringLiteral("好友申请发送失败 QQ:%1，请检查连接后重试").arg(userId));
+                return true;
+            }
+            m_friendNames[userId] = displayName;
+            m_pendingOutgoingFriendRequests << userId;
+            refreshFriendList();
+            appendSystemMessage(QStringLiteral("已发送好友申请: %1（QQ:%2），等待对方同意").arg(displayName, userId));
+        }
+        return true;
+    }
+    if (commandId == QLatin1String("remove-friend")) {
+        const QString displayName = contactDisplayName(userId);
+        if (!confirmAction(QStringLiteral("删除好友"),
+                           QStringLiteral("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, userId),
+                           QStringLiteral("已取消删除好友"))) {
+            return true;
+        }
+        m_friendIds.removeAll(userId);
+        m_friendNames.remove(userId);
+        saveFriends();
+        refreshFriendList();
+        appendSystemMessage(QStringLiteral("已删除好友: %1（QQ:%2）").arg(displayName, userId));
+        return true;
+    }
+    return false;
+}
+
 void MainWindow::onUserContextMenu(const QPoint& pos) {
     QModelIndex index = ui->userListView->indexAt(pos);
     if (!index.isValid()) return;
@@ -5325,475 +5963,119 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     userName.remove(QRegularExpression("\\s*\\[(在线|离线|本地)\\]$"));
 
     QMenu menu(this);
-    auto describeUserAction = [](QAction* action, const QString& tip) {
-        if (!action) return;
-        action->setToolTip(tip);
-        action->setStatusTip(tip);
-    };
     if (m_localGroupIds.contains(userId)) {
-        QAction* openGroupAction = menu.addAction("进入群聊");
-        QAction* copyGroupAction = menu.addAction("复制群号");
-        QAction* copyGroupCardAction = menu.addAction("复制群名片");
-        QAction* copyGroupInviteAction = menu.addAction("复制群邀请语");
-        QAction* copyMembersAction = menu.addAction("复制成员列表");
-        QAction* inviteFriendAction = menu.addAction("邀请好友");
-        QAction* inviteByAccountAction = menu.addAction("按QQ号邀请");
-        QAction* inviteAllAction = menu.addAction("邀请全部好友");
-        QAction* copyOnlineMembersAction = menu.addAction("复制在线成员");
-        QAction* renameGroupAction = menu.addAction("重命名群聊");
-        QAction* deleteGroupAction = menu.addAction("删除群聊");
-        auto groupMemberCopyInputs = [this](const QStringList& memberIds) {
-            QList<GroupNoticeMemberInput> inputs;
-            for (const QString& id : memberIds) {
-                GroupNoticeMemberInput input;
-                input.userId = id;
-                input.displayName = contactDisplayName(id);
-                input.self = id == m_currentUserId;
-                input.online = isContactOnline(id);
-                inputs << input;
-            }
-            return inputs;
+        const struct GroupActionSpec {
+            const char* id;
+            const char* title;
+            const char* tip;
+        } specs[] = {
+            {"open-group", "进入群聊", "进入当前本地群聊并加载聊天记录"},
+            {"copy-group-id", "复制群号", "复制当前群聊的群号"},
+            {"copy-group-card", "复制群名片", "复制群名、群号、成员数和公告摘要"},
+            {"copy-group-invite", "复制群邀请语", "复制一段可发送给好友的入群邀请语"},
+            {"copy-group-members", "复制成员列表", "复制当前群聊的全部成员列表"},
+            {"invite-friend", "邀请好友", "从好友列表中选择一个好友邀请入群"},
+            {"invite-by-account", "按QQ号邀请", "输入 QQ 号邀请用户入群，并按需发送好友申请"},
+            {"invite-all-friends", "邀请全部好友", "把当前全部好友批量邀请进该群聊"},
+            {"copy-group-online-members", "复制在线成员", "复制当前群聊在线成员的 QQ 和昵称"},
+            {"rename-group", "重命名群聊", "修改当前本地群聊名称"},
+            {"delete-group", "删除群聊", "删除当前本地群聊配置，聊天记录不会在此步骤删除"}
         };
-        describeUserAction(openGroupAction, "进入当前本地群聊并加载聊天记录");
-        describeUserAction(copyGroupAction, "复制当前群聊的群号");
-        describeUserAction(copyGroupCardAction, "复制群名、群号、成员数和公告摘要");
-        describeUserAction(copyGroupInviteAction, "复制一段可发送给好友的入群邀请语");
-        describeUserAction(copyMembersAction, "复制当前群聊的全部成员列表");
-        describeUserAction(inviteFriendAction, "从好友列表中选择一个好友邀请入群");
-        describeUserAction(inviteByAccountAction, "输入 QQ 号邀请用户入群，并按需发送好友申请");
-        describeUserAction(inviteAllAction, "把当前全部好友批量邀请进该群聊");
-        describeUserAction(copyOnlineMembersAction, "复制当前群聊在线成员的 QQ 和昵称");
-        describeUserAction(renameGroupAction, "修改当前本地群聊名称");
-        describeUserAction(deleteGroupAction, "删除当前本地群聊配置，聊天记录不会在此步骤删除");
+        for (const GroupActionSpec& spec : specs) {
+            QAction* action = menu.addAction(QString::fromUtf8(spec.title));
+            action->setData(QString::fromLatin1(spec.id));
+            action->setToolTip(QString::fromUtf8(spec.tip));
+            action->setStatusTip(QString::fromUtf8(spec.tip));
+        }
         QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
-        if (selected == openGroupAction) {
-            switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
-        } else if (selected == copyGroupAction) {
-            QString groupNumber = userId.mid(QString("local_group_").size());
-            QApplication::clipboard()->setText(groupNumber);
-            ui->statusbar->showMessage("群号已复制: " + groupNumber, 2500);
-        } else if (selected == copyGroupCardAction) {
-            QString groupNumber = userId.mid(QString("local_group_").size());
-            QString card = QString("群聊 QQ:%1\n%2\n成员:%3\n公告:%4")
-                .arg(groupNumber,
-                     m_localGroupNames.value(userId, "群聊"),
-                     QString::number(m_localGroupMembers.value(userId).size()),
-                     m_localGroupAnnouncements.value(userId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(m_localGroupNames.value(userId, "群聊"))));
-            QApplication::clipboard()->setText(card);
-            ui->statusbar->showMessage("群名片已复制", 1800);
-        } else if (selected == copyGroupInviteAction) {
-            QString groupName = m_localGroupNames.value(userId, "群聊");
-            QString groupNumber = userId.mid(QString("local_group_").size());
-            QString inviteText = QString("我邀请你加入群聊“%1”（群号:%2）。我是 %3（QQ:%4），进群后我们一起沟通。").arg(groupName, groupNumber, m_currentUserName, m_currentUserId);
-            QApplication::clipboard()->setText(inviteText);
-            ui->statusbar->showMessage("群邀请语已复制", 2200);
-        } else if (selected == copyMembersAction) {
-            const GroupNoticeMemberCopyState state =
-                NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(m_localGroupMembers.value(userId)), false);
-            if (state.rows.isEmpty()) {
-                ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
-                return;
-            }
-            QApplication::clipboard()->setText(state.rows.join('\n'));
-            ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
-        } else if (selected == inviteFriendAction) {
-            if (m_friendIds.isEmpty()) {
-                appendSystemMessage("当前没有好友可邀请");
-            } else {
-                QStringList friendLabels;
-                QMap<QString, QString> labelToId;
-                for (const QString& friendId : m_friendIds) {
-                    QString label = QString("%1 (QQ:%2)").arg(m_friendNames.value(friendId, friendId), friendId);
-                    friendLabels << label;
-                    labelToId[label] = friendId;
-                }
-                bool ok = false;
-                QString selectedFriend = QInputDialog::getItem(this, "邀请好友", "选择好友:", friendLabels, 0, false, &ok);
-                if (ok && !selectedFriend.isEmpty()) {
-                    QString friendId = labelToId.value(selectedFriend);
-                    QString friendName = m_friendNames.value(friendId, friendId);
-                    if (!m_localGroupMembers[userId].contains(friendId)) {
-                        m_localGroupMembers[userId] << friendId;
-                        saveLocalGroups();
-                    }
-                    switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
-                    appendSystemMessage(QString("已邀请 %1 加入群聊").arg(friendName));
-                    saveHistory(userId, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), friendName));
-                }
-            }
-        } else if (selected == inviteByAccountAction) {
-            bool ok = false;
-            QString account = QInputDialog::getText(this, "按QQ号邀请", "输入 QQ 账号:", QLineEdit::Normal, QString(), &ok).trimmed();
-            if (!ok) return;
-            if (account.isEmpty()) {
-                ui->statusbar->showMessage("请输入 QQ 号后再邀请入群", 1800);
-                return;
-            }
-            if (account == m_currentUserId) {
-                ui->statusbar->showMessage("你已在当前群聊中，无需重复邀请", 1800);
-                return;
-            }
-            if (m_localGroupMembers[userId].contains(account)) {
-                ui->statusbar->showMessage("该 QQ 已在当前群聊中", 1800);
-                return;
-            }
-            QString requestNote;
-            m_localGroupMembers[userId] << account;
-            if (!m_friendIds.contains(account) && !m_pendingOutgoingFriendRequests.contains(account)) {
-                const QString displayName = contactDisplayName(account);
-                if (m_client->sendFriendRequest(account)) {
-                    m_friendNames[account] = displayName;
-                    m_pendingOutgoingFriendRequests << account;
-                    requestNote = "，好友申请等待确认";
-                } else {
-                    requestNote = "，好友申请发送失败";
-                    ui->statusbar->showMessage(QString("已邀请入群，但好友申请发送失败：%1").arg(displayName), 3000);
-                }
-            } else if (m_pendingOutgoingFriendRequests.contains(account)) {
-                requestNote = "，好友申请已在等待确认";
-            }
-            saveLocalGroups();
-            refreshFriendList();
-            switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
-            refreshGroupMemberPanel();
-            appendSystemMessage(QString("已按 QQ 号邀请 %1 加入群聊%2").arg(account, requestNote));
-            saveHistory(userId, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
-        } else if (selected == inviteAllAction) {
-            QStringList inviteIds;
-            for (const QString& friendId : m_friendIds) {
-                if (!m_localGroupMembers[userId].contains(friendId)) inviteIds << friendId;
-            }
-            if (inviteIds.isEmpty()) {
-                ui->statusbar->showMessage("全部好友已在该群聊中", 1800);
-                return;
-            }
-            QString groupName = m_localGroupNames.value(userId, "群聊");
-            if (QMessageBox::question(this,
-                                      "邀请全部好友",
-                                      QString("确定邀请 %1 位好友加入群聊“%2”吗？").arg(inviteIds.size()).arg(groupName),
-                                      QMessageBox::Yes | QMessageBox::No,
-                                      QMessageBox::No) != QMessageBox::Yes) {
-                ui->statusbar->showMessage("已取消邀请全部好友", 1600);
-                return;
-            }
-            for (const QString& friendId : inviteIds) {
-                m_localGroupMembers[userId] << friendId;
-            }
-            saveLocalGroups();
-            switchToLocalGroup(userId, m_localGroupNames.value(userId, "群聊"));
-            appendSystemMessage(QString("已自动邀请 %1 位好友加入群聊").arg(inviteIds.size()));
-            saveHistory(userId, QString("[%1] [系统] 已自动邀请 %2 位好友加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss")).arg(inviteIds.size()));
-        } else if (selected == copyOnlineMembersAction) {
-            const GroupNoticeMemberCopyState state =
-                NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(m_localGroupMembers.value(userId)), true);
-            if (state.rows.isEmpty()) {
-                ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
-                return;
-            }
-            QApplication::clipboard()->setText(state.rows.join('\n'));
-            ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
-        } else if (selected == renameGroupAction) {
-            bool ok = false;
-            const QString oldName = m_localGroupNames.value(userId, "群聊");
-            QString newName = QInputDialog::getText(this, "重命名群聊", "群聊名称:", QLineEdit::Normal, oldName, &ok).trimmed();
-            if (!ok) return;
-            if (newName.isEmpty()) {
-                ui->statusbar->showMessage("群聊名称不能为空", 1800);
-                return;
-            }
-            if (newName == oldName) {
-                ui->statusbar->showMessage("群聊名称未改变", 1600);
-                return;
-            }
-            m_localGroupNames[userId] = newName;
-            saveLocalGroups();
-            refreshFriendList();
-            if (m_privateChatTarget == userId) switchToLocalGroup(userId, newName);
-            ui->statusbar->showMessage(QString("群聊已重命名为：%1").arg(newName), 2200);
-        } else if (selected == deleteGroupAction) {
-            QString groupName = m_localGroupNames.value(userId, userName);
-            int memberCount = qMax(1, m_localGroupMembers.value(userId).size());
-            if (QMessageBox::question(this,
-                                      "删除群聊",
-                                      QString("确定删除群聊“%1”吗？本地群成员 %2 人，聊天记录不会在此步骤删除。")
-                                          .arg(groupName)
-                                          .arg(memberCount),
-                                      QMessageBox::Yes | QMessageBox::No,
-                                      QMessageBox::No) != QMessageBox::Yes) {
-                ui->statusbar->showMessage("已取消删除群聊", 1600);
-                return;
-            }
-            m_localGroupIds.removeAll(userId);
-            m_localGroupNames.remove(userId);
-            m_localGroupAnnouncements.remove(userId);
-            m_localGroupMembers.remove(userId);
-            saveLocalGroups();
-            refreshFriendList();
-            if (m_privateChatTarget == userId) onBackToGroupChat();
-            appendSystemMessage("已删除群聊: " + groupName);
-        }
+        handleLocalGroupContextCommand(userId, userName, selected->data().toString());
         return;
     }
 
-    QAction* chatAction = menu.addAction("发送消息");
-    QAction* copyAction = menu.addAction("复制QQ号");
-    QAction* profileAction = menu.addAction("复制名片");
-    QAction* copyAddTextAction = menu.addAction("复制申请话术");
-    QAction* copyOnlineCardAction = menu.addAction("复制在线名片");
-    QAction* copyChatStarterAction = menu.addAction("复制开聊话术");
-    QAction* copyE2EStatusAction = menu.addAction("复制加密状态");
-    QAction* copyE2EIdentityAction = menu.addAction("复制加密身份指纹");
-    QAction* copyE2EVerificationAction = menu.addAction("复制加密验证短码");
-    QAction* trustE2EIdentityAction = menu.addAction("信任加密身份");
-    QAction* verifyE2EIdentityAction = menu.addAction("验证并信任加密身份");
     const QJsonObject currentE2EIdentity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
-    QAction* clearE2EIdentityTrustAction = currentE2EIdentity.value("pinned").toBool(false)
-        ? menu.addAction("清除加密身份信任")
-        : nullptr;
-    QAction* requestE2ERotationAction = menu.addAction("请求加密轮换");
-    QAction* clearE2ESessionAction = m_client && m_client->hasE2ESession(userId) ? menu.addAction("关闭本机会话密钥") : nullptr;
     const QJsonObject currentE2ESession = m_client ? m_client->e2eSessionStatus(userId) : QJsonObject();
     const QJsonObject currentE2ELocalIdentity = m_client ? m_client->e2eLocalIdentityStatus() : QJsonObject();
     const bool e2eBackendMigrationRequired =
         currentE2ELocalIdentity.value("backendMigrationRequired").toBool(false)
         || currentE2EIdentity.value("backendMigrationRequired").toBool(false)
         || currentE2ESession.value("backendMigrationRequired").toBool(false);
-    QAction* clearE2EBackendMigrationAction = e2eBackendMigrationRequired
-        ? menu.addAction("清理加密后端迁移状态")
-        : nullptr;
-    QAction* inviteCurrentGroupAction = m_privateChatTarget.startsWith("local_group_") ? menu.addAction("邀入当前群") : nullptr;
-    QAction* renameAction = nullptr;
-    QAction* addAction = nullptr;
-    QAction* removeAction = nullptr;
     const bool hasPendingOutgoing = m_pendingOutgoingFriendRequests.contains(userId);
-    if (m_friendIds.contains(userId)) {
-        renameAction = menu.addAction("设置备注");
-        removeAction = menu.addAction("删除好友");
-    } else if (hasPendingOutgoing) {
-        addAction = menu.addAction("好友申请待确认");
-        addAction->setEnabled(false);
-    } else {
-        addAction = menu.addAction("加为好友");
+    const struct ContactActionSpec {
+        const char* id;
+        const char* title;
+        const char* tip;
+        bool enabled;
+    } baseSpecs[] = {
+        {"chat", "发送消息", "打开当前联系人私聊会话", true},
+        {"copy-account", "复制QQ号", "复制当前联系人 QQ 号", true},
+        {"copy-profile-card", "复制名片", "复制当前联系人 QQ、昵称和关系状态", true},
+        {"copy-add-text", "复制申请话术", "复制适合当前联系人的好友申请话术", true},
+        {"copy-online-card", "复制在线名片", "复制当前联系人的在线名片和状态", true},
+        {"copy-chat-starter", "复制开聊话术", "复制一段可直接发送的开聊话术", true},
+        {"copy-e2e-status", "复制加密状态", "复制当前联系人端到端加密会话状态", true},
+        {"copy-e2e-identity", "复制加密身份指纹", "复制本机记录的联系人端到端加密身份指纹", true},
+        {"copy-e2e-verification", "复制加密验证短码", "复制需要与对方跨设备核对的端到端加密验证短码", true},
+        {"trust-e2e-identity", "信任加密身份", "仅固定当前记录的联系人端到端加密身份指纹，仍需验证短码后才能用于默认加密", true},
+        {"verify-e2e-identity", "验证并信任加密身份", "输入与对方核对一致的验证短码并将身份标记为已验证信任", true},
+        {"request-e2e-rotation", "请求加密轮换", "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥", true}
+    };
+    for (const ContactActionSpec& spec : baseSpecs) {
+        QAction* action = menu.addAction(QString::fromUtf8(spec.title));
+        action->setData(QString::fromLatin1(spec.id));
+        action->setToolTip(QString::fromUtf8(spec.tip));
+        action->setStatusTip(QString::fromUtf8(spec.tip));
+        action->setEnabled(spec.enabled);
     }
-    describeUserAction(chatAction, "打开当前联系人私聊会话");
-    describeUserAction(copyAction, "复制当前联系人 QQ 号");
-    describeUserAction(profileAction, "复制当前联系人 QQ、昵称和关系状态");
-    describeUserAction(copyAddTextAction, "复制适合当前联系人的好友申请话术");
-    describeUserAction(copyOnlineCardAction, "复制当前联系人的在线名片和状态");
-    describeUserAction(copyChatStarterAction, "复制一段可直接发送的开聊话术");
-    describeUserAction(copyE2EStatusAction, "复制当前联系人端到端加密会话状态");
-    describeUserAction(copyE2EIdentityAction, "复制本机记录的联系人端到端加密身份指纹");
-    describeUserAction(copyE2EVerificationAction, "复制需要与对方跨设备核对的端到端加密验证短码");
-    describeUserAction(trustE2EIdentityAction, "仅固定当前记录的联系人端到端加密身份指纹，仍需验证短码后才能用于默认加密");
-    describeUserAction(verifyE2EIdentityAction, "输入与对方核对一致的验证短码并将身份标记为已验证信任");
-    describeUserAction(clearE2EIdentityTrustAction, "清除当前联系人端到端加密身份固定信任并恢复为未验证");
-    describeUserAction(requestE2ERotationAction, "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥");
-    describeUserAction(clearE2ESessionAction, "清除本机为该联系人保存的端到端会话密钥");
-    describeUserAction(clearE2EBackendMigrationAction, "清除本机旧加密后端身份、信任和会话状态，等待新后端重新建立信任");
-    describeUserAction(inviteCurrentGroupAction, "邀请当前联系人加入正在查看的本地群聊");
-    describeUserAction(renameAction, "修改当前好友在本地显示的备注名");
-    describeUserAction(removeAction, "从本地好友列表删除当前好友");
-    describeUserAction(addAction, hasPendingOutgoing ? "好友申请已发送，等待对方处理" : "向当前联系人发送好友申请");
+    if (currentE2EIdentity.value("pinned").toBool(false)) {
+        QAction* action = menu.addAction(QStringLiteral("清除加密身份信任"));
+        action->setData(QStringLiteral("clear-e2e-identity-trust"));
+        action->setToolTip(QStringLiteral("清除当前联系人端到端加密身份固定信任并恢复为未验证"));
+        action->setStatusTip(action->toolTip());
+    }
+    if (m_client && m_client->hasE2ESession(userId)) {
+        QAction* action = menu.addAction(QStringLiteral("关闭本机会话密钥"));
+        action->setData(QStringLiteral("clear-e2e-session"));
+        action->setToolTip(QStringLiteral("清除本机为该联系人保存的端到端会话密钥"));
+        action->setStatusTip(action->toolTip());
+    }
+    if (e2eBackendMigrationRequired) {
+        QAction* action = menu.addAction(QStringLiteral("清理加密后端迁移状态"));
+        action->setData(QStringLiteral("clear-e2e-backend-migration"));
+        action->setToolTip(QStringLiteral("清除本机旧加密后端身份、信任和会话状态，等待新后端重新建立信任"));
+        action->setStatusTip(action->toolTip());
+    }
+    if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+        QAction* action = menu.addAction(QStringLiteral("邀入当前群"));
+        action->setData(QStringLiteral("invite-current-group"));
+        action->setToolTip(QStringLiteral("邀请当前联系人加入正在查看的本地群聊"));
+        action->setStatusTip(action->toolTip());
+    }
+    if (m_friendIds.contains(userId)) {
+        QAction* renameAction = menu.addAction(QStringLiteral("设置备注"));
+        renameAction->setData(QStringLiteral("rename-friend"));
+        renameAction->setToolTip(QStringLiteral("修改当前好友在本地显示的备注名"));
+        renameAction->setStatusTip(renameAction->toolTip());
+        QAction* removeAction = menu.addAction(QStringLiteral("删除好友"));
+        removeAction->setData(QStringLiteral("remove-friend"));
+        removeAction->setToolTip(QStringLiteral("从本地好友列表删除当前好友"));
+        removeAction->setStatusTip(removeAction->toolTip());
+    } else {
+        QAction* addAction = menu.addAction(hasPendingOutgoing ? QStringLiteral("好友申请待确认") : QStringLiteral("加为好友"));
+        addAction->setData(QStringLiteral("add-friend"));
+        addAction->setEnabled(!hasPendingOutgoing);
+        addAction->setToolTip(hasPendingOutgoing ? QStringLiteral("好友申请已发送，等待对方处理")
+                                                 : QStringLiteral("向当前联系人发送好友申请"));
+        addAction->setStatusTip(addAction->toolTip());
+    }
 
     QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
     if (!selected) return;
-    if (selected == chatAction) {
+    const QString commandId = selected->data().toString();
+    if (commandId == QLatin1String("chat")) {
         onPrivateChat(index);
-    } else if (selected == copyAction) {
-        QApplication::clipboard()->setText(userId);
-        ui->statusbar->showMessage("QQ 号已复制: " + userId, 2500);
-    } else if (selected == profileAction) {
-        QString card = QString("QQ:%1\n昵称:%2\n状态:%3").arg(userId, contactDisplayName(userId), isContactOnline(userId) ? "在线" : "离线");
-        QApplication::clipboard()->setText(card);
-        ui->statusbar->showMessage("联系人名片已复制", 1800);
-    } else if (selected == copyAddTextAction) {
-        QString text = QString("你好，我是 %1（QQ:%2），通过 QQ 搜索看到你。方便的话加个好友，我们可以私聊或一起进群沟通。")
-            .arg(m_currentUserName, m_currentUserId);
-        QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("好友申请话术已复制", 2200);
-    } else if (selected == copyOnlineCardAction) {
-        QString card = QString("QQ:%1\n昵称:%2\n状态:%3\n关系:%4\n当前会话:%5")
-            .arg(userId,
-                 contactDisplayName(userId),
-                 isContactOnline(userId) ? "在线" : "离线",
-                 m_friendIds.contains(userId) ? "好友" : (m_pendingOutgoingFriendRequests.contains(userId) ? "申请中" : "陌生人"),
-                 m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
-        QApplication::clipboard()->setText(card);
-        ui->statusbar->showMessage("在线名片已复制", 2200);
-    } else if (selected == copyChatStarterAction) {
-        QString text = m_friendIds.contains(userId)
-            ? QString("%1，在吗？我是 %2（QQ:%3），想和你私聊确认一下刚才的消息。")
-                .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
-            : m_pendingOutgoingFriendRequests.contains(userId)
-            ? QString("%1，你好，我是 %2（QQ:%3），我已经发送好友申请了，通过后我们可以继续私聊。")
-                .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
-            : QString("你好 %1，我是 %2（QQ:%3）。通过 QQ 搜索看到你，方便通过好友申请后再聊吗？")
-                .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId);
-        QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("开聊话术已复制", 2200);
-    } else if (selected == copyE2EStatusAction) {
-        copyE2ESessionStatus(userId);
-    } else if (selected == copyE2EIdentityAction) {
-        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
-        const QString text = identity.value("configured").toBool(false)
-            ? QString("端到端加密身份\n对端QQ：%1\n信任状态：%2\n验证状态：%3\n公钥指纹：%4\n验证短码：%5\n首次看到：%6\n最近看到：%7")
-                .arg(userId,
-                     identity.value("trustState").toString(),
-                     identity.value("verified").toBool(false) ? QStringLiteral("verified") : QStringLiteral("unverified"),
-                     identity.value("publicKeyFingerprintSha256").toString(),
-                     identity.value("verificationCodeDisplay").toString(),
-                     identity.value("firstSeenAt").toString(),
-                     identity.value("lastSeenAt").toString())
-            : QString("端到端加密身份\n对端QQ：%1\n信任状态：unknown\n说明：尚未收到该联系人的身份公告").arg(userId);
-        QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("端到端加密身份指纹已复制", 2400);
-    } else if (selected == copyE2EVerificationAction) {
-        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
-        const QString code = identity.value("verificationCodeDisplay").toString();
-        const QString text = identity.value("configured").toBool(false) && !code.isEmpty()
-            ? QString("端到端加密验证短码\n对端QQ：%1\n短码：%2\n核对方式：请通过另一个可信渠道与对方屏幕上的短码一致后再验证信任。")
-                .arg(userId, code)
-            : QString("端到端加密验证短码\n对端QQ：%1\n说明：尚未收到该联系人的身份公告").arg(userId);
-        QApplication::clipboard()->setText(text);
-        ui->statusbar->showMessage("端到端加密验证短码已复制", 2400);
-    } else if (selected == trustE2EIdentityAction) {
-        QString rejectReason;
-        if (m_client && m_client->pinE2EPeerIdentity(userId, QString(), &rejectReason)) {
-            appendSystemMessage(QString("已固定 %1 的端到端加密身份指纹；完成验证短码核对前不会启用默认加密").arg(contactDisplayName(userId)));
-            ui->statusbar->showMessage("端到端加密身份已固定，等待验证", 2600);
-        } else {
-            appendSystemMessage(QString("信任端到端加密身份失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
-            ui->statusbar->showMessage("信任端到端加密身份失败", 3000);
-        }
-    } else if (selected == verifyE2EIdentityAction) {
-        const QJsonObject identity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
-        const QString suggestedCode = identity.value("verificationCodeDisplay").toString();
-        bool ok = false;
-        const QString code = QInputDialog::getText(this,
-                                                   "验证加密身份",
-                                                   QString("请输入与 %1 通过可信渠道核对一致的验证短码:").arg(contactDisplayName(userId)),
-                                                   QLineEdit::Normal,
-                                                   suggestedCode,
-                                                   &ok).trimmed();
-        if (!ok) {
-            ui->statusbar->showMessage("已取消端到端加密身份验证", 1800);
-        } else {
-            QString rejectReason;
-            if (m_client && m_client->verifyAndPinE2EPeerIdentity(userId, code, &rejectReason)) {
-                appendSystemMessage(QString("已验证并信任 %1 的端到端加密身份").arg(contactDisplayName(userId)));
-                ui->statusbar->showMessage("端到端加密身份已验证", 2400);
-            } else {
-                appendSystemMessage(QString("验证端到端加密身份失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
-                ui->statusbar->showMessage("验证端到端加密身份失败", 3000);
-            }
-        }
-    } else if (selected == clearE2EIdentityTrustAction) {
-        QString rejectReason;
-        if (m_client && m_client->clearE2EPeerIdentityPin(userId, &rejectReason)) {
-            appendSystemMessage(QString("已清除 %1 的端到端加密身份信任固定").arg(contactDisplayName(userId)));
-            ui->statusbar->showMessage("端到端加密身份信任已清除", 2400);
-        } else {
-            appendSystemMessage(QString("清除端到端加密身份信任失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
-            ui->statusbar->showMessage("清除端到端加密身份信任失败", 3000);
-        }
-    } else if (selected == requestE2ERotationAction) {
-        QString rejectReason;
-        if (m_client && m_client->requestE2ESessionRotation(userId, &rejectReason)) {
-            appendSystemMessage(QString("已向 %1 发送端到端加密轮换请求").arg(contactDisplayName(userId)));
-            ui->statusbar->showMessage("端到端加密轮换请求已发送", 2400);
-        } else {
-            appendSystemMessage(QString("端到端加密轮换请求发送失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
-            ui->statusbar->showMessage("端到端加密轮换请求发送失败", 3000);
-        }
-    } else if (selected == clearE2ESessionAction) {
-        if (m_client) {
-            m_client->clearE2ESessionKey(userId);
-            appendSystemMessage(QString("已关闭 %1 的本机端到端加密会话").arg(contactDisplayName(userId)));
-            ui->statusbar->showMessage("本机端到端加密会话已关闭", 2400);
-        }
-    } else if (selected == clearE2EBackendMigrationAction) {
-        QString rejectReason;
-        if (m_client && m_client->clearE2EBackendMigrationState(&rejectReason)) {
-            appendSystemMessage("已清理本机端到端加密后端迁移状态；需要重新接收身份公告、核对短码并建立会话后才能继续默认加密");
-            ui->statusbar->showMessage("端到端加密迁移状态已清理", 3200);
-        } else {
-            appendSystemMessage(QString("清理端到端加密迁移状态失败：%1").arg(rejectReason.isEmpty() ? QStringLiteral("unknown") : rejectReason));
-            ui->statusbar->showMessage("清理端到端加密迁移状态失败", 3000);
-        }
-    } else if (selected == inviteCurrentGroupAction) {
-        QString requestNote;
-        if (!m_friendIds.contains(userId)) {
-            if (m_pendingOutgoingFriendRequests.contains(userId)) {
-                requestNote = "，好友申请已在等待确认";
-            } else if (m_client->sendFriendRequest(userId)) {
-                m_friendNames[userId] = contactDisplayName(userId);
-                m_pendingOutgoingFriendRequests << userId;
-                requestNote = "，好友申请等待确认";
-            } else {
-                requestNote = "，好友申请发送失败";
-                ui->statusbar->showMessage(QString("已邀请入群，但好友申请发送失败：%1").arg(contactDisplayName(userId)), 3000);
-            }
-        }
-        if (!m_localGroupMembers[m_privateChatTarget].contains(userId)) {
-            m_localGroupMembers[m_privateChatTarget] << userId;
-            saveLocalGroups();
-        }
-        refreshFriendList();
-        refreshGroupMemberPanel();
-        appendSystemMessage(QString("已邀请 %1 加入当前群聊%2").arg(contactDisplayName(userId), requestNote));
-        saveHistory(m_privateChatTarget, QString("[%1] [系统] 已邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), contactDisplayName(userId)));
-    } else if (selected == renameAction) {
-        bool ok = false;
-        const QString oldRemark = contactDisplayName(userId);
-        QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, oldRemark, &ok).trimmed();
-        if (!ok) return;
-        if (remark.isEmpty()) {
-            ui->statusbar->showMessage("备注名称不能为空", 1800);
-            return;
-        }
-        if (remark == oldRemark) {
-            ui->statusbar->showMessage("备注未改变", 1600);
-            return;
-        }
-        m_friendNames[userId] = remark;
-        saveFriends();
-        refreshFriendList();
-        refreshGroupMemberPanel();
-        ui->statusbar->showMessage(QString("已设置备注：%1").arg(remark), 2200);
-        appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(userId, remark));
-    } else if (selected == addAction) {
-        if (m_pendingOutgoingFriendRequests.contains(userId)) {
-            ui->statusbar->showMessage(QString("已向 %1 发送过好友申请，等待对方处理").arg(contactDisplayName(userId)), 2500);
-            return;
-        }
-        if (!m_friendIds.contains(userId)) {
-            const QString displayName = contactDisplayName(userId);
-            if (!m_client->sendFriendRequest(userId)) {
-                ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(displayName), 3000);
-                appendSystemMessage(QString("好友申请发送失败 QQ:%1，请检查连接后重试").arg(userId));
-                return;
-            }
-            m_friendNames[userId] = displayName;
-            m_pendingOutgoingFriendRequests << userId;
-            refreshFriendList();
-            appendSystemMessage(QString("已发送好友申请: %1（QQ:%2），等待对方同意").arg(displayName, userId));
-        }
-    } else if (selected == removeAction) {
-        const QString displayName = contactDisplayName(userId);
-        if (QMessageBox::question(this,
-                                  "删除好友",
-                                  QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, userId),
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消删除好友", 1600);
-            return;
-        }
-        m_friendIds.removeAll(userId);
-        m_friendNames.remove(userId);
-        saveFriends();
-        refreshFriendList();
-        appendSystemMessage(QString("已删除好友: %1（QQ:%2）").arg(displayName, userId));
+    } else {
+        handleContactContextCommand(userId, commandId);
     }
 }
 
@@ -6837,21 +7119,13 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
                                                 const QString& transferId,
                                                 const QByteArray& fileData,
                                                 qint64 totalBytes) {
-    if (!LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData)) {
-        applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, false),
-                                        context.receivedName,
-                                        transferId,
-                                        fileData.size(),
-                                        totalBytes);
-        return false;
-    }
-
-    applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, true),
+    const bool saved = LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData);
+    applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, saved),
                                     context.receivedName,
                                     transferId,
                                     fileData.size(),
                                     totalBytes);
-    return true;
+    return saved;
 }
 
 bool MainWindow::handleReceivedTransferMessage(const Message& msg,

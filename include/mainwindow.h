@@ -195,6 +195,43 @@ private:
     bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     bool openSavedFolderFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
+    bool confirmAction(const QString& title,
+                       const QString& message,
+                       const QString& canceledStatusMessage = QString(),
+                       int canceledStatusTimeoutMs = 1600,
+                       QWidget* parent = nullptr);
+    QString promptTextValue(const QString& title,
+                            const QString& label,
+                            const QString& initialValue,
+                            bool* accepted,
+                            QWidget* parent = nullptr) const;
+    QString promptMultilineValue(const QString& title,
+                                 const QString& label,
+                                 const QString& initialValue,
+                                 bool* accepted,
+                                 QWidget* parent = nullptr) const;
+    QString promptItemValue(const QString& title,
+                            const QString& label,
+                            const QStringList& items,
+                            bool* accepted,
+                            QWidget* parent = nullptr) const;
+    QStringList currentSessionMemberIds() const;
+    bool applyAvatarSelection(const LocalFileSelectionResult& selection);
+    bool persistAvatarPixmap(const QPixmap& pixmap, const QFileInfo& info);
+    void openPrivateSession(const QString& userId);
+    bool ensureFriendRequestQueued(const QString& userId,
+                                   const QString& successTemplate = QString(),
+                                   bool refreshGroups = false);
+    QString createLocalGroupSession(const QString& groupName,
+                                    const QStringList& members = QStringList(),
+                                    const QString& announcement = QString());
+    int appendMembersToLocalGroup(const QString& groupId, const QStringList& memberIds);
+    bool handleCreateMenuCommand(const QString& commandId);
+    bool handleLocalGroupContextCommand(const QString& groupId,
+                                        const QString& groupLabel,
+                                        const QString& commandId);
+    bool handleContactContextCommand(const QString& userId,
+                                     const QString& commandId);
     FriendManagerVisibleTargetSummary friendNoticeVisibleTarget(const QString& userId) const;
     QList<FriendManagerVisibleTargetSummary> visibleFriendNoticeTargets(QListWidget* noticeList) const;
     FriendNoticeSelectionSnapshot currentFriendNoticeSelectionSnapshot(QListWidget* noticeList,
