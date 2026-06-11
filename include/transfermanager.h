@@ -1,6 +1,7 @@
 #ifndef TRANSFERMANAGER_H
 #define TRANSFERMANAGER_H
 
+#include <QFileInfo>
 #include <QList>
 #include <QJsonObject>
 #include <QString>
@@ -112,6 +113,20 @@ struct TransferSendUiState {
     int statusTimeoutMs = 3000;
 };
 
+struct TransferSelectionPlan {
+    QString dialogTitle;
+    QString filters;
+    QString confirmKind;
+    QString canceledHint;
+    QString canceledStatus;
+    QString preparingKind;
+};
+
+struct TransferMediaSelection {
+    bool isVideo = false;
+    QString mediaType;
+};
+
 struct TransferChatListItemUiState {
     QString text;
     QString toolTip;
@@ -193,6 +208,9 @@ public:
                                                const QString& fileName,
                                                const QString& fileSize,
                                                const QString& targetName);
+    static TransferSelectionPlan fileSelectionPlan();
+    static TransferSelectionPlan mediaSelectionPlan();
+    static TransferMediaSelection mediaSelection(const QFileInfo& info);
     static TransferSendUiState preparingSendState(const QString& kind,
                                                   const QString& fileName,
                                                   const QString& fileSize,

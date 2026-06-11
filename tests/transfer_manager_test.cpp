@@ -280,6 +280,34 @@ int main(int argc, char** argv) {
                     && preparingSend.statusTimeoutMs == 1800,
                 "preparing send state should centralize pre-transfer copy") && ok;
 
+    TransferSelectionPlan fileSelectionPlan = TransferManager::fileSelectionPlan();
+    ok = expect(fileSelectionPlan.dialogTitle == QString::fromUtf8("选择文件")
+                    && fileSelectionPlan.confirmKind == QString::fromUtf8("文件")
+                    && fileSelectionPlan.canceledHint == QString::fromUtf8("文件发送已取消")
+                    && fileSelectionPlan.canceledStatus == QString::fromUtf8("已取消选择文件")
+                    && fileSelectionPlan.preparingKind == QString::fromUtf8("文件")
+                    && fileSelectionPlan.filters.contains(QStringLiteral("*.zip")),
+                "file selection plan should centralize file dialog and cancel copy") && ok;
+
+    TransferSelectionPlan mediaSelectionPlan = TransferManager::mediaSelectionPlan();
+    ok = expect(mediaSelectionPlan.dialogTitle == QString::fromUtf8("选择图片或视频")
+                    && mediaSelectionPlan.confirmKind == QString::fromUtf8("媒体文件")
+                    && mediaSelectionPlan.canceledHint == QString::fromUtf8("图片/视频发送已取消")
+                    && mediaSelectionPlan.canceledStatus == QString::fromUtf8("已取消选择图片/视频")
+                    && mediaSelectionPlan.preparingKind == QString::fromUtf8("媒体文件")
+                    && mediaSelectionPlan.filters.contains(QStringLiteral("*.mp4")),
+                "media selection plan should centralize media dialog and cancel copy") && ok;
+
+    TransferMediaSelection imageSelection = TransferManager::mediaSelection(QFileInfo(QStringLiteral("C:/tmp/photo.png")));
+    ok = expect(!imageSelection.isVideo
+                    && imageSelection.mediaType == QString::fromUtf8("图片"),
+                "image selection should classify image suffixes as pictures") && ok;
+
+    TransferMediaSelection videoSelection = TransferManager::mediaSelection(QFileInfo(QStringLiteral("C:/tmp/clip.mkv")));
+    ok = expect(videoSelection.isVideo
+                    && videoSelection.mediaType == QString::fromUtf8("视频"),
+                "media selection should classify video suffixes as videos") && ok;
+
     TransferSendUiState canceledSend = TransferManager::canceledSendState(QString::fromUtf8("文件"), QStringLiteral("report.zip"));
     ok = expect(canceledSend.hintText == QString::fromUtf8("已取消发送文件 · report.zip")
                     && canceledSend.statusMessage == QString::fromUtf8("已取消发送文件：report.zip")

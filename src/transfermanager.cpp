@@ -345,6 +345,43 @@ TransferSendUiState TransferManager::failedSendState(const QString& kind,
     return result;
 }
 
+TransferSelectionPlan TransferManager::fileSelectionPlan() {
+    TransferSelectionPlan result;
+    result.dialogTitle = QStringLiteral("选择文件");
+    result.filters = QStringLiteral("常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
+    result.confirmKind = QStringLiteral("文件");
+    result.canceledHint = QStringLiteral("文件发送已取消");
+    result.canceledStatus = QStringLiteral("已取消选择文件");
+    result.preparingKind = QStringLiteral("文件");
+    return result;
+}
+
+TransferSelectionPlan TransferManager::mediaSelectionPlan() {
+    TransferSelectionPlan result;
+    result.dialogTitle = QStringLiteral("选择图片或视频");
+    result.filters = QStringLiteral("图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)");
+    result.confirmKind = QStringLiteral("媒体文件");
+    result.canceledHint = QStringLiteral("图片/视频发送已取消");
+    result.canceledStatus = QStringLiteral("已取消选择图片/视频");
+    result.preparingKind = QStringLiteral("媒体文件");
+    return result;
+}
+
+TransferMediaSelection TransferManager::mediaSelection(const QFileInfo& info) {
+    const QString suffix = info.suffix().toLower();
+    const bool isVideo = QStringList{QStringLiteral("mp4"),
+                                     QStringLiteral("mov"),
+                                     QStringLiteral("avi"),
+                                     QStringLiteral("mkv"),
+                                     QStringLiteral("wmv"),
+                                     QStringLiteral("flv"),
+                                     QStringLiteral("webm")}.contains(suffix);
+    TransferMediaSelection result;
+    result.isVideo = isVideo;
+    result.mediaType = isVideo ? QStringLiteral("视频") : QStringLiteral("图片");
+    return result;
+}
+
 TransferSendUiState TransferManager::preparingSendState(const QString& kind,
                                                         const QString& fileName,
                                                         const QString& fileSize,

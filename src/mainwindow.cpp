@@ -2360,25 +2360,26 @@ void MainWindow::onSendFile() {
         return;
     }
 
+    const TransferSelectionPlan selectionPlan = m_transferManager.fileSelectionPlan();
     QString filePath;
     QFileInfo info;
     QString fileSize;
-    if (!selectTransferFile("选择文件",
-                            "常用文件 (*.txt *.pdf *.doc *.docx *.xls *.xlsx *.zip *.rar *.7z);;媒体文件 (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)",
-                            "文件",
-                            "文件发送已取消",
-                            "已取消选择文件",
+    if (!selectTransferFile(selectionPlan.dialogTitle,
+                            selectionPlan.filters,
+                            selectionPlan.confirmKind,
+                            selectionPlan.canceledHint,
+                            selectionPlan.canceledStatus,
                             &filePath,
                             &info,
                             &fileSize)) {
         return;
     }
 
-    const TransferSendUiState preparingState = m_transferManager.preparingSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
+    const TransferSendUiState preparingState = m_transferManager.preparingSendState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName);
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        const TransferSendUiState completedState = m_transferManager.localSendCompletedState(QStringLiteral("文件"), info.fileName(), fileSize, targetName, completedAt);
+        const TransferSendUiState completedState = m_transferManager.localSendCompletedState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName, completedAt);
         QString line = QString("[%1] <%2> 发送了文件: %3 · %4").arg(completedAt, m_currentUserName, info.fileName(), fileSize);
         saveHistory(m_privateChatTarget, line);
         QStandardItem* item = new QStandardItem(line);
@@ -2396,16 +2397,16 @@ void MainWindow::onSendFile() {
     bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary, &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
     if (ok) {
-        const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(QStringLiteral("文件"), info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
+        const TransferSendUiState completedState = m_transferManager.remoteSendCompletedState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName, QDateTime::currentDateTime().toString("hh:mm:ss"), transferSummary);
         appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
     } else if (transferCanceled) {
         appendSystemMessage(QString("已取消发送文件: %1 · 到 %2").arg(info.fileName(), targetName));
-        const TransferSendUiState state = m_transferManager.canceledSendState(QStringLiteral("文件"), info.fileName());
+        const TransferSendUiState state = m_transferManager.canceledSendState(selectionPlan.preparingKind, info.fileName());
         ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
         ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
     } else {
-        const TransferSendUiState state = m_transferManager.failedSendState(QStringLiteral("文件"), info.fileName(), fileSize, targetName);
+        const TransferSendUiState state = m_transferManager.failedSendState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName);
         applyTransferSendState(state);
         QMessageBox::warning(this, state.warningTitle, state.warningMessage);
         refreshComposerState();
@@ -2419,23 +2420,24 @@ void MainWindow::onSendImage() {
         return;
     }
 
+    const TransferSelectionPlan selectionPlan = m_transferManager.mediaSelectionPlan();
     QString filePath;
     QFileInfo info;
     QString fileSize;
-    if (!selectTransferFile("选择图片或视频",
-                            "图片和视频 (*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;图片文件 (*.png *.jpg *.jpeg *.bmp *.gif);;视频文件 (*.mp4 *.mov *.avi *.mkv *.wmv *.flv *.webm);;所有文件 (*.*)",
-                            "媒体文件",
-                            "图片/视频发送已取消",
-                            "已取消选择图片/视频",
+    if (!selectTransferFile(selectionPlan.dialogTitle,
+                            selectionPlan.filters,
+                            selectionPlan.confirmKind,
+                            selectionPlan.canceledHint,
+                            selectionPlan.canceledStatus,
                             &filePath,
                             &info,
                             &fileSize)) {
         return;
     }
 
-    const QString suffix = info.suffix().toLower();
-    const bool isVideo = QStringList{"mp4", "mov", "avi", "mkv", "wmv", "flv", "webm"}.contains(suffix);
-    const QString mediaType = isVideo ? "视频" : "图片";
+    const TransferMediaSelection mediaSelection = m_transferManager.mediaSelection(info);
+    const bool isVideo = mediaSelection.isVideo;
+    const QString mediaType = mediaSelection.mediaType;
     const TransferSendUiState preparingState = m_transferManager.preparingSendState(mediaType, info.fileName(), fileSize, targetName);
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
