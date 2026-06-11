@@ -42,6 +42,24 @@ struct FriendManagerSelectionPreviewUiState {
     QString text;
 };
 
+struct FriendQuickAddSuggestionEntryUiState {
+    QString entryId;
+    QString text;
+    bool placeholder = false;
+    bool muted = false;
+    bool enabled = true;
+    int rowHeight = 34;
+};
+
+struct FriendQuickAddSuggestionUiState {
+    int onlineCandidates = 0;
+    int pendingCandidates = 0;
+    int visibleCount = 0;
+    QString statsText;
+    QString previewText;
+    QList<FriendQuickAddSuggestionEntryUiState> entries;
+};
+
 class FriendManager {
 public:
     static QString contactDisplayName(const QString& userId,
@@ -78,6 +96,15 @@ public:
                                                const QString& displayName,
                                                bool online,
                                                bool canInviteCurrentGroup);
+    static FriendQuickAddSuggestionUiState quickAddSuggestionUiState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const QStringList& friendIds,
+        const QStringList& pendingOutgoingFriendRequests,
+        const QMap<QString, ChatUser>& knownUsers,
+        const QMap<QString, QString>& friendNames,
+        const QString& filter,
+        int maxVisible = 5);
 };
 
 #endif // FRIENDMANAGER_H

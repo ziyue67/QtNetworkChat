@@ -4208,55 +4208,27 @@ void MainWindow::onShowQuickAddFriend() {
 
     auto fillSuggestions = [this, accountEdit, suggestionList, statsLabel, cardLabel]() {
         suggestionList->clear();
-        QString filter = accountEdit->text().trimmed();
-        int onlineCandidates = 0;
-        int pendingCandidates = 0;
-        int visibleCount = 0;
-        QString firstPreviewId;
-        QString firstPreviewName;
-        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
-            const ChatUser& user = it.value();
-            if (user.id == m_currentUserId || m_friendIds.contains(user.id)) continue;
-            const bool matches = filter.isEmpty()
-                || user.id.contains(filter, Qt::CaseInsensitive)
-                || user.name.contains(filter, Qt::CaseInsensitive);
-            if (m_pendingOutgoingFriendRequests.contains(user.id)) {
-                if (matches) ++pendingCandidates;
-                continue;
+        const FriendQuickAddSuggestionUiState suggestionState =
+            FriendManager::quickAddSuggestionUiState(m_currentUserId,
+                                                     m_currentUserName,
+                                                     m_friendIds,
+                                                     m_pendingOutgoingFriendRequests,
+                                                     m_knownUsers,
+                                                     m_friendNames,
+                                                     accountEdit->text(),
+                                                     5);
+        statsLabel->setText(suggestionState.statsText);
+        cardLabel->setText(suggestionState.previewText);
+        for (const FriendQuickAddSuggestionEntryUiState& entry : suggestionState.entries) {
+            QListWidgetItem* item = new QListWidgetItem(entry.text);
+            item->setData(Qt::UserRole, entry.entryId);
+            item->setSizeHint(QSize(0, entry.rowHeight));
+            if (!entry.enabled) {
+                item->setFlags(Qt::NoItemFlags);
             }
-            ++onlineCandidates;
-            if (!matches) continue;
-            if (visibleCount < 5) {
-                QListWidgetItem* item = new QListWidgetItem(QString("QQ:%1 · %2 · 在线 · 双击添加").arg(user.id, user.name));
-                item->setData(Qt::UserRole, user.id);
-                item->setSizeHint(QSize(0, 34));
-                suggestionList->addItem(item);
+            if (entry.muted) {
+                item->setForeground(QColor(135, 150, 165));
             }
-            if (firstPreviewId.isEmpty()) {
-                firstPreviewId = user.id;
-                firstPreviewName = user.name;
-            }
-            ++visibleCount;
-        }
-        QString statsText = filter.isEmpty()
-            ? QString("在线推荐 %1 人 · 已有好友 %2 人").arg(onlineCandidates).arg(m_friendIds.size())
-            : QString("匹配推荐 %1 人 · 输入回车可搜索 QQ:%2").arg(visibleCount).arg(filter);
-        if (pendingCandidates > 0) {
-            statsText += QString(" · 申请中 %1 人").arg(pendingCandidates);
-        }
-        statsLabel->setText(statsText);
-        if (visibleCount > 5) {
-            QListWidgetItem* moreItem = new QListWidgetItem(QString("还有 %1 位匹配用户，可缩小关键词继续筛选").arg(visibleCount - 5));
-            moreItem->setFlags(Qt::NoItemFlags);
-            moreItem->setForeground(QColor(135, 150, 165));
-            moreItem->setSizeHint(QSize(0, 34));
-            suggestionList->addItem(moreItem);
-        }
-        if (suggestionList->count() == 0) {
-            QListWidgetItem* item = new QListWidgetItem(filter.isEmpty() ? "输入 QQ 号后回车搜索申请" : QString("回车搜索并发送申请 QQ:%1").arg(filter));
-            item->setData(Qt::UserRole, filter.isEmpty() ? QString() : filter);
-            item->setForeground(QColor(135, 150, 165));
-            item->setSizeHint(QSize(0, 34));
             suggestionList->addItem(item);
         }
         for (int i = 0; i < suggestionList->count(); ++i) {
@@ -4266,10 +4238,6 @@ void MainWindow::onShowQuickAddFriend() {
                 break;
             }
         }
-        QString previewId = firstPreviewId.isEmpty() ? filter : firstPreviewId;
-        QString previewName = firstPreviewName.isEmpty() ? (previewId.isEmpty() ? "待搜索好友" : contactDisplayName(previewId)) : firstPreviewName;
-        cardLabel->setText(QString("邀请预览：%1（QQ:%2）\n你好，我是 %3（QQ:%4），方便加个好友吗？")
-            .arg(previewName, previewId.isEmpty() ? "-" : previewId, m_currentUserName, m_currentUserId));
     };
     fillSuggestions();
 

@@ -145,5 +145,85 @@ int main(int argc, char** argv) {
                     && friendPreviewState.text.contains(QString::fromUtf8("可邀入当前群")),
                 "friend manager selection preview ui state should mirror preview text") && ok;
 
+    QMap<QString, ChatUser> quickKnownUsers;
+    quickKnownUsers.insert(QStringLiteral("self"), user(QStringLiteral("self"), QStringLiteral("Me"), true));
+    quickKnownUsers.insert(QStringLiteral("1001"), user(QStringLiteral("1001"), QStringLiteral("Alice"), true));
+    quickKnownUsers.insert(QStringLiteral("1002"), user(QStringLiteral("1002"), QStringLiteral("Bob"), true));
+    quickKnownUsers.insert(QStringLiteral("1003"), user(QStringLiteral("1003"), QStringLiteral("Carol"), true));
+    quickKnownUsers.insert(QStringLiteral("1004"), user(QStringLiteral("1004"), QStringLiteral("Dora"), true));
+    quickKnownUsers.insert(QStringLiteral("1005"), user(QStringLiteral("1005"), QStringLiteral("Evan"), true));
+    quickKnownUsers.insert(QStringLiteral("1006"), user(QStringLiteral("1006"), QStringLiteral("Frank"), true));
+    quickKnownUsers.insert(QStringLiteral("2001"), user(QStringLiteral("2001"), QStringLiteral("Pending"), true));
+    QMap<QString, QString> quickFriendNames;
+    quickFriendNames.insert(QStringLiteral("9988"), QStringLiteral("Fallback Friend"));
+    const FriendQuickAddSuggestionUiState quickAddAll =
+        FriendManager::quickAddSuggestionUiState(QStringLiteral("self"),
+                                                 QStringLiteral("Tester"),
+                                                 QStringList{QStringLiteral("1006")},
+                                                 QStringList{QStringLiteral("2001")},
+                                                 quickKnownUsers,
+                                                 quickFriendNames,
+                                                 QString(),
+                                                 3);
+    ok = expect(quickAddAll.onlineCandidates == 5
+                    && quickAddAll.pendingCandidates == 1
+                    && quickAddAll.visibleCount == 5
+                    && quickAddAll.statsText.contains(QString::fromUtf8("在线推荐 5 人"))
+                    && quickAddAll.statsText.contains(QString::fromUtf8("申请中 1 人"))
+                    && quickAddAll.entries.size() == 4
+                    && quickAddAll.entries.at(0).entryId == QStringLiteral("1001")
+                    && quickAddAll.entries.at(3).placeholder
+                    && !quickAddAll.entries.at(3).enabled
+                    && quickAddAll.previewText.contains(QString::fromUtf8("Alice"))
+                    && quickAddAll.previewText.contains(QStringLiteral("Tester")),
+                "quick add suggestions should summarize candidates, cap visible rows, and render preview") && ok;
+
+    const FriendQuickAddSuggestionUiState quickAddFiltered =
+        FriendManager::quickAddSuggestionUiState(QStringLiteral("self"),
+                                                 QStringLiteral("Tester"),
+                                                 QStringList(),
+                                                 QStringList(),
+                                                 quickKnownUsers,
+                                                 quickFriendNames,
+                                                 QStringLiteral("1002"),
+                                                 5);
+    ok = expect(quickAddFiltered.visibleCount == 1
+                    && quickAddFiltered.entries.size() == 1
+                    && quickAddFiltered.entries.first().entryId == QStringLiteral("1002")
+                    && quickAddFiltered.statsText.contains(QStringLiteral("QQ:1002"))
+                    && quickAddFiltered.previewText.contains(QString::fromUtf8("Bob")),
+                "quick add filtered suggestions should match account id and preview first result") && ok;
+
+    const FriendQuickAddSuggestionUiState quickAddSearchOnly =
+        FriendManager::quickAddSuggestionUiState(QStringLiteral("self"),
+                                                 QStringLiteral("Tester"),
+                                                 QStringList(),
+                                                 QStringList(),
+                                                 quickKnownUsers,
+                                                 quickFriendNames,
+                                                 QStringLiteral("9988"),
+                                                 5);
+    ok = expect(quickAddSearchOnly.entries.size() == 1
+                    && quickAddSearchOnly.entries.first().placeholder
+                    && quickAddSearchOnly.entries.first().enabled
+                    && quickAddSearchOnly.entries.first().entryId == QStringLiteral("9988")
+                    && quickAddSearchOnly.previewText.contains(QString::fromUtf8("Fallback Friend")),
+                "quick add unmatched filter should create selectable search placeholder and use display fallback") && ok;
+
+    const FriendQuickAddSuggestionUiState quickAddEmpty =
+        FriendManager::quickAddSuggestionUiState(QStringLiteral("self"),
+                                                 QStringLiteral("Tester"),
+                                                 QStringList(),
+                                                 QStringList(),
+                                                 QMap<QString, ChatUser>(),
+                                                 QMap<QString, QString>(),
+                                                 QString(),
+                                                 5);
+    ok = expect(quickAddEmpty.entries.size() == 1
+                    && quickAddEmpty.entries.first().placeholder
+                    && !quickAddEmpty.entries.first().enabled
+                    && quickAddEmpty.previewText.contains(QString::fromUtf8("待搜索好友")),
+                "quick add empty state should keep non-selectable guidance and neutral preview") && ok;
+
     return ok ? 0 : 1;
 }
