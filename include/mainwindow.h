@@ -169,6 +169,7 @@ private:
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
     bool handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
+    void insertChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     QAction* addChatContextAction(QMenu& menu,
                                   const QString& title,
                                   const QString& tip,

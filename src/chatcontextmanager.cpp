@@ -30,6 +30,16 @@ QString openSavedFolderToolTip(const ChatContextSavedFileState& savedFileState) 
         ? QStringLiteral("打开这条记录关联文件所在目录")
         : QStringLiteral("保存目录不存在或无权访问");
 }
+
+bool isLocalGroupTarget(const QString& privateChatTarget) {
+    return privateChatTarget.startsWith(QStringLiteral("local_group_"));
+}
+
+QString composerTargetName(const ChatContextComposerState& state) {
+    return state.privateChatTarget.isEmpty()
+        ? QStringLiteral("公共聊天室")
+        : state.targetDisplayName;
+}
 }
 
 QList<ChatContextMenuActionSpec> ChatContextManager::menuActionSpecs(bool isMediaMessage,
@@ -182,6 +192,160 @@ ChatContextDraftResult ChatContextManager::draftCommandResult(const QString& com
         result.action = ChatContextDraftResult::Action::SetDraft;
         result.draftText = QString("@%1 ").arg(name);
         result.statusMessage = QString("已插入 @%1 回复").arg(name);
+        return result;
+    }
+    return result;
+}
+
+ChatContextComposerCommand ChatContextManager::composerCommand(const QString& commandId,
+                                                               const ChatContextComposerState& state) {
+    ChatContextComposerCommand result;
+    if (commandId == QLatin1String("quick-reply")) {
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::SetDraft;
+        result.text = QStringLiteral("收到，我马上看。");
+        result.statusMessage = QStringLiteral("已插入快捷语");
+        return result;
+    }
+    if (commandId == QLatin1String("command-card")) {
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::SetDraft;
+        result.text = QStringLiteral("/card");
+        result.statusMessage = QStringLiteral("已插入快捷指令：/card");
+        result.timeoutMs = 1600;
+        return result;
+    }
+    if (commandId == QLatin1String("command-invite")) {
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::SetDraft;
+        result.text = QStringLiteral("/invite");
+        result.statusMessage = QStringLiteral("已插入快捷指令：/invite");
+        result.timeoutMs = 1600;
+        return result;
+    }
+    if (commandId == QLatin1String("command-qq")) {
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::SetDraft;
+        result.text = QStringLiteral("/qq");
+        result.statusMessage = QStringLiteral("已插入快捷指令：/qq");
+        result.timeoutMs = 1600;
+        return result;
+    }
+    if (commandId == QLatin1String("search-friend-template")) {
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("请在综合搜索里搜索 QQ:%1，确认资料后可以发送好友申请。").arg(state.currentUserId);
+        result.statusMessage = QStringLiteral("已插入 QQ 搜索话术");
+        return result;
+    }
+    if (commandId == QLatin1String("add-friend-template")) {
+        const QString target = state.privateChatTarget.isEmpty() ? QStringLiteral("你") : state.targetDisplayName;
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("%1，你好，我是 %2（QQ:%3），方便加个好友继续聊吗？")
+            .arg(target, state.currentUserName, state.currentUserId);
+        result.statusMessage = QStringLiteral("已插入好友申请话术");
+        return result;
+    }
+    if (commandId == QLatin1String("invite-group-template")) {
+        const QString groupName = isLocalGroupTarget(state.privateChatTarget)
+            ? state.currentGroupName
+            : QStringLiteral("群聊");
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("我邀请你加入群聊“%1”，进群后可以一起聊天、发图片和传文件。").arg(groupName);
+        result.statusMessage = QStringLiteral("已插入入群邀请话术");
+        return result;
+    }
+    if (commandId == QLatin1String("quote-template")) {
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("> 引用消息\n我的回复：");
+        result.statusMessage = QStringLiteral("已插入引用模板");
+        return result;
+    }
+    if (commandId == QLatin1String("friend-card-template")) {
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("我的QQ名片：%1（%2）").arg(state.currentUserId, state.currentUserName);
+        result.statusMessage = QStringLiteral("已插入我的 QQ 名片");
+        return result;
+    }
+    if (commandId == QLatin1String("group-card-template")) {
+        QString card;
+        if (isLocalGroupTarget(state.privateChatTarget)) {
+            card = QStringLiteral("群聊名片：%1 QQ:%2")
+                .arg(state.currentGroupName, state.privateChatTarget.mid(QStringLiteral("local_group_").size()));
+        } else if (!state.privateChatTarget.isEmpty()) {
+            card = QStringLiteral("好友名片：%1 QQ:%2").arg(state.targetDisplayName, state.privateChatTarget);
+        } else {
+            card = QStringLiteral("公共聊天室 当前QQ:%1").arg(state.currentUserId);
+        }
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = card;
+        result.statusMessage = QStringLiteral("已插入当前会话名片");
+        return result;
+    }
+    if (commandId == QLatin1String("file-template")) {
+        const QString target = composerTargetName(state);
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("我准备发一个文件到 %1，请注意查收。").arg(target);
+        result.statusMessage = QStringLiteral("已插入发文件模板");
+        return result;
+    }
+    if (commandId == QLatin1String("image-template")) {
+        const QString target = composerTargetName(state);
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("我准备发图片到 %1，发送后会显示预览卡片。").arg(target);
+        result.statusMessage = QStringLiteral("已插入发图片模板");
+        return result;
+    }
+    if (commandId == QLatin1String("video-template")) {
+        const QString target = composerTargetName(state);
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("我准备发视频到 %1，视频会以文件卡片形式发送。").arg(target);
+        result.statusMessage = QStringLiteral("已插入发视频模板");
+        return result;
+    }
+    if (commandId == QLatin1String("group-invite-template")) {
+        const QString target = isLocalGroupTarget(state.privateChatTarget)
+            ? state.currentGroupName
+            : QStringLiteral("群聊");
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = QStringLiteral("我想邀请你加入 %1，一起在群里沟通。").arg(target);
+        result.statusMessage = QStringLiteral("已插入拉群模板");
+        return result;
+    }
+    if (commandId == QLatin1String("current-summary-template")) {
+        QString summary;
+        if (isLocalGroupTarget(state.privateChatTarget)) {
+            summary = QStringLiteral("当前群聊：%1（群号:%2）· 成员%3人 · 我的QQ:%4")
+                .arg(state.currentGroupName,
+                     state.privateChatTarget.mid(QStringLiteral("local_group_").size()),
+                     QString::number(state.currentGroupMemberCount),
+                     state.currentUserId);
+        } else if (!state.privateChatTarget.isEmpty()) {
+            summary = QStringLiteral("当前私聊：%1 · QQ:%2 · %3 · 我的QQ:%4")
+                .arg(state.targetDisplayName,
+                     state.privateChatTarget,
+                     state.currentTargetOnline ? QStringLiteral("在线") : QStringLiteral("离线"),
+                     state.currentUserId);
+        } else {
+            summary = QStringLiteral("公共聊天室 · 我的QQ:%1 · 好友%2人 · 群聊%3个 · 在线成员%4人")
+                .arg(state.currentUserId)
+                .arg(state.friendCount)
+                .arg(state.localGroupCount)
+                .arg(state.knownUserCount);
+        }
+        result.handled = true;
+        result.action = ChatContextComposerCommand::Action::InsertText;
+        result.text = summary;
+        result.statusMessage = QStringLiteral("已插入当前会话摘要");
         return result;
     }
     return result;

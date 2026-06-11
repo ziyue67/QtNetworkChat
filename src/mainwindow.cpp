@@ -690,6 +690,12 @@ void MainWindow::setChatDraftText(const QString& text, const QString& statusMess
     ui->statusbar->showMessage(statusMessage, timeoutMs);
 }
 
+void MainWindow::insertChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs) {
+    ui->messageEdit->insertPlainText(text);
+    ui->messageEdit->setFocus();
+    ui->statusbar->showMessage(statusMessage, timeoutMs);
+}
+
 QAction* MainWindow::addChatContextAction(QMenu& menu,
                                           const QString& title,
                                           const QString& tip,
@@ -1482,6 +1488,21 @@ void MainWindow::setupUi() {
         describeInputAction(videoTemplateAction, "插入发送视频前的提醒话术");
         describeInputAction(groupInviteTemplateAction, "插入拉群邀请模板");
         describeInputAction(currentSummaryAction, "插入当前会话、账号和在线状态摘要");
+        quickAction->setData(QStringLiteral("quick-reply"));
+        commandCardAction->setData(QStringLiteral("command-card"));
+        commandInviteAction->setData(QStringLiteral("command-invite"));
+        commandQqAction->setData(QStringLiteral("command-qq"));
+        searchFriendAction->setData(QStringLiteral("search-friend-template"));
+        addFriendAction->setData(QStringLiteral("add-friend-template"));
+        inviteGroupAction->setData(QStringLiteral("invite-group-template"));
+        quoteTemplateAction->setData(QStringLiteral("quote-template"));
+        friendCardAction->setData(QStringLiteral("friend-card-template"));
+        groupCardAction->setData(QStringLiteral("group-card-template"));
+        fileTemplateAction->setData(QStringLiteral("file-template"));
+        imageTemplateAction->setData(QStringLiteral("image-template"));
+        videoTemplateAction->setData(QStringLiteral("video-template"));
+        groupInviteTemplateAction->setData(QStringLiteral("group-invite-template"));
+        currentSummaryAction->setData(QStringLiteral("current-summary-template"));
         QAction* selected = menu.exec(ui->messageEdit->viewport()->mapToGlobal(pos));
         if (!selected) return;
         if (selected == pasteAction) {
@@ -1497,96 +1518,36 @@ void MainWindow::setupUi() {
             ui->messageEdit->clear();
             ui->messageEdit->setFocus();
             ui->statusbar->showMessage("输入草稿已清空", 1400);
-        } else if (selected == quickAction) {
-            ui->messageEdit->setPlainText("收到，我马上看。");
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入快捷语", 1400);
-        } else if (selected == commandCardAction) {
-            ui->messageEdit->setPlainText("/card");
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入快捷指令：/card", 1600);
-        } else if (selected == commandInviteAction) {
-            ui->messageEdit->setPlainText("/invite");
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入快捷指令：/invite", 1600);
-        } else if (selected == commandQqAction) {
-            ui->messageEdit->setPlainText("/qq");
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入快捷指令：/qq", 1600);
-        } else if (selected == searchFriendAction) {
-            ui->messageEdit->insertPlainText(QString("请在综合搜索里搜索 QQ:%1，确认资料后可以发送好友申请。").arg(m_currentUserId));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入 QQ 搜索话术", 1400);
-        } else if (selected == addFriendAction) {
-            QString target = m_privateChatTarget.isEmpty() ? "你" : contactDisplayName(m_privateChatTarget);
-            ui->messageEdit->insertPlainText(QString("%1，你好，我是 %2（QQ:%3），方便加个好友继续聊吗？").arg(target, m_currentUserName, m_currentUserId));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入好友申请话术", 1400);
-        } else if (selected == inviteGroupAction) {
-            QString groupName = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
-            ui->messageEdit->insertPlainText(QString("我邀请你加入群聊“%1”，进群后可以一起聊天、发图片和传文件。").arg(groupName));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入入群邀请话术", 1400);
-        } else if (selected == quoteTemplateAction) {
-            ui->messageEdit->insertPlainText("> 引用消息\n我的回复：");
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入引用模板", 1400);
         } else if (selected == mentionAction) {
             onInsertMention();
-        } else if (selected == friendCardAction) {
-            ui->messageEdit->insertPlainText(QString("我的QQ名片：%1（%2）").arg(m_currentUserId, m_currentUserName));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入我的 QQ 名片", 1400);
-        } else if (selected == groupCardAction) {
-            QString card;
-            if (m_privateChatTarget.startsWith("local_group_")) {
-                card = QString("群聊名片：%1 QQ:%2").arg(m_localGroupNames.value(m_privateChatTarget, "群聊"), m_privateChatTarget.mid(QString("local_group_").size()));
-            } else if (!m_privateChatTarget.isEmpty()) {
-                card = QString("好友名片：%1 QQ:%2").arg(contactDisplayName(m_privateChatTarget), m_privateChatTarget);
-            } else {
-                card = QString("公共聊天室 当前QQ:%1").arg(m_currentUserId);
+        } else {
+            const QString commandId = selected->data().toString();
+            if (!commandId.isEmpty()) {
+                ChatContextComposerState composerState;
+                composerState.privateChatTarget = m_privateChatTarget;
+                composerState.targetDisplayName = m_privateChatTarget.isEmpty()
+                    ? QStringLiteral("公共聊天室")
+                    : contactDisplayName(m_privateChatTarget);
+                composerState.currentUserId = m_currentUserId;
+                composerState.currentUserName = m_currentUserName;
+                composerState.currentGroupName = m_privateChatTarget.startsWith("local_group_")
+                    ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
+                    : QStringLiteral("群聊");
+                composerState.currentGroupMemberCount = m_localGroupMembers.value(m_privateChatTarget).size();
+                composerState.currentTargetOnline = isContactOnline(m_privateChatTarget);
+                composerState.friendCount = m_friendIds.size();
+                composerState.localGroupCount = m_localGroupIds.size();
+                composerState.knownUserCount = m_knownUsers.size();
+
+                const ChatContextComposerCommand command = ChatContextManager::composerCommand(commandId, composerState);
+                if (command.handled) {
+                    if (command.action == ChatContextComposerCommand::Action::SetDraft) {
+                        setChatDraftText(command.text, command.statusMessage, command.timeoutMs);
+                    } else if (command.action == ChatContextComposerCommand::Action::InsertText) {
+                        insertChatDraftText(command.text, command.statusMessage, command.timeoutMs);
+                    }
+                }
             }
-            ui->messageEdit->insertPlainText(card);
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入当前会话名片", 1400);
-        } else if (selected == fileTemplateAction) {
-            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-            ui->messageEdit->insertPlainText(QString("我准备发一个文件到 %1，请注意查收。").arg(target));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入发文件模板", 1400);
-        } else if (selected == imageTemplateAction) {
-            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-            ui->messageEdit->insertPlainText(QString("我准备发图片到 %1，发送后会显示预览卡片。").arg(target));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入发图片模板", 1400);
-        } else if (selected == videoTemplateAction) {
-            QString target = m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget);
-            ui->messageEdit->insertPlainText(QString("我准备发视频到 %1，视频会以文件卡片形式发送。").arg(target));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入发视频模板", 1400);
-        } else if (selected == groupInviteTemplateAction) {
-            QString target = m_privateChatTarget.startsWith("local_group_") ? m_localGroupNames.value(m_privateChatTarget, "群聊") : "群聊";
-            ui->messageEdit->insertPlainText(QString("我想邀请你加入 %1，一起在群里沟通。").arg(target));
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入拉群模板", 1400);
-        } else if (selected == currentSummaryAction) {
-            QString summary;
-            if (m_privateChatTarget.startsWith("local_group_")) {
-                summary = QString("当前群聊：%1（群号:%2）· 成员%3人 · 我的QQ:%4")
-                    .arg(m_localGroupNames.value(m_privateChatTarget, "群聊"),
-                         m_privateChatTarget.mid(QString("local_group_").size()),
-                         QString::number(m_localGroupMembers.value(m_privateChatTarget).size()),
-                         m_currentUserId);
-            } else if (!m_privateChatTarget.isEmpty()) {
-                summary = QString("当前私聊：%1 · QQ:%2 · %3 · 我的QQ:%4")
-                    .arg(contactDisplayName(m_privateChatTarget), m_privateChatTarget, isContactOnline(m_privateChatTarget) ? "在线" : "离线", m_currentUserId);
-            } else {
-                summary = QString("公共聊天室 · 我的QQ:%1 · 好友%2人 · 群聊%3个 · 在线成员%4人")
-                    .arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size());
-            }
-            ui->messageEdit->insertPlainText(summary);
-            ui->messageEdit->setFocus();
-            ui->statusbar->showMessage("已插入当前会话摘要", 1400);
         }
     });
     connect(ui->userListView, &QListView::doubleClicked, this, &MainWindow::onPrivateChat);

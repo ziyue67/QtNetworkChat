@@ -26,6 +26,33 @@ struct ChatContextDraftResult {
     int timeoutMs = 1400;
 };
 
+struct ChatContextComposerState {
+    QString privateChatTarget;
+    QString targetDisplayName;
+    QString currentUserId;
+    QString currentUserName;
+    QString currentGroupName;
+    int currentGroupMemberCount = 0;
+    bool currentTargetOnline = false;
+    int friendCount = 0;
+    int localGroupCount = 0;
+    int knownUserCount = 0;
+};
+
+struct ChatContextComposerCommand {
+    enum class Action {
+        None,
+        SetDraft,
+        InsertText
+    };
+
+    bool handled = false;
+    Action action = Action::None;
+    QString text;
+    QString statusMessage;
+    int timeoutMs = 1400;
+};
+
 struct ChatContextMenuActionSpec {
     QString title;
     QString toolTip;
@@ -77,6 +104,8 @@ public:
                                                      const QString& chatText,
                                                      const QString& privateChatTarget,
                                                      const QString& targetDisplayName);
+    static ChatContextComposerCommand composerCommand(const QString& commandId,
+                                                      const ChatContextComposerState& state);
     static QString plainContentText(const QString& chatText);
     static QString resendContentText(const QString& chatText);
     static QString senderText(const QString& chatText);

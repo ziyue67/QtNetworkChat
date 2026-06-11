@@ -22,6 +22,15 @@ int main(int argc, char** argv) {
     const QString currentUserId = QStringLiteral("20002");
     const QString currentUserName = QString::fromUtf8("我自己");
     const QString chatText = QStringLiteral("[12:30:45] <Alice> [图片] report.png · 4 KB");
+    ChatContextComposerState composerState;
+    composerState.privateChatTarget = privateTarget;
+    composerState.targetDisplayName = targetName;
+    composerState.currentUserId = currentUserId;
+    composerState.currentUserName = currentUserName;
+    composerState.currentTargetOnline = true;
+    composerState.friendCount = 5;
+    composerState.localGroupCount = 2;
+    composerState.knownUserCount = 8;
 
     const QList<ChatContextMenuActionSpec> mediaSpecs = ChatContextManager::menuActionSpecs(true);
     ok = expect(mediaSpecs.size() >= 10
@@ -137,6 +146,66 @@ int main(int argc, char** argv) {
                     && ChatContextManager::mediaTypeFromChatText(chatText) == QString::fromUtf8("图片")
                     && ChatContextManager::mediaReceiptText(QString::fromUtf8("已收到 图片 · report.png，文件已保存")).contains(QStringLiteral("report.png")),
                 "chat context parsing helpers should extract sender, media type, and receipt text") && ok;
+
+    ChatContextComposerCommand quickReplyCommand = ChatContextManager::composerCommand(QStringLiteral("quick-reply"),
+                                                                                       composerState);
+    ok = expect(quickReplyCommand.handled
+                    && quickReplyCommand.action == ChatContextComposerCommand::Action::SetDraft
+                    && quickReplyCommand.text == QString::fromUtf8("收到，我马上看。")
+                    && quickReplyCommand.statusMessage == QString::fromUtf8("已插入快捷语"),
+                "quick reply command should centralize set-draft behavior") && ok;
+
+    ChatContextComposerCommand searchFriendCommand = ChatContextManager::composerCommand(QStringLiteral("search-friend-template"),
+                                                                                         composerState);
+    ok = expect(searchFriendCommand.handled
+                    && searchFriendCommand.action == ChatContextComposerCommand::Action::InsertText
+                    && searchFriendCommand.text.contains(currentUserId)
+                    && searchFriendCommand.statusMessage == QString::fromUtf8("已插入 QQ 搜索话术"),
+                "search friend command should centralize QQ search wording") && ok;
+
+    ChatContextComposerCommand groupCardCommand = ChatContextManager::composerCommand(QStringLiteral("group-card-template"),
+                                                                                      composerState);
+    ok = expect(groupCardCommand.handled
+                    && groupCardCommand.action == ChatContextComposerCommand::Action::InsertText
+                    && groupCardCommand.text == QString::fromUtf8("好友名片：好友A QQ:10001")
+                    && groupCardCommand.statusMessage == QString::fromUtf8("已插入当前会话名片"),
+                "group card command should render current private chat card") && ok;
+
+    ChatContextComposerState localGroupComposerState = composerState;
+    localGroupComposerState.privateChatTarget = QStringLiteral("local_group_7788");
+    localGroupComposerState.targetDisplayName = QString::fromUtf8("项目群");
+    localGroupComposerState.currentGroupName = QString::fromUtf8("项目群");
+    localGroupComposerState.currentGroupMemberCount = 6;
+
+    ChatContextComposerCommand inviteGroupCommand = ChatContextManager::composerCommand(QStringLiteral("invite-group-template"),
+                                                                                        localGroupComposerState);
+    ok = expect(inviteGroupCommand.handled
+                    && inviteGroupCommand.action == ChatContextComposerCommand::Action::InsertText
+                    && inviteGroupCommand.text.contains(QString::fromUtf8("项目群"))
+                    && inviteGroupCommand.statusMessage == QString::fromUtf8("已插入入群邀请话术"),
+                "invite group command should use current local group name") && ok;
+
+    ChatContextComposerCommand currentSummaryCommand = ChatContextManager::composerCommand(QStringLiteral("current-summary-template"),
+                                                                                           localGroupComposerState);
+    ok = expect(currentSummaryCommand.handled
+                    && currentSummaryCommand.action == ChatContextComposerCommand::Action::InsertText
+                    && currentSummaryCommand.text.contains(QString::fromUtf8("当前群聊：项目群"))
+                    && currentSummaryCommand.text.contains(QStringLiteral("成员6人")),
+                "current summary command should render local group summary") && ok;
+
+    ChatContextComposerState publicComposerState = composerState;
+    publicComposerState.privateChatTarget.clear();
+    publicComposerState.targetDisplayName = QString::fromUtf8("公共聊天室");
+
+    ChatContextComposerCommand publicSummaryCommand = ChatContextManager::composerCommand(QStringLiteral("current-summary-template"),
+                                                                                          publicComposerState);
+    ok = expect(publicSummaryCommand.handled
+                    && publicSummaryCommand.action == ChatContextComposerCommand::Action::InsertText
+                    && publicSummaryCommand.text.contains(QString::fromUtf8("公共聊天室"))
+                    && publicSummaryCommand.text.contains(QStringLiteral("好友5人"))
+                    && publicSummaryCommand.text.contains(QStringLiteral("群聊2个"))
+                    && publicSummaryCommand.text.contains(QStringLiteral("在线成员8人")),
+                "current summary command should render public chat aggregate summary") && ok;
 
     ChatContextSavedFileCommand copySavePathCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
                                                                                            missingSavePathState,
