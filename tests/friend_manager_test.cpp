@@ -177,6 +177,70 @@ int main(int argc, char** argv) {
                     && emptyOnlineCopy.copiedStatusMessage == QString::fromUtf8("已复制 0 个在线好友"),
                 "friend manager online copy state should expose empty guidance when no rows remain") && ok;
 
+    FriendManagerVisibleTargetSummary visibleAlice;
+    visibleAlice.userId = QStringLiteral("1001");
+    visibleAlice.displayName = QStringLiteral("Alice");
+    visibleAlice.online = true;
+    FriendManagerVisibleTargetSummary visibleCarol;
+    visibleCarol.userId = QStringLiteral("1003");
+    visibleCarol.displayName = QStringLiteral("Carol");
+    visibleCarol.online = false;
+    FriendManagerVisibleTargetSummary visibleSearchAdd;
+    visibleSearchAdd.userId = QStringLiteral("search_add:7788");
+
+    const GlobalSearchSelectionCopyState friendManagerSearchCard =
+        FriendManager::friendManagerSearchSummaryCardState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            QStringLiteral("ali"),
+            6,
+            2,
+            QList<FriendManagerVisibleTargetSummary>{visibleAlice, visibleCarol, visibleSearchAdd});
+    ok = expect(friendManagerSearchCard.valid
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("好友管理搜索卡片"))
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("关键词:ali"))
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("好友 QQ:1001 昵称:Alice 状态:在线"))
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("可搜索申请 QQ:7788"))
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("可见好友:2 · 全部好友:6 · 群聊:2")),
+                "friend manager search card should summarize visible friends and search placeholders") && ok;
+
+    const GlobalSearchSelectionCopyState friendManagerMediaPack =
+        FriendManager::friendManagerMediaPackState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            QStringLiteral("ali"),
+            6,
+            visibleAlice);
+    ok = expect(friendManagerMediaPack.valid
+                    && friendManagerMediaPack.text.contains(QString::fromUtf8("好友媒体包 · 目标:Alice · QQ:1001"))
+                    && friendManagerMediaPack.text.contains(QString::fromUtf8("当前筛选:ali · 全部好友:6"))
+                    && friendManagerMediaPack.text.contains(QString::fromUtf8("邀请话术：Alice，你好，我是 Tester（QQ:9000）")),
+                "friend manager media pack should summarize selected visible friend") && ok;
+
+    const GlobalSearchSelectionCopyState friendManagerBatchPlan =
+        FriendManager::friendManagerBatchMediaPlanState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            QStringLiteral("ali"),
+            QList<FriendManagerVisibleTargetSummary>{visibleAlice, visibleCarol, visibleSearchAdd});
+    ok = expect(friendManagerBatchPlan.valid
+                    && friendManagerBatchPlan.text.contains(QString::fromUtf8("好友批量媒体计划 · 筛选:ali"))
+                    && friendManagerBatchPlan.text.contains(QString::fromUtf8("可见:2 · 在线:1 · 离线:1"))
+                    && friendManagerBatchPlan.text.contains(QString::fromUtf8("Alice(QQ:1001,在线)"))
+                    && friendManagerBatchPlan.text.contains(QString::fromUtf8("Carol(QQ:1003,离线)")),
+                "friend manager batch media plan should summarize visible target mix") && ok;
+
+    const QString friendManagerGuide =
+        FriendManager::friendManagerMediaGuideText(QStringLiteral("9000"),
+                                                   QStringLiteral("Tester"),
+                                                   QStringLiteral("ali"),
+                                                   2,
+                                                   6);
+    ok = expect(friendManagerGuide.contains(QString::fromUtf8("好友管理上传指南 · 我的QQ:9000 · 昵称:Tester"))
+                    && friendManagerGuide.contains(QString::fromUtf8("当前筛选:ali"))
+                    && friendManagerGuide.contains(QString::fromUtf8("可见好友:2 · 全部好友:6")),
+                "friend manager media guide should summarize filter and visible count") && ok;
+
     GlobalSearchResultCopyInput searchAddResult;
     searchAddResult.entryId = QStringLiteral("search_add:9988");
     GlobalSearchResultCopyInput groupResult;

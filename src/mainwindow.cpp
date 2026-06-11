@@ -4749,6 +4749,36 @@ void MainWindow::onShowFriendManager() {
         }
         return inputs;
     };
+    auto friendManagerVisibleTargets = [this, friendList]() {
+        QList<FriendManagerVisibleTargetSummary> targets;
+        for (int i = 0; i < friendList->count(); ++i) {
+            QListWidgetItem* item = friendList->item(i);
+            const QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) {
+                continue;
+            }
+            FriendManagerVisibleTargetSummary target;
+            target.userId = id;
+            target.online = isContactOnline(id);
+            if (!id.startsWith("search_add:")) {
+                target.displayName = contactDisplayName(id);
+            }
+            targets << target;
+        }
+        return targets;
+    };
+    auto selectedFriendManagerVisibleTarget = [this, friendList, searchEdit]() {
+        FriendManagerVisibleTargetSummary target;
+        target.userId = selectedFriendManagerTargetId(friendList);
+        if (target.userId.isEmpty()) {
+            target.userId = searchEdit->text().trimmed();
+        }
+        target.online = isContactOnline(target.userId);
+        if (!target.userId.isEmpty() && !target.userId.startsWith("search_add:")) {
+            target.displayName = contactDisplayName(target.userId);
+        }
+        return target;
+    };
     connect(copyAllBtn, &QPushButton::clicked, &dialog, [this, friendList, friendCopyInputs]() {
         const FriendManagerContactCopyState state =
             FriendManager::managerContactCopyState(friendCopyInputs(visibleFriendManagerIds(friendList)), false);
@@ -4805,77 +4835,45 @@ void MainWindow::onShowFriendManager() {
         }
         copyTextWithStatus(state.rows.join('\n'), state.copiedStatusMessage, 2200);
     });
-    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
-        QString keyword = searchEdit->text().trimmed();
-        QStringList rows;
-        rows << "好友管理搜索卡片";
-        rows << QString("关键词:%1").arg(keyword.isEmpty() ? "全部好友" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        int visibleCount = 0;
-        for (int i = 0; i < friendList->count(); ++i) {
-            QListWidgetItem* item = friendList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty()) continue;
-            if (id.startsWith("search_add:")) {
-                rows << QString("可搜索申请 QQ:%1").arg(id.mid(QString("search_add:").size()));
-                continue;
-            }
-            rows << QString("好友 QQ:%1 昵称:%2 状态:%3")
-                .arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
-            ++visibleCount;
-        }
-        rows << QString("可见好友:%1 · 全部好友:%2 · 群聊:%3")
-            .arg(visibleCount)
-            .arg(m_friendIds.size())
-            .arg(m_localGroupIds.size());
-        QApplication::clipboard()->setText(rows.join('\n'));
+    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, friendManagerVisibleTargets, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::friendManagerSearchSummaryCardState(
+            m_currentUserId,
+            m_currentUserName,
+            searchEdit->text().trimmed(),
+            m_friendIds.size(),
+            m_localGroupIds.size(),
+            friendManagerVisibleTargets());
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("好友管理搜索卡片已复制", 2200);
     });
-    connect(copyFriendMediaPackBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
-        QString id = selectedFriendManagerTargetId(friendList);
-        if (id.isEmpty()) id = searchEdit->text().trimmed();
-        QString targetName = id.isEmpty() ? "可见好友" : contactDisplayName(id);
-        QStringList rows;
-        rows << QString("好友媒体包 · 目标:%1 · QQ:%2").arg(targetName, id.isEmpty() ? "批量可见" : id);
-        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << QString("当前筛选:%1 · 全部好友:%2").arg(searchEdit->text().trimmed().isEmpty() ? "全部好友" : searchEdit->text().trimmed()).arg(m_friendIds.size());
-        rows << "可先发起私聊，再点击 图片/视频 或 闪传文件 发送媒体";
-        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
-        rows << QString("邀请话术：%1，你好，我是 %2（QQ:%3），我可以发图片/视频/文件给你，请注意查收。").arg(targetName, m_currentUserName, m_currentUserId);
-        rows << QString("回执话术：已收到来自 %1 的媒体文件，保存后我会尽快查看。").arg(m_currentUserName);
-        copyTextWithStatus(rows.join('\n'), "好友管理媒体包已复制", 2200);
+    connect(copyFriendMediaPackBtn, &QPushButton::clicked, &dialog, [this, selectedFriendManagerVisibleTarget, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::friendManagerMediaPackState(
+            m_currentUserId,
+            m_currentUserName,
+            searchEdit->text().trimmed(),
+            m_friendIds.size(),
+            selectedFriendManagerVisibleTarget());
+        copyTextWithStatus(state.text, "好友管理媒体包已复制", 2200);
     });
-    connect(copyBatchMediaPlanBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
-        QStringList targets;
-        int onlineCount = 0;
-        int offlineCount = 0;
-        const QStringList visibleIds = visibleFriendManagerIds(friendList);
-        for (const QString& id : visibleIds) {
-            if (isContactOnline(id)) ++onlineCount; else ++offlineCount;
-            targets << QString("%1(QQ:%2,%3)").arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线");
-        }
-        QString keyword = searchEdit->text().trimmed();
-        QStringList rows;
-        rows << QString("好友批量媒体计划 · 筛选:%1").arg(keyword.isEmpty() ? "全部好友" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 可见:%3 · 在线:%4 · 离线:%5")
-            .arg(m_currentUserId, m_currentUserName, QString::number(targets.size()), QString::number(onlineCount), QString::number(offlineCount));
-        rows << QString("目标列表:%1").arg(targets.isEmpty() ? "无可见好友" : targets.join("、"));
-        rows << "1. 先给在线好友发图片/视频，离线好友复制查收话术";
-        rows << "2. 大文件用闪传文件，图片/GIF/视频用图片视频入口";
-        rows << "3. 发送后在聊天记录右键复制媒体流程、查收话术和回执";
-        rows << "4. 可按筛选关键词分批发送，避免漏掉目标好友";
-        copyTextWithStatus(rows.join('\n'), "好友批量媒体计划已复制", 2200);
+    connect(copyBatchMediaPlanBtn, &QPushButton::clicked, &dialog, [this, friendManagerVisibleTargets, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::friendManagerBatchMediaPlanState(
+            m_currentUserId,
+            m_currentUserName,
+            searchEdit->text().trimmed(),
+            friendManagerVisibleTargets());
+        copyTextWithStatus(state.text, "好友批量媒体计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, friendList, searchEdit]() {
-        QString keyword = searchEdit->text().trimmed();
-        QStringList rows;
-        rows << QString("好友管理上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << QString("当前筛选:%1").arg(keyword.isEmpty() ? "全部好友" : keyword);
         const int visibleCount = visibleFriendManagerIds(friendList).size();
-        rows << QString("可见好友:%1 · 全部好友:%2").arg(visibleCount).arg(m_friendIds.size());
-        rows << "可向好友发送图片/视频，或用闪传文件发送文档、压缩包和媒体文件";
-        rows << "聊天记录右键可复制媒体卡片和查收话术";
-        copyTextWithStatus(rows.join('\n'), "好友管理上传指南已复制", 2200);
+        copyTextWithStatus(
+            FriendManager::friendManagerMediaGuideText(
+                m_currentUserId,
+                m_currentUserName,
+                searchEdit->text().trimmed(),
+                visibleCount,
+                m_friendIds.size()),
+            "好友管理上传指南已复制",
+            2200);
     });
     connect(remarkBtn, &QPushButton::clicked, &dialog, [this, friendList, fillList, searchEdit]() {
         QString id;

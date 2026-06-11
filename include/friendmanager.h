@@ -54,6 +54,12 @@ struct FriendManagerContactCopyState {
     QString copiedStatusMessage;
 };
 
+struct FriendManagerVisibleTargetSummary {
+    QString userId;
+    QString displayName;
+    bool online = false;
+};
+
 struct GlobalSearchResultCopyInput {
     QString entryId;
     QString displayName;
@@ -127,6 +133,29 @@ public:
     static FriendManagerContactCopyState managerContactCopyState(
         const QList<FriendManagerContactCopyInput>& contacts,
         bool onlineOnly);
+    static GlobalSearchSelectionCopyState friendManagerSearchSummaryCardState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const QString& keyword,
+        int totalFriendCount,
+        int localGroupCount,
+        const QList<FriendManagerVisibleTargetSummary>& visibleTargets);
+    static GlobalSearchSelectionCopyState friendManagerMediaPackState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const QString& keyword,
+        int totalFriendCount,
+        const FriendManagerVisibleTargetSummary& selectedTarget);
+    static GlobalSearchSelectionCopyState friendManagerBatchMediaPlanState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const QString& keyword,
+        const QList<FriendManagerVisibleTargetSummary>& visibleTargets);
+    static QString friendManagerMediaGuideText(const QString& currentUserId,
+                                               const QString& currentUserName,
+                                               const QString& keyword,
+                                               int visibleCount,
+                                               int totalFriendCount);
     static GlobalSearchResultCopyState globalSearchResultCopyState(
         const QList<GlobalSearchResultCopyInput>& results,
         bool onlineOnly);
