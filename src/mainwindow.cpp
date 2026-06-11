@@ -672,8 +672,61 @@ QStringList MainWindow::publicGroupNoticeMemberIds() const {
     return NotificationPanelManager::publicGroupMemberIds(m_currentUserId, onlineUserIds);
 }
 
+QStringList MainWindow::groupNoticeMemberIds(const QString& groupId) const {
+    QStringList members = groupId.isEmpty()
+        ? publicGroupNoticeMemberIds()
+        : m_localGroupMembers.value(groupId);
+    if (members.isEmpty()) {
+        members << m_currentUserId;
+    }
+    return members;
+}
+
+QList<GroupNoticeListGroupInput> MainWindow::groupNoticeLocalGroups() const {
+    QList<GroupNoticeListGroupInput> localGroups;
+    for (const QString& groupId : m_localGroupIds) {
+        GroupNoticeListGroupInput group;
+        group.groupId = groupId;
+        group.groupName = m_localGroupNames.value(groupId, "群聊");
+        group.groupNumber = groupId.mid(QString("local_group_").size());
+        group.memberCount = groupNoticeMemberIds(groupId).size();
+        group.announcement = m_localGroupAnnouncements.value(
+            groupId,
+            QString("%1 已创建，可继续邀请好友并发送消息。").arg(group.groupName));
+        localGroups << group;
+    }
+    return localGroups;
+}
+
+void MainWindow::fillGroupNoticeList(QListWidget* noticeList,
+                                     QLabel* countLabel,
+                                     QLineEdit* searchEdit) const {
+    if (!noticeList || !countLabel || !searchEdit) {
+        return;
+    }
+    noticeList->clear();
+    const GroupNoticeListRenderUiState renderState =
+        NotificationPanelManager::groupNoticeListRenderUiState(m_knownUsers.size(),
+                                                               groupNoticeLocalGroups(),
+                                                               searchEdit->text());
+    countLabel->setText(renderState.countText);
+    for (const GroupNoticeListEntryUiState& entry : renderState.entries) {
+        QListWidgetItem* item = new QListWidgetItem(entry.text);
+        item->setData(Qt::UserRole, entry.entryId);
+        item->setSizeHint(QSize(0, entry.rowHeight));
+        item->setToolTip(entry.toolTip);
+        if (entry.accent) {
+            item->setForeground(QColor(18, 150, 247));
+        }
+        noticeList->addItem(item);
+    }
+    if (noticeList->count() > 0) {
+        noticeList->setCurrentRow(0);
+    }
+}
+
 GroupNoticeSelectionSnapshot MainWindow::currentGroupNoticeSelectionSnapshot(QListWidget* noticeList,
-                                                                             QLineEdit* searchEdit) const {
+                                                                            QLineEdit* searchEdit) const {
     const QString groupId = selectedGroupNoticeEntryId(noticeList);
     return NotificationPanelManager::groupNoticeSelectionSnapshot(
         groupId,
@@ -695,11 +748,11 @@ QList<GroupNoticeBatchTargetInput> MainWindow::visibleGroupNoticeBatchTargets(QL
             target.memberCount = 1;
             target.onlineCount = 1;
         } else if (id.isEmpty()) {
-            const QStringList publicMembers = publicGroupNoticeMemberIds();
+            const QStringList publicMembers = groupNoticeMemberIds(id);
             target.memberCount = publicMembers.size();
             target.onlineCount = publicMembers.size();
         } else if (id.startsWith("local_group_")) {
-            const QStringList members = m_localGroupMembers.value(id);
+            const QStringList members = groupNoticeMemberIds(id);
             int groupOnline = 0;
             for (const QString& memberId : members) {
                 if (memberId == m_currentUserId || isContactOnline(memberId)) {
@@ -714,6 +767,46 @@ QList<GroupNoticeBatchTargetInput> MainWindow::visibleGroupNoticeBatchTargets(QL
         targets << target;
     }
     return targets;
+}
+
+bool MainWindow::openSelectedGroupNoticeEntry(QListWidget* noticeList, QDialog* dialog) {
+    if (!noticeList || !noticeList->currentItem()) {
+        ui->statusbar->showMessage("请先选择要进入的群聊", 1800);
+        return false;
+    }
+    const QString groupId = selectedGroupNoticeEntryId(noticeList);
+    if (isGroupCreateEntryId(groupId)) {
+        QString groupName = groupCreateEntryName(groupId);
+        if (groupName.isEmpty()) {
+            groupName = "搜索群聊";
+        }
+        const QString newGroupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
+        m_localGroupIds << newGroupId;
+        m_localGroupNames[newGroupId] = groupName;
+        m_localGroupAnnouncements[newGroupId] = QString("%1 已从群通知搜索创建，可继续邀请好友并发送消息。").arg(groupName);
+        m_localGroupMembers[newGroupId] = QStringList{m_currentUserId};
+        saveLocalGroups();
+        refreshFriendList();
+        if (dialog) {
+            dialog->accept();
+        }
+        switchToLocalGroup(newGroupId, groupName);
+        appendSystemMessage("已从群通知搜索创建群聊: " + groupName);
+        ui->statusbar->showMessage("已创建并进入群聊: " + groupName, 2200);
+        return true;
+    }
+    if (dialog) {
+        dialog->accept();
+    }
+    if (groupId.isEmpty()) {
+        onBackToGroupChat();
+        ui->statusbar->showMessage("已进入公共聊天室", 1800);
+        return true;
+    }
+    const QString groupName = m_localGroupNames.value(groupId, "群聊");
+    switchToLocalGroup(groupId, groupName);
+    ui->statusbar->showMessage("已进入群聊: " + groupName, 1800);
+    return true;
 }
 
 bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState) {
@@ -6516,37 +6609,7 @@ void MainWindow::onShowGroupNotifications() {
     noticeList->setWordWrap(true);
 
     auto fillGroups = [this, noticeList, countLabel, searchEdit]() {
-        noticeList->clear();
-        QList<GroupNoticeListGroupInput> localGroups;
-        for (const QString& groupId : m_localGroupIds) {
-            GroupNoticeListGroupInput group;
-            group.groupId = groupId;
-            group.groupName = m_localGroupNames.value(groupId, "群聊");
-            group.groupNumber = groupId.mid(QString("local_group_").size());
-            QStringList members = m_localGroupMembers.value(groupId);
-            if (members.isEmpty()) members << m_currentUserId;
-            group.memberCount = members.size();
-            group.announcement = m_localGroupAnnouncements.value(
-                groupId,
-                QString("%1 已创建，可继续邀请好友并发送消息。").arg(group.groupName));
-            localGroups << group;
-        }
-        const GroupNoticeListRenderUiState renderState =
-            NotificationPanelManager::groupNoticeListRenderUiState(m_knownUsers.size(),
-                                                                   localGroups,
-                                                                   searchEdit->text());
-        countLabel->setText(renderState.countText);
-        for (const GroupNoticeListEntryUiState& entry : renderState.entries) {
-            QListWidgetItem* item = new QListWidgetItem(entry.text);
-            item->setData(Qt::UserRole, entry.entryId);
-            item->setSizeHint(QSize(0, entry.rowHeight));
-            item->setToolTip(entry.toolTip);
-            if (entry.accent) {
-                item->setForeground(QColor(18, 150, 247));
-            }
-            noticeList->addItem(item);
-        }
-        if (noticeList->count() > 0) noticeList->setCurrentRow(0);
+        fillGroupNoticeList(noticeList, countLabel, searchEdit);
     };
     fillGroups();
 
@@ -6622,35 +6685,7 @@ void MainWindow::onShowGroupNotifications() {
     layout->addLayout(actionLayout);
 
     auto openSelectedGroup = [this, noticeList, &dialog]() {
-        if (!noticeList || !noticeList->currentItem()) {
-            ui->statusbar->showMessage("请先选择要进入的群聊", 1800);
-            return;
-        }
-        const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        if (isGroupCreateEntryId(groupId)) {
-            QString groupName = groupCreateEntryName(groupId);
-            if (groupName.isEmpty()) groupName = "搜索群聊";
-            QString newGroupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-            m_localGroupIds << newGroupId;
-            m_localGroupNames[newGroupId] = groupName;
-            m_localGroupAnnouncements[newGroupId] = QString("%1 已从群通知搜索创建，可继续邀请好友并发送消息。").arg(groupName);
-            m_localGroupMembers[newGroupId] = QStringList{m_currentUserId};
-            saveLocalGroups();
-            refreshFriendList();
-            dialog.accept();
-            switchToLocalGroup(newGroupId, groupName);
-            appendSystemMessage("已从群通知搜索创建群聊: " + groupName);
-            ui->statusbar->showMessage("已创建并进入群聊: " + groupName, 2200);
-            return;
-        }
-        dialog.accept();
-        if (groupId.isEmpty()) {
-            onBackToGroupChat();
-            ui->statusbar->showMessage("已进入公共聊天室", 1800);
-            return;
-        }
-        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, "群聊"));
-        ui->statusbar->showMessage("已进入群聊: " + m_localGroupNames.value(groupId, "群聊"), 1800);
+        openSelectedGroupNoticeEntry(noticeList, &dialog);
     };
     dialog.setStyleSheet(NotificationPanelManager::groupNoticeDialogStyleSheet());
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
@@ -6756,8 +6791,7 @@ void MainWindow::onShowGroupNotifications() {
                                                  &groupId)) {
             return;
         }
-        QStringList members = groupId.isEmpty() ? publicGroupNoticeMemberIds() : m_localGroupMembers.value(groupId);
-        if (members.isEmpty()) members << m_currentUserId;
+        const QStringList members = groupNoticeMemberIds(groupId);
         const GroupNoticeMemberCopyState state =
             NotificationPanelManager::groupMemberCopyState(groupNoticeMemberCopyInputs(members), false);
         if (state.rows.isEmpty()) {
@@ -6776,8 +6810,7 @@ void MainWindow::onShowGroupNotifications() {
                                                  &groupId)) {
             return;
         }
-        QStringList members = groupId.isEmpty() ? publicGroupNoticeMemberIds() : m_localGroupMembers.value(groupId);
-        if (members.isEmpty()) members << m_currentUserId;
+        const QStringList members = groupNoticeMemberIds(groupId);
         const GroupNoticeMemberCopyState state =
             NotificationPanelManager::groupMemberCopyState(groupNoticeMemberCopyInputs(members), true);
         if (state.rows.isEmpty()) {

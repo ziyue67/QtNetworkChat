@@ -391,6 +391,17 @@ int main(int argc, char** argv) {
                     && groupChrome.copyBatchPlanButton.text == QString::fromUtf8("复制群批量媒体计划"),
                 "group notice dialog chrome should centralize title, count, and action copy") && ok;
 
+    const GroupNoticeActionState createActionState =
+        NotificationPanelManager::groupNoticeActionState(QStringLiteral("group_create:项目群"),
+                                                         true,
+                                                         true,
+                                                         1);
+    ok = expect(createActionState.openEnabled
+                    && createActionState.openText == QString::fromUtf8("创建并进入群聊")
+                    && !createActionState.copyAnnouncementEnabled
+                    && createActionState.hintText.contains(QString::fromUtf8("创建新群")),
+                "group notice create entry state should centralize create-flow action copy") && ok;
+
     const QString friendDialogStyle = NotificationPanelManager::friendNoticeDialogStyleSheet();
     const QString groupDialogStyle = NotificationPanelManager::groupNoticeDialogStyleSheet();
     ok = expect(friendDialogStyle.contains(QStringLiteral("QDialog#noticeDialog"))
