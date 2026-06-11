@@ -30,6 +30,8 @@ namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
 class QAction;
+class QListWidget;
+class QLineEdit;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -193,6 +195,15 @@ private:
     bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     bool openSavedFolderFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
+    FriendManagerVisibleTargetSummary friendNoticeVisibleTarget(const QString& userId) const;
+    QList<FriendManagerVisibleTargetSummary> visibleFriendNoticeTargets(QListWidget* noticeList) const;
+    FriendNoticeSelectionSnapshot currentFriendNoticeSelectionSnapshot(QListWidget* noticeList,
+                                                                       QLineEdit* searchEdit) const;
+    QList<GroupNoticeMemberInput> groupNoticeMemberCopyInputs(const QStringList& memberIds) const;
+    QStringList publicGroupNoticeMemberIds() const;
+    GroupNoticeSelectionSnapshot currentGroupNoticeSelectionSnapshot(QListWidget* noticeList,
+                                                                     QLineEdit* searchEdit) const;
+    QList<GroupNoticeBatchTargetInput> visibleGroupNoticeBatchTargets(QListWidget* noticeList) const;
     bool handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     void insertChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);

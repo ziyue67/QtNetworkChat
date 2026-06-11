@@ -616,6 +616,106 @@ void MainWindow::copyTextWithStatus(const QString& text, const QString& statusMe
     ui->statusbar->showMessage(statusMessage, timeoutMs);
 }
 
+FriendManagerVisibleTargetSummary MainWindow::friendNoticeVisibleTarget(const QString& userId) const {
+    FriendManagerVisibleTargetSummary target;
+    target.userId = userId.trimmed();
+    if (!target.userId.isEmpty()) {
+        target.displayName = m_friendNames.value(target.userId, contactDisplayName(target.userId));
+        target.online = isContactOnline(target.userId);
+    }
+    return target;
+}
+
+QList<FriendManagerVisibleTargetSummary> MainWindow::visibleFriendNoticeTargets(QListWidget* noticeList) const {
+    QList<FriendManagerVisibleTargetSummary> targets;
+    const QStringList visibleIds = ::visibleFriendNoticeIds(noticeList);
+    for (const QString& id : visibleIds) {
+        if (id.isEmpty()) {
+            continue;
+        }
+        targets << friendNoticeVisibleTarget(id);
+    }
+    return targets;
+}
+
+FriendNoticeSelectionSnapshot MainWindow::currentFriendNoticeSelectionSnapshot(QListWidget* noticeList,
+                                                                               QLineEdit* searchEdit) const {
+    const QString currentId = selectedFriendNoticeEntryId(noticeList);
+    const FriendNoticeSelectionSnapshot snapshot =
+        NotificationPanelManager::friendNoticeSelectionSnapshot(
+            currentId,
+            searchEdit ? searchEdit->text() : QString(),
+            friendNoticeVisibleTarget(NotificationPanelManager::friendNoticeTargetId(
+                currentId,
+                searchEdit ? searchEdit->text() : QString())).displayName);
+    return snapshot;
+}
+
+QList<GroupNoticeMemberInput> MainWindow::groupNoticeMemberCopyInputs(const QStringList& memberIds) const {
+    QList<GroupNoticeMemberInput> inputs;
+    for (const QString& id : memberIds) {
+        GroupNoticeMemberInput input;
+        input.userId = id;
+        input.displayName = contactDisplayName(id);
+        input.self = id == m_currentUserId;
+        input.online = isContactOnline(id);
+        inputs << input;
+    }
+    return inputs;
+}
+
+QStringList MainWindow::publicGroupNoticeMemberIds() const {
+    QStringList onlineUserIds;
+    for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
+        onlineUserIds << it.key();
+    }
+    return NotificationPanelManager::publicGroupMemberIds(m_currentUserId, onlineUserIds);
+}
+
+GroupNoticeSelectionSnapshot MainWindow::currentGroupNoticeSelectionSnapshot(QListWidget* noticeList,
+                                                                             QLineEdit* searchEdit) const {
+    const QString groupId = selectedGroupNoticeEntryId(noticeList);
+    return NotificationPanelManager::groupNoticeSelectionSnapshot(
+        groupId,
+        searchEdit ? searchEdit->text().trimmed() : QString(),
+        m_knownUsers.size(),
+        m_localGroupNames.value(groupId, "群聊"),
+        m_localGroupMembers.value(groupId).size(),
+        m_localGroupAnnouncements.value(groupId),
+        m_currentUserId);
+}
+
+QList<GroupNoticeBatchTargetInput> MainWindow::visibleGroupNoticeBatchTargets(QListWidget* noticeList) const {
+    QList<GroupNoticeBatchTargetInput> targets;
+    const QStringList visibleIds = ::visibleGroupNoticeIds(noticeList);
+    for (const QString& id : visibleIds) {
+        GroupNoticeBatchTargetInput target;
+        target.entryId = id;
+        if (isGroupCreateEntryId(id)) {
+            target.memberCount = 1;
+            target.onlineCount = 1;
+        } else if (id.isEmpty()) {
+            const QStringList publicMembers = publicGroupNoticeMemberIds();
+            target.memberCount = publicMembers.size();
+            target.onlineCount = publicMembers.size();
+        } else if (id.startsWith("local_group_")) {
+            const QStringList members = m_localGroupMembers.value(id);
+            int groupOnline = 0;
+            for (const QString& memberId : members) {
+                if (memberId == m_currentUserId || isContactOnline(memberId)) {
+                    ++groupOnline;
+                }
+            }
+            target.groupName = m_localGroupNames.value(id, "群聊");
+            target.groupNumber = id.mid(QString("local_group_").size());
+            target.memberCount = qMax(1, members.size());
+            target.onlineCount = groupOnline;
+        }
+        targets << target;
+    }
+    return targets;
+}
+
 bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState) {
     const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(commandId,
                                                                                      chatContextSavedFileState(savedFileState),
@@ -5846,28 +5946,10 @@ void MainWindow::onShowFriendNotifications() {
         return selectedFriendNoticeEntryId(noticeList);
     };
     auto selectedFriendNoticeTarget = [this, noticeList, searchEdit]() {
-        FriendManagerVisibleTargetSummary target;
-        target.userId = selectedFriendNoticeTargetId(noticeList, searchEdit);
-        if (!target.userId.isEmpty()) {
-            target.displayName = m_friendNames.value(target.userId, contactDisplayName(target.userId));
-            target.online = isContactOnline(target.userId);
-        }
-        return target;
+        return friendNoticeVisibleTarget(selectedFriendNoticeTargetId(noticeList, searchEdit));
     };
-    auto visibleFriendNoticeTargets = [this, noticeList]() {
-        QList<FriendManagerVisibleTargetSummary> targets;
-        const QStringList visibleIds = visibleFriendNoticeIds(noticeList);
-        for (const QString& id : visibleIds) {
-            if (id.isEmpty()) {
-                continue;
-            }
-            FriendManagerVisibleTargetSummary target;
-            target.userId = id;
-            target.displayName = m_friendNames.value(id, contactDisplayName(id));
-            target.online = isContactOnline(id);
-            targets << target;
-        }
-        return targets;
+    auto visibleFriendNoticeTargetsFn = [this, noticeList]() {
+        return visibleFriendNoticeTargets(noticeList);
     };
     auto updateRequestActionState = [=]() {
         const FriendNoticeActionState state = NotificationPanelManager::friendNoticeActionState(
@@ -5898,16 +5980,9 @@ void MainWindow::onShowFriendNotifications() {
         clearBtn->setEnabled(state.clearEnabled);
         clearBtn->setToolTip(state.clearToolTip);
     };
-    auto updateRequestPreview = [this, noticeList, requestPreviewLabel]() {
-        QListWidgetItem* item = noticeList->currentItem();
-        if (!item) {
-            requestPreviewLabel->setText(NotificationPanelManager::friendNoticePreviewText(QString(), QString()));
-            return;
-        }
-        QString id = item->data(Qt::UserRole).toString();
-        requestPreviewLabel->setText(NotificationPanelManager::friendNoticePreviewText(
-            id,
-            id.isEmpty() ? QString() : m_friendNames.value(id, contactDisplayName(id))));
+    auto updateRequestPreview = [this, noticeList, searchEdit, requestPreviewLabel]() {
+        const FriendNoticeSelectionSnapshot snapshot = currentFriendNoticeSelectionSnapshot(noticeList, searchEdit);
+        requestPreviewLabel->setText(snapshot.previewText);
     };
     updateRequestPreview();
     updateRequestActionState();
@@ -6085,13 +6160,13 @@ void MainWindow::onShowFriendNotifications() {
             selectedFriendNoticeTarget());
         copyTextWithStatus(state.text, "好友申请媒体包已复制", 2200);
     });
-    connect(copyRequestBatchPlanBtn, &QPushButton::clicked, &dialog, [this, visibleFriendNoticeTargets, searchEdit]() {
+    connect(copyRequestBatchPlanBtn, &QPushButton::clicked, &dialog, [this, visibleFriendNoticeTargetsFn, searchEdit]() {
         const GlobalSearchSelectionCopyState state = FriendManager::friendNoticeBatchPlanState(
             m_currentUserId,
             m_currentUserName,
             m_pendingFriendRequests.size(),
             searchEdit->text().trimmed(),
-            visibleFriendNoticeTargets());
+            visibleFriendNoticeTargetsFn());
         copyTextWithStatus(state.text, "好友申请处理计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, selectedFriendNoticeTarget]() {
@@ -6299,43 +6374,10 @@ void MainWindow::onShowGroupNotifications() {
         switchToLocalGroup(groupId, m_localGroupNames.value(groupId, "群聊"));
         ui->statusbar->showMessage("已进入群聊: " + m_localGroupNames.value(groupId, "群聊"), 1800);
     };
-    auto publicGroupMemberIds = [this]() {
-        QStringList onlineUserIds;
-        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
-            onlineUserIds << it.key();
-        }
-        return NotificationPanelManager::publicGroupMemberIds(m_currentUserId, onlineUserIds);
-    };
-    auto groupMemberCopyInputs = [this](const QStringList& memberIds) {
-        QList<GroupNoticeMemberInput> inputs;
-        for (const QString& id : memberIds) {
-            GroupNoticeMemberInput input;
-            input.userId = id;
-            input.displayName = contactDisplayName(id);
-            input.self = id == m_currentUserId;
-            input.online = isContactOnline(id);
-            inputs << input;
-        }
-        return inputs;
-    };
-
     dialog.setStyleSheet(NotificationPanelManager::groupNoticeDialogStyleSheet());
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
-    auto updateGroupPreview = [this, noticeList, groupPreviewLabel]() {
-        QListWidgetItem* current = noticeList->currentItem();
-        if (!current) {
-            groupPreviewLabel->setText(NotificationPanelManager::groupNoticePreviewText(QString(), QString(), QString(), 0, m_knownUsers.size()));
-            return;
-        }
-        const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        const GroupNoticeSelectionSnapshot snapshot = NotificationPanelManager::groupNoticeSelectionSnapshot(
-            groupId,
-            QString(),
-            m_knownUsers.size(),
-            m_localGroupNames.value(groupId, "群聊"),
-            m_localGroupMembers.value(groupId).size(),
-            m_localGroupAnnouncements.value(groupId),
-            m_currentUserId);
+    auto updateGroupPreview = [this, noticeList, searchEdit, groupPreviewLabel]() {
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         groupPreviewLabel->setText(snapshot.previewText);
     };
     auto updateGroupActionState = [=]() {
@@ -6379,7 +6421,7 @@ void MainWindow::onShowGroupNotifications() {
         updateGroupActionState();
     });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
-    connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+    connect(copyBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
                                                  ui->statusbar,
@@ -6388,18 +6430,11 @@ void MainWindow::onShowGroupNotifications() {
                                                  &groupId)) {
             return;
         }
-        const GroupNoticeSelectionSnapshot snapshot = NotificationPanelManager::groupNoticeSelectionSnapshot(
-            groupId,
-            QString(),
-            m_knownUsers.size(),
-            m_localGroupNames.value(groupId, "群聊"),
-            m_localGroupMembers.value(groupId).size(),
-            m_localGroupAnnouncements.value(groupId),
-            m_currentUserId);
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         QApplication::clipboard()->setText(snapshot.copyId);
         ui->statusbar->showMessage("群号已复制: " + snapshot.copyId, 2500);
     });
-    connect(cardBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+    connect(cardBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
                                                  ui->statusbar,
@@ -6408,22 +6443,11 @@ void MainWindow::onShowGroupNotifications() {
                                                  &groupId)) {
             return;
         }
-        QListWidgetItem* current = noticeList->currentItem();
-        const QString announcement = current
-            ? m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2))
-            : m_localGroupAnnouncements.value(groupId);
-        const GroupNoticeSelectionSnapshot snapshot = NotificationPanelManager::groupNoticeSelectionSnapshot(
-            groupId,
-            QString(),
-            m_knownUsers.size(),
-            m_localGroupNames.value(groupId, "群聊"),
-            m_localGroupMembers.value(groupId).size(),
-            announcement,
-            m_currentUserId);
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         QApplication::clipboard()->setText(snapshot.cardText);
         ui->statusbar->showMessage("群名片已复制", 1800);
     });
-    connect(announceBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
+    connect(announceBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
                                                  ui->statusbar,
@@ -6432,31 +6456,12 @@ void MainWindow::onShowGroupNotifications() {
                                                  &groupId)) {
             return;
         }
-        QListWidgetItem* current = noticeList->currentItem();
-        const QString localAnnouncement = current
-            ? m_localGroupAnnouncements.value(groupId, current->text().section('\n', 2))
-            : m_localGroupAnnouncements.value(groupId);
-        const GroupNoticeSelectionSnapshot snapshot = NotificationPanelManager::groupNoticeSelectionSnapshot(
-            groupId,
-            QString(),
-            m_knownUsers.size(),
-            m_localGroupNames.value(groupId, "群聊"),
-            m_localGroupMembers.value(groupId).size(),
-            localAnnouncement,
-            m_currentUserId);
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         QApplication::clipboard()->setText(snapshot.announcementText);
         ui->statusbar->showMessage("群公告已复制", 1800);
     });
     connect(inviteTextBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        const GroupNoticeSelectionSnapshot snapshot = NotificationPanelManager::groupNoticeSelectionSnapshot(
-            groupId,
-            searchEdit->text().trimmed(),
-            m_knownUsers.size(),
-            m_localGroupNames.value(groupId, "群聊"),
-            m_localGroupMembers.value(groupId).size(),
-            m_localGroupAnnouncements.value(groupId),
-            m_currentUserId);
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeInviteText(
             snapshot.copyContext.groupName,
             snapshot.copyContext.groupNumber,
@@ -6464,7 +6469,7 @@ void MainWindow::onShowGroupNotifications() {
             m_currentUserId));
         ui->statusbar->showMessage("入群邀请话术已复制", 2200);
     });
-    connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds, groupMemberCopyInputs]() {
+    connect(memberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
                                                  ui->statusbar,
@@ -6473,10 +6478,10 @@ void MainWindow::onShowGroupNotifications() {
                                                  &groupId)) {
             return;
         }
-        QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
+        QStringList members = groupId.isEmpty() ? publicGroupNoticeMemberIds() : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
         const GroupNoticeMemberCopyState state =
-            NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(members), false);
+            NotificationPanelManager::groupMemberCopyState(groupNoticeMemberCopyInputs(members), false);
         if (state.rows.isEmpty()) {
             ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
             return;
@@ -6484,7 +6489,7 @@ void MainWindow::onShowGroupNotifications() {
         QApplication::clipboard()->setText(state.rows.join('\n'));
         ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
     });
-    connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList, publicGroupMemberIds, groupMemberCopyInputs]() {
+    connect(onlineMemberBtn, &QPushButton::clicked, &dialog, [this, noticeList]() {
         QString groupId;
         if (!trySelectedInspectableGroupNoticeId(noticeList,
                                                  ui->statusbar,
@@ -6493,10 +6498,10 @@ void MainWindow::onShowGroupNotifications() {
                                                  &groupId)) {
             return;
         }
-        QStringList members = groupId.isEmpty() ? publicGroupMemberIds() : m_localGroupMembers.value(groupId);
+        QStringList members = groupId.isEmpty() ? publicGroupNoticeMemberIds() : m_localGroupMembers.value(groupId);
         if (members.isEmpty()) members << m_currentUserId;
         const GroupNoticeMemberCopyState state =
-            NotificationPanelManager::groupMemberCopyState(groupMemberCopyInputs(members), true);
+            NotificationPanelManager::groupMemberCopyState(groupNoticeMemberCopyInputs(members), true);
         if (state.rows.isEmpty()) {
             ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
             return;
@@ -6505,15 +6510,7 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
     });
     connect(copyGroupMediaPackBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        const GroupNoticeSelectionSnapshot snapshot = NotificationPanelManager::groupNoticeSelectionSnapshot(
-            groupId,
-            searchEdit->text().trimmed(),
-            m_knownUsers.size(),
-            m_localGroupNames.value(groupId, "群聊"),
-            m_localGroupMembers.value(groupId).size(),
-            m_localGroupAnnouncements.value(groupId),
-            m_currentUserId);
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeMediaPackText(
             snapshot.copyContext.groupName,
             snapshot.copyContext.groupNumber,
@@ -6522,50 +6519,17 @@ void MainWindow::onShowGroupNotifications() {
             m_currentUserId));
         ui->statusbar->showMessage("群媒体包已复制", 2200);
     });
-    connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit, publicGroupMemberIds]() {
-        QList<GroupNoticeBatchTargetInput> targets;
-        const QStringList visibleIds = visibleGroupNoticeIds(noticeList);
-        for (const QString& id : visibleIds) {
-            GroupNoticeBatchTargetInput target;
-            target.entryId = id;
-            if (isGroupCreateEntryId(id)) {
-                target.memberCount = 1;
-                target.onlineCount = 1;
-            } else if (id.isEmpty()) {
-                const QStringList publicMembers = publicGroupMemberIds();
-                target.memberCount = publicMembers.size();
-                target.onlineCount = publicMembers.size();
-            } else if (id.startsWith("local_group_")) {
-                QStringList members = m_localGroupMembers.value(id);
-                int groupOnline = 0;
-                for (const QString& memberId : members) {
-                    if (memberId == m_currentUserId || isContactOnline(memberId)) ++groupOnline;
-                }
-                target.groupName = m_localGroupNames.value(id, "群聊");
-                target.groupNumber = id.mid(QString("local_group_").size());
-                target.memberCount = qMax(1, members.size());
-                target.onlineCount = groupOnline;
-            }
-            targets << target;
-        }
+    connect(copyGroupBatchPlanBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
         const GroupNoticeBatchPlanState state = NotificationPanelManager::groupNoticeBatchPlanState(
             searchEdit->text().trimmed(),
-            targets,
+            visibleGroupNoticeBatchTargets(noticeList),
             m_currentUserName,
             m_currentUserId);
         QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage(state.statusMessage, 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this, noticeList, searchEdit]() {
-        const QString groupId = selectedGroupNoticeEntryId(noticeList);
-        const GroupNoticeSelectionSnapshot snapshot = NotificationPanelManager::groupNoticeSelectionSnapshot(
-            groupId,
-            searchEdit->text().trimmed(),
-            m_knownUsers.size(),
-            m_localGroupNames.value(groupId, "群聊"),
-            m_localGroupMembers.value(groupId).size(),
-            m_localGroupAnnouncements.value(groupId),
-            m_currentUserId);
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
         QApplication::clipboard()->setText(NotificationPanelManager::groupNoticeMediaGuideText(
             snapshot.copyContext.groupName,
             snapshot.copyContext.groupNumber,

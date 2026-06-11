@@ -551,6 +551,24 @@ GroupNoticeMemberCopyState NotificationPanelManager::groupMemberCopyState(
     return state;
 }
 
+FriendNoticeSelectionSnapshot NotificationPanelManager::friendNoticeSelectionSnapshot(
+    const QString& currentId,
+    const QString& searchText,
+    const QString& fallbackDisplayName) {
+    FriendNoticeSelectionSnapshot snapshot;
+    snapshot.currentId = currentId.trimmed();
+    snapshot.hasSelection = !snapshot.currentId.isEmpty();
+    snapshot.searchEntry = isSearchAddEntryId(snapshot.currentId);
+    snapshot.realRequest = isRealFriendNoticeRequestId(snapshot.currentId);
+    snapshot.targetId = friendNoticeTargetId(snapshot.currentId, searchText);
+    snapshot.displayName = fallbackDisplayName.trimmed();
+    if (snapshot.displayName.isEmpty()) {
+        snapshot.displayName = snapshot.targetId;
+    }
+    snapshot.previewText = friendNoticePreviewText(snapshot.currentId, snapshot.displayName);
+    return snapshot;
+}
+
 QString NotificationPanelManager::friendNoticePreviewText(const QString& currentId,
                                                           const QString& displayName) {
     if (currentId.isEmpty()) {

@@ -97,6 +97,16 @@ struct FriendNoticeListRenderUiState {
     QList<FriendNoticeListEntryUiState> entries;
 };
 
+struct FriendNoticeSelectionSnapshot {
+    QString currentId;
+    QString targetId;
+    QString displayName;
+    QString previewText;
+    bool hasSelection = false;
+    bool searchEntry = false;
+    bool realRequest = false;
+};
+
 struct GroupNoticeListGroupInput {
     QString groupId;
     QString groupName;
@@ -210,6 +220,10 @@ public:
     static FriendNoticeActionState friendNoticeActionState(const QString& currentId,
                                                            bool hasPending,
                                                            bool hasSearchKeyword);
+    static FriendNoticeSelectionSnapshot friendNoticeSelectionSnapshot(
+        const QString& currentId,
+        const QString& searchText,
+        const QString& fallbackDisplayName);
     static QString friendNoticePreviewText(const QString& currentId,
                                            const QString& displayName);
     static GroupNoticeActionState groupNoticeActionState(const QString& currentId,
