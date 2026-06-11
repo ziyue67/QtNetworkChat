@@ -1,6 +1,7 @@
 #include "transfermanager.h"
 
 #include "filetransferstatus.h"
+#include "localfilemanager.h"
 
 #include <QFileInfo>
 #include <QStringList>
@@ -41,58 +42,6 @@ QString transferManifestSummary(qint64 totalBytes, qint64 chunkSize, qint64 chun
         parts << humanTransferSize(totalBytes);
     }
     return parts.join(QStringLiteral(" · "));
-}
-
-QString selectionHumanFileSize(qint64 bytes) {
-    if (bytes < 1024) return QString("%1 B").arg(bytes);
-    if (bytes < 1024 * 1024) return QString("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
-    return QString::number(bytes / 1024.0 / 1024.0, 'f', 1) + " MB";
-}
-
-struct TransferSelectionValidationState {
-    bool accepted = false;
-    bool warningRequired = false;
-    QString failureTitle;
-    QString failureMessage;
-    QString statusMessage;
-    QString warningTitle;
-    QString warningMessage;
-};
-
-TransferSelectionValidationState validateTransferSelectionFile(const QFileInfo& info, const QString& kind) {
-    TransferSelectionValidationState result;
-    constexpr qint64 warningBytes = 20LL * 1024 * 1024;
-    constexpr qint64 maxBytes = 80LL * 1024 * 1024;
-
-    if (!info.exists() || !info.isFile()) {
-        result.failureTitle = QStringLiteral("无法发送");
-        result.failureMessage = QStringLiteral("请选择一个可读取的本地文件。");
-        result.statusMessage = QStringLiteral("%1发送失败：文件不可读取").arg(kind);
-        return result;
-    }
-    if (info.size() <= 0) {
-        result.failureTitle = QStringLiteral("无法发送");
-        result.failureMessage = QStringLiteral("文件为空，已取消发送。");
-        result.statusMessage = QStringLiteral("%1发送失败：文件为空").arg(kind);
-        return result;
-    }
-    if (info.size() > maxBytes) {
-        result.failureTitle = QStringLiteral("文件过大");
-        result.failureMessage = QStringLiteral("%1大小为 %2，超过当前 80 MB 的安全发送上限。")
-                                    .arg(kind, selectionHumanFileSize(info.size()));
-        result.statusMessage = QStringLiteral("%1发送失败：超过 80 MB").arg(kind);
-        return result;
-    }
-
-    result.accepted = true;
-    if (info.size() > warningBytes) {
-        result.warningRequired = true;
-        result.warningTitle = QStringLiteral("确认发送大文件");
-        result.warningMessage = QStringLiteral("%1大小为 %2，发送时可能需要等待一会儿，是否继续？")
-                                    .arg(kind, selectionHumanFileSize(info.size()));
-        result.statusMessage = QStringLiteral("已取消发送%1").arg(kind);
-    }
-    return result;
 }
 
 int transferPercent(qint64 bytesPrepared, qint64 totalBytes) {
@@ -424,32 +373,36 @@ TransferSelectionUiState TransferManager::transferSelectionUiState(const Transfe
     TransferSelectionUiState state;
     state.confirmKind = selectionPlan.confirmKind;
 
-    if (selectedPath.trimmed().isEmpty()) {
-        state.hintText = selectionPlan.canceledHint;
-        state.statusMessage = selectionPlan.canceledStatus;
-        state.statusTimeoutMs = 1600;
-        return state;
-    }
-
-    state.filePath = selectedPath;
-    state.fileInfo = QFileInfo(selectedPath);
-    const TransferSelectionValidationState validation =
-        validateTransferSelectionFile(state.fileInfo, selectionPlan.confirmKind);
-    if (!validation.accepted) {
+    const LocalTransferSelectionDecision decision =
+        LocalFileManager::transferSelectionDecision(selectedPath,
+                                                    selectionPlan.confirmKind,
+                                                    selectionPlan.canceledHint,
+                                                    selectionPlan.canceledStatus);
+    if (decision.action == LocalTransferSelectionDecision::Action::ShowFailureDialog) {
         state.showFailureDialog = true;
-        state.hintText = validation.statusMessage;
-        state.statusMessage = validation.statusMessage;
-        state.statusTimeoutMs = 2600;
-        state.dialogTitle = validation.failureTitle;
-        state.dialogMessage = validation.failureMessage;
+        state.hintText = decision.hintText;
+        state.statusMessage = decision.statusMessage;
+        state.statusTimeoutMs = decision.statusTimeoutMs;
+        state.dialogTitle = decision.dialogTitle;
+        state.dialogMessage = decision.dialogMessage;
         return state;
     }
 
-    state.fileSize = selectionHumanFileSize(state.fileInfo.size());
-    if (validation.warningRequired) {
+    if (!decision.accepted
+        && decision.action != LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
+        state.hintText = decision.hintText;
+        state.statusMessage = decision.statusMessage;
+        state.statusTimeoutMs = decision.statusTimeoutMs;
+        return state;
+    }
+
+    state.filePath = decision.filePath;
+    state.fileInfo = decision.fileInfo;
+    state.fileSize = decision.fileSize;
+    if (decision.action == LocalTransferSelectionDecision::Action::ConfirmLargeFile) {
         state.showConfirmDialog = true;
-        state.dialogTitle = validation.warningTitle;
-        state.dialogMessage = validation.warningMessage;
+        state.dialogTitle = decision.dialogTitle;
+        state.dialogMessage = decision.dialogMessage;
         return state;
     }
 

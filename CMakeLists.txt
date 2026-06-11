@@ -116,6 +116,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/filetransferstatus.cpp
     src/chatcontextmanager.cpp
     src/transfermanager.cpp
+    src/localfilemanager.cpp
     src/chatsessionmanager.cpp
     src/composermanager.cpp
     src/windowstatemanager.cpp
@@ -127,6 +128,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     include/filetransferstatus.h
     include/chatcontextmanager.h
     include/transfermanager.h
+    include/localfilemanager.h
     include/chatsessionmanager.h
     include/composermanager.h
     include/windowstatemanager.h
@@ -152,7 +154,6 @@ endfunction()
 add_executable(QtNetworkChat
     src/main.cpp
     src/mainwindow.cpp
-    src/localfilemanager.cpp
     src/notificationpanelmanager.cpp
     src/clientstorage.cpp
     src/historyservice.cpp
@@ -167,7 +168,6 @@ add_executable(QtNetworkChat
     ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
     ${QTNETWORKCHAT_PRODUCTION_ADAPTER_SOURCES}
     include/mainwindow.h
-    include/localfilemanager.h
     include/notificationpanelmanager.h
     include/clientstorage.h
     include/historyservice.h
@@ -361,8 +361,10 @@ if(BUILD_TESTING)
     add_executable(transfer_manager_test
         tests/transfer_manager_test.cpp
         src/transfermanager.cpp
+        src/localfilemanager.cpp
         src/filetransferstatus.cpp
         include/transfermanager.h
+        include/localfilemanager.h
         include/filetransferstatus.h
     )
     target_include_directories(transfer_manager_test PRIVATE include)
