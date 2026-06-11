@@ -109,6 +109,7 @@ private:
     void setupTray();
     void appendMessage(const Message& msg);
     void appendSystemMessage(const QString& text);
+    void setTransferWorkspaceState(const TransferWorkspaceCardState& state);
     void applyTransferSendState(const TransferSendUiState& state);
     bool ensureTransferTargetReady(const QString& kind, const QString& targetName, bool isLocalGroup);
     bool selectTransferFile(const TransferSelectionPlan& selectionPlan,
@@ -137,7 +138,8 @@ private:
                                                  const QString& completedAt);
     void appendRemoteMediaTransferCompletion(const QString& filePath,
                                              const TransferSendUiState& completedState,
-                                             bool isVideo);
+                                             bool isVideo,
+                                             const TransferWorkspaceCardState& workspaceState);
     void handleRemoteTransferResult(bool ok,
                                     bool transferCanceled,
                                     const QString& filePath,

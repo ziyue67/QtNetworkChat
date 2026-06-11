@@ -445,16 +445,21 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
         progress.setCancelButtonText("取消发送");
         progress.show();
         QApplication::processEvents();
+        setTransferWorkspaceState(m_transferManager.preparingSendWorkspaceState(kind,
+                                                                                info.fileName(),
+                                                                                LocalFileManager::humanFileSize(info.size()),
+                                                                                targetName));
 
         QMetaObject::Connection cancelConnection = connect(
             &progress,
             &QProgressDialog::canceled,
             this,
-            [this, &progress, &info, &kind, &cancelRequested, canceled]() {
+            [this, &progress, &info, &kind, &cancelRequested, canceled, &targetName]() {
                 cancelRequested = true;
                 if (canceled) *canceled = true;
                 progress.setLabelText(m_transferManager.sendingCancelState(kind, info.fileName()).labelText);
                 if (m_client) m_client->cancelCurrentOutgoingTransfer();
+                setTransferWorkspaceState(m_transferManager.canceledSendWorkspaceState(kind, info.fileName(), targetName));
                 ui->statusbar->showMessage(QString("正在取消发送%1：%2").arg(kind, info.fileName()), 1600);
                 QApplication::processEvents();
             });
@@ -467,6 +472,11 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                 const TransferProgressUiState state = m_transferManager.sendingProgressState(kind, fileName, targetName, bytesPrepared, totalBytes);
                 progress.setValue(state.percent);
                 progress.setLabelText(state.labelText);
+                setTransferWorkspaceState(m_transferManager.sendingProgressWorkspaceState(kind,
+                                                                                          fileName,
+                                                                                          targetName,
+                                                                                          bytesPrepared,
+                                                                                          totalBytes));
                 QApplication::processEvents();
             });
         QMetaObject::Connection preparedConnection = connect(
@@ -482,6 +492,13 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                 const TransferProgressUiState state = m_transferManager.sendingPreparedState(kind, fileName, targetName, totalBytes, chunkSize, chunkCount, fileHash);
                 preparedSummary = state.manifestSummary;
                 progress.setLabelText(state.labelText);
+                setTransferWorkspaceState(m_transferManager.sendingPreparedWorkspaceState(kind,
+                                                                                          fileName,
+                                                                                          targetName,
+                                                                                          totalBytes,
+                                                                                          chunkSize,
+                                                                                          chunkCount,
+                                                                                          fileHash));
                 QApplication::processEvents();
             });
 
@@ -519,6 +536,10 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                 QMessageBox::Retry);
             if (retry == QMessageBox::Retry) {
                 ui->statusbar->showMessage(QString("正在重试发送%1：%2").arg(kind, info.fileName()), 1800);
+                setTransferWorkspaceState(m_transferManager.failedSendWorkspaceState(kind,
+                                                                                     info.fileName(),
+                                                                                     LocalFileManager::humanFileSize(info.size()),
+                                                                                     targetName));
                 continue;
             }
         }
@@ -545,6 +566,11 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
     const TransferStatusEvent event = m_transferManager.statusEvent(fileName, transferId, reason, receivedBytes, totalBytes);
     m_lastTransferStatusDiagnostic = event.diagnostic;
     applyTransferActionState(m_copyLastTransferStatusAction, event.copyDiagnostic.action);
+    setTransferWorkspaceState(m_transferManager.statusWorkspaceState(fileName,
+                                                                     transferId,
+                                                                     reason,
+                                                                     receivedBytes,
+                                                                     totalBytes));
     appendSystemMessage(event.message);
     ui->chatHintLabel->setText(event.chatHintText);
     ui->statusbar->showMessage(event.statusBarMessage, event.statusBarTimeoutMs);
@@ -1463,6 +1489,9 @@ void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
         state,
         recoveryStatus,
         announce);
+    setTransferWorkspaceState(hasSavedTransfer
+        ? m_transferManager.recoveryWorkspaceState(uiState)
+        : m_transferManager.idleWorkspaceState(m_client && m_client->isConnected(), false, false));
     applyTransferActionState(m_resumeSavedTransferAction, uiState.resumeAction);
     applyTransferActionState(m_clearSavedTransferAction, uiState.clearAction);
 
@@ -1496,6 +1525,7 @@ void MainWindow::onClearSavedOutgoingTransfer() {
 
     if (m_client->clearOutgoingTransferState()) {
         appendSystemMessage(prompt.clearedSystemMessage);
+        setTransferWorkspaceState(m_transferManager.clearedRecoveryWorkspaceState(prompt.fileName));
         ui->statusbar->showMessage(prompt.clearedStatusMessage, 2200);
     } else {
         appendSystemMessage(prompt.clearFailedSystemMessage);
@@ -1523,6 +1553,7 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         const TransferResumeBlockedPrompt prompt = m_transferManager.resumeBlockedPrompt(state, recoveryStatus);
         appendSystemMessage(prompt.systemMessage);
         ui->chatHintLabel->setText(prompt.hintText);
+        setTransferWorkspaceState(m_transferManager.resumeBlockedWorkspaceState(prompt));
         ui->statusbar->showMessage(prompt.statusMessage, 3600);
         const QMessageBox::StandardButton choice = QMessageBox::information(
             this,
@@ -1533,6 +1564,7 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         if (choice == QMessageBox::Discard && m_client->clearOutgoingTransferState()) {
             appendSystemMessage(prompt.clearedSystemMessage);
             ui->chatHintLabel->setText(prompt.clearedHintText);
+            setTransferWorkspaceState(m_transferManager.clearedRecoveryWorkspaceState(prompt.fileName));
             ui->statusbar->showMessage(prompt.clearedStatusMessage, 2200);
         }
         updateSavedOutgoingTransferRecoveryUi(false);
@@ -1569,6 +1601,12 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
             const TransferProgressUiState state = m_transferManager.resumeProgressState(fileName, targetName, bytesPrepared, totalBytes);
             progress.setValue(state.percent);
             progress.setLabelText(state.labelText);
+            setTransferWorkspaceState(m_transferManager.sendingProgressWorkspaceState(QStringLiteral("文件"),
+                                                                                      fileName,
+                                                                                      targetName,
+                                                                                      bytesPrepared,
+                                                                                      totalBytes,
+                                                                                      true));
             QApplication::processEvents();
         });
     QMetaObject::Connection preparedConnection = connect(
@@ -1582,10 +1620,20 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
                                              const QString& fileHash) {
             if (currentFileName != fileName) return;
             progress.setLabelText(m_transferManager.resumePreparedState(fileName, targetName, totalBytes, chunkSize, chunkCount, fileHash).labelText);
+            setTransferWorkspaceState(m_transferManager.sendingPreparedWorkspaceState(QStringLiteral("文件"),
+                                                                                      fileName,
+                                                                                      targetName,
+                                                                                      totalBytes,
+                                                                                      chunkSize,
+                                                                                      chunkCount,
+                                                                                      fileHash,
+                                                                                      true));
             QApplication::processEvents();
         });
 
     ui->statusbar->showMessage("正在恢复未完成发送：" + fileName, 1800);
+    setTransferWorkspaceState(m_transferManager.recoveryWorkspaceState(
+        m_transferManager.recoveryUiState(true, true, state, recoveryStatus, false)));
     QString rejectReason;
     const bool resumed = m_client->resumeSavedOutgoingTransfer(&rejectReason, 5000);
 
@@ -1605,14 +1653,17 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
     if (resultState.succeeded) {
         appendSystemMessage(resultState.systemMessage);
         ui->chatHintLabel->setText(resultState.hintText);
+        setTransferWorkspaceState(m_transferManager.resumeResultWorkspaceState(resultState));
         ui->statusbar->showMessage(resultState.statusMessage, 2600);
     } else if (resultState.canceled) {
         appendSystemMessage(resultState.systemMessage);
         ui->chatHintLabel->setText(resultState.hintText);
+        setTransferWorkspaceState(m_transferManager.resumeResultWorkspaceState(resultState));
         ui->statusbar->showMessage(resultState.statusMessage, 2200);
     } else {
         appendSystemMessage(resultState.systemMessage);
         ui->chatHintLabel->setText(resultState.hintText);
+        setTransferWorkspaceState(m_transferManager.resumeResultWorkspaceState(resultState));
         ui->statusbar->showMessage(resultState.statusMessage, 3200);
         const QMessageBox::StandardButton choice = QMessageBox::warning(
             this,
@@ -1623,11 +1674,14 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         if (choice == QMessageBox::Discard && m_client->clearOutgoingTransferState()) {
             appendSystemMessage(resultState.clearedSystemMessage);
             ui->chatHintLabel->setText(resultState.clearedHintText);
+            setTransferWorkspaceState(m_transferManager.clearedRecoveryWorkspaceState(resultState.fileName));
             ui->statusbar->showMessage(resultState.clearedStatusMessage, 2200);
         }
     }
 
-    updateSavedOutgoingTransferRecoveryUi(false);
+    if (!resultState.succeeded && !resultState.canceled) {
+        updateSavedOutgoingTransferRecoveryUi(false);
+    }
 }
 
 void MainWindow::setupUi() {
@@ -1657,6 +1711,8 @@ void MainWindow::setupUi() {
     ui->groupOverviewTitleLabel->setText("会话状态");
     ui->groupOverviewStateLabel->setText("公共群在线视图已准备");
     ui->groupOverviewMetaLabel->setText("成员面板会随着当前会话自动刷新");
+    ui->transferOverviewTitleLabel->setText("文件传输");
+    setTransferWorkspaceState(m_transferManager.idleWorkspaceState(false, false, false));
     ui->contactSearchEdit->installEventFilter(this);
     ui->memberSearchEdit->installEventFilter(this);
     ui->contactSearchEdit->setToolTip("搜索联系人、QQ 号或群聊；按 Enter 搜索账号，Esc 清空");
@@ -1829,12 +1885,12 @@ void MainWindow::setupUi() {
             background: #F5F9FB;
             border-left: 1px solid #D9E5EC;
         }
-        QFrame#announcementCard, QFrame#groupOverviewCard {
+        QFrame#announcementCard, QFrame#groupOverviewCard, QFrame#transferOverviewCard {
             background: white;
             border: 1px solid #DCE7EE;
             border-radius: 18px;
         }
-        QLabel#announcementTitleLabel, QLabel#memberTitleLabel, QLabel#groupOverviewTitleLabel {
+        QLabel#announcementTitleLabel, QLabel#memberTitleLabel, QLabel#groupOverviewTitleLabel, QLabel#transferOverviewTitleLabel {
             color: #17324D;
             font-size: 14px;
             font-weight: 800;
@@ -1855,6 +1911,23 @@ void MainWindow::setupUi() {
             line-height: 18px;
         }
         QLabel#groupOverviewMetaLabel {
+            color: #6A7C8E;
+            font-size: 12px;
+            line-height: 18px;
+        }
+        QLabel#transferOverviewStageLabel {
+            color: #155C8A;
+            font-size: 13px;
+            font-weight: 800;
+            line-height: 18px;
+        }
+        QLabel#transferOverviewSummaryLabel {
+            color: #1D4968;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 18px;
+        }
+        QLabel#transferOverviewDetailLabel, QLabel#transferOverviewActionLabel {
             color: #6A7C8E;
             font-size: 12px;
             line-height: 18px;
@@ -7011,6 +7084,13 @@ void MainWindow::appendSystemMessage(const QString& text) {
     ui->chatListView->scrollToBottom();
 }
 
+void MainWindow::setTransferWorkspaceState(const TransferWorkspaceCardState& state) {
+    ui->transferOverviewStageLabel->setText(state.stageText);
+    ui->transferOverviewSummaryLabel->setText(state.summaryText);
+    ui->transferOverviewDetailLabel->setText(state.detailText);
+    ui->transferOverviewActionLabel->setText(state.actionText);
+}
+
 bool MainWindow::ensureTransferTargetReady(const QString& kind, const QString& targetName, bool isLocalGroup) {
     if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
         const TransferSendUiState state = m_transferManager.publicGroupRemovedState(kind);
@@ -7156,6 +7236,11 @@ void MainWindow::appendLocalGroupFileTransferCompletion(const TransferSelectionP
     item->setBackground(QColor(218, 241, 255));
     item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_chatModel->appendRow(item);
+    setTransferWorkspaceState(m_transferManager.localSendCompletedWorkspaceState(selectionPlan.preparingKind,
+                                                                                 info.fileName(),
+                                                                                 fileSize,
+                                                                                 targetName,
+                                                                                 completedAt));
     appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
 }
 
@@ -7193,12 +7278,19 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
             isVideo);
         appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
     }
+    setTransferWorkspaceState(m_transferManager.localSendCompletedWorkspaceState(mediaType,
+                                                                                 info.fileName(),
+                                                                                 fileSize,
+                                                                                 targetName,
+                                                                                 completedAt));
     appendTransferCompletionState(completedState, true, false, QColor(), QColor());
 }
 
 void MainWindow::appendRemoteMediaTransferCompletion(const QString& filePath,
                                                      const TransferSendUiState& completedState,
-                                                     bool isVideo) {
+                                                     bool isVideo,
+                                                     const TransferWorkspaceCardState& workspaceState) {
+    setTransferWorkspaceState(workspaceState);
     appendSystemMessage(completedState.systemMessage);
     const TransferMediaPreviewPlan previewPlan = m_transferManager.remoteMediaPreviewPlan(completedState.cardText, isVideo);
     if (!isVideo) {
@@ -7230,9 +7322,17 @@ void MainWindow::handleRemoteTransferResult(bool ok,
             targetName,
             QDateTime::currentDateTime().toString("hh:mm:ss"),
             transferSummary);
+        const TransferWorkspaceCardState workspaceState = m_transferManager.remoteSendCompletedWorkspaceState(
+            kind,
+            info.fileName(),
+            fileSize,
+            targetName,
+            QDateTime::currentDateTime().toString("hh:mm:ss"),
+            transferSummary);
         if (media) {
-            appendRemoteMediaTransferCompletion(filePath, completedState, isVideo);
+            appendRemoteMediaTransferCompletion(filePath, completedState, isVideo, workspaceState);
         } else {
+            setTransferWorkspaceState(workspaceState);
             appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
         }
         return;
@@ -7241,6 +7341,7 @@ void MainWindow::handleRemoteTransferResult(bool ok,
     if (transferCanceled) {
         appendSystemMessage(QString("已取消发送%1: %2 · 到 %3").arg(kind, info.fileName(), targetName));
         const TransferSendUiState state = m_transferManager.canceledSendState(kind, info.fileName());
+        setTransferWorkspaceState(m_transferManager.canceledSendWorkspaceState(kind, info.fileName(), targetName));
         ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
         ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
         refreshComposerState();
@@ -7248,6 +7349,7 @@ void MainWindow::handleRemoteTransferResult(bool ok,
     }
 
     const TransferSendUiState state = m_transferManager.failedSendState(kind, info.fileName(), fileSize, targetName);
+    setTransferWorkspaceState(m_transferManager.failedSendWorkspaceState(kind, info.fileName(), fileSize, targetName));
     applyTransferSendState(state);
     QMessageBox::warning(this, state.warningTitle, state.warningMessage);
     refreshComposerState();
@@ -7295,6 +7397,15 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
                                                 const QByteArray& fileData,
                                                 qint64 totalBytes) {
     const bool saved = LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData);
+    setTransferWorkspaceState(m_transferManager.receivedTransferWorkspaceState(context.kind,
+                                                                               context.receivedName,
+                                                                               context.receivedSize,
+                                                                               displayName,
+                                                                               context.manifestSuffix,
+                                                                               context.integrityText,
+                                                                               context.integritySuffix,
+                                                                               context.savePath,
+                                                                               saved));
     applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, saved),
                                     context.receivedName,
                                     transferId,
