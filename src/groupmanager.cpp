@@ -84,6 +84,72 @@ GroupMemberDisplayState GroupManager::memberDisplayState(const QString& memberId
     return state;
 }
 
+GroupMemberContextMenuPlan GroupManager::memberContextMenuPlan(
+    const QString& memberId,
+    const QString& currentUserId,
+    bool localGroup,
+    bool serverPublicGroup,
+    const QString& localGroupOwnerId,
+    bool currentUserLocalOwner,
+    const QMap<QString, QString>& serverGroupOwners,
+    const QMap<QString, QString>& serverGroupMemberRoles) {
+    GroupMemberContextMenuPlan plan;
+    plan.ownerId = localGroup ? localGroupOwnerId : serverGroupOwners.value(QStringLiteral("public"));
+    plan.serverTargetRole = serverPublicGroup
+        ? serverGroupMemberRoles.value(QStringLiteral("public|") + memberId).toLower()
+        : QString();
+    const QString currentUserServerRole =
+        serverGroupMemberRoles.value(QStringLiteral("public|") + currentUserId).toLower();
+    const bool currentUserIsPublicOwner = serverGroupOwners.value(QStringLiteral("public")) == currentUserId
+        || currentUserServerRole == QLatin1String("owner");
+
+    plan.canManageGroup = localGroup
+        ? currentUserLocalOwner
+        : (serverPublicGroup && canManageServerGroup(QStringLiteral("public"),
+                                                     currentUserId,
+                                                     serverGroupOwners,
+                                                     serverGroupMemberRoles));
+    plan.canSetPublicAdmin = serverPublicGroup
+        && currentUserIsPublicOwner
+        && memberId != plan.ownerId;
+    plan.promoteAdminEnabled = plan.canSetPublicAdmin
+        && plan.serverTargetRole == QLatin1String("member");
+    plan.demoteAdminEnabled = plan.canSetPublicAdmin
+        && plan.serverTargetRole == QLatin1String("admin");
+    plan.removeEnabled = plan.canManageGroup && memberId != plan.ownerId;
+
+    plan.chatToolTip = QStringLiteral("打开当前群成员的私聊；非好友会先尝试发送好友申请");
+    plan.copyToolTip = QStringLiteral("复制当前群成员的 QQ 号");
+    plan.profileToolTip = QStringLiteral("复制当前群成员的 QQ、昵称和所属群聊");
+    plan.copyAllToolTip = QStringLiteral("复制当前群聊的全部成员列表");
+    plan.copyOnlineToolTip = QStringLiteral("复制当前群聊在线成员的 QQ 和昵称");
+    plan.renameToolTip = QStringLiteral("修改当前群成员在本地显示的备注名");
+    plan.promoteAdminToolTip = plan.canSetPublicAdmin
+        ? QStringLiteral("由服务端校验群主权限，并把该公共群成员设为管理员")
+        : QStringLiteral("只有公共群群主可以设置管理员");
+    plan.demoteAdminToolTip = plan.canSetPublicAdmin
+        ? QStringLiteral("由服务端校验群主权限，并取消该公共群成员的管理员角色")
+        : QStringLiteral("只有公共群群主可以取消管理员");
+    plan.promoteDeniedMessage = QStringLiteral("只有群主可以设置公共群管理员");
+    plan.demoteDeniedMessage = QStringLiteral("只有群主可以取消公共群管理员");
+    plan.removeDeniedMessage = localGroup
+        ? QStringLiteral("只有群主可以移出群成员")
+        : QStringLiteral("只有群主或管理员可以移出公共群成员");
+    plan.ownerRemoveDeniedMessage = QStringLiteral("群主不能被移出群聊");
+    if (memberId == plan.ownerId) {
+        plan.removeToolTip = plan.ownerRemoveDeniedMessage;
+    } else if (plan.canManageGroup) {
+        plan.removeToolTip = localGroup
+            ? QStringLiteral("将当前成员从本地群聊成员列表中移除")
+            : QStringLiteral("通过服务端权限校验移出公共群成员");
+    } else {
+        plan.removeToolTip = localGroup
+            ? QStringLiteral("只有群主可以移出群成员")
+            : QStringLiteral("只有公共群群主或管理员可以移出成员");
+    }
+    return plan;
+}
+
 ServerGroupMemberUpdateDecision GroupManager::serverGroupMemberUpdateDecision(
     const QString& memberId,
     const QString& action,

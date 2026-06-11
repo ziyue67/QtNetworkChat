@@ -177,5 +177,98 @@ int main(int argc, char** argv) {
                     && serverStranger.actionText == QString::fromUtf8("双击发送申请"),
                 "server group stranger should use server member copy") && ok;
 
+    GroupMemberContextMenuPlan localOwnerMenu = GroupManager::memberContextMenuPlan(
+        QStringLiteral("member"),
+        QStringLiteral("owner"),
+        true,
+        false,
+        QStringLiteral("owner"),
+        true,
+        owners,
+        roles);
+    ok = expect(localOwnerMenu.canManageGroup
+                    && localOwnerMenu.removeEnabled
+                    && !localOwnerMenu.canSetPublicAdmin
+                    && localOwnerMenu.removeToolTip.contains(QString::fromUtf8("本地群聊")),
+                "local group owner menu should enable local removal with local copy") && ok;
+
+    GroupMemberContextMenuPlan localMemberMenu = GroupManager::memberContextMenuPlan(
+        QStringLiteral("member"),
+        QStringLiteral("guest"),
+        true,
+        false,
+        QStringLiteral("owner"),
+        false,
+        owners,
+        roles);
+    ok = expect(!localMemberMenu.canManageGroup
+                    && !localMemberMenu.removeEnabled
+                    && localMemberMenu.removeDeniedMessage.contains(QString::fromUtf8("只有群主")),
+                "local group non-owner menu should disable removal with owner guidance") && ok;
+
+    GroupMemberContextMenuPlan publicOwnerTargetMenu = GroupManager::memberContextMenuPlan(
+        QStringLiteral("admin"),
+        QStringLiteral("owner"),
+        false,
+        true,
+        QString(),
+        false,
+        owners,
+        roles);
+    ok = expect(publicOwnerTargetMenu.canManageGroup
+                    && publicOwnerTargetMenu.canSetPublicAdmin
+                    && !publicOwnerTargetMenu.promoteAdminEnabled
+                    && publicOwnerTargetMenu.demoteAdminEnabled
+                    && publicOwnerTargetMenu.removeEnabled
+                    && publicOwnerTargetMenu.serverTargetRole == QStringLiteral("admin"),
+                "public owner menu should allow demoting admin targets and removal") && ok;
+
+    GroupMemberContextMenuPlan publicAdminTargetMenu = GroupManager::memberContextMenuPlan(
+        QStringLiteral("member"),
+        QStringLiteral("admin"),
+        false,
+        true,
+        QString(),
+        false,
+        owners,
+        roles);
+    ok = expect(publicAdminTargetMenu.canManageGroup
+                    && !publicAdminTargetMenu.canSetPublicAdmin
+                    && !publicAdminTargetMenu.promoteAdminEnabled
+                    && !publicAdminTargetMenu.demoteAdminEnabled
+                    && publicAdminTargetMenu.removeEnabled
+                    && publicAdminTargetMenu.promoteAdminToolTip.contains(QString::fromUtf8("只有公共群群主")),
+                "public admin menu should allow removal but not role changes") && ok;
+
+    GroupMemberContextMenuPlan publicMemberMenu = GroupManager::memberContextMenuPlan(
+        QStringLiteral("admin"),
+        QStringLiteral("member"),
+        false,
+        true,
+        QString(),
+        false,
+        owners,
+        roles);
+    ok = expect(!publicMemberMenu.canManageGroup
+                    && !publicMemberMenu.canSetPublicAdmin
+                    && !publicMemberMenu.removeEnabled
+                    && publicMemberMenu.removeToolTip.contains(QString::fromUtf8("公共群群主或管理员")),
+                "public member menu should disable management actions") && ok;
+
+    GroupMemberContextMenuPlan publicOwnerSelfTargetMenu = GroupManager::memberContextMenuPlan(
+        QStringLiteral("owner"),
+        QStringLiteral("admin"),
+        false,
+        true,
+        QString(),
+        false,
+        owners,
+        roles);
+    ok = expect(publicOwnerSelfTargetMenu.ownerId == QStringLiteral("owner")
+                    && !publicOwnerSelfTargetMenu.removeEnabled
+                    && publicOwnerSelfTargetMenu.removeToolTip.contains(QString::fromUtf8("群主不能"))
+                    && publicOwnerSelfTargetMenu.ownerRemoveDeniedMessage.contains(QString::fromUtf8("群主不能")),
+                "public owner target menu should keep owner removal disabled") && ok;
+
     return ok ? 0 : 1;
 }

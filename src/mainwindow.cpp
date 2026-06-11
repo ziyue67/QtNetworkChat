@@ -1885,10 +1885,15 @@ void MainWindow::setupUi() {
         if (memberId.startsWith("group_search_add:") || memberId.startsWith("group_invite:")) return;
         if (memberId.isEmpty() || memberId == m_currentUserId) return;
         QMenu menu(this);
-        const bool canManageGroup = isLocalGroup
-            ? isCurrentUserGroupOwner(m_privateChatTarget)
-            : canCurrentUserManageServerGroup("public");
-        const QString ownerId = isLocalGroup ? groupOwnerId(m_privateChatTarget) : m_serverGroupOwners.value("public");
+        const GroupMemberContextMenuPlan plan = GroupManager::memberContextMenuPlan(
+            memberId,
+            m_currentUserId,
+            isLocalGroup,
+            isServerPublicGroup,
+            isLocalGroup ? groupOwnerId(m_privateChatTarget) : QString(),
+            isLocalGroup && isCurrentUserGroupOwner(m_privateChatTarget),
+            m_serverGroupOwners,
+            m_serverGroupMemberRoles);
         QAction* chatAction = menu.addAction("私聊");
         QAction* copyAction = menu.addAction("复制QQ号");
         QAction* profileAction = menu.addAction("复制名片");
@@ -1897,13 +1902,6 @@ void MainWindow::setupUi() {
         QAction* renameAction = menu.addAction("设置备注");
         QAction* promoteAdminAction = nullptr;
         QAction* demoteAdminAction = nullptr;
-        const QString serverTargetRole = isServerPublicGroup
-            ? m_serverGroupMemberRoles.value("public|" + memberId).toLower()
-            : QString();
-        const bool canSetPublicAdmin = isServerPublicGroup
-            && (m_serverGroupOwners.value("public") == m_currentUserId
-                || m_serverGroupMemberRoles.value("public|" + m_currentUserId).toLower() == "owner")
-            && memberId != ownerId;
         if (isServerPublicGroup) {
             promoteAdminAction = menu.addAction("设为管理员");
             demoteAdminAction = menu.addAction("取消管理员");
@@ -1913,28 +1911,22 @@ void MainWindow::setupUi() {
             action->setToolTip(tip);
             action->setStatusTip(tip);
         };
-        describeMemberAction(chatAction, "打开当前群成员的私聊；非好友会先尝试发送好友申请");
-        describeMemberAction(copyAction, "复制当前群成员的 QQ 号");
-        describeMemberAction(profileAction, "复制当前群成员的 QQ、昵称和所属群聊");
-        describeMemberAction(copyAllAction, "复制当前群聊的全部成员列表");
-        describeMemberAction(copyOnlineAction, "复制当前群聊在线成员的 QQ 和昵称");
-        describeMemberAction(renameAction, "修改当前群成员在本地显示的备注名");
+        describeMemberAction(chatAction, plan.chatToolTip);
+        describeMemberAction(copyAction, plan.copyToolTip);
+        describeMemberAction(profileAction, plan.profileToolTip);
+        describeMemberAction(copyAllAction, plan.copyAllToolTip);
+        describeMemberAction(copyOnlineAction, plan.copyOnlineToolTip);
+        describeMemberAction(renameAction, plan.renameToolTip);
         if (promoteAdminAction) {
-            describeMemberAction(promoteAdminAction, canSetPublicAdmin
-                ? "由服务端校验群主权限，并把该公共群成员设为管理员"
-                : "只有公共群群主可以设置管理员");
-            promoteAdminAction->setEnabled(canSetPublicAdmin && serverTargetRole == "member");
+            describeMemberAction(promoteAdminAction, plan.promoteAdminToolTip);
+            promoteAdminAction->setEnabled(plan.promoteAdminEnabled);
         }
         if (demoteAdminAction) {
-            describeMemberAction(demoteAdminAction, canSetPublicAdmin
-                ? "由服务端校验群主权限，并取消该公共群成员的管理员角色"
-                : "只有公共群群主可以取消管理员");
-            demoteAdminAction->setEnabled(canSetPublicAdmin && serverTargetRole == "admin");
+            describeMemberAction(demoteAdminAction, plan.demoteAdminToolTip);
+            demoteAdminAction->setEnabled(plan.demoteAdminEnabled);
         }
-        describeMemberAction(removeAction, canManageGroup
-            ? (isLocalGroup ? "将当前成员从本地群聊成员列表中移除" : "通过服务端权限校验移出公共群成员")
-            : (isLocalGroup ? "只有群主可以移出群成员" : "只有公共群群主或管理员可以移出成员"));
-        removeAction->setEnabled(canManageGroup && memberId != ownerId);
+        describeMemberAction(removeAction, plan.removeToolTip);
+        removeAction->setEnabled(plan.removeEnabled);
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
         if (selected == chatAction) {
             if (!m_friendIds.contains(memberId)) {
@@ -2010,24 +2002,24 @@ void MainWindow::setupUi() {
             refreshGroupMemberPanel();
             appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
         } else if (promoteAdminAction && selected == promoteAdminAction) {
-            if (!canSetPublicAdmin) {
-                ui->statusbar->showMessage("只有群主可以设置公共群管理员", 2400);
+            if (!plan.canSetPublicAdmin) {
+                ui->statusbar->showMessage(plan.promoteDeniedMessage, 2400);
                 return;
             }
             requestServerGroupMemberUpdate(memberId, "promote_admin");
         } else if (demoteAdminAction && selected == demoteAdminAction) {
-            if (!canSetPublicAdmin) {
-                ui->statusbar->showMessage("只有群主可以取消公共群管理员", 2400);
+            if (!plan.canSetPublicAdmin) {
+                ui->statusbar->showMessage(plan.demoteDeniedMessage, 2400);
                 return;
             }
             requestServerGroupMemberUpdate(memberId, "demote_admin");
         } else if (selected == removeAction) {
-            if (!canManageGroup) {
-                ui->statusbar->showMessage(isLocalGroup ? "只有群主可以移出群成员" : "只有群主或管理员可以移出公共群成员", 2400);
+            if (!plan.canManageGroup) {
+                ui->statusbar->showMessage(plan.removeDeniedMessage, 2400);
                 return;
             }
-            if (memberId == ownerId) {
-                ui->statusbar->showMessage("群主不能被移出群聊", 2200);
+            if (memberId == plan.ownerId) {
+                ui->statusbar->showMessage(plan.ownerRemoveDeniedMessage, 2200);
                 return;
             }
             const QString memberName = contactDisplayName(memberId);

@@ -19,6 +19,29 @@ struct GroupMemberDisplayState {
     bool isAdmin = false;
 };
 
+struct GroupMemberContextMenuPlan {
+    bool canManageGroup = false;
+    bool canSetPublicAdmin = false;
+    bool promoteAdminEnabled = false;
+    bool demoteAdminEnabled = false;
+    bool removeEnabled = false;
+    QString ownerId;
+    QString serverTargetRole;
+    QString chatToolTip;
+    QString copyToolTip;
+    QString profileToolTip;
+    QString copyAllToolTip;
+    QString copyOnlineToolTip;
+    QString renameToolTip;
+    QString promoteAdminToolTip;
+    QString demoteAdminToolTip;
+    QString removeToolTip;
+    QString promoteDeniedMessage;
+    QString demoteDeniedMessage;
+    QString removeDeniedMessage;
+    QString ownerRemoveDeniedMessage;
+};
+
 struct ServerGroupMemberUpdateDecision {
     bool allowed = false;
     bool roleAction = false;
@@ -48,6 +71,15 @@ public:
                                                       bool isPending,
                                                       bool online,
                                                       bool serverGroup);
+    static GroupMemberContextMenuPlan memberContextMenuPlan(
+        const QString& memberId,
+        const QString& currentUserId,
+        bool localGroup,
+        bool serverPublicGroup,
+        const QString& localGroupOwnerId,
+        bool currentUserLocalOwner,
+        const QMap<QString, QString>& serverGroupOwners,
+        const QMap<QString, QString>& serverGroupMemberRoles);
     static ServerGroupMemberUpdateDecision serverGroupMemberUpdateDecision(
         const QString& memberId,
         const QString& action,
