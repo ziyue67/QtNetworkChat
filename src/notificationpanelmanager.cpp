@@ -141,6 +141,64 @@ FriendNoticeActionState NotificationPanelManager::friendNoticeActionState(const 
     return state;
 }
 
+GroupNoticeListRenderUiState NotificationPanelManager::groupNoticeListRenderUiState(
+    int publicOnlineCount,
+    const QList<GroupNoticeListGroupInput>& localGroups,
+    const QString& filter) {
+    GroupNoticeListRenderUiState state;
+    const QString keyword = filter.trimmed();
+    int visibleCount = 0;
+    const int totalCount = localGroups.size() + 1;
+
+    const bool publicMatched = keyword.isEmpty()
+        || QStringLiteral("公共聊天室").contains(keyword, Qt::CaseInsensitive)
+        || QStringLiteral("默认公共聊天室").contains(keyword, Qt::CaseInsensitive);
+    if (publicMatched) {
+        GroupNoticeListEntryUiState entry;
+        entry.text = QStringLiteral("默认公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人")
+            .arg(publicOnlineCount);
+        entry.toolTip = QStringLiteral("进入公共聊天室，当前在线成员 %1 人")
+            .arg(publicOnlineCount);
+        entry.rowHeight = 96;
+        state.entries << entry;
+        ++visibleCount;
+    }
+
+    for (const GroupNoticeListGroupInput& group : localGroups) {
+        if (!keyword.isEmpty()
+                && !group.groupName.contains(keyword, Qt::CaseInsensitive)
+                && !group.groupNumber.contains(keyword, Qt::CaseInsensitive)
+                && !group.announcement.contains(keyword, Qt::CaseInsensitive)) {
+            continue;
+        }
+        GroupNoticeListEntryUiState entry;
+        entry.entryId = group.groupId;
+        entry.text = QStringLiteral("%1\n群号：%2 · 成员：%3 人\n%4")
+            .arg(group.groupName, group.groupNumber)
+            .arg(group.memberCount)
+            .arg(group.announcement);
+        entry.toolTip = QStringLiteral("群聊 %1（群号:%2），可进入、复制公告、成员或入群话术")
+            .arg(group.groupName, group.groupNumber);
+        entry.rowHeight = 108;
+        state.entries << entry;
+        ++visibleCount;
+    }
+
+    state.countText = keyword.isEmpty()
+        ? QStringLiteral("已加入 %1 个群聊").arg(totalCount)
+        : QStringLiteral("匹配 %1 / %2 个群聊").arg(visibleCount).arg(totalCount);
+    if (visibleCount == 0) {
+        GroupNoticeListEntryUiState entry;
+        entry.entryId = kGroupCreatePrefix + keyword;
+        entry.text = QStringLiteral("未找到群聊，可用关键词“%1”创建新群").arg(keyword);
+        entry.toolTip = QStringLiteral("选择后点击“创建并进入群聊”，使用关键词“%1”创建新群").arg(keyword);
+        entry.accent = true;
+        entry.rowHeight = 76;
+        state.entries << entry;
+    }
+    return state;
+}
+
 QString NotificationPanelManager::friendNoticePreviewText(const QString& currentId,
                                                           const QString& displayName) {
     if (currentId.isEmpty()) {

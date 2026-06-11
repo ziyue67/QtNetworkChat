@@ -69,6 +69,54 @@ int main(int argc, char** argv) {
                     && missingFilteredNoticeList.entries.first().accent,
                 "filtered friend notice list without matches should render search-add entry") && ok;
 
+    GroupNoticeListGroupInput productGroup;
+    productGroup.groupId = QStringLiteral("local_group_202606");
+    productGroup.groupName = QString::fromUtf8("产品群");
+    productGroup.groupNumber = QStringLiteral("202606");
+    productGroup.announcement = QString::fromUtf8("讨论发布节奏");
+    productGroup.memberCount = 4;
+    GroupNoticeListGroupInput designGroup;
+    designGroup.groupId = QStringLiteral("local_group_7788");
+    designGroup.groupName = QString::fromUtf8("设计群");
+    designGroup.groupNumber = QStringLiteral("7788");
+    designGroup.announcement = QString::fromUtf8("同步界面方案");
+    designGroup.memberCount = 3;
+
+    const GroupNoticeListRenderUiState allGroups =
+        NotificationPanelManager::groupNoticeListRenderUiState(
+            9,
+            QList<GroupNoticeListGroupInput>{productGroup, designGroup},
+            QString());
+    ok = expect(allGroups.countText == QString::fromUtf8("已加入 3 个群聊")
+                    && allGroups.entries.size() == 3
+                    && allGroups.entries.first().entryId.isEmpty()
+                    && allGroups.entries.first().text.contains(QString::fromUtf8("在线成员：9 人"))
+                    && allGroups.entries.at(1).entryId == QStringLiteral("local_group_202606")
+                    && allGroups.entries.at(1).rowHeight == 108,
+                "group notice list should include public and local groups") && ok;
+
+    const GroupNoticeListRenderUiState filteredGroups =
+        NotificationPanelManager::groupNoticeListRenderUiState(
+            9,
+            QList<GroupNoticeListGroupInput>{productGroup, designGroup},
+            QStringLiteral("7788"));
+    ok = expect(filteredGroups.countText == QString::fromUtf8("匹配 1 / 3 个群聊")
+                    && filteredGroups.entries.size() == 1
+                    && filteredGroups.entries.first().entryId == QStringLiteral("local_group_7788")
+                    && filteredGroups.entries.first().text.contains(QString::fromUtf8("设计群")),
+                "group notice list should filter local groups by number") && ok;
+
+    const GroupNoticeListRenderUiState missingGroups =
+        NotificationPanelManager::groupNoticeListRenderUiState(
+            9,
+            QList<GroupNoticeListGroupInput>{productGroup, designGroup},
+            QString::fromUtf8("新群"));
+    ok = expect(missingGroups.countText == QString::fromUtf8("匹配 0 / 3 个群聊")
+                    && missingGroups.entries.size() == 1
+                    && missingGroups.entries.first().entryId == QString::fromUtf8("group_create:新群")
+                    && missingGroups.entries.first().accent,
+                "group notice list should render create placeholder when no groups match") && ok;
+
     const FriendNoticeActionState emptyFriendState =
         NotificationPanelManager::friendNoticeActionState(QString(), false, false);
     ok = expect(!emptyFriendState.acceptEnabled

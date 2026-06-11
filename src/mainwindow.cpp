@@ -6258,47 +6258,34 @@ void MainWindow::onShowGroupNotifications() {
 
     auto fillGroups = [this, noticeList, countLabel, searchEdit]() {
         noticeList->clear();
-        QString filter = searchEdit->text().trimmed();
-        int visibleCount = 0;
-        bool publicMatched = filter.isEmpty()
-            || QString("公共聊天室").contains(filter, Qt::CaseInsensitive)
-            || QString("默认公共聊天室").contains(filter, Qt::CaseInsensitive);
-        if (publicMatched) {
-            QListWidgetItem* publicItem = new QListWidgetItem(QString("默认公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人").arg(m_knownUsers.size()));
-            publicItem->setData(Qt::UserRole, QString());
-            publicItem->setSizeHint(QSize(0, 96));
-            publicItem->setToolTip(QString("进入公共聊天室，当前在线成员 %1 人").arg(m_knownUsers.size()));
-            noticeList->addItem(publicItem);
-            ++visibleCount;
-        }
-
+        QList<GroupNoticeListGroupInput> localGroups;
         for (const QString& groupId : m_localGroupIds) {
-            QString groupName = m_localGroupNames.value(groupId, "群聊");
-            QString groupNumber = groupId.mid(QString("local_group_").size());
+            GroupNoticeListGroupInput group;
+            group.groupId = groupId;
+            group.groupName = m_localGroupNames.value(groupId, "群聊");
+            group.groupNumber = groupId.mid(QString("local_group_").size());
             QStringList members = m_localGroupMembers.value(groupId);
             if (members.isEmpty()) members << m_currentUserId;
-            QString announcement = m_localGroupAnnouncements.value(groupId, QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName));
-            if (!filter.isEmpty()
-                && !groupName.contains(filter, Qt::CaseInsensitive)
-                && !groupNumber.contains(filter, Qt::CaseInsensitive)
-                && !announcement.contains(filter, Qt::CaseInsensitive)) continue;
-            QListWidgetItem* item = new QListWidgetItem(QString("%1\n群号：%2 · 成员：%3 人\n%4").arg(groupName, groupNumber).arg(members.size()).arg(announcement));
-            item->setData(Qt::UserRole, groupId);
-            item->setSizeHint(QSize(0, 108));
-            item->setToolTip(QString("群聊 %1（群号:%2），可进入、复制公告、成员或入群话术").arg(groupName, groupNumber));
-            noticeList->addItem(item);
-            ++visibleCount;
+            group.memberCount = members.size();
+            group.announcement = m_localGroupAnnouncements.value(
+                groupId,
+                QString("%1 已创建，可继续邀请好友并发送消息。").arg(group.groupName));
+            localGroups << group;
         }
-        countLabel->setText(filter.isEmpty()
-            ? QString("已加入 %1 个群聊").arg(m_localGroupIds.size() + 1)
-            : QString("匹配 %1 / %2 个群聊").arg(visibleCount).arg(m_localGroupIds.size() + 1));
-        if (visibleCount == 0) {
-            QListWidgetItem* emptyItem = new QListWidgetItem(QString("未找到群聊，可用关键词“%1”创建新群").arg(filter));
-            emptyItem->setData(Qt::UserRole, "group_create:" + filter);
-            emptyItem->setForeground(QColor(18, 150, 247));
-            emptyItem->setSizeHint(QSize(0, 76));
-            emptyItem->setToolTip(QString("选择后点击“创建并进入群聊”，使用关键词“%1”创建新群").arg(filter));
-            noticeList->addItem(emptyItem);
+        const GroupNoticeListRenderUiState renderState =
+            NotificationPanelManager::groupNoticeListRenderUiState(m_knownUsers.size(),
+                                                                   localGroups,
+                                                                   searchEdit->text());
+        countLabel->setText(renderState.countText);
+        for (const GroupNoticeListEntryUiState& entry : renderState.entries) {
+            QListWidgetItem* item = new QListWidgetItem(entry.text);
+            item->setData(Qt::UserRole, entry.entryId);
+            item->setSizeHint(QSize(0, entry.rowHeight));
+            item->setToolTip(entry.toolTip);
+            if (entry.accent) {
+                item->setForeground(QColor(18, 150, 247));
+            }
+            noticeList->addItem(item);
         }
         if (noticeList->count() > 0) noticeList->setCurrentRow(0);
     };

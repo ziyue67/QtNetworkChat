@@ -47,6 +47,27 @@ struct FriendNoticeListRenderUiState {
     QList<FriendNoticeListEntryUiState> entries;
 };
 
+struct GroupNoticeListGroupInput {
+    QString groupId;
+    QString groupName;
+    QString groupNumber;
+    QString announcement;
+    int memberCount = 0;
+};
+
+struct GroupNoticeListEntryUiState {
+    QString entryId;
+    QString text;
+    QString toolTip;
+    bool accent = false;
+    int rowHeight = 96;
+};
+
+struct GroupNoticeListRenderUiState {
+    QString countText;
+    QList<GroupNoticeListEntryUiState> entries;
+};
+
 struct GroupNoticeActionState {
     bool openEnabled = false;
     QString openText;
@@ -78,6 +99,10 @@ public:
         const QStringList& pendingFriendRequests,
         const QMap<QString, QString>& friendNames,
         int friendCount,
+        const QString& filter);
+    static GroupNoticeListRenderUiState groupNoticeListRenderUiState(
+        int publicOnlineCount,
+        const QList<GroupNoticeListGroupInput>& localGroups,
         const QString& filter);
     static FriendNoticeActionState friendNoticeActionState(const QString& currentId,
                                                            bool hasPending,
