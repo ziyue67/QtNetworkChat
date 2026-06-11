@@ -54,6 +54,21 @@ struct FriendManagerContactCopyState {
     QString copiedStatusMessage;
 };
 
+struct GlobalSearchResultCopyInput {
+    QString entryId;
+    QString displayName;
+    bool online = false;
+    bool friendContact = false;
+    bool localGroup = false;
+    int memberCount = 0;
+};
+
+struct GlobalSearchResultCopyState {
+    QStringList rows;
+    QString emptyStatusMessage;
+    QString copiedStatusMessage;
+};
+
 struct FriendQuickAddSuggestionEntryUiState {
     QString entryId;
     QString text;
@@ -106,6 +121,9 @@ public:
                                                                                bool canInviteCurrentGroup);
     static FriendManagerContactCopyState managerContactCopyState(
         const QList<FriendManagerContactCopyInput>& contacts,
+        bool onlineOnly);
+    static GlobalSearchResultCopyState globalSearchResultCopyState(
+        const QList<GlobalSearchResultCopyInput>& results,
         bool onlineOnly);
     static QString managerSelectionPreviewText(const QString& entryId,
                                                const QString& displayName,

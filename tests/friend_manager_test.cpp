@@ -177,6 +177,41 @@ int main(int argc, char** argv) {
                     && emptyOnlineCopy.copiedStatusMessage == QString::fromUtf8("已复制 0 个在线好友"),
                 "friend manager online copy state should expose empty guidance when no rows remain") && ok;
 
+    GlobalSearchResultCopyInput searchAddResult;
+    searchAddResult.entryId = QStringLiteral("search_add:9988");
+    GlobalSearchResultCopyInput groupResult;
+    groupResult.entryId = QStringLiteral("local_group_7788");
+    groupResult.displayName = QString::fromUtf8("产品群");
+    groupResult.localGroup = true;
+    groupResult.memberCount = 5;
+    GlobalSearchResultCopyInput onlineSearchResult;
+    onlineSearchResult.entryId = QStringLiteral("1001");
+    onlineSearchResult.displayName = QStringLiteral("Alice");
+    onlineSearchResult.online = true;
+    onlineSearchResult.friendContact = true;
+    GlobalSearchResultCopyInput offlineSearchResult;
+    offlineSearchResult.entryId = QStringLiteral("1003");
+    offlineSearchResult.displayName = QStringLiteral("Carol");
+    const GlobalSearchResultCopyState searchCopy =
+        FriendManager::globalSearchResultCopyState(
+            QList<GlobalSearchResultCopyInput>{searchAddResult, groupResult, onlineSearchResult, offlineSearchResult},
+            false);
+    ok = expect(searchCopy.rows.size() == 4
+                    && searchCopy.rows.at(0) == QStringLiteral("搜索申请 QQ:9988")
+                    && searchCopy.rows.at(1) == QString::fromUtf8("群聊 QQ:7788 名称:产品群")
+                    && searchCopy.rows.at(2) == QString::fromUtf8("QQ:1001 昵称:Alice 状态:在线")
+                    && searchCopy.copiedStatusMessage == QString::fromUtf8("已复制 4 条搜索结果"),
+                "global search copy state should render search, group, and user rows") && ok;
+
+    const GlobalSearchResultCopyState onlineSearchCopy =
+        FriendManager::globalSearchResultCopyState(
+            QList<GlobalSearchResultCopyInput>{searchAddResult, groupResult, onlineSearchResult, offlineSearchResult},
+            true);
+    ok = expect(onlineSearchCopy.rows.size() == 1
+                    && onlineSearchCopy.rows.first() == QString::fromUtf8("在线搜索结果 QQ:1001 昵称:Alice 关系:好友")
+                    && onlineSearchCopy.emptyStatusMessage == QString::fromUtf8("当前搜索结果没有在线用户"),
+                "global search online copy state should skip search/group/offline rows") && ok;
+
     QMap<QString, ChatUser> quickKnownUsers;
     quickKnownUsers.insert(QStringLiteral("self"), user(QStringLiteral("self"), QStringLiteral("Me"), true));
     quickKnownUsers.insert(QStringLiteral("1001"), user(QStringLiteral("1001"), QStringLiteral("Alice"), true));

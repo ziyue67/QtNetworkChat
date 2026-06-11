@@ -3489,26 +3489,34 @@ void MainWindow::onShowGlobalSearch() {
         QApplication::clipboard()->setText(id);
         ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
     });
-    connect(copyListBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
-        QStringList rows;
+    auto globalSearchCopyInputs = [this, resultList]() {
+        QList<GlobalSearchResultCopyInput> inputs;
         for (int i = 0; i < resultList->count(); ++i) {
             QListWidgetItem* item = resultList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty()) continue;
-            if (id.startsWith("search_add:")) {
-                rows << QString("搜索申请 QQ:%1").arg(id.mid(QString("search_add:").size()));
-            } else if (id.startsWith("local_group_")) {
-                rows << QString("群聊 QQ:%1 名称:%2").arg(id.mid(QString("local_group_").size()), m_localGroupNames.value(id, "群聊"));
-            } else {
-                rows << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
+            const QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) {
+                continue;
             }
+            GlobalSearchResultCopyInput input;
+            input.entryId = id;
+            input.localGroup = id.startsWith("local_group_");
+            input.friendContact = m_friendIds.contains(id);
+            input.online = isContactOnline(id);
+            input.memberCount = input.localGroup ? m_localGroupMembers.value(id).size() : 0;
+            input.displayName = input.localGroup ? m_localGroupNames.value(id, "群聊") : contactDisplayName(id);
+            inputs << input;
         }
-        if (rows.isEmpty()) {
-            ui->statusbar->showMessage("当前搜索结果没有可复制条目", 2200);
+        return inputs;
+    };
+    connect(copyListBtn, &QPushButton::clicked, &dialog, [this, globalSearchCopyInputs]() {
+        const GlobalSearchResultCopyState state =
+            FriendManager::globalSearchResultCopyState(globalSearchCopyInputs(), false);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
             return;
         }
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 条搜索结果").arg(rows.size()), 2200);
+        QApplication::clipboard()->setText(state.rows.join('\n'));
+        ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
     });
     connect(copyAddTextBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
         QListWidgetItem* item = resultList->currentItem();
@@ -3643,21 +3651,15 @@ void MainWindow::onShowGlobalSearch() {
         QApplication::clipboard()->setText(rows.join('\n'));
         ui->statusbar->showMessage("综合搜索上传指南已复制", 2200);
     });
-    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
-        QStringList rows;
-        for (int i = 0; i < resultList->count(); ++i) {
-            QListWidgetItem* item = resultList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty() || id.startsWith("search_add:") || id.startsWith("local_group_") || !isContactOnline(id)) continue;
-            rows << QString("在线搜索结果 QQ:%1 昵称:%2 关系:%3")
-                .arg(id, contactDisplayName(id), m_friendIds.contains(id) ? "好友" : "可申请");
-        }
-        if (rows.isEmpty()) {
-            ui->statusbar->showMessage("当前搜索结果没有在线用户", 2200);
+    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, globalSearchCopyInputs]() {
+        const GlobalSearchResultCopyState state =
+            FriendManager::globalSearchResultCopyState(globalSearchCopyInputs(), true);
+        if (state.rows.isEmpty()) {
+            ui->statusbar->showMessage(state.emptyStatusMessage, 2200);
             return;
         }
-        QApplication::clipboard()->setText(rows.join('\n'));
-        ui->statusbar->showMessage(QString("已复制 %1 个在线搜索结果").arg(rows.size()), 2200);
+        QApplication::clipboard()->setText(state.rows.join('\n'));
+        ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
     });
     connect(profileBtn, &QPushButton::clicked, &dialog, [this, resultList]() {
         QListWidgetItem* item = resultList->currentItem();

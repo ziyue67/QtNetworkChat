@@ -179,6 +179,62 @@ FriendManagerContactCopyState FriendManager::managerContactCopyState(
     return state;
 }
 
+GlobalSearchResultCopyState FriendManager::globalSearchResultCopyState(
+    const QList<GlobalSearchResultCopyInput>& results,
+    bool onlineOnly) {
+    GlobalSearchResultCopyState state;
+    for (const GlobalSearchResultCopyInput& result : results) {
+        const QString entryId = result.entryId.trimmed();
+        if (entryId.isEmpty()) {
+            continue;
+        }
+        if (entryId.startsWith(kSearchAddPrefix)) {
+            if (!onlineOnly) {
+                state.rows << QStringLiteral("搜索申请 QQ:%1")
+                    .arg(entryId.mid(kSearchAddPrefix.size()));
+            }
+            continue;
+        }
+        if (result.localGroup || entryId.startsWith(QStringLiteral("local_group_"))) {
+            if (!onlineOnly) {
+                const QString groupNumber = entryId.startsWith(QStringLiteral("local_group_"))
+                    ? entryId.mid(QStringLiteral("local_group_").size())
+                    : entryId;
+                const QString groupName = result.displayName.trimmed().isEmpty()
+                    ? QStringLiteral("群聊")
+                    : result.displayName.trimmed();
+                state.rows << QStringLiteral("群聊 QQ:%1 名称:%2")
+                    .arg(groupNumber, groupName);
+            }
+            continue;
+        }
+        if (onlineOnly && !result.online) {
+            continue;
+        }
+        const QString displayName = result.displayName.trimmed().isEmpty()
+            ? entryId
+            : result.displayName.trimmed();
+        if (onlineOnly) {
+            state.rows << QStringLiteral("在线搜索结果 QQ:%1 昵称:%2 关系:%3")
+                .arg(entryId,
+                     displayName,
+                     result.friendContact ? QStringLiteral("好友") : QStringLiteral("可申请"));
+        } else {
+            state.rows << QStringLiteral("QQ:%1 昵称:%2 状态:%3")
+                .arg(entryId,
+                     displayName,
+                     result.online ? QStringLiteral("在线") : QStringLiteral("离线"));
+        }
+    }
+    state.emptyStatusMessage = onlineOnly
+        ? QStringLiteral("当前搜索结果没有在线用户")
+        : QStringLiteral("当前搜索结果没有可复制条目");
+    state.copiedStatusMessage = onlineOnly
+        ? QStringLiteral("已复制 %1 个在线搜索结果").arg(state.rows.size())
+        : QStringLiteral("已复制 %1 条搜索结果").arg(state.rows.size());
+    return state;
+}
+
 QString FriendManager::managerSelectionPreviewText(const QString& entryId,
                                                    const QString& displayName,
                                                    bool online,
