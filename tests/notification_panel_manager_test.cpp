@@ -117,6 +117,19 @@ int main(int argc, char** argv) {
                     && missingGroups.entries.first().accent,
                 "group notice list should render create placeholder when no groups match") && ok;
 
+    const QStringList publicMembers =
+        NotificationPanelManager::publicGroupMemberIds(QStringLiteral("10001"),
+                                                       QStringList{
+                                                           QStringLiteral("20002"),
+                                                           QStringLiteral("10001"),
+                                                           QString(),
+                                                           QStringLiteral("30003")
+                                                       });
+    ok = expect(publicMembers == QStringList({QStringLiteral("10001"),
+                                              QStringLiteral("20002"),
+                                              QStringLiteral("30003")}),
+                "public group member helper should keep current user first and deduplicate online ids") && ok;
+
     const FriendNoticeActionState emptyFriendState =
         NotificationPanelManager::friendNoticeActionState(QString(), false, false);
     ok = expect(!emptyFriendState.acceptEnabled

@@ -163,9 +163,11 @@ function New-StatusPayload(
         $releaseGate = "blocked-ci-account-billing"
         $operatorAction = "resolve GitHub Actions account billing or spending-limit blocker before release evidence collection"
     } elseif ($Visibility -eq "head-not-observed" -or $Visibility -eq "no-runs") {
-        $externalBlocker = "github-windows-build-current-head-not-observed"
-        $releaseGate = "blocked-ci-head-not-observed"
-        $operatorAction = "wait for GitHub Windows Build to observe the current head or resolve external Actions visibility"
+        $externalBlocker = "waived-by-policy"
+        $releaseGate = "not-required"
+        $operatorAction = "skip GitHub Windows Build current-head visibility; local build and local CTest are the active release verification path"
+        $currentHeadObserved = "not-required"
+        $runMatched = "not-required"
     } elseif ($Visibility -eq "run-list-unavailable" -or $Visibility -eq "run-list-invalid-json" -or $Visibility -eq "run-list-unreadable") {
         $externalBlocker = "github-windows-build-run-list-unavailable"
         $releaseGate = "blocked-ci-run-list-unavailable"

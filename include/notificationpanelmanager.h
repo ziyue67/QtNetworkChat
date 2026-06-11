@@ -104,6 +104,8 @@ public:
         int publicOnlineCount,
         const QList<GroupNoticeListGroupInput>& localGroups,
         const QString& filter);
+    static QStringList publicGroupMemberIds(const QString& currentUserId,
+                                            const QStringList& onlineUserIds);
     static FriendNoticeActionState friendNoticeActionState(const QString& currentId,
                                                            bool hasPending,
                                                            bool hasSearchKeyword);

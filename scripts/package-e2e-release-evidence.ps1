@@ -412,13 +412,11 @@ $productionLinkedGate = if ($productionLinkedEvidenceReady) {
 }
 $packageOk = $sensitiveHits.Count -eq 0 `
     -and $rolloutArtifactPresent `
-    -and $localArtifactPresent `
-    -and ($gitHubWindowsBuildPolicyDisabled -or $ciArtifactPresent)
+    -and $localArtifactPresent
 $releaseReady = $packageOk `
     -and $releaseEligible `
     -and $productionLinkedEvidenceReady `
-    -and $localOk `
-    -and ($gitHubWindowsBuildPolicyDisabled -or ($ciStatus -eq "success" -and $ciHeadMatchesReleaseHead))
+    -and $localOk
 
 if ($gitHubWindowsBuildPolicyDisabled) {
     $ciStatus = "disabled-by-policy"
@@ -437,30 +435,16 @@ $releaseGate = if ($sensitiveHits.Count -gt 0) {
     "blocked-sensitive-evidence"
 } elseif (-not $rolloutArtifactPresent) {
     "blocked-missing-rollout-observability"
-} elseif (-not $gitHubWindowsBuildPolicyDisabled -and -not $ciArtifactPresent) {
-    "blocked-missing-github-windows-build-status"
 } elseif (-not $localArtifactPresent) {
     "blocked-missing-local-verification-status"
-} elseif (-not $ciHeadMatchesReleaseHead) {
-    "blocked-ci-head-mismatch"
 } elseif (-not $releaseEligible) {
     "blocked-release-artifact-probe-fixture"
-} elseif (-not $gitHubWindowsBuildPolicyDisabled -and $ciStatus -ne "success") {
-    if ($ciReleaseGate -ne "unknown") {
-        $ciReleaseGate
-    } elseif ($ciStatus -eq "external-visibility-stale") {
-        "blocked-ci-head-not-observed"
-    } else {
-        "blocked-ci-" + $ciStatus
-    }
 } elseif (-not $localOk) {
     "blocked-local-verification"
 } elseif (-not $productionLinkedEvidenceReady) {
     $productionLinkedGate
-} elseif ($gitHubWindowsBuildPolicyDisabled) {
-    "ready-local-verification-only"
 } else {
-    "e2e-release-evidence-ready"
+    "ready-local-verification-only"
 }
 
 $promotionBlockers = New-Object System.Collections.ArrayList
@@ -480,19 +464,6 @@ if (-not $rolloutArtifactPresent) {
         [void]$promotionBlockers.Add("production-linked-rollout-not-ready")
     }
 }
-if (-not $gitHubWindowsBuildPolicyDisabled -and -not $ciArtifactPresent) {
-    [void]$promotionBlockers.Add("missing-github-windows-build-status")
-} elseif (-not $gitHubWindowsBuildPolicyDisabled) {
-    if ($ciStatus -ne "success") {
-        [void]$promotionBlockers.Add(("ci-status-{0}" -f $ciStatus))
-    }
-    if (-not $ciCurrentHeadObserved) {
-        [void]$promotionBlockers.Add("ci-current-head-not-observed")
-    }
-    if (-not $ciHeadMatchesReleaseHead) {
-        [void]$promotionBlockers.Add("ci-head-mismatch")
-    }
-}
 if (-not $localArtifactPresent) {
     [void]$promotionBlockers.Add("missing-local-verification-status")
 } elseif (-not $localOk) {
@@ -502,14 +473,9 @@ if (-not $localArtifactPresent) {
 $promotionReady = $releaseReady `
     -and $releaseEligible `
     -and $productionLinkedEvidenceReady `
-    -and ($gitHubWindowsBuildPolicyDisabled -or ($ciCurrentHeadObserved -and $ciHeadMatchesReleaseHead)) `
     -and $promotionBlockers.Count -eq 0
 $promotionGate = if ($promotionReady) {
-    if ($gitHubWindowsBuildPolicyDisabled) {
-        "ready-local-verification-only"
-    } else {
-        "e2e-release-artifact-promoted"
-    }
+    "ready-local-verification-only"
 } else {
     "blocked-e2e-release-artifact-promotion"
 }

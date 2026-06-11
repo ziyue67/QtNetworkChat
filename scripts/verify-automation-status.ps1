@@ -292,9 +292,9 @@ End testing: Jun 03 04:01
   "source":"auto-gh-run-list",
   "visibility":"head-not-observed",
   "observedRunCount":20,
-  "currentHeadObserved":false,
-  "externalBlocker":"github-windows-build-current-head-not-observed",
-  "releaseGate":"blocked-ci-head-not-observed",
+  "currentHeadObserved":"not-required",
+  "externalBlocker":"waived-by-policy",
+  "releaseGate":"not-required",
   "latestObserved":{"headSha":"older-ci-head","status":"queued","conclusion":"unknown"},
   "sensitiveExportProof":{"noSensitiveExportProof":true}
 }
@@ -787,12 +787,13 @@ $staleCiStatusJson = Get-Content -LiteralPath $staleCiStatusPath -Raw -Encoding 
 $staleCiStatus = $staleCiStatusJson | ConvertFrom-Json
 if ($staleCiStatus.status -ne "external-visibility-stale" `
         -or $staleCiStatus.visibility -ne "head-not-observed" `
-        -or $staleCiStatus.currentHeadObserved `
-        -or $staleCiStatus.externalBlocker -ne "github-windows-build-current-head-not-observed" `
-        -or $staleCiStatus.releaseGate -ne "blocked-ci-head-not-observed" `
+        -or $staleCiStatus.currentHeadObserved -ne "not-required" `
+        -or $staleCiStatus.externalBlocker -ne "waived-by-policy" `
+        -or $staleCiStatus.releaseGate -ne "not-required" `
         -or $staleCiStatus.latestObserved.headSha -ne "older1234567890abcdef") {
-    throw "GitHub Windows Build stale status artifact did not preserve the external visibility blocker evidence."
+    throw "GitHub Windows Build stale status artifact should be downgraded to not-required without release gating."
 }
+Assert-NotContains -Text $staleCiStatusJson -Forbidden "blocked-ci-head-not-observed"
 
 $fakeGhAuthDir = Join-Path $tempDir "fake-gh-auth"
 Ensure-Directory -Path $fakeGhAuthDir

@@ -6394,12 +6394,11 @@ void MainWindow::onShowGroupNotifications() {
         ui->statusbar->showMessage("已进入群聊: " + m_localGroupNames.value(groupId, "群聊"), 1800);
     };
     auto publicGroupMemberIds = [this]() {
-        QStringList members;
-        members << m_currentUserId;
+        QStringList onlineUserIds;
         for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
-            if (!members.contains(it.key())) members << it.key();
+            onlineUserIds << it.key();
         }
-        return members;
+        return NotificationPanelManager::publicGroupMemberIds(m_currentUserId, onlineUserIds);
     };
 
     dialog.setStyleSheet(R"(

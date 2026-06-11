@@ -199,6 +199,22 @@ GroupNoticeListRenderUiState NotificationPanelManager::groupNoticeListRenderUiSt
     return state;
 }
 
+QStringList NotificationPanelManager::publicGroupMemberIds(const QString& currentUserId,
+                                                           const QStringList& onlineUserIds) {
+    QStringList members;
+    const QString currentId = currentUserId.trimmed();
+    if (!currentId.isEmpty()) {
+        members << currentId;
+    }
+    for (const QString& id : onlineUserIds) {
+        const QString userId = id.trimmed();
+        if (!userId.isEmpty() && !members.contains(userId)) {
+            members << userId;
+        }
+    }
+    return members;
+}
+
 QString NotificationPanelManager::friendNoticePreviewText(const QString& currentId,
                                                           const QString& displayName) {
     if (currentId.isEmpty()) {
