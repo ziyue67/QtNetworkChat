@@ -65,6 +65,15 @@ struct LocalTransferSelectionDecision {
     QString dialogMessage;
 };
 
+struct LocalSavedFileState {
+    QString savePath;
+    QFileInfo fileInfo;
+    QFileInfo folderInfo;
+    bool hasSavePath = false;
+    bool canOpenFile = false;
+    bool canOpenFolder = false;
+};
+
 class LocalFileManager {
 public:
     static QString lastTransferDirectory();
@@ -90,6 +99,9 @@ public:
     static QString ensureReceivedDownloadDirectory(const QString& downloadSubdir);
     static QString uniqueReceivedSavePath(const QString& directoryPath, const QString& fileName);
     static bool writeReceivedTransferPayload(const QString& savePath, const QByteArray& fileData);
+    static QString extractSavePathFromChatText(const QString& text);
+    static LocalSavedFileState savedFileStateFromChatText(const QString& text,
+                                                          const QString& toolTipText = QString());
     static LocalFileValidationResult validateTransferFile(const QFileInfo& info, const QString& kind);
     static LocalFileValidationResult validateAvatarFile(const QFileInfo& info);
     static QString humanFileSize(qint64 bytes);

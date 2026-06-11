@@ -251,14 +251,6 @@ QStringList visibleGroupNoticeIds(QListWidget* noticeList) {
     return ids;
 }
 
-QString extractSavePathFromChatText(const QString& text) {
-    QString savePath = text.section("保存路径：", 1, 1).section(" · ", 0, 0).trimmed();
-    if (savePath.isEmpty()) savePath = text.section("自动保存:", 1).section(" · ", 0, 0).trimmed();
-    if (savePath.isEmpty()) savePath = text.section("自动保存：", 1).section(" · ", 0, 0).trimmed();
-    if (savePath.isEmpty()) savePath = text.section("已保存到：", 1, 1).section('\n', 0, 0).section(" · ", 0, 0).trimmed();
-    return savePath;
-}
-
 QString serverGroupAuditActionText(const QString& action) {
     const QString normalized = action.trimmed().toLower();
     if (normalized == QLatin1String("announcement_update")) return QStringLiteral("更新公告");
@@ -566,23 +558,14 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
     ui->statusbar->showMessage(event.statusBarMessage, event.statusBarTimeoutMs);
 }
 
-MainWindow::SavedFileActionState MainWindow::savedFileActionState(const QModelIndex& index) const {
-    SavedFileActionState state;
+LocalSavedFileState MainWindow::savedFileActionState(const QModelIndex& index) const {
+    LocalSavedFileState state;
     if (!index.isValid()) return state;
-
-    state.savePath = extractSavePathFromChatText(index.data().toString());
-    if (state.savePath.isEmpty()) {
-        state.savePath = extractSavePathFromChatText(index.data(Qt::ToolTipRole).toString());
-    }
-    state.fileInfo = QFileInfo(state.savePath);
-    state.folderInfo = QFileInfo(state.fileInfo.absolutePath());
-    state.hasSavePath = !state.savePath.isEmpty();
-    state.canOpenFile = state.hasSavePath && state.fileInfo.exists() && state.fileInfo.isFile();
-    state.canOpenFolder = state.hasSavePath && state.folderInfo.exists() && state.folderInfo.isDir();
-    return state;
+    return LocalFileManager::savedFileStateFromChatText(index.data().toString(),
+                                                        index.data(Qt::ToolTipRole).toString());
 }
 
-bool MainWindow::isChatMediaMessage(const QString& chatText, const SavedFileActionState& savedFileState) const {
+bool MainWindow::isChatMediaMessage(const QString& chatText, const LocalSavedFileState& savedFileState) const {
     return savedFileState.hasSavePath
         || chatText.contains("文件")
         || chatText.contains("图片")
@@ -592,7 +575,7 @@ bool MainWindow::isChatMediaMessage(const QString& chatText, const SavedFileActi
         || chatText.contains("回执话术");
 }
 
-ChatContextSavedFileState MainWindow::chatContextSavedFileState(const SavedFileActionState& savedFileState) const {
+ChatContextSavedFileState MainWindow::chatContextSavedFileState(const LocalSavedFileState& savedFileState) const {
     ChatContextSavedFileState state;
     state.hasSavePath = savedFileState.hasSavePath;
     state.canOpenFile = savedFileState.canOpenFile;
@@ -601,7 +584,7 @@ ChatContextSavedFileState MainWindow::chatContextSavedFileState(const SavedFileA
     return state;
 }
 
-bool MainWindow::copySavedFilePathToClipboard(const SavedFileActionState& savedFileState) {
+bool MainWindow::copySavedFilePathToClipboard(const LocalSavedFileState& savedFileState) {
     const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
                                                                                      chatContextSavedFileState(savedFileState),
                                                                                      savedFileState.savePath);
@@ -615,7 +598,7 @@ bool MainWindow::copySavedFilePathToClipboard(const SavedFileActionState& savedF
     return true;
 }
 
-bool MainWindow::openSavedFileFromState(const SavedFileActionState& savedFileState, const QString& missingMessage) {
+bool MainWindow::openSavedFileFromState(const LocalSavedFileState& savedFileState, const QString& missingMessage) {
     ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
                                                                                chatContextSavedFileState(savedFileState),
                                                                                savedFileState.savePath);
@@ -641,7 +624,7 @@ bool MainWindow::openSavedFileFromState(const SavedFileActionState& savedFileSta
     return false;
 }
 
-bool MainWindow::openSavedFolderFromState(const SavedFileActionState& savedFileState) {
+bool MainWindow::openSavedFolderFromState(const LocalSavedFileState& savedFileState) {
     const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-save-folder"),
                                                                                      chatContextSavedFileState(savedFileState),
                                                                                      savedFileState.savePath);
@@ -664,7 +647,7 @@ void MainWindow::copyTextWithStatus(const QString& text, const QString& statusMe
     ui->statusbar->showMessage(statusMessage, timeoutMs);
 }
 
-bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState) {
+bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState) {
     const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(commandId,
                                                                                      chatContextSavedFileState(savedFileState),
                                                                                      savedFileState.savePath);
@@ -711,7 +694,7 @@ QAction* MainWindow::addChatContextAction(QMenu& menu,
 
 bool MainWindow::handleChatContextCommand(const QString& commandId,
                                           const QString& chatText,
-                                          const SavedFileActionState& savedFileState) {
+                                          const LocalSavedFileState& savedFileState) {
     const QString targetDisplayName = m_privateChatTarget.isEmpty()
         ? QStringLiteral("公共聊天室")
         : contactDisplayName(m_privateChatTarget);
@@ -1521,7 +1504,7 @@ void MainWindow::setupUi() {
     connect(ui->chatListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
 
-        const SavedFileActionState savedFileState = savedFileActionState(index);
+        const LocalSavedFileState savedFileState = savedFileActionState(index);
         if (!savedFileState.hasSavePath) return;
 
         openSavedFileFromState(savedFileState, "保存文件不存在或无法打开");
@@ -1532,7 +1515,7 @@ void MainWindow::setupUi() {
         QString text = index.data().toString();
         if (text.isEmpty()) return;
         QMenu menu(this);
-        const SavedFileActionState savedFileState = savedFileActionState(index);
+        const LocalSavedFileState savedFileState = savedFileActionState(index);
         const bool isMediaMessage = isChatMediaMessage(text, savedFileState);
         const QList<ChatContextMenuActionSpec> actionSpecs = ChatContextManager::menuActionSpecs(
             isMediaMessage,

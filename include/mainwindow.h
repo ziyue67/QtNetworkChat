@@ -95,15 +95,6 @@ private:
         QString savePath;
     };
 
-    struct SavedFileActionState {
-        QString savePath;
-        QFileInfo fileInfo;
-        QFileInfo folderInfo;
-        bool hasSavePath = false;
-        bool canOpenFile = false;
-        bool canOpenFolder = false;
-    };
-
     void setupUi();
     void setupTray();
     void appendMessage(const Message& msg);
@@ -160,14 +151,14 @@ private:
     void refreshComposerState();
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
-    SavedFileActionState savedFileActionState(const QModelIndex& index) const;
-    bool isChatMediaMessage(const QString& chatText, const SavedFileActionState& savedFileState) const;
-    ChatContextSavedFileState chatContextSavedFileState(const SavedFileActionState& savedFileState) const;
-    bool copySavedFilePathToClipboard(const SavedFileActionState& savedFileState);
-    bool openSavedFileFromState(const SavedFileActionState& savedFileState, const QString& missingMessage);
-    bool openSavedFolderFromState(const SavedFileActionState& savedFileState);
+    LocalSavedFileState savedFileActionState(const QModelIndex& index) const;
+    bool isChatMediaMessage(const QString& chatText, const LocalSavedFileState& savedFileState) const;
+    ChatContextSavedFileState chatContextSavedFileState(const LocalSavedFileState& savedFileState) const;
+    bool copySavedFilePathToClipboard(const LocalSavedFileState& savedFileState);
+    bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const QString& missingMessage);
+    bool openSavedFolderFromState(const LocalSavedFileState& savedFileState);
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
-    bool handleSavedFileContextCommand(const QString& commandId, const SavedFileActionState& savedFileState);
+    bool handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     void insertChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     QAction* addChatContextAction(QMenu& menu,
@@ -177,7 +168,7 @@ private:
                                   bool enabled = true);
     bool handleChatContextCommand(const QString& commandId,
                                   const QString& chatText,
-                                  const SavedFileActionState& savedFileState);
+                                  const LocalSavedFileState& savedFileState);
     bool isCurrentUserRemovedFromPublicGroup() const;
     void switchToLocalGroup(const QString& groupId, const QString& groupName);
     void searchAndAddAccount(const QString& account, QWidget* warningParent = nullptr);

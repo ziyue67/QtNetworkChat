@@ -221,6 +221,49 @@ int main(int argc, char** argv) {
     ok = expect(secondReceivedPath != firstReceivedPath,
                 "unique received save path should avoid collisions when a file already exists") && ok;
 
+    ok = expect(LocalFileManager::extractSavePathFromChatText(
+                    QString::fromUtf8("文件已接收 · 保存路径：C:/downloads/report.zip · 可打开")) == QStringLiteral("C:/downloads/report.zip"),
+                "save path extractor should parse explicit save-path cards") && ok;
+    ok = expect(LocalFileManager::extractSavePathFromChatText(
+                    QString::fromUtf8("离线附件已恢复 · 自动保存:C:/downloads/cache.bin · 可重试")) == QStringLiteral("C:/downloads/cache.bin"),
+                "save path extractor should parse auto-save cards with ascii colon") && ok;
+    ok = expect(LocalFileManager::extractSavePathFromChatText(
+                    QString::fromUtf8("离线附件已恢复 · 自动保存：C:/downloads/cache2.bin · 可重试")) == QStringLiteral("C:/downloads/cache2.bin"),
+                "save path extractor should parse auto-save cards with full-width colon") && ok;
+    ok = expect(LocalFileManager::extractSavePathFromChatText(
+                    QString::fromUtf8("图片已保存到：C:/downloads/image.png\n完整性已验证")) == QStringLiteral("C:/downloads/image.png"),
+                "save path extractor should parse saved-to multiline cards") && ok;
+
+    const LocalSavedFileState primarySavedState =
+        LocalFileManager::savedFileStateFromChatText(QString::fromUtf8("文件已接收 · 保存路径：") + firstReceivedPath,
+                                                     QString());
+    ok = expect(primarySavedState.hasSavePath
+                    && primarySavedState.canOpenFile
+                    && primarySavedState.canOpenFolder
+                    && primarySavedState.fileInfo.absoluteFilePath() == firstReceivedPath,
+                "saved file state should resolve an existing saved file and folder") && ok;
+
+    const QString tooltipOnlyPath = QDir(receiveDir).filePath(QStringLiteral("tooltip-only.txt"));
+    ok = expect(createFileWithSize(tooltipOnlyPath, 3) == tooltipOnlyPath,
+                "tooltip-only saved file should be created") && ok;
+    const LocalSavedFileState tooltipSavedState =
+        LocalFileManager::savedFileStateFromChatText(QString::fromUtf8("普通消息"),
+                                                     QString::fromUtf8("附件提示 · 已保存到：") + tooltipOnlyPath);
+    ok = expect(tooltipSavedState.hasSavePath
+                    && tooltipSavedState.canOpenFile
+                    && tooltipSavedState.canOpenFolder
+                    && tooltipSavedState.savePath == tooltipOnlyPath,
+                "saved file state should fall back to tooltip text when chat text lacks a path") && ok;
+
+    const QString missingSavedPath = QDir(receiveDir).filePath(QStringLiteral("missing.bin"));
+    const LocalSavedFileState missingSavedState =
+        LocalFileManager::savedFileStateFromChatText(QString::fromUtf8("附件已接收 · 保存路径：") + missingSavedPath,
+                                                     QString());
+    ok = expect(missingSavedState.hasSavePath
+                    && !missingSavedState.canOpenFile
+                    && missingSavedState.canOpenFolder,
+                "saved file state should preserve open-folder ability when only the file is missing") && ok;
+
     QDir(tempRoot).removeRecursively();
     settings.clear();
     return ok ? 0 : 1;

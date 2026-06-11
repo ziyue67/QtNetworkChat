@@ -260,6 +260,28 @@ bool LocalFileManager::writeReceivedTransferPayload(const QString& savePath, con
     return bytesWritten == fileData.size();
 }
 
+QString LocalFileManager::extractSavePathFromChatText(const QString& text) {
+    QString savePath = text.section(QStringLiteral("保存路径："), 1, 1).section(QStringLiteral(" · "), 0, 0).trimmed();
+    if (savePath.isEmpty()) savePath = text.section(QStringLiteral("自动保存:"), 1).section(QStringLiteral(" · "), 0, 0).trimmed();
+    if (savePath.isEmpty()) savePath = text.section(QStringLiteral("自动保存："), 1).section(QStringLiteral(" · "), 0, 0).trimmed();
+    if (savePath.isEmpty()) savePath = text.section(QStringLiteral("已保存到："), 1, 1).section('\n', 0, 0).section(QStringLiteral(" · "), 0, 0).trimmed();
+    return savePath;
+}
+
+LocalSavedFileState LocalFileManager::savedFileStateFromChatText(const QString& text, const QString& toolTipText) {
+    LocalSavedFileState state;
+    state.savePath = extractSavePathFromChatText(text);
+    if (state.savePath.isEmpty()) {
+        state.savePath = extractSavePathFromChatText(toolTipText);
+    }
+    state.fileInfo = QFileInfo(state.savePath);
+    state.folderInfo = QFileInfo(state.fileInfo.absolutePath());
+    state.hasSavePath = !state.savePath.isEmpty();
+    state.canOpenFile = state.hasSavePath && state.fileInfo.exists() && state.fileInfo.isFile();
+    state.canOpenFolder = state.hasSavePath && state.folderInfo.exists() && state.folderInfo.isDir();
+    return state;
+}
+
 LocalFileValidationResult LocalFileManager::validateTransferFile(const QFileInfo& info, const QString& kind) {
     LocalFileValidationResult result;
     constexpr qint64 warningBytes = 20LL * 1024 * 1024;
