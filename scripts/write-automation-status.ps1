@@ -2961,13 +2961,21 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
 }
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled" -and $e2eLinkedReleaseCandidateReadback.state -eq "ok") {
-        $lines.Add(('  Linked runtime candidate: `windows-build-disabled-by-policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.` releaseReady=`{0}`, productionLinked=`{1}`, local=`{2}/{3}`, promotion=`{4}`, blockers=`{5}`' -f `
+        $linkedSummary =
+            '  Linked runtime candidate: `windows-build-disabled-by-policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.` releaseReady=`{0}`, productionLinked=`{1}`, local=`{2}/{3}`, promotion=`{4}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus), `
-                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate), `
-                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers)))
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate)
+        $linkedBlockers = Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers
+        if ($linkedBlockers -ne "unknown" -and $linkedBlockers -ne "release-artifact-probe-fixture") {
+            $linkedSummary += ', blockers=`' + $linkedBlockers + '`'
+        }
+        if ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture) -eq "true") {
+            $linkedSummary += ', note=`probe fixture only; current release review stays on the main local evidence artifact`'
+        }
+        $lines.Add($linkedSummary)
     } elseif ($e2eLinkedReleaseCandidateReadback.state -ne "ok") {
         $lines.Add(('  Linked runtime candidate: state=`{0}`, releaseGate=`{1}`, artifact=`{2}`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.state), `

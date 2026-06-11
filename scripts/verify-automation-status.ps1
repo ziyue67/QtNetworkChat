@@ -2305,6 +2305,7 @@ foreach ($expected in @(
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }
+Assert-NotContains -Text $currentHeadCiStaleMarkdown -Forbidden 'blockers=`release-artifact-probe-fixture`'
 Assert-NoFixedMirrorBranchPolicy -Text $currentHeadCiStaleMarkdown
 
 $staleReleaseEvidenceMarkdownPath = Join-Path $tempDir "automation-status-stale-e2e-release-evidence.md"
