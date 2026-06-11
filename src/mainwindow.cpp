@@ -2347,11 +2347,7 @@ void MainWindow::onSendFile() {
     QString filePath;
     QFileInfo info;
     QString fileSize;
-    if (!selectTransferFile(selectionPlan.dialogTitle,
-                            selectionPlan.filters,
-                            selectionPlan.confirmKind,
-                            selectionPlan.canceledHint,
-                            selectionPlan.canceledStatus,
+    if (!selectTransferFile(selectionPlan,
                             &filePath,
                             &info,
                             &fileSize)) {
@@ -2407,11 +2403,7 @@ void MainWindow::onSendImage() {
     QString filePath;
     QFileInfo info;
     QString fileSize;
-    if (!selectTransferFile(selectionPlan.dialogTitle,
-                            selectionPlan.filters,
-                            selectionPlan.confirmKind,
-                            selectionPlan.canceledHint,
-                            selectionPlan.canceledStatus,
+    if (!selectTransferFile(selectionPlan,
                             &filePath,
                             &info,
                             &fileSize)) {
@@ -6944,11 +6936,7 @@ bool MainWindow::ensureTransferTargetReady(const QString& kind, const QString& t
     return true;
 }
 
-bool MainWindow::selectTransferFile(const QString& dialogTitle,
-                                    const QString& filters,
-                                    const QString& confirmKind,
-                                    const QString& canceledHint,
-                                    const QString& canceledStatus,
+bool MainWindow::selectTransferFile(const TransferSelectionPlan& selectionPlan,
                                     QString* filePath,
                                     QFileInfo* fileInfo,
                                     QString* fileSize) {
@@ -6957,13 +6945,13 @@ bool MainWindow::selectTransferFile(const QString& dialogTitle,
     }
 
     const QString selectedPath = QFileDialog::getOpenFileName(this,
-                                                              dialogTitle,
+                                                              selectionPlan.dialogTitle,
                                                               LocalFileManager::lastTransferDirectory(),
-                                                              filters);
+                                                              selectionPlan.filters);
     LocalTransferSelectionDecision decision = LocalFileManager::transferSelectionDecision(selectedPath,
-                                                                                          confirmKind,
-                                                                                          canceledHint,
-                                                                                          canceledStatus);
+                                                                                          selectionPlan.confirmKind,
+                                                                                          selectionPlan.canceledHint,
+                                                                                          selectionPlan.canceledStatus);
     if (decision.action == LocalTransferSelectionDecision::Action::ShowFailureDialog) {
         QMessageBox::warning(this, decision.dialogTitle, decision.dialogMessage);
         ui->chatHintLabel->setText(decision.hintText);
@@ -6981,7 +6969,7 @@ bool MainWindow::selectTransferFile(const QString& dialogTitle,
                                                      decision.dialogMessage,
                                                      QMessageBox::Yes | QMessageBox::No,
                                                      QMessageBox::No) == QMessageBox::Yes;
-        decision = LocalFileManager::resolveTransferSelectionWarning(decision, confirmed, confirmKind);
+        decision = LocalFileManager::resolveTransferSelectionWarning(decision, confirmed, selectionPlan.confirmKind);
         if (!decision.accepted) {
             ui->chatHintLabel->setText(decision.hintText);
             ui->statusbar->showMessage(decision.statusMessage, decision.statusTimeoutMs);

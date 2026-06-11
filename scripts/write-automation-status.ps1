@@ -2805,7 +2805,11 @@ $lines.Add("## Current Baseline")
 $lines.Add("")
 $lines.Add('- Generated at: `' + $generatedAt + '`')
 $lines.Add('- HEAD: `' + $Head + '`')
-$lines.Add('- HEAD note: `status source/evidence head; the commit containing this generated status file may be newer`')
+if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+    $lines.Add('- HEAD note: `current local verification head; GitHub Windows Build is disabled by policy and does not gate this status.`')
+} else {
+    $lines.Add('- HEAD note: `status source/evidence head; the commit containing this generated status file may be newer`')
+}
 $lines.Add('- Tracked remote branch: `' + $TrackedRemoteBranch + '`')
 $lines.Add('- Tracked remote hash: `' + $TrackedRemoteHash + '`')
 $lines.Add('- GitHub Windows Build policy: `' + $script:GitHubWindowsBuildPolicyResolved + '`')
@@ -2906,7 +2910,7 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
                 (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact), `
-                'GitHub Windows Build is disabled by policy and removed from the active release gate; treat release-head mismatch as local evidence refresh work, while current effective verification stays on local build plus local CTest.'))
+                'GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.'))
     } else {
         $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`, currentHead=`{3}`, targetMatchesCurrentHead=`{4}`, stale=`{5}`' -f `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
