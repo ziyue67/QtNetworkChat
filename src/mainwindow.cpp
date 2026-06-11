@@ -2348,33 +2348,42 @@ void MainWindow::onSendFile() {
     }
 
     const TransferSelectionPlan selectionPlan = m_transferManager.fileSelectionPlan();
-    QString filePath;
-    QFileInfo info;
-    QString fileSize;
-    if (!selectTransferFile(selectionPlan,
-                            &filePath,
-                            &info,
-                            &fileSize)) {
+    SelectedTransferFile selectedFile;
+    if (!selectTransferFileContext(selectionPlan, &selectedFile)) {
         return;
     }
 
-    const TransferSendUiState preparingState = m_transferManager.preparingSendState(selectionPlan.preparingKind, info.fileName(), fileSize, targetName);
+    const TransferSendUiState preparingState =
+        m_transferManager.preparingSendState(selectionPlan.preparingKind,
+                                             selectedFile.info.fileName(),
+                                             selectedFile.fileSize,
+                                             targetName);
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        appendLocalGroupFileTransferCompletion(selectionPlan, info, fileSize, targetName, completedAt);
+        appendLocalGroupFileTransferCompletion(selectionPlan,
+                                               selectedFile.info,
+                                               selectedFile.fileSize,
+                                               targetName,
+                                               completedAt);
         return;
     }
 
     QString transferSummary;
     bool transferCanceled = false;
-    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, "文件", false, &transferSummary, &transferCanceled);
+    bool ok = sendTransferWithProgress(selectedFile.filePath,
+                                       m_privateChatTarget,
+                                       targetName,
+                                       "文件",
+                                       false,
+                                       &transferSummary,
+                                       &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
     handleRemoteTransferResult(ok,
                                transferCanceled,
-                               filePath,
-                               info,
-                               fileSize,
+                               selectedFile.filePath,
+                               selectedFile.info,
+                               selectedFile.fileSize,
                                targetName,
                                selectionPlan.preparingKind,
                                false,
@@ -2390,36 +2399,47 @@ void MainWindow::onSendImage() {
     }
 
     const TransferSelectionPlan selectionPlan = m_transferManager.mediaSelectionPlan();
-    QString filePath;
-    QFileInfo info;
-    QString fileSize;
-    if (!selectTransferFile(selectionPlan,
-                            &filePath,
-                            &info,
-                            &fileSize)) {
+    SelectedTransferFile selectedFile;
+    if (!selectTransferFileContext(selectionPlan, &selectedFile)) {
         return;
     }
 
-    const TransferMediaSelection mediaSelection = m_transferManager.mediaSelection(info);
+    const TransferMediaSelection mediaSelection = m_transferManager.mediaSelection(selectedFile.info);
     const bool isVideo = mediaSelection.isVideo;
     const QString mediaType = mediaSelection.mediaType;
-    const TransferSendUiState preparingState = m_transferManager.preparingSendState(mediaType, info.fileName(), fileSize, targetName);
+    const TransferSendUiState preparingState =
+        m_transferManager.preparingSendState(mediaType,
+                                             selectedFile.info.fileName(),
+                                             selectedFile.fileSize,
+                                             targetName);
     applyTransferSendState(preparingState);
     const QString completedAt = QDateTime::currentDateTime().toString("hh:mm:ss");
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
-        appendLocalGroupMediaTransferCompletion(filePath, info, fileSize, mediaType, isVideo, targetName, completedAt);
+        appendLocalGroupMediaTransferCompletion(selectedFile.filePath,
+                                                selectedFile.info,
+                                                selectedFile.fileSize,
+                                                mediaType,
+                                                isVideo,
+                                                targetName,
+                                                completedAt);
         return;
     }
 
     QString transferSummary;
     bool transferCanceled = false;
-    bool ok = sendTransferWithProgress(filePath, m_privateChatTarget, targetName, mediaType, !isVideo, &transferSummary, &transferCanceled);
+    bool ok = sendTransferWithProgress(selectedFile.filePath,
+                                       m_privateChatTarget,
+                                       targetName,
+                                       mediaType,
+                                       !isVideo,
+                                       &transferSummary,
+                                       &transferCanceled);
     updateSavedOutgoingTransferRecoveryUi(!ok && !transferCanceled);
     handleRemoteTransferResult(ok,
                                transferCanceled,
-                               filePath,
-                               info,
-                               fileSize,
+                               selectedFile.filePath,
+                               selectedFile.info,
+                               selectedFile.fileSize,
                                targetName,
                                mediaType,
                                true,
@@ -6812,6 +6832,18 @@ bool MainWindow::selectTransferFile(const TransferSelectionPlan& selectionPlan,
         *fileSize = selectionState.fileSize;
     }
     return true;
+}
+
+bool MainWindow::selectTransferFileContext(const TransferSelectionPlan& selectionPlan,
+                                           SelectedTransferFile* selectedFile) {
+    if (!selectedFile) {
+        return false;
+    }
+
+    return selectTransferFile(selectionPlan,
+                              &selectedFile->filePath,
+                              &selectedFile->info,
+                              &selectedFile->fileSize);
 }
 
 bool MainWindow::applyTransferSelectionUiStateFeedback(const TransferSelectionUiState& selectionState) {

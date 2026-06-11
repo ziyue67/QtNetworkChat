@@ -96,6 +96,12 @@ private:
         QString savePath;
     };
 
+    struct SelectedTransferFile {
+        QString filePath;
+        QFileInfo info;
+        QString fileSize;
+    };
+
     void setupUi();
     void setupTray();
     void appendMessage(const Message& msg);
@@ -106,6 +112,8 @@ private:
                             QString* filePath,
                             QFileInfo* fileInfo,
                             QString* fileSize = nullptr);
+    bool selectTransferFileContext(const TransferSelectionPlan& selectionPlan,
+                                   SelectedTransferFile* selectedFile);
     bool applyTransferSelectionUiStateFeedback(const TransferSelectionUiState& selectionState);
     bool confirmTransferSelectionWarning(TransferSelectionUiState* selectionState);
     void appendTransferCompletionState(const TransferSendUiState& state,
