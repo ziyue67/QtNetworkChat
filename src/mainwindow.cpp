@@ -584,10 +584,7 @@ ChatContextSavedFileState MainWindow::chatContextSavedFileState(const LocalSaved
     return state;
 }
 
-bool MainWindow::copySavedFilePathToClipboard(const LocalSavedFileState& savedFileState) {
-    const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
-                                                                                     chatContextSavedFileState(savedFileState),
-                                                                                     savedFileState.savePath);
+bool MainWindow::copySavedFilePathToClipboard(const ChatContextSavedFileCommand& command) {
     if (!command.canExecute) {
         ui->statusbar->showMessage(command.missingStatusMessage, command.timeoutMs);
         return false;
@@ -598,13 +595,7 @@ bool MainWindow::copySavedFilePathToClipboard(const LocalSavedFileState& savedFi
     return true;
 }
 
-bool MainWindow::openSavedFileFromState(const LocalSavedFileState& savedFileState, const QString& missingMessage) {
-    ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
-                                                                               chatContextSavedFileState(savedFileState),
-                                                                               savedFileState.savePath);
-    if (!missingMessage.trimmed().isEmpty()) {
-        command.failureStatusMessage = missingMessage;
-    }
+bool MainWindow::openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command) {
     if (!command.canExecute) {
         ui->statusbar->showMessage(command.missingStatusMessage, command.timeoutMs);
         return false;
@@ -624,10 +615,7 @@ bool MainWindow::openSavedFileFromState(const LocalSavedFileState& savedFileStat
     return false;
 }
 
-bool MainWindow::openSavedFolderFromState(const LocalSavedFileState& savedFileState) {
-    const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-save-folder"),
-                                                                                     chatContextSavedFileState(savedFileState),
-                                                                                     savedFileState.savePath);
+bool MainWindow::openSavedFolderFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command) {
     if (!command.canExecute) {
         ui->statusbar->showMessage(command.missingStatusMessage, command.timeoutMs);
         return false;
@@ -656,13 +644,13 @@ bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const L
     }
 
     if (command.action == ChatContextSavedFileCommand::Action::CopySavePath) {
-        return copySavedFilePathToClipboard(savedFileState);
+        return copySavedFilePathToClipboard(command);
     }
     if (command.action == ChatContextSavedFileCommand::Action::OpenSavedFile) {
-        return openSavedFileFromState(savedFileState, command.missingStatusMessage);
+        return openSavedFileFromState(savedFileState, command);
     }
     if (command.action == ChatContextSavedFileCommand::Action::OpenSaveFolder) {
-        return openSavedFolderFromState(savedFileState);
+        return openSavedFolderFromState(savedFileState, command);
     }
     return false;
 }
@@ -1521,7 +1509,11 @@ void MainWindow::setupUi() {
         const LocalSavedFileState savedFileState = savedFileActionState(index);
         if (!savedFileState.hasSavePath) return;
 
-        openSavedFileFromState(savedFileState, "保存文件不存在或无法打开");
+        ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                                   chatContextSavedFileState(savedFileState),
+                                                                                   savedFileState.savePath);
+        command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
+        openSavedFileFromState(savedFileState, command);
     });
     connect(ui->chatListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->chatListView->indexAt(pos);

@@ -318,6 +318,17 @@ int main(int argc, char** argv) {
                     && executableOpenFolderCommand.failureStatusMessage == QString::fromUtf8("保存目录无法打开"),
                 "open save folder command should centralize folder success/failure copy") && ok;
 
+    ChatContextSavedFileState whitespaceSavePathState;
+    whitespaceSavePathState.hasSavePath = true;
+    ChatContextSavedFileCommand whitespaceCopyCommand = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
+                                                                                             whitespaceSavePathState,
+                                                                                             QStringLiteral("   "));
+    ok = expect(whitespaceCopyCommand.handled
+                    && whitespaceCopyCommand.action == ChatContextSavedFileCommand::Action::CopySavePath
+                    && !whitespaceCopyCommand.canExecute
+                    && whitespaceCopyCommand.clipboardText.isEmpty(),
+                "copy save path command should reject blank saved paths even when metadata says a path exists") && ok;
+
     ChatContextSavedFileCommand unknownSavedFileCommand = ChatContextManager::savedFileCommand(QStringLiteral("noop"),
                                                                                                missingSavePathState,
                                                                                                QString());

@@ -151,9 +151,9 @@ private:
     LocalSavedFileState savedFileActionState(const QModelIndex& index) const;
     bool isChatMediaMessage(const QString& chatText, const LocalSavedFileState& savedFileState) const;
     ChatContextSavedFileState chatContextSavedFileState(const LocalSavedFileState& savedFileState) const;
-    bool copySavedFilePathToClipboard(const LocalSavedFileState& savedFileState);
-    bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const QString& missingMessage);
-    bool openSavedFolderFromState(const LocalSavedFileState& savedFileState);
+    bool copySavedFilePathToClipboard(const ChatContextSavedFileCommand& command);
+    bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
+    bool openSavedFolderFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
     bool handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
