@@ -7107,11 +7107,7 @@ QColor MainWindow::transferChatItemBackground(const QString& role) const {
     return QColor();
 }
 
-void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& itemState) {
-    if (itemState.text.isEmpty()) {
-        return;
-    }
-
+QStandardItem* MainWindow::createTransferChatListItem(const TransferChatListItemUiState& itemState) const {
     QStandardItem* item = new QStandardItem(itemState.text);
     item->setEditable(false);
     if (!itemState.toolTip.isEmpty()) {
@@ -7129,6 +7125,15 @@ void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& i
     }
 
     item->setTextAlignment((itemState.alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter);
+    return item;
+}
+
+void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& itemState) {
+    if (itemState.text.isEmpty()) {
+        return;
+    }
+
+    QStandardItem* item = createTransferChatListItem(itemState);
     m_chatModel->appendRow(item);
 }
 
