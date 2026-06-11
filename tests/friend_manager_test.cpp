@@ -212,6 +212,83 @@ int main(int argc, char** argv) {
                     && onlineSearchCopy.emptyStatusMessage == QString::fromUtf8("当前搜索结果没有在线用户"),
                 "global search online copy state should skip search/group/offline rows") && ok;
 
+    ok = expect(FriendManager::globalSearchInviteText(QStringLiteral("9000"),
+                                                      QStringLiteral("Tester"),
+                                                      groupResult,
+                                                      QStringLiteral("7788"))
+                        == QString::fromUtf8("我想邀请你加入群聊 产品群，一起在群里沟通。"),
+                "global search invite text should describe group invitations") && ok;
+    ok = expect(FriendManager::globalSearchInviteText(QStringLiteral("9000"),
+                                                      QStringLiteral("Tester"),
+                                                      onlineSearchResult,
+                                                      QStringLiteral("1001"))
+                        == QString::fromUtf8("你好，我是 Tester（QQ:9000），通过 QQ 搜索找到你，方便加个好友吗？"),
+                "global search invite text should describe friend applications") && ok;
+
+    const GlobalSearchSelectionCopyState inviteCardState =
+        FriendManager::globalSearchInviteCardState(QStringLiteral("9000"),
+                                                   QStringLiteral("Tester"),
+                                                   groupResult,
+                                                   QStringLiteral("7788"));
+    ok = expect(inviteCardState.valid
+                    && inviteCardState.text.contains(QString::fromUtf8("邀请加入群聊：产品群"))
+                    && inviteCardState.text.contains(QString::fromUtf8("群号:7788"))
+                    && inviteCardState.text.contains(QString::fromUtf8("成员:5")),
+                "global search invite card should summarize group selection") && ok;
+
+    GlobalSearchResultCopyInput emptySelectedResult;
+    const GlobalSearchSelectionCopyState emptyInviteCardState =
+        FriendManager::globalSearchInviteCardState(QStringLiteral("9000"),
+                                                   QStringLiteral("Tester"),
+                                                   emptySelectedResult,
+                                                   QString());
+    ok = expect(!emptyInviteCardState.valid && emptyInviteCardState.text.isEmpty(),
+                "global search invite card should stay invalid without selection or fallback") && ok;
+
+    const GlobalSearchSelectionCopyState searchSummaryCard =
+        FriendManager::globalSearchSummaryCardState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            QList<GlobalSearchResultCopyInput>{searchAddResult, groupResult, onlineSearchResult, offlineSearchResult},
+            QStringLiteral("alice"));
+    ok = expect(searchSummaryCard.valid
+                    && searchSummaryCard.text.contains(QString::fromUtf8("综合搜索卡片"))
+                    && searchSummaryCard.text.contains(QString::fromUtf8("关键词:alice"))
+                    && searchSummaryCard.text.contains(QString::fromUtf8("继续搜索申请 QQ:9988"))
+                    && searchSummaryCard.text.contains(QString::fromUtf8("匹配好友:1 · 可申请用户:1 · 群聊:1")),
+                "global search summary card should aggregate search/add/group/user rows") && ok;
+
+    const GlobalSearchSelectionCopyState searchMediaPack =
+        FriendManager::globalSearchMediaPackState(QStringLiteral("9000"),
+                                                  QStringLiteral("Tester"),
+                                                  onlineSearchResult,
+                                                  QStringLiteral("alice"));
+    ok = expect(searchMediaPack.valid
+                    && searchMediaPack.text.contains(QString::fromUtf8("综合搜索媒体包 · 目标:Alice · QQ:1001 · 类型:好友"))
+                    && searchMediaPack.text.contains(QString::fromUtf8("关键词:alice"))
+                    && searchMediaPack.text.contains(QString::fromUtf8("查收话术：我已准备发送媒体文件到 Alice")),
+                "global search media pack should summarize selected user target") && ok;
+
+    const GlobalSearchSelectionCopyState searchBatchPlan =
+        FriendManager::globalSearchBatchMediaPlanState(
+            QStringLiteral("9000"),
+            QStringLiteral("Tester"),
+            QList<GlobalSearchResultCopyInput>{searchAddResult, groupResult, onlineSearchResult, offlineSearchResult},
+            QStringLiteral("alice"));
+    ok = expect(searchBatchPlan.valid
+                    && searchBatchPlan.text.contains(QString::fromUtf8("综合搜索批量媒体计划 · 关键词:alice"))
+                    && searchBatchPlan.text.contains(QString::fromUtf8("好友结果:1 · 可申请:1 · 群聊:1"))
+                    && searchBatchPlan.text.contains(QString::fromUtf8("待搜索QQ:9988"))
+                    && searchBatchPlan.text.contains(QString::fromUtf8("产品群(群号:7788,成员:5)")),
+                "global search batch media plan should summarize users, groups, and search placeholders") && ok;
+
+    const QString mediaGuide = FriendManager::globalSearchMediaGuideText(QStringLiteral("9000"),
+                                                                         QStringLiteral("Tester"),
+                                                                         QString::fromUtf8("公共聊天室"));
+    ok = expect(mediaGuide.contains(QString::fromUtf8("上传指南 · 我的QQ:9000 · 昵称:Tester"))
+                    && mediaGuide.contains(QString::fromUtf8("当前会话:公共聊天室")),
+                "global search media guide should summarize sender identity and current chat") && ok;
+
     QMap<QString, ChatUser> quickKnownUsers;
     quickKnownUsers.insert(QStringLiteral("self"), user(QStringLiteral("self"), QStringLiteral("Me"), true));
     quickKnownUsers.insert(QStringLiteral("1001"), user(QStringLiteral("1001"), QStringLiteral("Alice"), true));

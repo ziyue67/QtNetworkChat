@@ -69,6 +69,11 @@ struct GlobalSearchResultCopyState {
     QString copiedStatusMessage;
 };
 
+struct GlobalSearchSelectionCopyState {
+    QString text;
+    bool valid = false;
+};
+
 struct FriendQuickAddSuggestionEntryUiState {
     QString entryId;
     QString text;
@@ -125,6 +130,33 @@ public:
     static GlobalSearchResultCopyState globalSearchResultCopyState(
         const QList<GlobalSearchResultCopyInput>& results,
         bool onlineOnly);
+    static QString globalSearchInviteText(const QString& currentUserId,
+                                          const QString& currentUserName,
+                                          const GlobalSearchResultCopyInput& selectedResult,
+                                          const QString& fallbackKeyword);
+    static GlobalSearchSelectionCopyState globalSearchInviteCardState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const GlobalSearchResultCopyInput& selectedResult,
+        const QString& fallbackKeyword);
+    static GlobalSearchSelectionCopyState globalSearchSummaryCardState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const QList<GlobalSearchResultCopyInput>& results,
+        const QString& keyword);
+    static GlobalSearchSelectionCopyState globalSearchMediaPackState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const GlobalSearchResultCopyInput& selectedResult,
+        const QString& keyword);
+    static GlobalSearchSelectionCopyState globalSearchBatchMediaPlanState(
+        const QString& currentUserId,
+        const QString& currentUserName,
+        const QList<GlobalSearchResultCopyInput>& results,
+        const QString& keyword);
+    static QString globalSearchMediaGuideText(const QString& currentUserId,
+                                              const QString& currentUserName,
+                                              const QString& currentChatDisplayName);
     static QString managerSelectionPreviewText(const QString& entryId,
                                                const QString& displayName,
                                                bool online,

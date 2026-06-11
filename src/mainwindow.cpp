@@ -3508,6 +3508,22 @@ void MainWindow::onShowGlobalSearch() {
         }
         return inputs;
     };
+    auto currentGlobalSearchCopyInput = [this, resultList, searchEdit]() {
+        GlobalSearchResultCopyInput input;
+        QListWidgetItem* item = resultList->currentItem();
+        const QString rawId = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
+        input.entryId = rawId;
+        input.localGroup = rawId.startsWith("local_group_");
+        input.friendContact = m_friendIds.contains(rawId);
+        input.online = isContactOnline(rawId);
+        input.memberCount = input.localGroup ? m_localGroupMembers.value(rawId).size() : 0;
+        if (input.localGroup) {
+            input.displayName = m_localGroupNames.value(rawId, "群聊");
+        } else if (!rawId.startsWith("search_add:")) {
+            input.displayName = contactDisplayName(rawId);
+        }
+        return input;
+    };
     connect(copyListBtn, &QPushButton::clicked, &dialog, [this, globalSearchCopyInputs]() {
         const GlobalSearchResultCopyState state =
             FriendManager::globalSearchResultCopyState(globalSearchCopyInputs(), false);
@@ -3518,137 +3534,72 @@ void MainWindow::onShowGlobalSearch() {
         QApplication::clipboard()->setText(state.rows.join('\n'));
         ui->statusbar->showMessage(state.copiedStatusMessage, 2200);
     });
-    connect(copyAddTextBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
-        QListWidgetItem* item = resultList->currentItem();
-        QString id = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
-        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
-        QString name = id.startsWith("local_group_") ? m_localGroupNames.value(id, "群聊") : contactDisplayName(id);
-        if (id.isEmpty()) id = searchEdit->text().trimmed();
-        if (name.isEmpty()) name = id;
-        QString text = id.startsWith("local_group_")
-            ? QString("我想邀请你加入群聊 %1，一起在群里沟通。").arg(name)
-            : QString("你好，我是 %1（QQ:%2），通过 QQ 搜索找到你，方便加个好友吗？").arg(m_currentUserName, m_currentUserId);
+    connect(copyAddTextBtn, &QPushButton::clicked, &dialog, [this, currentGlobalSearchCopyInput, searchEdit]() {
+        const QString text = FriendManager::globalSearchInviteText(
+            m_currentUserId,
+            m_currentUserName,
+            currentGlobalSearchCopyInput(),
+            searchEdit->text().trimmed());
         QApplication::clipboard()->setText(text);
         ui->statusbar->showMessage("申请/邀请话术已复制", 2200);
     });
-    connect(copyInviteCardBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
-        QListWidgetItem* item = resultList->currentItem();
-        QString id = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
-        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
-        if (id.isEmpty()) id = searchEdit->text().trimmed();
-        QString title;
-        QString detail;
-        if (id.startsWith("local_group_")) {
-            title = QString("邀请加入群聊：%1").arg(m_localGroupNames.value(id, "群聊"));
-            detail = QString("群号:%1 · 成员:%2 · 邀请人:%3(QQ:%4)")
-                .arg(id.mid(QString("local_group_").size()), QString::number(m_localGroupMembers.value(id).size()), m_currentUserName, m_currentUserId);
-        } else {
-            title = QString("好友邀请：%1").arg(id.isEmpty() ? "QQ搜索" : contactDisplayName(id));
-            detail = QString("目标QQ:%1 · 我的QQ:%2 · 昵称:%3 · 可搜索后直接添加").arg(id, m_currentUserId, m_currentUserName);
+    connect(copyInviteCardBtn, &QPushButton::clicked, &dialog, [this, currentGlobalSearchCopyInput, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::globalSearchInviteCardState(
+            m_currentUserId,
+            m_currentUserName,
+            currentGlobalSearchCopyInput(),
+            searchEdit->text().trimmed());
+        if (!state.valid) {
+            ui->statusbar->showMessage("当前没有可复制的搜索邀请卡", 1800);
+            return;
         }
-        QApplication::clipboard()->setText(title + '\n' + detail);
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("搜索邀请卡已复制", 2200);
     });
-    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
-        QString keyword = searchEdit->text().trimmed();
-        QStringList rows;
-        rows << "综合搜索卡片";
-        rows << QString("关键词:%1").arg(keyword.isEmpty() ? "全部" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        int userCount = 0;
-        int friendCount = 0;
-        int groupCount = 0;
-        for (int i = 0; i < resultList->count(); ++i) {
-            QListWidgetItem* item = resultList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty()) continue;
-            if (id.startsWith("search_add:")) {
-                rows << QString("继续搜索申请 QQ:%1").arg(id.mid(QString("search_add:").size()));
-            } else if (id.startsWith("local_group_")) {
-                ++groupCount;
-                rows << QString("群聊 QQ:%1 名称:%2 成员:%3")
-                    .arg(id.mid(QString("local_group_").size()), m_localGroupNames.value(id, "群聊"), QString::number(m_localGroupMembers.value(id).size()));
-            } else {
-                bool isFriend = m_friendIds.contains(id);
-                if (isFriend) ++friendCount; else ++userCount;
-                rows << QString("%1 QQ:%2 昵称:%3 状态:%4")
-                    .arg(isFriend ? "好友" : "用户", id, contactDisplayName(id), isContactOnline(id) ? "在线" : "离线");
-            }
+    connect(copySearchCardBtn, &QPushButton::clicked, &dialog, [this, globalSearchCopyInputs, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::globalSearchSummaryCardState(
+            m_currentUserId,
+            m_currentUserName,
+            globalSearchCopyInputs(),
+            searchEdit->text().trimmed());
+        if (!state.valid) {
+            ui->statusbar->showMessage("当前没有可复制的综合搜索卡片", 1800);
+            return;
         }
-        rows << QString("匹配好友:%1 · 可申请用户:%2 · 群聊:%3")
-            .arg(friendCount)
-            .arg(userCount)
-            .arg(groupCount);
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("综合搜索卡片已复制", 2200);
     });
-    connect(copySearchMediaPackBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
-        QListWidgetItem* item = resultList->currentItem();
-        QString id = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
-        if (id.startsWith("search_add:")) id = id.mid(QString("search_add:").size());
-        QString keyword = searchEdit->text().trimmed();
-        QString targetName = keyword.isEmpty() ? "全部搜索结果" : keyword;
-        QString targetId = id;
-        QString relation = "搜索结果";
-        if (id.startsWith("local_group_")) {
-            targetName = m_localGroupNames.value(id, "群聊");
-            targetId = id.mid(QString("local_group_").size());
-            relation = "群聊";
-        } else if (!id.isEmpty()) {
-            targetName = contactDisplayName(id);
-            relation = m_friendIds.contains(id) ? "好友" : "可申请用户";
+    connect(copySearchMediaPackBtn, &QPushButton::clicked, &dialog, [this, currentGlobalSearchCopyInput, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::globalSearchMediaPackState(
+            m_currentUserId,
+            m_currentUserName,
+            currentGlobalSearchCopyInput(),
+            searchEdit->text().trimmed());
+        if (!state.valid) {
+            ui->statusbar->showMessage("当前没有可复制的综合搜索媒体包", 1800);
+            return;
         }
-        QStringList rows;
-        rows << QString("综合搜索媒体包 · 目标:%1 · QQ:%2 · 类型:%3").arg(targetName, targetId.isEmpty() ? "批量搜索" : targetId, relation);
-        rows << QString("关键词:%1 · 我的QQ:%2 · 昵称:%3").arg(keyword.isEmpty() ? "全部" : keyword, m_currentUserId, m_currentUserName);
-        rows << "可先打开/申请搜索结果，再发送图片/视频或闪传文件";
-        rows << "支持 png/jpg/gif/mp4/mov/avi/mkv/wmv/flv/webm 和常用文档压缩包";
-        rows << QString("邀请话术：你好，我是 %1（QQ:%2），通过综合搜索找到你，可以通过好友申请或进群后收发媒体文件。").arg(m_currentUserName, m_currentUserId);
-        rows << QString("查收话术：我已准备发送媒体文件到 %1，请注意查收。").arg(targetName);
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("综合搜索媒体包已复制", 2200);
     });
-    connect(copyBatchMediaPlanBtn, &QPushButton::clicked, &dialog, [this, resultList, searchEdit]() {
-        QStringList users;
-        QStringList groups;
-        int friendCount = 0;
-        int addableCount = 0;
-        for (int i = 0; i < resultList->count(); ++i) {
-            QListWidgetItem* item = resultList->item(i);
-            QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty()) continue;
-            if (id.startsWith("search_add:")) {
-                users << QString("待搜索QQ:%1").arg(id.mid(QString("search_add:").size()));
-            } else if (id.startsWith("local_group_")) {
-                groups << QString("%1(群号:%2,成员:%3)").arg(m_localGroupNames.value(id, "群聊"), id.mid(QString("local_group_").size()), QString::number(m_localGroupMembers.value(id).size()));
-            } else {
-                bool isFriend = m_friendIds.contains(id);
-                if (isFriend) ++friendCount; else ++addableCount;
-                users << QString("%1(QQ:%2,%3,%4)").arg(contactDisplayName(id), id, isFriend ? "好友" : "可申请", isContactOnline(id) ? "在线" : "离线");
-            }
+    connect(copyBatchMediaPlanBtn, &QPushButton::clicked, &dialog, [this, globalSearchCopyInputs, searchEdit]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::globalSearchBatchMediaPlanState(
+            m_currentUserId,
+            m_currentUserName,
+            globalSearchCopyInputs(),
+            searchEdit->text().trimmed());
+        if (!state.valid) {
+            ui->statusbar->showMessage("当前没有可复制的综合搜索批量媒体计划", 1800);
+            return;
         }
-        QString keyword = searchEdit->text().trimmed();
-        QStringList rows;
-        rows << QString("综合搜索批量媒体计划 · 关键词:%1").arg(keyword.isEmpty() ? "全部" : keyword);
-        rows << QString("我的QQ:%1 · 昵称:%2 · 好友结果:%3 · 可申请:%4 · 群聊:%5")
-            .arg(m_currentUserId, m_currentUserName, QString::number(friendCount), QString::number(addableCount), QString::number(groups.size()));
-        rows << QString("用户目标:%1").arg(users.isEmpty() ? "无" : users.join("、"));
-        rows << QString("群聊目标:%1").arg(groups.isEmpty() ? "无" : groups.join("、"));
-        rows << "1. 先打开好友或群聊结果，未成为好友先发送申请或复制申请话术";
-        rows << "2. 图片/GIF/视频走图片视频入口，文档和压缩包走闪传文件";
-        rows << "3. 发送后右键聊天记录复制媒体流程、查收话术、回执和保存路径";
-        rows << "4. 可见用户建群后可统一发送群媒体文件";
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(state.text);
         ui->statusbar->showMessage("综合搜索批量媒体计划已复制", 2200);
     });
     connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [this]() {
-        QStringList rows;
-        rows << QString("上传指南 · 我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
-        rows << "图片/视频：支持 png、jpg、gif、mp4、mov、avi、mkv、wmv、flv、webm";
-        rows << "闪传文件：支持文档、压缩包和媒体文件";
-        rows << "聊天记录右键：可复制媒体卡片和查收话术";
-        rows << QString("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
-        QApplication::clipboard()->setText(rows.join('\n'));
+        QApplication::clipboard()->setText(FriendManager::globalSearchMediaGuideText(
+            m_currentUserId,
+            m_currentUserName,
+            m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget)));
         ui->statusbar->showMessage("综合搜索上传指南已复制", 2200);
     });
     connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [this, globalSearchCopyInputs]() {
