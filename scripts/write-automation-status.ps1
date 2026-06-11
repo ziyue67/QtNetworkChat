@@ -72,6 +72,19 @@ function Resolve-RepoPath([string]$PathValue) {
     Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) $PathValue
 }
 
+function Test-IsDefaultBuildArtifactPath([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $false
+    }
+    try {
+        $resolvedCandidate = [System.IO.Path]::GetFullPath((Resolve-RepoPath $PathValue))
+        $resolvedBuildDir = [System.IO.Path]::GetFullPath((Resolve-RepoPath $script:BuildDir))
+        return $resolvedCandidate.StartsWith($resolvedBuildDir, [System.StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-GitText([string[]]$Arguments) {
     $previousErrorActionPreference = $ErrorActionPreference
     try {
@@ -2625,6 +2638,34 @@ $e2eLinkedReleaseCandidateManifestState =
     Get-ArtifactState -PathValue $E2ELinkedReleaseCandidateManifestPath -ExpectJson
 $e2eLinkedReleaseCandidateReadback =
     Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState $Head
+
+if ($e2eReleaseEvidenceReadback.state -eq "ok" `
+        -and $localVerificationReadback.readable `
+        -and (Test-IsDefaultBuildArtifactPath $E2EReleaseEvidenceManifestPath)) {
+    if (-not [string]::IsNullOrWhiteSpace($localVerificationReadback.buildStatus)) {
+        $e2eReleaseEvidenceReadback.localBuildStatus = Format-StatusValue $localVerificationReadback.buildStatus
+    }
+    if (-not [string]::IsNullOrWhiteSpace($localVerificationReadback.ctestStatus)) {
+        $e2eReleaseEvidenceReadback.localCTestStatus = Format-StatusValue $localVerificationReadback.ctestStatus
+    }
+    if ($localVerificationReadback.ctestCount -gt 0) {
+        $e2eReleaseEvidenceReadback.localCTestCount = [int]$localVerificationReadback.ctestCount
+    }
+}
+
+if ($e2eLinkedReleaseCandidateReadback.state -eq "ok" `
+        -and $localVerificationReadback.readable `
+        -and (Test-IsDefaultBuildArtifactPath $E2ELinkedReleaseCandidateManifestPath)) {
+    if (-not [string]::IsNullOrWhiteSpace($localVerificationReadback.buildStatus)) {
+        $e2eLinkedReleaseCandidateReadback.localBuildStatus = Format-StatusValue $localVerificationReadback.buildStatus
+    }
+    if (-not [string]::IsNullOrWhiteSpace($localVerificationReadback.ctestStatus)) {
+        $e2eLinkedReleaseCandidateReadback.localCTestStatus = Format-StatusValue $localVerificationReadback.ctestStatus
+    }
+    if ($localVerificationReadback.ctestCount -gt 0) {
+        $e2eLinkedReleaseCandidateReadback.localCTestCount = [int]$localVerificationReadback.ctestCount
+    }
+}
 
 if (($e2eRolloutReadback.state -eq "ok") `
         -and ((Format-StatusValue $e2eRolloutReadback.releaseGate) -eq "production-rollout-observability-blocked-not-linked") `
