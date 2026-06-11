@@ -495,20 +495,19 @@ foreach ($expected in @(
     'Status readback: `ci=parameter; build=parameter; ctest=parameter`',
     'E2E Rollout Observability Readback',
     'E2E rollout observability: status=`blocked`, ok=`false`, readiness=`blocked`, releaseGate=`production-rollout-observability-blocked-not-linked`, bundle=`json+markdown`',
-    'Verification sources: ciStatus=`success`, ciRunId=`26816554264`, ciSource=`parameter`, localBuild=`passed`, localCTest=`passed`, count=`51`',
+    'Local verification baseline: build=`passed`, ctest=`passed`, count=`51`, githubWindowsBuild=`disabled/not-required`',
     'Recovery gates: filesystemReady=`true`, filesystemGate=`e2e-filesystem-object-ciphertext-readback-ready`, offlineReady=`true`, offlineScope=`offline-ciphertext-readback`, offlineGate=`e2e-offline-ciphertext-readback-reviewed-opt-in`',
     'Offline recovery evidence: action=`enable-reviewed-offline-ciphertext-mirror-or-fail-closed-to-resend`, capturePolicy=`safe-object-token-hash-size-envelope-header-session-metadata-only`, noSensitiveExport=`true`',
     'Sensitive export proof: noSensitiveExport=`false`, suppressed=`true`',
     'GitHub Windows Build policy: `disabled`',
     'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, inputs=`4`',
-    'Evidence verification: ciStatus=`disabled-by-policy`, ciVisibility=`not-required`, localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`',
+    'Evidence verification baseline: localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`, githubWindowsBuild=`disabled/not-required`',
     'Evidence artifact: manifestPackagedAs=`manifest.json`, manifestEmbedded=`true`, packageSha256=`',
     'Production-linked release: ready=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, blockers=`rollout-not-ready,production-acceptance-not-accepted,production-acceptance-not-linked,production-acceptance-not-ready,production-acceptance-gate-not-accepted,production-rollout-not-accepted,production-rollout-not-linked,production-rollout-not-ready,production-rollout-gate-not-ready,production-release-run-not-observable,release-run-not-production-required,production-backend-mismatch,release-run-requested-backend-mismatch,release-run-backend-mismatch,production-operation-counts-not-ready,production-no-sensitive-proof-missing`, acceptanceBackend=`unknown`, rolloutBackend=`unknown`, releaseRunBackend=`unknown`, operationCountsReady=`false`, noSensitiveReady=`false`',
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
     'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
-    'Evidence policy gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
-    'Evidence local review focus: currentHead=`abc1234`, targetReleaseHead=`unknown`, artifactFreshness=`false`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
-    'Linked runtime candidate: `windows-build-disabled-by-policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.`',
+    'Evidence local review baseline: currentHead=`abc1234`, targetReleaseHead=`unknown`, artifactFreshness=`false`, githubWindowsBuild=`disabled/not-required`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
+    'Linked runtime candidate: localBuild=`passed`, localCTest=`passed`, productionLinked=`true`, releaseReady=`false`, promotion=`blocked-e2e-release-artifact-promotion`, githubWindowsBuild=`disabled/not-required`',
     'Automation Guardrails',
     'Registered Preview Tasks',
     'Preview task: label=`database-health`, kind=`database-health`, name=`unknown`, display=`Database health`, state=`ok`, format=`qtnetworkchat-database-health-task-preview-v1`, readOnly=`true`, register=`false`, schedulerReadback=`preview-only`, effectiveRegistered=`false`, schedule=`Daily@03:15`, path=`',
@@ -535,10 +534,10 @@ foreach ($expected in @(
     'latestExitCode=`0`, acknowledged=`true`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall-user`, at=`',
     'reason=`reviewed`',
-    'Task acknowledgement aggregate: acknowledged=`true`, failed=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`',
-    'Task acknowledgement gate: state=`failed-acknowledged`, failed=`2`, acknowledged=`true`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`',
-    'Task ack gate: kind=`database-health`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
-    'Task ack gate: kind=`large-file-governance`, name=`unknown`, state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-failure-review-gated`',
+    'Task acknowledgement aggregate: acknowledged=`true`, failed=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-operational-remediation-gated`',
+    'Task acknowledgement gate: state=`failed-acknowledged-remediation`, failed=`2`, acknowledged=`true`, ackExpired=`false`, tasks=`2`, blocked=`2`, source=`aggregate`, releaseGate=`acknowledged-operational-remediation-gated`, action=`continue operational remediation; keep release gate until failures clear`',
+    'Task ack gate: kind=`database-health`, name=`unknown`, state=`failed-acknowledged-remediation`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-operational-remediation-gated`',
+    'Task ack gate: kind=`large-file-governance`, name=`unknown`, state=`failed-acknowledged-remediation`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`acknowledged-operational-remediation-gated`',
     'Task acknowledgement reminder: state=`acknowledged`, expiryHours=`72`, ageHours=`1.5`, remainingHours=`70.5`, overdueHours=`0`, expiresAt=`2026-06-06T03:30:00.0000000Z`, action=`none`',
     'Task acknowledgement drill: state=`exercised`, ok=`true`, failed=`1`, acknowledged=`true`, ackExpired=`false`, releaseGate=`automation-ack-drill-exercised`, liveTaskMutation=`false`, action=`Keep live task acknowledgements tied to real failures; this drill proves the acknowledgement path without mutating live task history.`',
     'Artifact Diagnostics',
@@ -2217,8 +2216,8 @@ foreach ($expected in @(
     'latestExitCode=`1`, acknowledged=`false`, ackExpired=`false`',
     'Task acknowledgement: acknowledged=`true`, by=`oncall`, at=`',
     'reason=`fresh ack sample`',
-    'Task acknowledgement aggregate: acknowledged=`true`, failed=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-failure-review-gated`',
-    'Task acknowledgement gate: state=`failed-acknowledged`, failed=`1`, acknowledged=`true`, ackExpired=`false`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-failure-review-gated`, action=`continue remediation; keep release review gate until failures clear`'
+    'Task acknowledgement aggregate: acknowledged=`true`, failed=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-operational-remediation-gated`',
+    'Task acknowledgement gate: state=`failed-acknowledged-remediation`, failed=`1`, acknowledged=`true`, ackExpired=`false`, tasks=`1`, blocked=`1`, source=`single`, releaseGate=`acknowledged-operational-remediation-gated`, action=`continue operational remediation; keep release gate until failures clear`'
 )) {
     Assert-Contains -Text $freshAckMarkdown -Expected $expected
 }
@@ -2299,9 +2298,8 @@ foreach ($expected in @(
     'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, inputs=`4`',
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
     'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
-    'Evidence policy gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
-    'Evidence local review focus: currentHead=`current-head-ci-stale`, targetReleaseHead=`current-head-ci-stale`, artifactFreshness=`false`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
-    'Linked runtime candidate: `windows-build-disabled-by-policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.`'
+    'Evidence local review baseline: currentHead=`current-head-ci-stale`, targetReleaseHead=`current-head-ci-stale`, artifactFreshness=`false`, githubWindowsBuild=`disabled/not-required`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
+    'Linked runtime candidate: localBuild=`passed`, localCTest=`passed`, productionLinked=`true`, releaseReady=`true`, promotion=`ready-local-verification-only`, githubWindowsBuild=`disabled/not-required`'
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }
@@ -2329,8 +2327,7 @@ foreach ($expected in @(
     'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-local-release-evidence-refresh-needed`, inputs=`4`',
     'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`release-artifact-refresh-needed`',
     'Promotion action: `Refresh the E2E release evidence for the current HEAD after resolving any remaining local verification or production-linked blockers.`',
-    'Evidence policy gate: currentHeadObserved=`not-required`, externalBlocker=`waived-by-policy`, releaseGate=`not-required`, latestObservedHead=`not-required`',
-    'Evidence local review focus: currentHead=`newer-linked-candidate-head`, targetReleaseHead=`linked-candidate-head`, artifactFreshness=`informational-only`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`'
+    'Evidence local review baseline: currentHead=`newer-linked-candidate-head`, targetReleaseHead=`linked-candidate-head`, artifactFreshness=`informational-only`, githubWindowsBuild=`disabled/not-required`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`'
 )) {
     Assert-Contains -Text $staleReleaseEvidenceMarkdown -Expected $expected
 }

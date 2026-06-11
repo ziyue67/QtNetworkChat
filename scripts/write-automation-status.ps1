@@ -1604,9 +1604,9 @@ function Get-AutomationTaskAckGateReadback([object]$HistoryState, [object]$AckSt
         $result.releaseGate = "blocked-unacknowledged-failure"
         $result.action = "acknowledge failed automation task before release"
     } else {
-        $result.state = "failed-acknowledged"
-        $result.releaseGate = "acknowledged-failure-review-gated"
-        $result.action = "continue remediation; keep release review gate until failures clear"
+        $result.state = "failed-acknowledged-remediation"
+        $result.releaseGate = "acknowledged-operational-remediation-gated"
+        $result.action = "continue operational remediation; keep release gate until failures clear"
     }
     [pscustomobject]$result
 }
@@ -1666,7 +1666,7 @@ function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [objec
     $failedTotal = 0
     $anyExpired = $false
     $anyUnacknowledged = $false
-    $anyAcknowledgedReview = $false
+    $anyAcknowledgedRemediation = $false
     $anyUnavailable = $false
     $anyUnparseable = $false
     $allAcknowledged = $true
@@ -1684,8 +1684,8 @@ function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [objec
             $anyExpired = $true
         } elseif ($gate.releaseGate -eq "blocked-unacknowledged-failure") {
             $anyUnacknowledged = $true
-        } elseif ($gate.releaseGate -eq "acknowledged-failure-review-gated") {
-            $anyAcknowledgedReview = $true
+        } elseif ($gate.releaseGate -eq "acknowledged-operational-remediation-gated") {
+            $anyAcknowledgedRemediation = $true
         } elseif ($gate.releaseGate -eq "automation-task-history-unparseable") {
             $anyUnparseable = $true
         } elseif ($gate.releaseGate -ne "passing") {
@@ -1727,10 +1727,10 @@ function Get-AutomationTaskAckGateAggregateReadback([object[]]$TaskPairs, [objec
         $result.state = "failed-unacknowledged"
         $result.releaseGate = "blocked-unacknowledged-failure"
         $result.action = "acknowledge failed automation task before release"
-    } elseif ($anyAcknowledgedReview) {
-        $result.state = "failed-acknowledged"
-        $result.releaseGate = "acknowledged-failure-review-gated"
-        $result.action = "continue remediation; keep release review gate until failures clear"
+    } elseif ($anyAcknowledgedRemediation) {
+        $result.state = "failed-acknowledged-remediation"
+        $result.releaseGate = "acknowledged-operational-remediation-gated"
+        $result.action = "continue operational remediation; keep release gate until failures clear"
     } else {
         $result.state = "passing"
         $result.releaseGate = "passing"
@@ -2294,7 +2294,11 @@ function Get-AutomationTaskWatchGateReadback([object[]]$PreviewRecords, [object]
             $result.action = $SchedulerReadback.action
         }
     } elseif ($null -ne $AckGate -and $AckGate.configured -and $AckGate.releaseGate -ne "passing") {
-        $result.state = "registered-ack-gated"
+        if ($AckGate.releaseGate -eq "acknowledged-operational-remediation-gated") {
+            $result.state = "registered-remediation-gated"
+        } else {
+            $result.state = "registered-ack-gated"
+        }
         $result.releaseGate = $AckGate.releaseGate
         $result.action = $AckGate.action
     } elseif ($null -ne $EvidenceGate -and $EvidenceGate.configured -and $EvidenceGate.releaseGate -ne "passing") {
@@ -2877,13 +2881,20 @@ if (-not $e2eRolloutReadback.configured) {
             (Format-StatusValue $e2eRolloutReadback.readiness), `
             (Format-StatusValue $e2eRolloutReadback.releaseGate), `
             (Format-StatusValue $e2eRolloutReadback.bundle)))
-    $lines.Add(('  Verification sources: ciStatus=`{0}`, ciRunId=`{1}`, ciSource=`{2}`, localBuild=`{3}`, localCTest=`{4}`, count=`{5}`' -f `
-            (Format-StatusValue $e2eRolloutReadback.ciStatus), `
-            (Format-StatusValue $e2eRolloutReadback.ciRunId), `
-            (Format-StatusValue $e2eRolloutReadback.ciSource), `
-            (Format-StatusValue $e2eRolloutReadback.localBuildStatus), `
-            (Format-StatusValue $e2eRolloutReadback.localCTestStatus), `
-            (Format-StatusValue $e2eRolloutReadback.localCTestCount)))
+    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+        $lines.Add(('  Local verification baseline: build=`{0}`, ctest=`{1}`, count=`{2}`, githubWindowsBuild=`disabled/not-required`' -f `
+                (Format-StatusValue $e2eRolloutReadback.localBuildStatus), `
+                (Format-StatusValue $e2eRolloutReadback.localCTestStatus), `
+                (Format-StatusValue $e2eRolloutReadback.localCTestCount)))
+    } else {
+        $lines.Add(('  Verification sources: ciStatus=`{0}`, ciRunId=`{1}`, ciSource=`{2}`, localBuild=`{3}`, localCTest=`{4}`, count=`{5}`' -f `
+                (Format-StatusValue $e2eRolloutReadback.ciStatus), `
+                (Format-StatusValue $e2eRolloutReadback.ciRunId), `
+                (Format-StatusValue $e2eRolloutReadback.ciSource), `
+                (Format-StatusValue $e2eRolloutReadback.localBuildStatus), `
+                (Format-StatusValue $e2eRolloutReadback.localCTestStatus), `
+                (Format-StatusValue $e2eRolloutReadback.localCTestCount)))
+    }
     $lines.Add(('  Recovery gates: filesystemReady=`{0}`, filesystemGate=`{1}`, offlineReady=`{2}`, offlineScope=`{3}`, offlineGate=`{4}`' -f `
             (Format-StatusValue $e2eRolloutReadback.filesystemReady), `
             (Format-StatusValue $e2eRolloutReadback.filesystemGate), `
@@ -2911,13 +2922,21 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.releaseReady), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.inputCount)))
-    $lines.Add(('  Evidence verification: ciStatus=`{0}`, ciVisibility=`{1}`, localBuild=`{2}`, localCTest=`{3}`, count=`{4}`, noSensitiveExport=`{5}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciStatus), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciVisibility), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.localBuildStatus), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
+    if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+        $lines.Add(('  Evidence verification baseline: localBuild=`{0}`, localCTest=`{1}`, count=`{2}`, noSensitiveExport=`{3}`, githubWindowsBuild=`disabled/not-required`' -f `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.localBuildStatus), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
+    } else {
+        $lines.Add(('  Evidence verification: ciStatus=`{0}`, ciVisibility=`{1}`, localBuild=`{2}`, localCTest=`{3}`, count=`{4}`, noSensitiveExport=`{5}`' -f `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciStatus), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciVisibility), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.localBuildStatus), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
+    }
     $lines.Add(('  Evidence artifact: manifestPackagedAs=`{0}`, manifestEmbedded=`{1}`, packageSha256=`{2}`' -f `
             (Format-StatusValue $e2eReleaseEvidenceReadback.manifestPackagedAs), `
             (Format-StatusValue $e2eReleaseEvidenceReadback.manifestEmbedded), `
@@ -2938,18 +2957,18 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
             (Format-StatusValue $e2eReleaseEvidenceReadback.promotionBlockers)))
     $lines.Add(('  Promotion action: `{0}`' -f `
             (Format-StatusValue $e2eReleaseEvidenceReadback.promotionOperatorAction)))
-    $lines.Add(('  Evidence policy gate: currentHeadObserved=`{0}`, externalBlocker=`{1}`, releaseGate=`{2}`, latestObservedHead=`{3}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciCurrentHeadObserved), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciReleaseGate), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ciLatestObservedHead)))
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
-        $lines.Add(('  Evidence local review focus: currentHead=`{0}`, targetReleaseHead=`{1}`, artifactFreshness=`{2}`, note=`{3}`' -f `
+        $lines.Add(('  Evidence local review baseline: currentHead=`{0}`, targetReleaseHead=`{1}`, artifactFreshness=`{2}`, githubWindowsBuild=`disabled/not-required`, note=`{3}`' -f `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact), `
                 'GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.'))
     } else {
+        $lines.Add(('  Evidence policy gate: currentHeadObserved=`{0}`, externalBlocker=`{1}`, releaseGate=`{2}`, latestObservedHead=`{3}`' -f `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciCurrentHeadObserved), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciReleaseGate), `
+                (Format-StatusValue $e2eReleaseEvidenceReadback.ciLatestObservedHead)))
         $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`, currentHead=`{3}`, targetMatchesCurrentHead=`{4}`, stale=`{5}`' -f `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
                 (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadSha), `
@@ -2962,11 +2981,11 @@ if (-not $e2eReleaseEvidenceReadback.configured) {
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled" -and $e2eLinkedReleaseCandidateReadback.state -eq "ok") {
         $linkedSummary =
-            '  Linked runtime candidate: `windows-build-disabled-by-policy; current release review stays on the main E2E release evidence artifact plus local build/CTest.` releaseReady=`{0}`, productionLinked=`{1}`, local=`{2}/{3}`, promotion=`{4}`' -f `
-                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
-                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady), `
+            '  Linked runtime candidate: localBuild=`{0}`, localCTest=`{1}`, productionLinked=`{2}`, releaseReady=`{3}`, promotion=`{4}`, githubWindowsBuild=`disabled/not-required`' -f `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady), `
+                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady), `
                 (Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionGate)
         $linkedBlockers = Format-StatusValue $e2eLinkedReleaseCandidateReadback.promotionBlockers
         if ($linkedBlockers -ne "unknown" -and $linkedBlockers -ne "release-artifact-probe-fixture") {
@@ -3041,12 +3060,20 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
         } else {
             "Regenerate production-linked candidate evidence and resolve non-CI blockers before release promotion."
         }
-        $lines.Add(('  Final production-linked promotion gate: productionLinkedReady=`{0}`, releaseEligible=`{1}`, ciOnlyBlocked=`{2}`, releaseGate=`{3}`, action=`{4}`' -f `
-                (Format-StatusValue $linkedProductionReady), `
-                (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible), `
-                (Format-StatusValue $linkedOnlyCiBlocked), `
-                $finalLinkedPromotionGate, `
-                $finalLinkedPromotionAction))
+        if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
+            $lines.Add(('  Final production-linked promotion review: productionLinkedReady=`{0}`, releaseEligible=`{1}`, releaseGate=`{2}`, action=`{3}`' -f `
+                    (Format-StatusValue $linkedProductionReady), `
+                    (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible), `
+                    $finalLinkedPromotionGate, `
+                    $finalLinkedPromotionAction))
+        } else {
+            $lines.Add(('  Final production-linked promotion gate: productionLinkedReady=`{0}`, releaseEligible=`{1}`, ciOnlyBlocked=`{2}`, releaseGate=`{3}`, action=`{4}`' -f `
+                    (Format-StatusValue $linkedProductionReady), `
+                    (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible), `
+                    (Format-StatusValue $linkedOnlyCiBlocked), `
+                    $finalLinkedPromotionGate, `
+                    $finalLinkedPromotionAction))
+        }
     }
 }
 $lines.Add("")
