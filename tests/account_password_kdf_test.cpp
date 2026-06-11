@@ -1,5 +1,6 @@
 #include "client.h"
 #include "server.h"
+#include "test_redis_support.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -145,6 +146,12 @@ int main(int argc, char** argv) {
     ok = expect(port != 0, "a local chat test port should be available") && ok;
     if (!ok) return 1;
 
+    TestRedisServerEnvironment redis(QStringLiteral("qtchat-account-kdf-test"));
+    QString redisError;
+    ok = expect(redis.start(&redisError), "fake Redis should start for account KDF test") && ok;
+    if (!ok) return 1;
+    redis.applyEnvironment();
+
     const QString dbPath = appDataDir + "/accounts.sqlite3";
 
     {
@@ -199,6 +206,7 @@ int main(int argc, char** argv) {
     disconnectClient(relogin);
 
     server.stop();
+    redis.stop();
     drainEvents();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();

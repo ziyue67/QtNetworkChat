@@ -1,6 +1,7 @@
 #include "client.h"
 #include "message.h"
 #include "server.h"
+#include "test_redis_support.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -245,6 +246,12 @@ int main(int argc, char** argv) {
     bool ok = true;
     ok = expect(port != 0, "a local test port should be available") && ok;
     if (!ok) return 1;
+
+    TestRedisServerEnvironment redis(QStringLiteral("qtchat-server-group-member-update-test"));
+    QString redisError;
+    ok = expect(redis.start(&redisError), "fake Redis should start for server group member update test") && ok;
+    if (!ok) return 1;
+    redis.applyEnvironment();
 
     {
         Server server;
@@ -646,6 +653,7 @@ int main(int argc, char** argv) {
         server.stop();
         drainEvents();
     }
+    redis.stop();
     drainEvents();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();

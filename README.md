@@ -13,7 +13,7 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 - TCP Socket 局域网通信
 - JSON 消息协议
 - 私聊端到端加密已覆盖身份签名协商、信任 pin、默认信任门禁、历史状态治理、私聊文件加密、Redis/object routing 证据和 production crypto fail-closed 状态；详细边界见 [E2E hardening status](docs/e2e-hardening-status.md)。
-- 可选 Redis 在线状态服务，为高并发和多服务实例部署提供 presence 与在线列表共享基础
+- Redis 在线状态与 Pub/Sub 路由是服务端启动前提，为高并发和多服务实例部署提供统一的 presence 与在线列表共享基础
 - 服务端可向 Redis Pub/Sub 发布本实例聊天事件，为跨实例消息路由打基础
 - Redis Pub/Sub 已接入服务端远端聊天事件消费，按实例 ID 去重后转发给本实例在线用户
 - 跨实例私聊收件人在线时不会在原服务实例重复写入离线队列
@@ -79,7 +79,7 @@ QtNetworkChat/
 │   ├── historyservice.h # 本地聊天历史存储与查询服务
 │   ├── mainwindow.h     # 主窗口接口
 │   ├── transfermanager.h # 文件传输恢复菜单和状态事件编排
-│   ├── redisclient.h    # 可选 Redis 在线状态服务客户端
+│   ├── redisclient.h    # Redis 在线状态与 Pub/Sub 客户端
 │   ├── message.h        # 消息结构与序列化
 │   └── server.h         # TCP 服务端接口
 ├── src/
@@ -333,9 +333,9 @@ runtime gate 现在还覆盖 Alice/Bob/Carol 多端 production 身份重新公�
 
 文件传输会把发送端准备清单、续传恢复、完成送达、ACK 拒绝、ACK 超时、临时重试、跨实例大文件失败和离线兜底保留统一映射为用户可读状态。接收端也会把开始接收、分片组包完成、本机保存成功、保存失败、完整性失败和保存文件无法打开接入同一条状态时间线。主界面会同步显示到状态栏、聊天系统消息和聊天提示，并在菜单中提供“复制最近文件状态”，便于把最近一次准备、恢复、接收、保存、打开、失败、重试或兜底状态整理成诊断文本。该诊断只包含文件名、传输 ID、固定 reason、分类、是否可重试和进度字节，不包含对象存储 endpoint、bucket、URL、凭据或签名信息。
 
-### 如何启用 Redis 在线状态服务
+### Redis 运行前提
 
-默认不启用 Redis，服务端仍使用进程内在线用户表。需要为更高并发或多服务实例部署准备在线状态共享时，可以在启动服务端前设置：
+Redis 是服务端必需依赖。当前默认本机开发口径是 Windows 本机 `127.0.0.1:6379`、无密码；服务端启动前至少需要显式启用 Redis，并保证该地址可连接：
 
 ```bash
 set QTNETWORKCHAT_REDIS=1
@@ -349,7 +349,7 @@ set QTNETWORKCHAT_REDIS_PORT=6379
 powershell -ExecutionPolicy Bypass -File scripts/start-with-redis.ps1
 ```
 
-脚本会检查或启动该目录下的 `redis-server.exe`，随后设置 `QTNETWORKCHAT_REDIS=1` 再运行 `QtNetworkChat.exe`。Redis 可用时会启用 presence、在线列表共享和 Pub/Sub 跨实例路由；Redis 不可用时仍保留原有内存在线表和本地转发降级能力，便于本地开发、CI 和单机局域网使用。
+脚本会检查或启动该目录下的 `redis-server.exe`，随后设置 `QTNETWORKCHAT_REDIS=1` 再运行 `QtNetworkChat.exe`。服务端会在启动前执行 Redis 连接与订阅检查；Redis 不可连接或订阅失败时会直接拒绝启动，不再降级到无 Redis 主链路。
 
 如 Redis 配置了密码，可额外设置：
 
@@ -600,7 +600,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package-pgsql-release-evidence.
 
 打包脚本只复制本地文件并扫描敏感字段；发现明文密码、PAT、Authorization、Credential 或 Signature 会失败，除非显式用于本地排障的 `-NoFailOnSensitive`。
 
-启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端会把本实例内存在线表与 Redis presence 合并，因此多个服务实例连接同一个 Redis 时可以共享在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；服务端也会订阅该通道，跳过本实例事件，并把远端群聊/私聊转发给本实例在线用户。文件和图片只在编码后的 Redis 事件体不超过 1 MB 时通过 Pub/Sub 路由；超过该限制的 payload 会留在源实例离线附件队列，后续应按 [Redis 跨实例大文件路由计划](docs/redis-large-file-routing-plan.md) 通过控制面事件加对象存储式数据面承载。Redis 不可用时服务端会回退到原有内存在线表和本地转发，不影响局域网单机服务端运行。
+启用后，服务端会在用户登录和心跳时写入 `qtchat:presence:<QQ号>`，并设置短 TTL，同时维护 `qtchat:presence:users` 在线索引；用户断开或服务端停止时会主动删除该在线状态。发送在线列表时，服务端统一以 Redis presence 为在线真相源，因此多个服务实例连接同一个 Redis 时可以共享一致的在线用户视图。普通群聊和私聊消息完成本地投递后，会发布带 `instanceId` 的 `qtchat:pubsub:messages` 事件；服务端也会订阅该通道，跳过本实例事件，并把远端群聊/私聊转发给本实例在线用户。文件和图片只在编码后的 Redis 事件体不超过 1 MB 时通过 Pub/Sub 路由；超过该限制的 payload 会留在源实例离线附件队列，后续应按 [Redis 跨实例大文件路由计划](docs/redis-large-file-routing-plan.md) 通过控制面事件加对象存储式数据面承载。Redis 在运行中失去连接或订阅后，服务端会进入不可服务状态；恢复连接并重新订阅后才恢复可服务状态。
 
 ### 客户端连接不上服务器
 

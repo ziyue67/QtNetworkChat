@@ -641,6 +641,7 @@ int main(int argc, char** argv) {
     Client alice;
     Client bob;
     QStringList aliceGroupMessages;
+    QStringList aliceSystemMessages;
     QStringList bobGroupMessages;
     QStringList bobPrivateMessages;
     QStringList bobFileNames;
@@ -657,6 +658,8 @@ int main(int argc, char** argv) {
     QObject::connect(&alice, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
             aliceGroupMessages << msg.content;
+        } else if (msg.type == MessageType::System) {
+            aliceSystemMessages << msg.content;
         }
     });
     QObject::connect(&bob, &Client::newMessage, &app, [&](const Message& msg) {
@@ -1850,33 +1853,51 @@ int main(int argc, char** argv) {
     }, 9000), "source offline fallback should replay a failed cross-instance large file") && ok;
     failedFallbackReceiver.disconnectFromServer();
 
-    const QString fallbackPrivateMessage = "Redis private publish failure should fall back offline";
+    const QString unavailablePrivateMessage = "Redis private publish failure should mark service unavailable";
     bobPrivateMessages.clear();
+    aliceSystemMessages.clear();
     QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, true));
-    ok = expect(alice.sendPrivateMessage("960002", fallbackPrivateMessage),
-                "alice should send a private message even when Redis publish fails") && ok;
+    ok = expect(alice.sendPrivateMessage("960002", unavailablePrivateMessage),
+                "alice should still attempt the private message that triggers Redis publish failure") && ok;
     ok = expect(!waitFor([&] {
-        return bobPrivateMessages.contains(fallbackPrivateMessage);
-    }, 500), "bob should not receive the private message immediately when Redis publish fails") && ok;
+        return bobPrivateMessages.contains(unavailablePrivateMessage);
+    }, 500), "bob should not receive the private message when Redis publish fails") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : aliceSystemMessages) {
+            if (message.contains(QString::fromUtf8("私聊消息发送失败"))) {
+                return true;
+            }
+        }
+        return false;
+    }, 1500), "sender should receive a private-message routing failure notice when Redis publish fails") && ok;
 
-    const QString fallbackFileName = "redis-publish-fallback.txt";
-    const QString fallbackFilePath = transferDir.filePath(fallbackFileName);
-    const QByteArray fallbackFilePayload = QByteArrayLiteral("small redis file should fall back offline");
-    QFile fallbackFile(fallbackFilePath);
-    ok = expect(fallbackFile.open(QIODevice::WriteOnly),
-                "fallback transfer file should open for writing") && ok;
-    if (fallbackFile.isOpen()) {
-        ok = expect(fallbackFile.write(fallbackFilePayload) == fallbackFilePayload.size(),
-                    "fallback transfer file should be written") && ok;
-        fallbackFile.close();
+    const QString unavailableFileName = "redis-publish-unavailable.txt";
+    const QString unavailableFilePath = transferDir.filePath(unavailableFileName);
+    const QByteArray unavailableFilePayload = QByteArrayLiteral("small redis file should fail closed when Redis publish fails");
+    QFile unavailableFile(unavailableFilePath);
+    ok = expect(unavailableFile.open(QIODevice::WriteOnly),
+                "unavailable transfer file should open for writing") && ok;
+    if (unavailableFile.isOpen()) {
+        ok = expect(unavailableFile.write(unavailableFilePayload) == unavailableFilePayload.size(),
+                    "unavailable transfer file should be written") && ok;
+        unavailableFile.close();
     }
     bobFileNames.clear();
     bobFilePayloads.clear();
-    ok = expect(alice.sendFile(fallbackFilePath, "960002"),
-                "alice should upload a small file even when Redis publish fails") && ok;
+    aliceSystemMessages.clear();
+    ok = expect(alice.sendFile(unavailableFilePath, "960002"),
+                "alice should still attempt the small file that triggers Redis publish failure") && ok;
     ok = expect(!waitFor([&] {
-        return bobFileNames.contains(fallbackFileName);
-    }, 500), "bob should not receive the file immediately when Redis publish fails") && ok;
+        return bobFileNames.contains(unavailableFileName);
+    }, 500), "bob should not receive the file when Redis publish fails") && ok;
+    ok = expect(waitFor([&] {
+        for (const QString& message : aliceSystemMessages) {
+            if (message.contains(QString::fromUtf8("文件发送失败"))) {
+                return true;
+            }
+        }
+        return false;
+    }, 1500), "sender should receive a file routing failure notice when Redis publish fails") && ok;
     QMetaObject::invokeMethod(fakeRedis, "setPublishFailure", Qt::BlockingQueuedConnection, Q_ARG(bool, false));
 
     bob.disconnectFromServer();
@@ -1891,11 +1912,6 @@ int main(int argc, char** argv) {
     ok = expect(bob.waitForLoginResult(5000),
                 "bob should log in on the first server for offline replay check") && ok;
     ok = expect(waitFor([&] {
-        if (!bobPrivateMessages.contains(fallbackPrivateMessage)
-            || !bobFileNames.contains(fallbackFileName)
-            || !bobFilePayloads.contains(fallbackFilePayload)) {
-            return false;
-        }
         for (const QPair<QString, QByteArray>& fallback : s3WriteFailureFallbacks) {
             if (!bobFileNames.contains(fallback.first)
                 || !bobFilePayloads.contains(fallback.second)) {
@@ -1903,7 +1919,11 @@ int main(int argc, char** argv) {
             }
         }
         return true;
-    }, 9000), "publish and S3 write failures should fall back to the origin server offline queue") && ok;
+    }, 9000), "S3 write failures should still fall back to the origin server offline queue") && ok;
+    ok = expect(!bobPrivateMessages.contains(unavailablePrivateMessage)
+                    && !bobFileNames.contains(unavailableFileName)
+                    && !bobFilePayloads.contains(unavailableFilePayload),
+                "Redis publish failures should not replay private text or small files from an offline fallback") && ok;
     ok = expect(!waitFor([&] {
         return bobPrivateMessages.contains(privateMessage)
             || bobFileNames.contains(fileName)

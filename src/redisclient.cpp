@@ -242,13 +242,25 @@ bool RedisClient::clearPresence(const QString& userId, int timeoutMs) {
 }
 
 bool RedisClient::hasPresence(const QString& userId, int timeoutMs) {
+    bool online = false;
+    return queryPresence(userId, &online, timeoutMs) && online;
+}
+
+bool RedisClient::queryPresence(const QString& userId, bool* online, int timeoutMs) {
+    if (online) *online = false;
     if (!m_enabled || userId.isEmpty()) return false;
 
     Reply reply;
-    return sendCommand({QByteArrayLiteral("GET"), presenceKey(userId)}, &reply, timeoutMs)
-        && reply.type == ReplyType::BulkString
-        && !reply.isNull
-        && !reply.value.isEmpty();
+    if (!sendCommand({QByteArrayLiteral("GET"), presenceKey(userId)}, &reply, timeoutMs)) {
+        return false;
+    }
+
+    if (online) {
+        *online = reply.type == ReplyType::BulkString
+            && !reply.isNull
+            && !reply.value.isEmpty();
+    }
+    return true;
 }
 
 bool RedisClient::fetchOnlinePresence(QList<Presence>* users, int timeoutMs) {
@@ -539,6 +551,7 @@ bool RedisSubscriber::subscribe(const QString& channel, int timeoutMs) {
 
     m_subscribed = true;
     m_reconnectScheduled = false;
+    emit subscriptionStateChanged(true);
     processBuffer();
     return true;
 }
@@ -549,6 +562,7 @@ void RedisSubscriber::disconnectFromServer() {
     m_subscribedChannel.clear();
     m_subscribed = false;
     m_buffer.clear();
+    emit subscriptionStateChanged(false);
     m_socket.disconnectFromHost();
 }
 
@@ -676,6 +690,7 @@ void RedisSubscriber::onReadyRead() {
 void RedisSubscriber::onDisconnected() {
     const bool shouldReconnect = m_enabled && !m_manualDisconnect && !m_subscribedChannel.isEmpty();
     m_subscribed = false;
+    emit subscriptionStateChanged(false);
     emit disconnected();
     if (shouldReconnect) {
         scheduleReconnect();

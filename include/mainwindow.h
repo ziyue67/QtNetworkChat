@@ -30,6 +30,7 @@ namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
 class QAction;
+class QLabel;
 class QListWidget;
 class QLineEdit;
 

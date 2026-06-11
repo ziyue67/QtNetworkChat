@@ -1,4 +1,5 @@
 #include "server.h"
+#include "test_redis_support.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -63,8 +64,14 @@ int main(int argc, char** argv) {
         QDir().mkpath(appDataDir);
     }
 
-    Server server;
     bool ok = true;
+    TestRedisServerEnvironment redis(QStringLiteral("qtchat-database-health-test"));
+    QString redisError;
+    ok = expect(redis.start(&redisError), "fake Redis should start for database health test") && ok;
+    if (!ok) return 1;
+    redis.applyEnvironment();
+
+    Server server;
     ok = expect(server.start(0), "server should start and initialize SQLite account database") && ok;
 
     const QJsonObject health = server.databaseHealthSnapshot();
@@ -152,6 +159,7 @@ int main(int argc, char** argv) {
     }
 
     server.stop();
+    redis.stop();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
     }

@@ -2,6 +2,7 @@
 #include "e2eenvelope.h"
 #include "message.h"
 #include "server.h"
+#include "test_redis_support.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -803,6 +804,12 @@ int main(int argc, char** argv) {
     bool ok = true;
     ok = expect(port != 0, "a local test port should be available") && ok;
     if (!ok) return 1;
+
+    TestRedisServerEnvironment redis(QStringLiteral("qtchat-offline-attachment-quota-test"));
+    QString redisError;
+    ok = expect(redis.start(&redisError), "fake Redis should start for offline attachment quota test") && ok;
+    if (!ok) return 1;
+    redis.applyEnvironment();
 
     const QString orphanDirPath = appDataDir + "/offline_files/orphan";
     ok = expect(QDir().mkpath(orphanDirPath),
@@ -2045,6 +2052,7 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] { return senderDisconnected; }),
                 "server should observe sender disconnect before shutdown") && ok;
     server.stop();
+    redis.stop();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
     }
