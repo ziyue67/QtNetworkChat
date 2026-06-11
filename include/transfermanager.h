@@ -270,6 +270,15 @@ public:
                                                                   bool saved,
                                                                   bool integrityFailed);
     static TransferReceiveRenderPlan receivedTransferRenderPlan(const TransferReceiveSaveUiState& uiState);
+    static TransferReceiveRenderPlan receivedTransferPersistenceRenderPlan(const QString& kind,
+                                                                          const QString& receivedName,
+                                                                          const QString& receivedSize,
+                                                                          const QString& displayName,
+                                                                          const QString& manifestSuffix,
+                                                                          const QString& integrityText,
+                                                                          const QString& integritySuffix,
+                                                                          const QString& savePath,
+                                                                          bool saved);
     static TransferProgressUiState resumeInitialState(const QString& fileName,
                                                       const QString& targetName);
     static TransferProgressUiState resumeCancelState(const QString& fileName);

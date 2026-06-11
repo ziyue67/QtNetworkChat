@@ -647,6 +647,29 @@ TransferReceiveRenderPlan TransferManager::receivedTransferRenderPlan(const Tran
     return result;
 }
 
+TransferReceiveRenderPlan TransferManager::receivedTransferPersistenceRenderPlan(const QString& kind,
+                                                                                 const QString& receivedName,
+                                                                                 const QString& receivedSize,
+                                                                                 const QString& displayName,
+                                                                                 const QString& manifestSuffix,
+                                                                                 const QString& integrityText,
+                                                                                 const QString& integritySuffix,
+                                                                                 const QString& savePath,
+                                                                                 bool saved) {
+    const bool integrityFailed = integrityText.startsWith(QStringLiteral("完整性校验失败"));
+    const TransferReceiveSaveUiState uiState = receivedTransferSaveUiState(kind,
+                                                                           receivedName,
+                                                                           receivedSize,
+                                                                           displayName,
+                                                                           manifestSuffix,
+                                                                           integrityText,
+                                                                           integritySuffix,
+                                                                           savePath,
+                                                                           saved,
+                                                                           integrityFailed);
+    return receivedTransferRenderPlan(uiState);
+}
+
 TransferProgressUiState TransferManager::resumeInitialState(const QString& fileName,
                                                             const QString& targetName) {
     TransferProgressUiState result;

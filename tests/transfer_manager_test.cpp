@@ -534,6 +534,38 @@ int main(int argc, char** argv) {
                     && failedReceivePlan.statusTimeoutMs == 3200,
                 "failed receive render plan should centralize failure item and status surfaces") && ok;
 
+    TransferReceiveRenderPlan savedPersistencePlan =
+        TransferManager::receivedTransferPersistenceRenderPlan(QString::fromUtf8("文件"),
+                                                              QStringLiteral("report.zip"),
+                                                              QStringLiteral("4.0 KB"),
+                                                              QString::fromUtf8("好友A"),
+                                                              QString::fromUtf8(" · 4片"),
+                                                              QString::fromUtf8("完整性已验证"),
+                                                              QString::fromUtf8(" · 完整性已验证"),
+                                                              QStringLiteral("C:/Downloads/report.zip"),
+                                                              true);
+    ok = expect(savedPersistencePlan.chatItems.size() == 3
+                    && savedPersistencePlan.eventReason == QStringLiteral("receive-saved")
+                    && savedPersistencePlan.hintText.contains(QString::fromUtf8("已接收文件"))
+                    && savedPersistencePlan.statusMessage.contains(QString::fromUtf8("已保存到下载目录")),
+                "received transfer persistence render plan should centralize saved receive rendering") && ok;
+
+    TransferReceiveRenderPlan failedPersistencePlan =
+        TransferManager::receivedTransferPersistenceRenderPlan(QString::fromUtf8("图片"),
+                                                              QStringLiteral("photo.png"),
+                                                              QStringLiteral("512 KB"),
+                                                              QString::fromUtf8("好友A"),
+                                                              QString(),
+                                                              QString(),
+                                                              QString(),
+                                                              QStringLiteral("C:/Downloads/photo.png"),
+                                                              false);
+    ok = expect(failedPersistencePlan.chatItems.size() == 1
+                    && failedPersistencePlan.eventReason == QStringLiteral("receive-save-failed")
+                    && failedPersistencePlan.hintText == QString::fromUtf8("图片保存失败 · photo.png · 来自 好友A")
+                    && failedPersistencePlan.statusMessage == QString::fromUtf8("图片保存失败，请检查下载目录权限"),
+                "received transfer persistence render plan should centralize failed receive rendering") && ok;
+
     TransferProgressUiState resumeCancel = TransferManager::resumeCancelState(QStringLiteral("report.zip"));
     ok = expect(resumeCancel.labelText.contains(QString::fromUtf8("正在取消恢复发送"))
                     && resumeCancel.labelText.contains(QStringLiteral("report.zip")),
