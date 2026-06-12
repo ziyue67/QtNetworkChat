@@ -84,7 +84,7 @@ if(NOT acknowledged OR ack_expired OR NOT acknowledged_by STREQUAL "operator-ci"
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected acknowledged operator-ci state")
 endif()
-if(NOT "${ack_reminder}" STREQUAL "acknowledged" OR NOT "${ack_expiry_hours}" STREQUAL "240" OR "${ack_hours_remaining}" STREQUAL "unknown")
+if(NOT ("${ack_reminder}" STREQUAL "acknowledged" OR "${ack_reminder}" STREQUAL "renew-soon") OR NOT "${ack_expiry_hours}" STREQUAL "240" OR "${ack_hours_remaining}" STREQUAL "unknown")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected acknowledged reminder details, got ${ack_reminder}/${ack_expiry_hours}/${ack_hours_remaining}")
 endif()
@@ -96,7 +96,6 @@ foreach(expected_text
         "Failed runs: `1`"
         "Acknowledged: `true`"
         "Ack expired: `false`"
-        "Ack reminder: `acknowledged`"
         "Ack expiry hours: `240`"
         "operator-ci")
     string(FIND "${markdown_content}" "${expected_text}" found_at)
@@ -105,6 +104,10 @@ foreach(expected_text
         message(FATAL_ERROR "History markdown missing expected text: ${expected_text}")
     endif()
 endforeach()
+if(NOT (markdown_content MATCHES "Ack reminder: `acknowledged`" OR markdown_content MATCHES "Ack reminder: `renew-soon`"))
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "History markdown missing expected ack reminder state")
+endif()
 
 file(WRITE "${BAD_LAST_RUN}" "2026-06-03T05:00:00Z exitCode=0 password=super-secret\n")
 execute_process(

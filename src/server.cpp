@@ -368,13 +368,6 @@ void recordAccountDatabaseOpenFailure(const QString& scope, const QSqlError& err
     metrics.lastFailureScope = scope;
 }
 
-void recordAccountDatabaseBackoffSkip(const QString& scope) {
-    QMutexLocker locker(&accountDatabasePoolMutex());
-    AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
-    ++metrics.backoffSkips;
-    metrics.lastFailureScope = scope;
-}
-
 void recordAccountDatabaseQueryResult(const QString& scope, qint64 elapsedMs, bool ok, const QSqlError& error = QSqlError()) {
     QMutexLocker locker(&accountDatabasePoolMutex());
     AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();

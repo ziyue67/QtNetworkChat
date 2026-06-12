@@ -21,4 +21,4 @@ QtNetworkChat treats the server as a transparent carrier for private-message E2E
 
 ## Remaining Production Crypto Work
 
-- Final production-linked release promotion still needs an accepted rollout observability artifact from a linked reviewed OpenSSL build; default unlinked builds remain fail-closed.
+- Linked reviewed OpenSSL builds now produce a current-HEAD production-linked release artifact that reaches `ready-local-verification-only` under the repo policy that disables GitHub Windows Build. Default unlinked builds remain fail-closed, and probe fixtures stay validation-only. The remaining work is the human/local release review and any non-E2E operational gates that still block a final archive decision.

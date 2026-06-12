@@ -14,7 +14,11 @@ file(MAKE_DIRECTORY "${TEMP_DIR}")
 set(SOURCE_DIR "${TEMP_DIR}/source-candidate")
 set(SOURCE_EVIDENCE_DIR "${SOURCE_DIR}/e2e-release-evidence")
 set(OUTPUT_DIR "${TEMP_DIR}/current-head-candidate")
+set(SOURCE_BUILD_DIR "${TEMP_DIR}/source-build")
+set(SOURCE_BUILD_EVIDENCE_DIR "${SOURCE_BUILD_DIR}/e2e_rollout_observability_evidence")
+set(OUTPUT_BUILD_DIR "${TEMP_DIR}/current-head-candidate-from-build")
 file(MAKE_DIRECTORY "${SOURCE_EVIDENCE_DIR}")
+file(MAKE_DIRECTORY "${SOURCE_BUILD_EVIDENCE_DIR}")
 
 set(ROLLOUT_JSON "${SOURCE_EVIDENCE_DIR}/e2e-rollout-observability.json")
 set(ROLLOUT_MD "${SOURCE_EVIDENCE_DIR}/e2e-rollout-observability.md")
@@ -74,6 +78,8 @@ file(WRITE "${ROLLOUT_JSON}" "{\n"
 "  }\n"
 "}\n")
 file(WRITE "${ROLLOUT_MD}" "# Linked rollout evidence\n\n- Release gate: `production-rollout-observability-ready`\n")
+file(COPY "${ROLLOUT_JSON}" DESTINATION "${SOURCE_BUILD_EVIDENCE_DIR}")
+file(COPY "${ROLLOUT_MD}" DESTINATION "${SOURCE_BUILD_EVIDENCE_DIR}")
 file(WRITE "${CI_JSON}" "{\n"
 "  \"format\":\"qtnetworkchat-github-windows-build-status-v1\",\n"
 "  \"headSha\":\"not-required\",\n"
@@ -156,6 +162,55 @@ if(NOT target_head STREQUAL "current-linked-head"
         OR NOT promotion_blocker_count EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Linked candidate should be current-head, production-linked, non-probe, and ready via local verification when Windows Build is disabled by policy")
+endif()
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -SourceCandidateDir "${SOURCE_BUILD_DIR}"
+        -OutputDir "${OUTPUT_BUILD_DIR}"
+        -GitHubWindowsBuildStatusPath "${CI_JSON}"
+        -LocalVerificationStatusPath "${LOCAL_JSON}"
+        -AutomationStatusPath "${AUTOMATION_MD}"
+        -ReleaseHead "current-linked-head-from-build"
+        -FailOnSensitive
+    RESULT_VARIABLE promote_build_result
+    OUTPUT_VARIABLE promote_build_stdout
+    ERROR_VARIABLE promote_build_stderr
+)
+if(NOT promote_build_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(STATUS "Promote linked build output: ${promote_build_stdout}\n${promote_build_stderr}")
+    message(FATAL_ERROR "Linked candidate promotion should also accept direct linked-build rollout evidence")
+endif()
+
+set(MANIFEST_BUILD_JSON "${OUTPUT_BUILD_DIR}/e2e-release-evidence-manifest.json")
+set(PROMOTION_BUILD_JSON "${OUTPUT_BUILD_DIR}/e2e-release-promotion.json")
+if(NOT EXISTS "${MANIFEST_BUILD_JSON}" OR NOT EXISTS "${PROMOTION_BUILD_JSON}")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Linked build promotion did not write manifest and promotion artifacts")
+endif()
+file(READ "${MANIFEST_BUILD_JSON}" manifest_build_content)
+file(READ "${PROMOTION_BUILD_JSON}" promotion_build_content)
+string(JSON build_target_head GET "${manifest_build_content}" "targetReleaseHead")
+string(JSON build_release_ready GET "${manifest_build_content}" "releaseReady")
+string(JSON build_release_gate GET "${manifest_build_content}" "releaseGate")
+string(JSON build_release_eligible GET "${manifest_build_content}" "releaseEligible")
+string(JSON build_probe_fixture GET "${manifest_build_content}" "probeFixture")
+string(JSON build_input_count GET "${manifest_build_content}" "inputCount")
+string(JSON build_promotion_ready GET "${promotion_build_content}" "promotionReady")
+string(JSON build_promotion_promoted GET "${promotion_build_content}" "promoted")
+string(JSON build_promotion_gate GET "${promotion_build_content}" "releaseGate")
+if(NOT build_target_head STREQUAL "current-linked-head-from-build"
+        OR NOT build_release_ready
+        OR NOT build_release_gate STREQUAL "ready-local-verification-only"
+        OR NOT build_release_eligible
+        OR build_probe_fixture
+        OR NOT build_input_count EQUAL 5
+        OR NOT build_promotion_ready
+        OR NOT build_promotion_promoted
+        OR NOT build_promotion_gate STREQUAL "ready-local-verification-only")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Direct linked-build rollout evidence should promote into a ready current-head candidate")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

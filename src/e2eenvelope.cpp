@@ -11289,7 +11289,7 @@ QJsonObject cryptoOperationStatus(E2ECryptoOperation operation,
     return obj;
 }
 
-QJsonObject currentCryptoOperationStatus(E2ECryptoOperation operation) {
+[[maybe_unused]] QJsonObject currentCryptoOperationStatus(E2ECryptoOperation operation) {
     QString source;
     const QString requested = requestedBackendId(&source);
     return cryptoOperationStatus(operation, requested, e2eProductionCryptoRequired());
@@ -11688,7 +11688,6 @@ QJsonObject e2eCryptoBackendStatus() {
     QString selectionSource;
     const QString requested = requestedBackendId(&selectionSource);
     const E2ECryptoAdapterDescriptor requestedDescriptor = cryptoAdapterForBackend(requested);
-    const bool selectedDraft = requested == QString::fromLatin1(DraftBackendId);
     const bool selectedProduction = requested == QString::fromLatin1(ProductionBackendId);
     QString availabilityReason;
     const bool available = e2eCryptoBackendAvailable(&availabilityReason);

@@ -263,7 +263,8 @@ bool RedisClient::fetchOnlinePresence(QList<Presence>* users, int timeoutMs) {
     }
 
     QList<QByteArray> userIds;
-    for (const Reply& member : membersReply.elements) {
+    const QList<Reply>& members = membersReply.elements;
+    for (const Reply& member : members) {
         if (member.type == ReplyType::BulkString && !member.isNull && !member.value.isEmpty()) {
             userIds.append(member.value);
         }

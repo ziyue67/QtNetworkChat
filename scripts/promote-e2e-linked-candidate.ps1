@@ -1,5 +1,5 @@
 param(
-    [string]$SourceCandidateDir = "build-qt6-mingw\e2e_release_evidence",
+    [string]$SourceCandidateDir = "build-qt6-mingw\e2e_release_evidence_linked_candidate",
     [string]$OutputDir = "build-qt6-mingw\e2e_release_evidence_linked_candidate",
     [string]$GitHubWindowsBuildStatusPath = "build-qt6-mingw\github-windows-build-status.json",
     [string]$LocalVerificationStatusPath = "build-qt6-mingw\local-verification-status.json",
@@ -23,6 +23,35 @@ function Ensure-File([string]$PathValue, [string]$Label) {
     if (-not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
         throw ("Missing {0}: {1}" -f $Label, $PathValue)
     }
+}
+
+function Resolve-LinkedRolloutSource([string]$BaseDir) {
+    $candidates = @(
+        [pscustomobject]@{
+            label = "packaged-linked-candidate"
+            json = Join-Path $BaseDir "e2e-release-evidence\e2e-rollout-observability.json"
+            markdown = Join-Path $BaseDir "e2e-release-evidence\e2e-rollout-observability.md"
+        },
+        [pscustomobject]@{
+            label = "linked-build-rollout-evidence"
+            json = Join-Path $BaseDir "e2e_rollout_observability_evidence\e2e-rollout-observability.json"
+            markdown = Join-Path $BaseDir "e2e_rollout_observability_evidence\e2e-rollout-observability.md"
+        },
+        [pscustomobject]@{
+            label = "direct-rollout-evidence"
+            json = Join-Path $BaseDir "e2e-rollout-observability.json"
+            markdown = Join-Path $BaseDir "e2e-rollout-observability.md"
+        }
+    )
+
+    foreach ($candidate in $candidates) {
+        if ((Test-Path -LiteralPath $candidate.json -PathType Leaf) `
+                -and (Test-Path -LiteralPath $candidate.markdown -PathType Leaf)) {
+            return $candidate
+        }
+    }
+
+    throw ("SourceCandidateDir does not contain linked rollout observability evidence: {0}" -f $BaseDir)
 }
 
 function Get-JsonValue([object]$ObjectValue, [string]$Name, [object]$DefaultValue = $null) {
@@ -85,11 +114,11 @@ if ([string]::IsNullOrWhiteSpace($gitHubWindowsBuildPolicyResolved)) {
     $gitHubWindowsBuildPolicyResolved = "required"
 }
 
-$sourceEvidenceDir = Join-Path $resolvedSourceCandidateDir "e2e-release-evidence"
-$sourceRolloutJson = Join-Path $sourceEvidenceDir "e2e-rollout-observability.json"
-$sourceRolloutMarkdown = Join-Path $sourceEvidenceDir "e2e-rollout-observability.md"
-Ensure-File $sourceRolloutJson "linked rollout JSON"
-Ensure-File $sourceRolloutMarkdown "linked rollout Markdown"
+$sourceRollout = Resolve-LinkedRolloutSource $resolvedSourceCandidateDir
+$sourceRolloutJson = $sourceRollout.json
+$sourceRolloutMarkdown = $sourceRollout.markdown
+Ensure-File $sourceRolloutJson ("linked rollout JSON ({0})" -f $sourceRollout.label)
+Ensure-File $sourceRolloutMarkdown ("linked rollout Markdown ({0})" -f $sourceRollout.label)
 if ($gitHubWindowsBuildPolicyResolved -ne "disabled") {
     Ensure-File $resolvedCiPath "GitHub Windows Build status"
 }

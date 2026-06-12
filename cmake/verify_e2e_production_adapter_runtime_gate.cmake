@@ -13,12 +13,30 @@ endif()
 if(NOT DEFINED QT_BIN_DIR OR NOT EXISTS "${QT_BIN_DIR}")
     message(FATAL_ERROR "QT_BIN_DIR is required")
 endif()
+execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY "${SOURCE_DIR}"
+    RESULT_VARIABLE current_head_result
+    OUTPUT_VARIABLE current_head_stdout
+    ERROR_VARIABLE current_head_stderr
+)
+if(NOT current_head_result EQUAL 0)
+    message(STATUS "Captured current HEAD output: ${current_head_stdout}\n${current_head_stderr}")
+    message(FATAL_ERROR "Production adapter runtime gate should resolve the current repository HEAD")
+endif()
+string(STRIP "${current_head_stdout}" CURRENT_HEAD_SHA)
+if("${CURRENT_HEAD_SHA}" STREQUAL "")
+    message(FATAL_ERROR "Production adapter runtime gate resolved an empty current repository HEAD")
+endif()
 set(RELEASE_EVIDENCE_PACKAGER "${SOURCE_DIR}/scripts/package-e2e-release-evidence.ps1")
 if(NOT EXISTS "${RELEASE_EVIDENCE_PACKAGER}")
     message(FATAL_ERROR "E2E release evidence packager does not exist: ${RELEASE_EVIDENCE_PACKAGER}")
 endif()
 if(DEFINED LINKED_RELEASE_CANDIDATE_DIR AND NOT "${LINKED_RELEASE_CANDIDATE_DIR}" STREQUAL "")
     file(REMOVE_RECURSE "${LINKED_RELEASE_CANDIDATE_DIR}")
+endif()
+if(DEFINED CURRENT_HEAD_LINKED_RELEASE_CANDIDATE_DIR AND NOT "${CURRENT_HEAD_LINKED_RELEASE_CANDIDATE_DIR}" STREQUAL "")
+    file(REMOVE_RECURSE "${CURRENT_HEAD_LINKED_RELEASE_CANDIDATE_DIR}")
 endif()
 
 file(REMOVE_RECURSE "${PROBE_BUILD_DIR}")
@@ -236,6 +254,31 @@ if(evidence_result EQUAL 0 AND EXISTS "${evidence_json}" AND EXISTS "${evidence_
         else()
             set(release_package_result 5)
             set(release_package_stderr "release-package-manifest-or-promotion-missing")
+        endif()
+    endif()
+
+    if(release_package_result EQUAL 0
+            AND DEFINED CURRENT_HEAD_LINKED_RELEASE_CANDIDATE_DIR
+            AND NOT "${CURRENT_HEAD_LINKED_RELEASE_CANDIDATE_DIR}" STREQUAL "")
+        set(current_head_candidate_status_md "${evidence_dir}/current-head-automation-status.md")
+        file(WRITE "${current_head_candidate_status_md}" "# Automation Status\n\n- Current-head linked candidate fixture.\n")
+        execute_process(
+            COMMAND powershell -ExecutionPolicy Bypass -File "${SOURCE_DIR}/scripts/promote-e2e-linked-candidate.ps1"
+                -SourceCandidateDir "${evidence_dir}"
+                -OutputDir "${CURRENT_HEAD_LINKED_RELEASE_CANDIDATE_DIR}"
+                -LocalVerificationStatusPath "${release_local_json}"
+                -AutomationStatusPath "${current_head_candidate_status_md}"
+                -ReleaseHead "${CURRENT_HEAD_SHA}"
+                -GitHubWindowsBuildPolicy "disabled"
+                -FailOnSensitive
+            RESULT_VARIABLE current_head_candidate_result
+            OUTPUT_VARIABLE current_head_candidate_stdout
+            ERROR_VARIABLE current_head_candidate_stderr
+        )
+        if(NOT current_head_candidate_result EQUAL 0)
+            set(release_package_result ${current_head_candidate_result})
+            set(release_package_stdout "${release_package_stdout}\n${current_head_candidate_stdout}")
+            set(release_package_stderr "${release_package_stderr}\n${current_head_candidate_stderr}")
         endif()
     endif()
 elseif(evidence_result EQUAL 0)
