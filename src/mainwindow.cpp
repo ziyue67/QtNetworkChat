@@ -3008,10 +3008,6 @@ void MainWindow::showAvatarWorkspace() {
         updatePreview();
         updateActionState();
     });
-    connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
-        updatePreview();
-        updateActionState();
-    });
     connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [runSelectedCommand](QListWidgetItem*) {
         runSelectedCommand();
     });
@@ -10868,6 +10864,301 @@ void MainWindow::showUserEntryWorkspace(const QString& targetId, const QString& 
     dialog.exec();
 }
 
+QList<GroupInfoWorkspaceRow> MainWindow::buildGroupInfoWorkspaceRows(bool localGroupContext,
+                                                                     bool removedFromPublicGroup,
+                                                                     const QString& currentGroupId,
+                                                                     const QString& currentGroupName,
+                                                                     const QString& ownerName,
+                                                                     const QString& announcementText) const {
+    QList<GroupInfoWorkspaceRow> rows;
+
+    rows << GroupInfoWorkspaceRow{
+        QStringLiteral("group-overview"),
+        localGroupContext ? QStringLiteral("当前群聊 · %1").arg(currentGroupName) : QStringLiteral("公共聊天室"),
+        localGroupContext
+            ? QStringLiteral("群主 %1 · 成员 %2").arg(ownerName).arg(m_localGroupMembers.value(currentGroupId).size())
+            : (removedFromPublicGroup
+                   ? QStringLiteral("公共群历史只读")
+                   : QStringLiteral("群主 %1 · 公共群成员 %2").arg(ownerName).arg(m_serverGroupMembers.value(QStringLiteral("public")).size())),
+        QStringLiteral("群信息总览\n群名：%1\n群主：%2\n公告：%3")
+            .arg(currentGroupName,
+                 ownerName,
+                 announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText),
+        QStringLiteral("群 总览 公告 成员"),
+        true,
+        false};
+
+    rows << GroupInfoWorkspaceRow{
+        QStringLiteral("group-announcement"),
+        QStringLiteral("群公告"),
+        announcementText.isEmpty() ? QStringLiteral("当前暂无群公告") : announcementText.left(42),
+        QStringLiteral("群公告\n%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText),
+        QStringLiteral("群公告 编辑 公告"),
+        false,
+        false};
+
+    rows << GroupInfoWorkspaceRow{
+        QStringLiteral("group-members"),
+        QStringLiteral("群成员工作区"),
+        localGroupContext
+            ? QStringLiteral("当前群成员 %1").arg(m_localGroupMembers.value(currentGroupId).size())
+            : QStringLiteral("当前可见成员 %1").arg(m_serverGroupMembers.value(QStringLiteral("public")).size()),
+        QStringLiteral("群成员工作区\n集中处理成员查看、邀请、备注、复制和权限动作。"),
+        QStringLiteral("群成员 工作区 邀请 备注"),
+        false,
+        false};
+
+    rows << GroupInfoWorkspaceRow{
+        QStringLiteral("group-notices"),
+        QStringLiteral("群通知"),
+        QStringLiteral("查看群创建、群名片、公告和成员摘要"),
+        QStringLiteral("群通知工作区\n统一查看群入口、群公告、成员复制、媒体包和批量计划。"),
+        QStringLiteral("群通知 公告 成员"),
+        false,
+        false};
+
+    if (localGroupContext) {
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-invite-friend"),
+            QStringLiteral("邀请好友"),
+            QStringLiteral("从现有好友里选择成员加入当前群聊"),
+            QStringLiteral("邀请好友\n从好友列表里选人加入当前群聊，保持当前群上下文。"),
+            QStringLiteral("邀请 好友 入群"),
+            false,
+            false};
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-invite-account"),
+            QStringLiteral("按QQ号邀请"),
+            QStringLiteral("输入 QQ 号邀请成员入群"),
+            QStringLiteral("按 QQ 号邀请\n可邀请还不是好友的人，并按需补发好友申请。"),
+            QStringLiteral("QQ 邀请 成员"),
+            false,
+            false};
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-rename"),
+            QStringLiteral("重命名群聊"),
+            QStringLiteral("调整当前本地群聊名称"),
+            QStringLiteral("重命名群聊\n会同步更新左侧列表、会话标题和后续邀请上下文。"),
+            QStringLiteral("重命名 群聊"),
+            false,
+            false};
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-delete"),
+            QStringLiteral("删除群聊"),
+            QStringLiteral("删除本地群聊配置，聊天记录不会在此步骤删除"),
+            QStringLiteral("删除群聊\n会移除本地群聊配置；历史聊天记录不会在此步骤删除。"),
+            QStringLiteral("删除 群聊"),
+            false,
+            true};
+        return rows;
+    }
+
+    rows << GroupInfoWorkspaceRow{
+        QStringLiteral("group-back-public"),
+        QStringLiteral("返回公共群主会话"),
+        QStringLiteral("回到公共聊天室当前会话视图"),
+        QStringLiteral("公共群主会话\n可恢复公共聊天室视图、公告和成员面板。"),
+        QStringLiteral("公共群 返回 会话"),
+        false,
+        false};
+    return rows;
+}
+
+void MainWindow::fillGroupInfoWorkspaceList(QListWidget* listWidget,
+                                            QLabel* statsLabel,
+                                            const QList<GroupInfoWorkspaceRow>& rows,
+                                            const QString& filter,
+                                            const QString& emptyPreviewText) const {
+    if (!listWidget || !statsLabel) {
+        return;
+    }
+    listWidget->clear();
+    int visibleCount = 0;
+    for (const GroupInfoWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !(row.title + row.detail + row.preview + row.keywords).contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.commandId);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (row.accent) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.dangerous) {
+            item->setForeground(QColor(180, 35, 24));
+        }
+        listWidget->addItem(item);
+        ++visibleCount;
+    }
+    if (visibleCount == 0) {
+        addWorkspaceEmptyStateItem(
+            listWidget,
+            QStringLiteral("没有匹配的群信息动作"),
+            QStringLiteral("试试“公告”、“成员”、“通知”或“邀请”这些关键词。"),
+            emptyPreviewText);
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+    selectPreferredListRow(listWidget, 0);
+}
+
+GroupInfoWorkspaceRow* MainWindow::selectedGroupInfoWorkspaceRow(QList<GroupInfoWorkspaceRow>& rows,
+                                                                 QListWidget* listWidget) const {
+    if (!listWidget) {
+        return nullptr;
+    }
+    QListWidgetItem* currentItem = listWidget->currentItem();
+    if (!currentItem) {
+        return nullptr;
+    }
+    const QString id = currentItem->data(Qt::UserRole).toString();
+    for (GroupInfoWorkspaceRow& row : rows) {
+        if (row.commandId == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::groupInfoWorkspaceCardText(bool localGroupContext,
+                                               const QString& currentGroupName,
+                                               const QString& currentGroupId,
+                                               const QString& ownerName,
+                                               const QString& announcementText) const {
+    return QStringLiteral("群信息卡\n群名:%1\n群标识:%2\n群主:%3\n成员:%4\n公告:%5")
+        .arg(currentGroupName,
+             currentGroupId,
+             ownerName,
+             localGroupContext
+                 ? QString::number(m_localGroupMembers.value(currentGroupId).size())
+                 : QString::number(m_serverGroupMembers.value(QStringLiteral("public")).size()),
+             announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
+}
+
+QString MainWindow::groupInfoWorkspaceStatusText(bool localGroupContext,
+                                                 bool removedFromPublicGroup,
+                                                 const QString& currentGroupName,
+                                                 const QString& currentGroupId,
+                                                 const QString& ownerName,
+                                                 const QString& announcementText) const {
+    QStringList lines;
+    lines << QStringLiteral("群信息工作区状态");
+    lines << QStringLiteral("群名:%1").arg(currentGroupName);
+    lines << QStringLiteral("群标识:%1").arg(currentGroupId);
+    lines << QStringLiteral("群主:%1").arg(ownerName);
+    lines << QStringLiteral("公告:%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
+    lines << QStringLiteral("上下文:%1").arg(localGroupContext ? QStringLiteral("本地群聊") : (removedFromPublicGroup ? QStringLiteral("公共群历史只读") : QStringLiteral("公共聊天室")));
+    return lines.join(QLatin1Char('\n'));
+}
+
+void MainWindow::updateGroupInfoWorkspaceActionState(QPushButton* openBtn,
+                                                     QPushButton* copyCardBtn,
+                                                     QPushButton* copyStatusBtn,
+                                                     QListWidget* listWidget,
+                                                     QList<GroupInfoWorkspaceRow>& rows) const {
+    GroupInfoWorkspaceRow* row = selectedGroupInfoWorkspaceRow(rows, listWidget);
+    const bool hasActionableRow = hasEnabledListRow(listWidget);
+    if (!openBtn || !copyCardBtn || !copyStatusBtn) {
+        return;
+    }
+    if (!row) {
+        openBtn->setEnabled(false);
+        openBtn->setText(QStringLiteral("执行当前动作"));
+        openBtn->setToolTip(hasActionableRow
+                                ? QStringLiteral("先选择一个群信息动作后继续查看公告、成员、通知或邀请管理")
+                                : QStringLiteral("当前没有可执行的群信息动作"));
+        copyCardBtn->setEnabled(hasActionableRow);
+        copyCardBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("复制当前群信息工作区总览")
+                                    : QStringLiteral("当前没有可复制的群信息摘要"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制群信息工作区当前状态"));
+        return;
+    }
+
+    openBtn->setEnabled(true);
+    if (row->commandId == QLatin1String("group-overview")
+        || row->commandId == QLatin1String("group-members")) {
+        openBtn->setText(QStringLiteral("打开群成员工作区"));
+        openBtn->setToolTip(QStringLiteral("进入群成员工作区继续查看成员、复制摘要或处理邀请动作"));
+    } else if (row->commandId == QLatin1String("group-announcement")) {
+        openBtn->setText(QStringLiteral("编辑群公告"));
+        openBtn->setToolTip(QStringLiteral("打开群公告编辑入口"));
+    } else if (row->commandId == QLatin1String("group-notices")) {
+        openBtn->setText(QStringLiteral("打开群通知"));
+        openBtn->setToolTip(QStringLiteral("进入群通知工作区"));
+    } else if (row->commandId == QLatin1String("group-invite-friend")) {
+        openBtn->setText(QStringLiteral("邀请好友入群"));
+        openBtn->setToolTip(QStringLiteral("从好友列表里选择成员加入当前群聊"));
+    } else if (row->commandId == QLatin1String("group-invite-account")) {
+        openBtn->setText(QStringLiteral("按 QQ 号邀请"));
+        openBtn->setToolTip(QStringLiteral("输入 QQ 号邀请成员入群"));
+    } else if (row->commandId == QLatin1String("group-rename")) {
+        openBtn->setText(QStringLiteral("重命名群聊"));
+        openBtn->setToolTip(QStringLiteral("调整当前本地群聊名称"));
+    } else if (row->commandId == QLatin1String("group-back-public")) {
+        openBtn->setText(QStringLiteral("返回公共会话"));
+        openBtn->setToolTip(QStringLiteral("回到公共聊天室当前会话视图"));
+    } else {
+        openBtn->setText(QStringLiteral("删除群聊"));
+        openBtn->setToolTip(QStringLiteral("删除当前本地群聊配置"));
+    }
+    copyCardBtn->setEnabled(true);
+    copyCardBtn->setToolTip(row->commandId == QLatin1String("group-overview")
+                                ? QStringLiteral("复制当前群信息卡")
+                                : (row->commandId == QLatin1String("group-announcement")
+                                       ? QStringLiteral("复制当前群公告摘要")
+                                       : QStringLiteral("复制当前选中群信息卡")));
+    copyStatusBtn->setEnabled(true);
+    copyStatusBtn->setToolTip(QStringLiteral("复制群信息工作区当前状态"));
+}
+
+void MainWindow::runGroupInfoWorkspaceCommand(const QString& commandId,
+                                              bool localGroupContext,
+                                              const QString& currentGroupId,
+                                              const QString& currentGroupName,
+                                              QDialog* dialog) {
+    if (commandId == QLatin1String("group-overview")
+        || commandId == QLatin1String("group-members")) {
+        if (dialog) dialog->accept();
+        onShowGroupMemberWorkspace();
+        return;
+    }
+    if (commandId == QLatin1String("group-announcement")) {
+        if (dialog) dialog->accept();
+        onEditGroupAnnouncement();
+        return;
+    }
+    if (commandId == QLatin1String("group-notices")) {
+        if (dialog) dialog->accept();
+        onShowGroupNotifications();
+        return;
+    }
+    if (commandId == QLatin1String("group-invite-friend")) {
+        if (dialog) dialog->accept();
+        showInviteFriendToGroupWorkspace(currentGroupId, this);
+        return;
+    }
+    if (commandId == QLatin1String("group-invite-account")) {
+        if (dialog) dialog->accept();
+        showInviteAccountToGroupWorkspace(currentGroupId, this);
+        return;
+    }
+    if (commandId == QLatin1String("group-rename")) {
+        if (dialog) dialog->accept();
+        showRenameGroupWorkspace(currentGroupId, this);
+        return;
+    }
+    if (commandId == QLatin1String("group-back-public")) {
+        if (dialog) dialog->accept();
+        onBackToGroupChat();
+        return;
+    }
+    if (localGroupContext && commandId == QLatin1String("group-delete")) {
+        if (dialog) dialog->accept();
+        handleLocalGroupContextCommand(currentGroupId, currentGroupName, QStringLiteral("delete-group"));
+    }
+}
+
 void MainWindow::showGroupInfoWorkspace() {
     QDialog dialog(this);
     WorkspaceDialogShell shell = createWorkspaceDialogShell(
@@ -10911,115 +11202,12 @@ void MainWindow::showGroupInfoWorkspace() {
         ? QStringLiteral("未指定")
         : (ownerId == m_currentUserId ? m_currentUserName : contactDisplayName(ownerId));
 
-    struct GroupInfoWorkspaceRow {
-        QString commandId;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool accent = false;
-        bool dangerous = false;
-    };
-
-    auto buildRows = [=, this]() {
-        QList<GroupInfoWorkspaceRow> rows;
-
-        rows << GroupInfoWorkspaceRow{
-            QStringLiteral("group-overview"),
-            localGroupContext ? QStringLiteral("当前群聊 · %1").arg(currentGroupName) : QStringLiteral("公共聊天室"),
-            localGroupContext
-                ? QStringLiteral("群主 %1 · 成员 %2").arg(ownerName).arg(m_localGroupMembers.value(currentGroupId).size())
-                : (removedFromPublicGroup
-                       ? QStringLiteral("公共群历史只读")
-                       : QStringLiteral("群主 %1 · 公共群成员 %2").arg(ownerName).arg(m_serverGroupMembers.value(QStringLiteral("public")).size())),
-            QStringLiteral("群信息总览\n群名：%1\n群主：%2\n公告：%3")
-                .arg(currentGroupName,
-                     ownerName,
-                     announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText),
-            QStringLiteral("群 总览 公告 成员"),
-            true,
-            false};
-
-        rows << GroupInfoWorkspaceRow{
-            QStringLiteral("group-announcement"),
-            QStringLiteral("群公告"),
-            announcementText.isEmpty() ? QStringLiteral("当前暂无群公告") : announcementText.left(42),
-            QStringLiteral("群公告\n%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText),
-            QStringLiteral("群公告 编辑 公告"),
-            false,
-            false};
-
-        rows << GroupInfoWorkspaceRow{
-            QStringLiteral("group-members"),
-            QStringLiteral("群成员工作区"),
-            localGroupContext
-                ? QStringLiteral("当前群成员 %1").arg(m_localGroupMembers.value(currentGroupId).size())
-                : QStringLiteral("当前可见成员 %1").arg(m_serverGroupMembers.value(QStringLiteral("public")).size()),
-            QStringLiteral("群成员工作区\n集中处理成员查看、邀请、备注、复制和权限动作。"),
-            QStringLiteral("群成员 工作区 邀请 备注"),
-            false,
-            false};
-
-        rows << GroupInfoWorkspaceRow{
-            QStringLiteral("group-notices"),
-            QStringLiteral("群通知"),
-            QStringLiteral("查看群创建、群名片、公告和成员摘要"),
-            QStringLiteral("群通知工作区\n统一查看群入口、群公告、成员复制、媒体包和批量计划。"),
-            QStringLiteral("群通知 公告 成员"),
-            false,
-            false};
-
-        if (localGroupContext) {
-            rows << GroupInfoWorkspaceRow{
-                QStringLiteral("group-invite-friend"),
-                QStringLiteral("邀请好友"),
-                QStringLiteral("从现有好友里选择成员加入当前群聊"),
-                QStringLiteral("邀请好友\n从好友列表里选人加入当前群聊，保持当前群上下文。"),
-                QStringLiteral("邀请 好友 入群"),
-                false,
-                false};
-            rows << GroupInfoWorkspaceRow{
-                QStringLiteral("group-invite-account"),
-                QStringLiteral("按QQ号邀请"),
-                QStringLiteral("输入 QQ 号邀请成员入群"),
-                QStringLiteral("按 QQ 号邀请\n可邀请还不是好友的人，并按需补发好友申请。"),
-                QStringLiteral("QQ 邀请 成员"),
-                false,
-                false};
-            rows << GroupInfoWorkspaceRow{
-                QStringLiteral("group-rename"),
-                QStringLiteral("重命名群聊"),
-                QStringLiteral("调整当前本地群聊名称"),
-                QStringLiteral("重命名群聊\n会同步更新左侧列表、会话标题和后续邀请上下文。"),
-                QStringLiteral("重命名 群聊"),
-                false,
-                false};
-        } else {
-            rows << GroupInfoWorkspaceRow{
-                QStringLiteral("group-back-public"),
-                QStringLiteral("返回公共群主会话"),
-                QStringLiteral("回到公共聊天室当前会话视图"),
-                QStringLiteral("公共群主会话\n可恢复公共聊天室视图、公告和成员面板。"),
-                QStringLiteral("公共群 返回 会话"),
-                false,
-                false};
-        }
-
-        if (localGroupContext) {
-            rows << GroupInfoWorkspaceRow{
-                QStringLiteral("group-delete"),
-                QStringLiteral("删除群聊"),
-                QStringLiteral("删除本地群聊配置，聊天记录不会在此步骤删除"),
-                QStringLiteral("删除群聊\n会移除本地群聊配置；历史聊天记录不会在此步骤删除。"),
-                QStringLiteral("删除 群聊"),
-                false,
-                true};
-        }
-
-        return rows;
-    };
-
-    auto rows = buildRows();
+    auto rows = buildGroupInfoWorkspaceRows(localGroupContext,
+                                            removedFromPublicGroup,
+                                            currentGroupId,
+                                            currentGroupName,
+                                            ownerName,
+                                            announcementText);
     auto emptyPreviewText = [searchEdit]() {
         const QString filter = searchEdit->text().trimmed();
         return filter.isEmpty()
@@ -11027,53 +11215,20 @@ void MainWindow::showGroupInfoWorkspace() {
             : QStringLiteral("当前筛选词“%1”没有匹配到群信息动作。\n试试“公告”、“成员”、“通知”或“邀请”这些关键词。").arg(filter);
     };
 
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        listWidget->clear();
-        int visibleCount = 0;
-        for (const GroupInfoWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !(row.title + row.detail + row.preview + row.keywords).contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.commandId);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (row.accent) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.dangerous) {
-                item->setForeground(QColor(180, 35, 24));
-            }
-            listWidget->addItem(item);
-            ++visibleCount;
-        }
-        if (visibleCount == 0) {
-            addWorkspaceEmptyStateItem(
-                listWidget,
-                QStringLiteral("没有匹配的群信息动作"),
-                QStringLiteral("试试“公告”、“成员”、“通知”或“邀请”这些关键词。"),
-                emptyPreviewText());
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
-        selectPreferredListRow(listWidget, 0);
+    auto fillList = [=, &rows, this]() {
+        fillGroupInfoWorkspaceList(listWidget,
+                                   statsLabel,
+                                   rows,
+                                   searchEdit->text().trimmed(),
+                                   emptyPreviewText());
     };
 
-    auto selectedRow = [=, &rows]() -> GroupInfoWorkspaceRow* {
-        QListWidgetItem* currentItem = listWidget->currentItem();
-        if (!currentItem) {
-            return nullptr;
-        }
-        const QString id = currentItem->data(Qt::UserRole).toString();
-        for (GroupInfoWorkspaceRow& row : rows) {
-            if (row.commandId == id) {
-                return &row;
-            }
-        }
-        return nullptr;
+    auto selectedRow = [=, &rows, this]() -> GroupInfoWorkspaceRow* {
+        return selectedGroupInfoWorkspaceRow(rows, listWidget);
     };
 
-    auto updatePreview = [=, &rows]() {
-        GroupInfoWorkspaceRow* row = selectedRow();
+    auto updatePreview = [=, &rows, this]() {
+        GroupInfoWorkspaceRow* row = selectedGroupInfoWorkspaceRow(rows, listWidget);
         previewLabel->setText(row ? row->preview
                                   : (firstEnabledListRow(listWidget) >= 0
                                          ? QStringLiteral("这里会解释当前群信息动作会如何影响公告、成员、通知或当前会话。")
@@ -11093,146 +11248,59 @@ void MainWindow::showGroupInfoWorkspace() {
         {openBtn, copyCardBtn, copyStatusBtn},
         closeBtn);
 
-    auto groupInfoCardText = [=]() {
-        return QStringLiteral("群信息卡\n群名:%1\n群标识:%2\n群主:%3\n成员:%4\n公告:%5")
-            .arg(currentGroupName,
-                 currentGroupId,
-                 ownerName,
-                 localGroupContext
-                     ? QString::number(m_localGroupMembers.value(currentGroupId).size())
-                     : QString::number(m_serverGroupMembers.value(QStringLiteral("public")).size()),
-                 announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
-    };
-    auto groupInfoStatusText = [=]() {
-        QStringList lines;
-        lines << QStringLiteral("群信息工作区状态");
-        lines << QStringLiteral("群名:%1").arg(currentGroupName);
-        lines << QStringLiteral("群标识:%1").arg(currentGroupId);
-        lines << QStringLiteral("群主:%1").arg(ownerName);
-        lines << QStringLiteral("公告:%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
-        lines << QStringLiteral("上下文:%1").arg(localGroupContext ? QStringLiteral("本地群聊") : (removedFromPublicGroup ? QStringLiteral("公共群历史只读") : QStringLiteral("公共聊天室")));
-        return lines.join(QLatin1Char('\n'));
-    };
     auto groupInfoClipboardText = [=, &rows]() {
-        GroupInfoWorkspaceRow* row = selectedRow();
+        GroupInfoWorkspaceRow* row = selectedGroupInfoWorkspaceRow(rows, listWidget);
         if (!row) {
-            return groupInfoStatusText();
+            return groupInfoWorkspaceStatusText(localGroupContext,
+                                                removedFromPublicGroup,
+                                                currentGroupName,
+                                                currentGroupId,
+                                                ownerName,
+                                                announcementText);
         }
         if (row->commandId == QLatin1String("group-overview")) {
-            return groupInfoCardText();
+            return groupInfoWorkspaceCardText(localGroupContext,
+                                              currentGroupName,
+                                              currentGroupId,
+                                              ownerName,
+                                              announcementText);
         }
         if (row->commandId == QLatin1String("group-announcement")) {
             return QStringLiteral("群公告\n%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
         }
-        return row->preview.trimmed().isEmpty() ? groupInfoStatusText() : row->preview;
+        return row->preview.trimmed().isEmpty()
+            ? groupInfoWorkspaceStatusText(localGroupContext,
+                                           removedFromPublicGroup,
+                                           currentGroupName,
+                                           currentGroupId,
+                                           ownerName,
+                                           announcementText)
+            : row->preview;
     };
 
-    auto updateActionState = [=, &rows]() {
-        GroupInfoWorkspaceRow* row = selectedRow();
-        const bool hasActionableRow = hasEnabledListRow(listWidget);
-        if (!row) {
-            openBtn->setEnabled(false);
-            openBtn->setText(QStringLiteral("执行当前动作"));
-            openBtn->setToolTip(hasActionableRow
-                                    ? QStringLiteral("先选择一个群信息动作后继续查看公告、成员、通知或邀请管理")
-                                    : QStringLiteral("当前没有可执行的群信息动作"));
-            copyCardBtn->setEnabled(hasActionableRow);
-            copyCardBtn->setToolTip(hasActionableRow
-                                        ? QStringLiteral("复制当前群信息工作区总览")
-                                        : QStringLiteral("当前没有可复制的群信息摘要"));
-            copyStatusBtn->setEnabled(true);
-            copyStatusBtn->setToolTip(QStringLiteral("复制群信息工作区当前状态"));
-            return;
-        }
-
-        openBtn->setEnabled(true);
-        if (row->commandId == QLatin1String("group-overview")
-            || row->commandId == QLatin1String("group-members")) {
-            openBtn->setText(QStringLiteral("打开群成员工作区"));
-            openBtn->setToolTip(QStringLiteral("进入群成员工作区继续查看成员、复制摘要或处理邀请动作"));
-        } else if (row->commandId == QLatin1String("group-announcement")) {
-            openBtn->setText(QStringLiteral("编辑群公告"));
-            openBtn->setToolTip(QStringLiteral("打开群公告编辑入口"));
-        } else if (row->commandId == QLatin1String("group-notices")) {
-            openBtn->setText(QStringLiteral("打开群通知"));
-            openBtn->setToolTip(QStringLiteral("进入群通知工作区"));
-        } else if (row->commandId == QLatin1String("group-invite-friend")) {
-            openBtn->setText(QStringLiteral("邀请好友入群"));
-            openBtn->setToolTip(QStringLiteral("从好友列表里选择成员加入当前群聊"));
-        } else if (row->commandId == QLatin1String("group-invite-account")) {
-            openBtn->setText(QStringLiteral("按 QQ 号邀请"));
-            openBtn->setToolTip(QStringLiteral("输入 QQ 号邀请成员入群"));
-        } else if (row->commandId == QLatin1String("group-rename")) {
-            openBtn->setText(QStringLiteral("重命名群聊"));
-            openBtn->setToolTip(QStringLiteral("调整当前本地群聊名称"));
-        } else if (row->commandId == QLatin1String("group-back-public")) {
-            openBtn->setText(QStringLiteral("返回公共会话"));
-            openBtn->setToolTip(QStringLiteral("回到公共聊天室当前会话视图"));
-        } else {
-            openBtn->setText(QStringLiteral("删除群聊"));
-            openBtn->setToolTip(QStringLiteral("删除当前本地群聊配置"));
-        }
-        copyCardBtn->setEnabled(true);
-        copyCardBtn->setToolTip(row->commandId == QLatin1String("group-overview")
-                                    ? QStringLiteral("复制当前群信息卡")
-                                    : (row->commandId == QLatin1String("group-announcement")
-                                           ? QStringLiteral("复制当前群公告摘要")
-                                           : QStringLiteral("复制当前选中群信息卡")));
-        copyStatusBtn->setEnabled(true);
-        copyStatusBtn->setToolTip(QStringLiteral("复制群信息工作区当前状态"));
+    auto updateActionState = [=, &rows, this]() {
+        updateGroupInfoWorkspaceActionState(openBtn, copyCardBtn, copyStatusBtn, listWidget, rows);
     };
 
     auto runSelectedCommand = [=, &rows, this, &dialog]() {
-        GroupInfoWorkspaceRow* row = selectedRow();
+        GroupInfoWorkspaceRow* row = selectedGroupInfoWorkspaceRow(rows, listWidget);
         if (!row) {
             return;
         }
-        const QString commandId = row->commandId;
-        if (commandId == QLatin1String("group-overview")
-            || commandId == QLatin1String("group-members")) {
-            dialog.accept();
-            onShowGroupMemberWorkspace();
-            return;
-        }
-        if (commandId == QLatin1String("group-announcement")) {
-            dialog.accept();
-            onEditGroupAnnouncement();
-            return;
-        }
-        if (commandId == QLatin1String("group-notices")) {
-            dialog.accept();
-            onShowGroupNotifications();
-            return;
-        }
-        if (commandId == QLatin1String("group-invite-friend")) {
-            dialog.accept();
-            showInviteFriendToGroupWorkspace(currentGroupId, this);
-            return;
-        }
-        if (commandId == QLatin1String("group-invite-account")) {
-            dialog.accept();
-            showInviteAccountToGroupWorkspace(currentGroupId, this);
-            return;
-        }
-        if (commandId == QLatin1String("group-rename")) {
-            dialog.accept();
-            showRenameGroupWorkspace(currentGroupId, this);
-            return;
-        }
-        if (commandId == QLatin1String("group-back-public")) {
-            dialog.accept();
-            onBackToGroupChat();
-            return;
-        }
-        if (commandId == QLatin1String("group-delete")) {
-            dialog.accept();
-            handleLocalGroupContextCommand(currentGroupId, currentGroupName, QStringLiteral("delete-group"));
-            return;
-        }
+        runGroupInfoWorkspaceCommand(row->commandId,
+                                     localGroupContext,
+                                     currentGroupId,
+                                     currentGroupName,
+                                     &dialog);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
+        rows = buildGroupInfoWorkspaceRows(localGroupContext,
+                                           removedFromPublicGroup,
+                                           currentGroupId,
+                                           currentGroupName,
+                                           ownerName,
+                                           announcementText);
         fillList();
         updatePreview();
         updateActionState();
@@ -11246,7 +11314,7 @@ void MainWindow::showGroupInfoWorkspace() {
     });
     connect(openBtn, &QPushButton::clicked, &dialog, runSelectedCommand);
     connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
-        GroupInfoWorkspaceRow* row = selectedRow();
+        GroupInfoWorkspaceRow* row = selectedGroupInfoWorkspaceRow(rows, listWidget);
         copyTextWithStatus(groupInfoClipboardText(),
                            row && row->commandId == QLatin1String("group-announcement")
                                ? QStringLiteral("群公告摘要已复制")
@@ -11254,11 +11322,23 @@ void MainWindow::showGroupInfoWorkspace() {
                            2200);
     });
     connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
-        copyTextWithStatus(groupInfoStatusText(), QStringLiteral("群信息工作区状态已复制"), 2200);
+        copyTextWithStatus(groupInfoWorkspaceStatusText(localGroupContext,
+                                                        removedFromPublicGroup,
+                                                        currentGroupName,
+                                                        currentGroupId,
+                                                        ownerName,
+                                                        announcementText),
+                           QStringLiteral("群信息工作区状态已复制"),
+                           2200);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    rows = buildRows();
+    rows = buildGroupInfoWorkspaceRows(localGroupContext,
+                                       removedFromPublicGroup,
+                                       currentGroupId,
+                                       currentGroupName,
+                                       ownerName,
+                                       announcementText);
     fillList();
     updatePreview();
     updateActionState();
@@ -12373,11 +12453,11 @@ void MainWindow::onShowNotificationWorkspace() {
             return;
         }
         if (commandId == QLatin1String("notice-copy-friend-plan")) {
-            copyTextWithStatus(notificationFriendPlanText(), QStringLiteral("好友处理计划已复制"), 2200);
+            copyTextWithStatus(notificationFriendPlanText(), QStringLiteral("好友通知处理计划已复制"), 2200);
             return;
         }
         if (commandId == QLatin1String("notice-copy-group-plan")) {
-            copyTextWithStatus(notificationGroupPlanText(), QStringLiteral("群处理计划已复制"), 2200);
+            copyTextWithStatus(notificationGroupPlanText(), QStringLiteral("群通知处理计划已复制"), 2200);
             return;
         }
     };

@@ -34,6 +34,18 @@ class QAction;
 class QLabel;
 class QListWidget;
 class QLineEdit;
+class QListWidgetItem;
+class QPushButton;
+
+struct GroupInfoWorkspaceRow {
+    QString commandId;
+    QString title;
+    QString detail;
+    QString preview;
+    QString keywords;
+    bool accent = false;
+    bool dangerous = false;
+};
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -342,6 +354,40 @@ private:
     void showProfileWorkspace();
     void showUserEntryWorkspace(const QString& targetId, const QString& fallbackLabel = QString());
     void showGroupInfoWorkspace();
+    QList<GroupInfoWorkspaceRow> buildGroupInfoWorkspaceRows(bool localGroupContext,
+                                                             bool removedFromPublicGroup,
+                                                             const QString& currentGroupId,
+                                                             const QString& currentGroupName,
+                                                             const QString& ownerName,
+                                                             const QString& announcementText) const;
+    void fillGroupInfoWorkspaceList(QListWidget* listWidget,
+                                    QLabel* statsLabel,
+                                    const QList<GroupInfoWorkspaceRow>& rows,
+                                    const QString& filter,
+                                    const QString& emptyPreviewText) const;
+    GroupInfoWorkspaceRow* selectedGroupInfoWorkspaceRow(QList<GroupInfoWorkspaceRow>& rows,
+                                                         QListWidget* listWidget) const;
+    QString groupInfoWorkspaceCardText(bool localGroupContext,
+                                       const QString& currentGroupName,
+                                       const QString& currentGroupId,
+                                       const QString& ownerName,
+                                       const QString& announcementText) const;
+    QString groupInfoWorkspaceStatusText(bool localGroupContext,
+                                         bool removedFromPublicGroup,
+                                         const QString& currentGroupName,
+                                         const QString& currentGroupId,
+                                         const QString& ownerName,
+                                         const QString& announcementText) const;
+    void updateGroupInfoWorkspaceActionState(QPushButton* openBtn,
+                                            QPushButton* copyCardBtn,
+                                            QPushButton* copyStatusBtn,
+                                            QListWidget* listWidget,
+                                            QList<GroupInfoWorkspaceRow>& rows) const;
+    void runGroupInfoWorkspaceCommand(const QString& commandId,
+                                      bool localGroupContext,
+                                      const QString& currentGroupId,
+                                      const QString& currentGroupName,
+                                      QDialog* dialog);
     bool openUserTargetById(const QString& targetId);
     bool handleCreateMenuCommand(const QString& commandId);
     bool handleLocalGroupContextCommand(const QString& groupId,
