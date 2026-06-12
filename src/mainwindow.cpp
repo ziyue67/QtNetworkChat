@@ -2201,12 +2201,28 @@ QString MainWindow::avatarPathForUser(const QString& userId) const {
         }
     }
 
+    const QString cachedPeerAvatar = m_clientStorage.peerAvatarFilePath(trimmedUserId);
+    if (!trimmedUserId.isEmpty() && QFileInfo::exists(cachedPeerAvatar)) {
+        return cachedPeerAvatar;
+    }
+
     const ChatUser knownUser = m_knownUsers.value(trimmedUserId);
     const QString knownAvatar = knownUser.avatar.trimmed();
     if (!knownAvatar.isEmpty() && QFileInfo::exists(knownAvatar)) {
         return knownAvatar;
     }
     return QString();
+}
+
+void MainWindow::cacheKnownUserAvatars() const {
+    for (auto it = m_knownUsers.constBegin(); it != m_knownUsers.constEnd(); ++it) {
+        const QString userId = it.key().trimmed();
+        const QString avatar = it.value().avatar.trimmed();
+        if (userId.isEmpty() || avatar.isEmpty()) {
+            continue;
+        }
+        m_clientStorage.savePeerAvatar(userId, QByteArray::fromBase64(avatar.toLatin1()));
+    }
 }
 
 QPixmap MainWindow::chatAvatarPixmap(const QString& userId, const QString& displayName, int side) const {
@@ -7730,6 +7746,7 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
     for (const ChatUser& user : users) {
         m_knownUsers[user.id] = user;
     }
+    cacheKnownUserAvatars();
     refreshFriendList();
     if (!m_privateChatTarget.isEmpty()) {
         ui->chatHintLabel->setText(QString("私聊会话工作区 · QQ %1 · %2 · 可从菜单返回公共会话")
@@ -14791,6 +14808,7 @@ void MainWindow::refreshFriendList() {
         QStandardItem* item = new QStandardItem(QString("☆ QQ:%1\n   %2 [离线]").arg(friendId, name));
         item->setData(friendId, Qt::UserRole + 1);
         item->setForeground(QColor(77, 98, 118));
+        item->setData(chatAvatarPixmap(friendId, name, 32), Qt::DecorationRole);
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleFriends;
@@ -14826,6 +14844,7 @@ void MainWindow::refreshFriendList() {
         item->setData(user.id, Qt::UserRole + 1);
         item->setForeground(isFriend ? QColor(15, 23, 42)
                                      : (isPending ? QColor(170, 110, 20) : QColor(60, 78, 96)));
+        item->setData(chatAvatarPixmap(user.id, user.name, 32), Qt::DecorationRole);
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleOnlineUsers;
@@ -15086,6 +15105,7 @@ void MainWindow::refreshGroupMemberPanel() {
     selfItem->setData(m_currentUserId, Qt::UserRole + 1);
     selfItem->setEditable(false);
     selfItem->setForeground(QColor(29, 78, 216));
+    selfItem->setData(chatAvatarPixmap(m_currentUserId, m_currentUserName, 32), Qt::DecorationRole);
     if (filter.isEmpty() || m_currentUserId.contains(filter, Qt::CaseInsensitive) || m_currentUserName.contains(filter, Qt::CaseInsensitive)) {
         m_groupMemberModel->appendRow(selfItem);
     } else {
@@ -15115,6 +15135,7 @@ void MainWindow::refreshGroupMemberPanel() {
         item->setData(user.id, Qt::UserRole + 1);
         item->setEditable(false);
         item->setForeground(isFriend ? QColor(20, 92, 160) : (isPending ? QColor(170, 110, 20) : QColor(60, 78, 96)));
+        item->setData(chatAvatarPixmap(user.id, user.name, 32), Qt::DecorationRole);
         m_groupMemberModel->appendRow(item);
         ++visibleMembers;
     }

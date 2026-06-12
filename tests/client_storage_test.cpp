@@ -3,6 +3,10 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QImage>
+#include <QBuffer>
+#include <QGuiApplication>
+#include <QPixmap>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QStandardPaths>
@@ -62,7 +66,7 @@ int countRows(const QString& databasePath, const QString& tableName) {
 }
 
 int main(int argc, char** argv) {
-    QCoreApplication app(argc, argv);
+    QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("QtNetworkChatTests"));
     QCoreApplication::setApplicationName(QStringLiteral("client_storage_test"));
     QStandardPaths::setTestModeEnabled(true);
@@ -83,6 +87,23 @@ int main(int argc, char** argv) {
     ok = expect(storage.friendFilePath().endsWith(QStringLiteral("friends_guest.txt")),
                 "empty user name should use guest path fallback") && ok;
     storage.setUserName(QStringLiteral("Alice"));
+
+    QImage peerAvatarImage(3, 3, QImage::Format_ARGB32);
+    peerAvatarImage.fill(QColor(12, 140, 220));
+    QByteArray peerAvatarBytes;
+    {
+        QBuffer buffer(&peerAvatarBytes);
+        buffer.open(QIODevice::WriteOnly);
+        peerAvatarImage.save(&buffer, "PNG");
+    }
+    ok = expect(storage.savePeerAvatar(QStringLiteral("peer_1001"), peerAvatarBytes),
+                "peer avatar should save to local cache") && ok;
+    const QPixmap peerAvatarPixmap = storage.loadPeerAvatar(QStringLiteral("peer_1001"));
+    ok = expect(!peerAvatarPixmap.isNull()
+                    && storage.peerAvatarFilePath(QStringLiteral("peer_1001")).contains(QStringLiteral("peer_avatars")),
+                "peer avatar cache should round-trip through local storage") && ok;
+    ok = expect(storage.loadPeerAvatar(QStringLiteral("missing_peer")).isNull(),
+                "missing peer avatar should return a null pixmap") && ok;
 
     QStringList friendIds{QStringLiteral("1001"), QStringLiteral("1002")};
     QMap<QString, QString> friendNames;

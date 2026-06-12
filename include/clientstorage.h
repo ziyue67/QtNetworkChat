@@ -5,6 +5,8 @@
 #include <QString>
 #include <QStringList>
 
+class QPixmap;
+
 class ClientStorage {
 public:
     explicit ClientStorage(QString userName = QString());
@@ -15,6 +17,9 @@ public:
     QString friendFilePath() const;
     QString groupFilePath() const;
     QString avatarFilePath() const;
+    QString peerAvatarFilePath(const QString& userId) const;
+    bool savePeerAvatar(const QString& userId, const QByteArray& pngData) const;
+    QPixmap loadPeerAvatar(const QString& userId) const;
 
     bool readLegacyFriends(QStringList* friendIds, QMap<QString, QString>* friendNames) const;
     bool writeLegacyFriends(const QStringList& friendIds,
@@ -49,6 +54,7 @@ public:
 private:
     QString appDataDirectory() const;
     QString safeUserName() const;
+    QString safeToken(const QString& value, const QString& fallback) const;
 
     QString m_userName;
 };

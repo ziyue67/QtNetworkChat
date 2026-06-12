@@ -199,6 +199,7 @@ private:
                                      const QString& openPath = QString(),
                                      const QPixmap& mediaPreview = QPixmap()) const;
     QString avatarPathForUser(const QString& userId) const;
+    void cacheKnownUserAvatars() const;
     QPixmap chatAvatarPixmap(const QString& userId, const QString& displayName, int side = 36) const;
     QPixmap chatAttachmentDecoration(const QString& senderId,
                                      const QString& senderName,

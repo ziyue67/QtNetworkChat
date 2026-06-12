@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QPixmap>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QStandardPaths>
@@ -29,6 +30,32 @@ QString ClientStorage::groupFilePath() const {
 
 QString ClientStorage::avatarFilePath() const {
     return QDir(appDataDirectory()).filePath(QStringLiteral("avatar_%1.png").arg(safeUserName()));
+}
+
+QString ClientStorage::peerAvatarFilePath(const QString& userId) const {
+    const QString peerDir = QDir(appDataDirectory()).filePath(QStringLiteral("peer_avatars"));
+    QDir().mkpath(peerDir);
+    return QDir(peerDir).filePath(QStringLiteral("avatar_%1.png").arg(safeToken(userId, QStringLiteral("peer"))));
+}
+
+bool ClientStorage::savePeerAvatar(const QString& userId, const QByteArray& pngData) const {
+    if (userId.trimmed().isEmpty() || pngData.isEmpty()) {
+        return false;
+    }
+
+    QPixmap pixmap;
+    if (!pixmap.loadFromData(pngData, "PNG")) {
+        return false;
+    }
+    return pixmap.save(peerAvatarFilePath(userId), "PNG");
+}
+
+QPixmap ClientStorage::loadPeerAvatar(const QString& userId) const {
+    const QString filePath = peerAvatarFilePath(userId);
+    if (!QFile::exists(filePath)) {
+        return QPixmap();
+    }
+    return QPixmap(filePath);
 }
 
 bool ClientStorage::readLegacyFriends(QStringList* friendIds, QMap<QString, QString>* friendNames) const {
@@ -285,4 +312,22 @@ QString ClientStorage::appDataDirectory() const {
 
 QString ClientStorage::safeUserName() const {
     return m_userName.isEmpty() ? QStringLiteral("guest") : m_userName;
+}
+
+QString ClientStorage::safeToken(const QString& value, const QString& fallback) const {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return fallback;
+    }
+
+    QString token;
+    token.reserve(trimmed.size());
+    for (const QChar ch : trimmed) {
+        if (ch.isLetterOrNumber() || ch == QLatin1Char('_') || ch == QLatin1Char('-')) {
+            token.append(ch);
+        } else {
+            token.append(QLatin1Char('_'));
+        }
+    }
+    return token.isEmpty() ? fallback : token;
 }

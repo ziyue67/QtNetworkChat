@@ -452,7 +452,7 @@ if(BUILD_TESTING)
         include/clientstorage.h
     )
     target_include_directories(client_storage_test PRIVATE include)
-    target_link_libraries(client_storage_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
+    target_link_libraries(client_storage_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Gui)
 
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
