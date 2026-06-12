@@ -1320,6 +1320,8 @@ function Get-ReleaseArchiveDecisionReadback([object]$ArtifactState) {
         decisionGate = "unknown"
         publishingRequired = "unknown"
         publishingStatus = "unknown"
+        publishingRecordPresent = "unknown"
+        releaseDeliveryDrillPresent = "unknown"
         packageSha256 = "unknown"
         blockerCount = "unknown"
     }
@@ -1343,6 +1345,8 @@ function Get-ReleaseArchiveDecisionReadback([object]$ArtifactState) {
     $result.decisionGate = Format-StatusValue (Get-JsonValue $manifest "decisionGate" "unknown")
     $result.publishingRequired = Format-StatusValue (Get-JsonValue $manifest "publishingRequired" "unknown")
     $result.publishingStatus = Format-StatusValue (Get-JsonValue $manifest "publishingStatus" "unknown")
+    $result.publishingRecordPresent = Format-StatusValue (Get-JsonValue $manifest "publishingRecordPresent" "unknown")
+    $result.releaseDeliveryDrillPresent = Format-StatusValue (Get-JsonValue $manifest "releaseDeliveryDrillPresent" "unknown")
     $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
     $result.blockerCount = @((Get-JsonValue $manifest "blockers" @())).Count
     [pscustomobject]$result
@@ -3676,6 +3680,8 @@ $releaseArchiveDecisionDiagnostics = @(
     ('decisionState={0}' -f (Format-StatusValue $releaseArchiveDecisionReadback.decisionState)),
     ('decisionGate={0}' -f (Format-StatusValue $releaseArchiveDecisionReadback.decisionGate)),
     ('publishing={0}' -f (Format-StatusValue $releaseArchiveDecisionReadback.publishingStatus)),
+    ('publishingRecord={0}' -f (Format-StatusValue $releaseArchiveDecisionReadback.publishingRecordPresent)),
+    ('deliveryDrill={0}' -f (Format-StatusValue $releaseArchiveDecisionReadback.releaseDeliveryDrillPresent)),
     ('blockers={0}' -f (Format-StatusValue $releaseArchiveDecisionReadback.blockerCount))
 ) -join "; "
 $releaseDeliveryHandoffDiagnostics = @(

@@ -3,6 +3,12 @@ param(
     [string]$Configuration = "Release",
     [string]$QtRoot = "",
     [string]$PostgresBinDir = "D:\Program Files\PostgreSQL\17\bin",
+    [string]$ArchiveDecisionState = "pending-human-decision",
+    [string]$ArchiveDecidedBy = "",
+    [string]$ArchiveDecisionReason = "",
+    [string]$ArchivePublishingStatus = "",
+    [string]$ArchivePublishingChannel = "",
+    [switch]$RunDeliveryDrill,
     [switch]$IncludePostgresSql,
     [switch]$FailOnMissingPostgresSql,
     [switch]$FailOnMissingRuntime,
@@ -100,9 +106,33 @@ Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
     "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json")
 )
 
+if (-not [string]::IsNullOrWhiteSpace($ArchivePublishingStatus)) {
+    $windowsZipPath = Join-Path $resolvedBuildDir "release-package\\QtNetworkChat-1.0.0-win-x64.zip"
+    $artifactSha = if (Test-Path -LiteralPath $windowsZipPath -PathType Leaf) {
+        (Get-FileHash -LiteralPath $windowsZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    } else {
+        "unknown"
+    }
+    Invoke-RepoScript "scripts/write-release-publication-record.ps1" @(
+        "-OutputPath", (Join-Path $resolvedBuildDir "release-publication-record.json"),
+        "-ReleaseHead", $head,
+        "-Channel", $(if ([string]::IsNullOrWhiteSpace($ArchivePublishingChannel)) { "not-recorded" } else { $ArchivePublishingChannel }),
+        "-PublishingStatus", $ArchivePublishingStatus,
+        "-PublishedBy", $(if ([string]::IsNullOrWhiteSpace($ArchiveDecidedBy)) { [Environment]::UserName } else { $ArchiveDecidedBy }),
+        "-ArtifactSha256", $artifactSha
+    )
+}
+
 Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
     "-OutputDir", (Join-Path $resolvedBuildDir "release-archive-decision"),
-    "-ReleaseHead", $head
+    "-ReleaseHead", $head,
+    "-DecisionState", $ArchiveDecisionState,
+    "-DecidedBy", $ArchiveDecidedBy,
+    "-DecisionReason", $ArchiveDecisionReason,
+    "-PublishingStatus", $ArchivePublishingStatus,
+    "-PublishingChannel", $ArchivePublishingChannel,
+    "-PublishingRecordPath", (Join-Path $resolvedBuildDir "release-publication-record.json"),
+    "-ReleaseDeliveryDrillManifestPath", (Join-Path $resolvedBuildDir "release-delivery-drill\\release-delivery-drill-manifest.json")
 )
 
 Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
@@ -111,6 +141,14 @@ Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
     "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
     "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
 )
+
+if ($RunDeliveryDrill.IsPresent) {
+    Invoke-RepoScript "scripts/run-release-delivery-drill.ps1" @(
+        "-OutputDir", (Join-Path $resolvedBuildDir "release-delivery-drill"),
+        "-BuildDir", $resolvedBuildDir,
+        "-ReleaseHead", $head
+    )
+}
 
 Invoke-RepoScript "scripts/write-automation-status.ps1" @(
     "-MarkdownPath", (Resolve-RepoPath "docs\\automation-status.md"),
@@ -131,7 +169,14 @@ Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
 
 Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
     "-OutputDir", (Join-Path $resolvedBuildDir "release-archive-decision"),
-    "-ReleaseHead", $head
+    "-ReleaseHead", $head,
+    "-DecisionState", $ArchiveDecisionState,
+    "-DecidedBy", $ArchiveDecidedBy,
+    "-DecisionReason", $ArchiveDecisionReason,
+    "-PublishingStatus", $ArchivePublishingStatus,
+    "-PublishingChannel", $ArchivePublishingChannel,
+    "-PublishingRecordPath", (Join-Path $resolvedBuildDir "release-publication-record.json"),
+    "-ReleaseDeliveryDrillManifestPath", (Join-Path $resolvedBuildDir "release-delivery-drill\\release-delivery-drill-manifest.json")
 )
 
 Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(

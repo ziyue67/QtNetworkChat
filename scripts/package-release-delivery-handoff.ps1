@@ -13,6 +13,8 @@ param(
     [string]$LocalReleaseReviewPackagePath = "build-qt6-mingw\\local-release-review\\local-release-review.zip",
     [string]$ReleaseArchiveDecisionManifestPath = "build-qt6-mingw\\release-archive-decision\\release-archive-decision-manifest.json",
     [string]$ReleaseArchiveDecisionMarkdownPath = "build-qt6-mingw\\release-archive-decision\\release-archive-decision.md",
+    [string]$ReleasePublicationRecordPath = "build-qt6-mingw\\release-publication-record.json",
+    [string]$ReleaseDeliveryDrillManifestPath = "build-qt6-mingw\\release-delivery-drill\\release-delivery-drill-manifest.json",
     [string]$LocalVerificationStatusPath = "build-qt6-mingw\\local-verification-status.json",
     [string]$AutomationStatusPath = "docs\\automation-status.md",
     [string]$ReadmePath = "README.md",
@@ -243,6 +245,8 @@ $resolvedLocalReleaseReviewManifestPath = Resolve-RepoPath $LocalReleaseReviewMa
 $resolvedLocalReleaseReviewPackagePath = Resolve-RepoPath $LocalReleaseReviewPackagePath
 $resolvedReleaseArchiveDecisionManifestPath = Resolve-RepoPath $ReleaseArchiveDecisionManifestPath
 $resolvedReleaseArchiveDecisionMarkdownPath = Resolve-RepoPath $ReleaseArchiveDecisionMarkdownPath
+$resolvedReleasePublicationRecordPath = Resolve-RepoPath $ReleasePublicationRecordPath
+$resolvedReleaseDeliveryDrillManifestPath = Resolve-RepoPath $ReleaseDeliveryDrillManifestPath
 $resolvedLocalVerificationStatusPath = Resolve-RepoPath $LocalVerificationStatusPath
 $resolvedAutomationStatusPath = Resolve-RepoPath $AutomationStatusPath
 $resolvedReadmePath = Resolve-RepoPath $ReadmePath
@@ -252,6 +256,8 @@ $resolvedDiagnosticsScriptPath = Resolve-RepoPath $DiagnosticsScriptPath
 $windowsManifest = Read-OptionalJson $resolvedWindowsPackageManifestPath
 $localReleaseReviewManifest = Read-OptionalJson $resolvedLocalReleaseReviewManifestPath
 $releaseArchiveDecisionManifest = Read-OptionalJson $resolvedReleaseArchiveDecisionManifestPath
+$releasePublicationRecord = Read-OptionalJson $resolvedReleasePublicationRecordPath
+$releaseDeliveryDrillManifest = Read-OptionalJson $resolvedReleaseDeliveryDrillManifestPath
 $localVerification = Read-OptionalJson $resolvedLocalVerificationStatusPath
 
 $windowsPackagePresent = $null -ne $windowsManifest -and (Get-JsonValue $windowsManifest "packageFormat" "") -eq "qtnetworkchat-windows-package-v1"
@@ -327,6 +333,8 @@ $scanPaths = New-Object System.Collections.ArrayList
 [void](Copy-EvidenceFile $resolvedLocalReleaseReviewPackagePath $stagingDir "release-review/local-release-review.zip" "local-release-review-package" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedReleaseArchiveDecisionManifestPath $stagingDir "archive/release-archive-decision-manifest.json" "release-archive-decision-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedReleaseArchiveDecisionMarkdownPath $stagingDir "archive/release-archive-decision.md" "release-archive-decision-markdown" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleasePublicationRecordPath $stagingDir "archive/release-publication-record.json" "release-publication-record" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleaseDeliveryDrillManifestPath $stagingDir "archive/release-delivery-drill-manifest.json" "release-delivery-drill-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedWindowsPackageManifestPath $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedWindowsPackageZipPath $stagingDir "windows/QtNetworkChat-win-x64.zip" "windows-package-zip" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedInstallerScriptPath $stagingDir "tools/install-qtnetworkchat-package.ps1" "installer-script" $manifestInputs $scanPaths)
@@ -420,6 +428,8 @@ $summaryLines.Add(('- Windows package: `present={0}; currentHeadMatch={1}; runti
         (Format-Value $windowsPostgresOk), (Format-Value $windowsZipPresent), $windowsGate))
 $summaryLines.Add(('- Local release review: `ready={0}; gate={1}`' -f (Format-Value $localReleaseReviewReady), $localReleaseReviewGate))
 $summaryLines.Add(('- Release archive decision: `recorded={0}; gate={1}`' -f (Format-Value $releaseArchiveDecisionRecorded), $releaseArchiveDecisionGate))
+$summaryLines.Add(('- Release publication record: `present={0}; status={1}`' -f (Format-Value ($null -ne $releasePublicationRecord)), (Format-Value (Get-JsonValue $releasePublicationRecord "publishingStatus" "unknown"))))
+$summaryLines.Add(('- Release delivery drill: `present={0}; ok={1}`' -f (Format-Value ($null -ne $releaseDeliveryDrillManifest)), (Format-Value (Get-JsonValue $releaseDeliveryDrillManifest "ok" "unknown"))))
 $summaryLines.Add(('- Upload plan: `ready={0}`' -f (Format-Value $uploadPlanReady)))
 $summaryLines.Add(('- Installer bootstrap: `ready={0}`' -f (Format-Value $installerReady)))
 $summaryLines.Add(('- Diagnostics collector: `ready={0}`' -f (Format-Value $diagnosticsReady)))
@@ -483,6 +493,16 @@ $manifest = [ordered]@{
     releaseArchiveDecision = [ordered]@{
         recorded = $releaseArchiveDecisionRecorded
         decisionGate = $releaseArchiveDecisionGate
+    }
+    releasePublicationRecord = [ordered]@{
+        present = ($null -ne $releasePublicationRecord)
+        publishingStatus = (Format-Value (Get-JsonValue $releasePublicationRecord "publishingStatus" "unknown"))
+        channel = (Format-Value (Get-JsonValue $releasePublicationRecord "channel" "unknown"))
+    }
+    releaseDeliveryDrill = [ordered]@{
+        present = ($null -ne $releaseDeliveryDrillManifest)
+        ok = (Format-Value (Get-JsonValue $releaseDeliveryDrillManifest "ok" "unknown"))
+        manifestFormat = (Format-Value (Get-JsonValue $releaseDeliveryDrillManifest "format" "unknown"))
     }
     components = [ordered]@{
         uploadPlanReady = $uploadPlanReady

@@ -19,6 +19,10 @@ file(WRITE "${LOCAL_RELEASE_REVIEW_MARKDOWN_PATH}" "# Local Release Review\n")
 file(WRITE "${RELEASE_DELIVERY_HANDOFF_MARKDOWN_PATH}" "# Release Delivery Handoff\n")
 file(WRITE "${LOCAL_RELEASE_REVIEW_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-local-release-review-package-v1\",\n  \"reviewReady\":true,\n  \"reviewGate\":\"ready-for-final-archive-decision\",\n  \"targetReleaseHead\":\"abc123\",\n  \"packageSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n}\n")
 file(WRITE "${RELEASE_DELIVERY_HANDOFF_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-release-delivery-handoff-v1\",\n  \"deliveryReady\":true,\n  \"deliveryGate\":\"ready-local-delivery-handoff\",\n  \"targetReleaseHead\":\"abc123\",\n  \"deliveryTailCount\":0,\n  \"packageSha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n}\n")
+set(PUBLISHING_RECORD_PATH "${TEMP_DIR}/release-publication-record.json")
+set(DELIVERY_DRILL_MANIFEST_PATH "${TEMP_DIR}/release-delivery-drill-manifest.json")
+file(WRITE "${PUBLISHING_RECORD_PATH}" "{\n  \"format\":\"qtnetworkchat-release-publication-record-v1\",\n  \"channel\":\"team-share\",\n  \"publishingStatus\":\"pending-environment-publication\"\n}\n")
+file(WRITE "${DELIVERY_DRILL_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-release-delivery-drill-v1\",\n  \"ok\":true\n}\n")
 
 execute_process(
     COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
@@ -26,6 +30,8 @@ execute_process(
         -ReadmePath "${README_PATH}"
         -LocalReleaseReviewManifestPath "${LOCAL_RELEASE_REVIEW_MANIFEST_PATH}"
         -ReleaseDeliveryHandoffManifestPath "${RELEASE_DELIVERY_HANDOFF_MANIFEST_PATH}"
+        -PublishingRecordPath "${PUBLISHING_RECORD_PATH}"
+        -ReleaseDeliveryDrillManifestPath "${DELIVERY_DRILL_MANIFEST_PATH}"
         -ReleaseHead "abc123"
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
@@ -58,6 +64,8 @@ string(JSON decision_state GET "${manifest_content}" "decisionState")
 string(JSON decision_gate GET "${manifest_content}" "decisionGate")
 string(JSON publishing_required GET "${manifest_content}" "publishingRequired")
 string(JSON publishing_status GET "${manifest_content}" "publishingStatus")
+string(JSON publishing_record_present GET "${manifest_content}" "publishingRecordPresent")
+string(JSON delivery_drill_present GET "${manifest_content}" "releaseDeliveryDrillPresent")
 string(JSON blocker0 ERROR_VARIABLE blocker0_error GET "${manifest_content}" "blockers" 0)
 string(JSON package_sha256 GET "${manifest_content}" "packageSha256")
 string(JSON manifest_embedded GET "${manifest_content}" "manifestEmbedded")
@@ -74,7 +82,7 @@ if(decision_recorded OR NOT decision_state STREQUAL "pending-human-decision" OR 
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected pending archive decision state when no explicit decision is recorded")
 endif()
-if(publishing_required OR NOT publishing_status STREQUAL "not-started" OR NOT manifest_embedded OR NOT input_count EQUAL 5)
+if(publishing_required OR NOT publishing_status STREQUAL "not-started" OR NOT publishing_record_present OR NOT delivery_drill_present OR NOT manifest_embedded OR NOT input_count EQUAL 7)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Archive decision manifest metadata mismatch for pending decision")
 endif()

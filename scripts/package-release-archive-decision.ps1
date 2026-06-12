@@ -12,6 +12,8 @@ param(
     [string]$DecisionReason = "",
     [string]$PublishingStatus = "",
     [string]$PublishingChannel = "",
+    [string]$PublishingRecordPath = "",
+    [string]$ReleaseDeliveryDrillManifestPath = "",
 
     [string]$ReadmePath = "README.md",
     [string]$LocalReleaseReviewManifestPath = "build-qt6-mingw\\local-release-review\\local-release-review-manifest.json",
@@ -188,6 +190,14 @@ function Resolve-OptionalSibling([string]$ManifestPath, [string]$Suffix, [string
     ""
 }
 
+function Normalize-PublishingRecord([string]$PathValue) {
+    $resolved = Resolve-OptionalPath $PathValue
+    if ([string]::IsNullOrWhiteSpace($resolved) -or -not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        return $null
+    }
+    Read-OptionalJson $resolved
+}
+
 function Normalize-DecisionState([string]$Value) {
     $normalized = ([string]$Value).Trim().ToLowerInvariant()
     switch ($normalized) {
@@ -278,6 +288,8 @@ $resolvedMarkdownPath = Resolve-OptionalPath $MarkdownPath
 $resolvedReadmePath = Resolve-RepoPath $ReadmePath
 $resolvedLocalReleaseReviewManifestPath = Resolve-RepoPath $LocalReleaseReviewManifestPath
 $resolvedReleaseDeliveryHandoffManifestPath = Resolve-RepoPath $ReleaseDeliveryHandoffManifestPath
+$resolvedPublishingRecordPath = Resolve-RepoPath $PublishingRecordPath
+$resolvedReleaseDeliveryDrillManifestPath = Resolve-RepoPath $ReleaseDeliveryDrillManifestPath
 $resolvedLocalReleaseReviewMarkdownPath = Resolve-OptionalSibling $resolvedLocalReleaseReviewManifestPath "-manifest.json" ".md"
 $resolvedReleaseDeliveryHandoffMarkdownPath = Resolve-OptionalSibling $resolvedReleaseDeliveryHandoffManifestPath "-manifest.json" ".md"
 
@@ -296,6 +308,8 @@ if (-not [string]::IsNullOrWhiteSpace($markdownParent)) {
 
 $localReleaseReviewManifest = Read-OptionalJson $resolvedLocalReleaseReviewManifestPath
 $releaseDeliveryHandoffManifest = Read-OptionalJson $resolvedReleaseDeliveryHandoffManifestPath
+$publishingRecordManifest = Normalize-PublishingRecord $resolvedPublishingRecordPath
+$releaseDeliveryDrillManifest = Normalize-PublishingRecord $resolvedReleaseDeliveryDrillManifestPath
 
 $blockers = New-Object System.Collections.ArrayList
 $manifestInputs = New-Object System.Collections.ArrayList
@@ -410,6 +424,8 @@ New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
 [void](Copy-EvidenceFile $resolvedLocalReleaseReviewMarkdownPath $stagingDir "release-review/local-release-review.md" "local-release-review-markdown" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedReleaseDeliveryHandoffManifestPath $stagingDir "release-delivery/release-delivery-handoff-manifest.json" "release-delivery-handoff-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedReleaseDeliveryHandoffMarkdownPath $stagingDir "release-delivery/release-delivery-handoff.md" "release-delivery-handoff-markdown" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedPublishingRecordPath $stagingDir "publishing/release-publication-record.json" "release-publication-record" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleaseDeliveryDrillManifestPath $stagingDir "delivery-drill/release-delivery-drill-manifest.json" "release-delivery-drill-manifest" $manifestInputs $scanPaths)
 
 $summaryLines = New-Object System.Collections.Generic.List[string]
 $summaryLines.Add("# Release Archive Decision")
@@ -422,6 +438,8 @@ $summaryLines.Add(('- Decision gate: `{0}`' -f $decisionGate))
 $summaryLines.Add(('- Publishing required: `{0}`' -f (Format-Value $publishingRequired)))
 $summaryLines.Add(('- Publishing status: `{0}`' -f $normalizedPublishingStatus))
 $summaryLines.Add(('- Publishing channel: `{0}`' -f (Format-Value $publishingChannelValue)))
+$summaryLines.Add(('- Publishing record: `{0}`' -f $(if ($null -ne $publishingRecordManifest) { "present" } else { "missing" })))
+$summaryLines.Add(('- Delivery drill: `{0}`' -f $(if ($null -ne $releaseDeliveryDrillManifest) { "present" } else { "missing" })))
 $summaryLines.Add("")
 $summaryLines.Add("## Source Gates")
 $summaryLines.Add("")
@@ -477,6 +495,8 @@ $manifest = [ordered]@{
     publishingRequired = $publishingRequired
     publishingStatus = $normalizedPublishingStatus
     publishingChannel = $publishingChannelValue
+    publishingRecordPresent = $null -ne $publishingRecordManifest
+    releaseDeliveryDrillPresent = $null -ne $releaseDeliveryDrillManifest
     operatorAction = $operatorAction
     targetReleaseHead = $ReleaseHead
     packagePath = "release-archive-decision.zip"
@@ -505,6 +525,17 @@ $manifest = [ordered]@{
             targetHeadMatches = $releaseDeliveryHandoffHeadMatch
             packageSha256 = (Format-Value (Get-JsonValue $releaseDeliveryHandoffManifest "packageSha256" "unknown"))
             deliveryTailCount = (Format-Value (Get-JsonValue $releaseDeliveryHandoffManifest "deliveryTailCount" "unknown"))
+        }
+        publishingRecord = [ordered]@{
+            present = ($null -ne $publishingRecordManifest)
+            format = (Format-Value (Get-JsonValue $publishingRecordManifest "format" "unknown"))
+            publishingStatus = (Format-Value (Get-JsonValue $publishingRecordManifest "publishingStatus" "unknown"))
+            channel = (Format-Value (Get-JsonValue $publishingRecordManifest "channel" "unknown"))
+        }
+        releaseDeliveryDrill = [ordered]@{
+            present = ($null -ne $releaseDeliveryDrillManifest)
+            format = (Format-Value (Get-JsonValue $releaseDeliveryDrillManifest "format" "unknown"))
+            ok = (Format-Value (Get-JsonValue $releaseDeliveryDrillManifest "ok" "unknown"))
         }
     }
     sensitiveExportProof = [ordered]@{

@@ -229,6 +229,26 @@ powershell -ExecutionPolicy Bypass -File scripts/package-release-archive-decisio
 
 这样 `automation-status`、诊断包、release review 和 release delivery handoff 都能回读同一份 archive decision，而不会把“代码验证已通过”和“外部渠道是否已发布”混在一起。
 
+如果你还想顺手把本地安装/诊断交付 drill 一并跑掉，并把发布状态写回 record，可直接在收官刷新时一起带上：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
+  -BuildDir build-qt6-mingw `
+  -RunDeliveryDrill `
+  -ArchiveDecisionState approved-local-archive `
+  -ArchiveDecidedBy jun23 `
+  -ArchiveDecisionReason "Current-head release closeout verified locally." `
+  -ArchivePublishingStatus pending-environment-publication `
+  -ArchivePublishingChannel team-share
+```
+
+这样会额外生成：
+
+- `build-qt6-mingw/release-delivery-drill/release-delivery-drill-manifest.json`
+- `build-qt6-mingw/release-publication-record.json`
+
+前者证明安装脚本和脱敏诊断收集脚本在本地交付 drill 里跑通过，后者只记录“环境外发布状态”的脱敏摘要，不会真的连接外部发布平台。
+
 如果需要把当前 HEAD 的本地验证、Windows 包、linked E2E candidate、release review、release delivery handoff 和 `docs/automation-status.md` 一次性刷新到同一基线，可运行：
 
 ```powershell

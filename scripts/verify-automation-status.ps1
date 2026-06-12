@@ -246,6 +246,8 @@ End testing: Jun 03 04:01
   "decisionGate":"ready-for-archive-decision-record",
   "publishingRequired":false,
   "publishingStatus":"not-started",
+  "publishingRecordPresent":false,
+  "releaseDeliveryDrillPresent":false,
   "packageSha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
   "blockers":[]
 }
@@ -582,7 +584,7 @@ foreach ($expected in @(
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; releaseGate=',
     'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false`',
-    'Release archive decision artifacts: `manifest=ok; decisionRecorded=false; decisionState=pending-human-decision; decisionGate=ready-for-archive-decision-record; publishing=not-started; blockers=0`',
+    'Release archive decision artifacts: `manifest=ok; decisionRecorded=false; decisionState=pending-human-decision; decisionGate=ready-for-archive-decision-record; publishing=not-started; publishingRecord=false; deliveryDrill=false; blockers=0`',
     'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0`',
     'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
