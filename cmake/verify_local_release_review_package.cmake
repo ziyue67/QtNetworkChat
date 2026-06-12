@@ -34,7 +34,7 @@ file(WRITE "${AUTOMATION_STATUS_PATH}" "# Automation Status\n")
 file(WRITE "${E2E_HARDENING_PATH}" "# E2E Hardening\n")
 file(WRITE "${E2E_PLAN_PATH}" "# E2E Plan\n")
 file(WRITE "${LOCAL_VERIFICATION_PATH}" "{\n  \"format\":\"qtnetworkchat-local-verification-status-v1\",\n  \"ok\":true,\n  \"build\":{\"status\":\"passed\"},\n  \"ctest\":{\"status\":\"passed\",\"count\":81},\n  \"sensitiveExportProof\":{\"noSensitiveExportProof\":true}\n}\n")
-file(WRITE "${E2E_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-e2e-release-evidence-package-v1\",\n  \"releaseReady\":true,\n  \"releaseGate\":\"ready-local-verification-only\",\n  \"packageSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n  \"productionLinkedEvidence\":{\"ready\":true}\n}\n")
+file(WRITE "${E2E_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-e2e-release-evidence-package-v1\",\n  \"releaseReady\":true,\n  \"releaseGate\":\"ready-local-verification-only\",\n  \"targetReleaseHead\":\"abc123\",\n  \"packageSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n  \"productionLinkedEvidence\":{\"ready\":true}\n}\n")
 file(WRITE "${E2E_PROMOTION_PATH}" "{\n  \"format\":\"qtnetworkchat-e2e-release-artifact-promotion-v1\",\n  \"promoted\":true,\n  \"promotionReady\":true,\n  \"releaseGate\":\"ready-local-verification-only\"\n}\n")
 file(WRITE "${S3_PATH}" "{\n  \"format\":\"qtnetworkchat-s3-real-backend-readiness-v1\",\n  \"ok\":true,\n  \"status\":\"verified\",\n  \"summary\":{\"readiness\":\"verified\"},\n  \"auditSummary\":{\"releaseGate\":\"can-review-s3-real-backend-evidence\"}\n}\n")
 file(WRITE "${GOVERNANCE_DASHBOARD_PATH}" "{\n  \"format\":\"qtnetworkchat-large-file-governance-dashboard-v1\",\n  \"ok\":true,\n  \"status\":\"healthy\",\n  \"totalWarnings\":0,\n  \"summary\":{\"readiness\":\"verified\"},\n  \"auditSummary\":{\"releaseGate\":\"can-review-governance-evidence\"}\n}\n")
@@ -110,6 +110,7 @@ string(JSON manifest_packaged_as GET "${manifest_content}" "manifestPackagedAs")
 string(JSON manifest_embedded GET "${manifest_content}" "manifestEmbedded")
 string(JSON input_count GET "${manifest_content}" "inputCount")
 string(JSON github_policy GET "${manifest_content}" "githubWindowsBuildPolicy")
+string(JSON target_release_head GET "${manifest_content}" "targetReleaseHead")
 string(JSON decision_ready GET "${manifest_content}" "finalArchiveDecision" "ready")
 string(JSON decision_gate GET "${manifest_content}" "finalArchiveDecision" "reviewGate")
 string(JSON decision_recorded GET "${manifest_content}" "finalArchiveDecision" "recorded")
@@ -155,6 +156,7 @@ if(NOT package_path STREQUAL "local-release-review.zip"
         OR NOT markdown_packaged_as STREQUAL "local-release-review.md"
         OR NOT manifest_packaged_as STREQUAL "manifest.json"
         OR NOT manifest_embedded
+        OR NOT target_release_head STREQUAL "abc123"
         OR NOT input_count EQUAL 19
         OR NOT github_policy STREQUAL "disabled"
         OR NOT artifact0_kind STREQUAL "local-verification"
@@ -225,6 +227,47 @@ string(JSON blocked_blocker0 GET "${blocked_manifest}" "finalArchiveDecision" "b
 if(blocked_review_ready OR NOT blocked_review_gate STREQUAL "blocked-local-release-review-core-gates" OR NOT blocked_blocker0 STREQUAL "pgsql-acceptance-not-reviewable")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Blocked local release review package should preserve core gate blockers")
+endif()
+
+set(STALE_E2E_MANIFEST_PATH "${TEMP_DIR}/e2e-release-evidence-stale-manifest.json")
+file(WRITE "${STALE_E2E_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-e2e-release-evidence-package-v1\",\n  \"releaseReady\":true,\n  \"releaseGate\":\"ready-local-verification-only\",\n  \"targetReleaseHead\":\"stale-head\",\n  \"packageSha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n  \"productionLinkedEvidence\":{\"ready\":true}\n}\n")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${OUTPUT_DIR}/stale"
+        -ReadmePath "${README_PATH}"
+        -AutomationStatusPath "${AUTOMATION_STATUS_PATH}"
+        -E2EHardeningStatusPath "${E2E_HARDENING_PATH}"
+        -EndToEndEncryptionPlanPath "${E2E_PLAN_PATH}"
+        -LocalVerificationStatusPath "${LOCAL_VERIFICATION_PATH}"
+        -E2EReleaseEvidenceManifestPath "${STALE_E2E_MANIFEST_PATH}"
+        -E2EReleasePromotionPath "${E2E_PROMOTION_PATH}"
+        -S3RealBackendReadinessPath "${S3_PATH}"
+        -LargeFileGovernanceDashboardPath "${GOVERNANCE_DASHBOARD_PATH}"
+        -LargeFileGovernanceReportPath "${GOVERNANCE_REPORT_PATH}"
+        -LargeFileGovernancePerformanceSummaryPath "${GOVERNANCE_PERFORMANCE_SUMMARY_PATH}"
+        -LargeFileGovernanceDiagnosticsPath "${GOVERNANCE_DIAGNOSTICS_PATH}"
+        -PgsqlAcceptancePath "${PGSQL_ACCEPTANCE_PATH}"
+        -PgsqlEvidenceManifestPath "${PGSQL_EVIDENCE_MANIFEST_PATH}"
+        -PgsqlRollbackLivePath "${PGSQL_ROLLBACK_PATH}"
+        -PgsqlRollbackEvidenceManifestPath "${PGSQL_ROLLBACK_MANIFEST_PATH}"
+        -WindowsPackageManifestPath "${WINDOWS_MANIFEST_PATH}"
+        -AutomationPolicyPath "${AUTOMATION_POLICY_PATH}"
+        -ReleaseHead "abc123"
+    RESULT_VARIABLE stale_result
+    OUTPUT_VARIABLE stale_output
+    ERROR_VARIABLE stale_error
+)
+if(NOT stale_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Stale-head local release review package run failed unexpectedly: ${stale_error}")
+endif()
+file(READ "${OUTPUT_DIR}/stale/local-release-review-manifest.json" stale_manifest)
+string(JSON stale_review_ready GET "${stale_manifest}" "reviewReady")
+string(JSON stale_review_gate GET "${stale_manifest}" "reviewGate")
+string(JSON stale_blocker0 GET "${stale_manifest}" "finalArchiveDecision" "blockers" 0)
+if(stale_review_ready OR NOT stale_review_gate STREQUAL "blocked-local-release-review-core-gates" OR NOT stale_blocker0 STREQUAL "e2e-release-evidence-head-mismatch")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Local release review package should block stale E2E release evidence heads")
 endif()
 
 set(BAD_AUTOMATION_STATUS_PATH "${TEMP_DIR}/bad-automation-status.md")

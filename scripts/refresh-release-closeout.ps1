@@ -3,6 +3,7 @@ param(
     [string]$Configuration = "Release",
     [string]$QtRoot = "",
     [string]$PostgresBinDir = "D:\Program Files\PostgreSQL\17\bin",
+    [string]$AutomationStatusPath = "docs\\automation-status.md",
     [string]$ArchiveDecisionState = "pending-human-decision",
     [string]$ArchiveDecidedBy = "",
     [string]$ArchiveDecisionReason = "",
@@ -32,8 +33,27 @@ function Invoke-RepoScript([string]$ScriptPath, [string[]]$Arguments) {
     }
 }
 
+function Get-Sha256Hex([string]$PathValue) {
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or -not (Test-Path -LiteralPath $PathValue -PathType Leaf)) {
+        return "unknown"
+    }
+    $stream = [System.IO.File]::OpenRead($PathValue)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hashBytes = $sha256.ComputeHash($stream)
+            return (($hashBytes | ForEach-Object { $_.ToString("x2") }) -join "")
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $resolvedBuildDir = Resolve-RepoPath $BuildDir
+$resolvedAutomationStatusPath = Resolve-RepoPath $AutomationStatusPath
 $head = ((& git -C $repoRoot rev-parse HEAD) | Select-Object -First 1).Trim()
 if ([string]::IsNullOrWhiteSpace($head)) {
     throw "Unable to resolve current HEAD."
@@ -52,8 +72,38 @@ if (Test-Path -LiteralPath $lastTestLogPath -PathType Leaf) {
     }
 }
 
+$localVerificationStatusPath = Join-Path $resolvedBuildDir "local-verification-status.json"
+$releasePackageDir = Join-Path $resolvedBuildDir "release-package"
+$windowsPackageStageDir = Join-Path $releasePackageDir "QtNetworkChat-1.0.0-win-x64"
+$windowsPackageManifestPath = Join-Path $windowsPackageStageDir "manifest.json"
+$windowsPackageZipPath = Join-Path $releasePackageDir "QtNetworkChat-1.0.0-win-x64.zip"
+$linkedCandidateDir = Join-Path $resolvedBuildDir "e2e_release_evidence_linked_candidate"
+$linkedEvidenceManifestPath = Join-Path $linkedCandidateDir "e2e-release-evidence-manifest.json"
+$linkedPromotionPath = Join-Path $linkedCandidateDir "e2e-release-promotion.json"
+$localReleaseReviewDir = Join-Path $resolvedBuildDir "local-release-review"
+$localReleaseReviewManifestPath = Join-Path $localReleaseReviewDir "local-release-review-manifest.json"
+$localReleaseReviewMarkdownPath = Join-Path $localReleaseReviewDir "local-release-review.md"
+$localReleaseReviewPackagePath = Join-Path $localReleaseReviewDir "local-release-review.zip"
+$releaseArchiveDecisionDir = Join-Path $resolvedBuildDir "release-archive-decision"
+$releaseArchiveDecisionManifestPath = Join-Path $releaseArchiveDecisionDir "release-archive-decision-manifest.json"
+$releaseArchiveDecisionMarkdownPath = Join-Path $releaseArchiveDecisionDir "release-archive-decision.md"
+$releaseArchiveDecisionPackagePath = Join-Path $releaseArchiveDecisionDir "release-archive-decision.zip"
+$releaseDeliveryHandoffDir = Join-Path $resolvedBuildDir "release-delivery-handoff"
+$releaseDeliveryHandoffManifestPath = Join-Path $releaseDeliveryHandoffDir "release-delivery-handoff-manifest.json"
+$releaseDeliveryHandoffMarkdownPath = Join-Path $releaseDeliveryHandoffDir "release-delivery-handoff.md"
+$releaseDeliveryHandoffPackagePath = Join-Path $releaseDeliveryHandoffDir "release-delivery-handoff.zip"
+$releasePublicationRecordPath = Join-Path $resolvedBuildDir "release-publication-record.json"
+$releaseDeliveryDrillDir = Join-Path $resolvedBuildDir "release-delivery-drill"
+$releaseDeliveryDrillManifestPath = Join-Path $releaseDeliveryDrillDir "release-delivery-drill-manifest.json"
+$releaseDeliveryDrillMarkdownPath = Join-Path $releaseDeliveryDrillDir "release-delivery-drill.md"
+$releaseDiagnosticsDir = Join-Path $releaseDeliveryDrillDir "release-diagnostics"
+$releaseDiagnosticsManifestPath = Join-Path $releaseDiagnosticsDir "release-diagnostics\\manifest.json"
+$releaseDiagnosticsPackagePath = Join-Path $releaseDeliveryDrillDir "release-diagnostics.zip"
+$releaseCloseoutSummaryDir = Join-Path $resolvedBuildDir "release-closeout-summary"
+$releaseCloseoutSummaryManifestPath = Join-Path $releaseCloseoutSummaryDir "release-closeout-summary-manifest.json"
+
 Invoke-RepoScript "scripts/write-local-verification-status.ps1" @(
-    "-OutputPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
+    "-OutputPath", $localVerificationStatusPath,
     "-BuildStatus", "passed",
     "-BuildExitCode", "0",
     "-CTestStatus", "passed",
@@ -65,6 +115,7 @@ Invoke-RepoScript "scripts/write-local-verification-status.ps1" @(
 $packageWindowsArgs = @(
     "-BuildDir", $resolvedBuildDir,
     "-Configuration", $Configuration,
+    "-PackageDir", $releasePackageDir,
     "-SkipBuild"
 )
 if (-not [string]::IsNullOrWhiteSpace($QtRoot)) {
@@ -85,36 +136,49 @@ if ($FailOnMissingRuntime.IsPresent) {
 Invoke-RepoScript "scripts/package-windows.ps1" $packageWindowsArgs
 
 Invoke-RepoScript "scripts/promote-e2e-linked-candidate.ps1" @(
-    "-SourceCandidateDir", (Join-Path $resolvedBuildDir "e2e_release_evidence_linked_candidate"),
-    "-OutputDir", (Join-Path $resolvedBuildDir "e2e_release_evidence_linked_candidate"),
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md"),
+    "-SourceCandidateDir", $resolvedBuildDir,
+    "-OutputDir", $linkedCandidateDir,
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
     "-ReleaseHead", $head
 )
 
 Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "release-delivery-handoff"),
+    "-OutputDir", $releaseDeliveryHandoffDir,
     "-ReleaseHead", $head,
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
+    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
+    "-WindowsPackageZipPath", $windowsPackageZipPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-AutomationStatusPath", $resolvedAutomationStatusPath
 )
 
 Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "local-release-review"),
+    "-OutputDir", $localReleaseReviewDir,
     "-ReleaseHead", $head,
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md"),
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json")
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-E2EReleaseEvidenceManifestPath", $linkedEvidenceManifestPath,
+    "-E2EReleasePromotionPath", $linkedPromotionPath,
+    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath
 )
 
 if (-not [string]::IsNullOrWhiteSpace($ArchivePublishingStatus)) {
-    $windowsZipPath = Join-Path $resolvedBuildDir "release-package\\QtNetworkChat-1.0.0-win-x64.zip"
-    $artifactSha = if (Test-Path -LiteralPath $windowsZipPath -PathType Leaf) {
-        (Get-FileHash -LiteralPath $windowsZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $artifactSha = if (Test-Path -LiteralPath $windowsPackageZipPath -PathType Leaf) {
+        Get-Sha256Hex $windowsPackageZipPath
     } else {
         "unknown"
     }
     Invoke-RepoScript "scripts/write-release-publication-record.ps1" @(
-        "-OutputPath", (Join-Path $resolvedBuildDir "release-publication-record.json"),
+        "-OutputPath", $releasePublicationRecordPath,
         "-ReleaseHead", $head,
         "-Channel", $(if ([string]::IsNullOrWhiteSpace($ArchivePublishingChannel)) { "not-recorded" } else { $ArchivePublishingChannel }),
         "-PublishingStatus", $ArchivePublishingStatus,
@@ -124,89 +188,153 @@ if (-not [string]::IsNullOrWhiteSpace($ArchivePublishingStatus)) {
 }
 
 Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "release-archive-decision"),
+    "-OutputDir", $releaseArchiveDecisionDir,
     "-ReleaseHead", $head,
     "-DecisionState", $ArchiveDecisionState,
     "-DecidedBy", $ArchiveDecidedBy,
     "-DecisionReason", $ArchiveDecisionReason,
     "-PublishingStatus", $ArchivePublishingStatus,
     "-PublishingChannel", $ArchivePublishingChannel,
-    "-PublishingRecordPath", (Join-Path $resolvedBuildDir "release-publication-record.json"),
-    "-ReleaseDeliveryDrillManifestPath", (Join-Path $resolvedBuildDir "release-delivery-drill\\release-delivery-drill-manifest.json")
+    "-PublishingRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath
 )
 
 Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "release-delivery-handoff"),
+    "-OutputDir", $releaseDeliveryHandoffDir,
     "-ReleaseHead", $head,
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
+    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
+    "-WindowsPackageZipPath", $windowsPackageZipPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-AutomationStatusPath", $resolvedAutomationStatusPath
 )
 
 if ($RunDeliveryDrill.IsPresent) {
     Invoke-RepoScript "scripts/run-release-delivery-drill.ps1" @(
-        "-OutputDir", (Join-Path $resolvedBuildDir "release-delivery-drill"),
+        "-OutputDir", $releaseDeliveryDrillDir,
         "-BuildDir", $resolvedBuildDir,
         "-ReleaseHead", $head
     )
 }
 
 Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "release-closeout-summary"),
+    "-OutputDir", $releaseCloseoutSummaryDir,
     "-ReleaseHead", $head,
     "-BuildDir", $resolvedBuildDir,
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
+    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
+    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
+    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath
 )
 
 Invoke-RepoScript "scripts/write-automation-status.ps1" @(
-    "-MarkdownPath", (Resolve-RepoPath "docs\\automation-status.md"),
+    "-MarkdownPath", $resolvedAutomationStatusPath,
     "-Head", $head,
     "-OriginMain", $head,
     "-TrackedRemoteHash", $head,
     "-BuildDir", $resolvedBuildDir,
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-E2ELinkedReleaseCandidateManifestPath", $linkedEvidenceManifestPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath,
     "-StatusNowUtc", ((Get-Date).ToUniversalTime().ToString("o"))
 )
 
 Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "local-release-review"),
+    "-OutputDir", $localReleaseReviewDir,
     "-ReleaseHead", $head,
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md"),
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json")
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-E2EReleaseEvidenceManifestPath", $linkedEvidenceManifestPath,
+    "-E2EReleasePromotionPath", $linkedPromotionPath,
+    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath
 )
 
 Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "release-archive-decision"),
+    "-OutputDir", $releaseArchiveDecisionDir,
     "-ReleaseHead", $head,
     "-DecisionState", $ArchiveDecisionState,
     "-DecidedBy", $ArchiveDecidedBy,
     "-DecisionReason", $ArchiveDecisionReason,
     "-PublishingStatus", $ArchivePublishingStatus,
     "-PublishingChannel", $ArchivePublishingChannel,
-    "-PublishingRecordPath", (Join-Path $resolvedBuildDir "release-publication-record.json"),
-    "-ReleaseDeliveryDrillManifestPath", (Join-Path $resolvedBuildDir "release-delivery-drill\\release-delivery-drill-manifest.json")
+    "-PublishingRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath
 )
 
 Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "release-delivery-handoff"),
+    "-OutputDir", $releaseDeliveryHandoffDir,
     "-ReleaseHead", $head,
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
+    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
+    "-WindowsPackageZipPath", $windowsPackageZipPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-AutomationStatusPath", $resolvedAutomationStatusPath
 )
 
 Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
-    "-OutputDir", (Join-Path $resolvedBuildDir "release-closeout-summary"),
+    "-OutputDir", $releaseCloseoutSummaryDir,
     "-ReleaseHead", $head,
     "-BuildDir", $resolvedBuildDir,
-    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
+    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
+    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
+    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath
 )
 
 Invoke-RepoScript "scripts/write-automation-status.ps1" @(
-    "-MarkdownPath", (Resolve-RepoPath "docs\\automation-status.md"),
+    "-MarkdownPath", $resolvedAutomationStatusPath,
     "-Head", $head,
     "-OriginMain", $head,
     "-TrackedRemoteHash", $head,
     "-BuildDir", $resolvedBuildDir,
-    "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
+    "-LocalVerificationStatusPath", $localVerificationStatusPath,
+    "-E2ELinkedReleaseCandidateManifestPath", $linkedEvidenceManifestPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath,
     "-StatusNowUtc", ((Get-Date).ToUniversalTime().ToString("o"))
 )
 

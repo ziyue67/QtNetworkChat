@@ -396,24 +396,33 @@ $e2eGate = "e2e-release-review-missing"
 $e2eDetail = "missing"
 $e2eSource = "unknown"
 $e2ePackageSha256 = "unknown"
+$e2eTargetReleaseHead = "unknown"
+$e2eTargetHeadMatches = $false
 if ($null -ne $e2eManifest -and (Get-JsonValue $e2eManifest "format" "") -eq "qtnetworkchat-e2e-release-evidence-package-v1") {
     $e2eSource = if ($resolvedE2EReleaseEvidenceManifestPath -match "linked_candidate") { "linked-current-head-candidate" } else { "default-release-evidence" }
     $e2ePackageSha256 = Format-Value (Get-JsonValue $e2eManifest "packageSha256" "unknown")
+    $e2eTargetReleaseHead = Format-Value (Get-JsonValue $e2eManifest "targetReleaseHead" "unknown")
+    $e2eTargetHeadMatches = Test-HeadMatch $ReleaseHead $e2eTargetReleaseHead
     $e2eReleaseReady = [bool](Get-JsonValue $e2eManifest "releaseReady" $false)
     $e2ePromoted = if ($null -ne $e2ePromotion) { [bool](Get-JsonValue $e2ePromotion "promoted" $false) } else { [bool](Get-JsonValue (Get-JsonValue $e2eManifest "promotion" $null) "promoted" $false) }
     $e2ePromotionReady = if ($null -ne $e2ePromotion) { [bool](Get-JsonValue $e2ePromotion "promotionReady" $false) } else { [bool](Get-JsonValue (Get-JsonValue $e2eManifest "promotion" $null) "promotionReady" $false) }
     $productionLinkedReady = [bool](Get-JsonValue (Get-JsonValue $e2eManifest "productionLinkedEvidence" $null) "ready" $false)
     $e2eGate = Format-Value (Get-JsonValue $e2eManifest "releaseGate" "unknown")
-    $e2eReady = $e2eReleaseReady -and $e2ePromoted -and $e2ePromotionReady -and $productionLinkedReady
-    $e2eDetail = ('source={0}; releaseReady={1}; promoted={2}; productionLinked={3}; gate={4}; packageSha256={5}' -f `
+    $e2eReady = $e2eReleaseReady -and $e2ePromoted -and $e2ePromotionReady -and $productionLinkedReady -and $e2eTargetHeadMatches
+    $e2eDetail = ('source={0}; releaseReady={1}; promoted={2}; productionLinked={3}; gate={4}; targetReleaseHead={5}; targetMatchesCurrentHead={6}; packageSha256={7}' -f `
         $e2eSource, (Format-Value $e2eReleaseReady), (Format-Value $e2ePromoted), `
-        (Format-Value $productionLinkedReady), $e2eGate, $e2ePackageSha256)
+        (Format-Value $productionLinkedReady), $e2eGate, $e2eTargetReleaseHead, `
+        (Format-Value $e2eTargetHeadMatches), $e2ePackageSha256)
 } else {
     [void]$blockers.Add("e2e-release-evidence-missing")
 }
 [void]$artifactSummaries.Add((New-ArtifactSummary "e2e-release-review" ($null -ne $e2eManifest) $e2eReady $e2eGate $e2eDetail $true))
 if (-not $e2eReady -and -not $blockers.Contains("e2e-release-evidence-missing")) {
-    [void]$blockers.Add("e2e-release-review-not-ready")
+    if (-not $e2eTargetHeadMatches -and $e2eTargetReleaseHead -ne "unknown") {
+        [void]$blockers.Add("e2e-release-evidence-head-mismatch")
+    } else {
+        [void]$blockers.Add("e2e-release-review-not-ready")
+    }
 }
 
 $s3Ready = $false
