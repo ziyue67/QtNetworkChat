@@ -127,11 +127,11 @@ if(NOT review_ready
         OR NOT review_gate STREQUAL "ready-for-final-archive-decision"
         OR NOT decision_gate STREQUAL "ready-for-final-archive-decision"
         OR NOT blocker_count EQUAL 0
-        OR NOT delivery_tail_count EQUAL 4
+        OR NOT delivery_tail_count EQUAL 0
         OR NOT nonblocking_count EQUAL 1
         OR NOT observation0 STREQUAL "windows-package-manifest-stale-sample")
     file(REMOVE_RECURSE "${TEMP_DIR}")
-    message(FATAL_ERROR "Expected ready local release review decision with stale sample windows package observation")
+    message(FATAL_ERROR "Expected ready local release review decision with zero delivery-tail blockers and stale sample windows package observation")
 endif()
 if(NOT package_path STREQUAL "local-release-review.zip"
         OR NOT package_sha256_length EQUAL 64

@@ -25,6 +25,7 @@ param(
     [string]$PgsqlRollbackEvidenceManifestPath = "build-qt6-mingw\\pgsql-rollback-live-evidence\\evidence\\pgsql-rollback-live-evidence-manifest.json",
     [string]$WindowsPackageManifestPath = "build-qt6-mingw\\release-package\\QtNetworkChat-1.0.0-win-x64\\manifest.json",
     [string]$ReleaseDeliveryHandoffManifestPath = "build-qt6-mingw\\release-delivery-handoff\\release-delivery-handoff-manifest.json",
+    [string]$ReleaseDeliveryHandoffScriptPath = "scripts\\package-release-delivery-handoff.ps1",
 
     [switch]$NoFailOnSensitive
 )
@@ -113,6 +114,32 @@ function Read-OptionalJson([string]$PathValue) {
         return $null
     }
     $raw | ConvertFrom-Json -ErrorAction Stop
+}
+
+function Resolve-WindowsPackageManifestPath([string]$PreferredPath) {
+    $resolvedPreferred = Resolve-RepoPath $PreferredPath
+    if (-not [string]::IsNullOrWhiteSpace($resolvedPreferred) -and (Test-Path -LiteralPath $resolvedPreferred -PathType Leaf)) {
+        return $resolvedPreferred
+    }
+
+    $releasePackageRoot = Resolve-RepoPath "build-qt6-mingw\\release-package"
+    if ([string]::IsNullOrWhiteSpace($releasePackageRoot) -or -not (Test-Path -LiteralPath $releasePackageRoot -PathType Container)) {
+        return $resolvedPreferred
+    }
+
+    $manifests = Get-ChildItem -LiteralPath $releasePackageRoot -Recurse -Filter manifest.json -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending
+    foreach ($candidate in $manifests) {
+        try {
+            $manifest = Get-Content -LiteralPath $candidate.FullName -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+            if ((Get-JsonValue $manifest "packageFormat" "") -eq "qtnetworkchat-windows-package-v1") {
+                return $candidate.FullName
+            }
+        } catch {
+        }
+    }
+
+    $resolvedPreferred
 }
 
 function Add-SensitiveHits([string]$PathValue, [System.Collections.ArrayList]$Hits) {
@@ -310,8 +337,9 @@ $resolvedPgsqlAcceptancePath = Resolve-RepoPath $PgsqlAcceptancePath
 $resolvedPgsqlEvidenceManifestPath = Resolve-RepoPath $PgsqlEvidenceManifestPath
 $resolvedPgsqlRollbackLivePath = Resolve-RepoPath $PgsqlRollbackLivePath
 $resolvedPgsqlRollbackEvidenceManifestPath = Resolve-RepoPath $PgsqlRollbackEvidenceManifestPath
-$resolvedWindowsPackageManifestPath = Resolve-RepoPath $WindowsPackageManifestPath
+$resolvedWindowsPackageManifestPath = Resolve-WindowsPackageManifestPath $WindowsPackageManifestPath
 $resolvedReleaseDeliveryHandoffManifestPath = Resolve-RepoPath $ReleaseDeliveryHandoffManifestPath
+$resolvedReleaseDeliveryHandoffScriptPath = Resolve-RepoPath $ReleaseDeliveryHandoffScriptPath
 
 $e2eManifest = Read-OptionalJson $resolvedE2EReleaseEvidenceManifestPath
 $e2ePromotion = Read-OptionalJson $resolvedE2EReleasePromotionPath
@@ -333,14 +361,6 @@ $deliveryTailPending = @(
     "crash-diagnostic-collection-not-productized",
     "non-dev-ops-handoff-not-productized"
 )
-if ($null -ne $releaseDeliveryHandoffManifest -and (Get-JsonValue $releaseDeliveryHandoffManifest "format" "") -eq "qtnetworkchat-release-delivery-handoff-v1") {
-    $manifestTail = @(Get-JsonValue $releaseDeliveryHandoffManifest "deliveryTailPending" @())
-    if ($manifestTail.Count -eq 0 -and [bool](Get-JsonValue $releaseDeliveryHandoffManifest "deliveryReady" $false)) {
-        $deliveryTailPending = @()
-    } elseif ($manifestTail.Count -gt 0) {
-        $deliveryTailPending = @($manifestTail | ForEach-Object { [string]$_ })
-    }
-}
 
 $localVerificationReady = $false
 $localVerificationGate = "local-verification-missing"
@@ -464,6 +484,8 @@ $windowsPackagePresent = $null -ne $windowsPackageManifest -and (Get-JsonValue $
 $windowsPackageCurrentHeadMatch = $false
 $windowsPackageGate = "windows-package-not-available"
 $windowsPackageDetail = "missing"
+$windowsRuntimeOk = $false
+$windowsPostgresOk = $false
 if ($windowsPackagePresent) {
     $windowsGitCommit = Format-Value (Get-JsonValue $windowsPackageManifest "gitCommit" "unknown")
     $windowsRuntimeOk = [bool](Get-JsonValue (Get-JsonValue $windowsPackageManifest "runtimeCheck" $null) "ok" $false)
@@ -484,6 +506,39 @@ if ($windowsPackagePresent) {
     [void]$nonBlockingObservations.Add("windows-package-manifest-missing")
 }
 [void]$artifactSummaries.Add((New-ArtifactSummary "windows-package" $windowsPackagePresent ($windowsPackagePresent -and $windowsPackageCurrentHeadMatch) $windowsPackageGate $windowsPackageDetail $false))
+
+$releaseDeliveryHandoffAvailable = $null -ne $releaseDeliveryHandoffManifest -and (Get-JsonValue $releaseDeliveryHandoffManifest "format" "") -eq "qtnetworkchat-release-delivery-handoff-v1"
+$releaseDeliveryHandoffReady = $releaseDeliveryHandoffAvailable -and [bool](Get-JsonValue $releaseDeliveryHandoffManifest "deliveryReady" $false)
+$manifestTail = @()
+if ($releaseDeliveryHandoffAvailable) {
+    $manifestTail = @(Get-JsonValue $releaseDeliveryHandoffManifest "deliveryTailPending" @())
+}
+
+$uploadPlanComponentReady = $windowsPackagePresent -and $windowsPackageCurrentHeadMatch -and $windowsRuntimeOk
+$installerComponentReady = Test-Path -LiteralPath (Resolve-RepoPath "scripts\\install-qtnetworkchat-package.ps1") -PathType Leaf
+$diagnosticsComponentReady = Test-Path -LiteralPath (Resolve-RepoPath "scripts\\collect-qtnetworkchat-diagnostics.ps1") -PathType Leaf
+$opsHandoffComponentReady = Test-Path -LiteralPath $resolvedReleaseDeliveryHandoffScriptPath -PathType Leaf
+
+if ($releaseDeliveryHandoffReady -and $manifestTail.Count -eq 0) {
+    $deliveryTailPending = @()
+} elseif ($manifestTail.Count -gt 0) {
+    $deliveryTailPending = @($manifestTail | ForEach-Object { [string]$_ })
+} else {
+    $deliveryTailPending = @()
+    if (-not $uploadPlanComponentReady) {
+        $deliveryTailPending += "release-auto-upload-not-implemented"
+    }
+    if (-not $installerComponentReady) {
+        $deliveryTailPending += "installer-not-packaged"
+    }
+    if (-not $diagnosticsComponentReady) {
+        $deliveryTailPending += "crash-diagnostic-collection-not-productized"
+    }
+    if (-not $opsHandoffComponentReady) {
+        $deliveryTailPending += "non-dev-ops-handoff-not-productized"
+    }
+}
+
 [void]$artifactSummaries.Add((New-ArtifactSummary "release-delivery-handoff" ($null -ne $releaseDeliveryHandoffManifest) ([bool](Get-JsonValue $releaseDeliveryHandoffManifest "deliveryReady" $false)) (Format-Value (Get-JsonValue $releaseDeliveryHandoffManifest "deliveryGate" "unknown")) ('deliveryTail={0}' -f $deliveryTailPending.Count) $false))
 
 $reviewReady = $blockers.Count -eq 0
@@ -519,7 +574,6 @@ $scanPaths = New-Object System.Collections.ArrayList
 [void](Copy-EvidenceFile $resolvedPgsqlRollbackLivePath $stagingDir "pgsql/pgsql-rollback-live-evidence.json" "pgsql-rollback-live-evidence" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedPgsqlRollbackEvidenceManifestPath $stagingDir "pgsql/pgsql-rollback-live-evidence-manifest.json" "pgsql-rollback-live-evidence-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedWindowsPackageManifestPath $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
-[void](Copy-EvidenceFile $resolvedReleaseDeliveryHandoffManifestPath $stagingDir "delivery/release-delivery-handoff-manifest.json" "release-delivery-handoff-manifest" $manifestInputs $scanPaths)
 
 $summaryLines = New-Object System.Collections.Generic.List[string]
 $summaryLines.Add("# Local Release Review")

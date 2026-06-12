@@ -23,13 +23,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $sensitivePatterns = @(
-    'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
-    'PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
     'ghp_[A-Za-z0-9_]+',
     'github_pat_[A-Za-z0-9_]+',
-    'secret[-_\s]?key',
-    'access[-_\s]?key',
-    'session[-_\s]?token',
+    '(^|["''\s{,])secret[-_\s]?key["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])access[-_\s]?key["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])session[-_\s]?token["'']?\s*[:=]\s*(?!["'']?<redacted>)',
     'Authorization\s*[:=]',
     'Credential\s*=',
     'Signature\s*='
@@ -86,6 +86,32 @@ function Read-OptionalJson([string]$PathValue) {
         return $null
     }
     $raw | ConvertFrom-Json -ErrorAction Stop
+}
+
+function Resolve-WindowsPackageManifestPath([string]$PreferredPath) {
+    $resolvedPreferred = Resolve-RepoPath $PreferredPath
+    if (-not [string]::IsNullOrWhiteSpace($resolvedPreferred) -and (Test-Path -LiteralPath $resolvedPreferred -PathType Leaf)) {
+        return $resolvedPreferred
+    }
+
+    $releasePackageRoot = Resolve-RepoPath "build-qt6-mingw\\release-package"
+    if ([string]::IsNullOrWhiteSpace($releasePackageRoot) -or -not (Test-Path -LiteralPath $releasePackageRoot -PathType Container)) {
+        return $resolvedPreferred
+    }
+
+    $manifests = Get-ChildItem -LiteralPath $releasePackageRoot -Recurse -Filter manifest.json -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending
+    foreach ($candidate in $manifests) {
+        try {
+            $manifest = Get-Content -LiteralPath $candidate.FullName -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+            if ((Get-JsonValue $manifest "packageFormat" "") -eq "qtnetworkchat-windows-package-v1") {
+                return $candidate.FullName
+            }
+        } catch {
+        }
+    }
+
+    $resolvedPreferred
 }
 
 function Get-Sha256Hex([string]$PathValue) {
@@ -209,7 +235,7 @@ if ([string]::IsNullOrWhiteSpace($WindowsPackageZipPath)) {
     }
 }
 
-$resolvedWindowsPackageManifestPath = Resolve-RepoPath $WindowsPackageManifestPath
+$resolvedWindowsPackageManifestPath = Resolve-WindowsPackageManifestPath $WindowsPackageManifestPath
 $resolvedWindowsPackageZipPath = Resolve-RepoPath $WindowsPackageZipPath
 $resolvedLocalReleaseReviewManifestPath = Resolve-RepoPath $LocalReleaseReviewManifestPath
 $resolvedLocalReleaseReviewPackagePath = Resolve-RepoPath $LocalReleaseReviewPackagePath

@@ -201,6 +201,15 @@ powershell -ExecutionPolicy Bypass -File scripts/package-release-delivery-handof
 - `scripts/collect-qtnetworkchat-diagnostics.ps1` 会收集本地验证日志、自动化状态、release review / release delivery manifest 和崩溃 dump 清单，只记录相对路径、大小、时间戳，不打包原始 dump 字节
 - `release-upload-plan.json/.md` 只提供本地上传/分发说明，不会直接连接 GitHub Releases、对象存储或其他远端渠道
 
+如果需要把当前 HEAD 的本地验证、Windows 包、linked E2E candidate、release review、release delivery handoff 和 `docs/automation-status.md` 一次性刷新到同一基线，可运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
+  -BuildDir build-qt6-mingw
+```
+
+这个收官脚本会按固定顺序重生成当前 HEAD 的 closeout 产物，避免 `automation-status`、`local-release-review` 和 `release-delivery-handoff` 因交叉引用旧 manifest 而停留在旧基线。`docs/automation-status.md` 也只保留稳定的 gate/ready/tail 摘要，不再回写这些归档包自身的 SHA-256，以免状态文档与被其打包的归档产物形成自引用漂移。
+
 ### 可选 MinIO S3 手动验证
 
 S3/MinIO 后端默认仍保持关闭；需要验证当前 SigV4 签名和 path-style 请求边界时，可手动运行：

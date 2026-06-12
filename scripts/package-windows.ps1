@@ -40,6 +40,20 @@ function Get-GitCommit {
     return "unknown"
 }
 
+function Resolve-CMakeCommand {
+    $cmakeCommand = Get-Command "cmake.exe" -ErrorAction SilentlyContinue
+    if ($cmakeCommand) {
+        return $cmakeCommand.Source
+    }
+
+    $fallback = "D:\Qt\Tools\CMake_64\bin\cmake.exe"
+    if (Test-Path -LiteralPath $fallback -PathType Leaf) {
+        return $fallback
+    }
+
+    throw "cmake.exe was not found in PATH and fallback D:\Qt\Tools\CMake_64\bin\cmake.exe does not exist."
+}
+
 function Test-RuntimeFiles {
     param(
         [string]$StagePath,
@@ -194,6 +208,51 @@ function Copy-PostgresSqlRuntime {
     }
 }
 
+function Find-BuiltExecutable([string]$BuildPath) {
+    $candidates = New-Object System.Collections.Generic.List[System.IO.FileInfo]
+    $excludedSegments = @(
+        "\release-package\",
+        "\qpsql-package-probe\",
+        "\local-release-review\",
+        "\release-delivery-handoff\"
+    )
+
+    function Test-IsExcludedExecutable([string]$CandidatePath) {
+        $normalized = $CandidatePath.ToLowerInvariant()
+        foreach ($segment in $excludedSegments) {
+            if ($normalized.Contains($segment)) {
+                return $true
+            }
+        }
+        return $false
+    }
+
+    foreach ($relative in @(
+        "QtNetworkChat.exe",
+        "Release\\QtNetworkChat.exe",
+        "src\\QtNetworkChat.exe",
+        "src\\Release\\QtNetworkChat.exe"
+    )) {
+        $candidatePath = Join-Path $BuildPath $relative
+        if ((Test-Path -LiteralPath $candidatePath -PathType Leaf) -and -not (Test-IsExcludedExecutable $candidatePath)) {
+            $candidates.Add((Get-Item -LiteralPath $candidatePath))
+        }
+    }
+
+    try {
+        Get-ChildItem -Path $BuildPath -Recurse -Filter "QtNetworkChat.exe" -File -ErrorAction SilentlyContinue |
+            Where-Object { -not (Test-IsExcludedExecutable $_.FullName) } |
+            ForEach-Object { $candidates.Add($_) }
+    } catch {
+    }
+
+    $best = $candidates |
+        Sort-Object FullName -Unique |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    return $best
+}
+
 function Resolve-RepoPath {
     param(
         [string]$RepoRoot,
@@ -211,6 +270,7 @@ $version = Get-ProjectVersion -RepoRoot $repoRoot
 $gitCommit = Get-GitCommit -RepoRoot $repoRoot
 $buildPath = Resolve-RepoPath -RepoRoot $repoRoot -Path $BuildDir
 $packageRoot = Resolve-RepoPath -RepoRoot $repoRoot -Path $PackageDir
+$cmakeExe = Resolve-CMakeCommand
 $stageName = "QtNetworkChat-$version-win-x64"
 $stagePath = Join-Path $packageRoot $stageName
 $zipPath = Join-Path $packageRoot "$stageName.zip"
@@ -218,14 +278,12 @@ $manifestPath = Join-Path $stagePath "manifest.json"
 
 Write-Host "Packaging QtNetworkChat $version from $repoRoot"
 if (-not $SkipBuild) {
-    cmake --build $buildPath --config $Configuration
+    & $cmakeExe --build $buildPath --config $Configuration
 } else {
     Write-Host "Skipping build because -SkipBuild was specified"
 }
 
-$exe = Get-ChildItem -Path $buildPath -Recurse -Filter "QtNetworkChat.exe" |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
+$exe = Find-BuiltExecutable $buildPath
 
 if (-not $exe) {
     throw "QtNetworkChat.exe was not found under $buildPath"

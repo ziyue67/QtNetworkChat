@@ -563,10 +563,10 @@ foreach ($expected in @(
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`',
     'Automation ack drill artifacts: `state=exercised; ok=true; acknowledged=true; releaseGate=automation-ack-drill-exercised`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
-    'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
-    'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false; packageSha256=',
-    'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0; packageSha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc`',
-    'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed; packageSha256=',
+    'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; releaseGate=',
+    'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false`',
+    'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0`',
+    'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
     'E2E production crypto is the active automation lane again',
@@ -2323,8 +2323,8 @@ foreach ($expected in @(
     'Promotion action: `GitHub Windows Build is disabled by repo policy and not part of the active release gate; use local build/CTest and linked production evidence for release review.`',
     'Evidence local review baseline: currentHead=`current-head-ci-stale`, targetReleaseHead=`current-head-ci-stale`, artifactFreshness=`false`, githubWindowsBuild=`disabled/not-required`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
     'Linked runtime candidate: localBuild=`passed`, localCTest=`passed`, productionLinked=`true`, releaseReady=`true`, promotion=`ready-local-verification-only`, githubWindowsBuild=`disabled/not-required`',
-    'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
-    'Active E2E release review artifacts: `source=linked-current-head-candidate; releaseReady=true; promoted=true; releaseGate=ready-local-verification-only; productionLinked=true; packageSha256='
+    'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; releaseGate=',
+    'Active E2E release review artifacts: `source=linked-current-head-candidate; releaseReady=true; promoted=true; releaseGate=ready-local-verification-only; productionLinked=true`'
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }

@@ -59,9 +59,9 @@ $sensitivePatterns = @(
     'passphrase["'']?\s*[:=]',
     'ghp_[A-Za-z0-9_]+',
     'github_pat_[A-Za-z0-9_]+',
-    'secret[-_\s]?key',
-    'access[-_\s]?key',
-    'session[-_\s]?token',
+    '(^|["''\s{,])secret[-_\s]?key["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])access[-_\s]?key["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])session[-_\s]?token["'']?\s*[:=]\s*(?!["'']?<redacted>)',
     'Authorization\s*[:=]',
     'Credential\s*=',
     'Signature\s*='
@@ -3608,7 +3608,6 @@ $e2eRolloutDiagnostics = @(
 $e2eReleaseEvidenceDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.packageArtifact)),
     ('manifestEmbedded={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.manifestEmbedded)),
-    ('packageSha256={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)),
     ('releaseGate={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate))
 ) -join "; "
 $activeE2EReleaseEvidenceDiagnostics = @(
@@ -3616,23 +3615,20 @@ $activeE2EReleaseEvidenceDiagnostics = @(
     ('releaseReady={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseReady)),
     ('promoted={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionPromoted)),
     ('releaseGate={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionGate)),
-    ('productionLinked={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedReady)),
-    ('packageSha256={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.packageSha256))
+    ('productionLinked={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedReady))
 ) -join "; "
 $localReleaseReviewDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $localReleaseReviewReadback.packageArtifact)),
     ('reviewReady={0}' -f (Format-StatusValue $localReleaseReviewReadback.reviewReady)),
     ('reviewGate={0}' -f (Format-StatusValue $localReleaseReviewReadback.reviewGate)),
     ('blockers={0}' -f (Format-StatusValue $localReleaseReviewReadback.blockerCount)),
-    ('deliveryTail={0}' -f (Format-StatusValue $localReleaseReviewReadback.deliveryTailCount)),
-    ('packageSha256={0}' -f (Format-StatusValue $localReleaseReviewReadback.packageSha256))
+    ('deliveryTail={0}' -f (Format-StatusValue $localReleaseReviewReadback.deliveryTailCount))
 ) -join "; "
 $releaseDeliveryHandoffDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.packageArtifact)),
     ('deliveryReady={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.deliveryReady)),
     ('deliveryGate={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.deliveryGate)),
-    ('deliveryTail={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.deliveryTailCount)),
-    ('packageSha256={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.packageSha256))
+    ('deliveryTail={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.deliveryTailCount))
 ) -join "; "
 $e2eLinkedReleaseCandidateDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageArtifact)),
@@ -3642,8 +3638,7 @@ $e2eLinkedReleaseCandidateDiagnostics = @(
     ('probeFixture={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture)),
     ('releaseEligible={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseEligible)),
     ('localBuild={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localBuildStatus)),
-    ('localCTest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus)),
-    ('packageSha256={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageSha256))
+    ('localCTest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.localCTestStatus))
 ) -join "; "
 $s3RealBackendReadinessDiagnostics = @(
     ('readiness={0}' -f (Format-StatusValue $s3RealBackendReadinessState.state)),

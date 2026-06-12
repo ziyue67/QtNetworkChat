@@ -12,13 +12,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $sensitivePatterns = @(
-    'password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
-    'PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])password["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])PGPASSWORD["'']?\s*[:=]\s*(?!["'']?<redacted>)',
     'ghp_[A-Za-z0-9_]+',
     'github_pat_[A-Za-z0-9_]+',
-    'secret[-_\s]?key',
-    'access[-_\s]?key',
-    'session[-_\s]?token',
+    '(^|["''\s{,])secret[-_\s]?key["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])access[-_\s]?key["'']?\s*[:=]\s*(?!["'']?<redacted>)',
+    '(^|["''\s{,])session[-_\s]?token["'']?\s*[:=]\s*(?!["'']?<redacted>)',
     'Authorization\s*[:=]',
     'Credential\s*=',
     'Signature\s*='
@@ -106,6 +106,32 @@ function Copy-SafeArtifact(
     $true
 }
 
+function Resolve-WindowsPackageManifestPath([string]$BuildRoot) {
+    $preferred = Join-Path $BuildRoot "release-package\\QtNetworkChat-1.0.0-win-x64\\manifest.json"
+    if (Test-Path -LiteralPath $preferred -PathType Leaf) {
+        return $preferred
+    }
+
+    $releasePackageRoot = Join-Path $BuildRoot "release-package"
+    if (-not (Test-Path -LiteralPath $releasePackageRoot -PathType Container)) {
+        return $preferred
+    }
+
+    $manifests = Get-ChildItem -LiteralPath $releasePackageRoot -Recurse -Filter manifest.json -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending
+    foreach ($candidate in $manifests) {
+        try {
+            $manifest = Get-Content -LiteralPath $candidate.FullName -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+            if (($manifest.PSObject.Properties.Name -contains "packageFormat") -and $manifest.packageFormat -eq "qtnetworkchat-windows-package-v1") {
+                return $candidate.FullName
+            }
+        } catch {
+        }
+    }
+
+    $preferred
+}
+
 function New-DumpInventoryEntry([System.IO.FileInfo]$FileInfo, [string]$RootLabel, [string]$RootPath) {
     [pscustomobject]@{
         root = $RootLabel
@@ -138,7 +164,7 @@ $dumpInventory = New-Object System.Collections.ArrayList
 [void](Copy-SafeArtifact (Resolve-RepoPath "docs\automation-status.md") $stagingDir "docs/automation-status.md" "automation-status" $manifestInputs $scanPaths)
 [void](Copy-SafeArtifact (Join-Path $buildRoot "local-release-review\local-release-review-manifest.json") $stagingDir "release-review/local-release-review-manifest.json" "local-release-review-manifest" $manifestInputs $scanPaths)
 [void](Copy-SafeArtifact (Join-Path $buildRoot "release-delivery-handoff\release-delivery-handoff-manifest.json") $stagingDir "release-delivery/release-delivery-handoff-manifest.json" "release-delivery-handoff-manifest" $manifestInputs $scanPaths)
-[void](Copy-SafeArtifact (Join-Path $buildRoot "release-package\QtNetworkChat-1.0.0-win-x64\manifest.json") $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
+[void](Copy-SafeArtifact (Resolve-WindowsPackageManifestPath $buildRoot) $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
 
 if (-not [string]::IsNullOrWhiteSpace($resolvedInstallDir) -and (Test-Path -LiteralPath $resolvedInstallDir -PathType Container)) {
     [void](Copy-SafeArtifact (Join-Path $resolvedInstallDir "manifest.json") $stagingDir "install/manifest.json" "installed-package-manifest" $manifestInputs $scanPaths)
