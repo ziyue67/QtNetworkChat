@@ -730,6 +730,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_e2e_release_evidence_package.cmake
     )
     add_test(
+        NAME LocalReleaseReviewPackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-local-release-review.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_release_review_package.cmake
+    )
+    add_test(
         NAME E2ELinkedCandidatePromotion
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/promote-e2e-linked-candidate.ps1

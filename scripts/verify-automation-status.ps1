@@ -574,7 +574,7 @@ foreach ($expected in @(
     'S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates',
     'legacy URL/path-like object locators are suppressed from recovery status',
     'Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback',
-    'current-head production-linked release artifact is now generated locally from the reviewed linked build path, and the remaining E2E release work is the local release review plus any non-E2E operational gates that still need closure before final archive',
+    'current-head production-linked release artifact is now generated locally from the reviewed linked build path, the local release review bundle now archives the verified E2E/S3/governance/PostgreSQL evidence in one place, and the remaining work is the human final archive decision plus non-E2E delivery-tail items such as installer/upload/diagnostic handoff',
     'File/offline attachment productization is closed for the current automation lane',
     'Group productization is closed for the current automation lane',
     'README information architecture and current-state alignment are now the main documentation lane',

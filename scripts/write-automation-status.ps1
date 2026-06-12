@@ -21,6 +21,7 @@ param(
     [string]$E2ERolloutObservabilityMarkdownPath,
     [string]$E2EReleaseEvidenceManifestPath,
     [string]$E2ELinkedReleaseCandidateManifestPath,
+    [string]$LocalReleaseReviewManifestPath,
     [string]$DatabaseHealthStatusPath,
     [string]$DatabaseHealthLastRunPath,
     [string]$DatabaseHealthTaskPreviewPath,
@@ -1240,6 +1241,40 @@ function Get-E2EReleaseEvidenceReadback([object]$ManifestState, [string]$Current
                 "Regenerate E2E release evidence for the current HEAD before promotion."
         }
     }
+    [pscustomobject]$result
+}
+
+function Get-LocalReleaseReviewReadback([object]$ArtifactState) {
+    $result = [ordered]@{
+        configured = $false
+        packageArtifact = "not-configured"
+        reviewReady = "unknown"
+        reviewGate = "unknown"
+        packageSha256 = "unknown"
+        blockerCount = "unknown"
+        deliveryTailCount = "unknown"
+    }
+    if ($ArtifactState.state -eq "not-configured") {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    $result.packageArtifact = $ArtifactState.state
+    if ($ArtifactState.state -ne "ok") {
+        return [pscustomobject]$result
+    }
+
+    $manifest = $ArtifactState.value
+    if ((Get-JsonValue $manifest "format" "") -ne "qtnetworkchat-local-release-review-package-v1") {
+        $result.packageArtifact = "invalid-format"
+        return [pscustomobject]$result
+    }
+
+    $decision = Get-JsonValue $manifest "finalArchiveDecision" $null
+    $result.reviewReady = Format-StatusValue (Get-JsonValue $manifest "reviewReady" "unknown")
+    $result.reviewGate = Format-StatusValue (Get-JsonValue $manifest "reviewGate" "unknown")
+    $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
+    $result.blockerCount = Format-StatusValue (Get-JsonValue $decision "blockerCount" "unknown")
+    $result.deliveryTailCount = Format-StatusValue (Get-JsonValue $decision "deliveryTailCount" "unknown")
     [pscustomobject]$result
 }
 
@@ -2517,6 +2552,12 @@ if ([string]::IsNullOrWhiteSpace($E2ERolloutObservabilityMarkdownPath)) {
 if ([string]::IsNullOrWhiteSpace($E2EReleaseEvidenceManifestPath)) {
     $E2EReleaseEvidenceManifestPath = Join-Path $BuildDir "e2e_release_evidence\e2e-release-evidence-manifest.json"
 }
+if ([string]::IsNullOrWhiteSpace($LocalReleaseReviewManifestPath)) {
+    $defaultLocalReleaseReviewManifestPath = Join-Path $BuildDir "local-release-review\local-release-review-manifest.json"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultLocalReleaseReviewManifestPath) -PathType Leaf) {
+        $LocalReleaseReviewManifestPath = $defaultLocalReleaseReviewManifestPath
+    }
+}
 if ([string]::IsNullOrWhiteSpace($E2ELinkedReleaseCandidateManifestPath)) {
     $defaultLinkedReleaseCandidateManifestPath =
         Join-Path $BuildDir "e2e_release_evidence_linked_candidate\e2e-release-evidence-manifest.json"
@@ -2635,6 +2676,8 @@ $e2eRolloutMarkdownState = Get-ArtifactState -PathValue $E2ERolloutObservability
 $e2eRolloutReadback = Get-E2ERolloutObservabilityReadback $e2eRolloutJsonState $e2eRolloutMarkdownState
 $e2eReleaseEvidenceManifestState = Get-ArtifactState -PathValue $E2EReleaseEvidenceManifestPath -ExpectJson
 $e2eReleaseEvidenceReadback = Get-E2EReleaseEvidenceReadback $e2eReleaseEvidenceManifestState $Head
+$localReleaseReviewManifestState = Get-ArtifactState -PathValue $LocalReleaseReviewManifestPath -ExpectJson
+$localReleaseReviewReadback = Get-LocalReleaseReviewReadback $localReleaseReviewManifestState
 $e2eLinkedReleaseCandidateManifestState =
     Get-ArtifactState -PathValue $E2ELinkedReleaseCandidateManifestPath -ExpectJson
 $e2eLinkedReleaseCandidateReadback =
@@ -2848,7 +2891,7 @@ $automationTaskHistory = $automationTaskHistoryState.value
 $automationTaskAck = $automationTaskAckState.value
 
 $e2eReleaseTail = if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
-    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy and removed from the active release gate, so current verification closes on local build plus local CTest. The current-head production-linked release artifact is now generated locally from the reviewed linked build path, and the remaining E2E release work is the local release review plus any non-E2E operational gates that still need closure before final archive."
+    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy and removed from the active release gate, so current verification closes on local build plus local CTest. The current-head production-linked release artifact is now generated locally from the reviewed linked build path, the local release review bundle now archives the verified E2E/S3/governance/PostgreSQL evidence in one place, and the remaining work is the human final archive decision plus non-E2E delivery-tail items such as installer/upload/diagnostic handoff."
 } else {
     "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with the active verification policy, current CI readback, and local build/CTest readback; remaining E2E release work stays on release review plus whichever CI/local verification path the active policy requires."
 }
@@ -3536,6 +3579,14 @@ $activeE2EReleaseEvidenceDiagnostics = @(
     ('productionLinked={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedReady)),
     ('packageSha256={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.packageSha256))
 ) -join "; "
+$localReleaseReviewDiagnostics = @(
+    ('manifest={0}' -f (Format-StatusValue $localReleaseReviewReadback.packageArtifact)),
+    ('reviewReady={0}' -f (Format-StatusValue $localReleaseReviewReadback.reviewReady)),
+    ('reviewGate={0}' -f (Format-StatusValue $localReleaseReviewReadback.reviewGate)),
+    ('blockers={0}' -f (Format-StatusValue $localReleaseReviewReadback.blockerCount)),
+    ('deliveryTail={0}' -f (Format-StatusValue $localReleaseReviewReadback.deliveryTailCount)),
+    ('packageSha256={0}' -f (Format-StatusValue $localReleaseReviewReadback.packageSha256))
+) -join "; "
 $e2eLinkedReleaseCandidateDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageArtifact)),
     ('releaseReady={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady)),
@@ -3564,6 +3615,9 @@ $lines.Add('- Automation ack drill artifacts: `' + $automationAckDrillDiagnostic
 $lines.Add('- E2E rollout observability artifacts: `' + $e2eRolloutDiagnostics + '`')
 $lines.Add('- E2E release evidence baseline artifacts: `' + $e2eReleaseEvidenceDiagnostics + '`')
 $lines.Add('- Active E2E release review artifacts: `' + $activeE2EReleaseEvidenceDiagnostics + '`')
+if ($localReleaseReviewReadback.configured) {
+    $lines.Add('- Local release review artifacts: `' + $localReleaseReviewDiagnostics + '`')
+}
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     $lines.Add('- E2E linked release candidate artifacts: `' + $e2eLinkedReleaseCandidateDiagnostics + '`')
 }

@@ -630,8 +630,8 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 后续优化优先级
 
-1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。这个方向上剩余工作已经从“补 current-head 候选”收缩为“归档本地 release review 结论，并把 release evidence 与剩余运维 gate 一起收官”。
-2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，接下来更值得做的是把 README、automation-status、focused docs、脚本生成内容和当前代码状态彻底对齐，把“已经完成”“当前阻塞”“真实剩余风险”写成一套一致口径；同时明确默认 fail-closed 基线证据与 current-head release review evidence 的区别，避免将基线阻塞误读成当前 head 未闭环，并继续清理长期保留但已不再代表现状的 backlog 描述和本地导入目录边界。
+1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。本地 `release review` 收官包现在会把 current-head E2E candidate、S3 readiness、large-file governance、PostgreSQL acceptance/rollback、README 和 automation-status 一起归档，方便做最终人工归档决定。
+2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，接下来更值得做的是把 README、automation-status、focused docs、脚本生成内容和当前代码状态彻底对齐，把“已经完成”“当前阻塞”“真实剩余风险”写成一套一致口径；同时明确默认 fail-closed 基线证据与 current-head release review evidence 的区别，避免将基线阻塞误读成当前 head 未闭环，并把最终 archive decision 与后续 delivery-tail 工作分开记录。
 3. **发布与运维体验**：Windows 打包、manifest、运行时依赖检查和 PostgreSQL / S3 / governance evidence 已经具备基础闭环。剩余更偏交付面的工作是 Release 自动上传、安装包、崩溃/诊断日志收集，以及把本地值班证据更顺手地接给非开发环境使用。
 4. **结构拆分的最终收尾**：第一阶段和第二阶段所需的 UI 统一、文件工作区整线产品化已经完成，`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 也都已经承担了主职责。后续结构拆分不再是当前主线，只在确实影响维护性或回归定位时，继续处理剩余的大弹窗编排和少量 MainWindow 收口。
 5. **性能与非阻塞增强**：文件/离线附件的用户可见状态、恢复入口、失败入口和工作区摘要已经统一。后续更适合做的不是再补基础产品链，而是性能压测、治理指标细化，以及必要时补充少量高价值回归测试。
