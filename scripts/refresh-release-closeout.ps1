@@ -101,6 +101,8 @@ $releaseDiagnosticsManifestPath = Join-Path $releaseDiagnosticsDir "release-diag
 $releaseDiagnosticsPackagePath = Join-Path $releaseDeliveryDrillDir "release-diagnostics.zip"
 $releaseCloseoutSummaryDir = Join-Path $resolvedBuildDir "release-closeout-summary"
 $releaseCloseoutSummaryManifestPath = Join-Path $releaseCloseoutSummaryDir "release-closeout-summary-manifest.json"
+$releaseFinalLocalArchiveDir = Join-Path $resolvedBuildDir "release-final-local-archive"
+$releaseFinalLocalArchiveManifestPath = Join-Path $releaseFinalLocalArchiveDir "release-final-local-archive-manifest.json"
 
 Invoke-RepoScript "scripts/write-local-verification-status.ps1" @(
     "-OutputPath", $localVerificationStatusPath,
@@ -245,6 +247,28 @@ Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
     "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath
 )
 
+Invoke-RepoScript "scripts/package-release-final-local-archive.ps1" @(
+    "-OutputDir", $releaseFinalLocalArchiveDir,
+    "-ReleaseHead", $head,
+    "-BuildDir", $resolvedBuildDir,
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
+    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
+    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
+    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath,
+    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath
+)
+
 Invoke-RepoScript "scripts/write-automation-status.ps1" @(
     "-MarkdownPath", $resolvedAutomationStatusPath,
     "-Head", $head,
@@ -257,6 +281,7 @@ Invoke-RepoScript "scripts/write-automation-status.ps1" @(
     "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
     "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
     "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath,
+    "-ReleaseFinalLocalArchiveManifestPath", $releaseFinalLocalArchiveManifestPath,
     "-StatusNowUtc", ((Get-Date).ToUniversalTime().ToString("o"))
 )
 
@@ -323,6 +348,28 @@ Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
     "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath
 )
 
+Invoke-RepoScript "scripts/package-release-final-local-archive.ps1" @(
+    "-OutputDir", $releaseFinalLocalArchiveDir,
+    "-ReleaseHead", $head,
+    "-BuildDir", $resolvedBuildDir,
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
+    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
+    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
+    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath,
+    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath
+)
+
 Invoke-RepoScript "scripts/write-automation-status.ps1" @(
     "-MarkdownPath", $resolvedAutomationStatusPath,
     "-Head", $head,
@@ -335,7 +382,30 @@ Invoke-RepoScript "scripts/write-automation-status.ps1" @(
     "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
     "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
     "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath,
+    "-ReleaseFinalLocalArchiveManifestPath", $releaseFinalLocalArchiveManifestPath,
     "-StatusNowUtc", ((Get-Date).ToUniversalTime().ToString("o"))
+)
+
+Invoke-RepoScript "scripts/package-release-final-local-archive.ps1" @(
+    "-OutputDir", $releaseFinalLocalArchiveDir,
+    "-ReleaseHead", $head,
+    "-BuildDir", $resolvedBuildDir,
+    "-AutomationStatusPath", $resolvedAutomationStatusPath,
+    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
+    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
+    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
+    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
+    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
+    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
+    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath,
+    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath
 )
 
 Write-Host "release closeout refreshed"

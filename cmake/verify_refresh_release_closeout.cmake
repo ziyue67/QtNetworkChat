@@ -133,6 +133,7 @@ set(LOCAL_REVIEW_MANIFEST_PATH "${BUILD_DIR}/local-release-review/local-release-
 set(ARCHIVE_DECISION_MANIFEST_PATH "${BUILD_DIR}/release-archive-decision/release-archive-decision-manifest.json")
 set(DELIVERY_HANDOFF_MANIFEST_PATH "${BUILD_DIR}/release-delivery-handoff/release-delivery-handoff-manifest.json")
 set(CLOSEOUT_SUMMARY_MANIFEST_PATH "${BUILD_DIR}/release-closeout-summary/release-closeout-summary-manifest.json")
+set(FINAL_LOCAL_ARCHIVE_MANIFEST_PATH "${BUILD_DIR}/release-final-local-archive/release-final-local-archive-manifest.json")
 set(WINDOWS_MANIFEST_PATH "${BUILD_DIR}/release-package/QtNetworkChat-1.0.0-win-x64/manifest.json")
 set(PUBLICATION_RECORD_PATH "${BUILD_DIR}/release-publication-record.json")
 set(DELIVERY_DRILL_MANIFEST_PATH "${BUILD_DIR}/release-delivery-drill/release-delivery-drill-manifest.json")
@@ -146,6 +147,7 @@ foreach(required_path
         "${ARCHIVE_DECISION_MANIFEST_PATH}"
         "${DELIVERY_HANDOFF_MANIFEST_PATH}"
         "${CLOSEOUT_SUMMARY_MANIFEST_PATH}"
+        "${FINAL_LOCAL_ARCHIVE_MANIFEST_PATH}"
         "${WINDOWS_MANIFEST_PATH}"
         "${PUBLICATION_RECORD_PATH}"
         "${DELIVERY_DRILL_MANIFEST_PATH}"
@@ -265,6 +267,23 @@ if(NOT closeout_release_head STREQUAL "${release_head}"
     message(FATAL_ERROR "refresh-release-closeout should regenerate a ready release closeout summary for the current HEAD")
 endif()
 
+file(READ "${FINAL_LOCAL_ARCHIVE_MANIFEST_PATH}" final_local_archive_content)
+string(JSON final_archive_release_head GET "${final_local_archive_content}" "releaseHead")
+string(JSON final_archive_ready GET "${final_local_archive_content}" "archiveReady")
+string(JSON final_archive_gate GET "${final_local_archive_content}" "archiveGate")
+string(JSON final_archive_decision_state GET "${final_local_archive_content}" "decisionState")
+string(JSON final_archive_publishing_status GET "${final_local_archive_content}" "publishingStatus")
+string(JSON final_archive_closeout_ready GET "${final_local_archive_content}" "closeoutReady")
+if(NOT final_archive_release_head STREQUAL "${release_head}"
+        OR NOT final_archive_ready
+        OR NOT final_archive_gate STREQUAL "ready-final-local-archive"
+        OR NOT final_archive_decision_state STREQUAL "approved-local-archive"
+        OR NOT final_archive_publishing_status STREQUAL "pending-environment-publication"
+        OR NOT final_archive_closeout_ready)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "refresh-release-closeout should regenerate a ready final local archive for the current HEAD")
+endif()
+
 file(READ "${PUBLICATION_RECORD_PATH}" publication_record_content)
 string(JSON publication_channel GET "${publication_record_content}" "channel")
 string(JSON publication_status GET "${publication_record_content}" "publishingStatus")
@@ -291,7 +310,8 @@ foreach(expected_text
         "targetReleaseHead=`${release_head}`"
         "Release archive decision artifacts: `manifest=ok; decisionRecorded=true; decisionState=approved-local-archive; decisionGate=archive-decision-recorded-publication-pending; publishing=pending-environment-publication; publishingRecord=true; deliveryDrill=true; blockers=0`"
         "Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0`"
-        "Release closeout summary artifacts: `manifest=ok; closeoutReady=true; closeoutGate=release-closeout-ready-for-stop-writing; publishing=pending-environment-publication; diagnosticsOk=true`")
+        "Release closeout summary artifacts: `manifest=ok; closeoutReady=true; closeoutGate=release-closeout-ready-for-stop-writing; publishing=pending-environment-publication; diagnosticsOk=true`"
+        "Final local archive artifacts: `manifest=ok; archiveReady=true; archiveGate=ready-final-local-archive; decisionState=approved-local-archive; publishing=pending-environment-publication; closeoutReady=true`")
     string(FIND "${automation_status_content}" "${expected_text}" found_at)
     if(found_at EQUAL -1)
         file(REMOVE_RECURSE "${TEMP_DIR}")

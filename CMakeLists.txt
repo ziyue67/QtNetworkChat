@@ -755,6 +755,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_release_closeout_summary_package.cmake
     )
     add_test(
+        NAME ReleaseFinalLocalArchivePackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-release-final-local-archive.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_release_final_local_archive_package.cmake
+    )
+    add_test(
         NAME ReleaseCloseoutRefresh
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/refresh-release-closeout.ps1
