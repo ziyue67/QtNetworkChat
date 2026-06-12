@@ -150,6 +150,13 @@ if ($RunDeliveryDrill.IsPresent) {
     )
 }
 
+Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
+    "-OutputDir", (Join-Path $resolvedBuildDir "release-closeout-summary"),
+    "-ReleaseHead", $head,
+    "-BuildDir", $resolvedBuildDir,
+    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
+)
+
 Invoke-RepoScript "scripts/write-automation-status.ps1" @(
     "-MarkdownPath", (Resolve-RepoPath "docs\\automation-status.md"),
     "-Head", $head,
@@ -183,6 +190,13 @@ Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
     "-OutputDir", (Join-Path $resolvedBuildDir "release-delivery-handoff"),
     "-ReleaseHead", $head,
     "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json"),
+    "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
+)
+
+Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
+    "-OutputDir", (Join-Path $resolvedBuildDir "release-closeout-summary"),
+    "-ReleaseHead", $head,
+    "-BuildDir", $resolvedBuildDir,
     "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md")
 )
 

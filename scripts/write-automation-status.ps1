@@ -24,6 +24,7 @@ param(
     [string]$LocalReleaseReviewManifestPath,
     [string]$ReleaseArchiveDecisionManifestPath,
     [string]$ReleaseDeliveryHandoffManifestPath,
+    [string]$ReleaseCloseoutSummaryManifestPath,
     [string]$DatabaseHealthStatusPath,
     [string]$DatabaseHealthLastRunPath,
     [string]$DatabaseHealthTaskPreviewPath,
@@ -1308,6 +1309,39 @@ function Get-ReleaseDeliveryHandoffReadback([object]$ArtifactState) {
     $result.deliveryGate = Format-StatusValue (Get-JsonValue $manifest "deliveryGate" "unknown")
     $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
     $result.deliveryTailCount = Format-StatusValue (Get-JsonValue $manifest "deliveryTailCount" "unknown")
+    [pscustomobject]$result
+}
+
+function Get-ReleaseCloseoutSummaryReadback([object]$ArtifactState) {
+    $result = [ordered]@{
+        configured = $false
+        packageArtifact = "not-configured"
+        closeoutReady = "unknown"
+        closeoutGate = "unknown"
+        packageSha256 = "unknown"
+        publicationStatus = "unknown"
+        diagnosticsOk = "unknown"
+    }
+    if ($ArtifactState.state -eq "not-configured") {
+        return [pscustomobject]$result
+    }
+    $result.configured = $true
+    $result.packageArtifact = $ArtifactState.state
+    if ($ArtifactState.state -ne "ok") {
+        return [pscustomobject]$result
+    }
+
+    $manifest = $ArtifactState.value
+    if ((Get-JsonValue $manifest "format" "") -ne "qtnetworkchat-release-closeout-summary-v1") {
+        $result.packageArtifact = "invalid-format"
+        return [pscustomobject]$result
+    }
+
+    $result.closeoutReady = Format-StatusValue (Get-JsonValue $manifest "closeoutReady" "unknown")
+    $result.closeoutGate = Format-StatusValue (Get-JsonValue $manifest "closeoutGate" "unknown")
+    $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
+    $result.publicationStatus = Format-StatusValue (Get-JsonValue (Get-JsonValue $manifest "releasePublicationRecord" $null) "publishingStatus" "unknown")
+    $result.diagnosticsOk = Format-StatusValue (Get-JsonValue (Get-JsonValue $manifest "releaseDiagnostics" $null) "ok" "unknown")
     [pscustomobject]$result
 }
 
@@ -2644,6 +2678,12 @@ if ([string]::IsNullOrWhiteSpace($ReleaseDeliveryHandoffManifestPath)) {
         $ReleaseDeliveryHandoffManifestPath = $defaultReleaseDeliveryHandoffManifestPath
     }
 }
+if ([string]::IsNullOrWhiteSpace($ReleaseCloseoutSummaryManifestPath)) {
+    $defaultReleaseCloseoutSummaryManifestPath = Join-Path $BuildDir "release-closeout-summary\release-closeout-summary-manifest.json"
+    if (Test-Path -LiteralPath (Resolve-RepoPath $defaultReleaseCloseoutSummaryManifestPath) -PathType Leaf) {
+        $ReleaseCloseoutSummaryManifestPath = $defaultReleaseCloseoutSummaryManifestPath
+    }
+}
 if ([string]::IsNullOrWhiteSpace($E2ELinkedReleaseCandidateManifestPath)) {
     $defaultLinkedReleaseCandidateManifestPath =
         Join-Path $BuildDir "e2e_release_evidence_linked_candidate\e2e-release-evidence-manifest.json"
@@ -2768,6 +2808,8 @@ $releaseArchiveDecisionManifestState = Get-ArtifactState -PathValue $ReleaseArch
 $releaseArchiveDecisionReadback = Get-ReleaseArchiveDecisionReadback $releaseArchiveDecisionManifestState
 $releaseDeliveryHandoffManifestState = Get-ArtifactState -PathValue $ReleaseDeliveryHandoffManifestPath -ExpectJson
 $releaseDeliveryHandoffReadback = Get-ReleaseDeliveryHandoffReadback $releaseDeliveryHandoffManifestState
+$releaseCloseoutSummaryManifestState = Get-ArtifactState -PathValue $ReleaseCloseoutSummaryManifestPath -ExpectJson
+$releaseCloseoutSummaryReadback = Get-ReleaseCloseoutSummaryReadback $releaseCloseoutSummaryManifestState
 $e2eLinkedReleaseCandidateManifestState =
     Get-ArtifactState -PathValue $E2ELinkedReleaseCandidateManifestPath -ExpectJson
 $e2eLinkedReleaseCandidateReadback =
@@ -3690,6 +3732,13 @@ $releaseDeliveryHandoffDiagnostics = @(
     ('deliveryGate={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.deliveryGate)),
     ('deliveryTail={0}' -f (Format-StatusValue $releaseDeliveryHandoffReadback.deliveryTailCount))
 ) -join "; "
+$releaseCloseoutSummaryDiagnostics = @(
+    ('manifest={0}' -f (Format-StatusValue $releaseCloseoutSummaryReadback.packageArtifact)),
+    ('closeoutReady={0}' -f (Format-StatusValue $releaseCloseoutSummaryReadback.closeoutReady)),
+    ('closeoutGate={0}' -f (Format-StatusValue $releaseCloseoutSummaryReadback.closeoutGate)),
+    ('publishing={0}' -f (Format-StatusValue $releaseCloseoutSummaryReadback.publicationStatus)),
+    ('diagnosticsOk={0}' -f (Format-StatusValue $releaseCloseoutSummaryReadback.diagnosticsOk))
+) -join "; "
 $e2eLinkedReleaseCandidateDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageArtifact)),
     ('releaseReady={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady)),
@@ -3726,6 +3775,9 @@ if ($releaseArchiveDecisionReadback.configured) {
 if ($releaseDeliveryHandoffReadback.configured) {
     $lines.Add('- Release delivery handoff artifacts: `' + $releaseDeliveryHandoffDiagnostics + '`')
 }
+if ($releaseCloseoutSummaryReadback.configured) {
+    $lines.Add('- Release closeout summary artifacts: `' + $releaseCloseoutSummaryDiagnostics + '`')
+}
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     $lines.Add('- E2E linked release candidate artifacts: `' + $e2eLinkedReleaseCandidateDiagnostics + '`')
 }
@@ -3735,8 +3787,8 @@ $lines.Add("")
 $lines.Add($e2eProductionBacklog)
 $lines.Add("2. File/offline attachment productization is closed for the current automation lane: unified transfer workspace summaries now cover send progress, recovery, saved-file/open-path handling, receive-save success or failure, preserved fallback state, and next-step guidance, with focused TransferManager coverage to keep that user-facing chain stable.")
 $lines.Add("3. Group productization is closed for the current automation lane: private group creation/invitation/removal, private scoped messages/files, non-member and removed-member fail-closed behavior, snapshot permission fields, removed-member read-only history markers, history visibility policy fields, and send/reject audit evidence are implemented.")
-$lines.Add("4. Release and operations delivery now has a complete local closeout chain: current-head Windows package metadata, release upload plan, installer bootstrap, sanitized diagnostics collector, operator checklist, and a first-class release archive decision artifact can all be archived together without relying on GitHub Windows Build. Environment-specific publishing still remains an explicit step outside this repository, but the local archive decision and its publication state are now recorded separately from the verified code gate.")
-$lines.Add("5. README information architecture and current-state alignment are now the main documentation lane: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, and E2E hardening status in focused docs, and keep automation-status plus README backlog wording synchronized with the actual verified code paths and recorded archive decision state.")
+$lines.Add("4. Release and operations delivery now has a complete local closeout chain: current-head Windows package metadata, release upload plan, installer bootstrap, sanitized diagnostics collector, operator checklist, delivery drill, publication record, and release closeout summary can all be archived together without relying on GitHub Windows Build. Environment-specific publishing still remains an explicit step outside this repository, but the local archive decision, delivery drill, diagnostics package, and publication state are now recorded separately from the verified code gate.")
+$lines.Add("5. README information architecture and current-state alignment are now the main documentation lane: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, E2E hardening status, and release closeout in focused docs, and keep automation-status plus README backlog wording synchronized with the actual verified code paths and recorded archive decision state.")
 $lines.Add("6. Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete for the current automation scope: HistoryService, TransferManager, FriendManager, GroupManager, ClientStorage, LocalFileManager, ChatContextManager, ComposerManager, and NotificationPanelManager already own the main extracted behavior. Only continue heavier dialog or modal decomposition when it materially improves maintenance or unblocks the E2E/mainline closeout lane.")
 $lines.Add("7. PostgreSQL productization is closed for the current automation mainline: QPSQL smoke boundary evidence and rollback live evidence are both covered. Only fix PostgreSQL regressions or CI failures; do not keep adding PostgreSQL polish before the remaining E2E release promotion and release-governance closeout.")
 $lines.Add("")

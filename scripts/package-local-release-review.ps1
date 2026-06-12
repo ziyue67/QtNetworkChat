@@ -563,11 +563,20 @@ $releaseArchiveDecisionDetail = if ($releaseArchiveDecisionAvailable) {
 [void]$artifactSummaries.Add((New-ArtifactSummary "release-archive-decision" $releaseArchiveDecisionAvailable $releaseArchiveDecisionRecorded $releaseArchiveDecisionGate $releaseArchiveDecisionDetail $false))
 
 $reviewReady = $blockers.Count -eq 0
-$reviewGate = if ($reviewReady) { "ready-for-final-archive-decision" } else { "blocked-local-release-review-core-gates" }
-$operatorAction = if ($reviewReady) {
-    "Review the packaged local release evidence, record the final archive decision, and track delivery-tail follow-up items separately from the verified code gate."
+$humanDecisionRequired = $reviewReady -and -not $releaseArchiveDecisionRecorded
+$reviewGate = if (-not $reviewReady) {
+    "blocked-local-release-review-core-gates"
+} elseif ($releaseArchiveDecisionRecorded) {
+    "review-complete-archive-decision-recorded"
 } else {
+    "ready-for-final-archive-decision"
+}
+$operatorAction = if (-not $reviewReady) {
     "Do not record a final archive decision yet; resolve the blocking local release review gates and regenerate this package."
+} elseif ($releaseArchiveDecisionRecorded) {
+    "The final archive decision is already recorded. Use this local release review package as the verified closeout baseline and track any environment-specific publishing follow-up through the archive decision artifacts."
+} else {
+    "Review the packaged local release evidence, record the final archive decision, and track delivery-tail follow-up items separately from the verified code gate."
 }
 
 $stagingDir = Join-Path $resolvedOutputDir "local-release-review"
@@ -606,7 +615,7 @@ $summaryLines.Add(('- Release head: `{0}`' -f $ReleaseHead))
 $summaryLines.Add(('- GitHub Windows Build policy: `{0}`' -f (Format-Value $gitHubWindowsBuildPolicy)))
 $summaryLines.Add(('- Review gate: `{0}`' -f (Format-Value $reviewGate)))
 $summaryLines.Add(('- Review ready: `{0}`' -f (Format-Value $reviewReady)))
-$summaryLines.Add('- Human decision required: `true`')
+$summaryLines.Add(('- Human decision required: `{0}`' -f (Format-Value $humanDecisionRequired)))
 $summaryLines.Add("")
 $summaryLines.Add("## Core Gates")
 $summaryLines.Add("")
@@ -627,6 +636,8 @@ $summaryLines.Add("")
 $summaryLines.Add("## Final Archive Decision")
 $summaryLines.Add("")
 $summaryLines.Add(('- Review gate: `{0}`' -f (Format-Value $reviewGate)))
+$summaryLines.Add(('- Decision recorded: `{0}`' -f (Format-Value $releaseArchiveDecisionRecorded)))
+$summaryLines.Add(('- Decision gate: `{0}`' -f (Format-Value $releaseArchiveDecisionGate)))
 $summaryLines.Add(('- Blocking gate count: `{0}`' -f (Format-Value $blockers.Count)))
 $summaryLines.Add(('- Delivery tail count: `{0}`' -f (Format-Value $deliveryTailPending.Count)))
 $summaryLines.Add(('- Operator action: `{0}`' -f $operatorAction))
@@ -695,7 +706,11 @@ $manifest = [ordered]@{
     finalArchiveDecision = [ordered]@{
         ready = $reviewReady
         reviewGate = $reviewGate
-        humanDecisionRequired = $true
+        recorded = $releaseArchiveDecisionRecorded
+        decisionGate = $releaseArchiveDecisionGate
+        decisionState = (Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "decisionState" "unknown"))
+        publishingStatus = (Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "publishingStatus" "unknown"))
+        humanDecisionRequired = $humanDecisionRequired
         blockerCount = $blockers.Count
         blockers = @($blockers.ToArray())
         deliveryTailCount = $deliveryTailPending.Count

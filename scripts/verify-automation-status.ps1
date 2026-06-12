@@ -110,12 +110,15 @@ $releaseArchiveDecisionDir = Join-Path $tempDir "release-archive-decision"
 $releaseArchiveDecisionManifestPath = Join-Path $releaseArchiveDecisionDir "release-archive-decision-manifest.json"
 $releaseDeliveryHandoffDir = Join-Path $tempDir "release-delivery-handoff"
 $releaseDeliveryHandoffManifestPath = Join-Path $releaseDeliveryHandoffDir "release-delivery-handoff-manifest.json"
+$releaseCloseoutSummaryDir = Join-Path $tempDir "release-closeout-summary"
+$releaseCloseoutSummaryManifestPath = Join-Path $releaseCloseoutSummaryDir "release-closeout-summary-manifest.json"
 Ensure-Directory -Path $e2eRolloutDir
 Ensure-Directory -Path $e2eReleaseEvidenceDir
 Ensure-Directory -Path $e2eCurrentHeadCiStaleEvidenceDir
 Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
 Ensure-Directory -Path $releaseArchiveDecisionDir
 Ensure-Directory -Path $releaseDeliveryHandoffDir
+Ensure-Directory -Path $releaseCloseoutSummaryDir
 
 @'
 {
@@ -262,6 +265,17 @@ End testing: Jun 03 04:01
   "deliveryTailCount":0
 }
 '@ | Set-Content -LiteralPath $releaseDeliveryHandoffManifestPath -Encoding UTF8
+
+@'
+{
+  "format":"qtnetworkchat-release-closeout-summary-v1",
+  "closeoutReady":true,
+  "closeoutGate":"release-closeout-ready-for-stop-writing",
+  "packageSha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "releasePublicationRecord":{"publishingStatus":"pending-environment-publication"},
+  "releaseDiagnostics":{"ok":true}
+}
+'@ | Set-Content -LiteralPath $releaseCloseoutSummaryManifestPath -Encoding UTF8
 
 @'
 {
@@ -501,6 +515,7 @@ End testing: Jun 03 04:01
     -E2ELinkedReleaseCandidateManifestPath $e2eLinkedReleaseCandidateManifestPath `
     -ReleaseArchiveDecisionManifestPath $releaseArchiveDecisionManifestPath `
     -ReleaseDeliveryHandoffManifestPath $releaseDeliveryHandoffManifestPath `
+    -ReleaseCloseoutSummaryManifestPath $releaseCloseoutSummaryManifestPath `
     -DatabaseHealthStatusPath $dbStatusPath `
     -DatabaseHealthLastRunPath $dbLastRunPath `
     -DatabaseHealthTaskPreviewPath $dbPreviewPath `
@@ -586,6 +601,7 @@ foreach ($expected in @(
     'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false`',
     'Release archive decision artifacts: `manifest=ok; decisionRecorded=false; decisionState=pending-human-decision; decisionGate=ready-for-archive-decision-record; publishing=not-started; publishingRecord=false; deliveryDrill=false; blockers=0`',
     'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0`',
+    'Release closeout summary artifacts: `manifest=ok; closeoutReady=true; closeoutGate=release-closeout-ready-for-stop-writing; publishing=pending-environment-publication; diagnosticsOk=true`',
     'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
@@ -643,6 +659,7 @@ $autoMarkdownPath = Join-Path $tempDir "automation-status-auto-readback.md"
     -LocalVerificationStatusPath $localVerificationPath `
     -ReleaseArchiveDecisionManifestPath $releaseArchiveDecisionManifestPath `
     -ReleaseDeliveryHandoffManifestPath $releaseDeliveryHandoffManifestPath `
+    -ReleaseCloseoutSummaryManifestPath $releaseCloseoutSummaryManifestPath `
     -GitHubRunListJsonPath $autoRunListPath `
     -CTestLogPath $autoCTestLogPath `
     -DatabaseHealthStatusPath $dbStatusPath `

@@ -749,6 +749,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_release_delivery_handoff_package.cmake
     )
     add_test(
+        NAME ReleaseCloseoutSummaryPackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-release-closeout-summary.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_release_closeout_summary_package.cmake
+    )
+    add_test(
         NAME E2ELinkedCandidatePromotion
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/promote-e2e-linked-candidate.ps1

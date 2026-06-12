@@ -43,7 +43,8 @@ $requiredDocs = @(
     "testing-coverage.md",
     "postgresql-operations.md",
     "large-file-governance.md",
-    "e2e-hardening-status.md"
+    "e2e-hardening-status.md",
+    "release-closeout.md"
 )
 
 foreach ($doc in $requiredDocs) {
@@ -56,6 +57,7 @@ Assert-Contains $readme "docs/testing-coverage.md"
 Assert-Contains $readme "docs/postgresql-operations.md"
 Assert-Contains $readme "docs/large-file-governance.md"
 Assert-Contains $readme "docs/e2e-hardening-status.md"
+Assert-Contains $readme "docs/release-closeout.md"
 
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
@@ -68,6 +70,7 @@ Assert-Contains $automationStatus "File/offline attachment productization is clo
 Assert-Contains $automationStatus "Group productization is closed for the current automation lane"
 Assert-Contains $automationStatus "Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete"
 Assert-Contains $automationStatus "README information architecture and current-state alignment are now the main documentation lane"
+Assert-Contains $automationStatus "Release and operations delivery now has a complete local closeout chain"
 
 $utf8 = [System.Text.Encoding]::UTF8
 $lineNumber = 0

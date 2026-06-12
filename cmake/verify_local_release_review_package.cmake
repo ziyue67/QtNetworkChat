@@ -44,7 +44,7 @@ file(WRITE "${PGSQL_EVIDENCE_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-pg
 file(WRITE "${PGSQL_ROLLBACK_PATH}" "{\n  \"format\":\"qtnetworkchat-pgsql-rollback-live-evidence-v1\",\n  \"ok\":true,\n  \"status\":\"verified\",\n  \"summary\":{\"readiness\":\"verified\",\"releaseGate\":\"can-close-pgsql-rollback-live-evidence\"}\n}\n")
 file(WRITE "${PGSQL_ROLLBACK_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-pgsql-release-evidence-package-v1\",\n  \"ok\":true,\n  \"inputCount\":20\n}\n")
 file(WRITE "${WINDOWS_MANIFEST_PATH}" "{\n  \"packageFormat\":\"qtnetworkchat-windows-package-v1\",\n  \"gitCommit\":\"old-sample-head\",\n  \"runtimeCheck\":{\"ok\":true},\n  \"postgresSqlRuntime\":{\"ok\":true}\n}\n")
-file(WRITE "${RELEASE_ARCHIVE_DECISION_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-release-archive-decision-v1\",\n  \"decisionRecorded\":false,\n  \"decisionState\":\"pending-human-decision\",\n  \"decisionGate\":\"ready-for-archive-decision-record\",\n  \"publishingRequired\":false,\n  \"publishingStatus\":\"not-started\",\n  \"packageSha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\n  \"blockers\":[]\n}\n")
+file(WRITE "${RELEASE_ARCHIVE_DECISION_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-release-archive-decision-v1\",\n  \"decisionRecorded\":true,\n  \"decisionState\":\"approved-local-archive\",\n  \"decisionGate\":\"archive-decision-recorded-publication-pending\",\n  \"publishingRequired\":true,\n  \"publishingStatus\":\"pending-environment-publication\",\n  \"publishingRecordPresent\":true,\n  \"releaseDeliveryDrillPresent\":true,\n  \"packageSha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\n  \"blockers\":[]\n}\n")
 file(WRITE "${RELEASE_ARCHIVE_DECISION_MARKDOWN_PATH}" "# Release Archive Decision\n")
 file(WRITE "${AUTOMATION_POLICY_PATH}" "{\n  \"format\":\"qtnetworkchat-automation-policy-v1\",\n  \"gitHubWindowsBuildPolicy\":\"disabled\"\n}\n")
 
@@ -109,6 +109,9 @@ string(JSON input_count GET "${manifest_content}" "inputCount")
 string(JSON github_policy GET "${manifest_content}" "githubWindowsBuildPolicy")
 string(JSON decision_ready GET "${manifest_content}" "finalArchiveDecision" "ready")
 string(JSON decision_gate GET "${manifest_content}" "finalArchiveDecision" "reviewGate")
+string(JSON decision_recorded GET "${manifest_content}" "finalArchiveDecision" "recorded")
+string(JSON decision_state GET "${manifest_content}" "finalArchiveDecision" "decisionState")
+string(JSON human_decision_required GET "${manifest_content}" "finalArchiveDecision" "humanDecisionRequired")
 string(JSON blocker_count GET "${manifest_content}" "finalArchiveDecision" "blockerCount")
 string(JSON delivery_tail_count GET "${manifest_content}" "finalArchiveDecision" "deliveryTailCount")
 string(JSON nonblocking_count GET "${manifest_content}" "finalArchiveDecision" "nonBlockingObservationCount")
@@ -130,8 +133,11 @@ if(NOT format STREQUAL "qtnetworkchat-local-release-review-package-v1")
 endif()
 if(NOT review_ready
         OR NOT decision_ready
-        OR NOT review_gate STREQUAL "ready-for-final-archive-decision"
-        OR NOT decision_gate STREQUAL "ready-for-final-archive-decision"
+        OR NOT review_gate STREQUAL "review-complete-archive-decision-recorded"
+        OR NOT decision_gate STREQUAL "review-complete-archive-decision-recorded"
+        OR NOT decision_recorded
+        OR NOT decision_state STREQUAL "approved-local-archive"
+        OR human_decision_required
         OR NOT blocker_count EQUAL 0
         OR NOT delivery_tail_count EQUAL 0
         OR NOT nonblocking_count EQUAL 1
