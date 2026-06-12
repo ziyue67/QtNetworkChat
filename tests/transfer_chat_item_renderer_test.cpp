@@ -55,5 +55,12 @@ int main(int argc, char** argv) {
                 "plain transfer chat item should keep default roles and left alignment") && ok;
     delete plainItem;
 
+    ok = expect(static_cast<int>(TransferChatItemRenderer::MediaKindRole) > static_cast<int>(Qt::UserRole)
+                    && static_cast<int>(TransferChatItemRenderer::OpenPathRole) == static_cast<int>(TransferChatItemRenderer::MediaKindRole) + 1
+                    && static_cast<int>(TransferChatItemRenderer::SenderIdRole) == static_cast<int>(TransferChatItemRenderer::MediaKindRole) + 2
+                    && static_cast<int>(TransferChatItemRenderer::SenderNameRole) == static_cast<int>(TransferChatItemRenderer::MediaKindRole) + 3
+                    && static_cast<int>(TransferChatItemRenderer::AvatarPathRole) == static_cast<int>(TransferChatItemRenderer::MediaKindRole) + 4,
+                "chat item custom roles should stay contiguous for attachment and avatar metadata") && ok;
+
     return ok ? 0 : 1;
 }

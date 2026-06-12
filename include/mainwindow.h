@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QPixmap>
 #include "client.h"
 #include "chatuser.h"
 #include "clientstorage.h"
@@ -128,7 +129,9 @@ private:
                                        bool includeSystemMessage,
                                        bool includeCard,
                                        const QColor& cardForeground,
-                                       const QColor& cardBackground);
+                                       const QColor& cardBackground,
+                                       const QString& mediaKind = QString(),
+                                       const QString& openPath = QString());
     void appendLocalGroupFileTransferCompletion(const TransferSelectionPlan& selectionPlan,
                                                 const QFileInfo& info,
                                                 const QString& fileSize,
@@ -157,7 +160,10 @@ private:
     void appendMediaPreviewItem(const QString& text,
                                 const QPixmap& pixmap,
                                 bool isVideo,
-                                bool alignRight);
+                                bool alignRight,
+                                const QString& openPath = QString(),
+                                const QString& senderId = QString(),
+                                const QString& senderName = QString());
     void applyReceivedTransferRenderPlan(const TransferReceiveRenderPlan& plan,
                                          const QString& fileName,
                                          const QString& transferId,
@@ -177,6 +183,30 @@ private:
                                                               const QString& displayName,
                                                               bool saved) const;
     void appendTransferChatListItem(const TransferChatListItemUiState& itemState);
+    QStandardItem* createChatMessageItem(const QString& text,
+                                         const QString& senderId,
+                                         const QString& senderName,
+                                         bool alignRight,
+                                         const QColor& foreground,
+                                         const QColor& background,
+                                         const QString& mediaKind = QString(),
+                                         const QString& openPath = QString(),
+                                         const QPixmap& mediaPreview = QPixmap()) const;
+    void applyChatItemVisualMetadata(QStandardItem* item,
+                                     const QString& senderId,
+                                     const QString& senderName,
+                                     const QString& mediaKind = QString(),
+                                     const QString& openPath = QString(),
+                                     const QPixmap& mediaPreview = QPixmap()) const;
+    QString avatarPathForUser(const QString& userId) const;
+    QPixmap chatAvatarPixmap(const QString& userId, const QString& displayName, int side = 36) const;
+    QPixmap chatAttachmentDecoration(const QString& senderId,
+                                     const QString& senderName,
+                                     const QPixmap& mediaPreview,
+                                     bool isVideo,
+                                     int previewWidth = 180,
+                                     int previewHeight = 140) const;
+    bool openChatAttachmentFromIndex(const QModelIndex& index);
     ReceivedTransferContext receivedTransferContext(const Message& msg,
                                                     const QString& kind,
                                                     const QString& fallbackName,

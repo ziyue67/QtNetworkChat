@@ -29,6 +29,7 @@
 #include <QPixmap>
 #include <QImage>
 #include <QPainter>
+#include <QPen>
 #include <QLinearGradient>
 #include <QPolygonF>
 #include <QRegularExpression>
@@ -1809,6 +1810,34 @@ QPixmap squareAvatarPixmap(const QPixmap& source, int side) {
     return scaled.copy(x, y, side, side);
 }
 
+QPixmap initialAvatarPixmap(const QString& displayName, int side) {
+    if (side <= 0) return QPixmap();
+    const QString seed = displayName.trimmed().isEmpty() ? QStringLiteral("?") : displayName.trimmed();
+    const uint hue = qHash(seed) % 360;
+
+    QPixmap pixmap(side, side);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QColor base = QColor::fromHsv(static_cast<int>(hue), 110, 220);
+    QLinearGradient gradient(0, 0, side, side);
+    gradient.setColorAt(0.0, base.lighter(126));
+    gradient.setColorAt(1.0, base.darker(112));
+    painter.setPen(QPen(QColor(255, 255, 255, 190), qMax(1, side / 18)));
+    painter.setBrush(gradient);
+    painter.drawEllipse(QRectF(1, 1, side - 2, side - 2));
+
+    QFont font = painter.font();
+    font.setFamily(QStringLiteral("Microsoft YaHei"));
+    font.setBold(true);
+    font.setPixelSize(qMax(12, side / 2));
+    painter.setFont(font);
+    painter.setPen(Qt::white);
+    painter.drawText(QRectF(0, 0, side, side), Qt::AlignCenter, seed.left(1).toUpper());
+    return pixmap;
+}
+
 QString appWindowTitle(const QString& suffix = QString()) {
     return WindowStateManager::appWindowTitle(QString::fromLatin1(QTNETWORKCHAT_VERSION_STRING), suffix);
 }
@@ -2153,8 +2182,177 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
 LocalSavedFileState MainWindow::savedFileActionState(const QModelIndex& index) const {
     LocalSavedFileState state;
     if (!index.isValid()) return state;
+    const QString openPath = index.data(TransferChatItemRenderer::OpenPathRole).toString().trimmed();
+    if (!openPath.isEmpty()) {
+        return LocalFileManager::savedFileStateFromChatText(QStringLiteral("保存路径：") + openPath,
+                                                            index.data(Qt::ToolTipRole).toString());
+    }
     return LocalFileManager::savedFileStateFromChatText(index.data().toString(),
                                                         index.data(Qt::ToolTipRole).toString());
+}
+
+QString MainWindow::avatarPathForUser(const QString& userId) const {
+    const QString trimmedUserId = userId.trimmed();
+    if (!trimmedUserId.isEmpty() && trimmedUserId == m_currentUserId) {
+        const QString selfAvatar = getAvatarFilePath();
+        if (QFileInfo::exists(selfAvatar)) {
+            return selfAvatar;
+        }
+    }
+
+    const ChatUser knownUser = m_knownUsers.value(trimmedUserId);
+    const QString knownAvatar = knownUser.avatar.trimmed();
+    if (!knownAvatar.isEmpty() && QFileInfo::exists(knownAvatar)) {
+        return knownAvatar;
+    }
+    return QString();
+}
+
+QPixmap MainWindow::chatAvatarPixmap(const QString& userId, const QString& displayName, int side) const {
+    const QString avatarPath = avatarPathForUser(userId);
+    if (!avatarPath.isEmpty()) {
+        const QPixmap avatar(avatarPath);
+        const QPixmap square = squareAvatarPixmap(avatar, side);
+        if (!square.isNull()) {
+            return square;
+        }
+    }
+    return initialAvatarPixmap(displayName.isEmpty() ? userId : displayName, side);
+}
+
+QPixmap MainWindow::chatAttachmentDecoration(const QString& senderId,
+                                             const QString& senderName,
+                                             const QPixmap& mediaPreview,
+                                             bool isVideo,
+                                             int previewWidth,
+                                             int previewHeight) const {
+    const int avatarSide = 36;
+    const int gap = 10;
+    const int width = avatarSide + gap + previewWidth;
+    const int height = qMax(avatarSide, previewHeight);
+    QPixmap canvas(width, height);
+    canvas.fill(Qt::transparent);
+
+    QPainter painter(&canvas);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.drawPixmap(0, 0, chatAvatarPixmap(senderId, senderName, avatarSide));
+
+    const QRect previewRect(avatarSide + gap, 0, previewWidth, previewHeight);
+    painter.setPen(QPen(isVideo ? QColor(126, 87, 194) : QColor(207, 224, 248), 1));
+    painter.setBrush(isVideo ? QColor(245, 240, 255) : QColor(255, 255, 255));
+    painter.drawRoundedRect(previewRect.adjusted(0, 0, -1, -1), 10, 10);
+    if (!mediaPreview.isNull()) {
+        const QPixmap scaled = mediaPreview.scaled(previewRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        const QPoint topLeft(previewRect.x() + (previewRect.width() - scaled.width()) / 2,
+                             previewRect.y() + (previewRect.height() - scaled.height()) / 2);
+        painter.drawPixmap(topLeft, scaled);
+    } else {
+        QFont font = painter.font();
+        font.setFamily(QStringLiteral("Microsoft YaHei"));
+        font.setBold(true);
+        font.setPixelSize(16);
+        painter.setFont(font);
+        painter.setPen(isVideo ? QColor(126, 87, 194) : QColor(49, 94, 140));
+        painter.drawText(previewRect, Qt::AlignCenter, isVideo ? QStringLiteral("视频") : QStringLiteral("文件"));
+    }
+    return canvas;
+}
+
+void MainWindow::applyChatItemVisualMetadata(QStandardItem* item,
+                                             const QString& senderId,
+                                             const QString& senderName,
+                                             const QString& mediaKind,
+                                             const QString& openPath,
+                                             const QPixmap& mediaPreview) const {
+    if (!item) {
+        return;
+    }
+
+    const QString displayName = senderName.trimmed().isEmpty() ? contactDisplayName(senderId) : senderName.trimmed();
+    if (!senderId.trimmed().isEmpty()) {
+        item->setData(senderId.trimmed(), TransferChatItemRenderer::SenderIdRole);
+    }
+    if (!displayName.isEmpty()) {
+        item->setData(displayName, TransferChatItemRenderer::SenderNameRole);
+    }
+    const QString avatarPath = avatarPathForUser(senderId);
+    if (!avatarPath.isEmpty()) {
+        item->setData(avatarPath, TransferChatItemRenderer::AvatarPathRole);
+    }
+    if (!mediaKind.trimmed().isEmpty()) {
+        item->setData(mediaKind.trimmed(), TransferChatItemRenderer::MediaKindRole);
+    }
+    if (!openPath.trimmed().isEmpty()) {
+        item->setData(openPath.trimmed(), TransferChatItemRenderer::OpenPathRole);
+    }
+
+    const bool isVideo = mediaKind == QLatin1String("video");
+    if (mediaKind == QLatin1String("image") || mediaKind == QLatin1String("video") || mediaKind == QLatin1String("file")) {
+        item->setData(chatAttachmentDecoration(senderId, displayName, mediaPreview, isVideo), Qt::DecorationRole);
+    } else {
+        item->setData(chatAvatarPixmap(senderId, displayName, 36), Qt::DecorationRole);
+    }
+
+    QStringList tooltipRows;
+    if (!displayName.isEmpty()) {
+        tooltipRows << QStringLiteral("发送者：%1").arg(displayName);
+    }
+    if (!senderId.trimmed().isEmpty()) {
+        tooltipRows << QStringLiteral("QQ：%1").arg(senderId.trimmed());
+    }
+    if (!mediaKind.trimmed().isEmpty()) {
+        tooltipRows << QStringLiteral("类型：%1").arg(mediaKind);
+    }
+    if (!openPath.trimmed().isEmpty()) {
+        tooltipRows << QStringLiteral("双击打开：%1").arg(openPath.trimmed());
+        tooltipRows << QStringLiteral("保存路径：%1").arg(openPath.trimmed());
+    }
+    const QString existingTip = item->data(Qt::ToolTipRole).toString().trimmed();
+    if (!existingTip.isEmpty()) {
+        tooltipRows << existingTip;
+    }
+    if (!tooltipRows.isEmpty()) {
+        item->setData(tooltipRows.join('\n'), Qt::ToolTipRole);
+    }
+}
+
+QStandardItem* MainWindow::createChatMessageItem(const QString& text,
+                                                 const QString& senderId,
+                                                 const QString& senderName,
+                                                 bool alignRight,
+                                                 const QColor& foreground,
+                                                 const QColor& background,
+                                                 const QString& mediaKind,
+                                                 const QString& openPath,
+                                                 const QPixmap& mediaPreview) const {
+    QStandardItem* item = new QStandardItem(text);
+    item->setEditable(false);
+    if (foreground.isValid()) {
+        item->setForeground(foreground);
+    }
+    if (background.isValid()) {
+        item->setBackground(background);
+    }
+    item->setTextAlignment((alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter);
+    applyChatItemVisualMetadata(item, senderId, senderName, mediaKind, openPath, mediaPreview);
+    return item;
+}
+
+bool MainWindow::openChatAttachmentFromIndex(const QModelIndex& index) {
+    const LocalSavedFileState savedFileState = savedFileActionState(index);
+    if (!savedFileState.hasSavePath) {
+        return false;
+    }
+
+    showSavedFileWorkspace(savedFileState,
+                           index.data().toString(),
+                           QStringLiteral("已切换到保存文件工作区"));
+    ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                               chatContextSavedFileState(savedFileState),
+                                                                               savedFileState.savePath);
+    command.failureStatusMessage = QStringLiteral("文件不存在或无法打开");
+    openSavedFileFromState(savedFileState, command);
+    return true;
 }
 
 ChatContextSavedFileState MainWindow::chatContextSavedFileState(const LocalSavedFileState& savedFileState) const {
@@ -6344,17 +6542,7 @@ void MainWindow::setupUi() {
     connect(ui->chatListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
 
-        const LocalSavedFileState savedFileState = savedFileActionState(index);
-        if (savedFileState.hasSavePath) {
-            showSavedFileWorkspace(savedFileState,
-                                   index.data().toString(),
-                                   QStringLiteral("已切换到保存文件工作区"));
-
-            ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
-                                                                                       chatContextSavedFileState(savedFileState),
-                                                                                       savedFileState.savePath);
-            command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
-            openSavedFileFromState(savedFileState, command);
+        if (openChatAttachmentFromIndex(index)) {
             return;
         }
         showChatHistoryWorkspaceForRow(index.row());
@@ -6426,6 +6614,17 @@ void MainWindow::setupUi() {
                                                              true,
                                                              QStyle::SP_DriveHDIcon);
         }
+        QAction* senderWorkspaceAction = nullptr;
+        const QString senderId = index.data(TransferChatItemRenderer::SenderIdRole).toString();
+        if (!senderId.trimmed().isEmpty() && senderId != m_currentUserId) {
+            senderWorkspaceAction = addMenuActionWithIcon(menu,
+                                                          this,
+                                                          QStringLiteral("查看发送者头像/资料"),
+                                                          QStringLiteral("打开发送者资料工作区；远端未同步头像时显示稳定首字母头像"),
+                                                          QStringLiteral("open-sender-workspace"),
+                                                          true,
+                                                          QStyle::SP_FileDialogInfoView);
+        }
         menu.addSeparator();
         for (const ChatContextMenuActionSpec& spec : actionSpecs) {
             if (spec.separatorBefore) {
@@ -6448,6 +6647,10 @@ void MainWindow::setupUi() {
         if (selected == savedFileWorkspaceAction) {
             showSavedFileWorkspace(savedFileState, text, QStringLiteral("已切换到保存文件工作区"));
             onShowTransferWorkspace();
+            return;
+        }
+        if (selected == senderWorkspaceAction) {
+            showUserEntryWorkspace(senderId, index.data(TransferChatItemRenderer::SenderNameRole).toString());
             return;
         }
         handleChatContextCommand(selected->data().toString(), text, savedFileState);
@@ -7180,11 +7383,12 @@ void MainWindow::onSendMessage() {
         QString line = QString("[%1] <%2> %3").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), m_currentUserName, text);
         saveHistory(m_privateChatTarget, line);
 
-        QStandardItem* item = new QStandardItem(line);
-        item->setEditable(false);
-        item->setForeground(QColor(20, 92, 160));
-        item->setBackground(QColor(218, 241, 255));
-        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        QStandardItem* item = createChatMessageItem(line,
+                                                    m_currentUserId,
+                                                    m_currentUserName,
+                                                    true,
+                                                    QColor(20, 92, 160),
+                                                    QColor(218, 241, 255));
         m_chatModel->appendRow(item);
         ui->messageEdit->clear();
         ui->chatHintLabel->setText(QString("本地群会话工作区 · %1 · 已发送 %2 字%3").arg(groupName).arg(text.size()).arg(originalText == text ? QString() : " · 快捷指令已展开"));
@@ -7242,11 +7446,12 @@ void MainWindow::onSendMessage() {
                     e2eStatus.value("keyId").toString(),
                     e2eStatus.value("keyFingerprintSha256").toString());
 
-        QStandardItem* item = new QStandardItem(line);
-        item->setEditable(false);
-        item->setForeground(QColor(20, 92, 160));
-        item->setBackground(QColor(218, 241, 255));
-        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        QStandardItem* item = createChatMessageItem(line,
+                                                    m_currentUserId,
+                                                    m_currentUserName,
+                                                    true,
+                                                    QColor(20, 92, 160),
+                                                    QColor(218, 241, 255));
         m_chatModel->appendRow(item);
         int rowCount = m_chatModel->rowCount();
         if (rowCount > MAX_HISTORY_LINES) {
@@ -7427,22 +7632,31 @@ void MainWindow::onNewMessage(const Message& msg) {
         return;
     }
 
-    QStandardItem* item = new QStandardItem(line);
-    item->setEditable(false);
     if (msg.isPrivate()) {
-        item->setForeground(Qt::darkMagenta);
-        item->setBackground(QColor(252, 240, 255));
-        item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        QStandardItem* item = createChatMessageItem(line,
+                                                    msg.senderId,
+                                                    displayName,
+                                                    false,
+                                                    Qt::darkMagenta,
+                                                    QColor(252, 240, 255));
+        m_chatModel->appendRow(item);
     } else if (msg.senderName == m_currentUserName) {
-        item->setForeground(QColor(20, 92, 160));
-        item->setBackground(QColor(218, 241, 255));
-        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        QStandardItem* item = createChatMessageItem(line,
+                                                    msg.senderId,
+                                                    displayName,
+                                                    true,
+                                                    QColor(20, 92, 160),
+                                                    QColor(218, 241, 255));
+        m_chatModel->appendRow(item);
     } else {
-        item->setForeground(QColor(38, 50, 56));
-        item->setBackground(QColor(246, 250, 253));
-        item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        QStandardItem* item = createChatMessageItem(line,
+                                                    msg.senderId,
+                                                    displayName,
+                                                    false,
+                                                    QColor(38, 50, 56),
+                                                    QColor(246, 250, 253));
+        m_chatModel->appendRow(item);
     }
-    m_chatModel->appendRow(item);
     const QString historyPeerId = msg.isPrivate() ? (msg.senderId == m_currentUserId ? msg.receiverId : msg.senderId) : "group";
     const QString encryptionState = msg.e2eEnvelope.isValid()
         ? (msg.content == QStringLiteral("加密消息无法解密")
@@ -13840,10 +14054,12 @@ void MainWindow::appendMessage(const Message& msg) {
 void MainWindow::appendSystemMessage(const QString& text) {
     QString timeStr = QDateTime::currentDateTime().toString("hh:mm:ss");
     QString line = QString("[%1] [系统] %2").arg(timeStr, text);
-    QStandardItem* item = new QStandardItem(line);
-    item->setEditable(false);
-    item->setBackground(QColor(245, 247, 250));
-    item->setForeground(Qt::darkGray);
+    QStandardItem* item = createChatMessageItem(line,
+                                                QStringLiteral("system"),
+                                                QStringLiteral("系统"),
+                                                false,
+                                                Qt::darkGray,
+                                                QColor(245, 247, 250));
     m_chatModel->appendRow(item);
     ui->chatListView->scrollToBottom();
 }
@@ -13952,17 +14168,22 @@ void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
                                                bool includeSystemMessage,
                                                bool includeCard,
                                                const QColor& cardForeground,
-                                               const QColor& cardBackground) {
+                                               const QColor& cardBackground,
+                                               const QString& mediaKind,
+                                               const QString& openPath) {
     if (includeSystemMessage && !state.systemMessage.isEmpty()) {
         appendSystemMessage(state.systemMessage);
     }
 
     if (includeCard && !state.cardText.isEmpty()) {
-        QStandardItem* cardItem = new QStandardItem(state.cardText);
-        cardItem->setEditable(false);
-        cardItem->setForeground(cardForeground);
-        cardItem->setBackground(cardBackground);
-        cardItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        QStandardItem* cardItem = createChatMessageItem(state.cardText,
+                                                        m_currentUserId,
+                                                        m_currentUserName,
+                                                        true,
+                                                        cardForeground,
+                                                        cardBackground,
+                                                        mediaKind,
+                                                        openPath);
         m_chatModel->appendRow(cardItem);
     }
 
@@ -13995,13 +14216,22 @@ void MainWindow::appendLocalGroupFileTransferCompletion(const TransferSelectionP
     const QString line = QString("[%1] <%2> 发送了文件: %3 · %4")
         .arg(completedAt, m_currentUserName, info.fileName(), fileSize);
     saveHistory(m_privateChatTarget, line);
-    QStandardItem* item = new QStandardItem(line);
-    item->setEditable(false);
-    item->setForeground(QColor(20, 92, 160));
-    item->setBackground(QColor(218, 241, 255));
-    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    QStandardItem* item = createChatMessageItem(line,
+                                                m_currentUserId,
+                                                m_currentUserName,
+                                                true,
+                                                QColor(20, 92, 160),
+                                                QColor(218, 241, 255),
+                                                QStringLiteral("file"),
+                                                info.absoluteFilePath());
     m_chatModel->appendRow(item);
-    appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
+    appendTransferCompletionState(completedState,
+                                  true,
+                                  true,
+                                  QColor(0, 121, 107),
+                                  QColor(232, 248, 245),
+                                  QStringLiteral("file"),
+                                  info.absoluteFilePath());
 }
 
 void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath,
@@ -14020,11 +14250,15 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
     const QString line = QString("[%1] <%2> [%3] %4 · %5")
         .arg(completedAt, m_currentUserName, mediaType, info.fileName(), fileSize);
     saveHistory(m_privateChatTarget, line);
-    QStandardItem* item = new QStandardItem(line);
-    item->setEditable(false);
-    item->setForeground(QColor(20, 92, 160));
-    item->setBackground(QColor(218, 241, 255));
-    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    QStandardItem* item = createChatMessageItem(line,
+                                                m_currentUserId,
+                                                m_currentUserName,
+                                                true,
+                                                QColor(20, 92, 160),
+                                                QColor(218, 241, 255),
+                                                isVideo ? QStringLiteral("video") : QStringLiteral("image"),
+                                                filePath,
+                                                isVideo ? QPixmap() : QPixmap(filePath));
     m_chatModel->appendRow(item);
 
     QPixmap pixmap;
@@ -14036,7 +14270,13 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
             info.fileName(),
             fileSize,
             isVideo);
-        appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
+        appendMediaPreviewItem(previewPlan.text,
+                               pixmap,
+                               previewPlan.isVideo,
+                               previewPlan.alignRight,
+                               filePath,
+                               m_currentUserId,
+                               m_currentUserName);
     }
     appendTransferCompletionState(completedState, true, false, QColor(), QColor());
 }
@@ -14049,10 +14289,22 @@ void MainWindow::appendRemoteMediaTransferCompletion(const QString& filePath,
     if (!isVideo) {
         QPixmap pixmap(filePath);
         if (!pixmap.isNull()) {
-            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
+            appendMediaPreviewItem(previewPlan.text,
+                                   pixmap,
+                                   previewPlan.isVideo,
+                                   previewPlan.alignRight,
+                                   filePath,
+                                   m_currentUserId,
+                                   m_currentUserName);
         }
     } else {
-        appendMediaPreviewItem(previewPlan.text, QPixmap(), previewPlan.isVideo, previewPlan.alignRight);
+        appendMediaPreviewItem(previewPlan.text,
+                               QPixmap(),
+                               previewPlan.isVideo,
+                               previewPlan.alignRight,
+                               filePath,
+                               m_currentUserId,
+                               m_currentUserName);
     }
     appendTransferCompletionState(completedState, false, false, QColor(), QColor());
 }
@@ -14078,7 +14330,13 @@ void MainWindow::handleRemoteTransferResult(bool ok,
         if (media) {
             appendRemoteMediaTransferCompletion(filePath, completedState, isVideo);
         } else {
-            appendTransferCompletionState(completedState, true, true, QColor(0, 121, 107), QColor(232, 248, 245));
+            appendTransferCompletionState(completedState,
+                                          true,
+                                          true,
+                                          QColor(0, 121, 107),
+                                          QColor(232, 248, 245),
+                                          QStringLiteral("file"),
+                                          filePath);
         }
         return;
     }
@@ -14102,19 +14360,19 @@ void MainWindow::handleRemoteTransferResult(bool ok,
 void MainWindow::appendMediaPreviewItem(const QString& text,
                                         const QPixmap& pixmap,
                                         bool isVideo,
-                                        bool alignRight) {
-    QStandardItem* previewItem = new QStandardItem(text);
-    if (!isVideo && !pixmap.isNull()) {
-        previewItem->setData(pixmap.scaled(180, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation), Qt::DecorationRole);
-    }
-    previewItem->setEditable(false);
-    previewItem->setBackground(isVideo ? QColor(245, 240, 255) : QColor(246, 250, 253));
-    if (isVideo) {
-        previewItem->setForeground(QColor(126, 87, 194));
-    }
-    if (alignRight) {
-        previewItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    }
+                                        bool alignRight,
+                                        const QString& openPath,
+                                        const QString& senderId,
+                                        const QString& senderName) {
+    QStandardItem* previewItem = createChatMessageItem(text,
+                                                       senderId.isEmpty() ? m_currentUserId : senderId,
+                                                       senderName.isEmpty() ? m_currentUserName : senderName,
+                                                       alignRight,
+                                                       isVideo ? QColor(126, 87, 194) : QColor(38, 50, 56),
+                                                       isVideo ? QColor(245, 240, 255) : QColor(246, 250, 253),
+                                                       isVideo ? QStringLiteral("video") : QStringLiteral("image"),
+                                                       openPath,
+                                                       pixmap);
     m_chatModel->appendRow(previewItem);
 }
 
@@ -14206,7 +14464,13 @@ bool MainWindow::handleReceivedTransferMessage(const Message& msg,
                 context.receivedName,
                 context.receivedSize,
                 context.manifestSuffix);
-            appendMediaPreviewItem(previewPlan.text, pixmap, previewPlan.isVideo, previewPlan.alignRight);
+            appendMediaPreviewItem(previewPlan.text,
+                                   pixmap,
+                                   previewPlan.isVideo,
+                                   previewPlan.alignRight,
+                                   context.savePath,
+                                   msg.senderId,
+                                   displayName);
         }
     }
     return persistReceivedTransferPayload(context,
@@ -14272,11 +14536,16 @@ void MainWindow::loadHistory(const QString& peerId) {
     if (peerId.isEmpty()) return;
 
     const QStringList rows = m_historyService.recentRows(peerId, MAX_HISTORY_LINES);
+    const QRegularExpression senderPattern(QStringLiteral("<([^>]+)>"));
     for (const QString& line : rows) {
-        QStandardItem* item = new QStandardItem(line);
-        item->setEditable(false);
-        item->setBackground(QColor(250, 252, 254));
-        item->setForeground(Qt::gray);
+        const QRegularExpressionMatch match = senderPattern.match(line);
+        const QString senderName = match.hasMatch() ? match.captured(1) : QStringLiteral("历史");
+        QStandardItem* item = createChatMessageItem(line,
+                                                    QString(),
+                                                    senderName,
+                                                    false,
+                                                    Qt::gray,
+                                                    QColor(250, 252, 254));
         m_chatModel->appendRow(item);
     }
 }
