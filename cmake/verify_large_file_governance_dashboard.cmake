@@ -54,6 +54,9 @@ file(WRITE "${GOV_DIR}/receipt-rotation-summary.json"
 file(WRITE "${GOV_DIR}/reconcile/reconcile-summary.json"
 "{\"receiptCount\":2,\"fallbackCount\":2,\"cleanedCount\":1,\"retainedCount\":1,\"sensitiveHits\":0}\n"
 )
+file(WRITE "${GOV_DIR}/large-file-governance-performance-summary.json"
+"{\"format\":\"qtnetworkchat-large-file-governance-performance-summary-v1\",\"summary\":{\"readiness\":\"review\"},\"auditSummary\":{\"releaseGate\":\"review-governance-performance\"},\"bottlenecks\":[\"s3-transient-pressure\",\"receipt-archive-pressure\"],\"metrics\":{\"deliveryClosurePercent\":50}}\n"
+)
 file(WRITE "${GOV_DIR}/large-file-governance-report.md" "# safe report\n")
 file(WRITE "${GOV_DIR}/large-file-governance-report.html" "<html>safe report</html>\n")
 file(WRITE "${GOV_DIR}/acceptance-package/large-file-acceptance.zip" "placeholder\n")
@@ -106,6 +109,7 @@ string(JSON dashboard_audit_focus0 GET "${dashboard_content}" "auditSummary" "au
 string(JSON dashboard_coverage_area0 GET "${dashboard_content}" "s3StabilizationCoverage" 0 "area")
 string(JSON dashboard_gap_area0 GET "${dashboard_content}" "s3CoverageGapAreas" 0)
 string(JSON dashboard_actionable_gap_area0 GET "${dashboard_content}" "s3CoverageActionableGapAreas" 0)
+string(JSON dashboard_performance_gate GET "${dashboard_content}" "performanceSummary" "auditSummary" "releaseGate")
 if(NOT dashboard_format STREQUAL "qtnetworkchat-large-file-governance-dashboard-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected dashboard format: ${dashboard_format}")
@@ -154,6 +158,10 @@ if(NOT dashboard_gap_area0 STREQUAL "remote-validation-fail-closed" OR NOT dashb
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected dashboard coverage gap area remote-validation-fail-closed")
 endif()
+if(NOT dashboard_performance_gate STREQUAL "review-governance-performance")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected dashboard performance gate review-governance-performance, got ${dashboard_performance_gate}")
+endif()
 if(NOT dashboard_retained EQUAL 1)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected dashboard reconcileRetained=1, got ${dashboard_retained}")
@@ -185,6 +193,8 @@ foreach(expected_text
         "## S3 Stabilization Coverage"
         "source-write-fallback"
         "remote-read-fail-closed"
+        "## Performance Summary"
+        "review-governance-performance"
         "Actionable coverage gaps"
         "remote-validation-fail-closed"
         "## Alerts"

@@ -18,6 +18,7 @@ set(E2E_PROMOTION_PATH "${TEMP_DIR}/e2e-release-promotion.json")
 set(S3_PATH "${TEMP_DIR}/s3-real-backend-readiness.json")
 set(GOVERNANCE_DASHBOARD_PATH "${TEMP_DIR}/large-file-governance-dashboard.json")
 set(GOVERNANCE_REPORT_PATH "${TEMP_DIR}/large-file-governance-report.md")
+set(GOVERNANCE_PERFORMANCE_SUMMARY_PATH "${TEMP_DIR}/large-file-governance-performance-summary.json")
 set(GOVERNANCE_DIAGNOSTICS_PATH "${TEMP_DIR}/large-file-governance-diagnostics.zip")
 set(PGSQL_ACCEPTANCE_PATH "${TEMP_DIR}/pgsql-release-acceptance.json")
 set(PGSQL_EVIDENCE_MANIFEST_PATH "${TEMP_DIR}/pgsql-release-evidence-manifest.json")
@@ -38,6 +39,7 @@ file(WRITE "${E2E_PROMOTION_PATH}" "{\n  \"format\":\"qtnetworkchat-e2e-release-
 file(WRITE "${S3_PATH}" "{\n  \"format\":\"qtnetworkchat-s3-real-backend-readiness-v1\",\n  \"ok\":true,\n  \"status\":\"verified\",\n  \"summary\":{\"readiness\":\"verified\"},\n  \"auditSummary\":{\"releaseGate\":\"can-review-s3-real-backend-evidence\"}\n}\n")
 file(WRITE "${GOVERNANCE_DASHBOARD_PATH}" "{\n  \"format\":\"qtnetworkchat-large-file-governance-dashboard-v1\",\n  \"ok\":true,\n  \"status\":\"healthy\",\n  \"totalWarnings\":0,\n  \"summary\":{\"readiness\":\"verified\"},\n  \"auditSummary\":{\"releaseGate\":\"can-review-governance-evidence\"}\n}\n")
 file(WRITE "${GOVERNANCE_REPORT_PATH}" "# Governance Report\n")
+file(WRITE "${GOVERNANCE_PERFORMANCE_SUMMARY_PATH}" "{\n  \"format\":\"qtnetworkchat-large-file-governance-performance-summary-v1\",\n  \"summary\":{\"readiness\":\"review\"},\n  \"auditSummary\":{\"releaseGate\":\"review-governance-performance\"},\n  \"bottlenecks\":[\"receipt-archive-pressure\"]\n}\n")
 file(WRITE "${GOVERNANCE_DIAGNOSTICS_PATH}" "placeholder")
 file(WRITE "${PGSQL_ACCEPTANCE_PATH}" "{\n  \"format\":\"qtnetworkchat-pgsql-release-acceptance-v1\",\n  \"ok\":true,\n  \"status\":\"ready\",\n  \"summary\":{\"readiness\":\"ready\"},\n  \"auditSummary\":{\"releaseGate\":\"can-review-cutover\"}\n}\n")
 file(WRITE "${PGSQL_EVIDENCE_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-pgsql-release-evidence-package-v1\",\n  \"ok\":true,\n  \"inputCount\":18\n}\n")
@@ -61,6 +63,7 @@ execute_process(
         -S3RealBackendReadinessPath "${S3_PATH}"
         -LargeFileGovernanceDashboardPath "${GOVERNANCE_DASHBOARD_PATH}"
         -LargeFileGovernanceReportPath "${GOVERNANCE_REPORT_PATH}"
+        -LargeFileGovernancePerformanceSummaryPath "${GOVERNANCE_PERFORMANCE_SUMMARY_PATH}"
         -LargeFileGovernanceDiagnosticsPath "${GOVERNANCE_DIAGNOSTICS_PATH}"
         -PgsqlAcceptancePath "${PGSQL_ACCEPTANCE_PATH}"
         -PgsqlEvidenceManifestPath "${PGSQL_EVIDENCE_MANIFEST_PATH}"
@@ -152,7 +155,7 @@ if(NOT package_path STREQUAL "local-release-review.zip"
         OR NOT markdown_packaged_as STREQUAL "local-release-review.md"
         OR NOT manifest_packaged_as STREQUAL "manifest.json"
         OR NOT manifest_embedded
-        OR NOT input_count EQUAL 18
+        OR NOT input_count EQUAL 19
         OR NOT github_policy STREQUAL "disabled"
         OR NOT artifact0_kind STREQUAL "local-verification"
         OR NOT artifact0_ready
@@ -198,6 +201,7 @@ execute_process(
         -S3RealBackendReadinessPath "${S3_PATH}"
         -LargeFileGovernanceDashboardPath "${GOVERNANCE_DASHBOARD_PATH}"
         -LargeFileGovernanceReportPath "${GOVERNANCE_REPORT_PATH}"
+        -LargeFileGovernancePerformanceSummaryPath "${GOVERNANCE_PERFORMANCE_SUMMARY_PATH}"
         -LargeFileGovernanceDiagnosticsPath "${GOVERNANCE_DIAGNOSTICS_PATH}"
         -PgsqlAcceptancePath "${BLOCKED_ACCEPTANCE_PATH}"
         -PgsqlEvidenceManifestPath "${PGSQL_EVIDENCE_MANIFEST_PATH}"
@@ -238,6 +242,7 @@ execute_process(
         -S3RealBackendReadinessPath "${S3_PATH}"
         -LargeFileGovernanceDashboardPath "${GOVERNANCE_DASHBOARD_PATH}"
         -LargeFileGovernanceReportPath "${GOVERNANCE_REPORT_PATH}"
+        -LargeFileGovernancePerformanceSummaryPath "${GOVERNANCE_PERFORMANCE_SUMMARY_PATH}"
         -LargeFileGovernanceDiagnosticsPath "${GOVERNANCE_DIAGNOSTICS_PATH}"
         -PgsqlAcceptancePath "${PGSQL_ACCEPTANCE_PATH}"
         -PgsqlEvidenceManifestPath "${PGSQL_EVIDENCE_MANIFEST_PATH}"

@@ -108,6 +108,7 @@ $routeSummaryPath = Join-Path $resolvedGovernanceDir "large-file-route-summary.j
 $s3SummaryPath = Join-Path $resolvedGovernanceDir "s3-request-results-summary.json"
 $s3EvidencePath = Join-Path $resolvedGovernanceDir "s3-real-backend-evidence.json"
 $s3RunbookPath = Join-Path $resolvedGovernanceDir "s3-stability-runbook.json"
+$performanceSummaryPath = Join-Path $resolvedGovernanceDir "large-file-governance-performance-summary.json"
 $rotationSummaryPath = Join-Path $resolvedGovernanceDir "receipt-rotation-summary.json"
 $reconcileSummaryPath = Join-Path (Join-Path $resolvedGovernanceDir "reconcile") "reconcile-summary.json"
 
@@ -117,6 +118,7 @@ $routeSummary = Read-JsonFile $routeSummaryPath
 $s3Summary = Read-JsonFile $s3SummaryPath
 $s3Evidence = Read-JsonFile $s3EvidencePath
 $s3Runbook = Read-JsonFile $s3RunbookPath
+$performanceSummary = Read-JsonFile $performanceSummaryPath
 $rotationSummary = Read-JsonFile $rotationSummaryPath
 $reconcileSummary = Read-JsonFile $reconcileSummaryPath
 
@@ -127,6 +129,7 @@ $scanPaths = @(
     $s3SummaryPath,
     $s3EvidencePath,
     $s3RunbookPath,
+    $performanceSummaryPath,
     $rotationSummaryPath,
     $reconcileSummaryPath
 )
@@ -208,6 +211,26 @@ if ($null -ne $s3Evidence -and $null -ne $s3Evidence.metrics) {
 }
 Add-MetricTable $lines "S3 Real Backend Evidence" $s3EvidenceMetrics
 
+$performanceMetrics = @{}
+if ($null -ne $performanceSummary -and $null -ne $performanceSummary.metrics) {
+    foreach ($name in @("deliveredTouchCount", "deliveredCleaned", "failedTouchCount", "failedFallbackRetained", "s3TransientCount", "reconcileRetained", "receiptArchivedRecords", "coverageActionableGapCount")) {
+        if ($performanceSummary.metrics.PSObject.Properties.Name -contains $name) {
+            $performanceMetrics[$name] = $performanceSummary.metrics.$name
+        }
+    }
+}
+Add-MetricTable $lines "Governance Performance Summary" $performanceMetrics
+
+$performanceRatios = @{}
+if ($null -ne $performanceSummary -and $null -ne $performanceSummary.ratios) {
+    foreach ($name in @("deliveryClosurePercent", "fallbackProtectionPercent", "reconcileRetentionPercent", "receiptArchivePercent", "s3SuccessPercent", "s3TransientPercent")) {
+        if ($performanceSummary.ratios.PSObject.Properties.Name -contains $name) {
+            $performanceRatios[$name] = $performanceSummary.ratios.$name
+        }
+    }
+}
+Add-MetricTable $lines "Governance Performance Ratios" $performanceRatios
+
 if ($null -ne $s3Runbook -and $null -ne $s3Runbook.stabilizationCoverage) {
     $lines.Add("")
     $lines.Add("## S3 Stabilization Coverage")
@@ -234,6 +257,16 @@ if ($null -ne $s3Runbook -and $null -ne $s3Runbook.stabilizationCoverage) {
         $actionableGapText = $actionableGapAreas -join ", "
         $lines.Add(("- Actionable coverage gaps: {0}" -f $actionableGapText))
     }
+}
+
+if ($null -ne $performanceSummary) {
+    $lines.Add("")
+    $lines.Add("## Governance Performance Closeout")
+    $lines.Add("")
+    $lines.Add(("- Readiness: {0}" -f (Format-Value (Get-JsonValue (Get-JsonValue $performanceSummary "summary" $null) "readiness" "unknown"))))
+    $lines.Add(("- Release gate: {0}" -f (Format-Value (Get-JsonValue (Get-JsonValue $performanceSummary "auditSummary" $null) "releaseGate" "unknown"))))
+    $bottlenecks = @((Get-JsonValue $performanceSummary "bottlenecks" @()))
+    $lines.Add(("- Bottlenecks: {0}" -f ($(if ($bottlenecks.Count -gt 0) { $bottlenecks -join ", " } else { "none" }))))
 }
 
 $rotationMetrics = @{}

@@ -58,6 +58,12 @@ param(
 
     [string]$DashboardMarkdownPath,
 
+    [switch]$WritePerformanceSummary,
+
+    [string]$PerformanceSummaryPath,
+
+    [string]$PerformanceSummaryMarkdownPath,
+
     [switch]$WriteS3StabilityRunbook,
 
     [string]$S3StabilityRunbookPath,
@@ -162,6 +168,7 @@ $notifier = Join-Path $PSScriptRoot "notify-governance-unhealthy.ps1"
 $diagnosticsPackager = Join-Path $PSScriptRoot "package-governance-diagnostics.ps1"
 $reportWriter = Join-Path $PSScriptRoot "write-large-file-governance-report.ps1"
 $dashboardWriter = Join-Path $PSScriptRoot "write-large-file-governance-dashboard.ps1"
+$performanceSummaryWriter = Join-Path $PSScriptRoot "write-large-file-governance-performance-summary.ps1"
 $s3FailureBatchWriter = Join-Path $PSScriptRoot "write-s3-failure-batch-sample.ps1"
 $s3StabilityRunbookWriter = Join-Path $PSScriptRoot "write-s3-stability-runbook.ps1"
 
@@ -178,6 +185,7 @@ if ($RunS3FailureBatchSample) { $totalSteps++ }
 if ($WriteS3StabilityRunbook -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookPath) -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath)) { $totalSteps++ }
 if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath)) { $totalSteps++ }
 if ($WriteDashboard -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath)) { $totalSteps++ }
+if ($WritePerformanceSummary -or -not [string]::IsNullOrWhiteSpace($PerformanceSummaryPath) -or -not [string]::IsNullOrWhiteSpace($PerformanceSummaryMarkdownPath)) { $totalSteps++ }
 if ($PackageDiagnostics -or -not [string]::IsNullOrWhiteSpace($DiagnosticsPackagePath)) { $totalSteps++ }
 $currentStep = 0
 
@@ -358,6 +366,18 @@ if ($hasNotify) {
     $notifyOutput | Write-Host
 }
 
+if ($WritePerformanceSummary -or -not [string]::IsNullOrWhiteSpace($PerformanceSummaryPath) -or -not [string]::IsNullOrWhiteSpace($PerformanceSummaryMarkdownPath)) {
+    StepLabel "governance performance summary"
+    if ([string]::IsNullOrWhiteSpace($PerformanceSummaryPath)) {
+        $PerformanceSummaryPath = Join-Path $resolvedOutputDir "large-file-governance-performance-summary.json"
+    }
+    $performanceArgs = @("-GovernanceDir", $resolvedOutputDir, "-OutputPath", $PerformanceSummaryPath)
+    if (-not [string]::IsNullOrWhiteSpace($PerformanceSummaryMarkdownPath)) {
+        $performanceArgs += @("-MarkdownPath", $PerformanceSummaryMarkdownPath)
+    }
+    Invoke-CheckedScript $performanceSummaryWriter $performanceArgs (Join-Path $resolvedOutputDir "governance-performance-summary.log")
+}
+
 if ($WriteReport -or -not [string]::IsNullOrWhiteSpace($ReportPath) -or -not [string]::IsNullOrWhiteSpace($HtmlReportPath)) {
     StepLabel "governance report"
     if ([string]::IsNullOrWhiteSpace($ReportPath)) {
@@ -437,6 +457,12 @@ if (-not [string]::IsNullOrWhiteSpace($DashboardPath) -and (Test-Path -LiteralPa
 }
 if (-not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath) -and (Test-Path -LiteralPath $DashboardMarkdownPath)) {
     Write-Host ("  dashboard markdown: {0}" -f $DashboardMarkdownPath)
+}
+if (-not [string]::IsNullOrWhiteSpace($PerformanceSummaryPath) -and (Test-Path -LiteralPath $PerformanceSummaryPath)) {
+    Write-Host ("  performance summary: {0}" -f $PerformanceSummaryPath)
+}
+if (-not [string]::IsNullOrWhiteSpace($PerformanceSummaryMarkdownPath) -and (Test-Path -LiteralPath $PerformanceSummaryMarkdownPath)) {
+    Write-Host ("  performance summary markdown: {0}" -f $PerformanceSummaryMarkdownPath)
 }
 if (Test-Path -LiteralPath $PackagePath) {
     Write-Host ("  package: {0}" -f $PackagePath)

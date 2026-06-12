@@ -71,6 +71,7 @@ Assert-Contains $automationStatus "Group productization is closed for the curren
 Assert-Contains $automationStatus "Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete"
 Assert-Contains $automationStatus "README information architecture and current-state alignment are now the main documentation lane"
 Assert-Contains $automationStatus "Release and operations delivery now has a complete local closeout chain"
+Assert-Contains $automationStatus "Governance performance closeout is now a first-class summary lane"
 
 $utf8 = [System.Text.Encoding]::UTF8
 $lineNumber = 0

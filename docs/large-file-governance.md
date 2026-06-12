@@ -15,9 +15,9 @@ Large-file governance covers Redis route evidence, object-store delivery, delive
 - `scripts/run-large-file-delivery-reconcile.ps1` compares delivered receipts with fallback summaries without changing queues or objects.
 - `scripts/rotate-large-file-receipts.ps1` rotates sanitized delivered receipt JSONL files.
 - `scripts/run-large-file-governance.ps1` orchestrates route analysis, S3 reason analysis, reconciliation, receipt rotation, alerts, dashboard, report, and diagnostics.
+- `scripts/write-large-file-governance-performance-summary.ps1` condenses delivery closure, fallback protection, S3 transient pressure, reconcile retention, receipt archive pressure, and coverage gaps into a single closeout-friendly summary.
 - `scripts/show-large-file-governance-status.ps1` emits a compact on-call status view and can fail on unhealthy governance state.
 
 ## Manual S3/MinIO Validation
 
 `scripts/minio-s3-smoke.ps1` is the manual real-backend path. It verifies bucket/object PUT/HEAD/GET/DELETE behavior and may feed sanitized route/smoke summaries into acceptance packaging. Do not include endpoint credentials, access keys, secret keys, session tokens, Authorization, Credential, or Signature fields in committed artifacts.
-

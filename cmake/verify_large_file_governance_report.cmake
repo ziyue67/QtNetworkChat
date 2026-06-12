@@ -56,6 +56,9 @@ file(WRITE "${GOV_DIR}/s3-stability-runbook.json"
 "  ]\n"
 "}\n"
 )
+file(WRITE "${GOV_DIR}/large-file-governance-performance-summary.json"
+"{\"format\":\"qtnetworkchat-large-file-governance-performance-summary-v1\",\"summary\":{\"readiness\":\"review\"},\"auditSummary\":{\"releaseGate\":\"review-governance-performance\"},\"bottlenecks\":[\"s3-transient-pressure\",\"receipt-archive-pressure\"],\"metrics\":{\"receiptArchivedRecords\":1},\"ratios\":{\"deliveryClosurePercent\":50,\"s3TransientPercent\":100}}\n"
+)
 file(WRITE "${GOV_DIR}/receipt-rotation-summary.json"
 "{\"totalRecords\":3,\"retainedRecords\":2,\"archivedRecords\":1,\"sensitiveHits\":0}\n"
 )
@@ -104,9 +107,13 @@ foreach(expected_text
         "## S3 Request Summary"
         "## S3 Real Backend Evidence"
         "fixedFailureReasonCount"
+        "## Governance Performance Summary"
+        "## Governance Performance Ratios"
         "## S3 Stabilization Coverage"
         "source-write-fallback"
         "source-delete-retained"
+        "## Governance Performance Closeout"
+        "review-governance-performance"
         "Actionable coverage gaps"
         "remote-validation-fail-closed"
         "## Delivered Reconcile Summary"

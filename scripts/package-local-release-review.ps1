@@ -18,6 +18,7 @@ param(
     [string]$S3RealBackendReadinessPath = "build-qt6-mingw\\s3-real-backend-readiness.json",
     [string]$LargeFileGovernanceDashboardPath = "build-qt6-mingw\\automation-tasks\\large-file-governance\\large-file-governance-dashboard.json",
     [string]$LargeFileGovernanceReportPath = "build-qt6-mingw\\automation-tasks\\large-file-governance\\large-file-governance-report.md",
+    [string]$LargeFileGovernancePerformanceSummaryPath = "build-qt6-mingw\\automation-tasks\\large-file-governance\\large-file-governance-performance-summary.json",
     [string]$LargeFileGovernanceDiagnosticsPath = "build-qt6-mingw\\automation-tasks\\large-file-governance\\diagnostics-package\\large-file-governance-diagnostics.zip",
     [string]$PgsqlAcceptancePath = "build-qt6-mingw\\automation-tasks\\pgsql-release-acceptance\\pgsql-release-acceptance.json",
     [string]$PgsqlEvidenceManifestPath = "build-qt6-mingw\\automation-tasks\\pgsql-release-acceptance\\evidence\\pgsql-release-evidence-manifest.json",
@@ -334,6 +335,7 @@ $resolvedE2EReleasePromotionPath = Resolve-RepoPath $E2EReleasePromotionPath
 $resolvedS3RealBackendReadinessPath = Resolve-RepoPath $S3RealBackendReadinessPath
 $resolvedLargeFileGovernanceDashboardPath = Resolve-RepoPath $LargeFileGovernanceDashboardPath
 $resolvedLargeFileGovernanceReportPath = Resolve-RepoPath $LargeFileGovernanceReportPath
+$resolvedLargeFileGovernancePerformanceSummaryPath = Resolve-RepoPath $LargeFileGovernancePerformanceSummaryPath
 $resolvedLargeFileGovernanceDiagnosticsPath = Resolve-RepoPath $LargeFileGovernanceDiagnosticsPath
 $resolvedPgsqlAcceptancePath = Resolve-RepoPath $PgsqlAcceptancePath
 $resolvedPgsqlEvidenceManifestPath = Resolve-RepoPath $PgsqlEvidenceManifestPath
@@ -350,6 +352,7 @@ $e2ePromotion = Read-OptionalJson $resolvedE2EReleasePromotionPath
 $localVerification = Read-OptionalJson $resolvedLocalVerificationStatusPath
 $s3Readiness = Read-OptionalJson $resolvedS3RealBackendReadinessPath
 $governanceDashboard = Read-OptionalJson $resolvedLargeFileGovernanceDashboardPath
+$governancePerformanceSummary = Read-OptionalJson $resolvedLargeFileGovernancePerformanceSummaryPath
 $pgsqlAcceptance = Read-OptionalJson $resolvedPgsqlAcceptancePath
 $pgsqlRollbackLive = Read-OptionalJson $resolvedPgsqlRollbackLivePath
 $windowsPackageManifest = Read-OptionalJson $resolvedWindowsPackageManifestPath
@@ -437,10 +440,14 @@ $governanceDetail = "missing"
 if ($null -ne $governanceDashboard -and (Get-JsonValue $governanceDashboard "format" "") -eq "qtnetworkchat-large-file-governance-dashboard-v1") {
     $governanceGate = Format-Value (Get-JsonValue (Get-JsonValue $governanceDashboard "auditSummary" $null) "releaseGate" "unknown")
     $governanceReady = [bool](Get-JsonValue $governanceDashboard "ok" $false) -and $governanceGate -eq "can-review-governance-evidence"
-    $governanceDetail = ('status={0}; warnings={1}; gate={2}' -f `
+    $governancePerformanceGate = Format-Value (Get-JsonValue (Get-JsonValue $governancePerformanceSummary "auditSummary" $null) "releaseGate" "unknown")
+    $governancePerformanceReadiness = Format-Value (Get-JsonValue (Get-JsonValue $governancePerformanceSummary "summary" $null) "readiness" "unknown")
+    $governanceDetail = ('status={0}; warnings={1}; gate={2}; performanceGate={3}; performanceReadiness={4}' -f `
         (Format-Value (Get-JsonValue $governanceDashboard "status" "unknown")), `
         (Format-Value (Get-JsonValue $governanceDashboard "totalWarnings" "unknown")), `
-        $governanceGate)
+        $governanceGate, `
+        $governancePerformanceGate, `
+        $governancePerformanceReadiness)
 } else {
     [void]$blockers.Add("large-file-governance-missing")
 }
@@ -598,6 +605,7 @@ $scanPaths = New-Object System.Collections.ArrayList
 [void](Copy-EvidenceFile $resolvedS3RealBackendReadinessPath $stagingDir "s3/s3-real-backend-readiness.json" "s3-real-backend-readiness" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedLargeFileGovernanceDashboardPath $stagingDir "governance/large-file-governance-dashboard.json" "large-file-governance-dashboard" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedLargeFileGovernanceReportPath $stagingDir "governance/large-file-governance-report.md" "large-file-governance-report" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedLargeFileGovernancePerformanceSummaryPath $stagingDir "governance/large-file-governance-performance-summary.json" "large-file-governance-performance-summary" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedLargeFileGovernanceDiagnosticsPath $stagingDir "governance/large-file-governance-diagnostics.zip" "large-file-governance-diagnostics" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedPgsqlAcceptancePath $stagingDir "pgsql/pgsql-release-acceptance.json" "pgsql-release-acceptance" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedPgsqlEvidenceManifestPath $stagingDir "pgsql/pgsql-release-evidence-manifest.json" "pgsql-release-evidence-manifest" $manifestInputs $scanPaths)

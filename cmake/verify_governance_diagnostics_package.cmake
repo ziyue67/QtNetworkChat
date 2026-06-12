@@ -64,6 +64,13 @@ file(WRITE "${GOV_DIR}/s3-stability-runbook.md"
 file(WRITE "${GOV_DIR}/s3-stability-runbook-alert-summary.json"
 "{\"kind\":\"s3-stability-runbook\",\"ok\":true,\"warnings\":[],\"metrics\":{\"successCount\":1}}\n"
 )
+file(WRITE "${GOV_DIR}/large-file-governance-performance-summary.json"
+"{\"format\":\"qtnetworkchat-large-file-governance-performance-summary-v1\",\"summary\":{\"readiness\":\"review\"},\"auditSummary\":{\"releaseGate\":\"review-governance-performance\"},\"bottlenecks\":[\"s3-transient-pressure\"]}\n"
+)
+file(WRITE "${GOV_DIR}/large-file-governance-performance-summary.md"
+"# QtNetworkChat Large File Governance Performance Summary\n"
+"- Release gate: `review-governance-performance`\n"
+)
 file(WRITE "${GOV_DIR}/receipt-rotation-summary.json"
 "{\"totalRecords\":3,\"retainedRecords\":2,\"archivedRecords\":1,\"sensitiveHits\":0}\n"
 )
@@ -144,6 +151,7 @@ string(JSON sensitive_hits GET "${manifest_content}" "sensitiveHits")
 string(JSON coverage_area_count GET "${manifest_content}" "s3StabilizationCoverage" "areaCount")
 string(JSON coverage_reason_count GET "${manifest_content}" "s3StabilizationCoverage" "fixedReasonCount")
 string(JSON coverage_area0 GET "${manifest_content}" "s3StabilizationCoverage" "areas" 0)
+string(JSON performance_release_gate GET "${manifest_content}" "performanceCloseout" "releaseGate")
 if(NOT package_format STREQUAL "qtnetworkchat-large-file-governance-diagnostics-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected diagnostics package format: ${package_format}")
@@ -164,6 +172,10 @@ if(NOT coverage_area0 STREQUAL "source-write-fallback")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected first coverage area source-write-fallback, got ${coverage_area0}")
 endif()
+if(NOT performance_release_gate STREQUAL "review-governance-performance")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected diagnostics performance release gate review-governance-performance, got ${performance_release_gate}")
+endif()
 
 foreach(expected_file
         "${EXTRACT_DIR}/governance-alert-overview.json"
@@ -174,6 +186,8 @@ foreach(expected_file
         "${EXTRACT_DIR}/s3-stability-runbook.json"
         "${EXTRACT_DIR}/s3-stability-runbook.md"
         "${EXTRACT_DIR}/s3-stability-runbook-alert-summary.json"
+        "${EXTRACT_DIR}/large-file-governance-performance-summary.json"
+        "${EXTRACT_DIR}/large-file-governance-performance-summary.md"
         "${EXTRACT_DIR}/s3-request-results-alert-summary.json")
     if(NOT EXISTS "${expected_file}")
         file(REMOVE_RECURSE "${TEMP_DIR}")

@@ -134,6 +134,7 @@ if ($null -eq $dashboard -and $null -eq $health -and $null -eq $overview) {
 }
 
 $metrics = Get-JsonValue $dashboard "metrics" ([pscustomobject]@{})
+$performanceSummary = Get-JsonValue $dashboard "performanceSummary" $null
 $s3StabilizationCoverage = @((Get-JsonValue $dashboard "s3StabilizationCoverage" @()))
 $s3CoverageGapAreas = @((Get-JsonValue $dashboard "s3CoverageGapAreas" @()))
 $s3CoverageActionableGapAreas = @((Get-JsonValue $dashboard "s3CoverageActionableGapAreas" @()))
@@ -289,6 +290,15 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
             $actionableGapText = @($summary.s3CoverageActionableGapAreas) -join ", "
             $lines.Add(("- Actionable coverage gaps: {0}" -f $actionableGapText))
         }
+    }
+    if ($null -ne $performanceSummary) {
+        $lines.Add("")
+        $lines.Add("## Performance Closeout")
+        $lines.Add("")
+        $lines.Add(('- Readiness: `{0}`' -f (Format-Value (Get-JsonValue (Get-JsonValue $performanceSummary "summary" $null) "readiness" "unknown"))))
+        $lines.Add(('- Release gate: `{0}`' -f (Format-Value (Get-JsonValue (Get-JsonValue $performanceSummary "auditSummary" $null) "releaseGate" "unknown"))))
+        $performanceBottlenecks = @((Get-JsonValue $performanceSummary "bottlenecks" @()))
+        $lines.Add(('- Bottlenecks: `{0}`' -f ($(if ($performanceBottlenecks.Count -gt 0) { $performanceBottlenecks -join ", " } else { "none" }))))
     }
     $lines.Add("")
     $lines.Add("This status view is read-only. It does not connect to Redis/S3/MinIO and does not modify queues, attachments, objects, or receipt files.")

@@ -55,6 +55,12 @@ param(
 
     [string]$DashboardMarkdownPath,
 
+    [switch]$WritePerformanceSummary,
+
+    [string]$PerformanceSummaryPath,
+
+    [string]$PerformanceSummaryMarkdownPath,
+
     [switch]$WriteS3StabilityRunbook,
 
     [string]$S3StabilityRunbookPath,
@@ -189,6 +195,8 @@ Assert-NoSensitiveValue "ReportPath" @($ReportPath)
 Assert-NoSensitiveValue "HtmlReportPath" @($HtmlReportPath)
 Assert-NoSensitiveValue "DashboardPath" @($DashboardPath)
 Assert-NoSensitiveValue "DashboardMarkdownPath" @($DashboardMarkdownPath)
+Assert-NoSensitiveValue "PerformanceSummaryPath" @($PerformanceSummaryPath)
+Assert-NoSensitiveValue "PerformanceSummaryMarkdownPath" @($PerformanceSummaryMarkdownPath)
 Assert-NoSensitiveValue "S3StabilityRunbookPath" @($S3StabilityRunbookPath)
 Assert-NoSensitiveValue "S3StabilityRunbookMarkdownPath" @($S3StabilityRunbookMarkdownPath)
 Assert-NoSensitiveValue "S3CoveragePolicyPath" @($S3CoveragePolicyPath)
@@ -253,6 +261,9 @@ Add-ScalarArg $lines "HtmlReportPath" $HtmlReportPath
 Add-SwitchArg $lines "WriteDashboard" ($WriteDashboard.IsPresent -or -not [string]::IsNullOrWhiteSpace($DashboardPath) -or -not [string]::IsNullOrWhiteSpace($DashboardMarkdownPath))
 Add-ScalarArg $lines "DashboardPath" $DashboardPath
 Add-ScalarArg $lines "DashboardMarkdownPath" $DashboardMarkdownPath
+Add-SwitchArg $lines "WritePerformanceSummary" ($WritePerformanceSummary.IsPresent -or -not [string]::IsNullOrWhiteSpace($PerformanceSummaryPath) -or -not [string]::IsNullOrWhiteSpace($PerformanceSummaryMarkdownPath))
+Add-ScalarArg $lines "PerformanceSummaryPath" $PerformanceSummaryPath
+Add-ScalarArg $lines "PerformanceSummaryMarkdownPath" $PerformanceSummaryMarkdownPath
 Add-SwitchArg $lines "WriteS3StabilityRunbook" ($WriteS3StabilityRunbook.IsPresent -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookPath) -or -not [string]::IsNullOrWhiteSpace($S3StabilityRunbookMarkdownPath))
 Add-ScalarArg $lines "S3StabilityRunbookPath" $S3StabilityRunbookPath
 Add-ScalarArg $lines "S3StabilityRunbookMarkdownPath" $S3StabilityRunbookMarkdownPath
@@ -322,6 +333,16 @@ $dashboardMarkdownPreviewPath = if ([string]::IsNullOrWhiteSpace($DashboardMarkd
 } else {
     $DashboardMarkdownPath
 }
+$performanceSummaryPreviewPath = if ([string]::IsNullOrWhiteSpace($PerformanceSummaryPath)) {
+    Join-Path $OutputDir "large-file-governance-performance-summary.json"
+} else {
+    $PerformanceSummaryPath
+}
+$performanceSummaryMarkdownPreviewPath = if ([string]::IsNullOrWhiteSpace($PerformanceSummaryMarkdownPath)) {
+    ""
+} else {
+    $PerformanceSummaryMarkdownPath
+}
 $s3FailureBatchPreviewPath = if ($RunS3FailureBatchSample) {
     Join-Path $OutputDir "s3-failure-batch-summary.json"
 } else {
@@ -362,6 +383,8 @@ $preview = [pscustomobject]@{
     dashboardPath = $dashboardPreviewPath
     statusArtifactPath = $dashboardPreviewPath
     dashboardMarkdownPath = $dashboardMarkdownPreviewPath
+    performanceSummaryPath = $performanceSummaryPreviewPath
+    performanceSummaryMarkdownPath = $performanceSummaryMarkdownPreviewPath
     s3StabilityRunbookPath = $s3StabilityRunbookPreviewPath
     s3StabilityRunbookMarkdownPath = $s3StabilityRunbookMarkdownPreviewPath
     s3CoveragePolicyPath = $S3CoveragePolicyPath
@@ -384,6 +407,10 @@ $preview = [pscustomobject]@{
         status = [ordered]@{
             path = $dashboardPreviewPath
             markdownPath = $dashboardMarkdownPreviewPath
+        }
+        performanceSummary = [ordered]@{
+            path = $performanceSummaryPreviewPath
+            markdownPath = $performanceSummaryMarkdownPreviewPath
         }
         lastRun = [ordered]@{
             path = $logPath

@@ -631,6 +631,7 @@ foreach ($expected in @(
     'Release and operations delivery now has a complete local closeout chain',
     'README information architecture and current-state alignment are now the main documentation lane',
     'Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete',
+    'Governance performance closeout is now a first-class summary lane',
     'QTNETWORKCHAT_PGPASSWORD',
     'generated evidence must remain redacted'
 )) {

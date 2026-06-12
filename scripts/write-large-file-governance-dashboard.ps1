@@ -127,6 +127,8 @@ $s3RunbookAlertPath = Join-Path $resolvedGovernanceDir "s3-stability-runbook-ale
 $rotationSummaryPath = Join-Path $resolvedGovernanceDir "receipt-rotation-summary.json"
 $rotationAlertPath = Join-Path $resolvedGovernanceDir "receipt-rotation-alert-summary.json"
 $reconcileSummaryPath = Join-Path (Join-Path $resolvedGovernanceDir "reconcile") "reconcile-summary.json"
+$performanceSummaryPath = Join-Path $resolvedGovernanceDir "large-file-governance-performance-summary.json"
+$performanceSummaryMarkdownPath = Join-Path $resolvedGovernanceDir "large-file-governance-performance-summary.md"
 $reportPath = Join-Path $resolvedGovernanceDir "large-file-governance-report.md"
 $htmlReportPath = Join-Path $resolvedGovernanceDir "large-file-governance-report.html"
 $acceptancePackagePath = Join-Path (Join-Path $resolvedGovernanceDir "acceptance-package") "large-file-acceptance.zip"
@@ -145,6 +147,8 @@ $scanPaths = @(
     $rotationSummaryPath,
     $rotationAlertPath,
     $reconcileSummaryPath,
+    $performanceSummaryPath,
+    $performanceSummaryMarkdownPath,
     $reportPath,
     $htmlReportPath
 )
@@ -166,6 +170,7 @@ $s3Summary = Read-JsonFile $s3SummaryPath
 $s3Runbook = Read-JsonFile $s3RunbookPath
 $rotationSummary = Read-JsonFile $rotationSummaryPath
 $reconcileSummary = Read-JsonFile $reconcileSummaryPath
+$performanceSummary = Read-JsonFile $performanceSummaryPath
 
 $metrics = [ordered]@{}
 Add-Metric $metrics "routeLines" (Get-JsonValue $routeSummary "routeLineCount")
@@ -182,6 +187,10 @@ Add-Metric $metrics "reconcileCleaned" (Get-JsonValue $reconcileSummary "cleaned
 Add-Metric $metrics "reconcileRetained" (Get-JsonValue $reconcileSummary "retainedCount")
 Add-Metric $metrics "receiptRetained" (Get-JsonValue $rotationSummary "retainedRecords")
 Add-Metric $metrics "receiptArchived" (Get-JsonValue $rotationSummary "archivedRecords")
+Add-Metric $metrics "deliveryClosurePercent" (Get-JsonValue (Get-JsonValue $performanceSummary "ratios" ([pscustomobject]@{})) "deliveryClosurePercent")
+Add-Metric $metrics "fallbackProtectionPercent" (Get-JsonValue (Get-JsonValue $performanceSummary "ratios" ([pscustomobject]@{})) "fallbackProtectionPercent")
+Add-Metric $metrics "s3TransientPercent" (Get-JsonValue (Get-JsonValue $performanceSummary "ratios" ([pscustomobject]@{})) "s3TransientPercent")
+Add-Metric $metrics "performanceBottlenecks" (@((Get-JsonValue $performanceSummary "bottlenecks" @())).Count)
 
 $alerts = @()
 if ($null -ne $overview -and $null -ne $overview.alerts) {
@@ -204,6 +213,8 @@ $artifacts += New-Artifact "s3 stability runbook" $s3RunbookPath $resolvedGovern
 $artifacts += New-Artifact "s3 stability runbook markdown" $s3RunbookMarkdownPath $resolvedGovernanceDir
 $artifacts += New-Artifact "receipt rotation summary" $rotationSummaryPath $resolvedGovernanceDir
 $artifacts += New-Artifact "reconcile summary" $reconcileSummaryPath $resolvedGovernanceDir
+$artifacts += New-Artifact "performance summary" $performanceSummaryPath $resolvedGovernanceDir
+$artifacts += New-Artifact "performance summary markdown" $performanceSummaryMarkdownPath $resolvedGovernanceDir
 $artifacts += New-Artifact "markdown report" $reportPath $resolvedGovernanceDir
 $artifacts += New-Artifact "html report" $htmlReportPath $resolvedGovernanceDir
 $artifacts += New-Artifact "acceptance package" $acceptancePackagePath $resolvedGovernanceDir
@@ -220,6 +231,7 @@ $dashboard = [pscustomobject]@{
     totalWarnings = [int](Get-JsonValue $overview "totalWarnings" 0)
     alertCount    = [int](Get-JsonValue $overview "alertCount" 0)
     metrics       = [pscustomobject]$metrics
+    performanceSummary = $performanceSummary
     s3StabilizationCoverage = @((Get-JsonValue $s3Runbook "stabilizationCoverage" @()))
     s3CoverageGapAreas = @((Get-JsonValue $s3Runbook "coverageGapAreas" @()))
     s3CoverageActionableGapAreas = @((Get-JsonValue $s3Runbook "coverageActionableGapAreas" @()))
@@ -269,7 +281,7 @@ $dashboardAuditSummary = [ordered]@{
     } else {
         "can-review-governance-evidence"
     }
-    evidenceBundle = @("dashboard-json", "dashboard-markdown", "governance-report", "diagnostics-package")
+    evidenceBundle = @("dashboard-json", "dashboard-markdown", "governance-report", "performance-summary", "diagnostics-package")
     auditFocus = @($auditFocus.ToArray())
 }
 $dashboard | Add-Member -MemberType NoteProperty -Name "summary" -Value ([pscustomobject]$dashboardSummary) -Force
@@ -327,6 +339,14 @@ if (-not [string]::IsNullOrWhiteSpace($MarkdownPath)) {
             $actionableGapText = @($dashboard.s3CoverageActionableGapAreas) -join ", "
             $lines.Add(("- Actionable coverage gaps: {0}" -f $actionableGapText))
         }
+    }
+    if ($null -ne $dashboard.performanceSummary) {
+        $lines.Add("")
+        $lines.Add("## Performance Summary")
+        $lines.Add("")
+        $lines.Add(('- Readiness: `{0}`' -f (Format-Value (Get-JsonValue (Get-JsonValue $dashboard.performanceSummary "summary" $null) "readiness" "unknown"))))
+        $lines.Add(('- Release gate: `{0}`' -f (Format-Value (Get-JsonValue (Get-JsonValue $dashboard.performanceSummary "auditSummary" $null) "releaseGate" "unknown"))))
+        $lines.Add(('- Bottlenecks: `{0}`' -f (@((Get-JsonValue $dashboard.performanceSummary "bottlenecks" @())) -join ", ")))
     }
     $lines.Add("")
     $lines.Add("## Alerts")

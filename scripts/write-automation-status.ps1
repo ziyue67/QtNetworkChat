@@ -3533,6 +3533,7 @@ if ($largeFileGovernanceStatusState.state -ne "ok") {
     $governanceSummary = Get-JsonValue $largeFileGovernanceStatus "summary" $null
     $governanceAuditSummary = Get-JsonValue $largeFileGovernanceStatus "auditSummary" $null
     $governanceAuditFocus = @((Get-JsonValue $governanceAuditSummary "auditFocus" @()))
+    $governancePerformanceSummary = Get-JsonValue $largeFileGovernanceStatus "performanceSummary" $null
     $lines.Add(('- Large-file governance: status=`{0}`, ok=`{1}`, warnings=`{2}`, alerts=`{3}`, actionableS3Gaps=`{4}`' -f
             (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "status" "unknown")),
             (Format-StatusValue (Get-JsonValue $largeFileGovernanceStatus "ok" $null)),
@@ -3544,6 +3545,13 @@ if ($largeFileGovernanceStatusState.state -ne "ok") {
             (Format-StatusValue (Get-JsonValue $governanceAuditSummary "releaseGate" "unknown")),
             (Format-StatusValue (Get-JsonValue $governanceSummary "operatorAction" "unknown")),
             (Format-StatusValue ($(if ($governanceAuditFocus.Count -gt 0) { $governanceAuditFocus -join ", " } else { "none" })))))
+    if ($null -ne $governancePerformanceSummary) {
+        $governancePerformanceBottlenecks = @((Get-JsonValue $governancePerformanceSummary "bottlenecks" @()))
+        $lines.Add(('  Performance: readiness=`{0}`, releaseGate=`{1}`, bottlenecks=`{2}`' -f
+                (Format-StatusValue (Get-JsonValue (Get-JsonValue $governancePerformanceSummary "summary" $null) "readiness" "unknown")),
+                (Format-StatusValue (Get-JsonValue (Get-JsonValue $governancePerformanceSummary "auditSummary" $null) "releaseGate" "unknown")),
+                (Format-StatusValue ($(if ($governancePerformanceBottlenecks.Count -gt 0) { $governancePerformanceBottlenecks -join ", " } else { "none" })))))
+    }
 }
 if ($null -ne $largeFileGovernanceLastRun) {
     $lines.Add(('- Large-file governance last run: at=`{0}`, exitCode=`{1}`' -f
@@ -3791,6 +3799,7 @@ $lines.Add("4. Release and operations delivery now has a complete local closeout
 $lines.Add("5. README information architecture and current-state alignment are now the main documentation lane: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, E2E hardening status, and release closeout in focused docs, and keep automation-status plus README backlog wording synchronized with the actual verified code paths and recorded archive decision state.")
 $lines.Add("6. Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete for the current automation scope: HistoryService, TransferManager, FriendManager, GroupManager, ClientStorage, LocalFileManager, ChatContextManager, ComposerManager, and NotificationPanelManager already own the main extracted behavior. Only continue heavier dialog or modal decomposition when it materially improves maintenance or unblocks the E2E/mainline closeout lane.")
 $lines.Add("7. PostgreSQL productization is closed for the current automation mainline: QPSQL smoke boundary evidence and rollback live evidence are both covered. Only fix PostgreSQL regressions or CI failures; do not keep adding PostgreSQL polish before the remaining E2E release promotion and release-governance closeout.")
+$lines.Add("8. Governance performance closeout is now a first-class summary lane: keep large-file governance dashboard/report/status aligned with the performance summary so delivery closure, fallback protection, S3 transient pressure, receipt archive pressure, and actionable coverage gaps stay reviewable without re-reading every raw artifact.")
 $lines.Add("")
 $lines.Add("## Last Local Verification")
 $lines.Add("")

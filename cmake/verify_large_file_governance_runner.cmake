@@ -16,6 +16,8 @@ set(REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.md")
 set(HTML_REPORT_PATH "${OUTPUT_DIR}/large-file-governance-report.html")
 set(DASHBOARD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.json")
 set(DASHBOARD_MD_PATH "${OUTPUT_DIR}/large-file-governance-dashboard.md")
+set(PERFORMANCE_SUMMARY_PATH "${OUTPUT_DIR}/large-file-governance-performance-summary.json")
+set(PERFORMANCE_SUMMARY_MD_PATH "${OUTPUT_DIR}/large-file-governance-performance-summary.md")
 set(S3_RUNBOOK_PATH "${OUTPUT_DIR}/s3-stability-runbook.json")
 set(S3_RUNBOOK_MD_PATH "${OUTPUT_DIR}/s3-stability-runbook.md")
 set(S3_POLICY_PATH "${TEMP_DIR}/s3-coverage-policy.json")
@@ -70,6 +72,9 @@ execute_process(
         -WriteDashboard
         -DashboardPath "${DASHBOARD_PATH}"
         -DashboardMarkdownPath "${DASHBOARD_MD_PATH}"
+        -WritePerformanceSummary
+        -PerformanceSummaryPath "${PERFORMANCE_SUMMARY_PATH}"
+        -PerformanceSummaryMarkdownPath "${PERFORMANCE_SUMMARY_MD_PATH}"
         -WriteS3StabilityRunbook
         -S3StabilityRunbookPath "${S3_RUNBOOK_PATH}"
         -S3StabilityRunbookMarkdownPath "${S3_RUNBOOK_MD_PATH}"
@@ -114,6 +119,8 @@ foreach(expected_file
         "${HTML_REPORT_PATH}"
         "${DASHBOARD_PATH}"
         "${DASHBOARD_MD_PATH}"
+        "${PERFORMANCE_SUMMARY_PATH}"
+        "${PERFORMANCE_SUMMARY_MD_PATH}"
         "${S3_RUNBOOK_PATH}"
         "${S3_RUNBOOK_MD_PATH}"
         "${DIAGNOSTICS_PATH}"
@@ -171,6 +178,7 @@ string(JSON dashboard_readiness GET "${dashboard_content}" "summary" "readiness"
 string(JSON dashboard_release_gate GET "${dashboard_content}" "auditSummary" "releaseGate")
 string(JSON dashboard_s3_lines GET "${dashboard_content}" "metrics" "s3Lines")
 string(JSON dashboard_actionable_gaps GET "${dashboard_content}" "metrics" "s3CoverageActionableGaps")
+string(JSON dashboard_performance_gate GET "${dashboard_content}" "performanceSummary" "auditSummary" "releaseGate")
 if(NOT dashboard_format STREQUAL "qtnetworkchat-large-file-governance-dashboard-v1")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Unexpected governance dashboard format: ${dashboard_format}")
@@ -194,6 +202,10 @@ endif()
 if(NOT dashboard_actionable_gaps EQUAL 2)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected governance dashboard actionable gap count=2, got ${dashboard_actionable_gaps}")
+endif()
+if(NOT dashboard_performance_gate STREQUAL "blocked-governance-health")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance dashboard embedded performance gate blocked-governance-health, got ${dashboard_performance_gate}")
 endif()
 if(NOT s3_alert_ok)
     file(REMOVE_RECURSE "${TEMP_DIR}")
@@ -258,6 +270,23 @@ endif()
 if(NOT runbook_alert_actionable_gap_count EQUAL 2)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Expected S3 stability runbook alert actionable gap count=2, got ${runbook_alert_actionable_gap_count}")
+endif()
+
+file(READ "${PERFORMANCE_SUMMARY_PATH}" performance_content)
+string(JSON performance_format GET "${performance_content}" "format")
+string(JSON performance_gate GET "${performance_content}" "auditSummary" "releaseGate")
+string(JSON performance_bottleneck0 GET "${performance_content}" "bottlenecks" 0)
+if(NOT performance_format STREQUAL "qtnetworkchat-large-file-governance-performance-summary-v1")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Unexpected governance performance summary format: ${performance_format}")
+endif()
+if(NOT performance_gate STREQUAL "blocked-governance-health")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected governance performance summary gate blocked-governance-health, got ${performance_gate}")
+endif()
+if(NOT performance_bottleneck0 STREQUAL "s3-actionable-coverage-gaps")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Expected first governance performance bottleneck s3-actionable-coverage-gaps, got ${performance_bottleneck0}")
 endif()
 
 file(READ "${OUTPUT_DIR}/governance-alert-overview.json" overview_content)
@@ -330,6 +359,10 @@ endif()
 if(NOT EXISTS "${DIAG_EXTRACT_DIR}/s3-stability-runbook.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Governance diagnostics S3 stability runbook missing")
+endif()
+if(NOT EXISTS "${DIAG_EXTRACT_DIR}/large-file-governance-performance-summary.json")
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Governance diagnostics performance summary missing")
 endif()
 
 file(REMOVE_RECURSE "${TEMP_DIR}")

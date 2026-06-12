@@ -128,6 +128,8 @@ $knownFiles = @(
     @{ Name = "s3-stability-runbook.json"; Kind = "s3-stability-runbook" },
     @{ Name = "s3-stability-runbook.md"; Kind = "s3-stability-runbook" },
     @{ Name = "s3-stability-runbook-alert-summary.json"; Kind = "s3-stability-runbook-alert" },
+    @{ Name = "large-file-governance-performance-summary.json"; Kind = "performance-summary" },
+    @{ Name = "large-file-governance-performance-summary.md"; Kind = "performance-summary" },
     @{ Name = "receipt-rotation-summary.json"; Kind = "rotation-summary" },
     @{ Name = "receipt-rotation-alert-summary.json"; Kind = "rotation-alert" },
     @{ Name = "large-file-governance-report.md"; Kind = "report" },
@@ -168,6 +170,7 @@ if ($sensitiveHits.Count -gt 0 -and -not $NoFailOnSensitive) {
 
 $manifestPath = Join-Path $stagingDir "manifest.json"
 $runbook = Read-JsonFile (Join-Path $resolvedGovernanceDir "s3-stability-runbook.json")
+$performanceSummary = Read-JsonFile (Join-Path $resolvedGovernanceDir "large-file-governance-performance-summary.json")
 $runbookMetrics = Get-JsonValue $runbook "metrics" ([pscustomobject]@{})
 [pscustomobject]@{
     createdAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -178,6 +181,11 @@ $runbookMetrics = Get-JsonValue $runbook "metrics" ([pscustomobject]@{})
         areaCount = [int](Get-JsonValue $runbookMetrics "coverageAreaCount" 0)
         fixedReasonCount = [int](Get-JsonValue $runbookMetrics "coverageFixedReasonCount" 0)
         areas = @(@((Get-JsonValue $runbook "stabilizationCoverage" @())) | ForEach-Object { [string](Get-JsonValue $_ "area" "") } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+    performanceCloseout = [pscustomobject]@{
+        readiness = [string](Get-JsonValue (Get-JsonValue $performanceSummary "summary" $null) "readiness" "unknown")
+        releaseGate = [string](Get-JsonValue (Get-JsonValue $performanceSummary "auditSummary" $null) "releaseGate" "unknown")
+        bottleneckCount = @((Get-JsonValue $performanceSummary "bottlenecks" @())).Count
     }
     inputs = @($manifestInputs)
     notes = "Package contains only governance diagnostic artifacts; it does not connect to Redis/S3/MinIO and does not modify queues, attachments, or objects."
