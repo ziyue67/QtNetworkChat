@@ -201,6 +201,34 @@ powershell -ExecutionPolicy Bypass -File scripts/package-release-delivery-handof
 - `scripts/collect-qtnetworkchat-diagnostics.ps1` 会收集本地验证日志、自动化状态、release review / release delivery manifest 和崩溃 dump 清单，只记录相对路径、大小、时间戳，不打包原始 dump 字节
 - `release-upload-plan.json/.md` 只提供本地上传/分发说明，不会直接连接 GitHub Releases、对象存储或其他远端渠道
 
+### 本地 release archive decision
+
+当 current-head 的 `local-release-review` 和 `release-delivery-handoff` 都准备好以后，可以把最终人工归档决定单独记录为一个一等产物：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-release-archive-decision.ps1 `
+  -OutputDir build-qt6-mingw\release-archive-decision
+```
+
+该包会把 `local-release-review`、`release-delivery-handoff` 与最终 archive decision 的状态拆开记录，并生成：
+
+- `build-qt6-mingw/release-archive-decision/release-archive-decision.zip`
+- `build-qt6-mingw/release-archive-decision/release-archive-decision-manifest.json`
+- `build-qt6-mingw/release-archive-decision/release-archive-decision.md`
+
+默认会写入 `pending-human-decision`，表示代码侧 closeout 已准备好，但最终是否归档、是否转入环境外发布，仍要由你显式确认。需要记录最终决定时，可追加例如：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-release-archive-decision.ps1 `
+  -OutputDir build-qt6-mingw\release-archive-decision `
+  -DecisionState approved-local-archive `
+  -DecidedBy jun23 `
+  -DecisionReason "Current-head release evidence reviewed locally." `
+  -PublishingStatus pending-environment-publication
+```
+
+这样 `automation-status`、诊断包、release review 和 release delivery handoff 都能回读同一份 archive decision，而不会把“代码验证已通过”和“外部渠道是否已发布”混在一起。
+
 如果需要把当前 HEAD 的本地验证、Windows 包、linked E2E candidate、release review、release delivery handoff 和 `docs/automation-status.md` 一次性刷新到同一基线，可运行：
 
 ```powershell
@@ -208,7 +236,7 @@ powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
   -BuildDir build-qt6-mingw
 ```
 
-这个收官脚本会按固定顺序重生成当前 HEAD 的 closeout 产物，避免 `automation-status`、`local-release-review` 和 `release-delivery-handoff` 因交叉引用旧 manifest 而停留在旧基线。`docs/automation-status.md` 也只保留稳定的 gate/ready/tail 摘要，不再回写这些归档包自身的 SHA-256，以免状态文档与被其打包的归档产物形成自引用漂移。
+这个收官脚本会按固定顺序重生成当前 HEAD 的 closeout 产物，包含 `local-release-review`、`release-archive-decision` 与 `release-delivery-handoff`，避免 `automation-status` 和各归档包因交叉引用旧 manifest 而停留在旧基线。`docs/automation-status.md` 也只保留稳定的 gate/ready/tail/decision 摘要，不再回写这些归档包自身的 SHA-256，以免状态文档与被其打包的归档产物形成自引用漂移。
 
 ### 可选 MinIO S3 手动验证
 
@@ -660,9 +688,9 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 后续优化优先级
 
-1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。本地 `release review` 收官包现在会把 current-head E2E candidate、S3 readiness、large-file governance、PostgreSQL acceptance/rollback、README 和 automation-status 一起归档，方便做最终人工归档决定。
-2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，接下来更值得做的是把 README、automation-status、focused docs、脚本生成内容和当前代码状态彻底对齐，把“已经完成”“当前阻塞”“真实剩余风险”写成一套一致口径；同时明确默认 fail-closed 基线证据与 current-head release review evidence 的区别，避免将基线阻塞误读成当前 head 未闭环，并把最终 archive decision 与环境外发布动作分开记录。
-3. **发布与运维体验**：本地发布交付包已经收口 Windows package、上传说明、安装入口、脱敏诊断采集和非开发交接清单。剩余工作主要是人工 archive decision，以及把生成好的 zip 按你自己的渠道发布到团队共享盘、工单系统或发行页面。
+1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。本地 `release review` 收官包现在会把 current-head E2E candidate、S3 readiness、large-file governance、PostgreSQL acceptance/rollback、README 和 automation-status 一起归档，供后续 archive decision 产物直接引用。
+2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，接下来更值得做的是把 README、automation-status、focused docs、脚本生成内容和当前代码状态彻底对齐，把“已经完成”“当前阻塞”“真实剩余风险”写成一套一致口径；同时明确默认 fail-closed 基线证据与 current-head release review evidence 的区别，避免将基线阻塞误读成当前 head 未闭环，并把 archive decision、本地 verified closeout、环境外发布动作分开记录。
+3. **发布与运维体验**：本地发布交付包已经收口 Windows package、上传说明、安装入口、脱敏诊断采集和非开发交接清单；现在又补上了独立的 `release-archive-decision` 产物，用来记录最终归档决定与环境外发布状态。剩余工作主要是按你自己的渠道把生成好的 zip 发布到团队共享盘、工单系统或发行页面，并在 archive decision 里回写发布状态。
 4. **结构拆分的最终收尾**：第一阶段和第二阶段所需的 UI 统一、文件工作区整线产品化已经完成，`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 也都已经承担了主职责。后续结构拆分不再是当前主线，只在确实影响维护性或回归定位时，继续处理剩余的大弹窗编排和少量 MainWindow 收口。
 5. **性能与非阻塞增强**：文件/离线附件的用户可见状态、恢复入口、失败入口和工作区摘要已经统一。后续更适合做的不是再补基础产品链，而是性能压测、治理指标细化，以及必要时补充少量高价值回归测试。
 

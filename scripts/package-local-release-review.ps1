@@ -25,6 +25,8 @@ param(
     [string]$PgsqlRollbackEvidenceManifestPath = "build-qt6-mingw\\pgsql-rollback-live-evidence\\evidence\\pgsql-rollback-live-evidence-manifest.json",
     [string]$WindowsPackageManifestPath = "build-qt6-mingw\\release-package\\QtNetworkChat-1.0.0-win-x64\\manifest.json",
     [string]$ReleaseDeliveryHandoffManifestPath = "build-qt6-mingw\\release-delivery-handoff\\release-delivery-handoff-manifest.json",
+    [string]$ReleaseArchiveDecisionManifestPath = "build-qt6-mingw\\release-archive-decision\\release-archive-decision-manifest.json",
+    [string]$ReleaseArchiveDecisionMarkdownPath = "build-qt6-mingw\\release-archive-decision\\release-archive-decision.md",
     [string]$ReleaseDeliveryHandoffScriptPath = "scripts\\package-release-delivery-handoff.ps1",
 
     [switch]$NoFailOnSensitive
@@ -339,6 +341,8 @@ $resolvedPgsqlRollbackLivePath = Resolve-RepoPath $PgsqlRollbackLivePath
 $resolvedPgsqlRollbackEvidenceManifestPath = Resolve-RepoPath $PgsqlRollbackEvidenceManifestPath
 $resolvedWindowsPackageManifestPath = Resolve-WindowsPackageManifestPath $WindowsPackageManifestPath
 $resolvedReleaseDeliveryHandoffManifestPath = Resolve-RepoPath $ReleaseDeliveryHandoffManifestPath
+$resolvedReleaseArchiveDecisionManifestPath = Resolve-RepoPath $ReleaseArchiveDecisionManifestPath
+$resolvedReleaseArchiveDecisionMarkdownPath = Resolve-RepoPath $ReleaseArchiveDecisionMarkdownPath
 $resolvedReleaseDeliveryHandoffScriptPath = Resolve-RepoPath $ReleaseDeliveryHandoffScriptPath
 
 $e2eManifest = Read-OptionalJson $resolvedE2EReleaseEvidenceManifestPath
@@ -350,6 +354,7 @@ $pgsqlAcceptance = Read-OptionalJson $resolvedPgsqlAcceptancePath
 $pgsqlRollbackLive = Read-OptionalJson $resolvedPgsqlRollbackLivePath
 $windowsPackageManifest = Read-OptionalJson $resolvedWindowsPackageManifestPath
 $releaseDeliveryHandoffManifest = Read-OptionalJson $resolvedReleaseDeliveryHandoffManifestPath
+$releaseArchiveDecisionManifest = Read-OptionalJson $resolvedReleaseArchiveDecisionManifestPath
 
 $artifactSummaries = New-Object System.Collections.ArrayList
 $blockers = New-Object System.Collections.ArrayList
@@ -540,6 +545,22 @@ if ($releaseDeliveryHandoffReady -and $manifestTail.Count -eq 0) {
 }
 
 [void]$artifactSummaries.Add((New-ArtifactSummary "release-delivery-handoff" ($null -ne $releaseDeliveryHandoffManifest) ([bool](Get-JsonValue $releaseDeliveryHandoffManifest "deliveryReady" $false)) (Format-Value (Get-JsonValue $releaseDeliveryHandoffManifest "deliveryGate" "unknown")) ('deliveryTail={0}' -f $deliveryTailPending.Count) $false))
+$releaseArchiveDecisionAvailable = $null -ne $releaseArchiveDecisionManifest -and (Get-JsonValue $releaseArchiveDecisionManifest "format" "") -eq "qtnetworkchat-release-archive-decision-v1"
+$releaseArchiveDecisionRecorded = $releaseArchiveDecisionAvailable -and [bool](Get-JsonValue $releaseArchiveDecisionManifest "decisionRecorded" $false)
+$releaseArchiveDecisionGate = if ($releaseArchiveDecisionAvailable) {
+    Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "decisionGate" "unknown")
+} else {
+    "release-archive-decision-not-recorded"
+}
+$releaseArchiveDecisionDetail = if ($releaseArchiveDecisionAvailable) {
+    ('recorded={0}; state={1}; publishing={2}' -f `
+        (Format-Value $releaseArchiveDecisionRecorded), `
+        (Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "decisionState" "unknown")), `
+        (Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "publishingStatus" "unknown")))
+} else {
+    "missing"
+}
+[void]$artifactSummaries.Add((New-ArtifactSummary "release-archive-decision" $releaseArchiveDecisionAvailable $releaseArchiveDecisionRecorded $releaseArchiveDecisionGate $releaseArchiveDecisionDetail $false))
 
 $reviewReady = $blockers.Count -eq 0
 $reviewGate = if ($reviewReady) { "ready-for-final-archive-decision" } else { "blocked-local-release-review-core-gates" }
@@ -574,6 +595,8 @@ $scanPaths = New-Object System.Collections.ArrayList
 [void](Copy-EvidenceFile $resolvedPgsqlRollbackLivePath $stagingDir "pgsql/pgsql-rollback-live-evidence.json" "pgsql-rollback-live-evidence" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedPgsqlRollbackEvidenceManifestPath $stagingDir "pgsql/pgsql-rollback-live-evidence-manifest.json" "pgsql-rollback-live-evidence-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedWindowsPackageManifestPath $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleaseArchiveDecisionManifestPath $stagingDir "archive/release-archive-decision-manifest.json" "release-archive-decision-manifest" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleaseArchiveDecisionMarkdownPath $stagingDir "archive/release-archive-decision.md" "release-archive-decision-markdown" $manifestInputs $scanPaths)
 
 $summaryLines = New-Object System.Collections.Generic.List[string]
 $summaryLines.Add("# Local Release Review")

@@ -100,6 +100,11 @@ Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
     "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json")
 )
 
+Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
+    "-OutputDir", (Join-Path $resolvedBuildDir "release-archive-decision"),
+    "-ReleaseHead", $head
+)
+
 Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
     "-OutputDir", (Join-Path $resolvedBuildDir "release-delivery-handoff"),
     "-ReleaseHead", $head,
@@ -122,6 +127,11 @@ Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
     "-ReleaseHead", $head,
     "-AutomationStatusPath", (Resolve-RepoPath "docs\\automation-status.md"),
     "-LocalVerificationStatusPath", (Join-Path $resolvedBuildDir "local-verification-status.json")
+)
+
+Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
+    "-OutputDir", (Join-Path $resolvedBuildDir "release-archive-decision"),
+    "-ReleaseHead", $head
 )
 
 Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(

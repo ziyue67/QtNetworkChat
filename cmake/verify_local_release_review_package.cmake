@@ -24,6 +24,8 @@ set(PGSQL_EVIDENCE_MANIFEST_PATH "${TEMP_DIR}/pgsql-release-evidence-manifest.js
 set(PGSQL_ROLLBACK_PATH "${TEMP_DIR}/pgsql-rollback-live-evidence.json")
 set(PGSQL_ROLLBACK_MANIFEST_PATH "${TEMP_DIR}/pgsql-rollback-live-evidence-manifest.json")
 set(WINDOWS_MANIFEST_PATH "${TEMP_DIR}/windows-manifest.json")
+set(RELEASE_ARCHIVE_DECISION_MANIFEST_PATH "${TEMP_DIR}/release-archive-decision-manifest.json")
+set(RELEASE_ARCHIVE_DECISION_MARKDOWN_PATH "${TEMP_DIR}/release-archive-decision.md")
 set(AUTOMATION_POLICY_PATH "${TEMP_DIR}/automation-policy.json")
 
 file(WRITE "${README_PATH}" "# Readme\n")
@@ -42,6 +44,8 @@ file(WRITE "${PGSQL_EVIDENCE_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-pg
 file(WRITE "${PGSQL_ROLLBACK_PATH}" "{\n  \"format\":\"qtnetworkchat-pgsql-rollback-live-evidence-v1\",\n  \"ok\":true,\n  \"status\":\"verified\",\n  \"summary\":{\"readiness\":\"verified\",\"releaseGate\":\"can-close-pgsql-rollback-live-evidence\"}\n}\n")
 file(WRITE "${PGSQL_ROLLBACK_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-pgsql-release-evidence-package-v1\",\n  \"ok\":true,\n  \"inputCount\":20\n}\n")
 file(WRITE "${WINDOWS_MANIFEST_PATH}" "{\n  \"packageFormat\":\"qtnetworkchat-windows-package-v1\",\n  \"gitCommit\":\"old-sample-head\",\n  \"runtimeCheck\":{\"ok\":true},\n  \"postgresSqlRuntime\":{\"ok\":true}\n}\n")
+file(WRITE "${RELEASE_ARCHIVE_DECISION_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-release-archive-decision-v1\",\n  \"decisionRecorded\":false,\n  \"decisionState\":\"pending-human-decision\",\n  \"decisionGate\":\"ready-for-archive-decision-record\",\n  \"publishingRequired\":false,\n  \"publishingStatus\":\"not-started\",\n  \"packageSha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\n  \"blockers\":[]\n}\n")
+file(WRITE "${RELEASE_ARCHIVE_DECISION_MARKDOWN_PATH}" "# Release Archive Decision\n")
 file(WRITE "${AUTOMATION_POLICY_PATH}" "{\n  \"format\":\"qtnetworkchat-automation-policy-v1\",\n  \"gitHubWindowsBuildPolicy\":\"disabled\"\n}\n")
 
 execute_process(
@@ -63,6 +67,8 @@ execute_process(
         -PgsqlRollbackLivePath "${PGSQL_ROLLBACK_PATH}"
         -PgsqlRollbackEvidenceManifestPath "${PGSQL_ROLLBACK_MANIFEST_PATH}"
         -WindowsPackageManifestPath "${WINDOWS_MANIFEST_PATH}"
+        -ReleaseArchiveDecisionManifestPath "${RELEASE_ARCHIVE_DECISION_MANIFEST_PATH}"
+        -ReleaseArchiveDecisionMarkdownPath "${RELEASE_ARCHIVE_DECISION_MARKDOWN_PATH}"
         -AutomationPolicyPath "${AUTOMATION_POLICY_PATH}"
         -ReleaseHead "abc123"
     RESULT_VARIABLE result
@@ -140,7 +146,7 @@ if(NOT package_path STREQUAL "local-release-review.zip"
         OR NOT markdown_packaged_as STREQUAL "local-release-review.md"
         OR NOT manifest_packaged_as STREQUAL "manifest.json"
         OR NOT manifest_embedded
-        OR NOT input_count EQUAL 16
+        OR NOT input_count EQUAL 18
         OR NOT github_policy STREQUAL "disabled"
         OR NOT artifact0_kind STREQUAL "local-verification"
         OR NOT artifact0_ready
@@ -164,7 +170,9 @@ if(NOT extract_result EQUAL 0)
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Failed to extract local release review package: ${extract_error}")
 endif()
-if(NOT EXISTS "${EXTRACT_DIR}/local-release-review.md" OR NOT EXISTS "${EXTRACT_DIR}/manifest.json")
+if(NOT EXISTS "${EXTRACT_DIR}/local-release-review.md"
+        OR NOT EXISTS "${EXTRACT_DIR}/manifest.json"
+        OR NOT EXISTS "${EXTRACT_DIR}/archive/release-archive-decision-manifest.json")
     file(REMOVE_RECURSE "${TEMP_DIR}")
     message(FATAL_ERROR "Extracted local release review package is missing the embedded summary or manifest")
 endif()

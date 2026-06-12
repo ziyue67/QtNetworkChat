@@ -11,6 +11,8 @@ param(
     [string]$WindowsPackageZipPath = "",
     [string]$LocalReleaseReviewManifestPath = "build-qt6-mingw\\local-release-review\\local-release-review-manifest.json",
     [string]$LocalReleaseReviewPackagePath = "build-qt6-mingw\\local-release-review\\local-release-review.zip",
+    [string]$ReleaseArchiveDecisionManifestPath = "build-qt6-mingw\\release-archive-decision\\release-archive-decision-manifest.json",
+    [string]$ReleaseArchiveDecisionMarkdownPath = "build-qt6-mingw\\release-archive-decision\\release-archive-decision.md",
     [string]$LocalVerificationStatusPath = "build-qt6-mingw\\local-verification-status.json",
     [string]$AutomationStatusPath = "docs\\automation-status.md",
     [string]$ReadmePath = "README.md",
@@ -239,6 +241,8 @@ $resolvedWindowsPackageManifestPath = Resolve-WindowsPackageManifestPath $Window
 $resolvedWindowsPackageZipPath = Resolve-RepoPath $WindowsPackageZipPath
 $resolvedLocalReleaseReviewManifestPath = Resolve-RepoPath $LocalReleaseReviewManifestPath
 $resolvedLocalReleaseReviewPackagePath = Resolve-RepoPath $LocalReleaseReviewPackagePath
+$resolvedReleaseArchiveDecisionManifestPath = Resolve-RepoPath $ReleaseArchiveDecisionManifestPath
+$resolvedReleaseArchiveDecisionMarkdownPath = Resolve-RepoPath $ReleaseArchiveDecisionMarkdownPath
 $resolvedLocalVerificationStatusPath = Resolve-RepoPath $LocalVerificationStatusPath
 $resolvedAutomationStatusPath = Resolve-RepoPath $AutomationStatusPath
 $resolvedReadmePath = Resolve-RepoPath $ReadmePath
@@ -247,6 +251,7 @@ $resolvedDiagnosticsScriptPath = Resolve-RepoPath $DiagnosticsScriptPath
 
 $windowsManifest = Read-OptionalJson $resolvedWindowsPackageManifestPath
 $localReleaseReviewManifest = Read-OptionalJson $resolvedLocalReleaseReviewManifestPath
+$releaseArchiveDecisionManifest = Read-OptionalJson $resolvedReleaseArchiveDecisionManifestPath
 $localVerification = Read-OptionalJson $resolvedLocalVerificationStatusPath
 
 $windowsPackagePresent = $null -ne $windowsManifest -and (Get-JsonValue $windowsManifest "packageFormat" "") -eq "qtnetworkchat-windows-package-v1"
@@ -275,6 +280,14 @@ $installerReady = Test-Path -LiteralPath $resolvedInstallerScriptPath -PathType 
 $diagnosticsReady = Test-Path -LiteralPath $resolvedDiagnosticsScriptPath -PathType Leaf
 $uploadPlanReady = $windowsPackageReady
 $opsHandoffReady = $localReleaseReviewReady -and $localVerificationReady
+$releaseArchiveDecisionRecorded = $null -ne $releaseArchiveDecisionManifest `
+    -and (Get-JsonValue $releaseArchiveDecisionManifest "format" "") -eq "qtnetworkchat-release-archive-decision-v1" `
+    -and [bool](Get-JsonValue $releaseArchiveDecisionManifest "decisionRecorded" $false)
+$releaseArchiveDecisionGate = if ($null -ne $releaseArchiveDecisionManifest) {
+    Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "decisionGate" "unknown")
+} else {
+    "release-archive-decision-not-recorded"
+}
 
 $deliveryTailPending = New-Object System.Collections.ArrayList
 if (-not $uploadPlanReady) {
@@ -312,6 +325,8 @@ $scanPaths = New-Object System.Collections.ArrayList
 [void](Copy-EvidenceFile $resolvedLocalVerificationStatusPath $stagingDir "verification/local-verification-status.json" "local-verification-status" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedLocalReleaseReviewManifestPath $stagingDir "release-review/local-release-review-manifest.json" "local-release-review-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedLocalReleaseReviewPackagePath $stagingDir "release-review/local-release-review.zip" "local-release-review-package" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleaseArchiveDecisionManifestPath $stagingDir "archive/release-archive-decision-manifest.json" "release-archive-decision-manifest" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleaseArchiveDecisionMarkdownPath $stagingDir "archive/release-archive-decision.md" "release-archive-decision-markdown" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedWindowsPackageManifestPath $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedWindowsPackageZipPath $stagingDir "windows/QtNetworkChat-win-x64.zip" "windows-package-zip" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedInstallerScriptPath $stagingDir "tools/install-qtnetworkchat-package.ps1" "installer-script" $manifestInputs $scanPaths)
@@ -404,6 +419,7 @@ $summaryLines.Add(('- Windows package: `present={0}; currentHeadMatch={1}; runti
         (Format-Value $windowsPackagePresent), (Format-Value $windowsCurrentHeadMatch), (Format-Value $windowsRuntimeOk), `
         (Format-Value $windowsPostgresOk), (Format-Value $windowsZipPresent), $windowsGate))
 $summaryLines.Add(('- Local release review: `ready={0}; gate={1}`' -f (Format-Value $localReleaseReviewReady), $localReleaseReviewGate))
+$summaryLines.Add(('- Release archive decision: `recorded={0}; gate={1}`' -f (Format-Value $releaseArchiveDecisionRecorded), $releaseArchiveDecisionGate))
 $summaryLines.Add(('- Upload plan: `ready={0}`' -f (Format-Value $uploadPlanReady)))
 $summaryLines.Add(('- Installer bootstrap: `ready={0}`' -f (Format-Value $installerReady)))
 $summaryLines.Add(('- Diagnostics collector: `ready={0}`' -f (Format-Value $diagnosticsReady)))
@@ -463,6 +479,10 @@ $manifest = [ordered]@{
     localReleaseReview = [ordered]@{
         ready = $localReleaseReviewReady
         reviewGate = $localReleaseReviewGate
+    }
+    releaseArchiveDecision = [ordered]@{
+        recorded = $releaseArchiveDecisionRecorded
+        decisionGate = $releaseArchiveDecisionGate
     }
     components = [ordered]@{
         uploadPlanReady = $uploadPlanReady

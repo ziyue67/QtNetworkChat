@@ -163,6 +163,7 @@ $dumpInventory = New-Object System.Collections.ArrayList
 [void](Copy-SafeArtifact (Join-Path $buildRoot "Testing\Temporary\LastTest.log") $stagingDir "verification/LastTest.log" "ctest-log" $manifestInputs $scanPaths)
 [void](Copy-SafeArtifact (Resolve-RepoPath "docs\automation-status.md") $stagingDir "docs/automation-status.md" "automation-status" $manifestInputs $scanPaths)
 [void](Copy-SafeArtifact (Join-Path $buildRoot "local-release-review\local-release-review-manifest.json") $stagingDir "release-review/local-release-review-manifest.json" "local-release-review-manifest" $manifestInputs $scanPaths)
+[void](Copy-SafeArtifact (Join-Path $buildRoot "release-archive-decision\release-archive-decision-manifest.json") $stagingDir "release-archive/release-archive-decision-manifest.json" "release-archive-decision-manifest" $manifestInputs $scanPaths)
 [void](Copy-SafeArtifact (Join-Path $buildRoot "release-delivery-handoff\release-delivery-handoff-manifest.json") $stagingDir "release-delivery/release-delivery-handoff-manifest.json" "release-delivery-handoff-manifest" $manifestInputs $scanPaths)
 [void](Copy-SafeArtifact (Resolve-WindowsPackageManifestPath $buildRoot) $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
 

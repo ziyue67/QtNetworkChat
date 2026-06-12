@@ -736,6 +736,12 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_release_review_package.cmake
     )
     add_test(
+        NAME ReleaseArchiveDecisionPackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-release-archive-decision.ps1
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_release_archive_decision_package.cmake
+    )
+    add_test(
         NAME ReleaseDeliveryHandoffPackage
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-release-delivery-handoff.ps1

@@ -106,12 +106,15 @@ $linkedCandidateRolloutJsonPath = Join-Path $tempDir "e2e-rollout-observability-
 $linkedCandidateRolloutMarkdownPath = Join-Path $tempDir "e2e-rollout-observability-linked-candidate.md"
 $linkedCandidateCiStatusPath = Join-Path $tempDir "github-windows-build-status-linked-candidate.json"
 $bootstrapScriptPath = Join-Path $PSScriptRoot "bootstrap-automation-tasks.ps1"
+$releaseArchiveDecisionDir = Join-Path $tempDir "release-archive-decision"
+$releaseArchiveDecisionManifestPath = Join-Path $releaseArchiveDecisionDir "release-archive-decision-manifest.json"
 $releaseDeliveryHandoffDir = Join-Path $tempDir "release-delivery-handoff"
 $releaseDeliveryHandoffManifestPath = Join-Path $releaseDeliveryHandoffDir "release-delivery-handoff-manifest.json"
 Ensure-Directory -Path $e2eRolloutDir
 Ensure-Directory -Path $e2eReleaseEvidenceDir
 Ensure-Directory -Path $e2eCurrentHeadCiStaleEvidenceDir
 Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
+Ensure-Directory -Path $releaseArchiveDecisionDir
 Ensure-Directory -Path $releaseDeliveryHandoffDir
 
 @'
@@ -234,6 +237,19 @@ End testing: Jun 03 04:01
     -CTestCount 2 `
     -CTestLogPath $autoCTestLogPath `
     -FailOnSensitive | Out-Null
+
+@'
+{
+  "format":"qtnetworkchat-release-archive-decision-v1",
+  "decisionRecorded":false,
+  "decisionState":"pending-human-decision",
+  "decisionGate":"ready-for-archive-decision-record",
+  "publishingRequired":false,
+  "publishingStatus":"not-started",
+  "packageSha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "blockers":[]
+}
+'@ | Set-Content -LiteralPath $releaseArchiveDecisionManifestPath -Encoding UTF8
 
 @'
 {
@@ -481,6 +497,7 @@ End testing: Jun 03 04:01
     -E2ERolloutObservabilityMarkdownPath $e2eRolloutMarkdownPath `
     -E2EReleaseEvidenceManifestPath $e2eReleaseEvidenceManifestPath `
     -E2ELinkedReleaseCandidateManifestPath $e2eLinkedReleaseCandidateManifestPath `
+    -ReleaseArchiveDecisionManifestPath $releaseArchiveDecisionManifestPath `
     -ReleaseDeliveryHandoffManifestPath $releaseDeliveryHandoffManifestPath `
     -DatabaseHealthStatusPath $dbStatusPath `
     -DatabaseHealthLastRunPath $dbLastRunPath `
@@ -565,6 +582,7 @@ foreach ($expected in @(
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; releaseGate=',
     'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false`',
+    'Release archive decision artifacts: `manifest=ok; decisionRecorded=false; decisionState=pending-human-decision; decisionGate=ready-for-archive-decision-record; publishing=not-started; blockers=0`',
     'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0`',
     'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed`',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
@@ -592,7 +610,7 @@ foreach ($expected in @(
     'current-head production-linked release artifact is now generated locally from the reviewed linked build path, the local release review bundle now archives the verified E2E/S3/governance/PostgreSQL evidence in one place, and the local release delivery handoff bundle now covers packaging/upload/install/diagnostic handoff for the same HEAD',
     'File/offline attachment productization is closed for the current automation lane',
     'Group productization is closed for the current automation lane',
-    'Release and operations delivery now has a local handoff package',
+    'Release and operations delivery now has a complete local closeout chain',
     'README information architecture and current-state alignment are now the main documentation lane',
     'Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete',
     'QTNETWORKCHAT_PGPASSWORD',
@@ -621,6 +639,7 @@ $autoMarkdownPath = Join-Path $tempDir "automation-status-auto-readback.md"
     -TrackedRemoteHash "auto1234567890abcdef" `
     -BuildDir $tempDir `
     -LocalVerificationStatusPath $localVerificationPath `
+    -ReleaseArchiveDecisionManifestPath $releaseArchiveDecisionManifestPath `
     -ReleaseDeliveryHandoffManifestPath $releaseDeliveryHandoffManifestPath `
     -GitHubRunListJsonPath $autoRunListPath `
     -CTestLogPath $autoCTestLogPath `
