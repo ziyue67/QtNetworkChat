@@ -60,6 +60,13 @@ bool registerClient(Client& client,
     if (!client.connectToServer("127.0.0.1", port)) return false;
     return client.waitForLoginResult(5000);
 }
+
+QByteArray tinyPngAvatar(uchar marker) {
+    QByteArray png = QByteArray::fromBase64(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=");
+    png.append(static_cast<char>(marker));
+    return png;
+}
 }
 
 int main(int argc, char** argv) {
@@ -125,6 +132,36 @@ int main(int argc, char** argv) {
     ok = expect(client.isConnected(), "client should remain connected after fallback login") && ok;
     ok = expect(client.currentUserId() == "930001", "client should receive the expected user id") && ok;
 
+    const QByteArray initialAvatar = tinyPngAvatar(1);
+    const QByteArray updatedAvatar = tinyPngAvatar(2);
+    Client avatarPeer;
+    avatarPeer.setAvatarData(initialAvatar);
+    ok = expect(registerClient(avatarPeer, "930002", "AvatarPeer", chatPort),
+                "avatar peer should log in with avatar metadata") && ok;
+    const QString initialAvatarBase64 = QString::fromLatin1(initialAvatar.toBase64());
+    ok = expect(waitFor([&] {
+                    for (const ChatUser& user : client.onlineUsers()) {
+                        if (user.id == QStringLiteral("930002") && user.avatar == initialAvatarBase64) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }),
+                "user list should expose peer avatar metadata from login") && ok;
+
+    const QString updatedAvatarBase64 = QString::fromLatin1(updatedAvatar.toBase64());
+    ok = expect(avatarPeer.sendAvatarUpdate(updatedAvatar),
+                "avatar peer should send a live avatar profile update") && ok;
+    ok = expect(waitFor([&] {
+                    for (const ChatUser& user : client.onlineUsers()) {
+                        if (user.id == QStringLiteral("930002") && user.avatar == updatedAvatarBase64) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }),
+                "user list should refresh peer avatar metadata after profile update") && ok;
+
     QStringList receivedMessages;
     QObject::connect(&client, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
@@ -137,6 +174,7 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] { return receivedMessages.contains(fallbackMessage); }),
                 "client should receive the local broadcast even when Redis publish falls back") && ok;
 
+    avatarPeer.disconnectFromServer();
     client.disconnectFromServer();
     server.stop();
 

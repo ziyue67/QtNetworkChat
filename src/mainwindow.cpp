@@ -58,6 +58,7 @@
 #include <QCryptographicHash>
 #include <QStyle>
 #include <QProgressBar>
+#include <QBuffer>
 
 namespace {
 void applyTransferActionState(QAction* action, const TransferActionUiState& state) {
@@ -2217,6 +2218,16 @@ QPixmap MainWindow::chatAvatarPixmap(const QString& userId, const QString& displ
             return square;
         }
     }
+    const QString remoteAvatar = m_knownUsers.value(userId.trimmed()).avatar.trimmed();
+    if (!remoteAvatar.isEmpty()) {
+        QPixmap avatar;
+        if (avatar.loadFromData(QByteArray::fromBase64(remoteAvatar.toLatin1()))) {
+            const QPixmap square = squareAvatarPixmap(avatar, side);
+            if (!square.isNull()) {
+                return square;
+            }
+        }
+    }
     return initialAvatarPixmap(displayName.isEmpty() ? userId : displayName, side);
 }
 
@@ -2278,6 +2289,8 @@ void MainWindow::applyChatItemVisualMetadata(QStandardItem* item,
     const QString avatarPath = avatarPathForUser(senderId);
     if (!avatarPath.isEmpty()) {
         item->setData(avatarPath, TransferChatItemRenderer::AvatarPathRole);
+    } else if (!m_knownUsers.value(senderId.trimmed()).avatar.trimmed().isEmpty()) {
+        item->setData(QStringLiteral("remote-inline-avatar"), TransferChatItemRenderer::AvatarPathRole);
     }
     if (!mediaKind.trimmed().isEmpty()) {
         item->setData(mediaKind.trimmed(), TransferChatItemRenderer::MediaKindRole);
@@ -3838,6 +3851,13 @@ bool MainWindow::persistAvatarPixmap(const QPixmap& pixmap, const QFileInfo& inf
 
     ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
     saveProfileToSqlite();
+    if (m_client) {
+        QByteArray avatarBytes;
+        QBuffer buffer(&avatarBytes);
+        buffer.open(QIODevice::WriteOnly);
+        savedAvatar.save(&buffer, "PNG");
+        m_client->sendAvatarUpdate(avatarBytes);
+    }
     const LocalAvatarAppliedState appliedState = LocalFileManager::avatarAppliedState(info);
     ui->avatarLabel->setToolTip(appliedState.toolTip);
     ui->uploadAvatarBtn->setToolTip(appliedState.toolTip);
@@ -15119,7 +15139,15 @@ void MainWindow::loadAvatar() {
     const QString avatarPath = getAvatarFilePath();
     QPixmap pixmap(avatarPath);
     if (!pixmap.isNull()) {
-        ui->avatarLabel->setPixmap(squareAvatarPixmap(pixmap, ui->avatarLabel->width()));
+        const QPixmap square = squareAvatarPixmap(pixmap, ui->avatarLabel->width());
+        ui->avatarLabel->setPixmap(square);
+        if (m_client) {
+            QByteArray avatarBytes;
+            QBuffer buffer(&avatarBytes);
+            buffer.open(QIODevice::WriteOnly);
+            squareAvatarPixmap(pixmap, 256).save(&buffer, "PNG");
+            m_client->sendAvatarUpdate(avatarBytes);
+        }
         QFileInfo info(avatarPath);
         const QString avatarTip = QString("当前头像：本地头像 · %1；点击“换头像”重新选择")
                                       .arg(LocalFileManager::humanFileSize(info.size()));

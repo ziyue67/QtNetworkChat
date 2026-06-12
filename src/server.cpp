@@ -59,10 +59,25 @@ constexpr int kPasswordKdfIterations = 120000;
 constexpr int kPasswordKdfSaltBytes = 16;
 constexpr int kPasswordKdfOutputBytes = 32;
 constexpr qsizetype kMaxE2EIdentityPublicKeyBytes = 4096;
+constexpr qsizetype kMaxAvatarBytes = 128 * 1024;
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+QString normalizedAvatarBase64(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+    const QByteArray decoded = QByteArray::fromBase64(trimmed.toLatin1());
+    if (decoded.isEmpty()
+        || decoded.size() > kMaxAvatarBytes
+        || !decoded.startsWith(QByteArray::fromHex("89504e470d0a1a0a"))) {
+        return QString();
+    }
+    return QString::fromLatin1(decoded.toBase64());
 }
 
 bool looksLikeSha256Hex(const QString& value);
@@ -1407,6 +1422,8 @@ void Server::onClientReadyRead() {
             handleLogin(obj, socket);
         } else if (type == "message") {
             handleMessage(obj, socket);
+        } else if (type == "profile_update") {
+            handleProfileUpdate(obj, socket);
         } else if (type == "file") {
             handleFile(obj, socket);
         } else if (type == "file_chunk") {
@@ -1573,6 +1590,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     user.address = socket->peerAddress();
     user.port = socket->peerPort();
     user.isOnline = true;
+    user.avatar = normalizedAvatarBase64(obj["avatar"].toString());
     user.lastActive = QDateTime::currentDateTime();
 
     m_clients[socket] = user;
@@ -1677,6 +1695,29 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     }
 
     emit newMessage(msg);
+}
+
+void Server::handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* user = findUserBySocket(socket);
+    if (!user) {
+        return;
+    }
+
+    const QString senderId = obj["senderId"].toString().trimmed();
+    if (!senderId.isEmpty() && senderId != user->id) {
+        sendSystemNotice(socket, QStringLiteral("资料更新失败：账号身份不匹配"));
+        return;
+    }
+
+    const QString avatar = normalizedAvatarBase64(obj["avatar"].toString());
+    user->avatar = avatar;
+    refreshRedisPresence(*user);
+
+    for (QTcpSocket* clientSocket : m_clients.keys()) {
+        if (clientSocket->state() == QAbstractSocket::ConnectedState) {
+            sendUserList(clientSocket);
+        }
+    }
 }
 
 void Server::handleE2EIdentityAnnouncement(const QJsonObject& obj, QTcpSocket* socket) {
@@ -5135,11 +5176,14 @@ void Server::sendUserList(QTcpSocket* socket) {
 
     QJsonArray users;
     QSet<QString> appendedUserIds;
-    auto appendOnlineUser = [&](const QString& userId, const QString& userName) {
+    auto appendOnlineUser = [&](const QString& userId, const QString& userName, const QString& avatar = QString()) {
         if (userId.isEmpty() || appendedUserIds.contains(userId)) return;
         QJsonObject u;
         u["id"] = userId;
         u["name"] = userName.isEmpty() ? userId : userName;
+        if (!avatar.trimmed().isEmpty()) {
+            u["avatar"] = avatar.trimmed();
+        }
         u["online"] = true;
         users.append(u);
         appendedUserIds.insert(userId);
@@ -5147,7 +5191,7 @@ void Server::sendUserList(QTcpSocket* socket) {
 
     for (const ChatUser& user : m_clients.values()) {
         if (user.isOnline) {
-            appendOnlineUser(user.id, user.name);
+            appendOnlineUser(user.id, user.name, user.avatar);
         }
     }
 
@@ -5161,7 +5205,7 @@ void Server::sendUserList(QTcpSocket* socket) {
     }
     obj["users"] = users;
 
-    socket->write(QJsonDocument(obj).toJson());
+    socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();
 }

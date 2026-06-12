@@ -57,6 +57,7 @@ private:
     bool sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket);
     void handleLogin(const QJsonObject& obj, QTcpSocket* socket);
     void handleMessage(const QJsonObject& obj, QTcpSocket* socket = nullptr);
+    void handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket);
     void handleE2EIdentityAnnouncement(const QJsonObject& obj, QTcpSocket* socket);
     void handleE2EKeyRotation(const QJsonObject& obj, QTcpSocket* socket);
     void handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket = nullptr);

@@ -38,11 +38,21 @@ const char kE2ETrustPinsFilePrefix[] = "e2e_trust_pins_";
 const char kE2EIdentityFilePrefix[] = "e2e_identity_";
 constexpr qsizetype kMaxE2EIdentityPublicKeyBytes = 4096;
 constexpr qsizetype kE2ETrustFingerprintHexLength = 64;
+constexpr qsizetype kMaxAvatarBytes = 128 * 1024;
 const char kE2EDraftBackendId[] = "draft-qt-hmac-stream-v1";
 
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+QString avatarBase64FromPngData(const QByteArray& pngData) {
+    if (pngData.isEmpty()
+        || pngData.size() > kMaxAvatarBytes
+        || !pngData.startsWith(QByteArray::fromHex("89504e470d0a1a0a"))) {
+        return QString();
+    }
+    return QString::fromLatin1(pngData.toBase64());
 }
 
 QString appDataDir() {
@@ -938,6 +948,24 @@ void Client::setUserInfo(const QString& userId, const QString& userName) {
     m_userName = userName;
     loadOrCreateE2ELocalIdentity();
     loadE2ETrustPins();
+}
+
+void Client::setAvatarData(const QByteArray& pngData) {
+    m_avatarBase64 = avatarBase64FromPngData(pngData);
+}
+
+bool Client::sendAvatarUpdate(const QByteArray& pngData) {
+    setAvatarData(pngData);
+    if (!isConnected()) {
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["type"] = QStringLiteral("profile_update");
+    obj["senderId"] = m_userId;
+    obj["senderName"] = m_userName;
+    obj["avatar"] = m_avatarBase64;
+    return sendJson(obj);
 }
 
 void Client::setAccountInfo(const QString& account, const QString& password, bool registerMode) {
@@ -4128,6 +4156,9 @@ void Client::sendLogin() {
     obj["account"] = m_account;
     obj["password"] = m_password;
     obj["userName"] = m_userName;
+    if (!m_avatarBase64.isEmpty()) {
+        obj["avatar"] = m_avatarBase64;
+    }
     sendJson(obj);
 }
 
@@ -4205,6 +4236,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             ChatUser user;
             user.id = u["id"].toString();
             user.name = u["name"].toString();
+            user.avatar = u["avatar"].toString();
             user.isOnline = u["online"].toBool();
             m_onlineUsers.append(user);
         }

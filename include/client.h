@@ -9,6 +9,7 @@
 #include <QMap>
 #include <QSet>
 #include <QVector>
+#include <QByteArray>
 #include "chatuser.h"
 #include "message.h"
 
@@ -100,6 +101,8 @@ public:
     bool resumeSavedOutgoingTransfer(QString* rejectReason = nullptr, int timeoutMs = 5000);
     void cancelCurrentOutgoingTransfer();
     void setUserInfo(const QString& userId, const QString& userName);
+    void setAvatarData(const QByteArray& pngData);
+    bool sendAvatarUpdate(const QByteArray& pngData);
     bool waitForLoginResult(int timeoutMs = 5000);
 
     bool isConnected() const { return m_socket && m_socket->state() == QAbstractSocket::ConnectedState; }
@@ -107,6 +110,7 @@ public:
     QString currentUserName() const { return m_userName; }
     bool currentLoginWasRegister() const { return m_loginWasRegister; }
     QString lastLoginError() const { return m_loginError; }
+    QVector<ChatUser> onlineUsers() const { return m_onlineUsers; }
     QString transportSecurityDescription() const;
     bool hasServerGroupSnapshot() const { return m_hasServerGroupSnapshot; }
     QJsonArray serverGroups() const { return m_serverGroups; }
@@ -259,6 +263,7 @@ private:
     QString m_userName;
     QString m_account;
     QString m_password;
+    QString m_avatarBase64;
     bool m_registerMode;
     bool m_loginFinished;
     bool m_loginOk;
