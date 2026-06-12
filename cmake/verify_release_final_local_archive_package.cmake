@@ -163,5 +163,65 @@ foreach(required_path
     endif()
 endforeach()
 
+set(MISMATCH_OUTPUT_DIR "${TEMP_DIR}/out-head-mismatch")
+set(MISMATCH_LOCAL_RELEASE_REVIEW_MANIFEST_PATH "${TEMP_DIR}/local-release-review-head-mismatch-manifest.json")
+file(MAKE_DIRECTORY "${MISMATCH_OUTPUT_DIR}")
+file(WRITE "${MISMATCH_LOCAL_RELEASE_REVIEW_MANIFEST_PATH}" "{\n  \"format\":\"qtnetworkchat-local-release-review-package-v1\",\n  \"reviewReady\":true,\n  \"reviewGate\":\"review-complete-archive-decision-recorded\",\n  \"targetReleaseHead\":\"oldabc123\",\n  \"packageSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n}\n")
+
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${MISMATCH_OUTPUT_DIR}"
+        -ReleaseHead "abc123"
+        -ReadmePath "${README_PATH}"
+        -AutomationStatusPath "${AUTOMATION_STATUS_PATH}"
+        -ReleaseCloseoutDocPath "${RELEASE_CLOSEOUT_DOC_PATH}"
+        -E2EHardeningStatusPath "${E2E_HARDENING_PATH}"
+        -LocalReleaseReviewManifestPath "${MISMATCH_LOCAL_RELEASE_REVIEW_MANIFEST_PATH}"
+        -LocalReleaseReviewMarkdownPath "${LOCAL_RELEASE_REVIEW_MARKDOWN_PATH}"
+        -LocalReleaseReviewPackagePath "${LOCAL_RELEASE_REVIEW_PACKAGE_PATH}"
+        -ReleaseArchiveDecisionManifestPath "${RELEASE_ARCHIVE_DECISION_MANIFEST_PATH}"
+        -ReleaseArchiveDecisionMarkdownPath "${RELEASE_ARCHIVE_DECISION_MARKDOWN_PATH}"
+        -ReleaseArchiveDecisionPackagePath "${RELEASE_ARCHIVE_DECISION_PACKAGE_PATH}"
+        -ReleaseDeliveryHandoffManifestPath "${RELEASE_DELIVERY_HANDOFF_MANIFEST_PATH}"
+        -ReleaseDeliveryHandoffMarkdownPath "${RELEASE_DELIVERY_HANDOFF_MARKDOWN_PATH}"
+        -ReleaseDeliveryHandoffPackagePath "${RELEASE_DELIVERY_HANDOFF_PACKAGE_PATH}"
+        -ReleasePublicationRecordPath "${RELEASE_PUBLICATION_RECORD_PATH}"
+        -ReleaseDeliveryDrillManifestPath "${RELEASE_DELIVERY_DRILL_MANIFEST_PATH}"
+        -ReleaseDeliveryDrillMarkdownPath "${RELEASE_DELIVERY_DRILL_MARKDOWN_PATH}"
+        -ReleaseDiagnosticsManifestPath "${RELEASE_DIAGNOSTICS_MANIFEST_PATH}"
+        -ReleaseDiagnosticsPackagePath "${RELEASE_DIAGNOSTICS_PACKAGE_PATH}"
+        -ReleaseCloseoutSummaryManifestPath "${RELEASE_CLOSEOUT_SUMMARY_MANIFEST_PATH}"
+        -ReleaseCloseoutSummaryMarkdownPath "${RELEASE_CLOSEOUT_SUMMARY_MARKDOWN_PATH}"
+        -ReleaseCloseoutSummaryPackagePath "${RELEASE_CLOSEOUT_SUMMARY_PACKAGE_PATH}"
+    RESULT_VARIABLE mismatch_result
+    OUTPUT_VARIABLE mismatch_output
+    ERROR_VARIABLE mismatch_error
+)
+if(NOT mismatch_output STREQUAL "")
+    message(STATUS "${mismatch_output}")
+endif()
+if(NOT mismatch_error STREQUAL "")
+    message(STATUS "${mismatch_error}")
+endif()
+if(NOT mismatch_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "package-release-final-local-archive.ps1 head-mismatch case exited with code ${mismatch_result}")
+endif()
+
+file(READ "${MISMATCH_OUTPUT_DIR}/release-final-local-archive-manifest.json" mismatch_manifest)
+string(JSON mismatch_archive_ready GET "${mismatch_manifest}" "archiveReady")
+string(JSON mismatch_archive_gate GET "${mismatch_manifest}" "archiveGate")
+string(JSON mismatch_blocker_count LENGTH "${mismatch_manifest}" "blockers")
+string(JSON mismatch_first_blocker GET "${mismatch_manifest}" "blockers" 0)
+string(JSON mismatch_head_matches GET "${mismatch_manifest}" "localReleaseReview" "targetHeadMatches")
+if(mismatch_archive_ready
+        OR NOT mismatch_archive_gate STREQUAL "final-local-archive-incomplete"
+        OR NOT mismatch_blocker_count EQUAL 1
+        OR NOT mismatch_first_blocker STREQUAL "local-release-review-head-mismatch"
+        OR mismatch_head_matches)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Release final local archive should fail closed on local review HEAD mismatch")
+endif()
+
 file(REMOVE_RECURSE "${TEMP_DIR}")
 message(STATUS "Release final local archive package test passed")

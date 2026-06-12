@@ -149,5 +149,54 @@ foreach(required_path
     endif()
 endforeach()
 
+set(MISSING_PUBLICATION_OUTPUT_DIR "${TEMP_DIR}/out-missing-publication")
+file(MAKE_DIRECTORY "${MISSING_PUBLICATION_OUTPUT_DIR}")
+execute_process(
+    COMMAND powershell -ExecutionPolicy Bypass -File "${SCRIPT_PATH}"
+        -OutputDir "${MISSING_PUBLICATION_OUTPUT_DIR}"
+        -ReadmePath "${README_PATH}"
+        -AutomationStatusPath "${AUTOMATION_STATUS_PATH}"
+        -E2EHardeningStatusPath "${E2E_HARDENING_PATH}"
+        -LocalReleaseReviewManifestPath "${LOCAL_RELEASE_REVIEW_MANIFEST_PATH}"
+        -LocalReleaseReviewMarkdownPath "${LOCAL_RELEASE_REVIEW_MARKDOWN_PATH}"
+        -LocalReleaseReviewPackagePath "${LOCAL_RELEASE_REVIEW_PACKAGE_PATH}"
+        -ReleaseArchiveDecisionManifestPath "${RELEASE_ARCHIVE_DECISION_MANIFEST_PATH}"
+        -ReleaseArchiveDecisionMarkdownPath "${RELEASE_ARCHIVE_DECISION_MARKDOWN_PATH}"
+        -ReleaseArchiveDecisionPackagePath "${RELEASE_ARCHIVE_DECISION_PACKAGE_PATH}"
+        -ReleaseDeliveryHandoffManifestPath "${RELEASE_DELIVERY_HANDOFF_MANIFEST_PATH}"
+        -ReleaseDeliveryHandoffMarkdownPath "${RELEASE_DELIVERY_HANDOFF_MARKDOWN_PATH}"
+        -ReleaseDeliveryHandoffPackagePath "${RELEASE_DELIVERY_HANDOFF_PACKAGE_PATH}"
+        -ReleasePublicationRecordPath "${TEMP_DIR}/missing-release-publication-record.json"
+        -ReleaseDeliveryDrillManifestPath "${RELEASE_DELIVERY_DRILL_MANIFEST_PATH}"
+        -ReleaseDeliveryDrillMarkdownPath "${RELEASE_DELIVERY_DRILL_MARKDOWN_PATH}"
+        -ReleaseDiagnosticsManifestPath "${RELEASE_DIAGNOSTICS_MANIFEST_PATH}"
+        -ReleaseDiagnosticsPackagePath "${RELEASE_DIAGNOSTICS_PACKAGE_PATH}"
+        -ReleaseHead "abc123"
+    RESULT_VARIABLE missing_publication_result
+    OUTPUT_VARIABLE missing_publication_output
+    ERROR_VARIABLE missing_publication_error
+)
+if(NOT missing_publication_output STREQUAL "")
+    message(STATUS "${missing_publication_output}")
+endif()
+if(NOT missing_publication_error STREQUAL "")
+    message(STATUS "${missing_publication_error}")
+endif()
+if(NOT missing_publication_result EQUAL 0)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "package-release-closeout-summary.ps1 missing-publication case exited with code ${missing_publication_result}")
+endif()
+
+file(READ "${MISSING_PUBLICATION_OUTPUT_DIR}/release-closeout-summary-manifest.json" missing_publication_manifest)
+string(JSON missing_publication_ready GET "${missing_publication_manifest}" "closeoutReady")
+string(JSON missing_publication_gate GET "${missing_publication_manifest}" "closeoutGate")
+string(JSON missing_publication_present GET "${missing_publication_manifest}" "releasePublicationRecord" "present")
+if(missing_publication_ready
+        OR NOT missing_publication_gate STREQUAL "release-closeout-incomplete"
+        OR missing_publication_present)
+    file(REMOVE_RECURSE "${TEMP_DIR}")
+    message(FATAL_ERROR "Release closeout summary should fail closed when the publication record is missing")
+endif()
+
 file(REMOVE_RECURSE "${TEMP_DIR}")
 message(STATUS "Release closeout summary package test passed")

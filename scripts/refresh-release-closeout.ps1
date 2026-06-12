@@ -104,6 +104,119 @@ $releaseCloseoutSummaryManifestPath = Join-Path $releaseCloseoutSummaryDir "rele
 $releaseFinalLocalArchiveDir = Join-Path $resolvedBuildDir "release-final-local-archive"
 $releaseFinalLocalArchiveManifestPath = Join-Path $releaseFinalLocalArchiveDir "release-final-local-archive-manifest.json"
 
+function Invoke-LocalReleaseReviewPackage {
+    Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
+        "-OutputDir", $localReleaseReviewDir,
+        "-ReleaseHead", $head,
+        "-AutomationStatusPath", $resolvedAutomationStatusPath,
+        "-LocalVerificationStatusPath", $localVerificationStatusPath,
+        "-E2EReleaseEvidenceManifestPath", $linkedEvidenceManifestPath,
+        "-E2EReleasePromotionPath", $linkedPromotionPath,
+        "-WindowsPackageManifestPath", $windowsPackageManifestPath,
+        "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+        "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+        "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath
+    )
+}
+
+function Invoke-ReleaseArchiveDecisionPackage {
+    Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
+        "-OutputDir", $releaseArchiveDecisionDir,
+        "-ReleaseHead", $head,
+        "-DecisionState", $ArchiveDecisionState,
+        "-DecidedBy", $ArchiveDecidedBy,
+        "-DecisionReason", $ArchiveDecisionReason,
+        "-PublishingStatus", $ArchivePublishingStatus,
+        "-PublishingChannel", $ArchivePublishingChannel,
+        "-PublishingRecordPath", $releasePublicationRecordPath,
+        "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+        "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+        "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath
+    )
+}
+
+function Invoke-ReleaseDeliveryHandoffPackage {
+    Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
+        "-OutputDir", $releaseDeliveryHandoffDir,
+        "-ReleaseHead", $head,
+        "-WindowsPackageManifestPath", $windowsPackageManifestPath,
+        "-WindowsPackageZipPath", $windowsPackageZipPath,
+        "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+        "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+        "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+        "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+        "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+        "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+        "-LocalVerificationStatusPath", $localVerificationStatusPath,
+        "-AutomationStatusPath", $resolvedAutomationStatusPath
+    )
+}
+
+function Invoke-ReleaseCloseoutSummaryPackage {
+    Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
+        "-OutputDir", $releaseCloseoutSummaryDir,
+        "-ReleaseHead", $head,
+        "-BuildDir", $resolvedBuildDir,
+        "-AutomationStatusPath", $resolvedAutomationStatusPath,
+        "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+        "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
+        "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+        "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+        "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+        "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
+        "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+        "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
+        "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
+        "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+        "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+        "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
+        "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
+        "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath
+    )
+}
+
+function Invoke-ReleaseFinalLocalArchivePackage {
+    Invoke-RepoScript "scripts/package-release-final-local-archive.ps1" @(
+        "-OutputDir", $releaseFinalLocalArchiveDir,
+        "-ReleaseHead", $head,
+        "-BuildDir", $resolvedBuildDir,
+        "-AutomationStatusPath", $resolvedAutomationStatusPath,
+        "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+        "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
+        "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
+        "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+        "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+        "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
+        "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+        "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
+        "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
+        "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
+        "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
+        "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
+        "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
+        "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath,
+        "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath
+    )
+}
+
+function Invoke-AutomationStatusWrite {
+    Invoke-RepoScript "scripts/write-automation-status.ps1" @(
+        "-MarkdownPath", $resolvedAutomationStatusPath,
+        "-Head", $head,
+        "-OriginMain", $head,
+        "-TrackedRemoteHash", $head,
+        "-BuildDir", $resolvedBuildDir,
+        "-LocalVerificationStatusPath", $localVerificationStatusPath,
+        "-E2ELinkedReleaseCandidateManifestPath", $linkedEvidenceManifestPath,
+        "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
+        "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
+        "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
+        "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath,
+        "-ReleaseFinalLocalArchiveManifestPath", $releaseFinalLocalArchiveManifestPath,
+        "-StatusNowUtc", ((Get-Date).ToUniversalTime().ToString("o"))
+    )
+}
+
 Invoke-RepoScript "scripts/write-local-verification-status.ps1" @(
     "-OutputPath", $localVerificationStatusPath,
     "-BuildStatus", "passed",
@@ -145,34 +258,6 @@ Invoke-RepoScript "scripts/promote-e2e-linked-candidate.ps1" @(
     "-ReleaseHead", $head
 )
 
-Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
-    "-OutputDir", $releaseDeliveryHandoffDir,
-    "-ReleaseHead", $head,
-    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
-    "-WindowsPackageZipPath", $windowsPackageZipPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-LocalVerificationStatusPath", $localVerificationStatusPath,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath
-)
-
-Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
-    "-OutputDir", $localReleaseReviewDir,
-    "-ReleaseHead", $head,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath,
-    "-LocalVerificationStatusPath", $localVerificationStatusPath,
-    "-E2EReleaseEvidenceManifestPath", $linkedEvidenceManifestPath,
-    "-E2EReleasePromotionPath", $linkedPromotionPath,
-    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath
-)
-
 if (-not [string]::IsNullOrWhiteSpace($ArchivePublishingStatus)) {
     $artifactSha = if (Test-Path -LiteralPath $windowsPackageZipPath -PathType Leaf) {
         Get-Sha256Hex $windowsPackageZipPath
@@ -189,34 +274,9 @@ if (-not [string]::IsNullOrWhiteSpace($ArchivePublishingStatus)) {
     )
 }
 
-Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
-    "-OutputDir", $releaseArchiveDecisionDir,
-    "-ReleaseHead", $head,
-    "-DecisionState", $ArchiveDecisionState,
-    "-DecidedBy", $ArchiveDecidedBy,
-    "-DecisionReason", $ArchiveDecisionReason,
-    "-PublishingStatus", $ArchivePublishingStatus,
-    "-PublishingChannel", $ArchivePublishingChannel,
-    "-PublishingRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath
-)
-
-Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
-    "-OutputDir", $releaseDeliveryHandoffDir,
-    "-ReleaseHead", $head,
-    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
-    "-WindowsPackageZipPath", $windowsPackageZipPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-LocalVerificationStatusPath", $localVerificationStatusPath,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath
-)
+Invoke-LocalReleaseReviewPackage
+Invoke-ReleaseArchiveDecisionPackage
+Invoke-ReleaseDeliveryHandoffPackage
 
 if ($RunDeliveryDrill.IsPresent) {
     Invoke-RepoScript "scripts/run-release-delivery-drill.ps1" @(
@@ -226,187 +286,20 @@ if ($RunDeliveryDrill.IsPresent) {
     )
 }
 
-Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
-    "-OutputDir", $releaseCloseoutSummaryDir,
-    "-ReleaseHead", $head,
-    "-BuildDir", $resolvedBuildDir,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
-    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
-    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
-    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath
-)
-
-Invoke-RepoScript "scripts/package-release-final-local-archive.ps1" @(
-    "-OutputDir", $releaseFinalLocalArchiveDir,
-    "-ReleaseHead", $head,
-    "-BuildDir", $resolvedBuildDir,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
-    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
-    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
-    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath,
-    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath
-)
-
-Invoke-RepoScript "scripts/write-automation-status.ps1" @(
-    "-MarkdownPath", $resolvedAutomationStatusPath,
-    "-Head", $head,
-    "-OriginMain", $head,
-    "-TrackedRemoteHash", $head,
-    "-BuildDir", $resolvedBuildDir,
-    "-LocalVerificationStatusPath", $localVerificationStatusPath,
-    "-E2ELinkedReleaseCandidateManifestPath", $linkedEvidenceManifestPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath,
-    "-ReleaseFinalLocalArchiveManifestPath", $releaseFinalLocalArchiveManifestPath,
-    "-StatusNowUtc", ((Get-Date).ToUniversalTime().ToString("o"))
-)
-
-Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
-    "-OutputDir", $localReleaseReviewDir,
-    "-ReleaseHead", $head,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath,
-    "-LocalVerificationStatusPath", $localVerificationStatusPath,
-    "-E2EReleaseEvidenceManifestPath", $linkedEvidenceManifestPath,
-    "-E2EReleasePromotionPath", $linkedPromotionPath,
-    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath
-)
-
-Invoke-RepoScript "scripts/package-release-archive-decision.ps1" @(
-    "-OutputDir", $releaseArchiveDecisionDir,
-    "-ReleaseHead", $head,
-    "-DecisionState", $ArchiveDecisionState,
-    "-DecidedBy", $ArchiveDecidedBy,
-    "-DecisionReason", $ArchiveDecisionReason,
-    "-PublishingStatus", $ArchivePublishingStatus,
-    "-PublishingChannel", $ArchivePublishingChannel,
-    "-PublishingRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath
-)
-
-Invoke-RepoScript "scripts/package-release-delivery-handoff.ps1" @(
-    "-OutputDir", $releaseDeliveryHandoffDir,
-    "-ReleaseHead", $head,
-    "-WindowsPackageManifestPath", $windowsPackageManifestPath,
-    "-WindowsPackageZipPath", $windowsPackageZipPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-LocalVerificationStatusPath", $localVerificationStatusPath,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath
-)
-
-Invoke-RepoScript "scripts/package-release-closeout-summary.ps1" @(
-    "-OutputDir", $releaseCloseoutSummaryDir,
-    "-ReleaseHead", $head,
-    "-BuildDir", $resolvedBuildDir,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
-    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
-    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
-    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath
-)
-
-Invoke-RepoScript "scripts/package-release-final-local-archive.ps1" @(
-    "-OutputDir", $releaseFinalLocalArchiveDir,
-    "-ReleaseHead", $head,
-    "-BuildDir", $resolvedBuildDir,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
-    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
-    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
-    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath,
-    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath
-)
-
-Invoke-RepoScript "scripts/write-automation-status.ps1" @(
-    "-MarkdownPath", $resolvedAutomationStatusPath,
-    "-Head", $head,
-    "-OriginMain", $head,
-    "-TrackedRemoteHash", $head,
-    "-BuildDir", $resolvedBuildDir,
-    "-LocalVerificationStatusPath", $localVerificationStatusPath,
-    "-E2ELinkedReleaseCandidateManifestPath", $linkedEvidenceManifestPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath,
-    "-ReleaseFinalLocalArchiveManifestPath", $releaseFinalLocalArchiveManifestPath,
-    "-StatusNowUtc", ((Get-Date).ToUniversalTime().ToString("o"))
-)
-
-Invoke-RepoScript "scripts/package-release-final-local-archive.ps1" @(
-    "-OutputDir", $releaseFinalLocalArchiveDir,
-    "-ReleaseHead", $head,
-    "-BuildDir", $resolvedBuildDir,
-    "-AutomationStatusPath", $resolvedAutomationStatusPath,
-    "-LocalReleaseReviewManifestPath", $localReleaseReviewManifestPath,
-    "-LocalReleaseReviewMarkdownPath", $localReleaseReviewMarkdownPath,
-    "-LocalReleaseReviewPackagePath", $localReleaseReviewPackagePath,
-    "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-    "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
-    "-ReleaseArchiveDecisionPackagePath", $releaseArchiveDecisionPackagePath,
-    "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
-    "-ReleaseDeliveryHandoffMarkdownPath", $releaseDeliveryHandoffMarkdownPath,
-    "-ReleaseDeliveryHandoffPackagePath", $releaseDeliveryHandoffPackagePath,
-    "-ReleasePublicationRecordPath", $releasePublicationRecordPath,
-    "-ReleaseDeliveryDrillManifestPath", $releaseDeliveryDrillManifestPath,
-    "-ReleaseDeliveryDrillMarkdownPath", $releaseDeliveryDrillMarkdownPath,
-    "-ReleaseDiagnosticsManifestPath", $releaseDiagnosticsManifestPath,
-    "-ReleaseDiagnosticsPackagePath", $releaseDiagnosticsPackagePath,
-    "-ReleaseCloseoutSummaryManifestPath", $releaseCloseoutSummaryManifestPath
-)
+# The release packages are mutually referential, so generate a single seed pass
+# and then one final pass after automation-status contains the closeout readback.
+Invoke-LocalReleaseReviewPackage
+Invoke-ReleaseArchiveDecisionPackage
+Invoke-ReleaseDeliveryHandoffPackage
+Invoke-ReleaseCloseoutSummaryPackage
+Invoke-ReleaseFinalLocalArchivePackage
+Invoke-AutomationStatusWrite
+Invoke-LocalReleaseReviewPackage
+Invoke-ReleaseArchiveDecisionPackage
+Invoke-ReleaseDeliveryHandoffPackage
+Invoke-ReleaseCloseoutSummaryPackage
+Invoke-ReleaseFinalLocalArchivePackage
+Invoke-AutomationStatusWrite
 
 Write-Host "release closeout refreshed"
 Write-Host ("  head: {0}" -f $head)
