@@ -84,11 +84,15 @@ struct TransferRecoveryUiState {
 };
 
 struct TransferStatusEvent {
+    QString category;
+    QString title;
+    QString detail;
     QString message;
     QString chatHintText;
     QString statusBarMessage;
     QString actionHint;
     QString diagnostic;
+    bool retryable = false;
     int statusBarTimeoutMs = 4200;
     bool copyActionVisible = false;
     bool copyActionEnabled = false;
@@ -110,6 +114,9 @@ struct TransferSendUiState {
     QString receiptText;
     QString warningTitle;
     QString warningMessage;
+    QString workspaceTitle;
+    QString workspaceDetail;
+    QString statusTone;
     int statusTimeoutMs = 3000;
 };
 
@@ -201,6 +208,26 @@ struct TransferReceiveRenderPlan {
     int statusTimeoutMs = 3000;
 };
 
+struct TransferReceivedWorkspaceState {
+    QString workspaceTitle;
+    QString workspaceDetail;
+    QString nextStep;
+    QString preservedState;
+    QString diagnosticHint;
+    QString previewText;
+    QString statusTone;
+};
+
+struct TransferWorkspaceSummaryState {
+    QString title;
+    QString detail;
+    QString nextStep;
+    QString preservedState;
+    QString diagnosticHint;
+    QString previewText;
+    QString statusTone;
+};
+
 class TransferManager {
 public:
     static TransferRecoveryUiState recoveryUiState(bool hasSavedTransfer,
@@ -253,6 +280,8 @@ public:
     static TransferSelectionFeedbackPlan transferSelectionFeedbackPlan(const TransferSelectionUiState& selectionState);
     static TransferSelectionUiState resolveTransferSelectionUiState(const TransferSelectionUiState& pendingState,
                                                                     bool confirmed);
+    static TransferSendUiState selectionFeedbackWorkspaceState(const TransferSelectionUiState& selectionState,
+                                                               const TransferSelectionFeedbackPlan& feedbackPlan);
     static TransferMediaSelection mediaSelection(const QFileInfo& info);
     static TransferMediaPreviewPlan localMediaPreviewPlan(const QString& fileName,
                                                           const QString& fileSize,
@@ -297,6 +326,30 @@ public:
                                                                           const QString& integritySuffix,
                                                                           const QString& savePath,
                                                                           bool saved);
+    static TransferReceivedWorkspaceState receivedTransferWorkspaceState(const QString& kind,
+                                                                        const QString& receivedName,
+                                                                        const QString& receivedSize,
+                                                                        const QString& displayName,
+                                                                        const QString& manifestSuffix,
+                                                                        const QString& integrityText,
+                                                                        const QString& integritySuffix,
+                                                                        const QString& savePath,
+                                                                        bool saved);
+    static TransferWorkspaceSummaryState recoveryWorkspaceSummary(const TransferRecoveryUiState& state,
+                                                                 const TransferStatusEvent* latestEvent = nullptr,
+                                                                 bool hasDiagnostic = false);
+    static TransferWorkspaceSummaryState statusWorkspaceSummary(const TransferStatusEvent& event,
+                                                               bool hasRecovery = false,
+                                                               bool hasDiagnostic = false);
+    static TransferWorkspaceSummaryState sendWorkspaceSummary(const TransferSendUiState& state,
+                                                             bool hasDiagnostic = false);
+    static TransferWorkspaceSummaryState savedFileWorkspaceSummary(const QString& fileName,
+                                                                  const QString& fileSize,
+                                                                  const QString& savePath,
+                                                                  bool canOpenFile,
+                                                                  bool canOpenFolder,
+                                                                  const QString& contextText = QString());
+    static TransferWorkspaceSummaryState emptyWorkspaceSummary(bool hasDiagnostic = false);
     static TransferProgressUiState resumeInitialState(const QString& fileName,
                                                       const QString& targetName);
     static TransferProgressUiState resumeCancelState(const QString& fileName);

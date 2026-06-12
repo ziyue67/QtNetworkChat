@@ -16,6 +16,28 @@ ComposerUiState ComposerManager::uiState(const ComposerContext& context) {
     const QString encryptedSuffix = context.encryptedReady ? QStringLiteral(" · 端到端加密") : QString();
     const QString composerHint = QStringLiteral("发往 %1%2... (Enter 发送，Shift/Ctrl+Enter 换行，Esc 清空草稿)")
         .arg(targetName, encryptedSuffix);
+    const QString draftSummary = hasText
+        ? QStringLiteral("草稿 %1 字%2").arg(draftText.size()).arg(encryptedSuffix)
+        : QStringLiteral("当前没有草稿%1").arg(encryptedSuffix);
+
+    if (context.removedFromPublicGroup) {
+        state.workspaceTitle = QStringLiteral("发送已暂停");
+        state.workspaceDetail = QStringLiteral("当前账号已不在公共群，消息、文件和图片/视频入口都保持只读，等待重新邀请。");
+        state.stateTone = QStringLiteral("warning");
+    } else if (!state.canReachTarget) {
+        state.workspaceTitle = QStringLiteral("等待连接");
+        state.workspaceDetail = QStringLiteral("当前无法连接到 %1，草稿会保留，恢复连接后可继续发送。").arg(targetName);
+        state.stateTone = QStringLiteral("warning");
+    } else if (hasText) {
+        state.workspaceTitle = QStringLiteral("准备发送到 %1").arg(targetName);
+        state.workspaceDetail = QStringLiteral("当前草稿已准备就绪，可直接发送消息，也可继续补图片、视频或文件。");
+        state.stateTone = QStringLiteral("accent");
+    } else {
+        state.workspaceTitle = QStringLiteral("输入工作区");
+        state.workspaceDetail = QStringLiteral("当前会话为 %1，可直接输入消息，或从下方入口补图片、视频、文件和快捷提及。").arg(targetName);
+        state.stateTone = QStringLiteral("muted");
+    }
+    state.draftSummary = draftSummary;
 
     state.sendToolTip = context.removedFromPublicGroup
         ? QStringLiteral("当前账号已不在公共群，等待群主或管理员重新邀请")

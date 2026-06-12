@@ -593,6 +593,89 @@ int main(int argc, char** argv) {
                     && failedPersistencePlan.statusMessage == QString::fromUtf8("图片保存失败，请检查下载目录权限"),
                 "received transfer persistence render plan should centralize failed receive rendering") && ok;
 
+    TransferReceivedWorkspaceState savedWorkspace =
+        TransferManager::receivedTransferWorkspaceState(QString::fromUtf8("文件"),
+                                                       QStringLiteral("report.zip"),
+                                                       QStringLiteral("4.0 KB"),
+                                                       QString::fromUtf8("好友A"),
+                                                       QString::fromUtf8(" · 4片"),
+                                                       QString::fromUtf8("完整性已验证"),
+                                                       QString::fromUtf8(" · 完整性已验证"),
+                                                       QStringLiteral("C:/Downloads/report.zip"),
+                                                       true);
+    ok = expect(savedWorkspace.workspaceTitle == QString::fromUtf8("文件工作区 · 已接收并保存")
+                    && savedWorkspace.workspaceDetail.contains(QString::fromUtf8("已从 好友A 接收并保存到本机"))
+                    && savedWorkspace.nextStep.contains(QString::fromUtf8("打开文件"))
+                    && savedWorkspace.preservedState.contains(QString::fromUtf8("保存路径"))
+                    && savedWorkspace.diagnosticHint.contains(QString::fromUtf8("复制文件工作区摘要"))
+                    && savedWorkspace.statusTone == QStringLiteral("success"),
+                "received transfer workspace state should expose saved next step and preserved state") && ok;
+
+    TransferReceivedWorkspaceState failedWorkspace =
+        TransferManager::receivedTransferWorkspaceState(QString::fromUtf8("图片"),
+                                                       QStringLiteral("photo.png"),
+                                                       QStringLiteral("512 KB"),
+                                                       QString::fromUtf8("好友A"),
+                                                       QString(),
+                                                       QString(),
+                                                       QString(),
+                                                       QStringLiteral("C:/Downloads/photo.png"),
+                                                       false);
+    ok = expect(failedWorkspace.workspaceTitle == QString::fromUtf8("文件工作区 · 接收保存失败")
+                    && failedWorkspace.workspaceDetail.contains(QString::fromUtf8("写入下载目录失败"))
+                    && failedWorkspace.nextStep.contains(QString::fromUtf8("检查下载目录权限"))
+                    && failedWorkspace.preservedState.contains(QString::fromUtf8("接收来源"))
+                    && failedWorkspace.diagnosticHint.contains(QString::fromUtf8("复制文件工作区摘要"))
+                    && failedWorkspace.statusTone == QStringLiteral("danger"),
+                "received transfer workspace state should expose failure next step and preserved state") && ok;
+
+    TransferWorkspaceSummaryState recoverySummary =
+        TransferManager::recoveryWorkspaceSummary(resend, &objectReadbackEvent, true);
+    ok = expect(recoverySummary.title == QString::fromUtf8("文件工作区 · 需手动重发")
+                    && recoverySummary.detail.contains(QString::fromUtf8("当前不会自动续传"))
+                    && recoverySummary.nextStep.contains(QString::fromUtf8("重新选择原文件发送"))
+                    && recoverySummary.preservedState.contains(QString::fromUtf8("不会自动调用续传"))
+                    && recoverySummary.diagnosticHint.contains(QString::fromUtf8("复制最近传输诊断"))
+                    && recoverySummary.previewText.contains(QStringLiteral("e2e-file-resend-required"))
+                    && recoverySummary.statusTone == QStringLiteral("danger"),
+                "recovery workspace summary should centralize fail-closed resend guidance") && ok;
+
+    TransferWorkspaceSummaryState statusSummary =
+        TransferManager::statusWorkspaceSummary(objectReadbackEvent, true, true);
+    ok = expect(statusSummary.title == QString::fromUtf8("文件工作区 · 最近状态")
+                    && statusSummary.detail.contains(QString::fromUtf8("大文件对象暂时无法读取"))
+                    && statusSummary.nextStep.contains(QString::fromUtf8("对象存储"))
+                    && statusSummary.preservedState.contains(QString::fromUtf8("恢复记录"))
+                    && statusSummary.diagnosticHint.contains(QString::fromUtf8("复制最近传输诊断"))
+                    && statusSummary.previewText.contains(QStringLiteral("object-readback-unavailable"))
+                    && statusSummary.statusTone == QStringLiteral("warning"),
+                "status workspace summary should expose category, next step and preserved recovery context") && ok;
+
+    TransferWorkspaceSummaryState savedFileSummary =
+        TransferManager::savedFileWorkspaceSummary(QStringLiteral("report.zip"),
+                                                   QStringLiteral("4.0 KB"),
+                                                   QStringLiteral("C:/Downloads/report.zip"),
+                                                   false,
+                                                   true,
+                                                   QString::fromUtf8("聊天上下文：来自好友A"));
+    ok = expect(savedFileSummary.title == QString::fromUtf8("文件工作区 · 已保存文件待排查")
+                    && savedFileSummary.detail.contains(QString::fromUtf8("当前不能直接打开文件"))
+                    && savedFileSummary.nextStep.contains(QString::fromUtf8("打开目录"))
+                    && savedFileSummary.preservedState.contains(QString::fromUtf8("保存路径"))
+                    && savedFileSummary.diagnosticHint.contains(QStringLiteral("C:/Downloads/report.zip"))
+                    && savedFileSummary.previewText.contains(QString::fromUtf8("聊天上下文"))
+                    && savedFileSummary.statusTone == QStringLiteral("warning"),
+                "saved file workspace summary should centralize missing-file path guidance") && ok;
+
+    TransferWorkspaceSummaryState emptySummary = TransferManager::emptyWorkspaceSummary(true);
+    ok = expect(emptySummary.title == QString::fromUtf8("文件工作区")
+                    && emptySummary.detail.contains(QString::fromUtf8("当前没有未完成发送"))
+                    && emptySummary.nextStep.contains(QString::fromUtf8("发送文件"))
+                    && emptySummary.preservedState.contains(QString::fromUtf8("上一条传输诊断"))
+                    && emptySummary.diagnosticHint.contains(QString::fromUtf8("复制最近一次传输诊断"))
+                    && emptySummary.statusTone == QStringLiteral("muted"),
+                "empty workspace summary should still surface next step and preserved diagnostic context") && ok;
+
     TransferProgressUiState resumeCancel = TransferManager::resumeCancelState(QStringLiteral("report.zip"));
     ok = expect(resumeCancel.labelText.contains(QString::fromUtf8("正在取消恢复发送"))
                     && resumeCancel.labelText.contains(QStringLiteral("report.zip")),

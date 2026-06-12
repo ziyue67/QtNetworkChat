@@ -55,6 +55,8 @@
 #include <QDateEdit>
 #include <QDialogButtonBox>
 #include <QCryptographicHash>
+#include <QStyle>
+#include <QProgressBar>
 
 namespace {
 void applyTransferActionState(QAction* action, const TransferActionUiState& state) {
@@ -62,6 +64,27 @@ void applyTransferActionState(QAction* action, const TransferActionUiState& stat
     action->setVisible(state.visible);
     action->setEnabled(state.enabled);
     action->setToolTip(state.toolTip);
+}
+
+void applyToneProperty(QWidget* widget, const QString& tone) {
+    if (!widget) {
+        return;
+    }
+    if (widget->property("tone").toString() == tone) {
+        return;
+    }
+    widget->setProperty("tone", tone);
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
+}
+
+bool transferWorkspaceStateUsesSavedFileActions(const TransferSendUiState& state) {
+    const QString title = state.workspaceTitle.trimmed();
+    return title.startsWith(QStringLiteral("文件工作区 · 已保存文件"))
+        || title.startsWith(QStringLiteral("文件工作区 · 已接收并保存"))
+        || title.startsWith(QStringLiteral("文件工作区 · 已保存待复核"))
+        || title.startsWith(QStringLiteral("文件工作区 · 接收保存失败"));
 }
 
 QIcon createChatIcon(const QString& seedText = QString()) {
@@ -111,6 +134,1120 @@ QIcon createChatIcon(const QString& seedText = QString()) {
     return icon;
 }
 
+QString productMainWindowStyleSheet() {
+    return QStringLiteral(R"(
+        QMainWindow, QWidget#centralwidget {
+            background: #EEF3F8;
+            font-family: "Microsoft YaHei", "Segoe UI";
+            font-size: 13px;
+            color: #122033;
+        }
+        QFrame#sidePanel, QFrame#chatPanel, QFrame#groupInfoPanel {
+            background: #FFFFFF;
+            border: 1px solid #D8E4EE;
+            border-radius: 18px;
+        }
+        QFrame#profileCard, QFrame#announcementCard {
+            background: transparent;
+            border: none;
+            border-radius: 0;
+        }
+        QFrame#chatHeader {
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid #E6EDF4;
+        }
+        QFrame#inputPanel {
+            background: transparent;
+            border: none;
+            border-top: 1px solid #E6EDF4;
+        }
+        QFrame#chatSessionCard,
+        QFrame#composerStatusCard,
+        QFrame#groupSummaryCard,
+        QFrame#transferStatusCard,
+        QFrame#avatarStatusCard {
+            background: #F8FBFD;
+            border: 1px solid #D8E4EE;
+            border-radius: 14px;
+        }
+        QFrame#chatSessionCard[tone="accent"],
+        QFrame#composerStatusCard[tone="accent"],
+        QFrame#groupSummaryCard[tone="accent"],
+        QFrame#transferStatusCard[tone="accent"],
+        QFrame#avatarStatusCard[tone="accent"] {
+            background: #EEF5FF;
+            border: 1px solid #CFE0F8;
+        }
+        QFrame#chatSessionCard[tone="warning"],
+        QFrame#composerStatusCard[tone="warning"],
+        QFrame#groupSummaryCard[tone="warning"],
+        QFrame#transferStatusCard[tone="warning"],
+        QFrame#avatarStatusCard[tone="warning"] {
+            background: #FFF7ED;
+            border: 1px solid #F1D4AB;
+        }
+        QFrame#chatSessionCard[tone="success"],
+        QFrame#composerStatusCard[tone="success"],
+        QFrame#groupSummaryCard[tone="success"],
+        QFrame#transferStatusCard[tone="success"],
+        QFrame#avatarStatusCard[tone="success"] {
+            background: #F0FDF4;
+            border: 1px solid #C5E7D0;
+        }
+        QFrame#chatSessionCard[tone="danger"],
+        QFrame#composerStatusCard[tone="danger"],
+        QFrame#groupSummaryCard[tone="danger"],
+        QFrame#transferStatusCard[tone="danger"],
+        QFrame#avatarStatusCard[tone="danger"] {
+            background: #FFF5F5;
+            border: 1px solid #F2C8C5;
+        }
+        QLabel#appTitleLabel {
+            color: #0F172A;
+            font-size: 19px;
+            font-weight: 800;
+        }
+        QLabel#profileNameLabel {
+            color: #0F172A;
+            font-size: 15px;
+            font-weight: 800;
+        }
+        QLabel#profileIdLabel {
+            color: #617284;
+            font-size: 12px;
+        }
+        QLabel#avatarLabel {
+            background: #E8F1FF;
+            color: #1D4ED8;
+            border: 1px solid #D6E4FF;
+            border-radius: 28px;
+            font-size: 22px;
+            font-weight: 800;
+        }
+        QLabel#onlineTitleLabel, QLabel#announcementTitleLabel, QLabel#memberTitleLabel {
+            color: #0F172A;
+            font-size: 13px;
+            font-weight: 800;
+        }
+        QLabel#chatTitleLabel {
+            color: #0F172A;
+            font-size: 18px;
+            font-weight: 800;
+        }
+        QLabel#chatSessionMetaLabel {
+            color: #617284;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        QLabel#chatHintLabel {
+            color: #1E4E8C;
+            background: #EEF5FF;
+            border: 1px solid #D7E6FB;
+            border-radius: 12px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        QLabel#chatSessionStatusLabel,
+        QLabel#composerStatusDetailLabel,
+        QLabel#groupSummaryDetailLabel {
+            color: #5F7285;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#composerStatusTitleLabel,
+        QLabel#groupSummaryTitleLabel {
+            color: #0F172A;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#transferStatusTitleLabel {
+            color: #0F172A;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#avatarStatusTitleLabel {
+            color: #0F172A;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#transferStatusDetailLabel {
+            color: #5F7285;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#avatarStatusDetailLabel {
+            color: #5F7285;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#announcementBodyLabel {
+            color: #56677B;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        QListView#userListView, QListView#chatListView, QListView#groupMemberListView {
+            background: #F8FBFD;
+            border: 1px solid #E2EAF2;
+            border-radius: 16px;
+            padding: 8px;
+            outline: none;
+        }
+        QListView#userListView::item, QListView#groupMemberListView::item {
+            min-height: 42px;
+            border-radius: 10px;
+            padding: 6px 10px;
+        }
+        QListView#chatListView::item {
+            min-height: 34px;
+            border-radius: 12px;
+            margin: 4px 0;
+            padding: 8px 12px;
+        }
+        QListView#userListView::item:selected,
+        QListView#userListView::item:hover,
+        QListView#groupMemberListView::item:selected,
+        QListView#groupMemberListView::item:hover,
+        QListView#chatListView::item:hover {
+            background: #EAF2FF;
+            color: #174EA6;
+        }
+        QLineEdit#contactSearchEdit, QLineEdit#memberSearchEdit {
+            min-height: 36px;
+            background: #FFFFFF;
+            color: #162334;
+            border: 1px solid #D7E2EC;
+            border-radius: 14px;
+            padding: 4px 12px;
+        }
+        QLineEdit#contactSearchEdit:focus,
+        QLineEdit#memberSearchEdit:focus,
+        QTextEdit#messageEdit:focus,
+        QInputDialog QLineEdit:focus,
+        QInputDialog QTextEdit:focus,
+        QMessageBox QLineEdit:focus {
+            background: #FFFFFF;
+            border: 1px solid #3B82F6;
+        }
+        QTextEdit#messageEdit {
+            background: #F8FBFD;
+            color: #142235;
+            border: 1px solid #D7E2EC;
+            border-radius: 14px;
+            padding: 10px 12px;
+            selection-background-color: #3B82F6;
+            selection-color: #FFFFFF;
+        }
+        QPushButton {
+            min-height: 34px;
+            padding: 6px 12px;
+            border-radius: 12px;
+            border: 1px solid #D7E2EC;
+            background: #FFFFFF;
+            color: #324659;
+            font-weight: 700;
+        }
+        QPushButton:hover {
+            background: #F7FAFE;
+            border-color: #BFD0E2;
+        }
+        QPushButton:pressed {
+            background: #EDF4FF;
+            border-color: #9FBBE4;
+        }
+        QPushButton:disabled {
+            background: #F8FAFC;
+            color: #9AA7B5;
+            border-color: #E2E8F0;
+        }
+        QPushButton#sendBtn, QMessageBox QPushButton[text="Yes"], QInputDialog QPushButton[text="OK"] {
+            background: #2563EB;
+            color: #FFFFFF;
+            border: 1px solid #2563EB;
+            min-width: 108px;
+        }
+        QPushButton#sendBtn:hover {
+            background: #1D4ED8;
+            border-color: #1D4ED8;
+        }
+        QPushButton#sendBtn:pressed {
+            background: #1E40AF;
+            border-color: #1E40AF;
+        }
+        QPushButton#sendBtn:disabled {
+            background: #BFDBFE;
+            color: #EFF6FF;
+            border-color: #BFDBFE;
+        }
+        QPushButton#toolBtn, QPushButton#iconToolBtn,
+        QPushButton#friendNoticeBtn, QPushButton#groupNoticeBtn,
+        QPushButton#copyAccountBtn, QPushButton#friendManagerBtn,
+        QPushButton#groupChatBtn, QPushButton#globalSearchBtn,
+        QPushButton#groupMemberWorkspaceBtn,
+        QPushButton#createMenuBtn, QPushButton#uploadAvatarBtn {
+            background: #F8FBFD;
+            border: 1px solid #DFE8F1;
+            color: #324659;
+        }
+        QPushButton#toolBtn:hover, QPushButton#iconToolBtn:hover,
+        QPushButton#friendNoticeBtn:hover, QPushButton#groupNoticeBtn:hover,
+        QPushButton#copyAccountBtn:hover, QPushButton#friendManagerBtn:hover,
+        QPushButton#groupChatBtn:hover, QPushButton#globalSearchBtn:hover,
+        QPushButton#groupMemberWorkspaceBtn:hover,
+        QPushButton#createMenuBtn:hover, QPushButton#uploadAvatarBtn:hover {
+            background: #EDF4FF;
+            border-color: #C8D8F0;
+            color: #174EA6;
+        }
+        QPushButton#transferGhostBtn {
+            background: #FFFFFF;
+            border: 1px solid #D7E2EC;
+            color: #324659;
+            min-height: 32px;
+            padding: 5px 12px;
+            border-radius: 12px;
+        }
+        QPushButton#transferGhostBtn:hover {
+            background: #F7FAFE;
+            border-color: #BFD0E2;
+        }
+        QPushButton#transferPrimaryBtn {
+            background: #2563EB;
+            color: #FFFFFF;
+            border: 1px solid #2563EB;
+            min-height: 32px;
+            padding: 5px 12px;
+            border-radius: 12px;
+        }
+        QPushButton#transferPrimaryBtn:hover {
+            background: #1D4ED8;
+            border-color: #1D4ED8;
+        }
+        QPushButton#transferDangerBtn {
+            background: #FFF6F5;
+            color: #B42318;
+            border: 1px solid #F0D0CB;
+            min-height: 32px;
+            padding: 5px 12px;
+            border-radius: 12px;
+        }
+        QPushButton#transferDangerBtn:hover {
+            background: #FEEDEC;
+            border-color: #EAB8B0;
+        }
+        QPushButton#clearBtn {
+            background: #FFF6F5;
+            color: #B42318;
+            border-color: #F0D0CB;
+        }
+        QPushButton#clearBtn:hover {
+            background: #FEEDEC;
+            border-color: #EAB8B0;
+        }
+        QMenuBar {
+            background: #FFFFFF;
+            color: #516273;
+            border-bottom: 1px solid #E2E8F0;
+            spacing: 4px;
+        }
+        QMenuBar::item {
+            background: transparent;
+            padding: 5px 10px;
+            border-radius: 6px;
+        }
+        QMenuBar::item:selected {
+            background: #EEF4FF;
+            color: #1D4ED8;
+        }
+        QMenu {
+            background: #FFFFFF;
+            color: #253342;
+            border: 1px solid #D6E2EB;
+            border-radius: 8px;
+            padding: 6px;
+        }
+        QMenu::item {
+            padding: 7px 24px 7px 12px;
+            border-radius: 6px;
+        }
+        QMenu::item:selected {
+            background: #EAF4FF;
+            color: #185ABD;
+        }
+        QMenu::separator {
+            height: 1px;
+            background: #E7EEF4;
+            margin: 6px 4px;
+        }
+        QToolTip {
+            background: #203144;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 8px;
+        }
+        QDialog, QMessageBox, QInputDialog {
+            background: #F3F6FB;
+            color: #0F172A;
+        }
+        QMessageBox QLabel, QInputDialog QLabel {
+            color: #233548;
+        }
+        QMessageBox QLineEdit, QInputDialog QLineEdit, QInputDialog QTextEdit, QInputDialog QComboBox {
+            min-height: 36px;
+            background: #FFFFFF;
+            color: #162334;
+            border: 1px solid #D7E2EC;
+            border-radius: 12px;
+            padding: 4px 10px;
+        }
+        QMessageBox QPushButton, QInputDialog QPushButton {
+            min-height: 34px;
+            min-width: 88px;
+            padding: 6px 14px;
+            border-radius: 12px;
+            border: 1px solid #D7E2EC;
+            background: #FFFFFF;
+            color: #334155;
+            font-weight: 700;
+        }
+        QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {
+            background: #F7FAFE;
+            border-color: #BFD0E2;
+        }
+        QScrollBar:vertical {
+            background: transparent;
+            width: 10px;
+            margin: 4px 2px;
+        }
+        QScrollBar::handle:vertical {
+            background: #C5D7E5;
+            border-radius: 5px;
+            min-height: 36px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background: #9FBCD2;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: transparent;
+            height: 0px;
+        }
+        QStatusBar {
+            background: #F7FAFD;
+            color: #637488;
+            border-top: 1px solid #E0E8F0;
+            padding-left: 6px;
+        }
+        QStatusBar::item {
+            border: none;
+        }
+    )");
+}
+
+QString toolWorkspaceDialogStyleSheet() {
+    return QStringLiteral(R"(
+        QDialog#globalSearchDialog, QDialog#quickAddDialog, QDialog#friendManagerDialog {
+            background: #F3F6FB;
+            color: #0F172A;
+            font-family: "Microsoft YaHei", "Segoe UI";
+        }
+        QFrame#searchHeader, QFrame#managerHeader, QFrame#managerBody {
+            background: #FFFFFF;
+            border: 1px solid #D8E4EE;
+            border-radius: 18px;
+        }
+        QFrame#workspaceSectionCard {
+            background: #FFFFFF;
+            border: 1px solid #D8E4EE;
+            border-radius: 16px;
+        }
+        QLabel#searchDialogTitle, QLabel#managerTitle, QLabel#quickAddTitle {
+            color: #0F172A;
+            font-size: 20px;
+            font-weight: 800;
+        }
+        QLabel#searchDialogSubTitle, QLabel#managerSubTitle, QLabel#quickAddHint,
+        QLabel#globalActionHint {
+            color: #5F7285;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#globalStatsLabel, QLabel#managerStats, QLabel#quickAddStats {
+            min-height: 24px;
+            background: #EDF4FF;
+            color: #1D4ED8;
+            border: 1px solid #D6E4FB;
+            border-radius: 12px;
+            padding: 2px 10px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#globalPreviewLabel, QLabel#managerSelectionPreview,
+        QLabel#quickAddPreviewCard {
+            background: #FFFFFF;
+            color: #223548;
+            border: 1px solid #D8E4EE;
+            border-radius: 14px;
+            padding: 10px 12px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        QLabel#managerOperationGuide, QLabel#quickAddActionTip {
+            background: #FFF8E9;
+            color: #8A5B00;
+            border: 1px solid #F8D9A1;
+            border-radius: 14px;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        QLabel#workspaceSectionTitle {
+            color: #0F172A;
+            font-size: 13px;
+            font-weight: 800;
+        }
+        QLabel#workspaceSectionHint {
+            color: #5F7285;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QFrame#operationHeader, QFrame#operationBody {
+            background: #FFFFFF;
+            border: 1px solid #D8E4EE;
+            border-radius: 18px;
+        }
+        QLabel#operationTitle {
+            color: #0F172A;
+            font-size: 20px;
+            font-weight: 800;
+        }
+        QLabel#operationSubTitle, QLabel#operationHintLabel {
+            color: #5F7285;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#operationStatusChip {
+            min-height: 24px;
+            padding: 2px 10px;
+            border-radius: 12px;
+            background: #EDF4FF;
+            color: #1D4ED8;
+            border: 1px solid #D6E4FB;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#operationStatusChip[tone="warning"] {
+            background: #FFF7ED;
+            color: #B45309;
+            border: 1px solid #F3D1A8;
+        }
+        QLabel#operationStatusChip[tone="success"] {
+            background: #F0FDF4;
+            color: #15803D;
+            border: 1px solid #B7E0C2;
+        }
+        QLabel#operationStatusChip[tone="accent"] {
+            background: #EDF4FF;
+            color: #1D4ED8;
+            border: 1px solid #D6E4FB;
+        }
+        QLabel#operationMetricLabel {
+            color: #1D4ED8;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#operationDetailLabel {
+            color: #223548;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        QLineEdit#globalSearchInput, QLineEdit#managerSearch, QLineEdit#quickAddInput {
+            min-height: 40px;
+            background: #F8FBFD;
+            color: #162334;
+            border: 1px solid #D7E2EC;
+            border-radius: 16px;
+            padding: 4px 14px;
+            font-size: 14px;
+        }
+        QLineEdit#globalSearchInput:focus, QLineEdit#managerSearch:focus, QLineEdit#quickAddInput:focus {
+            background: #FFFFFF;
+            border: 1px solid #3B82F6;
+        }
+        QListWidget#globalResultList, QListWidget#managerList, QListWidget#quickAddSuggestionList {
+            background: #FFFFFF;
+            border: 1px solid #DCE8F2;
+            border-radius: 16px;
+            padding: 8px;
+            outline: none;
+        }
+        QListWidget#globalResultList::item, QListWidget#managerList::item, QListWidget#quickAddSuggestionList::item {
+            background: #F8FBFD;
+            color: #223548;
+            border-radius: 12px;
+            margin: 4px 0;
+            padding: 10px 12px;
+        }
+        QListWidget#globalResultList::item:selected, QListWidget#globalResultList::item:hover,
+        QListWidget#managerList::item:selected, QListWidget#managerList::item:hover,
+        QListWidget#quickAddSuggestionList::item:selected, QListWidget#quickAddSuggestionList::item:hover {
+            background: #EAF2FF;
+            color: #174EA6;
+        }
+        QLabel#activeSearchTab {
+            min-width: 60px;
+            background: #EAF2FF;
+            color: #1D4ED8;
+            border: 1px solid #D4E4FB;
+            border-radius: 12px;
+            padding: 7px 12px;
+            font-weight: 800;
+        }
+        QLabel#searchTab {
+            min-width: 60px;
+            background: #F8FBFD;
+            color: #64748B;
+            border: 1px solid #E3EBF3;
+            border-radius: 12px;
+            padding: 7px 12px;
+            font-weight: 700;
+        }
+        QPushButton {
+            min-height: 36px;
+            border-radius: 14px;
+            padding: 6px 14px;
+            font-weight: 700;
+        }
+        QPushButton#globalSearchPrimaryBtn, QPushButton#quickSearchBtn, QPushButton#managerPrimaryBtn {
+            background: #2563EB;
+            color: #FFFFFF;
+            border: 1px solid #2563EB;
+        }
+        QPushButton#globalSearchPrimaryBtn:hover, QPushButton#quickSearchBtn:hover, QPushButton#managerPrimaryBtn:hover {
+            background: #1D4ED8;
+            border-color: #1D4ED8;
+        }
+        QPushButton#globalSearchGhostBtn, QPushButton#quickCancelBtn, QPushButton#managerSecondaryBtn {
+            background: #FFFFFF;
+            color: #324659;
+            border: 1px solid #D7E2EC;
+        }
+        QPushButton#globalSearchGhostBtn:hover, QPushButton#quickCancelBtn:hover, QPushButton#managerSecondaryBtn:hover {
+            background: #F7FAFE;
+            border-color: #BFD0E2;
+        }
+        QPushButton#managerDangerBtn {
+            background: #FFF6F5;
+            color: #B42318;
+            border: 1px solid #F0D0CB;
+        }
+        QPushButton#managerDangerBtn:hover {
+            background: #FEEDEC;
+            border-color: #EAB8B0;
+        }
+    )");
+}
+
+QString productDialogStyleSheet() {
+    return productMainWindowStyleSheet() + toolWorkspaceDialogStyleSheet() + QStringLiteral(R"(
+        QFileDialog, QProgressDialog {
+            background: #F3F6FB;
+            color: #0F172A;
+            font-family: "Microsoft YaHei", "Segoe UI";
+        }
+        QFileDialog QLabel, QProgressDialog QLabel {
+            color: #233548;
+        }
+        QFileDialog QLineEdit, QFileDialog QComboBox,
+        QFileDialog QListView, QFileDialog QTreeView {
+            background: #FFFFFF;
+            color: #162334;
+            border: 1px solid #D7E2EC;
+            border-radius: 12px;
+        }
+        QFileDialog QLineEdit {
+            min-height: 36px;
+            padding: 4px 10px;
+        }
+        QFileDialog QListView, QFileDialog QTreeView {
+            padding: 6px;
+        }
+        QFileDialog QLineEdit:focus,
+        QFileDialog QListView:focus,
+        QFileDialog QTreeView:focus {
+            border-color: #3B82F6;
+        }
+        QFileDialog QPushButton, QProgressDialog QPushButton {
+            min-height: 34px;
+            min-width: 88px;
+            padding: 6px 14px;
+            border-radius: 12px;
+            border: 1px solid #D7E2EC;
+            background: #FFFFFF;
+            color: #334155;
+            font-weight: 700;
+        }
+        QFileDialog QPushButton:hover, QProgressDialog QPushButton:hover {
+            background: #F7FAFE;
+            border-color: #BFD0E2;
+        }
+        QProgressBar {
+            min-height: 14px;
+            border: 1px solid #D7E2EC;
+            border-radius: 7px;
+            background: #EAF0F6;
+            text-align: center;
+            color: #486171;
+        }
+        QProgressBar::chunk {
+            border-radius: 7px;
+            background: #2563EB;
+        }
+        QProgressBar#operationProgressBar {
+            min-height: 18px;
+            border: 1px solid #D7E2EC;
+            border-radius: 9px;
+            background: #EAF0F6;
+            text-align: center;
+            color: #486171;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        QProgressBar#operationProgressBar::chunk {
+            border-radius: 9px;
+            background: #2563EB;
+        }
+    )");
+}
+
+void applyProductDialogChrome(QWidget* widget) {
+    if (!widget) {
+        return;
+    }
+    widget->setStyleSheet(productDialogStyleSheet());
+}
+
+void assignButtonIcon(QPushButton* button, QWidget* widget, QStyle::StandardPixmap iconType) {
+    if (!button || !widget) return;
+    button->setIcon(widget->style()->standardIcon(iconType));
+    button->setIconSize(QSize(16, 16));
+}
+
+QAction* addMenuActionWithIcon(QMenu& menu,
+                               QWidget* widget,
+                               const QString& title,
+                               const QString& toolTip,
+                               const QString& commandId = QString(),
+                               bool enabled = true,
+                               QStyle::StandardPixmap iconType = QStyle::SP_FileDialogInfoView) {
+    QAction* action = menu.addAction(widget->style()->standardIcon(iconType), title);
+    action->setToolTip(toolTip);
+    action->setStatusTip(toolTip);
+    action->setData(commandId);
+    action->setEnabled(enabled);
+    return action;
+}
+
+struct WorkspaceSectionCard {
+    QFrame* frame = nullptr;
+    QVBoxLayout* contentLayout = nullptr;
+};
+
+struct WorkspaceDialogShell {
+    QVBoxLayout* rootLayout = nullptr;
+    QFrame* headerFrame = nullptr;
+    QVBoxLayout* headerLayout = nullptr;
+    QLabel* titleLabel = nullptr;
+    QLabel* subTitleLabel = nullptr;
+    QFrame* bodyFrame = nullptr;
+    QVBoxLayout* bodyLayout = nullptr;
+    QHBoxLayout* searchRowLayout = nullptr;
+    QLineEdit* searchEdit = nullptr;
+    QListWidget* listWidget = nullptr;
+    QHBoxLayout* summaryRowLayout = nullptr;
+    QLabel* hintLabel = nullptr;
+    QLabel* statsLabel = nullptr;
+    QLabel* previewLabel = nullptr;
+};
+
+struct TransferOperationDialog {
+    QDialog dialog;
+    QLabel* statusChip = nullptr;
+    QLabel* detailLabel = nullptr;
+    QLabel* metricLabel = nullptr;
+    QLabel* hintLabel = nullptr;
+    QProgressBar* progressBar = nullptr;
+    QPushButton* cancelButton = nullptr;
+
+    explicit TransferOperationDialog(QWidget* parent)
+        : dialog(parent, Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint) {}
+};
+
+int firstEnabledListRow(const QListWidget* listWidget) {
+    if (!listWidget) {
+        return -1;
+    }
+    for (int i = 0; i < listWidget->count(); ++i) {
+        const QListWidgetItem* item = listWidget->item(i);
+        if (item && item->flags().testFlag(Qt::ItemIsEnabled)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void selectPreferredListRow(QListWidget* listWidget, int preferredRow = -1) {
+    if (!listWidget || listWidget->count() <= 0) {
+        return;
+    }
+    if (preferredRow >= 0 && preferredRow < listWidget->count()) {
+        QListWidgetItem* preferredItem = listWidget->item(preferredRow);
+        if (preferredItem && preferredItem->flags().testFlag(Qt::ItemIsEnabled)) {
+            listWidget->setCurrentRow(preferredRow);
+            return;
+        }
+    }
+    const int fallbackRow = firstEnabledListRow(listWidget);
+    if (fallbackRow >= 0) {
+        listWidget->setCurrentRow(fallbackRow);
+    } else {
+        listWidget->setCurrentRow(0);
+    }
+}
+
+void addWorkspaceEmptyStateItem(QListWidget* listWidget,
+                                const QString& title,
+                                const QString& detail,
+                                const QString& preview = QString()) {
+    if (!listWidget) {
+        return;
+    }
+
+    QListWidgetItem* emptyItem = new QListWidgetItem(QStringLiteral("%1\n%2").arg(title, detail), listWidget);
+    emptyItem->setFlags(Qt::NoItemFlags);
+    emptyItem->setToolTip(preview.trimmed().isEmpty() ? QStringLiteral("%1\n%2").arg(title, detail) : preview);
+    emptyItem->setSizeHint(QSize(0, 78));
+    emptyItem->setForeground(QColor(100, 116, 139));
+}
+
+bool hasEnabledListRow(const QListWidget* listWidget) {
+    return firstEnabledListRow(listWidget) >= 0;
+}
+
+struct GroupWorkspaceResult {
+    bool applied = false;
+    QString primaryValue;
+    QString secondaryValue;
+    QString selectedId;
+};
+
+WorkspaceSectionCard createWorkspaceSectionCard(QWidget* parent,
+                                                const QString& title,
+                                                const QString& hint = QString()) {
+    WorkspaceSectionCard card;
+    card.frame = new QFrame(parent);
+    card.frame->setObjectName(QStringLiteral("workspaceSectionCard"));
+
+    QVBoxLayout* frameLayout = new QVBoxLayout(card.frame);
+    frameLayout->setContentsMargins(16, 14, 16, 14);
+    frameLayout->setSpacing(10);
+
+    QLabel* titleLabel = new QLabel(title, card.frame);
+    titleLabel->setObjectName(QStringLiteral("workspaceSectionTitle"));
+    frameLayout->addWidget(titleLabel);
+
+    if (!hint.trimmed().isEmpty()) {
+        QLabel* hintLabel = new QLabel(hint, card.frame);
+        hintLabel->setObjectName(QStringLiteral("workspaceSectionHint"));
+        hintLabel->setWordWrap(true);
+        frameLayout->addWidget(hintLabel);
+    }
+
+    card.contentLayout = new QVBoxLayout;
+    card.contentLayout->setContentsMargins(0, 0, 0, 0);
+    card.contentLayout->setSpacing(8);
+    frameLayout->addLayout(card.contentLayout);
+    return card;
+}
+
+QHBoxLayout* createWorkspaceButtonRow(const QList<QWidget*>& buttons,
+                                      QWidget* trailingWidget = nullptr) {
+    QHBoxLayout* rowLayout = new QHBoxLayout;
+    rowLayout->setSpacing(8);
+    for (QWidget* button : buttons) {
+        if (button) {
+            rowLayout->addWidget(button);
+        }
+    }
+    rowLayout->addStretch();
+    if (trailingWidget) {
+        rowLayout->addWidget(trailingWidget);
+    }
+    return rowLayout;
+}
+
+void addWorkspaceSectionCard(QVBoxLayout* parentLayout,
+                             QWidget* parent,
+                             const QString& title,
+                             const QString& hint,
+                             const QList<QWidget*>& buttons,
+                             QWidget* trailingWidget = nullptr) {
+    if (!parentLayout || !parent) {
+        return;
+    }
+    WorkspaceSectionCard card = createWorkspaceSectionCard(parent, title, hint);
+    card.contentLayout->addLayout(createWorkspaceButtonRow(buttons, trailingWidget));
+    parentLayout->addWidget(card.frame);
+}
+
+WorkspaceDialogShell createWorkspaceDialogShell(QDialog& dialog,
+                                                const QString& dialogObjectName,
+                                                const QString& windowTitle,
+                                                const QSize& dialogSize,
+                                                const QString& titleObjectName,
+                                                const QString& titleText,
+                                                const QString& subTitleObjectName,
+                                                const QString& subTitleText,
+                                                const QString& searchObjectName,
+                                                const QString& searchPlaceholder,
+                                                const QString& searchToolTip,
+                                                const QString& listObjectName,
+                                                bool listWordWrap,
+                                                const QString& hintObjectName,
+                                                const QString& hintText,
+                                                const QString& statsObjectName,
+                                                const QString& previewObjectName,
+                                                const QString& previewText,
+                                                const QString& headerObjectName = QStringLiteral("managerHeader"),
+                                                const QString& bodyObjectName = QStringLiteral("managerBody")) {
+    WorkspaceDialogShell shell;
+    dialog.setObjectName(dialogObjectName);
+    dialog.setWindowTitle(windowTitle);
+    dialog.setFixedSize(dialogSize);
+
+    shell.rootLayout = new QVBoxLayout(&dialog);
+    shell.rootLayout->setContentsMargins(0, 0, 0, 0);
+    shell.rootLayout->setSpacing(0);
+
+    shell.headerFrame = new QFrame(&dialog);
+    shell.headerFrame->setObjectName(headerObjectName);
+    shell.headerLayout = new QVBoxLayout(shell.headerFrame);
+    shell.headerLayout->setContentsMargins(24, 18, 24, 14);
+    shell.headerLayout->setSpacing(8);
+
+    shell.titleLabel = new QLabel(titleText, shell.headerFrame);
+    shell.titleLabel->setObjectName(titleObjectName);
+    shell.headerLayout->addWidget(shell.titleLabel);
+
+    shell.subTitleLabel = new QLabel(subTitleText, shell.headerFrame);
+    shell.subTitleLabel->setObjectName(subTitleObjectName);
+    shell.subTitleLabel->setVisible(!subTitleText.trimmed().isEmpty());
+    shell.headerLayout->addWidget(shell.subTitleLabel);
+    shell.rootLayout->addWidget(shell.headerFrame);
+
+    shell.bodyFrame = new QFrame(&dialog);
+    shell.bodyFrame->setObjectName(bodyObjectName);
+    shell.bodyLayout = new QVBoxLayout(shell.bodyFrame);
+    shell.bodyLayout->setContentsMargins(24, 22, 24, 22);
+    shell.bodyLayout->setSpacing(12);
+
+    shell.searchRowLayout = new QHBoxLayout;
+    shell.searchRowLayout->setSpacing(8);
+    shell.searchEdit = new QLineEdit(shell.bodyFrame);
+    shell.searchEdit->setObjectName(searchObjectName);
+    shell.searchEdit->setPlaceholderText(searchPlaceholder);
+    shell.searchEdit->setClearButtonEnabled(true);
+    shell.searchEdit->setToolTip(searchToolTip);
+    shell.searchRowLayout->addWidget(shell.searchEdit, 1);
+    shell.bodyLayout->addLayout(shell.searchRowLayout);
+
+    shell.listWidget = new QListWidget(shell.bodyFrame);
+    shell.listWidget->setObjectName(listObjectName);
+    shell.listWidget->setWordWrap(listWordWrap);
+    shell.bodyLayout->addWidget(shell.listWidget, 1);
+
+    shell.summaryRowLayout = new QHBoxLayout;
+    shell.summaryRowLayout->setSpacing(10);
+    shell.hintLabel = new QLabel(hintText, shell.bodyFrame);
+    shell.hintLabel->setObjectName(hintObjectName);
+    shell.statsLabel = new QLabel(shell.bodyFrame);
+    shell.statsLabel->setObjectName(statsObjectName);
+    shell.previewLabel = new QLabel(previewText, shell.bodyFrame);
+    shell.previewLabel->setObjectName(previewObjectName);
+    shell.previewLabel->setWordWrap(true);
+    shell.summaryRowLayout->addWidget(shell.hintLabel);
+    shell.summaryRowLayout->addWidget(shell.statsLabel);
+    shell.summaryRowLayout->addWidget(shell.previewLabel, 1);
+    shell.bodyLayout->addLayout(shell.summaryRowLayout);
+
+    shell.rootLayout->addWidget(shell.bodyFrame);
+    return shell;
+}
+
+void moveWorkspaceShellStatsToHeader(WorkspaceDialogShell& shell) {
+    if (!shell.headerLayout || !shell.titleLabel || !shell.statsLabel || !shell.summaryRowLayout) {
+        return;
+    }
+    shell.summaryRowLayout->removeWidget(shell.statsLabel);
+    shell.headerLayout->removeWidget(shell.titleLabel);
+
+    QHBoxLayout* titleRowLayout = new QHBoxLayout;
+    titleRowLayout->setContentsMargins(0, 0, 0, 0);
+    titleRowLayout->setSpacing(10);
+    titleRowLayout->addWidget(shell.titleLabel);
+    titleRowLayout->addStretch();
+    titleRowLayout->addWidget(shell.statsLabel);
+    shell.headerLayout->insertLayout(0, titleRowLayout);
+    shell.statsLabel->setVisible(true);
+}
+
+QPushButton* createWorkspaceButton(QWidget* parent,
+                                   QWidget* iconWidget,
+                                   const QString& text,
+                                   const QString& objectName,
+                                   const QString& toolTip,
+                                   QStyle::StandardPixmap iconType) {
+    QPushButton* button = new QPushButton(text, parent);
+    button->setObjectName(objectName);
+    button->setToolTip(toolTip);
+    assignButtonIcon(button, iconWidget, iconType);
+    return button;
+}
+
+QPushButton* createWorkspaceButton(QWidget* parent,
+                                   QWidget* iconWidget,
+                                   const NoticeButtonSpec& spec,
+                                   QStyle::StandardPixmap iconType) {
+    return createWorkspaceButton(parent,
+                                 iconWidget,
+                                 spec.text,
+                                 spec.objectName,
+                                 spec.toolTip,
+                                 iconType);
+}
+
+void setupTransferOperationDialog(TransferOperationDialog& chrome,
+                                  QWidget* iconWidget,
+                                  const QString& dialogObjectName,
+                                  const QString& windowTitle,
+                                  const QString& title,
+                                  const QString& subTitle,
+                                  const QString& hintText,
+                                  const QString& cancelText) {
+    chrome.dialog.setObjectName(dialogObjectName);
+    chrome.dialog.setWindowTitle(windowTitle);
+    chrome.dialog.setFixedSize(QSize(560, 340));
+    chrome.dialog.setWindowModality(Qt::ApplicationModal);
+    chrome.dialog.setModal(true);
+    chrome.dialog.setStyleSheet(productDialogStyleSheet());
+
+    QVBoxLayout* rootLayout = new QVBoxLayout(&chrome.dialog);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    QFrame* headerFrame = new QFrame(&chrome.dialog);
+    headerFrame->setObjectName(QStringLiteral("operationHeader"));
+    QVBoxLayout* headerLayout = new QVBoxLayout(headerFrame);
+    headerLayout->setContentsMargins(24, 18, 24, 14);
+    headerLayout->setSpacing(8);
+
+    QHBoxLayout* titleRow = new QHBoxLayout;
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(10);
+    QLabel* titleLabel = new QLabel(title, headerFrame);
+    titleLabel->setObjectName(QStringLiteral("operationTitle"));
+    chrome.statusChip = new QLabel(QStringLiteral("准备中"), headerFrame);
+    chrome.statusChip->setObjectName(QStringLiteral("operationStatusChip"));
+    titleRow->addWidget(titleLabel);
+    titleRow->addStretch();
+    titleRow->addWidget(chrome.statusChip);
+    headerLayout->addLayout(titleRow);
+
+    QLabel* subTitleLabel = new QLabel(subTitle, headerFrame);
+    subTitleLabel->setObjectName(QStringLiteral("operationSubTitle"));
+    subTitleLabel->setWordWrap(true);
+    headerLayout->addWidget(subTitleLabel);
+    rootLayout->addWidget(headerFrame);
+
+    QFrame* bodyFrame = new QFrame(&chrome.dialog);
+    bodyFrame->setObjectName(QStringLiteral("operationBody"));
+    QVBoxLayout* bodyLayout = new QVBoxLayout(bodyFrame);
+    bodyLayout->setContentsMargins(24, 22, 24, 22);
+    bodyLayout->setSpacing(12);
+
+    WorkspaceSectionCard progressCard = createWorkspaceSectionCard(bodyFrame,
+                                                                   QStringLiteral("当前阶段"),
+                                                                   QStringLiteral("进度、取消状态和最终结果会同时同步到主窗口文件工作区。"));
+    QHBoxLayout* metricRow = new QHBoxLayout;
+    metricRow->setContentsMargins(0, 0, 0, 0);
+    metricRow->setSpacing(10);
+    chrome.metricLabel = new QLabel(QStringLiteral("0% · 等待开始"), progressCard.frame);
+    chrome.metricLabel->setObjectName(QStringLiteral("operationMetricLabel"));
+    metricRow->addWidget(chrome.metricLabel);
+    metricRow->addStretch();
+    progressCard.contentLayout->addLayout(metricRow);
+
+    chrome.detailLabel = new QLabel(QStringLiteral("正在准备当前操作。"), progressCard.frame);
+    chrome.detailLabel->setObjectName(QStringLiteral("operationDetailLabel"));
+    chrome.detailLabel->setWordWrap(true);
+    progressCard.contentLayout->addWidget(chrome.detailLabel);
+
+    chrome.progressBar = new QProgressBar(progressCard.frame);
+    chrome.progressBar->setObjectName(QStringLiteral("operationProgressBar"));
+    chrome.progressBar->setRange(0, 100);
+    chrome.progressBar->setValue(0);
+    chrome.progressBar->setTextVisible(true);
+    progressCard.contentLayout->addWidget(chrome.progressBar);
+    bodyLayout->addWidget(progressCard.frame);
+
+    WorkspaceSectionCard actionCard = createWorkspaceSectionCard(bodyFrame,
+                                                                 QStringLiteral("取消与恢复"),
+                                                                 hintText);
+    chrome.hintLabel = new QLabel(QStringLiteral("若需要中止当前动作，可从这里直接取消；系统会保留最近状态，方便后续判断是否重试或恢复。"),
+                                  actionCard.frame);
+    chrome.hintLabel->setObjectName(QStringLiteral("operationHintLabel"));
+    chrome.hintLabel->setWordWrap(true);
+    actionCard.contentLayout->addWidget(chrome.hintLabel);
+    chrome.cancelButton = createWorkspaceButton(actionCard.frame,
+                                                iconWidget,
+                                                cancelText,
+                                                QStringLiteral("managerSecondaryBtn"),
+                                                QStringLiteral("取消当前传输操作"),
+                                                QStyle::SP_DialogCancelButton);
+    actionCard.contentLayout->addLayout(createWorkspaceButtonRow({chrome.cancelButton}));
+    bodyLayout->addWidget(actionCard.frame);
+    bodyLayout->addStretch();
+
+    rootLayout->addWidget(bodyFrame);
+    applyToneProperty(chrome.statusChip, QStringLiteral("accent"));
+}
+
+void updateTransferOperationDialog(TransferOperationDialog& chrome,
+                                   const QString& phaseText,
+                                   const QString& detailText,
+                                   int percent,
+                                   const QString& metricText,
+                                   const QString& tone) {
+    if (chrome.statusChip) {
+        chrome.statusChip->setText(phaseText);
+        applyToneProperty(chrome.statusChip, tone);
+    }
+    if (chrome.detailLabel) {
+        chrome.detailLabel->setText(detailText);
+    }
+    if (chrome.metricLabel) {
+        chrome.metricLabel->setText(metricText);
+    }
+    if (chrome.progressBar) {
+        const int boundedPercent = qMax(0, qMin(percent, 100));
+        chrome.progressBar->setValue(boundedPercent);
+        chrome.progressBar->setFormat(QStringLiteral("%1%").arg(boundedPercent));
+    }
+    QApplication::processEvents();
+}
+
 QString selectedFriendManagerEntryId(QListWidget* friendList) {
     if (!friendList || !friendList->currentItem()) return QString();
     return friendList->currentItem()->data(Qt::UserRole).toString();
@@ -126,7 +1263,7 @@ bool trySelectedValidFriendId(QListWidget* friendList,
         return false;
     }
     if (selectedId.startsWith("search_add:")) {
-        if (statusBar) statusBar->showMessage("请先选择有效好友，或点击搜索申请", 2200);
+        if (statusBar) statusBar->showMessage("请先选择有效好友，或直接搜索并申请", 2200);
         return false;
     }
     if (friendId) {
@@ -196,6 +1333,377 @@ QStringList visibleFriendNoticeIds(QListWidget* noticeList) {
         entryIds << id;
     }
     return NotificationPanelManager::visibleFriendNoticeTargetIds(entryIds);
+}
+
+GroupWorkspaceResult runGroupFormWorkspaceDialog(QWidget* parent,
+                                                 const QString& dialogObjectName,
+                                                 const QString& windowTitle,
+                                                 const QString& titleText,
+                                                 const QString& subTitleText,
+                                                 const QString& searchPlaceholder,
+                                                 const QString& searchToolTip,
+                                                 const QString& guideText,
+                                                 const QString& previewPlaceholder,
+                                                 const QString& statsText,
+                                                 const QString& primaryLabel,
+                                                 const QString& secondaryLabel,
+                                                 const QString& listSectionTitle,
+                                                 const QString& listSectionHint,
+                                                 const QString& formSectionTitle,
+                                                 const QString& formSectionHint,
+                                                 const QString& primaryFieldLabelText,
+                                                 const QString& primaryFieldPlaceholder,
+                                                 const QString& secondaryFieldLabelText,
+                                                 const QString& secondaryFieldPlaceholder,
+                                                 const QString& submitButtonText,
+                                                 const QString& submitButtonTip,
+                                                 const QString& closeButtonText,
+                                                 const QString& closeButtonTip,
+                                                 const QList<QPair<QString, QString>>& rows,
+                                                 bool primaryMultiline,
+                                                 bool secondaryMultiline,
+                                                 const QString& initialPrimaryValue = QString(),
+                                                 const QString& initialSecondaryValue = QString(),
+                                                 const QString& initialSelectedId = QString()) {
+    GroupWorkspaceResult result;
+    QDialog dialog(parent);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        dialogObjectName,
+        windowTitle,
+        QSize(920, 760),
+        QStringLiteral("managerTitle"),
+        titleText,
+        QStringLiteral("managerSubTitle"),
+        subTitleText,
+        QStringLiteral("managerSearch"),
+        searchPlaceholder,
+        searchToolTip,
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        guideText,
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        previewPlaceholder,
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(26, 18, 26, 16);
+    shell.bodyLayout->setContentsMargins(24, 22, 24, 22);
+    shell.bodyLayout->setSpacing(12);
+    shell.statsLabel->setText(statsText);
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* listWidget = shell.listWidget;
+    QLabel* hintLabel = shell.hintLabel;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+
+    auto rowPreviewText = [](const QString& line) {
+        const QStringList parts = line.split(QLatin1Char('\n'));
+        return parts.isEmpty() ? line : parts.first();
+    };
+    const QString primaryFieldName = !primaryLabel.trimmed().isEmpty()
+        ? primaryLabel.trimmed()
+        : (!primaryFieldLabelText.trimmed().isEmpty() ? primaryFieldLabelText.trimmed() : QStringLiteral("主要输入"));
+    const QString secondaryFieldName = !secondaryLabel.trimmed().isEmpty()
+        ? secondaryLabel.trimmed()
+        : (!secondaryFieldLabelText.trimmed().isEmpty() ? secondaryFieldLabelText.trimmed() : QStringLiteral("补充说明"));
+
+    auto emptyPreviewText = [=]() {
+        const QString filter = searchEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的参考项。可直接在右侧表单继续填写，或稍后切换到更合适的工作区上下文。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到参考项。\n可调整关键词，或直接在右侧表单继续填写。").arg(filter);
+    };
+
+    auto fillList = [=]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const auto& row : rows) {
+            if (!filter.isEmpty()
+                && !row.first.contains(filter, Qt::CaseInsensitive)
+                && !row.second.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(row.second);
+            item->setData(Qt::UserRole, row.first);
+            item->setToolTip(row.second);
+            item->setSizeHint(QSize(0, row.second.contains(QLatin1Char('\n')) ? 72 : 62));
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                listWidget,
+                QStringLiteral("没有匹配的参考项"),
+                QStringLiteral("试试调整关键词，或直接在右侧表单继续填写。"),
+                emptyPreviewText());
+        }
+        if (listWidget->count() > 0) {
+            int rowIndex = 0;
+            if (!initialSelectedId.isEmpty()) {
+                for (int i = 0; i < listWidget->count(); ++i) {
+                    QListWidgetItem* item = listWidget->item(i);
+                    if (item && item->data(Qt::UserRole).toString() == initialSelectedId) {
+                        rowIndex = i;
+                        break;
+                    }
+                }
+            }
+            selectPreferredListRow(listWidget, rowIndex);
+        }
+        statsLabel->setText(QStringLiteral("%1 · 可见 %2 / %3 项").arg(statsText).arg(visibleCount).arg(rows.size()));
+    };
+
+    QLabel* primaryFieldLabel = new QLabel(primaryFieldLabelText, shell.bodyFrame);
+    primaryFieldLabel->setObjectName(QStringLiteral("workspaceSectionHint"));
+    primaryFieldLabel->setVisible(!primaryFieldLabelText.trimmed().isEmpty());
+    QWidget* primaryInput = nullptr;
+    QLineEdit* primaryLineEdit = nullptr;
+    QTextEdit* primaryTextEdit = nullptr;
+    if (primaryMultiline) {
+        primaryTextEdit = new QTextEdit(shell.bodyFrame);
+        primaryTextEdit->setObjectName(QStringLiteral("messageEdit"));
+        primaryTextEdit->setPlaceholderText(primaryFieldPlaceholder);
+        primaryTextEdit->setPlainText(initialPrimaryValue);
+        primaryTextEdit->setMinimumHeight(120);
+        primaryInput = primaryTextEdit;
+    } else {
+        primaryLineEdit = new QLineEdit(shell.bodyFrame);
+        primaryLineEdit->setObjectName(QStringLiteral("managerSearch"));
+        primaryLineEdit->setPlaceholderText(primaryFieldPlaceholder);
+        primaryLineEdit->setText(initialPrimaryValue);
+        primaryInput = primaryLineEdit;
+    }
+
+    QLabel* secondaryFieldLabel = new QLabel(secondaryFieldLabelText, shell.bodyFrame);
+    secondaryFieldLabel->setObjectName(QStringLiteral("workspaceSectionHint"));
+    secondaryFieldLabel->setVisible(!secondaryFieldLabelText.trimmed().isEmpty());
+    QWidget* secondaryInput = nullptr;
+    QLineEdit* secondaryLineEdit = nullptr;
+    QTextEdit* secondaryTextEdit = nullptr;
+    if (!secondaryFieldLabelText.trimmed().isEmpty() || !secondaryFieldPlaceholder.trimmed().isEmpty() || !initialSecondaryValue.trimmed().isEmpty()) {
+        if (secondaryMultiline) {
+            secondaryTextEdit = new QTextEdit(shell.bodyFrame);
+            secondaryTextEdit->setObjectName(QStringLiteral("messageEdit"));
+            secondaryTextEdit->setPlaceholderText(secondaryFieldPlaceholder);
+            secondaryTextEdit->setPlainText(initialSecondaryValue);
+            secondaryTextEdit->setMinimumHeight(88);
+            secondaryInput = secondaryTextEdit;
+        } else {
+            secondaryLineEdit = new QLineEdit(shell.bodyFrame);
+            secondaryLineEdit->setObjectName(QStringLiteral("managerSearch"));
+            secondaryLineEdit->setPlaceholderText(secondaryFieldPlaceholder);
+            secondaryLineEdit->setText(initialSecondaryValue);
+            secondaryInput = secondaryLineEdit;
+        }
+    }
+
+    QPushButton* useSelectedBtn = createWorkspaceButton(shell.bodyFrame,
+                                                        &dialog,
+                                                        QStringLiteral("带入选中项"),
+                                                        QStringLiteral("managerSecondaryBtn"),
+                                                        QStringLiteral("将当前选中项的主信息带入输入区域，便于继续编辑"),
+                                                        QStyle::SP_ArrowDown);
+    QPushButton* clearInputBtn = createWorkspaceButton(shell.bodyFrame,
+                                                       &dialog,
+                                                       QStringLiteral("清空输入"),
+                                                       QStringLiteral("managerSecondaryBtn"),
+                                                       QStringLiteral("清空当前表单输入"),
+                                                       QStyle::SP_DialogResetButton);
+    QPushButton* submitBtn = createWorkspaceButton(shell.bodyFrame,
+                                                   &dialog,
+                                                   submitButtonText,
+                                                   QStringLiteral("managerPrimaryBtn"),
+                                                   submitButtonTip,
+                                                   QStyle::SP_DialogApplyButton);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame,
+                                                  &dialog,
+                                                  closeButtonText,
+                                                  QStringLiteral("managerSecondaryBtn"),
+                                                  closeButtonTip,
+                                                  QStyle::SP_DialogCloseButton);
+
+    shell.bodyLayout->removeWidget(listWidget);
+
+    WorkspaceSectionCard listCard = createWorkspaceSectionCard(shell.bodyFrame, listSectionTitle, listSectionHint);
+    listCard.contentLayout->addWidget(listWidget);
+    shell.bodyLayout->insertWidget(1, listCard.frame, 1);
+
+    WorkspaceSectionCard formCard = createWorkspaceSectionCard(shell.bodyFrame, formSectionTitle, formSectionHint);
+    if (primaryFieldLabel->isVisible()) {
+        formCard.contentLayout->addWidget(primaryFieldLabel);
+    }
+    if (primaryInput) {
+        formCard.contentLayout->addWidget(primaryInput);
+    }
+    if (secondaryFieldLabel->isVisible()) {
+        formCard.contentLayout->addWidget(secondaryFieldLabel);
+    }
+    if (secondaryInput) {
+        formCard.contentLayout->addWidget(secondaryInput);
+    }
+    formCard.contentLayout->addLayout(createWorkspaceButtonRow({useSelectedBtn, clearInputBtn, submitBtn}, closeBtn));
+    shell.bodyLayout->addWidget(formCard.frame);
+
+    auto currentPrimaryValue = [=]() {
+        return primaryTextEdit ? primaryTextEdit->toPlainText().trimmed()
+                               : (primaryLineEdit ? primaryLineEdit->text().trimmed() : QString());
+    };
+    auto currentSecondaryValue = [=]() {
+        if (!secondaryInput) {
+            return QString();
+        }
+        return secondaryTextEdit ? secondaryTextEdit->toPlainText().trimmed()
+                                 : (secondaryLineEdit ? secondaryLineEdit->text().trimmed() : QString());
+    };
+    auto setPrimaryValue = [=](const QString& value) {
+        if (primaryTextEdit) {
+            primaryTextEdit->setPlainText(value);
+        } else if (primaryLineEdit) {
+            primaryLineEdit->setText(value);
+        }
+    };
+    auto setSecondaryValue = [=](const QString& value) {
+        if (secondaryTextEdit) {
+            secondaryTextEdit->setPlainText(value);
+        } else if (secondaryLineEdit) {
+            secondaryLineEdit->setText(value);
+        }
+    };
+    auto selectedItem = [listWidget]() {
+        return listWidget->currentItem();
+    };
+    auto currentSelectedId = [selectedItem]() {
+        QListWidgetItem* item = selectedItem();
+        return item ? item->data(Qt::UserRole).toString().trimmed() : QString();
+    };
+    auto updatePreview = [=]() {
+        QListWidgetItem* item = selectedItem();
+        if (!item) {
+            previewLabel->setText(hasEnabledListRow(listWidget)
+                                      ? (currentPrimaryValue().isEmpty()
+                                             ? previewPlaceholder
+                                             : QStringLiteral("%1：%2\n可继续带入参考项、补充说明，或直接提交当前表单。")
+                                                   .arg(primaryFieldName, currentPrimaryValue()))
+                                      : emptyPreviewText());
+            return;
+        }
+        const QString currentInput = currentPrimaryValue().isEmpty() ? QStringLiteral("未填写") : currentPrimaryValue();
+        const QString secondaryInputText = currentSecondaryValue().isEmpty() ? QStringLiteral("未填写") : currentSecondaryValue();
+        previewLabel->setText(QStringLiteral("%1\n%2：%3\n%4：%5")
+                                  .arg(item->toolTip(),
+                                       primaryFieldName,
+                                       currentInput,
+                                       secondaryFieldName,
+                                       secondaryInputText));
+    };
+    auto updateActionState = [=]() {
+        const bool hasSelection = !currentSelectedId().isEmpty();
+        const bool hasPrimary = !currentPrimaryValue().isEmpty();
+        const bool hasSecondary = !currentSecondaryValue().isEmpty();
+        const bool hasInput = hasPrimary || hasSecondary;
+        const bool hasVisibleReference = hasEnabledListRow(listWidget);
+        const bool canSubmit = hasPrimary || hasSelection;
+
+        useSelectedBtn->setEnabled(hasSelection);
+        useSelectedBtn->setToolTip(hasSelection
+                                       ? QStringLiteral("将当前选中项带入输入区域，便于继续编辑")
+                                       : QStringLiteral("请先从左侧选择一个参考项"));
+        clearInputBtn->setEnabled(hasInput);
+        clearInputBtn->setToolTip(hasInput
+                                      ? QStringLiteral("清空当前表单输入")
+                                      : QStringLiteral("当前没有需要清空的表单输入"));
+        submitBtn->setEnabled(canSubmit);
+        submitBtn->setToolTip(canSubmit
+                                  ? submitButtonTip
+                                  : QStringLiteral("请先填写主要输入，或从左侧选择一个参考项"));
+        hintLabel->setText(!hasVisibleReference
+                               ? emptyPreviewText()
+                               : (hasPrimary
+                                      ? QStringLiteral("当前表单已准备好，可直接提交，或继续从左侧带入参考项补充上下文。")
+                                      : (hasSelection
+                                             ? QStringLiteral("当前已选中参考项，可带入输入区后提交，或直接继续手动填写。")
+                                             : guideText)));
+    };
+
+    QObject::connect(searchEdit, &QLineEdit::textChanged, &dialog, [=](const QString&) {
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    QObject::connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    QObject::connect(useSelectedBtn, &QPushButton::clicked, &dialog, [=]() {
+        QListWidgetItem* item = selectedItem();
+        if (!item) {
+            return;
+        }
+        setPrimaryValue(item->data(Qt::UserRole).toString());
+        if (secondaryInput && currentSecondaryValue().isEmpty()) {
+            setSecondaryValue(rowPreviewText(item->toolTip()));
+        }
+        updatePreview();
+        updateActionState();
+    });
+    QObject::connect(clearInputBtn, &QPushButton::clicked, &dialog, [=]() {
+        setPrimaryValue(QString());
+        setSecondaryValue(QString());
+        updatePreview();
+        updateActionState();
+    });
+    QObject::connect(submitBtn, &QPushButton::clicked, &dialog, [&]() {
+        result.primaryValue = currentPrimaryValue();
+        result.secondaryValue = currentSecondaryValue();
+        QListWidgetItem* item = selectedItem();
+        result.selectedId = item ? item->data(Qt::UserRole).toString() : initialSelectedId;
+        result.applied = true;
+        dialog.accept();
+    });
+    QObject::connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+    if (primaryLineEdit) {
+        QObject::connect(primaryLineEdit, &QLineEdit::returnPressed, &dialog, [&]() { submitBtn->click(); });
+        QObject::connect(primaryLineEdit, &QLineEdit::textChanged, &dialog, [=](const QString&) {
+            updatePreview();
+            updateActionState();
+        });
+    }
+    if (primaryTextEdit) {
+        QObject::connect(primaryTextEdit, &QTextEdit::textChanged, &dialog, [=]() {
+            updatePreview();
+            updateActionState();
+        });
+    }
+    if (secondaryLineEdit) {
+        QObject::connect(secondaryLineEdit, &QLineEdit::textChanged, &dialog, [=](const QString&) {
+            updatePreview();
+            updateActionState();
+        });
+    }
+    if (secondaryTextEdit) {
+        QObject::connect(secondaryTextEdit, &QTextEdit::textChanged, &dialog, [=]() {
+            updatePreview();
+            updateActionState();
+        });
+    }
+
+    fillList();
+    updatePreview();
+    updateActionState();
+    dialog.setStyleSheet(productDialogStyleSheet());
+    if (primaryLineEdit) {
+        primaryLineEdit->setFocus();
+        primaryLineEdit->selectAll();
+    } else if (primaryTextEdit) {
+        primaryTextEdit->setFocus();
+    }
+    dialog.exec();
+    return result;
 }
 
 QString selectedGroupNoticeEntryId(QListWidget* noticeList) {
@@ -323,6 +1831,10 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_trayIcon(new QSystemTrayIcon(this))
     , m_resumeSavedTransferAction(nullptr)
     , m_clearSavedTransferAction(nullptr)
+    , m_hasLastTransferRecoveryUiState(false)
+    , m_hasLastTransferStatusEvent(false)
+    , m_hasTransferWorkspaceSendState(false)
+    , m_hasTransferWorkspaceSavedFileState(false)
     , m_unreadCount(0)
     , m_isQuitting(false)
 {
@@ -336,19 +1848,30 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
         m_client->setParent(this);
     }
     if (!m_client) {
-        QMessageBox::critical(this, "错误", "客户端未初始化");
+        QMessageBox box(QMessageBox::Critical,
+                        QStringLiteral("启动失败"),
+                        QStringLiteral("客户端未初始化，当前窗口无法继续加载。"),
+                        QMessageBox::Ok,
+                        this);
+        applyProductDialogChrome(&box);
+        box.setIconPixmap(style()->standardIcon(QStyle::SP_MessageBoxCritical).pixmap(28, 28));
+        if (QAbstractButton* okButton = box.button(QMessageBox::Ok)) {
+            okButton->setText(QStringLiteral("知道了"));
+            okButton->setObjectName(QStringLiteral("managerPrimaryBtn"));
+        }
+        box.exec();
         close();
         return;
     }
 
     setWindowTitle(appWindowTitle(userName));
     ui->avatarLabel->setText(userName.left(1).toUpper());
-    ui->profileNameLabel->setText("QQ: " + userId);
-    ui->profileIdLabel->setText("昵称: " + userName);
+    ui->profileNameLabel->setText(userName);
+    ui->profileIdLabel->setText(QString("QQ %1").arg(userId));
     loadAvatar();
     ui->appTitleLabel->setText("Qt 聊天室");
     ui->chatTitleLabel->setText("公共聊天室");
-    ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
+    ui->chatHintLabel->setText(QString("公共会话工作区 · 当前账号 QQ %1 · 双击左侧成员即可切换私聊").arg(m_currentUserId));
 
     connect(m_client, &Client::connected, this, [this]() {
         appendSystemMessage("已连接服务器 · " + m_client->transportSecurityDescription());
@@ -376,7 +1899,7 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
         const int percent = totalBytes > 0
             ? qBound(0, static_cast<int>((bytesReceived * 100) / totalBytes), 100)
             : 0;
-        const QString detail = QString("正在接收分片文件 · %1 · %2 / %3 · %4%")
+        const QString detail = QString("文件接收中 · %1 · %2 / %3 · %4%")
             .arg(fileName, LocalFileManager::humanFileSize(bytesReceived), LocalFileManager::humanFileSize(totalBytes))
             .arg(percent);
         ui->chatHintLabel->setText(detail);
@@ -388,15 +1911,15 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     m_historyService.setUserId(m_currentUserId);
     m_clientStorage.setUserName(m_currentUserName);
     setWindowIcon(createChatIcon(m_currentUserName));
-    ui->profileNameLabel->setText("QQ: " + m_currentUserId);
-    ui->profileIdLabel->setText("昵称: " + m_currentUserName);
-    ui->profileNameLabel->setToolTip(QString("当前 QQ 号：%1").arg(m_currentUserId));
-    ui->profileIdLabel->setToolTip(QString("当前昵称：%1").arg(m_currentUserName));
-    ui->profileCard->setToolTip("右键可复制名片、在线状态，或打开好友管理");
+    ui->profileNameLabel->setText(m_currentUserName);
+    ui->profileIdLabel->setText(QString("QQ %1").arg(m_currentUserId));
+    ui->profileNameLabel->setToolTip(QString("当前昵称：%1").arg(m_currentUserName));
+    ui->profileIdLabel->setToolTip(QString("当前 QQ 号：%1").arg(m_currentUserId));
+    ui->profileCard->setToolTip("右键打开账号工作区，统一处理账号、头像、搜索与好友入口");
     ui->copyAccountBtn->setToolTip(QString("复制 QQ 号 %1 到剪贴板").arg(m_currentUserId));
     saveProfileToSqlite();
     ui->addFriendBtn->hide();
-    ui->uploadAvatarBtn->setText("换头像");
+    ui->uploadAvatarBtn->setText("头像工作区");
     if (m_client->hasServerGroupSnapshot()) {
         onServerGroupSnapshotReceived(m_client->serverGroups());
     }
@@ -433,26 +1956,58 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
     for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
         QString preparedSummary;
         bool cancelRequested = false;
-        QProgressDialog progress(this);
-        progress.setWindowTitle(QString("发送%1").arg(kind));
-        progress.setLabelText(m_transferManager.sendingInitialState(kind, info.fileName(), targetName).labelText);
-        progress.setRange(0, 100);
-        progress.setValue(0);
-        progress.setMinimumDuration(0);
-        progress.setAutoClose(false);
-        progress.setAutoReset(false);
-        progress.setCancelButtonText("取消发送");
-        progress.show();
+        TransferOperationDialog progress(this);
+        setupTransferOperationDialog(progress,
+                                     this,
+                                     QStringLiteral("transferSendingDialog"),
+                                     QStringLiteral("发送中"),
+                                     QStringLiteral("发送%1").arg(kind),
+                                     QStringLiteral("当前操作会持续同步到文件工作区，便于随时判断进度、取消或后续恢复。"),
+                                     QStringLiteral("取消发送会保留最近状态摘要，方便你稍后判断是否重试。"),
+                                     QStringLiteral("取消发送"));
+        TransferSendUiState sendingWorkspaceState;
+        sendingWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 正在发送");
+        sendingWorkspaceState.workspaceDetail = QStringLiteral("正在发送%1“%2”到 %3。进度、重试和最终结果会持续显示在这里。")
+            .arg(kind, info.fileName(), targetName);
+        sendingWorkspaceState.hintText = QStringLiteral("正在发送%1 · %2").arg(kind, info.fileName());
+        sendingWorkspaceState.statusMessage = QStringLiteral("正在发送%1：%2").arg(kind, info.fileName());
+        sendingWorkspaceState.statusTone = QStringLiteral("accent");
+        setTransferWorkspaceSendState(sendingWorkspaceState);
+        const TransferProgressUiState initialState =
+            m_transferManager.sendingInitialState(kind, info.fileName(), targetName);
+        updateTransferOperationDialog(progress,
+                                      QStringLiteral("准备发送"),
+                                      QStringLiteral("正在准备把%1“%2”发送到 %3。").arg(kind, info.fileName(), targetName),
+                                      initialState.percent,
+                                      QStringLiteral("%1% · 等待准备").arg(initialState.percent),
+                                      QStringLiteral("accent"));
+        progress.dialog.show();
         QApplication::processEvents();
 
         QMetaObject::Connection cancelConnection = connect(
-            &progress,
-            &QProgressDialog::canceled,
+            progress.cancelButton,
+            &QPushButton::clicked,
             this,
             [this, &progress, &info, &kind, &cancelRequested, canceled]() {
                 cancelRequested = true;
                 if (canceled) *canceled = true;
-                progress.setLabelText(m_transferManager.sendingCancelState(kind, info.fileName()).labelText);
+                const TransferProgressUiState cancelState =
+                    m_transferManager.sendingCancelState(kind, info.fileName());
+                updateTransferOperationDialog(progress,
+                                              QStringLiteral("正在取消"),
+                                              QStringLiteral("%1“%2”正在取消发送，系统会保留最近状态并在结束后更新文件工作区。")
+                                                  .arg(kind, info.fileName()),
+                                              cancelState.percent,
+                                              QStringLiteral("%1% · 正在取消").arg(cancelState.percent),
+                                              QStringLiteral("warning"));
+                TransferSendUiState canceledWorkspaceState;
+                canceledWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 正在取消");
+                canceledWorkspaceState.workspaceDetail = QStringLiteral("%1“%2”正在取消发送，系统会保留最新状态并在结束后更新这里。")
+                    .arg(kind, info.fileName());
+                canceledWorkspaceState.hintText = QStringLiteral("正在取消发送%1 · %2").arg(kind, info.fileName());
+                canceledWorkspaceState.statusMessage = QStringLiteral("正在取消发送%1：%2").arg(kind, info.fileName());
+                canceledWorkspaceState.statusTone = QStringLiteral("warning");
+                setTransferWorkspaceSendState(canceledWorkspaceState);
                 if (m_client) m_client->cancelCurrentOutgoingTransfer();
                 ui->statusbar->showMessage(QString("正在取消发送%1：%2").arg(kind, info.fileName()), 1600);
                 QApplication::processEvents();
@@ -464,8 +2019,29 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
             [this, &progress, &info, &targetName, &kind](const QString& fileName, qint64 bytesPrepared, qint64 totalBytes) {
                 if (fileName != info.fileName()) return;
                 const TransferProgressUiState state = m_transferManager.sendingProgressState(kind, fileName, targetName, bytesPrepared, totalBytes);
-                progress.setValue(state.percent);
-                progress.setLabelText(state.labelText);
+                updateTransferOperationDialog(progress,
+                                              QStringLiteral("正在发送"),
+                                              QStringLiteral("正在发送%1“%2”到 %3，已准备 %4 / %5。")
+                                                  .arg(kind,
+                                                       fileName,
+                                                       targetName,
+                                                       LocalFileManager::humanFileSize(bytesPrepared),
+                                                       LocalFileManager::humanFileSize(totalBytes)),
+                                              state.percent,
+                                              QStringLiteral("%1% · %2").arg(state.percent).arg(state.labelText),
+                                              QStringLiteral("accent"));
+                TransferSendUiState progressWorkspaceState;
+                progressWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 正在发送");
+                progressWorkspaceState.workspaceDetail = QStringLiteral("正在发送%1“%2”到 %3，已准备 %4 / %5。")
+                    .arg(kind,
+                         fileName,
+                         targetName,
+                         LocalFileManager::humanFileSize(bytesPrepared),
+                         LocalFileManager::humanFileSize(totalBytes));
+                progressWorkspaceState.hintText = QStringLiteral("正在发送%1 · %2").arg(kind, fileName);
+                progressWorkspaceState.statusMessage = QStringLiteral("正在发送%1：%2").arg(kind, fileName);
+                progressWorkspaceState.statusTone = QStringLiteral("accent");
+                setTransferWorkspaceSendState(progressWorkspaceState);
                 QApplication::processEvents();
             });
         QMetaObject::Connection preparedConnection = connect(
@@ -480,7 +2056,21 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
                 if (fileName != info.fileName()) return;
                 const TransferProgressUiState state = m_transferManager.sendingPreparedState(kind, fileName, targetName, totalBytes, chunkSize, chunkCount, fileHash);
                 preparedSummary = state.manifestSummary;
-                progress.setLabelText(state.labelText);
+                updateTransferOperationDialog(progress,
+                                              QStringLiteral("清单已就绪"),
+                                              QStringLiteral("%1“%2”已生成校验清单并继续发送到 %3。%4")
+                                                  .arg(kind, fileName, targetName, state.manifestSummary),
+                                              qMax(state.percent, 10),
+                                              QStringLiteral("%1% · 清单已生成").arg(qMax(state.percent, 10)),
+                                              QStringLiteral("success"));
+                TransferSendUiState preparedWorkspaceState;
+                preparedWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 清单已就绪");
+                preparedWorkspaceState.workspaceDetail = QStringLiteral("%1“%2”已生成校验清单并继续发送到 %3。%4")
+                    .arg(kind, fileName, targetName, state.manifestSummary);
+                preparedWorkspaceState.hintText = QStringLiteral("已生成%1发送清单 · %2").arg(kind, fileName);
+                preparedWorkspaceState.statusMessage = QStringLiteral("%1发送清单已生成：%2").arg(kind, fileName);
+                preparedWorkspaceState.statusTone = QStringLiteral("success");
+                setTransferWorkspaceSendState(preparedWorkspaceState);
                 QApplication::processEvents();
             });
 
@@ -491,9 +2081,20 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
         QObject::disconnect(progressConnection);
         QObject::disconnect(preparedConnection);
         QObject::disconnect(cancelConnection);
-        progress.setValue(ok ? 100 : progress.value());
-        QApplication::processEvents();
-        progress.close();
+        updateTransferOperationDialog(progress,
+                                      ok ? QStringLiteral("发送完成") : (cancelRequested ? QStringLiteral("已取消") : QStringLiteral("发送失败")),
+                                      ok
+                                          ? QStringLiteral("%1“%2”已发送完成，可回到文件工作区继续查看摘要、回执和保存动作。").arg(kind, info.fileName())
+                                          : (cancelRequested
+                                              ? QStringLiteral("%1“%2”已取消发送，最近状态会保留在文件工作区。").arg(kind, info.fileName())
+                                              : QStringLiteral("%1“%2”发送未完成，可在文件工作区查看失败原因并决定是否重试。").arg(kind, info.fileName())),
+                                      ok ? 100 : progress.progressBar->value(),
+                                      ok ? QStringLiteral("100% · 已完成")
+                                         : (cancelRequested ? QStringLiteral("%1% · 已取消").arg(progress.progressBar->value())
+                                                            : QStringLiteral("%1% · 未完成").arg(progress.progressBar->value())),
+                                      ok ? QStringLiteral("success")
+                                         : QStringLiteral("warning"));
+        progress.dialog.close();
 
         if (cancelRequested && !ok) {
             if (transferSummary) *transferSummary = "已取消";
@@ -507,16 +2108,14 @@ bool MainWindow::sendTransferWithProgress(const QString& filePath,
         }
 
         if (attempt < maxAttempts) {
-            const QMessageBox::StandardButton retry = QMessageBox::warning(
-                this,
-                QString("%1发送失败").arg(kind),
-                QString("%1“%2”发送失败，是否立即重试？\n当前为第 %3 次，共最多 %4 次。")
-                    .arg(kind, info.fileName())
-                    .arg(attempt)
-                    .arg(maxAttempts),
-                QMessageBox::Retry | QMessageBox::Cancel,
-                QMessageBox::Retry);
-            if (retry == QMessageBox::Retry) {
+            if (confirmDestructiveAction(QString("%1发送失败").arg(kind),
+                                         QString("%1“%2”发送失败，是否立即重试？\n当前为第 %3 次，共最多 %4 次。")
+                                             .arg(kind, info.fileName())
+                                             .arg(attempt)
+                                             .arg(maxAttempts),
+                                         QStringLiteral("立即重试"),
+                                         QStringLiteral("先取消"),
+                                         this)) {
                 ui->statusbar->showMessage(QString("正在重试发送%1：%2").arg(kind, info.fileName()), 1800);
                 continue;
             }
@@ -547,6 +2146,8 @@ void MainWindow::showFileTransferStatusEvent(const QString& fileName,
     appendSystemMessage(event.message);
     ui->chatHintLabel->setText(event.chatHintText);
     ui->statusbar->showMessage(event.statusBarMessage, event.statusBarTimeoutMs);
+    clearTransferWorkspaceSendState();
+    refreshTransferWorkspaceCard(nullptr, &event, nullptr);
 }
 
 LocalSavedFileState MainWindow::savedFileActionState(const QModelIndex& index) const {
@@ -574,6 +2175,191 @@ bool MainWindow::copySavedFilePathToClipboard(const ChatContextSavedFileCommand&
     QApplication::clipboard()->setText(command.clipboardText);
     ui->statusbar->showMessage(command.successStatusMessage, command.timeoutMs);
     return true;
+}
+
+void MainWindow::showSavedFileWorkspace(const LocalSavedFileState& savedFileState,
+                                        const QString& chatText,
+                                        const QString& fallbackStatusMessage) {
+    if (!savedFileState.hasSavePath) {
+        if (!fallbackStatusMessage.trimmed().isEmpty()) {
+            ui->statusbar->showMessage(fallbackStatusMessage, 1800);
+        }
+        return;
+    }
+
+    setTransferWorkspaceSavedFileState(savedFileState, chatText);
+    const QString fileName = savedFileState.fileInfo.fileName().trimmed().isEmpty()
+        ? QStringLiteral("已保存文件")
+        : savedFileState.fileInfo.fileName();
+    const QString fileSize = savedFileState.fileInfo.exists()
+        ? LocalFileManager::humanFileSize(savedFileState.fileInfo.size())
+        : QString();
+    const QString flowText = ChatContextManager::mediaFlowText(chatText,
+                                                               m_privateChatTarget,
+                                                               m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget),
+                                                               m_currentUserId,
+                                                               m_currentUserName);
+    const TransferWorkspaceSummaryState summary =
+        m_transferManager.savedFileWorkspaceSummary(fileName,
+                                                    fileSize,
+                                                    savedFileState.savePath,
+                                                    savedFileState.canOpenFile,
+                                                    savedFileState.canOpenFolder,
+                                                    flowText);
+
+    TransferSendUiState workspaceState;
+    workspaceState.workspaceTitle = summary.title;
+    workspaceState.workspaceDetail = summary.detail;
+    workspaceState.hintText = savedFileState.canOpenFile
+        ? QStringLiteral("已保存文件工作区 · %1").arg(fileName)
+        : QStringLiteral("已保存文件需检查路径 · %1").arg(fileName);
+    workspaceState.statusMessage = savedFileState.canOpenFile
+        ? QStringLiteral("已切换到保存文件工作区：") + fileName
+        : QStringLiteral("已切换到保存文件排查工作区：") + fileName;
+    workspaceState.statusTone = savedFileState.canOpenFile ? QStringLiteral("success") : QStringLiteral("warning");
+    setTransferWorkspaceSendState(workspaceState);
+}
+
+void MainWindow::clearSavedFileWorkspace() {
+    m_hasTransferWorkspaceSavedFileState = false;
+    m_transferWorkspaceSavedFileState = LocalSavedFileState();
+    m_transferWorkspaceSavedChatText.clear();
+    if (m_hasTransferWorkspaceSendState
+        && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState)) {
+        clearTransferWorkspaceSendState();
+        refreshTransferWorkspaceCard();
+    }
+}
+
+void MainWindow::setTransferWorkspaceSavedFileState(const LocalSavedFileState& savedFileState,
+                                                    const QString& chatText) {
+    m_hasTransferWorkspaceSavedFileState = savedFileState.hasSavePath;
+    m_transferWorkspaceSavedFileState = savedFileState;
+    m_transferWorkspaceSavedChatText = chatText;
+}
+
+QString MainWindow::transferWorkspaceStatusSnapshotText() const {
+    QStringList rows;
+    rows << QStringLiteral("文件工作区状态");
+
+    const TransferWorkspaceSummaryState summary = currentTransferWorkspaceSummary();
+    if (!summary.title.trimmed().isEmpty()) {
+        rows << QStringLiteral("摘要标题:%1").arg(summary.title);
+    }
+    if (!summary.detail.trimmed().isEmpty()) {
+        rows << QStringLiteral("摘要说明:%1").arg(summary.detail);
+    }
+    if (!summary.nextStep.trimmed().isEmpty()) {
+        rows << QStringLiteral("下一步:%1").arg(summary.nextStep);
+    }
+    if (!summary.preservedState.trimmed().isEmpty()) {
+        rows << QStringLiteral("保留状态:%1").arg(summary.preservedState);
+    }
+    if (!summary.diagnosticHint.trimmed().isEmpty()) {
+        rows << QStringLiteral("诊断提示:%1").arg(summary.diagnosticHint);
+    }
+
+    if (m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer) {
+        rows << QStringLiteral("恢复记录:%1").arg(m_lastTransferRecoveryUiState.fileName);
+        rows << QStringLiteral("恢复模式:%1").arg(m_lastTransferRecoveryUiState.recoveryMode.isEmpty()
+                                                      ? QStringLiteral("未标记")
+                                                      : m_lastTransferRecoveryUiState.recoveryMode);
+        rows << QStringLiteral("恢复状态:%1").arg(m_lastTransferRecoveryUiState.canAutoResume
+                                                      ? QStringLiteral("可恢复")
+                                                      : QStringLiteral("需手动重发"));
+        if (!m_lastTransferRecoveryUiState.detail.isEmpty()) {
+            rows << QStringLiteral("恢复说明:%1").arg(m_lastTransferRecoveryUiState.detail);
+        }
+    }
+
+    if (m_hasLastTransferStatusEvent && !m_lastTransferStatusEvent.message.isEmpty()) {
+        rows << QStringLiteral("最近事件:%1").arg(m_lastTransferStatusEvent.message);
+        if (!m_lastTransferStatusEvent.actionHint.isEmpty()) {
+            rows << QStringLiteral("事件建议:%1").arg(m_lastTransferStatusEvent.actionHint);
+        }
+    }
+
+    if (m_hasTransferWorkspaceSendState && !m_transferWorkspaceSendState.workspaceTitle.isEmpty()) {
+        rows << QStringLiteral("当前工作区:%1").arg(m_transferWorkspaceSendState.workspaceTitle);
+        if (!m_transferWorkspaceSendState.workspaceDetail.isEmpty()) {
+            rows << QStringLiteral("工作区详情:%1").arg(m_transferWorkspaceSendState.workspaceDetail);
+        }
+    }
+
+    if (m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath) {
+        rows << QStringLiteral("保存文件:%1").arg(m_transferWorkspaceSavedFileState.fileInfo.fileName());
+        rows << QStringLiteral("保存路径:%1").arg(m_transferWorkspaceSavedFileState.savePath);
+        rows << QStringLiteral("文件可打开:%1").arg(m_transferWorkspaceSavedFileState.canOpenFile ? QStringLiteral("是") : QStringLiteral("否"));
+        rows << QStringLiteral("目录可打开:%1").arg(m_transferWorkspaceSavedFileState.canOpenFolder ? QStringLiteral("是") : QStringLiteral("否"));
+    }
+
+    if (!m_lastTransferStatusDiagnostic.trimmed().isEmpty()) {
+        rows << QStringLiteral("最近诊断:%1").arg(m_lastTransferStatusDiagnostic);
+    }
+    return rows.join(QLatin1Char('\n'));
+}
+
+TransferWorkspaceSummaryState MainWindow::currentTransferWorkspaceSummary(const TransferRecoveryUiState* recoveryState,
+                                                                         const TransferStatusEvent* latestEvent,
+                                                                         const TransferSendUiState* sendState) const {
+    const bool hasDiagnostic = !m_lastTransferStatusDiagnostic.trimmed().isEmpty();
+
+    const TransferRecoveryUiState* resolvedRecovery = nullptr;
+    TransferRecoveryUiState localRecovery;
+    if (recoveryState && recoveryState->hasSavedTransfer) {
+        resolvedRecovery = recoveryState;
+    } else if (m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer) {
+        localRecovery = m_lastTransferRecoveryUiState;
+        resolvedRecovery = &localRecovery;
+    }
+
+    const TransferStatusEvent* resolvedEvent = nullptr;
+    TransferStatusEvent localEvent;
+    if (latestEvent && !latestEvent->message.trimmed().isEmpty()) {
+        resolvedEvent = latestEvent;
+    } else if (m_hasLastTransferStatusEvent && !m_lastTransferStatusEvent.message.trimmed().isEmpty()) {
+        localEvent = m_lastTransferStatusEvent;
+        resolvedEvent = &localEvent;
+    }
+
+    const TransferSendUiState* resolvedSend = nullptr;
+    TransferSendUiState localSend;
+    if (sendState && (!sendState->workspaceTitle.trimmed().isEmpty() || !sendState->workspaceDetail.trimmed().isEmpty())) {
+        resolvedSend = sendState;
+    } else if (m_hasTransferWorkspaceSendState
+               && (!m_transferWorkspaceSendState.workspaceTitle.trimmed().isEmpty()
+                   || !m_transferWorkspaceSendState.workspaceDetail.trimmed().isEmpty())) {
+        localSend = m_transferWorkspaceSendState;
+        resolvedSend = &localSend;
+    }
+
+    if (resolvedRecovery) {
+        return m_transferManager.recoveryWorkspaceSummary(*resolvedRecovery, resolvedEvent, hasDiagnostic);
+    }
+    if (resolvedEvent) {
+        return m_transferManager.statusWorkspaceSummary(*resolvedEvent,
+                                                        m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer,
+                                                        hasDiagnostic);
+    }
+    if (resolvedSend) {
+        return m_transferManager.sendWorkspaceSummary(*resolvedSend, hasDiagnostic);
+    }
+    if (m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath) {
+        const QFileInfo fileInfo = m_transferWorkspaceSavedFileState.fileInfo;
+        const QString fileName = fileInfo.fileName().trimmed().isEmpty()
+            ? QStringLiteral("已保存文件")
+            : fileInfo.fileName();
+        const QString fileSize = fileInfo.exists()
+            ? LocalFileManager::humanFileSize(fileInfo.size())
+            : QString();
+        return m_transferManager.savedFileWorkspaceSummary(fileName,
+                                                           fileSize,
+                                                           m_transferWorkspaceSavedFileState.savePath,
+                                                           m_transferWorkspaceSavedFileState.canOpenFile,
+                                                           m_transferWorkspaceSavedFileState.canOpenFolder,
+                                                           ChatContextManager::plainContentText(m_transferWorkspaceSavedChatText));
+    }
+    return m_transferManager.emptyWorkspaceSummary(hasDiagnostic);
 }
 
 bool MainWindow::openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command) {
@@ -607,13 +2393,852 @@ bool MainWindow::openSavedFolderFromState(const LocalSavedFileState& savedFileSt
         return true;
     }
 
+    showFileTransferStatusEvent(savedFileState.fileInfo.fileName(),
+                                QString(),
+                                QStringLiteral("receive-open-failed"),
+                                0,
+                                0);
     ui->statusbar->showMessage(command.failureStatusMessage, command.timeoutMs);
     return false;
+}
+
+void MainWindow::refreshAvatarWorkspaceCard() {
+    if (!ui->avatarStatusCard || !ui->avatarStatusTitleLabel || !ui->avatarStatusDetailLabel) {
+        return;
+    }
+
+    const QString avatarPath = getAvatarFilePath();
+    const QFileInfo avatarInfo(avatarPath);
+    if (avatarInfo.exists()) {
+        ui->avatarStatusTitleLabel->setText(QStringLiteral("头像工作区 · 已保存"));
+        ui->avatarStatusDetailLabel->setText(
+            QStringLiteral("%1 已保存到本机。可右键头像按钮复制路径、打开目录，或继续更换头像。")
+                .arg(QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))));
+        applyToneProperty(ui->avatarStatusCard, QStringLiteral("success"));
+        return;
+    }
+
+    ui->avatarStatusTitleLabel->setText(QStringLiteral("头像工作区"));
+    ui->avatarStatusDetailLabel->setText(QStringLiteral("当前使用默认头像，可上传新头像，之后可继续复制路径或打开头像目录。"));
+    applyToneProperty(ui->avatarStatusCard, QStringLiteral("muted"));
+}
+
+void MainWindow::showAvatarWorkspace() {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("avatarWorkspaceDialog"),
+        QStringLiteral("头像工作区"),
+        QSize(860, 700),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("头像工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把更换头像、复制路径、打开目录和状态留档统一放进一个稳定工作面里。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索头像动作"),
+        QStringLiteral("按头像、更换、路径、目录或状态动作筛选"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一个头像动作，再决定更换头像、复制路径、打开目录，或复制当前状态。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释当前头像动作会如何影响本机头像文件、目录和资料卡。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* listWidget = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    struct AvatarWorkspaceRow {
+        QString id;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool accent = false;
+        bool muted = false;
+    };
+
+    auto avatarCardText = [this]() {
+        const QFileInfo avatarInfo(getAvatarFilePath());
+        return QStringLiteral("我的头像卡片\nQQ:%1\n昵称:%2\n头像:%3")
+            .arg(m_currentUserId,
+                 m_currentUserName,
+                 avatarInfo.exists()
+                     ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
+                     : QStringLiteral("当前使用默认头像"));
+    };
+    auto avatarStatusText = [this]() {
+        const QFileInfo avatarInfo(getAvatarFilePath());
+        return avatarInfo.exists()
+            ? QStringLiteral("头像工作区 · 当前头像 %1 · %2 · 路径 %3")
+                  .arg(avatarInfo.fileName(),
+                       LocalFileManager::humanFileSize(avatarInfo.size()),
+                       avatarInfo.absoluteFilePath())
+            : QStringLiteral("头像工作区 · 当前使用默认头像，可立即选择并保存新头像");
+    };
+    auto buildRows = [this]() {
+        QList<AvatarWorkspaceRow> rows;
+        const QFileInfo avatarInfo(getAvatarFilePath());
+        const bool hasAvatarFile = avatarInfo.exists();
+
+        rows << AvatarWorkspaceRow{
+            QStringLiteral("avatar-overview"),
+            QStringLiteral("当前头像"),
+            hasAvatarFile
+                ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
+                : QStringLiteral("当前使用默认头像"),
+            hasAvatarFile
+                ? QStringLiteral("头像总览\n头像：%1\n路径：%2\n可继续：更换头像、复制路径、打开目录")
+                      .arg(avatarInfo.fileName(), avatarInfo.absoluteFilePath())
+                : QStringLiteral("头像总览\n当前使用默认头像\n可继续：选择并保存新头像，然后再复制路径或打开目录。"),
+            QStringLiteral("头像 总览 路径 目录"),
+            true,
+            false};
+        rows << AvatarWorkspaceRow{
+            QStringLiteral("avatar-replace"),
+            QStringLiteral("更换头像"),
+            QStringLiteral("打开头像选择器，更新当前账号头像"),
+            QStringLiteral("更换头像\n会把新头像裁成统一方形并保存到本机资料目录。"),
+            QStringLiteral("更换 头像 上传 保存"),
+            false,
+            false};
+        rows << AvatarWorkspaceRow{
+            QStringLiteral("avatar-copy-card"),
+            QStringLiteral("复制头像卡片"),
+            QStringLiteral("复制当前头像、昵称和账号摘要"),
+            QStringLiteral("复制头像卡片\n便于留档、反馈或发给其他人核对当前头像状态。"),
+            QStringLiteral("复制 头像 卡片"),
+            false,
+            false};
+        rows << AvatarWorkspaceRow{
+            QStringLiteral("avatar-copy-path"),
+            QStringLiteral("复制头像路径"),
+            hasAvatarFile ? QStringLiteral("复制当前头像在本机的路径") : QStringLiteral("当前还没有保存过自定义头像"),
+            hasAvatarFile
+                ? QStringLiteral("复制头像路径\n当前头像文件位于：%1").arg(avatarInfo.absoluteFilePath())
+                : QStringLiteral("复制头像路径\n当前没有可复制的头像文件路径。"),
+            QStringLiteral("复制 路径 头像"),
+            false,
+            !hasAvatarFile};
+        rows << AvatarWorkspaceRow{
+            QStringLiteral("avatar-open-folder"),
+            QStringLiteral("打开头像目录"),
+            hasAvatarFile ? QStringLiteral("直接打开当前头像所在目录") : QStringLiteral("当前还没有保存过自定义头像"),
+            hasAvatarFile
+                ? QStringLiteral("打开头像目录\n会定位到当前头像所在目录，便于继续替换、备份或清理。")
+                : QStringLiteral("打开头像目录\n当前没有自定义头像文件，建议先保存一个头像。"),
+            QStringLiteral("打开 目录 头像"),
+            false,
+            !hasAvatarFile};
+        rows << AvatarWorkspaceRow{
+            QStringLiteral("avatar-copy-status"),
+            QStringLiteral("复制头像状态"),
+            QStringLiteral("复制当前头像工作区状态"),
+            QStringLiteral("复制头像状态\n整理当前头像文件、路径和是否已保存，便于反馈和记录。"),
+            QStringLiteral("复制 状态 头像"),
+            false,
+            false};
+
+        return rows;
+    };
+
+    auto rows = buildRows();
+    auto emptyPreviewText = [searchEdit]() {
+        const QString filter = searchEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的头像动作。可先准备头像文件，再从这里继续更换、复制路径或打开目录。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到头像动作。\n试试“头像”、“路径”、“目录”或“状态”这些关键词。").arg(filter);
+    };
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const AvatarWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.id);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (row.accent) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.muted) {
+                item->setForeground(QColor(100, 116, 139));
+            }
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                listWidget,
+                QStringLiteral("没有匹配的头像动作"),
+                QStringLiteral("试试“头像”、“路径”、“目录”或“状态”这些关键词。"),
+                emptyPreviewText());
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+        selectPreferredListRow(listWidget, 0);
+    };
+
+    auto selectedRow = [=, &rows]() -> AvatarWorkspaceRow* {
+        QListWidgetItem* currentItem = listWidget->currentItem();
+        if (!currentItem) {
+            return nullptr;
+        }
+        const QString id = currentItem->data(Qt::UserRole).toString();
+        for (AvatarWorkspaceRow& row : rows) {
+            if (row.id == id) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePreview = [=, &rows]() {
+        AvatarWorkspaceRow* row = selectedRow();
+        previewLabel->setText(row ? row->preview
+                                  : (firstEnabledListRow(listWidget) >= 0
+                                         ? QStringLiteral("这里会解释当前头像动作会如何影响本机头像文件、目录和资料卡。")
+                                         : emptyPreviewText()));
+    };
+
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("执行当前动作"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("执行当前头像动作"), QStyle::SP_ArrowForward);
+    QPushButton* copyCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制头像卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前头像摘要"), QStyle::SP_DialogSaveButton);
+    QPushButton* copyStatusBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区状态"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制头像工作区当前状态"), QStyle::SP_MessageBoxInformation);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭头像工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("头像动作"),
+        QStringLiteral("把更换头像、路径复制、目录打开和状态留档统一收进一个固定入口。"),
+        {openBtn, copyCardBtn, copyStatusBtn},
+        closeBtn);
+
+    auto avatarClipboardText = [=, &rows]() {
+        AvatarWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return avatarStatusText();
+        }
+        if (row->id == QLatin1String("avatar-copy-card")) {
+            return avatarCardText();
+        }
+        if (row->id == QLatin1String("avatar-copy-path")) {
+            return QFileInfo(getAvatarFilePath()).absoluteFilePath();
+        }
+        return avatarStatusText();
+    };
+    auto updateActionState = [=, &rows]() {
+        AvatarWorkspaceRow* row = selectedRow();
+        const QFileInfo avatarInfo(getAvatarFilePath());
+        const bool hasActionableRow = hasEnabledListRow(listWidget);
+        if (!row) {
+            openBtn->setEnabled(false);
+            openBtn->setText(QStringLiteral("执行当前动作"));
+            openBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("先选择一个头像动作后继续更换、复制路径或打开目录")
+                                    : QStringLiteral("当前没有可执行的头像动作"));
+            copyCardBtn->setEnabled(hasActionableRow);
+            copyCardBtn->setToolTip(hasActionableRow
+                                        ? QStringLiteral("复制当前头像工作区总览")
+                                        : QStringLiteral("当前没有可复制的头像摘要"));
+            copyStatusBtn->setEnabled(true);
+            copyStatusBtn->setToolTip(QStringLiteral("复制头像工作区当前状态"));
+            return;
+        }
+
+        copyCardBtn->setEnabled(true);
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制头像工作区当前状态"));
+        openBtn->setEnabled(true);
+        if (row->id == QLatin1String("avatar-replace")) {
+            openBtn->setText(QStringLiteral("更换头像"));
+            openBtn->setToolTip(QStringLiteral("打开头像选择器并保存新头像"));
+            copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片与状态摘要"));
+        } else if (row->id == QLatin1String("avatar-copy-card")) {
+            openBtn->setText(QStringLiteral("复制头像卡"));
+            openBtn->setToolTip(QStringLiteral("复制当前头像卡片"));
+            copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片"));
+        } else if (row->id == QLatin1String("avatar-copy-path")) {
+            openBtn->setText(QStringLiteral("复制头像路径"));
+            openBtn->setEnabled(avatarInfo.exists());
+            openBtn->setToolTip(avatarInfo.exists()
+                                    ? QStringLiteral("复制当前头像在本机的路径")
+                                    : QStringLiteral("当前还没有保存过自定义头像"));
+            copyCardBtn->setToolTip(avatarInfo.exists()
+                                        ? QStringLiteral("复制当前头像路径")
+                                        : QStringLiteral("当前还没有保存过自定义头像"));
+        } else if (row->id == QLatin1String("avatar-open-folder")) {
+            openBtn->setText(QStringLiteral("打开头像目录"));
+            openBtn->setEnabled(avatarInfo.exists());
+            openBtn->setToolTip(avatarInfo.exists()
+                                    ? QStringLiteral("定位到当前头像所在目录")
+                                    : QStringLiteral("当前还没有保存过自定义头像"));
+            copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片与目录状态摘要"));
+        } else if (row->id == QLatin1String("avatar-overview")) {
+            openBtn->setText(QStringLiteral("复制头像状态"));
+            openBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+            copyCardBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+        } else {
+            openBtn->setText(QStringLiteral("复制头像状态"));
+            openBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+            copyCardBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+        }
+    };
+
+    auto runSelectedCommand = [=, &rows, this, &dialog]() {
+        AvatarWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return;
+        }
+        const QFileInfo avatarInfo(getAvatarFilePath());
+        if (row->id == QLatin1String("avatar-replace")) {
+            dialog.accept();
+            onUploadAvatar();
+            return;
+        }
+        if (row->id == QLatin1String("avatar-overview")) {
+            copyTextWithStatus(avatarStatusText(), QStringLiteral("头像状态已复制"), 2200);
+            return;
+        }
+        if (row->id == QLatin1String("avatar-copy-card")) {
+            copyTextWithStatus(avatarCardText(), QStringLiteral("头像卡片已复制"), 2200);
+            return;
+        }
+        if (row->id == QLatin1String("avatar-copy-path")) {
+            if (!avatarInfo.exists()) {
+                ui->statusbar->showMessage(QStringLiteral("当前还没有保存过自定义头像"), 2200);
+                return;
+            }
+            copyTextWithStatus(avatarInfo.absoluteFilePath(), QStringLiteral("头像路径已复制"), 2200);
+            return;
+        }
+        if (row->id == QLatin1String("avatar-open-folder")) {
+            if (!avatarInfo.exists()) {
+                ui->statusbar->showMessage(QStringLiteral("当前还没有保存过自定义头像"), 2200);
+                return;
+            }
+            if (!QDesktopServices::openUrl(QUrl::fromLocalFile(avatarInfo.absolutePath()))) {
+                ui->statusbar->showMessage(QStringLiteral("头像目录无法打开"), 2200);
+            } else {
+                ui->statusbar->showMessage(QStringLiteral("已打开头像目录"), 2200);
+            }
+            return;
+        }
+        if (row->id == QLatin1String("avatar-copy-status")) {
+            copyTextWithStatus(avatarStatusText(), QStringLiteral("头像状态已复制"), 2200);
+        }
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [runSelectedCommand](QListWidgetItem*) {
+        runSelectedCommand();
+    });
+    connect(openBtn, &QPushButton::clicked, &dialog, runSelectedCommand);
+    connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        AvatarWorkspaceRow* row = selectedRow();
+        QString statusText = QStringLiteral("头像工作区总览已复制");
+        if (row) {
+            if (row->id == QLatin1String("avatar-copy-path")) {
+                statusText = QStringLiteral("头像路径已复制");
+            } else if (row->id == QLatin1String("avatar-overview")
+                       || row->id == QLatin1String("avatar-copy-status")) {
+                statusText = QStringLiteral("头像状态已复制");
+            } else {
+                statusText = QStringLiteral("头像卡已复制");
+            }
+        }
+        copyTextWithStatus(avatarClipboardText(), statusText, 2200);
+    });
+    connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        copyTextWithStatus(avatarStatusText(), QStringLiteral("头像工作区状态已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(QFileInfo::exists(getAvatarFilePath())
+        ? QStringLiteral("当前账号：%1 · 已保存头像").arg(m_currentUserId)
+        : QStringLiteral("当前账号：%1 · 使用默认头像").arg(m_currentUserId));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+}
+
+void MainWindow::showAvatarWorkspaceMenu(const QPoint& globalPos) {
+    Q_UNUSED(globalPos)
+    showAvatarWorkspace();
 }
 
 void MainWindow::copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs) {
     QApplication::clipboard()->setText(text);
     ui->statusbar->showMessage(statusMessage, timeoutMs);
+}
+
+bool MainWindow::showChoiceDialog(const QString& title,
+                                  const QString& message,
+                                  const QString& confirmText,
+                                  const QString& cancelText,
+                                  bool destructiveConfirm,
+                                  const QString& canceledStatusMessage,
+                                  int canceledStatusTimeoutMs,
+                                  QWidget* parent) const {
+    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
+    QDialog dialog(dialogParent);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        destructiveConfirm ? QStringLiteral("dangerChoiceWorkspaceDialog") : QStringLiteral("choiceWorkspaceDialog"),
+        title,
+        QSize(720, 420),
+        QStringLiteral("managerTitle"),
+        title,
+        QStringLiteral("managerSubTitle"),
+        destructiveConfirm
+            ? QStringLiteral("这是一个会改变当前状态的确认动作，请在继续前再核对一次。")
+            : QStringLiteral("请确认这一步是否继续执行。"),
+        QStringLiteral("managerSearch"),
+        QString(),
+        QString(),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        destructiveConfirm
+            ? QStringLiteral("阅读当前说明后，选择继续执行或取消返回。")
+            : QStringLiteral("确认当前说明后，选择继续或取消。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        message,
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    shell.searchEdit->hide();
+    shell.listWidget->hide();
+    shell.hintLabel->hide();
+    shell.statsLabel->setText(destructiveConfirm ? QStringLiteral("需要确认") : QStringLiteral("等待确认"));
+    shell.previewLabel->setText(message);
+
+    WorkspaceSectionCard contextCard = createWorkspaceSectionCard(shell.bodyFrame,
+                                                                  destructiveConfirm ? QStringLiteral("风险说明") : QStringLiteral("操作说明"),
+                                                                  destructiveConfirm
+                                                                      ? QStringLiteral("请确认你了解这一步会改变当前状态。")
+                                                                      : QStringLiteral("请确认你已阅读当前说明。"));
+    QLabel* messageLabel = new QLabel(message, contextCard.frame);
+    messageLabel->setObjectName(QStringLiteral("managerSelectionPreview"));
+    messageLabel->setWordWrap(true);
+    contextCard.contentLayout->addWidget(messageLabel);
+    shell.bodyLayout->insertWidget(0, contextCard.frame);
+
+    QPushButton* confirmButton = createWorkspaceButton(shell.bodyFrame,
+                                                       &dialog,
+                                                       confirmText.trimmed().isEmpty() ? QStringLiteral("继续") : confirmText,
+                                                       destructiveConfirm ? QStringLiteral("managerDangerBtn") : QStringLiteral("managerPrimaryBtn"),
+                                                       destructiveConfirm ? QStringLiteral("继续执行当前风险动作") : QStringLiteral("继续执行当前动作"),
+                                                       destructiveConfirm ? QStyle::SP_TrashIcon : QStyle::SP_DialogApplyButton);
+    QPushButton* cancelButton = nullptr;
+    if (!cancelText.trimmed().isEmpty()) {
+        cancelButton = createWorkspaceButton(shell.bodyFrame,
+                                             &dialog,
+                                             cancelText,
+                                             QStringLiteral("managerSecondaryBtn"),
+                                             QStringLiteral("取消并返回"),
+                                             QStyle::SP_DialogCloseButton);
+    }
+    addWorkspaceSectionCard(shell.bodyLayout,
+                            shell.bodyFrame,
+                            QStringLiteral("确认动作"),
+                            destructiveConfirm
+                                ? QStringLiteral("只有确认当前修改不可避免时，才执行危险动作。")
+                                : QStringLiteral("确认无误后再继续，避免误操作。"),
+                            {confirmButton},
+                            cancelButton);
+
+    bool confirmed = false;
+    QObject::connect(confirmButton, &QPushButton::clicked, &dialog, [&]() {
+        confirmed = true;
+        dialog.accept();
+    });
+    if (cancelButton) {
+        QObject::connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+    }
+
+    dialog.setStyleSheet(productDialogStyleSheet());
+    confirmButton->setFocus();
+    dialog.exec();
+    if (!confirmed && !canceledStatusMessage.isEmpty() && canceledStatusTimeoutMs > 0 && ui && ui->statusbar) {
+        ui->statusbar->showMessage(canceledStatusMessage, canceledStatusTimeoutMs);
+    }
+    return confirmed;
+}
+
+QString MainWindow::showSingleFieldDialog(const QString& dialogObjectName,
+                                          const QString& title,
+                                          const QString& subTitle,
+                                          const QString& fieldLabel,
+                                          const QString& placeholder,
+                                          const QString& initialValue,
+                                          bool multiline,
+                                          bool* accepted,
+                                          QWidget* parent) const {
+    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
+    QDialog dialog(dialogParent);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        dialogObjectName,
+        title,
+        QSize(760, multiline ? 620 : 520),
+        QStringLiteral("managerTitle"),
+        title,
+        QStringLiteral("managerSubTitle"),
+        subTitle,
+        QStringLiteral("managerSearch"),
+        QString(),
+        QString(),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("检查输入内容后确认；取消不会改动当前状态。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        initialValue.trimmed().isEmpty() ? QStringLiteral("这里会显示当前输入内容。") : initialValue,
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    shell.searchEdit->hide();
+    shell.listWidget->hide();
+    shell.hintLabel->hide();
+    shell.statsLabel->setText(multiline ? QStringLiteral("多行输入") : QStringLiteral("单项输入"));
+
+    WorkspaceSectionCard formCard = createWorkspaceSectionCard(shell.bodyFrame,
+                                                               fieldLabel.trimmed().isEmpty() ? QStringLiteral("输入内容") : fieldLabel,
+                                                               QStringLiteral("整理当前输入后确认，系统会使用这里的内容继续执行。"));
+    QLabel* fieldTitle = new QLabel(fieldLabel, formCard.frame);
+    fieldTitle->setObjectName(QStringLiteral("workspaceSectionHint"));
+    fieldTitle->setVisible(!fieldLabel.trimmed().isEmpty());
+    if (fieldTitle->isVisible()) {
+        formCard.contentLayout->addWidget(fieldTitle);
+    }
+
+    QWidget* inputWidget = nullptr;
+    QLineEdit* lineEdit = nullptr;
+    QTextEdit* textEdit = nullptr;
+    if (multiline) {
+        textEdit = new QTextEdit(formCard.frame);
+        textEdit->setObjectName(QStringLiteral("messageEdit"));
+        textEdit->setPlaceholderText(placeholder);
+        textEdit->setPlainText(initialValue);
+        textEdit->setMinimumHeight(220);
+        inputWidget = textEdit;
+    } else {
+        lineEdit = new QLineEdit(formCard.frame);
+        lineEdit->setObjectName(QStringLiteral("managerSearch"));
+        lineEdit->setPlaceholderText(placeholder);
+        lineEdit->setText(initialValue);
+        lineEdit->setClearButtonEnabled(true);
+        inputWidget = lineEdit;
+    }
+    formCard.contentLayout->addWidget(inputWidget);
+    shell.bodyLayout->insertWidget(0, formCard.frame);
+
+    QPushButton* confirmButton = createWorkspaceButton(shell.bodyFrame,
+                                                       &dialog,
+                                                       QStringLiteral("确认"),
+                                                       QStringLiteral("managerPrimaryBtn"),
+                                                       QStringLiteral("确认当前输入并继续"),
+                                                       QStyle::SP_DialogApplyButton);
+    QPushButton* clearButton = createWorkspaceButton(shell.bodyFrame,
+                                                     &dialog,
+                                                     QStringLiteral("清空"),
+                                                     QStringLiteral("managerSecondaryBtn"),
+                                                     QStringLiteral("清空当前输入"),
+                                                     QStyle::SP_DialogResetButton);
+    QPushButton* cancelButton = createWorkspaceButton(shell.bodyFrame,
+                                                      &dialog,
+                                                      QStringLiteral("取消"),
+                                                      QStringLiteral("managerSecondaryBtn"),
+                                                      QStringLiteral("取消并返回"),
+                                                      QStyle::SP_DialogCloseButton);
+    addWorkspaceSectionCard(shell.bodyLayout,
+                            shell.bodyFrame,
+                            QStringLiteral("输入动作"),
+                            QStringLiteral("确认前可以继续修改、清空或直接取消。"),
+                            {confirmButton, clearButton},
+                            cancelButton);
+
+    auto currentValue = [=]() {
+        return textEdit ? textEdit->toPlainText().trimmed()
+                        : (lineEdit ? lineEdit->text().trimmed() : QString());
+    };
+    auto updatePreview = [=]() {
+        const QString value = currentValue();
+        shell.previewLabel->setText(value.isEmpty() ? QStringLiteral("这里会显示当前输入内容。") : value);
+    };
+
+    bool applied = false;
+    QString result;
+    QObject::connect(confirmButton, &QPushButton::clicked, &dialog, [&]() {
+        applied = true;
+        result = currentValue();
+        dialog.accept();
+    });
+    QObject::connect(clearButton, &QPushButton::clicked, &dialog, [=]() {
+        if (textEdit) {
+            textEdit->clear();
+            textEdit->setFocus();
+        } else if (lineEdit) {
+            lineEdit->clear();
+            lineEdit->setFocus();
+        }
+        updatePreview();
+    });
+    QObject::connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+    if (lineEdit) {
+        QObject::connect(lineEdit, &QLineEdit::textChanged, &dialog, [=](const QString&) { updatePreview(); });
+        QObject::connect(lineEdit, &QLineEdit::returnPressed, &dialog, [&]() { confirmButton->click(); });
+    }
+    if (textEdit) {
+        QObject::connect(textEdit, &QTextEdit::textChanged, &dialog, [=]() { updatePreview(); });
+    }
+
+    updatePreview();
+    dialog.setStyleSheet(productDialogStyleSheet());
+    if (lineEdit) {
+        lineEdit->setFocus();
+        lineEdit->selectAll();
+    } else if (textEdit) {
+        textEdit->setFocus();
+    }
+    dialog.exec();
+    if (accepted) {
+        *accepted = applied;
+    }
+    return applied ? result : QString();
+}
+
+QString MainWindow::showItemPickerDialog(const QString& dialogObjectName,
+                                         const QString& title,
+                                         const QString& subTitle,
+                                         const QString& label,
+                                         const QStringList& items,
+                                         bool* accepted,
+                                         QWidget* parent) const {
+    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
+    QDialog dialog(dialogParent);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        dialogObjectName,
+        title,
+        QSize(780, 640),
+        QStringLiteral("managerTitle"),
+        title,
+        QStringLiteral("managerSubTitle"),
+        subTitle,
+        QStringLiteral("managerSearch"),
+        QStringLiteral("筛选候选项"),
+        QStringLiteral("输入关键词筛选当前候选项"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一个候选项，再确认继续；取消不会改动当前状态。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会显示当前选中的候选项。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QListWidget* listWidget = shell.listWidget;
+    QLineEdit* searchEdit = shell.searchEdit;
+    QLabel* previewLabel = shell.previewLabel;
+    shell.hintLabel->setText(label);
+
+    auto fillList = [=]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const QString& itemText : items) {
+            if (!filter.isEmpty() && !itemText.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(itemText);
+            item->setData(Qt::UserRole, itemText);
+            item->setToolTip(itemText);
+            item->setSizeHint(QSize(0, 58));
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        shell.statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(items.size()));
+        selectPreferredListRow(listWidget, 0);
+    };
+    auto selectedValue = [=]() -> QString {
+        QListWidgetItem* currentItem = listWidget->currentItem();
+        return currentItem ? currentItem->data(Qt::UserRole).toString().trimmed() : QString();
+    };
+    auto updatePreview = [=]() {
+        const QString value = selectedValue();
+        previewLabel->setText(value.isEmpty() ? QStringLiteral("这里会显示当前选中的候选项。") : value);
+    };
+
+    QPushButton* confirmButton = createWorkspaceButton(shell.bodyFrame,
+                                                       &dialog,
+                                                       QStringLiteral("确认"),
+                                                       QStringLiteral("managerPrimaryBtn"),
+                                                       QStringLiteral("确认当前选中项并继续"),
+                                                       QStyle::SP_DialogApplyButton);
+    QPushButton* clearFilterButton = createWorkspaceButton(shell.bodyFrame,
+                                                           &dialog,
+                                                           QStringLiteral("清空筛选"),
+                                                           QStringLiteral("managerSecondaryBtn"),
+                                                           QStringLiteral("清空当前筛选条件"),
+                                                           QStyle::SP_DialogResetButton);
+    QPushButton* cancelButton = createWorkspaceButton(shell.bodyFrame,
+                                                      &dialog,
+                                                      QStringLiteral("取消"),
+                                                      QStringLiteral("managerSecondaryBtn"),
+                                                      QStringLiteral("取消并返回"),
+                                                      QStyle::SP_DialogCloseButton);
+    addWorkspaceSectionCard(shell.bodyLayout,
+                            shell.bodyFrame,
+                            QStringLiteral("选择动作"),
+                            QStringLiteral("筛选、选中并确认当前候选项。"),
+                            {confirmButton, clearFilterButton},
+                            cancelButton);
+
+    bool applied = false;
+    QString result;
+    QObject::connect(searchEdit, &QLineEdit::textChanged, &dialog, [=](const QString&) {
+        fillList();
+        updatePreview();
+    });
+    QObject::connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+    });
+    QObject::connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [&](QListWidgetItem*) {
+        confirmButton->click();
+    });
+    QObject::connect(confirmButton, &QPushButton::clicked, &dialog, [&]() {
+        result = selectedValue();
+        if (result.isEmpty()) {
+            return;
+        }
+        applied = true;
+        dialog.accept();
+    });
+    QObject::connect(clearFilterButton, &QPushButton::clicked, &dialog, [=]() {
+        searchEdit->clear();
+        searchEdit->setFocus();
+    });
+    QObject::connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+    fillList();
+    updatePreview();
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+    if (accepted) {
+        *accepted = applied;
+    }
+    return applied ? result : QString();
+}
+
+void MainWindow::refreshTransferWorkspaceCard(const TransferRecoveryUiState* recoveryState,
+                                              const TransferStatusEvent* latestEvent,
+                                              const TransferSendUiState* sendState) {
+    if (!ui->transferStatusCard
+        || !ui->transferStatusTitleLabel
+        || !ui->transferStatusDetailLabel
+        || !ui->transferResumeBtn
+        || !ui->transferClearBtn
+        || !ui->transferCopyStatusBtn) {
+        return;
+    }
+
+    if (recoveryState && recoveryState->hasSavedTransfer) {
+        m_hasLastTransferRecoveryUiState = true;
+        m_lastTransferRecoveryUiState = *recoveryState;
+    }
+
+    if (latestEvent && !latestEvent->message.trimmed().isEmpty()) {
+        m_hasLastTransferStatusEvent = true;
+        m_lastTransferStatusEvent = *latestEvent;
+    }
+
+    const TransferWorkspaceSummaryState summary = currentTransferWorkspaceSummary(recoveryState,
+                                                                                 latestEvent,
+                                                                                 sendState);
+    ui->transferStatusTitleLabel->setText(summary.title.trimmed().isEmpty()
+        ? QStringLiteral("文件工作区")
+        : summary.title);
+
+    QStringList detailLines;
+    if (!summary.detail.trimmed().isEmpty()) {
+        detailLines << summary.detail.trimmed();
+    }
+    if (!summary.nextStep.trimmed().isEmpty()) {
+        detailLines << summary.nextStep.trimmed();
+    }
+    if (!summary.preservedState.trimmed().isEmpty()) {
+        detailLines << summary.preservedState.trimmed();
+    }
+    if (!summary.diagnosticHint.trimmed().isEmpty()) {
+        detailLines << summary.diagnosticHint.trimmed();
+    }
+    ui->transferStatusDetailLabel->setText(detailLines.isEmpty()
+        ? QStringLiteral("当前没有未完成发送，也没有新的文件诊断。发送、接收、恢复和保存动作会在这里持续更新。")
+        : detailLines.join(QLatin1Char('\n')));
+
+    const bool hasRecovery = m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer;
+    ui->transferResumeBtn->setVisible(hasRecovery && m_lastTransferRecoveryUiState.resumeAction.visible);
+    ui->transferResumeBtn->setEnabled(hasRecovery && m_lastTransferRecoveryUiState.resumeAction.enabled);
+    ui->transferResumeBtn->setToolTip(hasRecovery
+        ? m_lastTransferRecoveryUiState.resumeAction.toolTip
+        : QStringLiteral("当前没有可恢复的未完成发送"));
+    ui->transferClearBtn->setVisible(hasRecovery && m_lastTransferRecoveryUiState.clearAction.visible);
+    ui->transferClearBtn->setEnabled(hasRecovery && m_lastTransferRecoveryUiState.clearAction.enabled);
+    ui->transferClearBtn->setToolTip(hasRecovery
+        ? m_lastTransferRecoveryUiState.clearAction.toolTip
+        : QStringLiteral("当前没有可清理的恢复记录"));
+
+    const bool hasDiagnostic = !m_lastTransferStatusDiagnostic.trimmed().isEmpty();
+    ui->transferCopyStatusBtn->setVisible(true);
+    ui->transferCopyStatusBtn->setEnabled(true);
+    ui->transferCopyStatusBtn->setToolTip(hasDiagnostic
+        ? QStringLiteral("打开文件工作区，查看最近诊断、恢复入口、保存路径和下一步建议")
+        : QStringLiteral("打开文件工作区，查看当前文件链路、恢复入口和下一步建议"));
+    applyToneProperty(ui->transferStatusCard, summary.statusTone.trimmed().isEmpty()
+        ? QStringLiteral("muted")
+        : summary.statusTone.trimmed());
+    refreshMainWorkbenchChrome();
+}
+
+void MainWindow::setTransferWorkspaceSendState(const TransferSendUiState& state) {
+    m_hasTransferWorkspaceSendState = true;
+    m_transferWorkspaceSendState = state;
+    refreshTransferWorkspaceCard(nullptr, nullptr, &m_transferWorkspaceSendState);
+}
+
+void MainWindow::clearTransferWorkspaceSendState() {
+    m_hasTransferWorkspaceSendState = false;
+    m_transferWorkspaceSendState = TransferSendUiState();
 }
 
 FriendManagerVisibleTargetSummary MainWindow::friendNoticeVisibleTarget(const QString& userId) const {
@@ -720,9 +3345,7 @@ void MainWindow::fillGroupNoticeList(QListWidget* noticeList,
         }
         noticeList->addItem(item);
     }
-    if (noticeList->count() > 0) {
-        noticeList->setCurrentRow(0);
-    }
+    selectPreferredListRow(noticeList, 0);
 }
 
 GroupNoticeSelectionSnapshot MainWindow::currentGroupNoticeSelectionSnapshot(QListWidget* noticeList,
@@ -809,12 +3432,20 @@ bool MainWindow::openSelectedGroupNoticeEntry(QListWidget* noticeList, QDialog* 
     return true;
 }
 
-bool MainWindow::handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState) {
+bool MainWindow::handleSavedFileContextCommand(const QString& commandId,
+                                               const QString& chatText,
+                                               const LocalSavedFileState& savedFileState) {
     const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(commandId,
                                                                                      chatContextSavedFileState(savedFileState),
                                                                                      savedFileState.savePath);
     if (!command.handled) {
         return false;
+    }
+
+    if (savedFileState.hasSavePath) {
+        showSavedFileWorkspace(savedFileState,
+                               chatText,
+                               QStringLiteral("已同步到保存文件工作区"));
     }
 
     if (command.action == ChatContextSavedFileCommand::Action::CopySavePath) {
@@ -834,19 +3465,44 @@ bool MainWindow::confirmAction(const QString& title,
                                const QString& canceledStatusMessage,
                                int canceledStatusTimeoutMs,
                                QWidget* parent) {
-    QWidget* dialogParent = parent ? parent : this;
-    const QMessageBox::StandardButton choice = QMessageBox::question(dialogParent,
-                                                                     title,
-                                                                     message,
-                                                                     QMessageBox::Yes | QMessageBox::No,
-                                                                     QMessageBox::No);
-    if (choice == QMessageBox::Yes) {
-        return true;
-    }
-    if (!canceledStatusMessage.isEmpty()) {
-        ui->statusbar->showMessage(canceledStatusMessage, canceledStatusTimeoutMs);
-    }
-    return false;
+    return showChoiceDialog(title,
+                            message,
+                            QStringLiteral("继续"),
+                            QStringLiteral("取消"),
+                            false,
+                            canceledStatusMessage,
+                            canceledStatusTimeoutMs,
+                            parent);
+}
+
+void MainWindow::showWarningDialog(const QString& title,
+                                   const QString& message,
+                                   QWidget* parent) const {
+    MainWindow* self = const_cast<MainWindow*>(this);
+    self->showChoiceDialog(title,
+                           message,
+                           QStringLiteral("知道了"),
+                           QString(),
+                           false,
+                           QString(),
+                           0,
+                           parent);
+}
+
+bool MainWindow::confirmDestructiveAction(const QString& title,
+                                          const QString& message,
+                                          const QString& confirmText,
+                                          const QString& cancelText,
+                                          QWidget* parent) const {
+    MainWindow* self = const_cast<MainWindow*>(this);
+    return self->showChoiceDialog(title,
+                                  message,
+                                  confirmText.trimmed().isEmpty() ? QStringLiteral("继续") : confirmText,
+                                  cancelText.trimmed().isEmpty() ? QStringLiteral("取消") : cancelText,
+                                  true,
+                                  QString(),
+                                  0,
+                                  parent);
 }
 
 QString MainWindow::promptTextValue(const QString& title,
@@ -854,13 +3510,15 @@ QString MainWindow::promptTextValue(const QString& title,
                                     const QString& initialValue,
                                     bool* accepted,
                                     QWidget* parent) const {
-    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
-    return QInputDialog::getText(dialogParent,
+    return showSingleFieldDialog(QStringLiteral("promptTextWorkspaceDialog"),
                                  title,
+                                 QStringLiteral("填写后即可继续当前动作；取消不会改动现有状态。"),
                                  label,
-                                 QLineEdit::Normal,
+                                 label,
                                  initialValue,
-                                 accepted).trimmed();
+                                 false,
+                                 accepted,
+                                 parent);
 }
 
 QString MainWindow::promptMultilineValue(const QString& title,
@@ -868,12 +3526,15 @@ QString MainWindow::promptMultilineValue(const QString& title,
                                          const QString& initialValue,
                                          bool* accepted,
                                          QWidget* parent) const {
-    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
-    return QInputDialog::getMultiLineText(dialogParent,
-                                          title,
-                                          label,
-                                          initialValue,
-                                          accepted).trimmed();
+    return showSingleFieldDialog(QStringLiteral("promptMultilineWorkspaceDialog"),
+                                 title,
+                                 QStringLiteral("整理好多行内容后再继续，适合公告、说明和核对文本。"),
+                                 label,
+                                 label,
+                                 initialValue,
+                                 true,
+                                 accepted,
+                                 parent);
 }
 
 QString MainWindow::promptItemValue(const QString& title,
@@ -881,14 +3542,51 @@ QString MainWindow::promptItemValue(const QString& title,
                                     const QStringList& items,
                                     bool* accepted,
                                     QWidget* parent) const {
+    return showItemPickerDialog(QStringLiteral("promptItemWorkspaceDialog"),
+                                title,
+                                QStringLiteral("从候选项里选定一个目标，再继续当前动作。"),
+                                label,
+                                items,
+                                accepted,
+                                parent);
+}
+
+QString MainWindow::selectOpenFilePath(const QString& title,
+                                       const QString& initialPath,
+                                       const QString& filters,
+                                       QWidget* parent) const {
     QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
-    return QInputDialog::getItem(dialogParent,
-                                 title,
-                                 label,
-                                 items,
-                                 0,
-                                 false,
-                                 accepted).trimmed();
+    QFileDialog dialog(dialogParent, title, initialPath, filters);
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+    dialog.setFileMode(QFileDialog::ExistingFile);
+    dialog.setLabelText(QFileDialog::Accept, QStringLiteral("选择"));
+    dialog.setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    applyProductDialogChrome(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
+        return QString();
+    }
+    const QStringList files = dialog.selectedFiles();
+    return files.isEmpty() ? QString() : files.first();
+}
+
+QString MainWindow::selectSaveFilePath(const QString& title,
+                                       const QString& initialPath,
+                                       const QString& filters,
+                                       QWidget* parent) const {
+    QWidget* dialogParent = parent ? parent : const_cast<MainWindow*>(this);
+    QFileDialog dialog(dialogParent, title, initialPath, filters);
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+    dialog.setFileMode(QFileDialog::AnyFile);
+    dialog.setLabelText(QFileDialog::Accept, QStringLiteral("保存"));
+    dialog.setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    applyProductDialogChrome(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
+        return QString();
+    }
+    const QStringList files = dialog.selectedFiles();
+    return files.isEmpty() ? QString() : files.first();
 }
 
 QStringList MainWindow::currentSessionMemberIds() const {
@@ -906,21 +3604,24 @@ QStringList MainWindow::currentSessionMemberIds() const {
 bool MainWindow::applyAvatarSelection(const LocalFileSelectionResult& selection) {
     if (selection.canceled) {
         ui->statusbar->showMessage(selection.canceledStatusMessage, selection.canceledStatusTimeoutMs);
+        refreshAvatarWorkspaceCard();
         return false;
     }
     if (!selection.accepted) {
-        QMessageBox::warning(this, selection.failureTitle, selection.failureMessage);
+        showWarningDialog(selection.failureTitle, selection.failureMessage, this);
         ui->statusbar->showMessage(selection.rejectedStatusMessage.isEmpty() ? selection.statusMessage
                                                                              : selection.rejectedStatusMessage,
                                    selection.rejectedStatusTimeoutMs);
+        refreshAvatarWorkspaceCard();
         return false;
     }
 
     const QPixmap pixmap(selection.filePath);
     if (pixmap.isNull()) {
         const LocalFileSelectionResult invalidAvatar = LocalFileManager::invalidAvatarDataResult();
-        QMessageBox::warning(this, invalidAvatar.invalidDataTitle, invalidAvatar.invalidDataMessage);
+        showWarningDialog(invalidAvatar.invalidDataTitle, invalidAvatar.invalidDataMessage, this);
         ui->statusbar->showMessage(invalidAvatar.invalidDataStatusMessage, invalidAvatar.invalidDataStatusTimeoutMs);
+        refreshAvatarWorkspaceCard();
         return false;
     }
 
@@ -931,8 +3632,9 @@ bool MainWindow::persistAvatarPixmap(const QPixmap& pixmap, const QFileInfo& inf
     QPixmap savedAvatar = squareAvatarPixmap(pixmap, 256);
     if (savedAvatar.isNull() || !savedAvatar.save(getAvatarFilePath(), "PNG")) {
         const LocalFileSelectionResult saveFailed = LocalFileManager::avatarSaveFailedResult();
-        QMessageBox::warning(this, saveFailed.saveFailedTitle, saveFailed.saveFailedMessage);
+        showWarningDialog(saveFailed.saveFailedTitle, saveFailed.saveFailedMessage, this);
         ui->statusbar->showMessage(saveFailed.saveFailedStatusMessage, saveFailed.saveFailedStatusTimeoutMs);
+        refreshAvatarWorkspaceCard();
         return false;
     }
 
@@ -944,6 +3646,7 @@ bool MainWindow::persistAvatarPixmap(const QPixmap& pixmap, const QFileInfo& inf
     appendSystemMessage(appliedState.detail);
     ui->chatHintLabel->setText(appliedState.detail);
     ui->statusbar->showMessage(appliedState.detail, appliedState.statusTimeoutMs);
+    refreshAvatarWorkspaceCard();
     return true;
 }
 
@@ -965,6 +3668,7 @@ void MainWindow::openPrivateSession(const QString& userId) {
     setWindowTitle(appWindowTitle(privateState.windowSuffix));
     ui->chatTitleLabel->setText(privateState.titleText);
     ui->chatHintLabel->setText(privateState.hintText);
+    refreshGroupMemberPanel();
     refreshComposerState();
 }
 
@@ -983,7 +3687,7 @@ bool MainWindow::ensureFriendRequestQueued(const QString& userId,
         return false;
     }
     if (!m_client || !m_client->sendFriendRequest(userId)) {
-        ui->statusbar->showMessage(QStringLiteral("好友申请发送失败：%1").arg(displayName), 3000);
+        ui->statusbar->showMessage(QStringLiteral("好友申请发起失败：%1").arg(displayName), 3000);
         return false;
     }
     m_friendNames[userId] = displayName;
@@ -1045,23 +3749,610 @@ int MainWindow::appendMembersToLocalGroup(const QString& groupId, const QStringL
     return appended;
 }
 
+bool MainWindow::showCreateGroupWorkspace(QWidget* parent) {
+    QList<QPair<QString, QString>> rows;
+    rows.append(qMakePair(QStringLiteral("我的群聊"),
+                          QStringLiteral("默认群聊模板\n适合先建一个基础会话，后续再慢慢邀请好友和补公告。")));
+    rows.append(qMakePair(QStringLiteral("好友群聊"),
+                          QStringLiteral("好友群聊模板\n更适合从已有好友关系起步，之后继续做群内编排。")));
+    rows.append(qMakePair(QStringLiteral("项目协作群"),
+                          QStringLiteral("项目协作模板\n适合围绕固定主题沟通，建议同时补一条群公告说明目标。")));
+
+    const GroupWorkspaceResult formResult = runGroupFormWorkspaceDialog(
+        parent ? parent : this,
+        QStringLiteral("createGroupWorkspaceDialog"),
+        QStringLiteral("创建群聊工作区"),
+        QStringLiteral("创建群聊"),
+        QStringLiteral("先决定群聊名字和定位，再开始邀请好友、补充公告和进入会话。"),
+        QStringLiteral("搜索常用群名模板"),
+        QStringLiteral("按群名关键词筛选常用模板，选中后可直接带入输入框"),
+        QStringLiteral("先给群聊一个明确名字，后续邀请、公告和群成员动作都会沿用这套上下文。"),
+        QStringLiteral("选中模板后可直接带入群名，也可以输入自己的群聊名称。"),
+        QStringLiteral("模板 %1 项").arg(rows.size()),
+        QStringLiteral("群聊名称"),
+        QStringLiteral("群聊定位"),
+        QStringLiteral("常用模板"),
+        QStringLiteral("从常用场景里选一个起点，减少空白状态下的决策成本。"),
+        QStringLiteral("创建表单"),
+        QStringLiteral("填写群聊名称，也可以顺手写一句群公告或用途说明。"),
+        QStringLiteral("群聊名称"),
+        QStringLiteral("例如：我的群聊 / 项目协作群"),
+        QStringLiteral("群聊说明（可选）"),
+        QStringLiteral("例如：用于讨论版本联调、文件流转和验收安排"),
+        QStringLiteral("创建并进入"),
+        QStringLiteral("创建群聊并立即切换到该会话"),
+        QStringLiteral("取消"),
+        QStringLiteral("关闭创建群聊工作区"),
+        rows,
+        false,
+        false,
+        QStringLiteral("我的群聊"));
+
+    if (!formResult.applied) {
+        return false;
+    }
+
+    QString groupName = formResult.primaryValue.trimmed();
+    if (groupName.isEmpty()) {
+        groupName = formResult.selectedId.trimmed();
+    }
+    if (groupName.isEmpty()) {
+        groupName = QStringLiteral("我的群聊");
+    }
+    QString announcement = formResult.secondaryValue.trimmed();
+    if (!announcement.isEmpty()) {
+        announcement = QStringLiteral("%1").arg(announcement);
+    }
+
+    const QString groupId = createLocalGroupSession(groupName, QStringList(), announcement);
+    switchToLocalGroup(groupId, groupName);
+    appendSystemMessage(QStringLiteral("已创建群聊: %1").arg(groupName));
+    if (!announcement.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("群聊已创建，并已带入群说明"), 2200);
+    } else {
+        ui->statusbar->showMessage(QStringLiteral("群聊已创建: %1").arg(groupName), 2200);
+    }
+    return true;
+}
+
+bool MainWindow::showInviteFriendToGroupWorkspace(const QString& groupId, QWidget* parent) {
+    if (groupId.isEmpty() || !m_localGroupIds.contains(groupId)) {
+        ui->statusbar->showMessage(QStringLiteral("当前群聊不存在，无法邀请好友"), 2200);
+        return false;
+    }
+
+    QList<QPair<QString, QString>> rows;
+    for (const QString& friendId : m_friendIds) {
+        const bool alreadyInGroup = m_localGroupMembers.value(groupId).contains(friendId);
+        const QString text = QStringLiteral("%1 (QQ:%2)\n%3 · %4")
+                                 .arg(contactDisplayName(friendId),
+                                      friendId,
+                                      isContactOnline(friendId) ? QStringLiteral("在线") : QStringLiteral("离线"),
+                                      alreadyInGroup ? QStringLiteral("已在群内") : QStringLiteral("可邀请"));
+        rows.append(qMakePair(friendId, text));
+    }
+
+    const QString groupName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+    const GroupWorkspaceResult formResult = runGroupFormWorkspaceDialog(
+        parent ? parent : this,
+        QStringLiteral("inviteFriendToGroupWorkspaceDialog"),
+        QStringLiteral("邀请好友加入群聊"),
+        QStringLiteral("邀请好友"),
+        QStringLiteral("当前群：%1。先从好友列表里选一个目标，再决定是否补一条邀请备注。").arg(groupName),
+        QStringLiteral("搜索好友 QQ / 昵称"),
+        QStringLiteral("按 QQ 号或昵称筛选好友，选中后可直接带入邀请目标"),
+        QStringLiteral("这里只展示好友列表，已在群内的好友会保留显示，避免重复邀请。"),
+        QStringLiteral("选中好友后，这里会显示他的 QQ、状态和是否已在群里。"),
+        QStringLiteral("好友 %1 人").arg(rows.size()),
+        QStringLiteral("邀请目标"),
+        QStringLiteral("邀请备注"),
+        QStringLiteral("好友列表"),
+        QStringLiteral("优先从现有好友里邀请，减少按 QQ 手输时的出错概率。"),
+        QStringLiteral("邀请表单"),
+        QStringLiteral("可直接使用选中好友，也可以手动输入 QQ；备注只用于本次提示和上下文整理。"),
+        QStringLiteral("好友 QQ"),
+        QStringLiteral("例如：10001"),
+        QStringLiteral("邀请备注（可选）"),
+        QStringLiteral("例如：一起进群讨论版本联调"),
+        QStringLiteral("邀请入群"),
+        QStringLiteral("把当前目标邀请进本地群聊"),
+        QStringLiteral("关闭"),
+        QStringLiteral("关闭好友邀请工作区"),
+        rows,
+        false,
+        false);
+
+    if (!formResult.applied) {
+        return false;
+    }
+
+    QString friendId = formResult.primaryValue.trimmed();
+    if (friendId.isEmpty()) {
+        friendId = formResult.selectedId.trimmed();
+    }
+    if (friendId.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("请先选择或输入要邀请的好友 QQ"), 1800);
+        return false;
+    }
+    if (!m_friendIds.contains(friendId)) {
+        ui->statusbar->showMessage(QStringLiteral("该 QQ 不是当前好友，请改用按 QQ 号邀请"), 2200);
+        return false;
+    }
+    if (m_localGroupMembers[groupId].contains(friendId)) {
+        ui->statusbar->showMessage(QStringLiteral("%1 已在目标群聊中").arg(contactDisplayName(friendId)), 1800);
+        return false;
+    }
+
+    appendMembersToLocalGroup(groupId, QStringList{friendId});
+    switchToLocalGroup(groupId, groupName);
+    refreshGroupMemberPanel();
+    appendSystemMessage(QStringLiteral("已邀请 %1 加入群聊").arg(contactDisplayName(friendId)));
+    saveHistory(groupId,
+                QStringLiteral("[%1] [系统] 已邀请 %2 加入群聊")
+                    .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")),
+                         contactDisplayName(friendId)));
+    const QString note = formResult.secondaryValue.trimmed();
+    if (!note.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("已邀请 %1，并记录备注：%2").arg(contactDisplayName(friendId), note), 2600);
+    } else {
+        ui->statusbar->showMessage(QStringLiteral("已邀请 %1 加入群聊").arg(contactDisplayName(friendId)), 2200);
+    }
+    return true;
+}
+
+bool MainWindow::showInviteAccountToGroupWorkspace(const QString& groupId, QWidget* parent) {
+    if (groupId.isEmpty() || !m_localGroupIds.contains(groupId)) {
+        ui->statusbar->showMessage(QStringLiteral("当前群聊不存在，无法按 QQ 邀请"), 2200);
+        return false;
+    }
+    if (!isCurrentUserGroupOwner(groupId)) {
+        ui->statusbar->showMessage(QStringLiteral("只有群主可以按 QQ 号邀请新成员入群"), 2400);
+        return false;
+    }
+
+    QList<QPair<QString, QString>> rows;
+    for (const QString& memberId : m_localGroupMembers.value(groupId)) {
+        rows.append(qMakePair(memberId,
+                              QStringLiteral("%1 (QQ:%2)\n%3")
+                                  .arg(contactDisplayName(memberId),
+                                       memberId,
+                                       memberId == m_currentUserId ? QStringLiteral("你自己")
+                                                                   : QStringLiteral("已在当前群聊中"))));
+    }
+    const QString groupName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+    const GroupWorkspaceResult formResult = runGroupFormWorkspaceDialog(
+        parent ? parent : this,
+        QStringLiteral("inviteAccountToGroupWorkspaceDialog"),
+        QStringLiteral("按 QQ 号邀请入群"),
+        QStringLiteral("按 QQ 号邀请"),
+        QStringLiteral("当前群：%1。适合邀请还不是好友的人，系统会在需要时自动补发好友申请。").arg(groupName),
+        QStringLiteral("搜索当前群成员"),
+        QStringLiteral("先看看群里已有谁，避免重复邀请同一个 QQ"),
+        QStringLiteral("系统会拦截自己、已在群内的成员，并在必要时尝试补一条好友申请。"),
+        QStringLiteral("可先查看当前群成员，再在下方输入新的 QQ 号继续邀请。"),
+        QStringLiteral("当前成员 %1 人").arg(rows.size()),
+        QStringLiteral("邀请 QQ"),
+        QStringLiteral("邀请备注"),
+        QStringLiteral("当前群成员"),
+        QStringLiteral("这里只展示当前群已有成员，帮助你避免重复邀请。"),
+        QStringLiteral("按 QQ 邀请"),
+        QStringLiteral("输入 QQ 号后系统会做重复校验，并在成功后刷新当前群成员面板。"),
+        QStringLiteral("QQ 账号"),
+        QStringLiteral("例如：10086"),
+        QStringLiteral("邀请备注（可选）"),
+        QStringLiteral("例如：后续补发好友申请，方便继续私聊"),
+        QStringLiteral("邀请入群"),
+        QStringLiteral("按 QQ 号执行邀请"),
+        QStringLiteral("关闭"),
+        QStringLiteral("关闭按 QQ 邀请工作区"),
+        rows,
+        false,
+        false);
+
+    if (!formResult.applied) {
+        return false;
+    }
+
+    QString account = formResult.primaryValue.trimmed();
+    if (account.isEmpty()) {
+        account = formResult.selectedId.trimmed();
+    }
+    if (account.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("请输入 QQ 号后再邀请入群"), 1800);
+        return false;
+    }
+
+    const QString previousTarget = m_privateChatTarget;
+    if (previousTarget != groupId) {
+        switchToLocalGroup(groupId, groupName);
+    }
+    const bool added = addAccountToCurrentLocalGroup(account, parent ? parent : this);
+    if (!added && previousTarget != groupId && !previousTarget.isEmpty() && previousTarget != groupId) {
+        if (previousTarget.startsWith(QStringLiteral("local_group_"))) {
+            switchToLocalGroup(previousTarget, m_localGroupNames.value(previousTarget, QStringLiteral("群聊")));
+        }
+    }
+    return added;
+}
+
+bool MainWindow::showRenameGroupWorkspace(const QString& groupId, QWidget* parent) {
+    if (groupId.isEmpty() || !m_localGroupIds.contains(groupId)) {
+        ui->statusbar->showMessage(QStringLiteral("当前群聊不存在，无法重命名"), 2200);
+        return false;
+    }
+
+    QList<QPair<QString, QString>> rows;
+    const QString oldName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+    rows.append(qMakePair(oldName,
+                          QStringLiteral("%1\n当前名称 · 成员 %2 人")
+                              .arg(oldName)
+                              .arg(m_localGroupMembers.value(groupId).size())));
+    rows.append(qMakePair(QStringLiteral("项目协作群"),
+                          QStringLiteral("项目协作群\n适合围绕固定项目和版本节奏沟通。")));
+    rows.append(qMakePair(QStringLiteral("好友群聊"),
+                          QStringLiteral("好友群聊\n适合日常闲聊和邀请可见好友一起进入。")));
+
+    const GroupWorkspaceResult formResult = runGroupFormWorkspaceDialog(
+        parent ? parent : this,
+        QStringLiteral("renameGroupWorkspaceDialog"),
+        QStringLiteral("重命名群聊"),
+        QStringLiteral("重命名群聊"),
+        QStringLiteral("当前群：%1。建议用更明确的名字表达用途，后续搜索和通知都会更清晰。").arg(oldName),
+        QStringLiteral("搜索常用名称"),
+        QStringLiteral("从常用群名模板里找灵感，也可以直接输入自己的名称"),
+        QStringLiteral("群名会同时影响左侧列表、群公告上下文和后续邀请话术。"),
+        QStringLiteral("选中模板后可以直接带入，也可以自己输入更具体的名称。"),
+        QStringLiteral("模板 %1 项").arg(rows.size()),
+        QStringLiteral("新群名"),
+        QStringLiteral("命名说明"),
+        QStringLiteral("名称参考"),
+        QStringLiteral("保留当前名称和常用模板，方便快速对比后再改。"),
+        QStringLiteral("重命名表单"),
+        QStringLiteral("请输入新的群聊名称；命名说明只作为这次编辑时的参考。"),
+        QStringLiteral("新群聊名称"),
+        QStringLiteral("例如：Qt 联调群 / 周会讨论群"),
+        QStringLiteral("命名说明（可选）"),
+        QStringLiteral("例如：按版本节奏组织群聊，避免和普通闲聊混淆"),
+        QStringLiteral("保存名称"),
+        QStringLiteral("应用新的群聊名称"),
+        QStringLiteral("关闭"),
+        QStringLiteral("关闭群聊重命名工作区"),
+        rows,
+        false,
+        false,
+        oldName);
+
+    if (!formResult.applied) {
+        return false;
+    }
+
+    QString newName = formResult.primaryValue.trimmed();
+    if (newName.isEmpty()) {
+        newName = formResult.selectedId.trimmed();
+    }
+    if (newName.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("群聊名称不能为空"), 1800);
+        return false;
+    }
+    if (newName == oldName) {
+        ui->statusbar->showMessage(QStringLiteral("群聊名称未改变"), 1600);
+        return false;
+    }
+    m_localGroupNames[groupId] = newName;
+    saveLocalGroups();
+    refreshFriendList();
+    if (m_privateChatTarget == groupId) {
+        switchToLocalGroup(groupId, newName);
+    }
+    appendSystemMessage(QStringLiteral("群聊已重命名为：%1").arg(newName));
+    ui->statusbar->showMessage(QStringLiteral("群聊已重命名为：%1").arg(newName), 2200);
+    return true;
+}
+
+bool MainWindow::showEditGroupAnnouncementWorkspace(QWidget* parent) {
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    const bool isServerPublicGroup = m_privateChatTarget.isEmpty();
+    if (isLocalGroup && !isCurrentUserGroupOwner(m_privateChatTarget)) {
+        ui->statusbar->showMessage(QStringLiteral("只有群主可以编辑群公告"), 2400);
+        appendSystemMessage(QStringLiteral("群公告编辑被权限保护拦截：当前账号不是群主"));
+        return false;
+    }
+    if (isServerPublicGroup && !canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+        ui->statusbar->showMessage(QStringLiteral("只有群主或管理员可以编辑公共群公告"), 2400);
+        appendSystemMessage(QStringLiteral("公共群公告编辑被服务端角色保护拦截"));
+        return false;
+    }
+
+    QList<QPair<QString, QString>> rows;
+    const QString oldText = ui->announcementBodyLabel->text().trimmed();
+    rows.append(qMakePair(oldText,
+                          QStringLiteral("当前群公告\n%1").arg(oldText.isEmpty() ? QStringLiteral("暂无公告") : oldText)));
+    rows.append(qMakePair(QStringLiteral("欢迎加入本群，重要通知会统一在这里更新。"),
+                          QStringLiteral("欢迎模板\n适合做基础说明和统一入口。")));
+    rows.append(qMakePair(QStringLiteral("本群用于版本联调与问题收敛，请优先同步上下文后再提问。"),
+                          QStringLiteral("协作模板\n适合项目群、联调群和验收群。")));
+
+    const GroupWorkspaceResult formResult = runGroupFormWorkspaceDialog(
+        parent ? parent : this,
+        QStringLiteral("groupAnnouncementWorkspaceDialog"),
+        QStringLiteral("编辑群公告"),
+        QStringLiteral("编辑群公告"),
+        QStringLiteral("建议把公告写成“用途 + 当前节奏 + 注意事项”，这样成员进入群时更容易读懂。"),
+        QStringLiteral("搜索公告模板"),
+        QStringLiteral("按关键词筛选公告模板，选中后可带入下方继续编辑"),
+        QStringLiteral("群公告会显示在右侧信息区，也是新成员理解群上下文的第一入口。"),
+        QStringLiteral("选中模板后可直接带入，也可以继续补充更具体的上下文。"),
+        QStringLiteral("模板 %1 项").arg(rows.size()),
+        QStringLiteral("公告内容"),
+        QStringLiteral("补充说明"),
+        QStringLiteral("公告参考"),
+        QStringLiteral("保留当前公告和常用模板，便于在已有上下文上继续修改。"),
+        QStringLiteral("公告编辑"),
+        QStringLiteral("建议直接在这里完成最终文案，避免后续再来回修改。"),
+        QStringLiteral("群公告内容"),
+        QStringLiteral("请输入新的群公告内容"),
+        QStringLiteral("补充说明（可选）"),
+        QStringLiteral("例如：这次主要补充版本节奏和群内响应约定"),
+        QStringLiteral("保存公告"),
+        QStringLiteral("提交并应用新的群公告"),
+        QStringLiteral("关闭"),
+        QStringLiteral("关闭群公告工作区"),
+        rows,
+        true,
+        false,
+        oldText);
+
+    if (!formResult.applied) {
+        ui->statusbar->showMessage(QStringLiteral("已取消编辑群公告"), 1600);
+        return false;
+    }
+
+    const GroupAnnouncementEditDecision announcementDecision =
+        GroupManager::announcementEditDecision(oldText,
+                                               formResult.primaryValue,
+                                               isLocalGroup,
+                                               ui->chatTitleLabel->text());
+    if (!announcementDecision.changed) {
+        ui->statusbar->showMessage(announcementDecision.unchangedStatusMessage, 1600);
+        return false;
+    }
+    if (isServerPublicGroup) {
+        if (!m_client || !m_client->sendServerGroupAnnouncementUpdate(QStringLiteral("public"), announcementDecision.text)) {
+            ui->statusbar->showMessage(QStringLiteral("群公告提交失败，请检查连接状态"), 2400);
+            appendSystemMessage(QStringLiteral("群公告提交失败：客户端未连接或发送失败"));
+            return false;
+        }
+        appendSystemMessage(QStringLiteral("群公告更新已提交，等待服务端同步"));
+        ui->statusbar->showMessage(announcementDecision.submittedStatusMessage, 2200);
+        return true;
+    }
+
+    ui->announcementBodyLabel->setText(announcementDecision.text);
+    if (isLocalGroup) {
+        m_localGroupAnnouncements[m_privateChatTarget] = announcementDecision.text;
+        saveLocalGroups();
+        saveHistory(m_privateChatTarget,
+                    QStringLiteral("[%1] [系统] 群公告已更新: %2")
+                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")),
+                             announcementDecision.text));
+    }
+    appendSystemMessage(QStringLiteral("群公告已更新"));
+    ui->statusbar->showMessage(announcementDecision.appliedStatusMessage, 2200);
+    return true;
+}
+
+bool MainWindow::addAccountToCurrentLocalGroup(const QString& account, QWidget* parent) {
+    const QString normalizedAccount = account.trimmed();
+    if (normalizedAccount.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("请输入 QQ 号后再邀请入群"), 1800);
+        return false;
+    }
+    if (!m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+        ui->statusbar->showMessage(QStringLiteral("当前不是本地群聊，不能直接邀请入群"), 2200);
+        return false;
+    }
+    if (!isCurrentUserGroupOwner(m_privateChatTarget)) {
+        ui->statusbar->showMessage(QStringLiteral("只有群主可以邀请新成员入群"), 2400);
+        return false;
+    }
+    if (normalizedAccount == m_currentUserId) {
+        ui->statusbar->showMessage(QStringLiteral("你已在当前群聊中，无需重复邀请"), 1800);
+        return false;
+    }
+    if (m_localGroupMembers[m_privateChatTarget].contains(normalizedAccount)) {
+        ui->statusbar->showMessage(QStringLiteral("该 QQ 已在当前群聊中"), 1800);
+        return false;
+    }
+
+    QString requestNote;
+    m_localGroupMembers[m_privateChatTarget] << normalizedAccount;
+    if (!m_friendIds.contains(normalizedAccount) && !m_pendingOutgoingFriendRequests.contains(normalizedAccount)) {
+        const QString displayName = contactDisplayName(normalizedAccount);
+        if (m_client && m_client->sendFriendRequest(normalizedAccount)) {
+            m_friendNames[normalizedAccount] = displayName;
+            m_pendingOutgoingFriendRequests << normalizedAccount;
+            requestNote = QStringLiteral("，好友申请等待确认");
+        } else {
+            requestNote = QStringLiteral("，好友申请发起失败");
+            ui->statusbar->showMessage(QStringLiteral("已邀请入群，但好友申请发起失败：%1").arg(displayName), 3000);
+        }
+    } else if (m_pendingOutgoingFriendRequests.contains(normalizedAccount)) {
+        requestNote = QStringLiteral("，好友申请已在等待确认");
+    }
+    saveLocalGroups();
+    refreshFriendList();
+    switchToLocalGroup(m_privateChatTarget, m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊")));
+    refreshGroupMemberPanel();
+    appendSystemMessage(QStringLiteral("已按 QQ 号邀请 %1 加入群聊%2").arg(normalizedAccount, requestNote));
+    saveHistory(m_privateChatTarget,
+                QStringLiteral("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊")
+                    .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")), normalizedAccount));
+    Q_UNUSED(parent)
+    return true;
+}
+
+bool MainWindow::handleGroupMemberSearchSubmit(const QString& text, QWidget* parent) {
+    const QString normalizedText = text.trimmed();
+    if (normalizedText.isEmpty()) {
+        if (ui->memberSearchEdit) {
+            ui->memberSearchEdit->setFocus();
+        }
+        ui->statusbar->showMessage(m_privateChatTarget.startsWith(QStringLiteral("local_group_"))
+                                       ? QStringLiteral("请输入 QQ 号后邀请入群")
+                                       : QStringLiteral("请输入 QQ 号或关键词后再搜索"),
+                                   1800);
+        return false;
+    }
+    if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+        return addAccountToCurrentLocalGroup(normalizedText, parent);
+    }
+    if (canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+        return requestServerGroupMemberUpdate(normalizedText, QStringLiteral("add"));
+    }
+    searchAndAddAccount(normalizedText, parent ? parent : this);
+    return true;
+}
+
+bool MainWindow::handleGroupMemberEntryActivated(const QString& targetId, QWidget* parent) {
+    const QString normalizedTargetId = targetId.trimmed();
+    if (normalizedTargetId.isEmpty() || normalizedTargetId == m_currentUserId) {
+        return false;
+    }
+    if (normalizedTargetId.startsWith(QStringLiteral("group_search_add:"))) {
+        const QString account = normalizedTargetId.mid(QStringLiteral("group_search_add:").size()).trimmed();
+        if (m_privateChatTarget.isEmpty() && canCurrentUserManageServerGroup(QStringLiteral("public"))) {
+            return requestServerGroupMemberUpdate(account, QStringLiteral("add"));
+        }
+        searchAndAddAccount(account, parent ? parent : this);
+        return true;
+    }
+    if (normalizedTargetId.startsWith(QStringLiteral("group_invite:"))) {
+        const QString account = normalizedTargetId.mid(QStringLiteral("group_invite:").size()).trimmed();
+        return addAccountToCurrentLocalGroup(account, parent);
+    }
+    ensureFriendRequestQueued(normalizedTargetId,
+                              QStringLiteral("已向群成员发起好友申请 QQ:%1，等待对方同意"),
+                              true);
+    openPrivateSession(normalizedTargetId);
+    return true;
+}
+
+void MainWindow::copyVisibleGroupMembers(bool onlineOnly) {
+    QStringList cards;
+    if (!m_groupMemberModel) {
+        ui->statusbar->showMessage(onlineOnly ? QStringLiteral("当前没有可复制的在线成员") : QStringLiteral("当前没有可复制成员"), 2200);
+        return;
+    }
+    for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
+        QStandardItem* item = m_groupMemberModel->item(i);
+        if (!item) continue;
+        const QString id = item->data(Qt::UserRole + 1).toString();
+        if (id.isEmpty() || id.startsWith(QStringLiteral("group_search_add:")) || id.startsWith(QStringLiteral("group_invite:"))) continue;
+        if (onlineOnly && id != m_currentUserId && !isContactOnline(id)) continue;
+        cards << QStringLiteral("QQ:%1 昵称:%2 状态:%3")
+                     .arg(id,
+                          contactDisplayName(id),
+                          (id == m_currentUserId || isContactOnline(id)) ? QStringLiteral("在线") : QStringLiteral("离线"));
+    }
+    if (cards.isEmpty()) {
+        ui->statusbar->showMessage(onlineOnly ? QStringLiteral("当前筛选没有在线成员") : QStringLiteral("当前筛选没有可复制成员"), 2200);
+        return;
+    }
+    QApplication::clipboard()->setText(cards.join(QLatin1Char('\n')));
+    ui->statusbar->showMessage(onlineOnly
+                                   ? QStringLiteral("已复制 %1 个在线成员").arg(cards.size())
+                                   : QStringLiteral("已复制 %1 个可见成员").arg(cards.size()),
+                               2200);
+}
+
+bool MainWindow::promptAndSetGroupMemberRemark(const QString& memberId, QWidget* parent) {
+    if (memberId.trimmed().isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("当前条目不支持设置备注"), 1800);
+        return false;
+    }
+    const QString oldRemark = contactDisplayName(memberId);
+    bool ok = false;
+    const QString remark = promptTextValue(QStringLiteral("设置备注"),
+                                           QStringLiteral("备注名称:"),
+                                           oldRemark,
+                                           &ok,
+                                           parent ? parent : this);
+    if (!ok) {
+        return false;
+    }
+    if (remark.isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("备注名称不能为空"), 1800);
+        return false;
+    }
+    if (remark == oldRemark) {
+        ui->statusbar->showMessage(QStringLiteral("备注未改变"), 1600);
+        return false;
+    }
+    m_friendNames[memberId] = remark;
+    if (m_friendIds.contains(memberId)) {
+        saveFriends();
+        ui->statusbar->showMessage(QStringLiteral("已设置备注：%1").arg(remark), 2200);
+    } else {
+        ui->statusbar->showMessage(QStringLiteral("已为群成员 %1 设置临时备注，未改变好友关系").arg(memberId), 2600);
+    }
+    refreshFriendList();
+    refreshGroupMemberPanel();
+    appendSystemMessage(QStringLiteral("已设置 %1 的备注为 %2").arg(memberId, remark));
+    return true;
+}
+
+bool MainWindow::removeGroupMemberWithConfirmation(const QString& memberId, QWidget* parent) {
+    if (memberId.trimmed().isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("当前成员不可从群聊移除"), 2200);
+        return false;
+    }
+    const bool isLocalGroup = m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    const bool isServerPublicGroup = m_privateChatTarget.isEmpty() && !m_serverGroupMembers.value(QStringLiteral("public")).isEmpty();
+    if (!isLocalGroup && !isServerPublicGroup) {
+        ui->statusbar->showMessage(QStringLiteral("当前会话不支持移除群成员"), 2200);
+        return false;
+    }
+    const GroupMemberContextMenuPlan plan = m_groupManager.memberContextMenuPlan(
+        memberId,
+        m_currentUserId,
+        isLocalGroup,
+        isServerPublicGroup,
+        isLocalGroup ? groupOwnerId(m_privateChatTarget) : QString(),
+        isLocalGroup && isCurrentUserGroupOwner(m_privateChatTarget),
+        m_serverGroupOwners,
+        m_serverGroupMemberRoles);
+    if (!plan.canManageGroup) {
+        ui->statusbar->showMessage(plan.removeDeniedMessage, 2400);
+        return false;
+    }
+    if (memberId == plan.ownerId) {
+        ui->statusbar->showMessage(plan.ownerRemoveDeniedMessage, 2200);
+        return false;
+    }
+    const QString memberName = contactDisplayName(memberId);
+    const QString groupName = isLocalGroup ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
+                                           : m_serverGroupNames.value(QStringLiteral("public"), QStringLiteral("公共聊天室"));
+    if (!confirmDestructiveAction(QStringLiteral("移出群成员"),
+                                  QStringLiteral("确定将“%1”移出群聊“%2”吗？").arg(memberName, groupName),
+                                  QStringLiteral("移出成员"),
+                                  QStringLiteral("保留成员"),
+                                  parent ? parent : this)) {
+        ui->statusbar->showMessage(QStringLiteral("已取消移出群成员"), 1600);
+        return false;
+    }
+    if (isLocalGroup) {
+        m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
+        saveLocalGroups();
+        refreshGroupMemberPanel();
+        appendSystemMessage(QStringLiteral("已将 %1 移出群聊").arg(memberName));
+        return true;
+    }
+    return requestServerGroupMemberUpdate(memberId, QStringLiteral("remove"));
+}
+
 bool MainWindow::handleCreateMenuCommand(const QString& commandId) {
     if (commandId == QLatin1String("create-group")) {
-        bool ok = false;
-        QString groupName = promptTextValue(QStringLiteral("创建群聊"),
-                                            QStringLiteral("群聊名称:"),
-                                            QStringLiteral("我的群聊"),
-                                            &ok);
-        if (!ok) {
-            return true;
-        }
-        if (groupName.isEmpty()) {
-            groupName = QStringLiteral("我的群聊");
-        }
-
-        const QString groupId = createLocalGroupSession(groupName);
-        switchToLocalGroup(groupId, groupName);
-        appendSystemMessage(QStringLiteral("已创建群聊: ") + groupName);
+        showCreateGroupWorkspace(this);
         return true;
     }
 
@@ -1238,7 +4529,7 @@ bool MainWindow::handleCreateMenuCommand(const QString& commandId) {
         QStringList rows;
         rows << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
         rows << QStringLiteral("1. 点击综合搜索可按 QQ 号/昵称查找用户、好友和群聊");
-        rows << QStringLiteral("2. 搜索结果可直接打开、发送好友申请、复制名片或复制邀请卡");
+        rows << QStringLiteral("2. 搜索结果可直接打开、发起好友申请、复制名片或复制邀请卡");
         rows << QStringLiteral("3. 好友申请支持推荐在线用户、复制申请话术和自动发送申请");
         rows << QStringLiteral("4. 好友管理器可搜索、备注、邀入群、复制在线好友和统计");
         rows << QStringLiteral("当前好友:%1 · 群聊:%2 · 在线:%3")
@@ -1425,7 +4716,7 @@ bool MainWindow::handleChatContextCommand(const QString& commandId,
     }
 
     if (route.kind == ChatContextCommandRoute::Kind::SavedFile) {
-        return handleSavedFileContextCommand(commandId, savedFileState);
+        return handleSavedFileContextCommand(commandId, chatText, savedFileState);
     }
 
     if (route.kind == ChatContextCommandRoute::Kind::Draft) {
@@ -1464,6 +4755,7 @@ void MainWindow::updateSavedOutgoingTransferRecoveryUi(bool announce) {
         announce);
     applyTransferActionState(m_resumeSavedTransferAction, uiState.resumeAction);
     applyTransferActionState(m_clearSavedTransferAction, uiState.clearAction);
+    refreshTransferWorkspaceCard(&uiState, nullptr, nullptr);
 
     if (announce && !uiState.announceMessage.isEmpty()) {
         appendSystemMessage(uiState.announceMessage);
@@ -1482,13 +4774,11 @@ void MainWindow::onClearSavedOutgoingTransfer() {
     }
 
     const TransferClearRecoveryPrompt prompt = m_transferManager.clearRecoveryPrompt(state);
-    const QMessageBox::StandardButton choice = QMessageBox::question(
-        this,
-        prompt.title,
-        prompt.message,
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (choice != QMessageBox::Yes) {
+    if (!confirmDestructiveAction(prompt.title,
+                                  prompt.message,
+                                  QStringLiteral("清除记录"),
+                                  QStringLiteral("保留记录"),
+                                  this)) {
         ui->statusbar->showMessage(prompt.keptStatusMessage, 1800);
         return;
     }
@@ -1523,13 +4813,11 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         appendSystemMessage(prompt.systemMessage);
         ui->chatHintLabel->setText(prompt.hintText);
         ui->statusbar->showMessage(prompt.statusMessage, 3600);
-        const QMessageBox::StandardButton choice = QMessageBox::information(
-            this,
-            prompt.title,
-            prompt.message,
-            QMessageBox::Ok | QMessageBox::Discard,
-            QMessageBox::Ok);
-        if (choice == QMessageBox::Discard && m_client->clearOutgoingTransferState()) {
+        if (confirmDestructiveAction(prompt.title,
+                                     prompt.message,
+                                     QStringLiteral("丢弃记录"),
+                                     QStringLiteral("稍后处理"),
+                                     this) && m_client->clearOutgoingTransferState()) {
             appendSystemMessage(prompt.clearedSystemMessage);
             ui->chatHintLabel->setText(prompt.clearedHintText);
             ui->statusbar->showMessage(prompt.clearedStatusMessage, 2200);
@@ -1538,23 +4826,57 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         return;
     }
 
-    QProgressDialog progress(this);
-    progress.setWindowTitle("恢复未完成发送");
-    progress.setLabelText(m_transferManager.resumeInitialState(fileName, targetName).labelText);
-    progress.setCancelButtonText("取消");
-    progress.setRange(0, 100);
-    progress.setValue(0);
-    progress.setWindowModality(Qt::ApplicationModal);
-    progress.setMinimumDuration(0);
+        TransferOperationDialog progress(this);
+        setupTransferOperationDialog(progress,
+                                     this,
+                                     QStringLiteral("transferResumeDialog"),
+                                     QStringLiteral("恢复发送"),
+                                     QStringLiteral("恢复未完成发送"),
+                                     QStringLiteral("恢复过程会和文件工作区保持同步，方便你判断是否继续等待或改为手动重发。"),
+                                     QStringLiteral("取消恢复后，系统会保留最近进度和阻塞原因。"),
+                                     QStringLiteral("取消恢复"));
+    TransferSendUiState resumingWorkspaceState;
+    resumingWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 正在恢复");
+    resumingWorkspaceState.workspaceDetail = QStringLiteral("正在恢复未完成发送“%1”到 %2。进度和结果会继续显示在这里。")
+        .arg(fileName, targetName);
+    resumingWorkspaceState.hintText = QStringLiteral("正在恢复未完成发送 · %1").arg(fileName);
+    resumingWorkspaceState.statusMessage = QStringLiteral("正在恢复未完成发送：") + fileName;
+    resumingWorkspaceState.statusTone = QStringLiteral("accent");
+    setTransferWorkspaceSendState(resumingWorkspaceState);
+
+    const TransferProgressUiState initialResumeState = m_transferManager.resumeInitialState(fileName, targetName);
+    updateTransferOperationDialog(progress,
+                                  QStringLiteral("准备恢复"),
+                                  QStringLiteral("正在恢复未完成发送“%1”到 %2。").arg(fileName, targetName),
+                                  initialResumeState.percent,
+                                  QStringLiteral("%1% · 等待恢复").arg(initialResumeState.percent),
+                                  QStringLiteral("accent"));
+    progress.dialog.show();
+    QApplication::processEvents();
 
     bool cancelRequested = false;
     QMetaObject::Connection cancelConnection = connect(
-        &progress,
-        &QProgressDialog::canceled,
+        progress.cancelButton,
+        &QPushButton::clicked,
         this,
         [this, &progress, &cancelRequested, &fileName]() {
             cancelRequested = true;
-            progress.setLabelText(m_transferManager.resumeCancelState(fileName).labelText);
+            const TransferProgressUiState cancelState = m_transferManager.resumeCancelState(fileName);
+            updateTransferOperationDialog(progress,
+                                          QStringLiteral("正在取消恢复"),
+                                          QStringLiteral("正在取消未完成发送“%1”的恢复流程，结束后会在文件工作区显示最终状态。")
+                                              .arg(fileName),
+                                          cancelState.percent,
+                                          QStringLiteral("%1% · 正在取消").arg(cancelState.percent),
+                                          QStringLiteral("warning"));
+            TransferSendUiState cancelWorkspaceState;
+            cancelWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 正在取消恢复");
+            cancelWorkspaceState.workspaceDetail = QStringLiteral("正在取消未完成发送“%1”的恢复流程，结束后会在这里显示最终状态。")
+                .arg(fileName);
+            cancelWorkspaceState.hintText = QStringLiteral("正在取消恢复发送 · %1").arg(fileName);
+            cancelWorkspaceState.statusMessage = QStringLiteral("正在取消恢复发送：") + fileName;
+            cancelWorkspaceState.statusTone = QStringLiteral("warning");
+            setTransferWorkspaceSendState(cancelWorkspaceState);
             if (m_client) m_client->cancelCurrentOutgoingTransfer();
             ui->statusbar->showMessage("正在取消恢复发送：" + fileName, 1600);
             QApplication::processEvents();
@@ -1562,14 +4884,33 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
     QMetaObject::Connection progressConnection = connect(
         m_client,
         &Client::fileTransferProgress,
-        this,
-        [this, &progress, &fileName, &targetName](const QString& currentFileName, qint64 bytesPrepared, qint64 totalBytes) {
-            if (currentFileName != fileName) return;
-            const TransferProgressUiState state = m_transferManager.resumeProgressState(fileName, targetName, bytesPrepared, totalBytes);
-            progress.setValue(state.percent);
-            progress.setLabelText(state.labelText);
-            QApplication::processEvents();
-        });
+            this,
+            [this, &progress, &fileName, &targetName](const QString& currentFileName, qint64 bytesPrepared, qint64 totalBytes) {
+                if (currentFileName != fileName) return;
+                const TransferProgressUiState state = m_transferManager.resumeProgressState(fileName, targetName, bytesPrepared, totalBytes);
+                updateTransferOperationDialog(progress,
+                                              QStringLiteral("正在恢复"),
+                                              QStringLiteral("正在恢复“%1”到 %2，已准备 %3 / %4。")
+                                                  .arg(fileName,
+                                                       targetName,
+                                                       LocalFileManager::humanFileSize(bytesPrepared),
+                                                       LocalFileManager::humanFileSize(totalBytes)),
+                                              state.percent,
+                                              QStringLiteral("%1% · %2").arg(state.percent).arg(state.labelText),
+                                              QStringLiteral("accent"));
+                TransferSendUiState progressWorkspaceState;
+                progressWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 正在恢复");
+                progressWorkspaceState.workspaceDetail = QStringLiteral("正在恢复“%1”到 %2，已准备 %3 / %4。")
+                    .arg(fileName,
+                         targetName,
+                         LocalFileManager::humanFileSize(bytesPrepared),
+                         LocalFileManager::humanFileSize(totalBytes));
+                progressWorkspaceState.hintText = QStringLiteral("正在恢复未完成发送 · %1").arg(fileName);
+                progressWorkspaceState.statusMessage = QStringLiteral("正在恢复未完成发送：") + fileName;
+                progressWorkspaceState.statusTone = QStringLiteral("accent");
+                setTransferWorkspaceSendState(progressWorkspaceState);
+                QApplication::processEvents();
+            });
     QMetaObject::Connection preparedConnection = connect(
         m_client,
         &Client::fileTransferPrepared,
@@ -1580,7 +4921,22 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
                                              qint64 chunkCount,
                                              const QString& fileHash) {
             if (currentFileName != fileName) return;
-            progress.setLabelText(m_transferManager.resumePreparedState(fileName, targetName, totalBytes, chunkSize, chunkCount, fileHash).labelText);
+            const TransferProgressUiState state = m_transferManager.resumePreparedState(fileName, targetName, totalBytes, chunkSize, chunkCount, fileHash);
+            updateTransferOperationDialog(progress,
+                                          QStringLiteral("恢复清单已就绪"),
+                                          QStringLiteral("未完成发送“%1”已恢复校验清单并继续发送到 %2。%3")
+                                              .arg(fileName, targetName, state.manifestSummary),
+                                          qMax(state.percent, 10),
+                                          QStringLiteral("%1% · 清单已恢复").arg(qMax(state.percent, 10)),
+                                          QStringLiteral("success"));
+            TransferSendUiState preparedWorkspaceState;
+            preparedWorkspaceState.workspaceTitle = QStringLiteral("文件工作区 · 恢复清单已就绪");
+            preparedWorkspaceState.workspaceDetail = QStringLiteral("未完成发送“%1”已恢复校验清单并继续发送到 %2。%3")
+                .arg(fileName, targetName, state.manifestSummary);
+            preparedWorkspaceState.hintText = QStringLiteral("已恢复发送清单 · %1").arg(fileName);
+            preparedWorkspaceState.statusMessage = QStringLiteral("恢复发送清单已生成：") + fileName;
+            preparedWorkspaceState.statusTone = QStringLiteral("success");
+            setTransferWorkspaceSendState(preparedWorkspaceState);
             QApplication::processEvents();
         });
 
@@ -1591,9 +4947,20 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
     QObject::disconnect(progressConnection);
     QObject::disconnect(preparedConnection);
     QObject::disconnect(cancelConnection);
-    progress.setValue(resumed ? 100 : progress.value());
-    QApplication::processEvents();
-    progress.close();
+    updateTransferOperationDialog(progress,
+                                  resumed ? QStringLiteral("恢复完成") : (cancelRequested ? QStringLiteral("恢复已取消") : QStringLiteral("恢复失败")),
+                                  resumed
+                                      ? QStringLiteral("未完成发送“%1”已恢复完成，可回到文件工作区继续查看结果。").arg(fileName)
+                                      : (cancelRequested
+                                          ? QStringLiteral("未完成发送“%1”已取消恢复，最近状态会保留在文件工作区。").arg(fileName)
+                                          : QStringLiteral("未完成发送“%1”恢复失败，可查看阻塞原因并决定是否清理记录或手动重发。").arg(fileName)),
+                                  resumed ? 100 : progress.progressBar->value(),
+                                  resumed ? QStringLiteral("100% · 已完成")
+                                          : (cancelRequested ? QStringLiteral("%1% · 已取消").arg(progress.progressBar->value())
+                                                             : QStringLiteral("%1% · 未完成").arg(progress.progressBar->value())),
+                                  resumed ? QStringLiteral("success")
+                                          : QStringLiteral("warning"));
+    progress.dialog.close();
 
     const TransferResumeResultState resultState = m_transferManager.resumeResultState(
         fileName,
@@ -1613,13 +4980,12 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
         appendSystemMessage(resultState.systemMessage);
         ui->chatHintLabel->setText(resultState.hintText);
         ui->statusbar->showMessage(resultState.statusMessage, 3200);
-        const QMessageBox::StandardButton choice = QMessageBox::warning(
-            this,
-            resultState.failureTitle,
-            resultState.failureMessage,
-            QMessageBox::Ok | QMessageBox::Discard,
-            QMessageBox::Ok);
-        if (choice == QMessageBox::Discard && m_client->clearOutgoingTransferState()) {
+        showWarningDialog(resultState.failureTitle, resultState.failureMessage, this);
+        if (confirmDestructiveAction(QStringLiteral("清理恢复记录"),
+                                     QStringLiteral("恢复未完成发送仍然失败，是否清理当前恢复记录并回到手动重发？"),
+                                     QStringLiteral("清理记录"),
+                                     QStringLiteral("保留记录"),
+                                     this) && m_client->clearOutgoingTransferState()) {
             appendSystemMessage(resultState.clearedSystemMessage);
             ui->chatHintLabel->setText(resultState.clearedHintText);
             ui->statusbar->showMessage(resultState.clearedStatusMessage, 2200);
@@ -1627,6 +4993,1055 @@ void MainWindow::onResumeSavedOutgoingTransfer() {
     }
 
     updateSavedOutgoingTransferRecoveryUi(false);
+}
+
+void MainWindow::onShowTransferWorkspace() {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("transferWorkspaceDialog"),
+        QStringLiteral("文件工作区"),
+        QSize(960, 780),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("文件工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把发送状态、恢复入口、最近诊断、已保存文件和下一步建议集中处理，减少分散在状态栏和右键菜单里的判断。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索文件名 / 路径 / 状态关键词"),
+        QStringLiteral("按文件名、保存路径或状态关键词筛选当前文件工作区条目"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一条文件状态，再决定恢复、重发、复制诊断、打开文件或继续排查。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释当前文件链路、系统保留了什么，以及下一步该恢复、等待、排查还是重新发送。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(26, 18, 26, 16);
+    shell.bodyLayout->setContentsMargins(24, 22, 24, 22);
+    shell.bodyLayout->setSpacing(12);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* stateList = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    struct TransferWorkspaceRow {
+        QString id;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool enabled = true;
+        QString statusTone;
+    };
+
+    auto buildRows = [this]() {
+        QList<TransferWorkspaceRow> rows;
+        const bool activeSendUsesSavedFileActions =
+            m_hasTransferWorkspaceSendState
+            && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
+        {
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("send-file");
+            row.title = QStringLiteral("发送文件");
+            row.detail = QStringLiteral("选择文档、压缩包或其他文件，进入当前会话发送流程。");
+            row.preview = QStringLiteral("发送文件入口\n会先检查当前会话是否可发送，再生成分片和校验清单，随后在这里持续显示发送、失败或恢复状态。");
+            row.keywords = row.title + row.detail + row.preview + QStringLiteral("发送 文件 选择 上传");
+            row.statusTone = QStringLiteral("accent");
+            rows << row;
+        }
+        {
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("send-media");
+            row.title = QStringLiteral("发送图片/视频");
+            row.detail = QStringLiteral("选择图片或视频，统一走媒体发送和回执链路。");
+            row.preview = QStringLiteral("发送图片/视频入口\n会自动识别图片或视频，并把后续进度、失败、恢复和已保存文件反馈都收进同一个文件工作区。");
+            row.keywords = row.title + row.detail + row.preview + QStringLiteral("发送 图片 视频 媒体");
+            row.statusTone = QStringLiteral("accent");
+            rows << row;
+        }
+        if (m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer) {
+            const TransferWorkspaceSummaryState summary =
+                m_transferManager.recoveryWorkspaceSummary(m_lastTransferRecoveryUiState,
+                                                           m_hasLastTransferStatusEvent ? &m_lastTransferStatusEvent : nullptr,
+                                                           !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("recovery");
+            row.title = summary.title;
+            row.detail = QStringLiteral("%1\n%2")
+                             .arg(m_lastTransferRecoveryUiState.fileName.isEmpty()
+                                      ? QStringLiteral("未命名文件")
+                                      : m_lastTransferRecoveryUiState.fileName,
+                                  summary.detail);
+            row.preview = QStringLiteral("%1\n诊断：%2")
+                              .arg(summary.previewText,
+                                   summary.diagnosticHint);
+            row.keywords = row.title + row.detail + row.preview;
+            row.statusTone = summary.statusTone;
+            rows << row;
+        }
+        if (m_hasLastTransferStatusEvent && !m_lastTransferStatusEvent.message.isEmpty()) {
+            const TransferWorkspaceSummaryState summary =
+                m_transferManager.statusWorkspaceSummary(m_lastTransferStatusEvent,
+                                                         m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer,
+                                                         !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("diagnostic");
+            row.title = summary.title;
+            row.detail = QStringLiteral("%1\n%2")
+                             .arg(m_lastTransferStatusEvent.title.isEmpty()
+                                      ? QStringLiteral("文件事件")
+                                      : m_lastTransferStatusEvent.title,
+                                  summary.detail);
+            row.preview = QStringLiteral("%1\n诊断：%2")
+                              .arg(summary.previewText,
+                                   m_lastTransferStatusDiagnostic.trimmed().isEmpty()
+                                       ? summary.diagnosticHint
+                                       : m_lastTransferStatusDiagnostic);
+            row.keywords = row.title + row.detail + row.preview;
+            row.statusTone = summary.statusTone;
+            rows << row;
+        }
+        if (m_hasTransferWorkspaceSendState
+            && (!m_transferWorkspaceSendState.workspaceTitle.trimmed().isEmpty()
+                || !m_transferWorkspaceSendState.workspaceDetail.trimmed().isEmpty())) {
+            const TransferWorkspaceSummaryState summary =
+                m_transferManager.sendWorkspaceSummary(m_transferWorkspaceSendState,
+                                                       !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("active-send");
+            row.title = summary.title;
+            row.detail = summary.detail;
+            row.preview = QStringLiteral("%1\n诊断：%2")
+                              .arg(summary.previewText,
+                                   summary.diagnosticHint);
+            row.keywords = row.title + row.detail + row.preview;
+            row.statusTone = summary.statusTone;
+            rows << row;
+        }
+        if (m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath) {
+            const QString fileName = m_transferWorkspaceSavedFileState.fileInfo.fileName().trimmed().isEmpty()
+                ? QStringLiteral("已保存文件")
+                : m_transferWorkspaceSavedFileState.fileInfo.fileName();
+            const QString fileSize = m_transferWorkspaceSavedFileState.fileInfo.exists()
+                ? LocalFileManager::humanFileSize(m_transferWorkspaceSavedFileState.fileInfo.size())
+                : QString();
+            const TransferWorkspaceSummaryState summary =
+                m_transferManager.savedFileWorkspaceSummary(fileName,
+                                                            fileSize,
+                                                            m_transferWorkspaceSavedFileState.savePath,
+                                                            m_transferWorkspaceSavedFileState.canOpenFile,
+                                                            m_transferWorkspaceSavedFileState.canOpenFolder,
+                                                            ChatContextManager::plainContentText(m_transferWorkspaceSavedChatText));
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("saved-file");
+            row.title = summary.title;
+            row.detail = QStringLiteral("%1\n%2").arg(fileName, summary.detail);
+            row.preview = summary.previewText;
+            row.keywords = row.title + row.detail + row.preview;
+            row.statusTone = summary.statusTone;
+            if (!activeSendUsesSavedFileActions) {
+                rows << row;
+            }
+        }
+        if (rows.isEmpty()) {
+            const TransferWorkspaceSummaryState summary =
+                m_transferManager.emptyWorkspaceSummary(!m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("empty");
+            row.title = QStringLiteral("文件工作区当前为空");
+            row.detail = summary.detail;
+            row.preview = summary.previewText;
+            row.keywords = row.title + row.detail + row.preview;
+            row.enabled = false;
+            row.statusTone = summary.statusTone;
+            rows << row;
+        }
+        return rows;
+    };
+
+    auto rows = buildRows();
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        stateList->clear();
+        int visibleCount = 0;
+        for (const TransferWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.id);
+            item->setData(Qt::UserRole + 1, row.preview);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (!row.enabled) {
+                item->setFlags(Qt::NoItemFlags);
+                item->setForeground(QColor(135, 150, 165));
+            } else if (row.statusTone == QLatin1String("accent")) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.statusTone == QLatin1String("success")) {
+                item->setForeground(QColor(0, 121, 107));
+            } else if (row.statusTone == QLatin1String("warning")) {
+                item->setForeground(QColor(180, 83, 9));
+            } else if (row.statusTone == QLatin1String("danger")) {
+                item->setForeground(QColor(185, 28, 28));
+            }
+            stateList->addItem(item);
+            ++visibleCount;
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 项").arg(visibleCount));
+        selectPreferredListRow(stateList, 0);
+    };
+
+    auto selectedRowId = [stateList]() {
+        QListWidgetItem* item = stateList->currentItem();
+        return item ? item->data(Qt::UserRole).toString() : QString();
+    };
+
+    auto updatePreview = [=]() {
+        QListWidgetItem* item = stateList->currentItem();
+        if (!item) {
+            previewLabel->setText(QStringLiteral("这里会解释当前文件链路、系统保留了什么，以及下一步该恢复、等待、排查还是重新发送。"));
+            return;
+        }
+        previewLabel->setText(item->data(Qt::UserRole + 1).toString());
+    };
+
+    QPushButton* sendFileBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("发送文件"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("选择文件并发送到当前会话"), QStyle::SP_FileIcon);
+    QPushButton* sendMediaBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("发送图片/视频"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("选择图片或视频并发送到当前会话"), QStyle::SP_DriveHDIcon);
+    QPushButton* resumeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("恢复发送"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("继续恢复未完成发送"), QStyle::SP_ArrowForward);
+    QPushButton* clearBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("清理恢复记录"), QStringLiteral("managerDangerBtn"), QStringLiteral("清理当前保存的恢复记录"), QStyle::SP_TrashIcon);
+    QPushButton* copyDiagBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制诊断"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制最近一次文件传输诊断"), QStyle::SP_DialogSaveButton);
+    QPushButton* openFileBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("打开文件"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("打开当前已保存文件"), QStyle::SP_DialogOpenButton);
+    QPushButton* openFolderBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("打开目录"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("打开当前已保存文件所在目录"), QStyle::SP_DirOpenIcon);
+    QPushButton* copyPathBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制路径"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前已保存文件路径"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* copySnapshotBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区摘要"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前文件工作区状态摘要"), QStyle::SP_FileDialogListView);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭文件工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("发送入口"),
+        QStringLiteral("不管是文件、图片还是视频，都从这里统一进入发送流程；后续进度、失败和恢复会继续回到这个工作区。"),
+        {sendFileBtn, sendMediaBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("恢复与排查"),
+        QStringLiteral("未完成发送、最近失败和离线/保存异常会优先收在这里，适合先恢复、重发、清理或复制诊断。"),
+        {resumeBtn, clearBtn, copyDiagBtn, copySnapshotBtn},
+        closeBtn);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("已保存文件"),
+        QStringLiteral("从聊天记录或接收结果切进来后，可在这里打开文件、打开目录或复制路径。"),
+        {openFileBtn, openFolderBtn, copyPathBtn});
+
+    auto updateActionState = [=]() {
+        const QString rowId = selectedRowId();
+        const bool sendFileSelected = rowId == QLatin1String("send-file");
+        const bool sendMediaSelected = rowId == QLatin1String("send-media");
+        const bool recoverySelected = rowId == QLatin1String("recovery");
+        const bool activeSendSelected = rowId == QLatin1String("active-send");
+        const bool activeSendUsesSavedFileActions =
+            activeSendSelected
+            && m_hasTransferWorkspaceSendState
+            && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
+        const bool diagnosticSelected = rowId == QLatin1String("diagnostic")
+            || (activeSendSelected && !activeSendUsesSavedFileActions);
+        const bool savedFileSelected = rowId == QLatin1String("saved-file");
+        const bool savedFileCapableSelected = savedFileSelected || activeSendUsesSavedFileActions;
+        sendFileBtn->setEnabled(sendFileSelected || rowId.isEmpty() || rowId == QLatin1String("empty"));
+        sendMediaBtn->setEnabled(sendMediaSelected || rowId.isEmpty() || rowId == QLatin1String("empty"));
+        resumeBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.resumeAction.enabled);
+        clearBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.clearAction.enabled);
+        copyDiagBtn->setEnabled((diagnosticSelected || recoverySelected) && !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+        openFileBtn->setEnabled(savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFile);
+        openFolderBtn->setEnabled(savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFolder);
+        copyPathBtn->setEnabled(savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath);
+        copySnapshotBtn->setEnabled(true);
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(stateList, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(stateList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog](QListWidgetItem* item) {
+        if (!item) {
+            return;
+        }
+        const QString rowId = item->data(Qt::UserRole).toString();
+        if (rowId == QLatin1String("send-file")) {
+            dialog.accept();
+            onSendFile();
+            return;
+        }
+        if (rowId == QLatin1String("send-media")) {
+            dialog.accept();
+            onSendImage();
+            return;
+        }
+        if (rowId == QLatin1String("recovery")) {
+            dialog.accept();
+            onResumeSavedOutgoingTransfer();
+            return;
+        }
+        const bool activeSendUsesSavedFileActions =
+            rowId == QLatin1String("active-send")
+            && m_hasTransferWorkspaceSendState
+            && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
+        if ((rowId == QLatin1String("saved-file") || activeSendUsesSavedFileActions)
+            && m_hasTransferWorkspaceSavedFileState
+            && m_transferWorkspaceSavedFileState.canOpenFile) {
+            ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                                       chatContextSavedFileState(m_transferWorkspaceSavedFileState),
+                                                                                       m_transferWorkspaceSavedFileState.savePath);
+            command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
+            openSavedFileFromState(m_transferWorkspaceSavedFileState, command);
+        }
+    });
+    connect(sendFileBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onSendFile();
+    });
+    connect(sendMediaBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onSendImage();
+    });
+    connect(resumeBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onResumeSavedOutgoingTransfer();
+    });
+    connect(clearBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onClearSavedOutgoingTransfer();
+    });
+    connect(copyDiagBtn, &QPushButton::clicked, &dialog, [this]() {
+        const TransferDiagnosticCopyUiState copyState = m_transferManager.diagnosticCopyUiState(m_lastTransferStatusDiagnostic);
+        if (!copyState.action.enabled) {
+            ui->statusbar->showMessage(copyState.emptyStatusMessage, 1800);
+            return;
+        }
+        QApplication::clipboard()->setText(copyState.clipboardText);
+        ui->statusbar->showMessage(copyState.copiedStatusMessage, 2200);
+    });
+    connect(openFileBtn, &QPushButton::clicked, &dialog, [this]() {
+        if (!m_hasTransferWorkspaceSavedFileState) {
+            ui->statusbar->showMessage(QStringLiteral("当前没有可打开的已保存文件"), 1800);
+            return;
+        }
+        ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                                   chatContextSavedFileState(m_transferWorkspaceSavedFileState),
+                                                                                   m_transferWorkspaceSavedFileState.savePath);
+        command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
+        openSavedFileFromState(m_transferWorkspaceSavedFileState, command);
+    });
+    connect(openFolderBtn, &QPushButton::clicked, &dialog, [this]() {
+        if (!m_hasTransferWorkspaceSavedFileState) {
+            ui->statusbar->showMessage(QStringLiteral("当前没有可打开的保存目录"), 1800);
+            return;
+        }
+        const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-save-folder"),
+                                                                                         chatContextSavedFileState(m_transferWorkspaceSavedFileState),
+                                                                                         m_transferWorkspaceSavedFileState.savePath);
+        openSavedFolderFromState(m_transferWorkspaceSavedFileState, command);
+    });
+    connect(copyPathBtn, &QPushButton::clicked, &dialog, [this]() {
+        if (!m_hasTransferWorkspaceSavedFileState) {
+            ui->statusbar->showMessage(QStringLiteral("当前没有可复制的保存路径"), 1800);
+            return;
+        }
+        const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
+                                                                                         chatContextSavedFileState(m_transferWorkspaceSavedFileState),
+                                                                                         m_transferWorkspaceSavedFileState.savePath);
+        copySavedFilePathToClipboard(command);
+    });
+    connect(copySnapshotBtn, &QPushButton::clicked, &dialog, [this]() {
+        copyTextWithStatus(transferWorkspaceStatusSnapshotText(), QStringLiteral("文件工作区摘要已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(QStringLiteral("当前会话：%1").arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget)));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+}
+
+void MainWindow::onShowComposerWorkspace() {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("composerWorkspaceDialog"),
+        QStringLiteral("消息工作区"),
+        QSize(980, 780),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("消息工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把输入草稿、快捷短语、会话摘要、@提及和发送入口集中处理，减少依赖零散按钮和右键菜单。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索草稿 / 快捷短语 / 动作"),
+        QStringLiteral("按关键词筛选当前会话可用的消息动作、短语和发送辅助"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选一个动作或短语，再决定直接带入输入框、追加草稿、发送消息或继续打开图片/文件入口。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会说明当前会话、草稿状态，以及这条动作对输入区会产生什么影响。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(26, 18, 26, 16);
+    shell.bodyLayout->setContentsMargins(24, 22, 24, 22);
+    shell.bodyLayout->setSpacing(12);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* actionList = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    const ChatContextComposerState composerState = currentChatContextComposerState();
+    const QString draftText = ui->messageEdit->toPlainText().trimmed();
+    const QString targetName = composerState.targetDisplayName;
+    const bool hasDraft = !draftText.isEmpty();
+    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    const bool canReachTarget = isLocalGroup || (m_client && m_client->isConnected());
+    const QString clipboardText = QApplication::clipboard()->text().trimmed();
+    const bool hasClipboardText = !clipboardText.isEmpty();
+
+    struct ComposerWorkspaceRow {
+        QString id;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool enabled = true;
+        bool phrase = false;
+        QString phraseText;
+        bool insertMode = false;
+    };
+
+    auto buildRows = [=, this]() {
+        QList<ComposerWorkspaceRow> rows;
+
+        ComposerWorkspaceRow draftSummary;
+        draftSummary.id = QStringLiteral("draft-summary");
+        draftSummary.title = hasDraft ? QStringLiteral("当前草稿 · 已就绪") : QStringLiteral("当前草稿 · 仍为空");
+        draftSummary.detail = hasDraft
+            ? QStringLiteral("当前草稿 %1 字\n可直接发送、清空、补充快捷短语，或复制成工作区摘要。").arg(draftText.size())
+            : QStringLiteral("当前还没有输入消息\n可以先选快捷短语、@提及、会话提示，再继续补正文。");
+        draftSummary.preview = hasDraft ? draftText : QStringLiteral("当前会话还没有输入中的消息内容。");
+        draftSummary.keywords = draftSummary.title + draftSummary.detail + draftSummary.preview;
+        rows << draftSummary;
+
+        const QList<ChatContextComposerMenuAction> composerActions = ChatContextManager::composerMenuActions();
+        for (const ChatContextComposerMenuAction& action : composerActions) {
+            ComposerWorkspaceRow row;
+            row.id = action.commandId;
+            row.title = action.title;
+            row.detail = action.toolTip;
+            row.preview = QStringLiteral("当前会话：%1\n草稿长度：%2 字").arg(targetName).arg(draftText.size());
+            row.keywords = row.title + row.detail + row.preview;
+            rows << row;
+        }
+
+        const QList<ChatContextPhraseMenuPlan> phrasePlans = ChatContextManager::composerPhraseMenuPlans();
+        for (const ChatContextPhraseMenuPlan& plan : phrasePlans) {
+            for (const QString& phrase : plan.phrases) {
+                ComposerWorkspaceRow row;
+                row.id = QStringLiteral("phrase:") + phrase;
+                row.title = QStringLiteral("%1 · %2").arg(plan.title, phrase.left(18));
+                row.detail = plan.insertedStatusMessage;
+                row.preview = phrase;
+                row.keywords = row.title + row.detail + row.preview;
+                row.phrase = true;
+                row.phraseText = phrase;
+                row.insertMode = plan.title.contains(QStringLiteral("追加"));
+                rows << row;
+            }
+        }
+
+        ComposerMentionMenuPlan mentionPlan;
+        QStringList mentionIds;
+        QMap<QString, QString> mentionNames;
+        if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+            mentionIds = m_localGroupMembers.value(m_privateChatTarget);
+        } else {
+            for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
+                mentionIds << it.key();
+                mentionNames[it.key()] = it.value().name;
+            }
+        }
+        for (const QString& memberId : mentionIds) {
+            if (!mentionNames.contains(memberId)) {
+                mentionNames[memberId] = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
+            }
+        }
+        mentionPlan = ComposerManager::mentionMenuPlan(mentionIds, m_currentUserId, mentionNames);
+        for (const ComposerMentionAction& mentionAction : mentionPlan.actions) {
+            ComposerWorkspaceRow row;
+            row.id = QStringLiteral("mention:") + mentionAction.insertText;
+            row.title = QStringLiteral("@ 提及 · %1").arg(mentionAction.title);
+            row.detail = mentionAction.statusMessage;
+            row.preview = mentionAction.insertText;
+            row.keywords = row.title + row.detail + row.preview;
+            row.phrase = true;
+            row.phraseText = mentionAction.insertText;
+            row.insertMode = true;
+            rows << row;
+        }
+
+        ComposerWorkspaceRow imageRow;
+        imageRow.id = QStringLiteral("open-image");
+        imageRow.title = QStringLiteral("图片/视频入口");
+        imageRow.detail = ui->imageBtn->toolTip();
+        imageRow.preview = QStringLiteral("打开图片/视频选择器，沿用当前会话上下文。");
+        imageRow.keywords = imageRow.title + imageRow.detail + imageRow.preview;
+        imageRow.enabled = ui->imageBtn->isEnabled();
+        rows << imageRow;
+
+        ComposerWorkspaceRow fileRow;
+        fileRow.id = QStringLiteral("open-file");
+        fileRow.title = QStringLiteral("闪传文件入口");
+        fileRow.detail = ui->fileBtn->toolTip();
+        fileRow.preview = QStringLiteral("打开文件选择器，沿用当前会话上下文。");
+        fileRow.keywords = fileRow.title + fileRow.detail + fileRow.preview;
+        fileRow.enabled = ui->fileBtn->isEnabled();
+        rows << fileRow;
+
+        ComposerWorkspaceRow sendRow;
+        sendRow.id = QStringLiteral("send-now");
+        sendRow.title = QStringLiteral("立即发送");
+        sendRow.detail = ui->sendBtn->toolTip();
+        sendRow.preview = hasDraft ? draftText : QStringLiteral("当前没有可发送草稿。");
+        sendRow.keywords = sendRow.title + sendRow.detail + sendRow.preview;
+        sendRow.enabled = ui->sendBtn->isEnabled();
+        rows << sendRow;
+
+        ComposerWorkspaceRow copySummaryRow;
+        copySummaryRow.id = QStringLiteral("copy-composer-summary");
+        copySummaryRow.title = QStringLiteral("复制消息工作区摘要");
+        copySummaryRow.detail = QStringLiteral("复制当前会话、草稿和输入入口摘要，便于调试或向外同步上下文。");
+        copySummaryRow.preview = QStringLiteral("会话：%1\n草稿：%2 字\n好友：%3 · 群聊：%4")
+                                     .arg(targetName)
+                                     .arg(draftText.size())
+                                     .arg(m_friendIds.size())
+                                     .arg(m_localGroupIds.size());
+        copySummaryRow.keywords = copySummaryRow.title + copySummaryRow.detail + copySummaryRow.preview;
+        rows << copySummaryRow;
+
+        ComposerWorkspaceRow clipboardRow;
+        clipboardRow.id = QStringLiteral("paste-clipboard");
+        clipboardRow.title = QStringLiteral("贴入剪贴板");
+        clipboardRow.detail = hasClipboardText
+            ? QStringLiteral("把剪贴板内容带入当前输入区，继续编辑或发送。")
+            : QStringLiteral("当前剪贴板为空，暂时没有可带入的内容。");
+        clipboardRow.preview = hasClipboardText ? clipboardText.left(120) : QStringLiteral("剪贴板为空");
+        clipboardRow.keywords = clipboardRow.title + clipboardRow.detail + clipboardRow.preview;
+        clipboardRow.enabled = hasClipboardText;
+        rows << clipboardRow;
+
+        return rows;
+    };
+
+    auto rows = buildRows();
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        actionList->clear();
+        int visibleCount = 0;
+        for (const ComposerWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.id);
+            item->setData(Qt::UserRole + 1, row.preview);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (!row.enabled) {
+                item->setFlags(Qt::NoItemFlags);
+                item->setForeground(QColor(135, 150, 165));
+            } else if (row.phrase) {
+                item->setForeground(QColor(29, 78, 216));
+            }
+            actionList->addItem(item);
+            ++visibleCount;
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 项 · 草稿 %2 字").arg(visibleCount).arg(draftText.size()));
+        selectPreferredListRow(actionList, 0);
+    };
+
+    auto selectedActionId = [actionList]() {
+        QListWidgetItem* item = actionList->currentItem();
+        return item ? item->data(Qt::UserRole).toString() : QString();
+    };
+
+    auto updatePreview = [=]() {
+        QListWidgetItem* item = actionList->currentItem();
+        if (!item) {
+            previewLabel->setText(QStringLiteral("这里会说明当前会话、草稿状态，以及这条动作对输入区会产生什么影响。"));
+            return;
+        }
+        previewLabel->setText(item->data(Qt::UserRole + 1).toString());
+    };
+
+    QPushButton* replaceDraftBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("设为草稿"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("用当前动作或短语替换输入框内容"), QStyle::SP_DialogApplyButton);
+    QPushButton* appendDraftBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("追加到草稿"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("把当前动作或短语追加到输入框"), QStyle::SP_ArrowRight);
+    QPushButton* sendBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("立即发送"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("按当前会话上下文直接发送草稿"), QStyle::SP_ArrowForward);
+    QPushButton* openImageBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("图片/视频"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("打开图片/视频发送入口"), QStyle::SP_FileIcon);
+    QPushButton* openFileBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("闪传文件"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("打开文件发送入口"), QStyle::SP_DriveFDIcon);
+    QPushButton* clearDraftBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("清空草稿"), QStringLiteral("managerDangerBtn"), QStringLiteral("清空当前输入区草稿"), QStyle::SP_TrashIcon);
+    QPushButton* copySummaryBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区摘要"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前消息工作区摘要"), QStyle::SP_DialogSaveButton);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭消息工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("草稿与短语"),
+        QStringLiteral("先把动作、短语或 @ 提及带入草稿，再决定继续补正文还是直接发送。"),
+        {replaceDraftBtn, appendDraftBtn, clearDraftBtn, copySummaryBtn},
+        closeBtn);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("发送入口"),
+        QStringLiteral("当前会话允许时，可以直接发送文本，或者继续进入图片/视频、文件发送入口。"),
+        {sendBtn, openImageBtn, openFileBtn});
+
+    auto updateActionState = [=]() {
+        const QString id = selectedActionId();
+        const bool hasSelected = !id.isEmpty();
+        const bool actionIsPhrase = id.startsWith(QStringLiteral("phrase:")) || id.startsWith(QStringLiteral("mention:"));
+        const bool canReplace = hasSelected && id != QLatin1String("send-now") && id != QLatin1String("open-image") && id != QLatin1String("open-file") && id != QLatin1String("copy-composer-summary");
+        replaceDraftBtn->setEnabled(canReplace);
+        appendDraftBtn->setEnabled(actionIsPhrase || id == QLatin1String("paste-clipboard"));
+        clearDraftBtn->setEnabled(hasDraft);
+        sendBtn->setEnabled(ui->sendBtn->isEnabled());
+        openImageBtn->setEnabled(ui->imageBtn->isEnabled());
+        openFileBtn->setEnabled(ui->fileBtn->isEnabled());
+        copySummaryBtn->setEnabled(true);
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(actionList, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(replaceDraftBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        const QString id = selectedActionId();
+        if (id.isEmpty()) {
+            return;
+        }
+        if (id.startsWith(QStringLiteral("phrase:"))) {
+            setChatDraftText(id.mid(QStringLiteral("phrase:").size()), QStringLiteral("已设为当前草稿"), 1400);
+            return;
+        }
+        if (id.startsWith(QStringLiteral("mention:"))) {
+            setChatDraftText(id.mid(QStringLiteral("mention:").size()), QStringLiteral("已设为 @ 提及草稿"), 1400);
+            return;
+        }
+        if (id == QLatin1String("paste-clipboard")) {
+            setChatDraftText(clipboardText, QStringLiteral("已把剪贴板设为当前草稿"), 1400);
+            return;
+        }
+        applyChatContextComposerCommand(id);
+    });
+    connect(appendDraftBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        const QString id = selectedActionId();
+        if (id.startsWith(QStringLiteral("phrase:"))) {
+            insertChatDraftText(id.mid(QStringLiteral("phrase:").size()), QStringLiteral("已追加快捷短语"), 1400);
+            return;
+        }
+        if (id.startsWith(QStringLiteral("mention:"))) {
+            insertChatDraftText(id.mid(QStringLiteral("mention:").size()), QStringLiteral("已追加 @ 提及"), 1400);
+            return;
+        }
+        if (id == QLatin1String("paste-clipboard") && hasClipboardText) {
+            insertChatDraftText(clipboardText, QStringLiteral("已追加剪贴板内容"), 1400);
+        }
+    });
+    connect(sendBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onSendMessage();
+    });
+    connect(openImageBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onSendImage();
+    });
+    connect(openFileBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onSendFile();
+    });
+    connect(clearDraftBtn, &QPushButton::clicked, &dialog, [this]() {
+        ui->messageEdit->clear();
+        ui->messageEdit->setFocus();
+        ui->statusbar->showMessage(QStringLiteral("输入草稿已清空"), 1400);
+        refreshComposerState();
+    });
+    connect(copySummaryBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        QStringList rowsText;
+        rowsText << QStringLiteral("消息工作区摘要");
+        rowsText << QStringLiteral("当前会话:%1").arg(targetName);
+        rowsText << QStringLiteral("草稿长度:%1").arg(ui->messageEdit->toPlainText().trimmed().size());
+        rowsText << QStringLiteral("可发送:%1").arg(ui->sendBtn->isEnabled() ? QStringLiteral("是") : QStringLiteral("否"));
+        rowsText << QStringLiteral("图片入口:%1").arg(ui->imageBtn->isEnabled() ? QStringLiteral("可用") : QStringLiteral("不可用"));
+        rowsText << QStringLiteral("文件入口:%1").arg(ui->fileBtn->isEnabled() ? QStringLiteral("可用") : QStringLiteral("不可用"));
+        rowsText << QStringLiteral("好友:%1 · 群聊:%2 · 在线成员:%3")
+                        .arg(m_friendIds.size())
+                        .arg(m_localGroupIds.size())
+                        .arg(m_knownUsers.size());
+        if (!ui->messageEdit->toPlainText().trimmed().isEmpty()) {
+            rowsText << QStringLiteral("当前草稿:%1").arg(ui->messageEdit->toPlainText().trimmed());
+        }
+        copyTextWithStatus(rowsText.join(QLatin1Char('\n')), QStringLiteral("消息工作区摘要已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(QStringLiteral("当前会话：%1 · 好友 %2 · 群聊 %3").arg(targetName).arg(m_friendIds.size()).arg(m_localGroupIds.size()));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+}
+
+void MainWindow::showChatHistoryWorkspaceForRow(int preferredRow) {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("chatHistoryWorkspaceDialog"),
+        QStringLiteral("消息记录工作区"),
+        QSize(980, 800),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("消息记录工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把聊天记录里的复制、引用、转发、重发、保存文件动作统一收进一个工作面，减少来回试右键菜单。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索消息内容 / 动作"),
+        QStringLiteral("按消息内容、发送人、时间或动作关键词筛选当前聊天记录"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一条消息，再决定复制摘要、带入草稿、转发重发，或切到保存文件排查动作。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释选中消息的上下文、可用动作，以及它会如何影响当前输入区或文件工作区。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(26, 18, 26, 16);
+    shell.bodyLayout->setContentsMargins(24, 22, 24, 22);
+    shell.bodyLayout->setSpacing(12);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* messageList = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    struct ChatHistoryWorkspaceRow {
+        QModelIndex index;
+        QString chatText;
+        LocalSavedFileState savedFileState;
+        bool isMediaMessage = false;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+    };
+
+    auto buildRows = [this]() {
+        QList<ChatHistoryWorkspaceRow> rows;
+        if (!m_chatModel) {
+            return rows;
+        }
+        for (int row = 0; row < m_chatModel->rowCount(); ++row) {
+            QModelIndex index = m_chatModel->index(row, 0);
+            if (!index.isValid()) {
+                continue;
+            }
+            const QString chatText = index.data().toString();
+            if (chatText.trimmed().isEmpty()) {
+                continue;
+            }
+            ChatHistoryWorkspaceRow item;
+            item.index = index;
+            item.chatText = chatText;
+            item.savedFileState = savedFileActionState(index);
+            const ChatContextSavedFileState savedContextState = chatContextSavedFileState(item.savedFileState);
+            item.isMediaMessage = ChatContextManager::isMediaMessage(chatText, savedContextState);
+            const QString sender = ChatContextManager::senderText(chatText).trimmed().isEmpty()
+                ? QStringLiteral("系统/会话")
+                : ChatContextManager::senderText(chatText);
+            const QString timeText = ChatContextManager::timeText(chatText).trimmed().isEmpty()
+                ? QStringLiteral("未知时间")
+                : ChatContextManager::timeText(chatText);
+            const QString plainText = ChatContextManager::plainContentText(chatText).trimmed();
+            item.title = QStringLiteral("%1 · %2").arg(sender, timeText);
+            item.detail = plainText.isEmpty()
+                ? QStringLiteral("消息内容较短或为结构化卡片，请查看下方预览。")
+                : plainText.left(96);
+            if (item.savedFileState.hasSavePath) {
+                item.detail += QStringLiteral("\n已保存文件：%1").arg(item.savedFileState.fileInfo.fileName());
+            } else if (item.isMediaMessage) {
+                item.detail += QStringLiteral("\n媒体消息：%1").arg(ChatContextManager::mediaTypeFromChatText(chatText));
+            }
+            item.preview = QStringLiteral("发送人：%1\n时间：%2\n正文：%3")
+                               .arg(sender,
+                                    timeText,
+                                    plainText.isEmpty() ? chatText.left(180) : plainText);
+            if (item.savedFileState.hasSavePath) {
+                item.preview += QStringLiteral("\n保存路径：%1").arg(item.savedFileState.savePath);
+            }
+            item.keywords = item.title + item.detail + item.preview + chatText;
+            rows << item;
+        }
+        return rows;
+    };
+
+    auto rows = buildRows();
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        messageList->clear();
+        int visibleCount = 0;
+        for (const ChatHistoryWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.index.row());
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, row.savedFileState.hasSavePath || row.isMediaMessage ? 84 : 74));
+            if (row.savedFileState.hasSavePath) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.isMediaMessage) {
+                item->setForeground(QColor(13, 148, 136));
+            }
+            messageList->addItem(item);
+            ++visibleCount;
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 / %2 条").arg(visibleCount).arg(rows.size()));
+        if (messageList->count() <= 0) {
+            return;
+        }
+
+        int preferredVisibleRow = -1;
+        if (preferredRow >= 0) {
+            for (int i = 0; i < messageList->count(); ++i) {
+                QListWidgetItem* item = messageList->item(i);
+                if (item && item->data(Qt::UserRole).toInt() == preferredRow) {
+                    preferredVisibleRow = i;
+                    break;
+                }
+            }
+        }
+        if (preferredVisibleRow >= 0) {
+            messageList->setCurrentRow(preferredVisibleRow);
+        } else {
+            messageList->setCurrentRow(messageList->count() - 1);
+        }
+    };
+
+    auto selectedRowIndex = [messageList]() {
+        QListWidgetItem* item = messageList->currentItem();
+        return item ? item->data(Qt::UserRole).toInt() : -1;
+    };
+
+    auto findSelectedRow = [=, &rows]() -> ChatHistoryWorkspaceRow* {
+        const int rowIndex = selectedRowIndex();
+        for (ChatHistoryWorkspaceRow& row : rows) {
+            if (row.index.row() == rowIndex) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePreview = [=, &rows]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row) {
+            previewLabel->setText(QStringLiteral("这里会解释选中消息的上下文、可用动作，以及它会如何影响当前输入区或文件工作区。"));
+            return;
+        }
+        previewLabel->setText(row->preview);
+    };
+
+    QPushButton* copySummaryBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制消息摘要"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前选中消息的文本摘要"), QStyle::SP_DialogSaveButton);
+    QPushButton* quoteBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("引用到草稿"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("把当前消息引用到输入区"), QStyle::SP_ArrowForward);
+    QPushButton* forwardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("转发到草稿"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("把当前消息正文带入输入区继续处理"), QStyle::SP_ArrowRight);
+    QPushButton* resendBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("重发/再发"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("把当前消息按可重发方式重新带入或直接再发"), QStyle::SP_BrowserReload);
+    QPushButton* copyMediaBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制媒体卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制媒体/文件消息摘要"), QStyle::SP_FileIcon);
+    QPushButton* openFileWorkspaceBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("打开文件工作区"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("把当前保存文件切到文件工作区继续处理"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* openSavedFileBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("打开保存文件"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("直接打开当前保存文件"), QStyle::SP_DialogOpenButton);
+    QPushButton* openFolderBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("打开保存目录"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("直接打开当前保存目录"), QStyle::SP_DirOpenIcon);
+    QPushButton* copyPathBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制保存路径"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前保存文件路径"), QStyle::SP_FileDialogContentsView);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭消息记录工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("消息动作"),
+        QStringLiteral("复制、引用、转发、重发这些动作现在都从这里集中发起，不必先记右键菜单。"),
+        {copySummaryBtn, quoteBtn, forwardBtn, resendBtn},
+        closeBtn);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("媒体与保存文件"),
+        QStringLiteral("带保存路径或媒体结构的消息，会在这里补充文件工作区和本地文件动作。"),
+        {copyMediaBtn, openFileWorkspaceBtn, openSavedFileBtn, openFolderBtn, copyPathBtn});
+
+    auto updateActionState = [=, &rows]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        const bool hasSelection = row != nullptr;
+        const bool hasSavedFile = hasSelection && row->savedFileState.hasSavePath;
+        const bool hasMedia = hasSelection && row->isMediaMessage;
+        copySummaryBtn->setEnabled(hasSelection);
+        quoteBtn->setEnabled(hasSelection);
+        forwardBtn->setEnabled(hasSelection);
+        resendBtn->setEnabled(hasSelection);
+        copyMediaBtn->setEnabled(hasSelection && (hasMedia || hasSavedFile));
+        openFileWorkspaceBtn->setEnabled(hasSavedFile);
+        openSavedFileBtn->setEnabled(hasSavedFile && row->savedFileState.canOpenFile);
+        openFolderBtn->setEnabled(hasSavedFile && row->savedFileState.canOpenFolder);
+        copyPathBtn->setEnabled(hasSavedFile);
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(messageList, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(copySummaryBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row) {
+            return;
+        }
+        const QString summary = QStringLiteral("消息摘要\n%1\n%2")
+                                    .arg(row->title,
+                                         ChatContextManager::plainContentText(row->chatText).trimmed().isEmpty()
+                                             ? row->chatText
+                                             : ChatContextManager::plainContentText(row->chatText));
+        copyTextWithStatus(summary, QStringLiteral("消息摘要已复制"), 2200);
+    });
+    connect(quoteBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row) {
+            return;
+        }
+        handleChatContextCommand(QStringLiteral("quote"), row->chatText, row->savedFileState);
+    });
+    connect(forwardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row) {
+            return;
+        }
+        handleChatContextCommand(QStringLiteral("forward"), row->chatText, row->savedFileState);
+    });
+    connect(resendBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row) {
+            return;
+        }
+        handleChatContextCommand(QStringLiteral("resend"), row->chatText, row->savedFileState);
+    });
+    connect(copyMediaBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row) {
+            return;
+        }
+        const QString commandId = row->savedFileState.hasSavePath
+            ? QStringLiteral("copy-file-notice")
+            : QStringLiteral("copy-media-card");
+        handleChatContextCommand(commandId, row->chatText, row->savedFileState);
+    });
+    connect(openFileWorkspaceBtn, &QPushButton::clicked, &dialog, [this, &rows, &dialog, findSelectedRow]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row || !row->savedFileState.hasSavePath) {
+            return;
+        }
+        showSavedFileWorkspace(row->savedFileState, row->chatText, QStringLiteral("已切换到保存文件工作区"));
+        dialog.accept();
+        onShowTransferWorkspace();
+    });
+    connect(openSavedFileBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row || !row->savedFileState.hasSavePath) {
+            return;
+        }
+        ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                                   chatContextSavedFileState(row->savedFileState),
+                                                                                   row->savedFileState.savePath);
+        command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
+        openSavedFileFromState(row->savedFileState, command);
+    });
+    connect(openFolderBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row || !row->savedFileState.hasSavePath) {
+            return;
+        }
+        const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-save-folder"),
+                                                                                         chatContextSavedFileState(row->savedFileState),
+                                                                                         row->savedFileState.savePath);
+        openSavedFolderFromState(row->savedFileState, command);
+    });
+    connect(copyPathBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = findSelectedRow();
+        if (!row || !row->savedFileState.hasSavePath) {
+            return;
+        }
+        const ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("copy-save-path"),
+                                                                                         chatContextSavedFileState(row->savedFileState),
+                                                                                         row->savedFileState.savePath);
+        copySavedFilePathToClipboard(command);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(QStringLiteral("当前会话：%1 · 消息 %2 条").arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget)).arg(rows.size()));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+}
+
+void MainWindow::onShowChatHistoryWorkspace() {
+    const QModelIndex currentIndex = ui->chatListView ? ui->chatListView->currentIndex() : QModelIndex();
+    showChatHistoryWorkspaceForRow(currentIndex.isValid() ? currentIndex.row() : -1);
 }
 
 void MainWindow::setupUi() {
@@ -1637,7 +6052,7 @@ void MainWindow::setupUi() {
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     ui->chatListView->setModel(m_chatModel);
     ui->chatListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    ui->chatListView->setToolTip("右键消息可复制、引用和转发；双击带保存路径的文件记录可直接打开文件");
+    ui->chatListView->setToolTip("双击消息可进入消息记录工作区；带保存路径的文件消息会继续打开本地文件");
 
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
     ui->groupMemberListView->setModel(m_groupMemberModel);
@@ -1659,369 +6074,67 @@ void MainWindow::setupUi() {
     ui->imageBtn->setObjectName("toolBtn");
     ui->imageBtn->setText("图片/视频");
     ui->imageBtn->setToolTip("发送图片或视频文件，图片会显示预览");
-    ui->emojiBtn->setObjectName("iconToolBtn");
-    ui->emojiBtn->setToolTip("插入常用表情");
-    ui->mentionBtn->setObjectName("iconToolBtn");
-    ui->mentionBtn->setToolTip("快速 @ 群成员或插入会话提醒");
+    ui->emojiBtn->setObjectName("toolBtn");
+    ui->emojiBtn->setText("消息工作区");
+    ui->emojiBtn->setToolTip("打开消息工作区，集中处理草稿、快捷短语、@提及和发送辅助");
+    ui->mentionBtn->setObjectName("toolBtn");
+    ui->mentionBtn->setText("快捷提及");
+    ui->mentionBtn->setToolTip("快速 @ 群成员，或插入会话提醒短语");
+    ui->transferResumeBtn->setObjectName("transferPrimaryBtn");
+    ui->transferResumeBtn->setToolTip("检测到未完成发送时，可从这里直接恢复");
+    ui->transferClearBtn->setObjectName("transferDangerBtn");
+    ui->transferClearBtn->setToolTip("清理本机保存的恢复记录，回到手动重发");
+    ui->transferCopyStatusBtn->setObjectName("transferGhostBtn");
+    ui->transferCopyStatusBtn->setToolTip("打开文件工作区，查看最近诊断、恢复入口和已保存文件动作");
     ui->sendBtn->setToolTip("请输入消息后发送");
     ui->sendBtn->setEnabled(false);
     ui->globalSearchBtn->setToolTip("打开综合搜索；搜索框有内容时直接搜索该 QQ 号");
     ui->createMenuBtn->setToolTip("打开创建和快捷操作菜单");
-    ui->friendNoticeBtn->setToolTip("查看并处理好友申请");
-    ui->groupNoticeBtn->setToolTip("查看群聊、群公告和入群邀请");
+    ui->friendNoticeBtn->setToolTip("打开通知控制台，统一查看好友申请、群通知和处理计划");
+    ui->groupNoticeBtn->setToolTip("打开通知控制台，统一查看群通知、群公告、成员和批量计划");
+    ui->groupMemberWorkspaceBtn->setToolTip("打开群成员工作区，集中处理成员查看、邀请、备注和复制动作");
     ui->copyAccountBtn->setToolTip("复制当前 QQ 账号");
     ui->friendManagerBtn->setToolTip("打开好友管理器");
     ui->groupChatBtn->setToolTip("返回公共聊天室");
-    ui->uploadAvatarBtn->setToolTip("更换当前头像");
-    setStyleSheet(R"(
-        QMainWindow, QWidget#centralwidget {
-            background: #EEF4F7;
-            font-family: "Microsoft YaHei", "Segoe UI";
-            font-size: 13px;
-            color: #253342;
-        }
-        QFrame#sidePanel {
-            background: qlineargradient(x1:0, y1:0, x2:0.9, y2:1, stop:0 #20D6C5, stop:0.44 #149EE9, stop:1 #5B5CE2);
-        }
-        QLabel#appTitleLabel {
-            color: white;
-            font-size: 21px;
-            font-weight: 800;
-            padding-bottom: 2px;
-        }
-        QLabel#avatarLabel {
-            background: white;
-            color: #1289DF;
-            border-radius: 36px;
-            font-size: 30px;
-            font-weight: 700;
-            margin-left: 63px;
-            margin-right: 63px;
-        }
-        QFrame#profileCard {
-            background: rgba(255, 255, 255, 48);
-            border: 1px solid rgba(255, 255, 255, 86);
-            border-radius: 14px;
-        }
-        QLabel#profileNameLabel {
-            color: white;
-            font-size: 15px;
-            font-weight: 800;
-        }
-        QLabel#profileIdLabel {
-            color: rgba(255, 255, 255, 215);
-            font-size: 12px;
-        }
-        QPushButton#copyAccountBtn, QPushButton#addFriendBtn, QPushButton#friendManagerBtn, QPushButton#groupChatBtn, QPushButton#uploadAvatarBtn {
-            background: rgba(255, 255, 255, 232);
-            color: #1278D4;
-            border: none;
-            border-radius: 11px;
-            min-height: 28px;
-            padding: 4px 8px;
-            font-weight: 700;
-        }
-        QPushButton#copyAccountBtn:hover, QPushButton#addFriendBtn:hover, QPushButton#friendManagerBtn:hover, QPushButton#groupChatBtn:hover, QPushButton#uploadAvatarBtn:hover {
-            background: white;
-        }
-        QLabel#onlineTitleLabel {
-            color: rgba(255, 255, 255, 220);
-            font-size: 14px;
-            font-weight: 600;
-            padding-top: 8px;
-        }
-        QPushButton#friendNoticeBtn, QPushButton#groupNoticeBtn {
-            background: rgba(255, 255, 255, 232);
-            color: #1278D4;
-            border: none;
-            border-radius: 13px;
-            min-height: 28px;
-            padding: 3px 8px;
-            font-weight: 700;
-        }
-        QPushButton#friendNoticeBtn:hover, QPushButton#groupNoticeBtn:hover {
-            background: white;
-        }
-        QLineEdit#contactSearchEdit {
-            background: rgba(255, 255, 255, 235);
-            color: #253342;
-            border: 1px solid rgba(255, 255, 255, 105);
-            border-radius: 15px;
-            min-height: 30px;
-            padding: 3px 12px;
-        }
-        QPushButton#globalSearchBtn, QPushButton#createMenuBtn {
-            background: rgba(255, 255, 255, 232);
-            color: #1278D4;
-            border: none;
-            border-radius: 15px;
-            min-height: 30px;
-            padding: 3px 10px;
-            font-weight: 700;
-        }
-        QPushButton#createMenuBtn {
-            font-size: 18px;
-            padding: 0 10px;
-        }
-        QPushButton#globalSearchBtn:hover, QPushButton#createMenuBtn:hover {
-            background: white;
-        }
-        QLineEdit#contactSearchEdit:focus {
-            background: white;
-            border: 1px solid white;
-        }
-        QListView#userListView {
-            background: rgba(255, 255, 255, 42);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 78);
-            border-radius: 16px;
-            padding: 6px;
-            outline: none;
-            alternate-background-color: rgba(255, 255, 255, 18);
-        }
-        QListView#userListView::item {
-            height: 48px;
-            border-radius: 11px;
-            padding-left: 8px;
-        }
-        QListView#userListView::item:selected, QListView#userListView::item:hover {
-            background: rgba(255, 255, 255, 86);
-        }
-        QFrame#chatHeader, QFrame#inputPanel, QListView#chatListView {
-            background: #FFFFFF;
-            border: 1px solid #DDE8F0;
-            border-radius: 18px;
-        }
-        QFrame#chatPanel {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F3F8FB, stop:0.56 #F8FBFD, stop:1 #EEF8F5);
-        }
-        QFrame#groupInfoPanel {
-            background: #F8FBFC;
-            border-left: 1px solid #E1EAF1;
-        }
-        QFrame#announcementCard {
-            background: white;
-            border: 1px solid #E2EAF1;
-            border-radius: 14px;
-        }
-        QLabel#announcementTitleLabel, QLabel#memberTitleLabel {
-            color: #203144;
-            font-size: 14px;
-            font-weight: 800;
-        }
-        QLabel#announcementTitleLabel a {
-            color: #168BE8;
-            text-decoration: none;
-        }
-        QLabel#announcementBodyLabel {
-            color: #6E7F90;
-            font-size: 12px;
-            line-height: 18px;
-        }
-        QLineEdit#memberSearchEdit {
-            background: white;
-            color: #253342;
-            border: 1px solid #DAE6EF;
-            border-radius: 15px;
-            min-height: 30px;
-            padding: 3px 12px;
-        }
-        QLineEdit#memberSearchEdit:focus {
-            border: 1px solid #17A8F3;
-        }
-        QListView#groupMemberListView {
-            background: white;
-            border: 1px solid #E1EAF1;
-            border-radius: 14px;
-            padding: 6px;
-            outline: none;
-        }
-        QListView#groupMemberListView::item {
-            min-height: 34px;
-            border-radius: 9px;
-            padding-left: 6px;
-        }
-        QListView#groupMemberListView::item:selected, QListView#groupMemberListView::item:hover {
-            background: #EAF7FF;
-            color: #166BAF;
-        }
-        QLabel#chatTitleLabel {
-            color: #203144;
-            font-size: 18px;
-            font-weight: 700;
-        }
-        QLabel#chatHintLabel {
-            color: #7F8D9B;
-            font-size: 12px;
-        }
-        QListView#chatListView {
-            padding: 14px;
-            outline: none;
-        }
-        QListView#chatListView::item {
-            min-height: 32px;
-            padding: 8px 12px;
-            margin: 4px 0;
-            border-radius: 14px;
-        }
-        QListView#chatListView::item:hover {
-            background: #F2F8FC;
-        }
-        QTextEdit#messageEdit {
-            background: #F9FBFD;
-            border: 1px solid #DAE6EF;
-            border-radius: 14px;
-            padding: 8px 10px;
-            selection-background-color: #17B8F2;
-            selection-color: white;
-        }
-        QTextEdit#messageEdit:focus {
-            background: white;
-            border: 1px solid #17A8F3;
-        }
-        QPushButton {
-            background: #F1F6FA;
-            color: #34495B;
-            border: 1px solid #D2E0EA;
-            border-radius: 12px;
-            padding: 7px 14px;
-        }
-        QPushButton:hover {
-            background: #E8F2F9;
-            border-color: #BBD3E5;
-        }
-        QPushButton:pressed {
-            background: #DCEBF5;
-        }
-        QPushButton:disabled {
-            background: #EEF2F5;
-            color: #A5B1BC;
-            border-color: #E0E7ED;
-        }
-        QPushButton#sendBtn {
-            background: #18A8F2;
-            color: white;
-            border: none;
-            font-weight: 700;
-        }
-        QPushButton#sendBtn:hover {
-            background: #0E95DF;
-        }
-        QPushButton#sendBtn:pressed {
-            background: #0B7EC6;
-        }
-        QPushButton#sendBtn:disabled {
-            background: #BFD0DE;
-            color: #F8FBFD;
-            border: none;
-        }
-        QPushButton#toolBtn, QPushButton#iconToolBtn {
-            background: transparent;
-            color: #516274;
-            border: none;
-            border-radius: 14px;
-            padding: 5px 10px;
-            font-weight: 700;
-            min-width: 44px;
-        }
-        QPushButton#iconToolBtn {
-            min-width: 30px;
-            font-size: 16px;
-            padding: 4px 6px;
-        }
-        QPushButton#toolBtn:hover, QPushButton#iconToolBtn:hover {
-            background: #EAF7FF;
-            color: #168BE8;
-        }
-        QPushButton#toolBtn:disabled, QPushButton#iconToolBtn:disabled {
-            background: transparent;
-            color: #AEBAC4;
-        }
-        QPushButton#clearBtn {
-            color: #D35454;
-        }
-        QMenuBar {
-            background: #F8FBFD;
-            color: #435367;
-            border-bottom: 1px solid #DDE8F0;
-            spacing: 4px;
-        }
-        QMenuBar::item {
-            background: transparent;
-            padding: 5px 10px;
-            border-radius: 6px;
-        }
-        QMenuBar::item:selected {
-            background: #EAF4FB;
-            color: #1679CA;
-        }
-        QMenu {
-            background: #FFFFFF;
-            color: #253342;
-            border: 1px solid #D7E3EC;
-            border-radius: 8px;
-            padding: 6px;
-        }
-        QMenu::item {
-            padding: 7px 24px 7px 12px;
-            border-radius: 6px;
-        }
-        QMenu::item:selected {
-            background: #EAF7FF;
-            color: #1679CA;
-        }
-        QMenu::separator {
-            height: 1px;
-            background: #E7EEF4;
-            margin: 6px 4px;
-        }
-        QToolTip {
-            background: #203144;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 6px 8px;
-        }
-        QScrollBar:vertical {
-            background: transparent;
-            width: 10px;
-            margin: 4px 2px 4px 2px;
-        }
-        QScrollBar::handle:vertical {
-            background: #C5D7E5;
-            border-radius: 5px;
-            min-height: 36px;
-        }
-        QScrollBar::handle:vertical:hover {
-            background: #9FBCD2;
-        }
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-            background: transparent;
-            height: 0px;
-        }
-        QStatusBar {
-            background: #EEF4F7;
-            color: #5F7183;
-            border-top: 1px solid #DCE7EF;
-            padding-left: 6px;
-        }
-        QStatusBar::item {
-            border: none;
-        }
-    )");
+    ui->uploadAvatarBtn->setToolTip("打开头像工作区，集中处理更换、路径复制和目录动作");
+    setStyleSheet(productMainWindowStyleSheet());
+    assignButtonIcon(ui->copyAccountBtn, this, QStyle::SP_DialogSaveButton);
+    assignButtonIcon(ui->uploadAvatarBtn, this, QStyle::SP_FileDialogContentsView);
+    assignButtonIcon(ui->friendManagerBtn, this, QStyle::SP_FileDialogDetailedView);
+    assignButtonIcon(ui->groupChatBtn, this, QStyle::SP_ComputerIcon);
+    assignButtonIcon(ui->addFriendBtn, this, QStyle::SP_FileDialogNewFolder);
+    assignButtonIcon(ui->friendNoticeBtn, this, QStyle::SP_MessageBoxInformation);
+    assignButtonIcon(ui->groupNoticeBtn, this, QStyle::SP_MessageBoxWarning);
+    assignButtonIcon(ui->groupMemberWorkspaceBtn, this, QStyle::SP_FileDialogListView);
+    assignButtonIcon(ui->globalSearchBtn, this, QStyle::SP_FileDialogStart);
+    assignButtonIcon(ui->createMenuBtn, this, QStyle::SP_FileDialogNewFolder);
+    assignButtonIcon(ui->emojiBtn, this, QStyle::SP_DialogApplyButton);
+    assignButtonIcon(ui->mentionBtn, this, QStyle::SP_ArrowRight);
+    assignButtonIcon(ui->imageBtn, this, QStyle::SP_FileIcon);
+    assignButtonIcon(ui->fileBtn, this, QStyle::SP_DriveFDIcon);
+    assignButtonIcon(ui->clearBtn, this, QStyle::SP_TrashIcon);
+    assignButtonIcon(ui->transferResumeBtn, this, QStyle::SP_ArrowForward);
+    assignButtonIcon(ui->transferClearBtn, this, QStyle::SP_TrashIcon);
+    assignButtonIcon(ui->transferCopyStatusBtn, this, QStyle::SP_FileDialogDetailedView);
+    assignButtonIcon(ui->sendBtn, this, QStyle::SP_ArrowForward);
 
+    QAction* contactWorkspaceAction = new QAction("联系人工作区", this);
     QAction* friendManagerAction = new QAction("好友管理器", this);
     QAction* backGroupAction = new QAction("返回群聊", this);
-    QAction* avatarAction = new QAction("上传头像", this);
+    QAction* avatarAction = new QAction("头像工作区", this);
     QAction* sendImageAction = new QAction("发送图片/视频", this);
     QAction* sendFileAction = new QAction("闪传文件", this);
+    QAction* composerWorkspaceAction = new QAction("消息工作区", this);
+    QAction* chatHistoryWorkspaceAction = new QAction("消息记录工作区", this);
+    QAction* notificationWorkspaceAction = new QAction("通知控制台", this);
+    QAction* groupInfoWorkspaceAction = new QAction("群信息工作区", this);
     m_resumeSavedTransferAction = new QAction("恢复未完成发送", this);
     m_resumeSavedTransferAction->setVisible(false);
     m_resumeSavedTransferAction->setEnabled(false);
     m_clearSavedTransferAction = new QAction("清除恢复记录", this);
     m_clearSavedTransferAction->setVisible(false);
     m_clearSavedTransferAction->setEnabled(false);
+    QAction* transferWorkspaceAction = new QAction("文件工作区", this);
     m_copyLastTransferStatusAction = new QAction("复制最近文件状态", this);
     m_copyLastTransferStatusAction->setVisible(false);
     m_copyLastTransferStatusAction->setEnabled(false);
@@ -2030,13 +6143,19 @@ void MainWindow::setupUi() {
     QAction* copyAccountAction = new QAction("复制账号", this);
     QAction* copySummaryAction = new QAction("复制账号摘要", this);
     QAction* logoutAction = new QAction("退出登录", this);
+    ui->menubar->addAction(contactWorkspaceAction);
     ui->menubar->addAction(friendManagerAction);
     ui->menubar->addAction(backGroupAction);
     ui->menubar->addAction(avatarAction);
     ui->menubar->addAction(sendImageAction);
     ui->menubar->addAction(sendFileAction);
+    ui->menubar->addAction(composerWorkspaceAction);
+    ui->menubar->addAction(chatHistoryWorkspaceAction);
+    ui->menubar->addAction(notificationWorkspaceAction);
+    ui->menubar->addAction(groupInfoWorkspaceAction);
     ui->menubar->addAction(m_resumeSavedTransferAction);
     ui->menubar->addAction(m_clearSavedTransferAction);
+    ui->menubar->addAction(transferWorkspaceAction);
     ui->menubar->addAction(m_copyLastTransferStatusAction);
     ui->menubar->addAction(filterHistoryAction);
     ui->menubar->addAction(exportHistoryAction);
@@ -2044,13 +6163,21 @@ void MainWindow::setupUi() {
     ui->menubar->addAction(copySummaryAction);
     ui->menubar->addAction(logoutAction);
 
+    connect(contactWorkspaceAction, &QAction::triggered, this, [this]() {
+        onShowContactWorkspace();
+    });
     connect(friendManagerAction, &QAction::triggered, this, &MainWindow::onShowFriendManager);
     connect(backGroupAction, &QAction::triggered, this, &MainWindow::onBackToGroupChat);
-    connect(avatarAction, &QAction::triggered, this, &MainWindow::onUploadAvatar);
+    connect(avatarAction, &QAction::triggered, this, &MainWindow::showAvatarWorkspace);
     connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
     connect(sendFileAction, &QAction::triggered, this, &MainWindow::onSendFile);
+    connect(composerWorkspaceAction, &QAction::triggered, this, &MainWindow::onShowComposerWorkspace);
+    connect(chatHistoryWorkspaceAction, &QAction::triggered, this, &MainWindow::onShowChatHistoryWorkspace);
+    connect(notificationWorkspaceAction, &QAction::triggered, this, &MainWindow::onShowNotificationWorkspace);
+    connect(groupInfoWorkspaceAction, &QAction::triggered, this, &MainWindow::showGroupInfoWorkspace);
     connect(m_resumeSavedTransferAction, &QAction::triggered, this, &MainWindow::onResumeSavedOutgoingTransfer);
     connect(m_clearSavedTransferAction, &QAction::triggered, this, &MainWindow::onClearSavedOutgoingTransfer);
+    connect(transferWorkspaceAction, &QAction::triggered, this, &MainWindow::onShowTransferWorkspace);
     connect(m_copyLastTransferStatusAction, &QAction::triggered, this, [this]() {
         const TransferDiagnosticCopyUiState copyState = m_transferManager.diagnosticCopyUiState(m_lastTransferStatusDiagnostic);
         if (!copyState.action.enabled) {
@@ -2081,8 +6208,11 @@ void MainWindow::setupUi() {
     refreshComposerState();
     connect(ui->fileBtn, &QPushButton::clicked, this, &MainWindow::onSendFile);
     connect(ui->imageBtn, &QPushButton::clicked, this, &MainWindow::onSendImage);
-    connect(ui->emojiBtn, &QPushButton::clicked, this, &MainWindow::onInsertEmoji);
+    connect(ui->emojiBtn, &QPushButton::clicked, this, &MainWindow::onShowComposerWorkspace);
     connect(ui->mentionBtn, &QPushButton::clicked, this, &MainWindow::onInsertMention);
+    connect(ui->transferResumeBtn, &QPushButton::clicked, this, &MainWindow::onResumeSavedOutgoingTransfer);
+    connect(ui->transferClearBtn, &QPushButton::clicked, this, &MainWindow::onClearSavedOutgoingTransfer);
+    connect(ui->transferCopyStatusBtn, &QPushButton::clicked, this, &MainWindow::onShowTransferWorkspace);
     QShortcut* contactSearchShortcut = new QShortcut(QKeySequence("Ctrl+F"), this);
     connect(contactSearchShortcut, &QShortcut::activated, this, [this]() {
         ui->contactSearchEdit->setFocus();
@@ -2096,7 +6226,21 @@ void MainWindow::setupUi() {
         ui->statusbar->showMessage("已定位到成员搜索", 1600);
     });
     QShortcut* globalSearchShortcut = new QShortcut(QKeySequence("Ctrl+K"), this);
-    connect(globalSearchShortcut, &QShortcut::activated, this, &MainWindow::onShowGlobalSearch);
+    connect(globalSearchShortcut, &QShortcut::activated, this, [this]() {
+        onShowGlobalSearch();
+    });
+    QShortcut* contactWorkspaceShortcut = new QShortcut(QKeySequence("Ctrl+Shift+J"), this);
+    connect(contactWorkspaceShortcut, &QShortcut::activated, this, [this]() {
+        onShowContactWorkspace();
+    });
+    QShortcut* composerWorkspaceShortcut = new QShortcut(QKeySequence("Ctrl+Shift+K"), this);
+    connect(composerWorkspaceShortcut, &QShortcut::activated, this, &MainWindow::onShowComposerWorkspace);
+    QShortcut* chatHistoryWorkspaceShortcut = new QShortcut(QKeySequence("Ctrl+Shift+H"), this);
+    connect(chatHistoryWorkspaceShortcut, &QShortcut::activated, this, &MainWindow::onShowChatHistoryWorkspace);
+    QShortcut* notificationWorkspaceShortcut = new QShortcut(QKeySequence("Ctrl+Shift+N"), this);
+    connect(notificationWorkspaceShortcut, &QShortcut::activated, this, &MainWindow::onShowNotificationWorkspace);
+    QShortcut* groupInfoWorkspaceShortcut = new QShortcut(QKeySequence("Ctrl+Shift+G"), this);
+    connect(groupInfoWorkspaceShortcut, &QShortcut::activated, this, &MainWindow::showGroupInfoWorkspace);
     connect(ui->messageEdit, &QTextEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu menu(this);
         const QString draftText = ui->messageEdit->toPlainText().trimmed();
@@ -2201,13 +6345,31 @@ void MainWindow::setupUi() {
         if (!index.isValid()) return;
 
         const LocalSavedFileState savedFileState = savedFileActionState(index);
-        if (!savedFileState.hasSavePath) return;
+        if (savedFileState.hasSavePath) {
+            showSavedFileWorkspace(savedFileState,
+                                   index.data().toString(),
+                                   QStringLiteral("已切换到保存文件工作区"));
 
-        ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
-                                                                                   chatContextSavedFileState(savedFileState),
-                                                                                   savedFileState.savePath);
-        command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
-        openSavedFileFromState(savedFileState, command);
+            ChatContextSavedFileCommand command = ChatContextManager::savedFileCommand(QStringLiteral("open-saved-file"),
+                                                                                       chatContextSavedFileState(savedFileState),
+                                                                                       savedFileState.savePath);
+            command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
+            openSavedFileFromState(savedFileState, command);
+            return;
+        }
+        showChatHistoryWorkspaceForRow(index.row());
+    });
+    connect(ui->chatListView->selectionModel(), &QItemSelectionModel::currentChanged, this, [this](const QModelIndex& current, const QModelIndex&) {
+        if (!current.isValid()) {
+            clearSavedFileWorkspace();
+            return;
+        }
+        const LocalSavedFileState savedFileState = savedFileActionState(current);
+        if (!savedFileState.hasSavePath) {
+            clearSavedFileWorkspace();
+            return;
+        }
+        showSavedFileWorkspace(savedFileState, current.data().toString());
     });
     connect(ui->chatListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->chatListView->indexAt(pos);
@@ -2221,18 +6383,73 @@ void MainWindow::setupUi() {
         const QList<ChatContextMenuActionSpec> actionSpecs = ChatContextManager::menuActionSpecs(
             isMediaMessage,
             savedContextState);
+        auto iconForChatContextCommand = [](const QString& commandId) {
+            if (commandId == QLatin1String("copy-message")
+                    || commandId == QLatin1String("copy-plain")
+                    || commandId == QLatin1String("copy-sender")
+                    || commandId == QLatin1String("copy-time")
+                    || commandId == QLatin1String("copy-media-card")
+                    || commandId == QLatin1String("copy-file-notice")
+                    || commandId == QLatin1String("copy-receipt")
+                    || commandId == QLatin1String("copy-media-flow")
+                    || commandId == QLatin1String("copy-save-path")) {
+                return QStyle::SP_DialogSaveButton;
+            }
+            if (commandId == QLatin1String("open-saved-file")) {
+                return QStyle::SP_DialogOpenButton;
+            }
+            if (commandId == QLatin1String("open-save-folder")) {
+                return QStyle::SP_DirOpenIcon;
+            }
+            if (commandId == QLatin1String("quote")
+                    || commandId == QLatin1String("forward")
+                    || commandId == QLatin1String("resend")
+                    || commandId == QLatin1String("mention-reply")) {
+                return QStyle::SP_ArrowForward;
+            }
+            return QStyle::SP_FileDialogInfoView;
+        };
+        QAction* historyWorkspaceAction = addMenuActionWithIcon(menu,
+                                                                this,
+                                                                QStringLiteral("打开消息记录工作区"),
+                                                                QStringLiteral("把这条消息带入消息记录工作区，集中处理复制、引用、转发和文件动作"),
+                                                                QStringLiteral("open-chat-history-workspace"),
+                                                                true,
+                                                                QStyle::SP_FileDialogDetailedView);
+        QAction* savedFileWorkspaceAction = nullptr;
+        if (savedFileState.hasSavePath) {
+            savedFileWorkspaceAction = addMenuActionWithIcon(menu,
+                                                             this,
+                                                             QStringLiteral("打开保存文件工作区"),
+                                                             QStringLiteral("把这条已保存文件消息切到文件工作区，统一处理打开文件、打开目录、复制路径和诊断"),
+                                                             QStringLiteral("open-saved-file-workspace"),
+                                                             true,
+                                                             QStyle::SP_DriveHDIcon);
+        }
+        menu.addSeparator();
         for (const ChatContextMenuActionSpec& spec : actionSpecs) {
             if (spec.separatorBefore) {
                 menu.addSeparator();
             }
-            addChatContextAction(menu,
-                                 spec.title,
-                                 spec.toolTip,
-                                 spec.commandId,
-                                 spec.enabled);
+            addMenuActionWithIcon(menu,
+                                  this,
+                                  spec.title,
+                                  spec.toolTip,
+                                  spec.commandId,
+                                  spec.enabled,
+                                  iconForChatContextCommand(spec.commandId));
         }
         QAction* selected = menu.exec(ui->chatListView->viewport()->mapToGlobal(pos));
         if (!selected) return;
+        if (selected == historyWorkspaceAction) {
+            showChatHistoryWorkspaceForRow(index.row());
+            return;
+        }
+        if (selected == savedFileWorkspaceAction) {
+            showSavedFileWorkspace(savedFileState, text, QStringLiteral("已切换到保存文件工作区"));
+            onShowTransferWorkspace();
+            return;
+        }
         handleChatContextCommand(selected->data().toString(), text, savedFileState);
     });
     connect(ui->contactSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onContactSearchChanged);
@@ -2242,9 +6459,11 @@ void MainWindow::setupUi() {
         const QString clipboardText = QApplication::clipboard()->text().trimmed();
         const bool hasClipboardText = !clipboardText.isEmpty();
         const bool hasSearchText = !ui->contactSearchEdit->text().trimmed().isEmpty();
+        QAction* contactWorkspaceAction = menu.addAction(QStringLiteral("打开联系人工作区"));
+        QAction* globalSearchWorkspaceAction = menu.addAction(QStringLiteral("打开综合搜索工作区"));
+        menu.addSeparator();
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
-        QAction* globalSearchAction = menu.addAction("打开综合搜索");
         QAction* createGroupAction = menu.addAction("用关键词建群");
         QAction* copySearchCardAction = menu.addAction("复制搜索名片");
         QAction* clearAction = menu.addAction("清空搜索");
@@ -2255,7 +6474,11 @@ void MainWindow::setupUi() {
         pasteSearchAction->setToolTip(hasClipboardText ? "粘贴剪贴板文字并搜索 QQ 账号" : "剪贴板里没有可搜索的文字");
         clearAction->setToolTip(hasSearchText ? "清空当前 QQ 搜索条件" : "搜索框已经是空的");
         QAction* selected = menu.exec(ui->contactSearchEdit->mapToGlobal(pos));
-        if (selected == pasteAction) {
+        if (selected == contactWorkspaceAction) {
+            onShowContactWorkspace(ui->contactSearchEdit->text().trimmed());
+        } else if (selected == globalSearchWorkspaceAction) {
+            onShowGlobalSearch(ui->contactSearchEdit->text().trimmed());
+        } else if (selected == pasteAction) {
             ui->contactSearchEdit->paste();
             ui->contactSearchEdit->setFocus();
             ui->statusbar->showMessage("已粘贴到 QQ 搜索框", 1600);
@@ -2263,8 +6486,6 @@ void MainWindow::setupUi() {
             ui->contactSearchEdit->clear();
             ui->contactSearchEdit->paste();
             searchAndAddAccount(ui->contactSearchEdit->text().trimmed(), this);
-        } else if (selected == globalSearchAction) {
-            onShowGlobalSearch();
         } else if (selected == createGroupAction) {
             QString groupName = ui->contactSearchEdit->text().trimmed();
             if (groupName.isEmpty()) groupName = "搜索群聊";
@@ -2295,108 +6516,63 @@ void MainWindow::setupUi() {
     connect(ui->contactSearchEdit, &QLineEdit::returnPressed, this, [this]() {
         const QString text = ui->contactSearchEdit->text().trimmed();
         if (text.isEmpty()) {
-            ui->contactSearchEdit->setFocus();
-            ui->statusbar->showMessage("请输入 QQ 号或关键词后再搜索", 1800);
+            onShowContactWorkspace();
             return;
         }
-        searchAndAddAccount(text, this);
+        onShowGlobalSearch(text);
     });
     connect(ui->globalSearchBtn, &QPushButton::clicked, this, [this]() {
         QString text = ui->contactSearchEdit->text().trimmed();
         if (text.isEmpty()) {
             onShowGlobalSearch();
         } else {
-            searchAndAddAccount(text, this);
+            onShowGlobalSearch(text);
         }
     });
     connect(ui->createMenuBtn, &QPushButton::clicked, this, &MainWindow::onShowCreateMenu);
-    connect(ui->friendNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendNotifications);
-    connect(ui->groupNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowGroupNotifications);
-    connect(ui->announcementTitleLabel, &QLabel::linkActivated, this, &MainWindow::onEditGroupAnnouncement);
+    connect(ui->friendNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowNotificationWorkspace);
+    connect(ui->groupNoticeBtn, &QPushButton::clicked, this, &MainWindow::onShowNotificationWorkspace);
+    connect(ui->groupMemberWorkspaceBtn, &QPushButton::clicked, this, [this]() {
+        onShowGroupMemberWorkspace();
+    });
+    connect(ui->announcementTitleLabel, &QLabel::linkActivated, this, [this](const QString&) {
+        showGroupInfoWorkspace();
+    });
+    ui->groupInfoPanel->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->groupInfoPanel, &QFrame::customContextMenuRequested, this, [this](const QPoint&) {
+        showGroupInfoWorkspace();
+    });
     connect(ui->copyAccountBtn, &QPushButton::clicked, this, &MainWindow::onCopyAccount);
+    connect(ui->uploadAvatarBtn, &QPushButton::clicked, this, &MainWindow::showAvatarWorkspace);
+    ui->uploadAvatarBtn->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->uploadAvatarBtn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
+        Q_UNUSED(pos)
+        showAvatarWorkspace();
+    });
     ui->profileCard->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->profileCard, &QFrame::customContextMenuRequested, this, [this](const QPoint& pos) {
-        QMenu menu(this);
-        QAction* copyAccountAction = menu.addAction("复制QQ号");
-        QAction* copyCardAction = menu.addAction("复制我的名片");
-        QAction* copyStatusAction = menu.addAction("复制在线状态");
-        QAction* copyProfileSummaryAction = menu.addAction("复制账号摘要");
-        QAction* globalSearchAction = menu.addAction("打开综合搜索");
-        QAction* friendManagerAction = menu.addAction("打开好友管理");
-        auto describeProfileAction = [](QAction* action, const QString& tip) {
-            action->setToolTip(tip);
-            action->setStatusTip(tip);
-        };
-        describeProfileAction(copyAccountAction, "复制当前登录账号的 QQ 号");
-        describeProfileAction(copyCardAction, "复制我的 QQ、昵称、好友数和群聊数");
-        describeProfileAction(copyStatusAction, "复制当前在线状态和好友/群聊数量");
-        describeProfileAction(copyProfileSummaryAction, "复制账号、当前会话和可用操作摘要");
-        describeProfileAction(globalSearchAction, "打开综合搜索，查找 QQ、好友和群聊");
-        describeProfileAction(friendManagerAction, "打开好友管理器，搜索、备注和整理好友");
-        QAction* selected = menu.exec(ui->profileCard->mapToGlobal(pos));
-        if (selected == copyAccountAction) {
-            onCopyAccount();
-        } else if (selected == copyCardAction) {
-            QString card = QString("QQ:%1\n昵称:%2\n好友:%3\n群聊:%4")
-                .arg(m_currentUserId, m_currentUserName, QString::number(m_friendIds.size()), QString::number(m_localGroupIds.size()));
-            QApplication::clipboard()->setText(card);
-            ui->statusbar->showMessage("我的 QQ 名片已复制", 2200);
-        } else if (selected == copyStatusAction) {
-            QString status = QString("QQ:%1 · %2 · 在线 · 好友%3 · 群聊%4")
-                .arg(m_currentUserId, m_currentUserName)
-                .arg(m_friendIds.size())
-                .arg(m_localGroupIds.size());
-            QApplication::clipboard()->setText(status);
-            ui->statusbar->showMessage("在线状态已复制", 2200);
-        } else if (selected == copyProfileSummaryAction) {
-            QString summary = QString("账号摘要\nQQ:%1\n昵称:%2\n在线状态:在线\n好友:%3\n群聊:%4\n当前会话:%5\n可通过综合搜索发送好友申请或创建群聊")
-                .arg(m_currentUserId,
-                     m_currentUserName,
-                     QString::number(m_friendIds.size()),
-                     QString::number(m_localGroupIds.size()),
-                     m_privateChatTarget.isEmpty() ? "公共聊天室" : contactDisplayName(m_privateChatTarget));
-            QApplication::clipboard()->setText(summary);
-            ui->statusbar->showMessage("账号摘要已复制", 2200);
-        } else if (selected == globalSearchAction) {
-            onShowGlobalSearch();
-        } else if (selected == friendManagerAction) {
-            onShowFriendManager();
-        }
+        Q_UNUSED(pos)
+        showProfileWorkspace();
     });
     connect(ui->addFriendBtn, &QPushButton::clicked, this, &MainWindow::onShowQuickAddFriend);
     connect(ui->friendManagerBtn, &QPushButton::clicked, this, &MainWindow::onShowFriendManager);
     connect(ui->groupChatBtn, &QPushButton::clicked, this, &MainWindow::onBackToGroupChat);
     connect(ui->memberSearchEdit, &QLineEdit::textChanged, this, [this]() { refreshGroupMemberPanel(); });
     connect(ui->memberSearchEdit, &QLineEdit::returnPressed, this, [this]() {
-        QString text = ui->memberSearchEdit->text().trimmed();
+        const QString text = ui->memberSearchEdit->text().trimmed();
         if (text.isEmpty()) {
-            ui->memberSearchEdit->setFocus();
-            ui->statusbar->showMessage(m_privateChatTarget.startsWith("local_group_") ? "请输入 QQ 号后邀请入群" : "请输入 QQ 号或关键词后再搜索", 1800);
+            onShowGroupMemberWorkspace();
             return;
         }
-        if (m_privateChatTarget.startsWith("local_group_")) {
-            if (!isCurrentUserGroupOwner(m_privateChatTarget)) {
-                ui->memberSearchEdit->selectAll();
-                ui->statusbar->showMessage("只有群主可以邀请新成员入群", 2400);
-                return;
-            }
-            if (!m_localGroupMembers[m_privateChatTarget].contains(text)) {
-                m_localGroupMembers[m_privateChatTarget] << text;
-                saveLocalGroups();
-                refreshGroupMemberPanel();
-                appendSystemMessage("已按 QQ 号邀请入群: " + text);
-                ui->memberSearchEdit->selectAll();
-                ui->statusbar->showMessage(QString("已邀请 QQ:%1 入群，可继续输入下一个 QQ").arg(text), 2200);
-            } else {
-                ui->memberSearchEdit->selectAll();
-                ui->statusbar->showMessage("该 QQ 已在当前群聊中", 1800);
-            }
-        } else if (canCurrentUserManageServerGroup("public")) {
-            requestServerGroupMemberUpdate(text, "add");
+
+        static const QRegularExpression numericAccountPattern(QStringLiteral("^\\d+$"));
+        if (numericAccountPattern.match(text).hasMatch()) {
+            handleGroupMemberSearchSubmit(text, this);
             ui->memberSearchEdit->selectAll();
-        } else {
-            searchAndAddAccount(text, this);
+            return;
         }
+
+        onShowGroupMemberWorkspace(text);
     });
     ui->memberSearchEdit->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->memberSearchEdit, &QLineEdit::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -2404,6 +6580,8 @@ void MainWindow::setupUi() {
         const QString clipboardText = QApplication::clipboard()->text().trimmed();
         const bool hasClipboardText = !clipboardText.isEmpty();
         const bool hasSearchText = !ui->memberSearchEdit->text().trimmed().isEmpty();
+        QAction* memberWorkspaceAction = menu.addAction(QStringLiteral("打开群成员工作区"));
+        menu.addSeparator();
         QAction* pasteAction = menu.addAction("粘贴");
         QAction* pasteSearchAction = menu.addAction("粘贴并搜索");
         QAction* addVisibleAction = menu.addAction("发送可见成员好友申请");
@@ -2417,7 +6595,9 @@ void MainWindow::setupUi() {
         pasteSearchAction->setToolTip(hasClipboardText ? "粘贴剪贴板文字并刷新成员筛选" : "剪贴板里没有可搜索的文字");
         clearAction->setToolTip(hasSearchText ? "清空当前成员搜索条件" : "成员搜索框已经是空的");
         QAction* selected = menu.exec(ui->memberSearchEdit->mapToGlobal(pos));
-        if (selected == pasteAction) {
+        if (selected == memberWorkspaceAction) {
+            onShowGroupMemberWorkspace(ui->memberSearchEdit->text().trimmed());
+        } else if (selected == pasteAction) {
             ui->memberSearchEdit->paste();
             ui->memberSearchEdit->setFocus();
             ui->statusbar->showMessage("已粘贴到成员搜索框", 1600);
@@ -2452,7 +6632,7 @@ void MainWindow::setupUi() {
             if (requestCount > 0) {
                 refreshFriendList();
                 refreshGroupMemberPanel();
-                QString detail = QString("已向 %1 个可见群成员发送好友申请").arg(requestCount);
+                QString detail = QString("已向 %1 个可见群成员发起好友申请").arg(requestCount);
                 if (pendingSkipped > 0) detail += QString(" · 已跳过申请中 %1 个").arg(pendingSkipped);
                 if (failedCount > 0) detail += QString(" · 失败 %1 个").arg(failedCount);
                 appendSystemMessage(detail);
@@ -2465,36 +6645,9 @@ void MainWindow::setupUi() {
                 ui->statusbar->showMessage(message, 2400);
             }
         } else if (selected == copyVisibleAction) {
-            QStringList cards;
-            for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
-                QStandardItem* item = m_groupMemberModel->item(i);
-                if (!item) continue;
-                QString id = item->data(Qt::UserRole + 1).toString();
-                if (id.isEmpty() || id.startsWith("group_search_add:") || id.startsWith("group_invite:")) continue;
-                cards << QString("QQ:%1 昵称:%2 状态:%3").arg(id, contactDisplayName(id), isContactOnline(id) || id == m_currentUserId ? "在线" : "离线");
-            }
-            if (!cards.isEmpty()) {
-                QApplication::clipboard()->setText(cards.join('\n'));
-                ui->statusbar->showMessage(QString("已复制 %1 个可见成员").arg(cards.size()), 2200);
-            } else {
-                ui->statusbar->showMessage("当前筛选没有可复制成员", 2200);
-            }
+            copyVisibleGroupMembers(false);
         } else if (selected == copyOnlineVisibleAction) {
-            QStringList cards;
-            for (int i = 0; i < m_groupMemberModel->rowCount(); ++i) {
-                QStandardItem* item = m_groupMemberModel->item(i);
-                if (!item) continue;
-                QString id = item->data(Qt::UserRole + 1).toString();
-                if (id.isEmpty() || id.startsWith("group_search_add:") || id.startsWith("group_invite:")) continue;
-                if (id != m_currentUserId && !isContactOnline(id)) continue;
-                cards << QString("在线成员 QQ:%1 昵称:%2").arg(id, contactDisplayName(id));
-            }
-            if (cards.isEmpty()) {
-                ui->statusbar->showMessage("当前筛选没有在线成员", 2200);
-                return;
-            }
-            QApplication::clipboard()->setText(cards.join('\n'));
-            ui->statusbar->showMessage(QString("已复制 %1 个在线成员").arg(cards.size()), 2200);
+            copyVisibleGroupMembers(true);
         } else if (selected == clearAction) {
             ui->memberSearchEdit->clear();
             ui->memberSearchEdit->setFocus();
@@ -2504,50 +6657,7 @@ void MainWindow::setupUi() {
     connect(ui->groupMemberListView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
         QString targetId = index.data(Qt::UserRole + 1).toString();
-        if (targetId.startsWith("group_search_add:")) {
-            const QString account = targetId.mid(QString("group_search_add:").size()).trimmed();
-            if (m_privateChatTarget.isEmpty() && canCurrentUserManageServerGroup("public")) {
-                requestServerGroupMemberUpdate(account, "add");
-            } else {
-                searchAndAddAccount(account, this);
-            }
-            return;
-        }
-        if (targetId.startsWith("group_invite:")) {
-            QString account = targetId.mid(QString("group_invite:").size()).trimmed();
-            if (!isCurrentUserGroupOwner(m_privateChatTarget)) {
-                ui->statusbar->showMessage("只有群主可以邀请新成员入群", 2400);
-                return;
-            }
-            if (!account.isEmpty() && !m_localGroupMembers[m_privateChatTarget].contains(account)) {
-                m_localGroupMembers[m_privateChatTarget] << account;
-                QString requestNote;
-                if (!m_friendIds.contains(account) && !m_pendingOutgoingFriendRequests.contains(account)) {
-                    const QString displayName = contactDisplayName(account);
-                    if (m_client->sendFriendRequest(account)) {
-                        m_friendNames[account] = displayName;
-                        m_pendingOutgoingFriendRequests << account;
-                        requestNote = "，好友申请等待确认";
-                    } else {
-                        requestNote = "，好友申请发送失败";
-                        ui->statusbar->showMessage(QString("已邀请入群，但好友申请发送失败：%1").arg(displayName), 3000);
-                    }
-                } else if (m_pendingOutgoingFriendRequests.contains(account)) {
-                    requestNote = "，好友申请已在等待确认";
-                }
-                saveLocalGroups();
-                refreshFriendList();
-                refreshGroupMemberPanel();
-                appendSystemMessage(QString("已按 QQ 号邀请入群: %1%2").arg(account, requestNote));
-                saveHistory(m_privateChatTarget, QString("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊").arg(QDateTime::currentDateTime().toString("hh:mm:ss"), account));
-            }
-            return;
-        }
-        if (targetId.isEmpty() || targetId == m_currentUserId) return;
-        ensureFriendRequestQueued(targetId,
-                                  QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
-                                  true);
-        openPrivateSession(targetId);
+        handleGroupMemberEntryActivated(targetId, this);
     });
     connect(ui->groupMemberListView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = ui->groupMemberListView->indexAt(pos);
@@ -2558,6 +6668,21 @@ void MainWindow::setupUi() {
         if (memberId.startsWith("group_search_add:") || memberId.startsWith("group_invite:")) return;
         if (memberId.isEmpty() || memberId == m_currentUserId) return;
         QMenu menu(this);
+        QAction* memberWorkspaceAction = addMenuActionWithIcon(menu,
+                                                               this,
+                                                               QStringLiteral("打开群成员工作区"),
+                                                               QStringLiteral("把当前成员和筛选上下文带入群成员工作区，集中处理邀请、备注、复制和移出动作"),
+                                                               QString(),
+                                                               true,
+                                                               QStyle::SP_FileDialogDetailedView);
+        QAction* objectWorkspaceAction = addMenuActionWithIcon(menu,
+                                                               this,
+                                                               QStringLiteral("打开对象工作区"),
+                                                               QStringLiteral("把当前成员带入对象工作区，统一处理私聊、名片、加密和好友动作"),
+                                                               QString(),
+                                                               true,
+                                                               QStyle::SP_FileDialogInfoView);
+        menu.addSeparator();
         const GroupMemberContextMenuPlan plan = GroupManager::memberContextMenuPlan(
             memberId,
             m_currentUserId,
@@ -2567,43 +6692,84 @@ void MainWindow::setupUi() {
             isLocalGroup && isCurrentUserGroupOwner(m_privateChatTarget),
             m_serverGroupOwners,
             m_serverGroupMemberRoles);
-        QAction* chatAction = menu.addAction("私聊");
-        QAction* copyAction = menu.addAction("复制QQ号");
-        QAction* profileAction = menu.addAction("复制名片");
-        QAction* copyAllAction = menu.addAction("复制群成员列表");
-        QAction* copyOnlineAction = menu.addAction("复制在线群成员");
-        QAction* renameAction = menu.addAction("设置备注");
+        QAction* chatAction = addMenuActionWithIcon(menu,
+                                                    this,
+                                                    QStringLiteral("私聊"),
+                                                    plan.chatToolTip,
+                                                    QString(),
+                                                    true,
+                                                    QStyle::SP_ArrowForward);
+        QAction* copyAction = addMenuActionWithIcon(menu,
+                                                    this,
+                                                    QStringLiteral("复制QQ号"),
+                                                    plan.copyToolTip,
+                                                    QString(),
+                                                    true,
+                                                    QStyle::SP_DialogSaveButton);
+        QAction* profileAction = addMenuActionWithIcon(menu,
+                                                       this,
+                                                       QStringLiteral("复制名片"),
+                                                       plan.profileToolTip,
+                                                       QString(),
+                                                       true,
+                                                       QStyle::SP_FileDialogDetailedView);
+        menu.addSeparator();
+        QAction* copyAllAction = addMenuActionWithIcon(menu,
+                                                       this,
+                                                       QStringLiteral("复制群成员列表"),
+                                                       plan.copyAllToolTip,
+                                                       QString(),
+                                                       true,
+                                                       QStyle::SP_FileDialogListView);
+        QAction* copyOnlineAction = addMenuActionWithIcon(menu,
+                                                          this,
+                                                          QStringLiteral("复制在线群成员"),
+                                                          plan.copyOnlineToolTip,
+                                                          QString(),
+                                                          true,
+                                                          QStyle::SP_DialogYesButton);
+        QAction* renameAction = addMenuActionWithIcon(menu,
+                                                      this,
+                                                      QStringLiteral("设置备注"),
+                                                      plan.renameToolTip,
+                                                      QString(),
+                                                      true,
+                                                      QStyle::SP_FileDialogInfoView);
         QAction* promoteAdminAction = nullptr;
         QAction* demoteAdminAction = nullptr;
         if (isServerPublicGroup) {
-            promoteAdminAction = menu.addAction("设为管理员");
-            demoteAdminAction = menu.addAction("取消管理员");
+            menu.addSeparator();
+            promoteAdminAction = addMenuActionWithIcon(menu,
+                                                       this,
+                                                       QStringLiteral("设为管理员"),
+                                                       plan.promoteAdminToolTip,
+                                                       QString(),
+                                                       plan.promoteAdminEnabled,
+                                                       QStyle::SP_DialogApplyButton);
+            demoteAdminAction = addMenuActionWithIcon(menu,
+                                                      this,
+                                                      QStringLiteral("取消管理员"),
+                                                      plan.demoteAdminToolTip,
+                                                      QString(),
+                                                      plan.demoteAdminEnabled,
+                                                      QStyle::SP_DialogCancelButton);
         }
-        QAction* removeAction = menu.addAction("移出群聊");
-        auto describeMemberAction = [](QAction* action, const QString& tip) {
-            action->setToolTip(tip);
-            action->setStatusTip(tip);
-        };
-        describeMemberAction(chatAction, plan.chatToolTip);
-        describeMemberAction(copyAction, plan.copyToolTip);
-        describeMemberAction(profileAction, plan.profileToolTip);
-        describeMemberAction(copyAllAction, plan.copyAllToolTip);
-        describeMemberAction(copyOnlineAction, plan.copyOnlineToolTip);
-        describeMemberAction(renameAction, plan.renameToolTip);
-        if (promoteAdminAction) {
-            describeMemberAction(promoteAdminAction, plan.promoteAdminToolTip);
-            promoteAdminAction->setEnabled(plan.promoteAdminEnabled);
-        }
-        if (demoteAdminAction) {
-            describeMemberAction(demoteAdminAction, plan.demoteAdminToolTip);
-            demoteAdminAction->setEnabled(plan.demoteAdminEnabled);
-        }
-        describeMemberAction(removeAction, plan.removeToolTip);
-        removeAction->setEnabled(plan.removeEnabled);
+        menu.addSeparator();
+        QAction* removeAction = addMenuActionWithIcon(menu,
+                                                      this,
+                                                      QStringLiteral("移出群聊"),
+                                                      plan.removeToolTip,
+                                                      QString(),
+                                                      plan.removeEnabled,
+                                                      QStyle::SP_TrashIcon);
         QAction* selected = menu.exec(ui->groupMemberListView->viewport()->mapToGlobal(pos));
-        if (selected == chatAction) {
+        if (selected == memberWorkspaceAction) {
+            onShowGroupMemberWorkspace(memberId);
+        } else if (selected == objectWorkspaceAction) {
+            showUserEntryWorkspace(memberId, contactDisplayName(memberId));
+        } else if (selected == chatAction) {
             ensureFriendRequestQueued(memberId,
-                                      QStringLiteral("已向群成员发送好友申请 QQ:%1，等待对方同意"),
+                                      QStringLiteral("已向群成员发起好友申请 QQ:%1，等待对方同意"),
                                       true);
             openPrivateSession(memberId);
         } else if (selected == copyAction) {
@@ -2636,28 +6802,7 @@ void MainWindow::setupUi() {
             QApplication::clipboard()->setText(cards.join('\n'));
             ui->statusbar->showMessage(QString("已复制 %1 个在线群成员").arg(cards.size()), 2200);
         } else if (selected == renameAction) {
-            bool ok = false;
-            const QString oldRemark = contactDisplayName(memberId);
-            QString remark = QInputDialog::getText(this, "设置备注", "备注名称:", QLineEdit::Normal, oldRemark, &ok).trimmed();
-            if (!ok) return;
-            if (remark.isEmpty()) {
-                ui->statusbar->showMessage("备注名称不能为空", 1800);
-                return;
-            }
-            if (remark == oldRemark) {
-                ui->statusbar->showMessage("备注未改变", 1600);
-                return;
-            }
-            m_friendNames[memberId] = remark;
-            if (m_friendIds.contains(memberId)) {
-                saveFriends();
-                ui->statusbar->showMessage(QString("已设置备注：%1").arg(remark), 2200);
-            } else {
-                ui->statusbar->showMessage(QString("已为群成员 %1 设置临时备注，未改变好友关系").arg(memberId), 2600);
-            }
-            refreshFriendList();
-            refreshGroupMemberPanel();
-            appendSystemMessage(QString("已设置 %1 的备注为 %2").arg(memberId, remark));
+            promptAndSetGroupMemberRemark(memberId, this);
         } else if (promoteAdminAction && selected == promoteAdminAction) {
             if (!plan.canSetPublicAdmin) {
                 ui->statusbar->showMessage(plan.promoteDeniedMessage, 2400);
@@ -2671,39 +6816,18 @@ void MainWindow::setupUi() {
             }
             requestServerGroupMemberUpdate(memberId, "demote_admin");
         } else if (selected == removeAction) {
-            if (!plan.canManageGroup) {
-                ui->statusbar->showMessage(plan.removeDeniedMessage, 2400);
-                return;
-            }
-            if (memberId == plan.ownerId) {
-                ui->statusbar->showMessage(plan.ownerRemoveDeniedMessage, 2200);
-                return;
-            }
-            const QString memberName = contactDisplayName(memberId);
-            const QString groupName = isLocalGroup ? m_localGroupNames.value(m_privateChatTarget, "群聊") : m_serverGroupNames.value("public", "公共聊天室");
-            if (QMessageBox::question(this,
-                                      "移出群成员",
-                                      QString("确定将“%1”移出群聊“%2”吗？").arg(memberName, groupName),
-                                      QMessageBox::Yes | QMessageBox::No,
-                                      QMessageBox::No) != QMessageBox::Yes) {
-                ui->statusbar->showMessage("已取消移出群成员", 1600);
-                return;
-            }
-            if (isLocalGroup) {
-                m_localGroupMembers[m_privateChatTarget].removeAll(memberId);
-                saveLocalGroups();
-                refreshGroupMemberPanel();
-                appendSystemMessage(QString("已将 %1 移出群聊").arg(memberName));
-            } else {
-                requestServerGroupMemberUpdate(memberId, "remove");
-            }
+            removeGroupMemberWithConfirmation(memberId, this);
         }
     });
     connect(ui->clearBtn, &QPushButton::clicked, this, &MainWindow::onClearHistory);
     ui->announcementTitleLabel->setText("群公告");
     ui->announcementTitleLabel->setTextFormat(Qt::RichText);
     ui->announcementTitleLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+    refreshTransferWorkspaceCard(nullptr,
+                                 nullptr,
+                                 m_hasTransferWorkspaceSendState ? &m_transferWorkspaceSendState : nullptr);
     refreshGroupMemberPanel();
+    refreshMainWorkbenchChrome();
 }
 
 void MainWindow::refreshComposerState() {
@@ -2732,6 +6856,154 @@ void MainWindow::refreshComposerState() {
     ui->fileBtn->setToolTip(state.fileToolTip);
     ui->imageBtn->setEnabled(state.sendImageEnabled);
     ui->imageBtn->setToolTip(state.imageToolTip);
+    refreshMainWorkbenchChrome();
+}
+
+void MainWindow::refreshMainWorkbenchChrome() {
+    if (!ui->chatSessionMetaLabel
+        || !ui->chatSessionStatusLabel
+        || !ui->composerStatusTitleLabel
+        || !ui->composerStatusDetailLabel
+        || !ui->groupSummaryTitleLabel
+        || !ui->groupSummaryDetailLabel) {
+        return;
+    }
+
+    const QString targetId = m_privateChatTarget.trimmed();
+    const bool inPublicRoom = targetId.isEmpty();
+    const bool isLocalGroup = targetId.startsWith(QStringLiteral("local_group_"));
+    const bool isPrivateChat = !inPublicRoom && !isLocalGroup;
+    const bool clientConnected = m_client && m_client->isConnected();
+    const bool removedFromPublicGroup = inPublicRoom && isCurrentUserRemovedFromPublicGroup();
+
+    QString chatMeta;
+    QString chatStatus;
+    QString sessionTone = QStringLiteral("muted");
+
+    if (inPublicRoom) {
+        const int memberCount = m_serverGroupMembers.value(QStringLiteral("public")).size();
+        chatMeta = QStringLiteral("公共会话 · 当前账号 QQ %1").arg(m_currentUserId.isEmpty() ? QStringLiteral("未登录") : m_currentUserId);
+        if (removedFromPublicGroup) {
+            chatStatus = QStringLiteral("当前账号已被移出公共群，仅保留历史只读与等待重新邀请入口。");
+            sessionTone = QStringLiteral("warning");
+        } else {
+            chatStatus = memberCount > 0
+                ? QStringLiteral("公共聊天室已就绪，可继续消息、文件、群公告和成员协作。当前服务端成员 %1 人。").arg(memberCount)
+                : QStringLiteral("公共聊天室可继续发送消息、文件和图片/视频；服务端成员快照会在同步后出现。");
+            sessionTone = clientConnected ? QStringLiteral("accent") : QStringLiteral("warning");
+        }
+    } else if (isLocalGroup) {
+        const QString groupName = m_localGroupNames.value(targetId, contactDisplayName(targetId));
+        const QStringList members = m_localGroupMembers.value(targetId);
+        const QString ownerId = groupOwnerId(targetId);
+        const QString ownerName = ownerId == m_currentUserId ? m_currentUserName : contactDisplayName(ownerId);
+        chatMeta = QStringLiteral("本地群 · %1 · 成员 %2").arg(groupName).arg(members.isEmpty() ? 1 : members.size());
+        chatStatus = isCurrentUserGroupOwner(targetId)
+            ? QStringLiteral("你是群主，可继续发送消息、邀请好友、调整公告并管理成员边界。")
+            : QStringLiteral("当前位于本地群会话，可继续发送消息、查看公告并从成员工作区处理协作。");
+        if (!ownerName.trimmed().isEmpty()) {
+            chatStatus += QStringLiteral(" 群主：%1。").arg(ownerName);
+        }
+        sessionTone = QStringLiteral("accent");
+    } else {
+        const QString peerName = contactDisplayName(targetId);
+        const bool online = isContactOnline(targetId);
+        const bool hasE2E = m_client && m_client->hasE2ESession(targetId);
+        const bool trustedE2E = hasE2E && m_client->e2ePeerIdentityTrusted(targetId) && !m_client->e2eSessionNeedsRotation(targetId);
+        chatMeta = QStringLiteral("私聊 · %1 · QQ %2").arg(peerName, targetId);
+        if (!clientConnected) {
+            chatStatus = QStringLiteral("当前连接未恢复，草稿会保留；恢复连接后可继续向 %1 发送消息。").arg(peerName);
+            sessionTone = QStringLiteral("warning");
+        } else if (trustedE2E) {
+            chatStatus = QStringLiteral("端到端会话已就绪，可继续发送消息、图片/视频和文件，并保留加密状态证据。");
+            sessionTone = QStringLiteral("success");
+        } else if (hasE2E) {
+            chatStatus = QStringLiteral("已建立端到端会话，但仍需继续关注信任或轮换状态。");
+            sessionTone = QStringLiteral("warning");
+        } else {
+            chatStatus = QStringLiteral("%1当前%2，可继续私聊与文件发送；端到端状态尚未就绪。")
+                .arg(peerName, online ? QStringLiteral("在线") : QStringLiteral("离线"));
+            sessionTone = QStringLiteral("accent");
+        }
+    }
+
+    ui->chatSessionMetaLabel->setText(chatMeta);
+    ui->chatSessionStatusLabel->setText(chatStatus);
+    applyToneProperty(ui->chatSessionCard, sessionTone);
+
+    ComposerContext composerContext;
+    composerContext.draftText = ui->messageEdit ? ui->messageEdit->toPlainText().trimmed() : QString();
+    composerContext.targetName = inPublicRoom
+        ? QStringLiteral("公共聊天室")
+        : (isLocalGroup ? m_localGroupNames.value(targetId, QStringLiteral("群聊")) : contactDisplayName(targetId));
+    composerContext.localGroup = isLocalGroup;
+    composerContext.removedFromPublicGroup = removedFromPublicGroup;
+    composerContext.clientConnected = clientConnected;
+    composerContext.encryptedReady = isPrivateChat
+        && m_client
+        && m_client->hasE2ESession(targetId)
+        && m_client->e2ePeerIdentityTrusted(targetId)
+        && !m_client->e2eSessionNeedsRotation(targetId);
+    const ComposerUiState composerState = ComposerManager::uiState(composerContext);
+    ui->composerStatusTitleLabel->setText(composerState.workspaceTitle.trimmed().isEmpty()
+        ? QStringLiteral("消息工作区")
+        : composerState.workspaceTitle);
+    QString composerDetail = composerState.workspaceDetail.trimmed();
+    if (!composerState.draftSummary.trimmed().isEmpty()) {
+        composerDetail = composerDetail.isEmpty()
+            ? composerState.draftSummary
+            : QStringLiteral("%1 %2").arg(composerDetail, composerState.draftSummary);
+    }
+    ui->composerStatusDetailLabel->setText(composerDetail.isEmpty()
+        ? QStringLiteral("输入框、草稿与发送入口会在这里给出稳定反馈。")
+        : composerDetail);
+    applyToneProperty(ui->composerStatusCard, composerState.stateTone.trimmed().isEmpty()
+        ? QStringLiteral("muted")
+        : composerState.stateTone);
+
+    QString summaryTitle;
+    QString summaryDetail;
+    QString summaryTone = QStringLiteral("muted");
+    if (inPublicRoom) {
+        summaryTitle = QStringLiteral("公共群总览");
+        if (removedFromPublicGroup) {
+            summaryDetail = QStringLiteral("当前只保留历史记录查看；公告与成员区域会提示重新邀请前的只读边界。");
+            summaryTone = QStringLiteral("warning");
+        } else {
+            const QString ownerId = m_serverGroupOwners.value(QStringLiteral("public"));
+            const QString ownerName = ownerId.isEmpty()
+                ? QStringLiteral("未指定")
+                : (ownerId == m_currentUserId ? m_currentUserName : m_serverGroupMemberNames.value(QStringLiteral("public|") + ownerId, contactDisplayName(ownerId)));
+            summaryDetail = QStringLiteral("群公告、成员与审计信息统一展示在右侧。群主：%1。%2")
+                .arg(ownerName,
+                     canCurrentUserManageServerGroup(QStringLiteral("public"))
+                        ? QStringLiteral("当前账号可编辑公告并执行成员管理。")
+                        : QStringLiteral("当前账号可查看公告、成员与通知控制台。"));
+            summaryTone = clientConnected ? QStringLiteral("accent") : QStringLiteral("warning");
+        }
+    } else if (isLocalGroup) {
+        const QString groupName = m_localGroupNames.value(targetId, QStringLiteral("群聊"));
+        summaryTitle = QStringLiteral("群聊总览 · %1").arg(groupName);
+        const int memberCount = m_localGroupMembers.value(targetId).size();
+        summaryDetail = QStringLiteral("右侧持续显示公告、成员筛选和群成员工作区入口。当前群成员 %1 人。%2")
+            .arg(memberCount > 0 ? memberCount : 1)
+            .arg(isCurrentUserGroupOwner(targetId)
+                ? QStringLiteral("你可以继续邀请成员、设置备注和移出成员。")
+                : QStringLiteral("可查看成员状态、复制成员信息并发起私聊。"));
+        summaryTone = QStringLiteral("accent");
+    } else {
+        summaryTitle = QStringLiteral("当前非群会话");
+        summaryDetail = QStringLiteral("右侧区域收拢为会话提示与私聊边界说明；群成员与公告动作请从工作区入口进入。");
+        if (m_client && m_client->hasE2ESession(targetId) && m_client->e2ePeerIdentityTrusted(targetId)) {
+            summaryDetail += QStringLiteral(" ") + e2eSessionStatusText(targetId).section('\n', 0, 0);
+            summaryTone = QStringLiteral("success");
+        } else {
+            summaryTone = QStringLiteral("muted");
+        }
+    }
+    ui->groupSummaryTitleLabel->setText(summaryTitle);
+    ui->groupSummaryDetailLabel->setText(summaryDetail);
+    applyToneProperty(ui->groupSummaryCard, summaryTone);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -2915,7 +7187,7 @@ void MainWindow::onSendMessage() {
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_chatModel->appendRow(item);
         ui->messageEdit->clear();
-        ui->chatHintLabel->setText(QString("本地群聊 · %1 · 已发送 %2 字%3").arg(groupName).arg(text.size()).arg(originalText == text ? QString() : " · 快捷指令已展开"));
+        ui->chatHintLabel->setText(QString("本地群会话工作区 · %1 · 已发送 %2 字%3").arg(groupName).arg(text.size()).arg(originalText == text ? QString() : " · 快捷指令已展开"));
         ui->statusbar->showMessage(QString("已发送到 %1 · %2 字").arg(groupName).arg(text.size()), 1800);
         ui->chatListView->scrollToBottom();
         return;
@@ -2923,7 +7195,7 @@ void MainWindow::onSendMessage() {
 
     if (m_privateChatTarget.isEmpty() && isCurrentUserRemovedFromPublicGroup()) {
         ui->messageEdit->setFocus();
-        ui->chatHintLabel->setText("发送暂停 · 当前账号已不在公共群，等待重新邀请");
+        ui->chatHintLabel->setText("发送已暂停 · 当前账号已不在公共群工作区，等待重新邀请");
         ui->statusbar->showMessage("当前账号已不在公共群，暂不能发送公共群消息", 3000);
         refreshComposerState();
         return;
@@ -2931,7 +7203,7 @@ void MainWindow::onSendMessage() {
 
     if (!m_client || !m_client->isConnected()) {
         ui->messageEdit->setFocus();
-        ui->chatHintLabel->setText(QString("发送暂停 · %1 已断开，消息已保留在输入框").arg(targetName));
+        ui->chatHintLabel->setText(QString("发送已暂停 · %1 当前不可达，消息仍保留在输入框").arg(targetName));
         ui->statusbar->showMessage(QString("已断开连接，暂不能发送到 %1").arg(targetName), 3000);
         refreshComposerState();
         return;
@@ -2945,7 +7217,7 @@ void MainWindow::onSendMessage() {
             ok = m_client->sendEncryptedPrivateMessage(m_privateChatTarget, text, &encryptedRejectReason);
             sentEncrypted = ok;
             if (!ok && encryptedRejectReason == QLatin1String("rotation-required")) {
-                ui->chatHintLabel->setText(QString("发送暂停 · %1 的端到端会话需要轮换").arg(targetName));
+                ui->chatHintLabel->setText(QString("发送已暂停 · %1 的端到端会话需要先完成轮换").arg(targetName));
                 ui->statusbar->showMessage("端到端加密会话需要轮换，消息已保留在输入框", 3600);
                 appendSystemMessage(QString("%1 的端到端加密会话需要轮换，未发送明文").arg(targetName));
                 return;
@@ -2981,7 +7253,7 @@ void MainWindow::onSendMessage() {
             m_chatModel->removeRows(0, rowCount - MAX_HISTORY_LINES);
         }
         ui->chatListView->scrollToBottom();
-        ui->chatHintLabel->setText(QString("已发送到 %1 · %2 字 · %3%4%5")
+        ui->chatHintLabel->setText(QString("发送完成 · %1 · %2 字 · %3%4%5")
             .arg(targetName)
             .arg(text.size())
             .arg(QDateTime::currentDateTime().toString("hh:mm:ss"),
@@ -2991,7 +7263,7 @@ void MainWindow::onSendMessage() {
 
         ui->messageEdit->clear();
     } else {
-        ui->chatHintLabel->setText(QString("发送失败 · 目标 %1 · 消息已保留在输入框").arg(targetName));
+        ui->chatHintLabel->setText(QString("发送未完成 · %1 · 消息已保留在输入框").arg(targetName));
         ui->statusbar->showMessage(QString("发送失败，请检查连接 · %1").arg(targetName), 3000);
         appendSystemMessage(QString("发送失败，消息未送达 %1").arg(targetName));
     }
@@ -3226,7 +7498,7 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
     }
     refreshFriendList();
     if (!m_privateChatTarget.isEmpty()) {
-        ui->chatHintLabel->setText(QString("QQ: %1 · %2 · 点击菜单“返回群聊”回到公共聊天室")
+        ui->chatHintLabel->setText(QString("私聊会话工作区 · QQ %1 · %2 · 可从菜单返回公共会话")
             .arg(m_privateChatTarget, isContactOnline(m_privateChatTarget) ? "在线" : "离线"));
     }
     ui->statusbar->showMessage(QString("在线: %1 人 | 好友: %2 人 | 当前账号: %3")
@@ -3299,7 +7571,7 @@ void MainWindow::onServerGroupSnapshotReceived(const QJsonArray& groups) {
                 : QStringLiteral("由 %1 移出%2 · 可查看本机历史，等待重新邀请")
                     .arg(removedBy, removedAt.isEmpty() ? QString() : QStringLiteral("于 %1").arg(removedAt));
             ui->chatTitleLabel->setText("公共聊天室");
-            ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · %2").arg(m_currentUserId, removedDetail));
+            ui->chatHintLabel->setText(QString("公共会话工作区受限 · 当前账号 %1 已不在公共群 · %2").arg(m_currentUserId, removedDetail));
             ui->announcementTitleLabel->setText("群公告");
             ui->announcementBodyLabel->setText(QString("当前账号已不在公共群。%1；重新邀请后会自动恢复群公告和成员列表。").arg(removedDetail));
             if (!hadServerGroupSnapshot || wasInPublicGroup) {
@@ -3379,45 +7651,7 @@ void MainWindow::onPrivateChat(const QModelIndex& index) {
     if (!index.isValid()) return;
     QString targetId = index.data(Qt::UserRole + 1).toString();
     if (targetId.isEmpty()) return;
-    if (targetId.startsWith("search_add:")) {
-        searchAndAddAccount(targetId.mid(QString("search_add:").size()), this);
-        return;
-    }
-    if (targetId.startsWith("create_group:")) {
-        QString groupName = targetId.mid(QString("create_group:").size()).trimmed();
-        if (groupName.isEmpty()) groupName = "我的群聊";
-        QString groupId = "local_group_" + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz");
-        m_localGroupIds << groupId;
-        m_localGroupNames[groupId] = groupName;
-        m_localGroupAnnouncements[groupId] = QString("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
-        m_localGroupMembers[groupId] = QStringList{m_currentUserId};
-        saveLocalGroups();
-        m_contactFilter.clear();
-        ui->contactSearchEdit->clear();
-        refreshFriendList();
-        switchToLocalGroup(groupId, groupName);
-        appendSystemMessage("已从联系人搜索创建群聊: " + groupName);
-        return;
-    }
-    if (m_localGroupIds.contains(targetId)) {
-        switchToLocalGroup(targetId, m_localGroupNames.value(targetId, "群聊"));
-        return;
-    }
-    QString userName = contactDisplayName(targetId);
-    m_privateChatTarget = targetId;
-    m_chatModel->clear();
-    m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
-    loadHistory(targetId);
-    const PrivateChatUiState privateState = ChatSessionManager::privateChatState(
-        targetId,
-        userName,
-        isContactOnline(targetId),
-        m_client && m_client->hasE2ESession(targetId),
-        m_client && m_client->e2eSessionNeedsRotation(targetId));
-    setWindowTitle(appWindowTitle(privateState.windowSuffix));
-    ui->chatTitleLabel->setText(privateState.titleText);
-    ui->chatHintLabel->setText(privateState.hintText);
-    refreshComposerState();
+    openUserTargetById(targetId);
 }
 
 void MainWindow::onClientDisconnected() {
@@ -3455,7 +7689,9 @@ void MainWindow::onCopyAccount() {
 }
 
 void MainWindow::onLogout() {
-    if (QMessageBox::question(this, "退出登录", "确定退出当前账号并返回登录界面吗？") != QMessageBox::Yes) {
+    if (!confirmAction(QStringLiteral("退出登录"),
+                       QStringLiteral("确定退出当前账号并返回登录界面吗？"),
+                       QStringLiteral("已取消退出登录"))) {
         return;
     }
     m_isQuitting = true;
@@ -3479,12 +7715,12 @@ void MainWindow::onClearHistory() {
         return;
     }
 
-    if (QMessageBox::question(this,
-                              "清空聊天记录",
-                              QString("确定清空“%1”的本地聊天记录吗？此操作不会删除对方设备上的记录。").arg(sessionName),
-                              QMessageBox::Yes | QMessageBox::No,
-                              QMessageBox::No) != QMessageBox::Yes) {
-        ui->statusbar->showMessage("已取消清空聊天记录", 1600);
+    if (!confirmDestructiveAction(QStringLiteral("清空聊天记录"),
+                                  QStringLiteral("确定清空“%1”的本地聊天记录吗？此操作不会删除对方设备上的记录。").arg(sessionName),
+                                  QStringLiteral("清空记录"),
+                                  QStringLiteral("保留记录"),
+                                  this)) {
+        ui->statusbar->showMessage(QStringLiteral("已取消清空聊天记录"), 1600);
         return;
     }
 
@@ -3515,6 +7751,11 @@ void MainWindow::onFilterHistoryByDate() {
     dateEdit->setDisplayFormat("yyyy-MM-dd");
     dateEdit->setMaximumDate(QDate::currentDate());
     QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    dialog.setStyleSheet(productDialogStyleSheet());
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("查看"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    buttons->button(QDialogButtonBox::Ok)->setObjectName(QStringLiteral("managerPrimaryBtn"));
+    buttons->button(QDialogButtonBox::Cancel)->setObjectName(QStringLiteral("managerSecondaryBtn"));
     layout->addWidget(label);
     layout->addWidget(dateEdit);
     layout->addWidget(buttons);
@@ -3543,7 +7784,7 @@ void MainWindow::onFilterHistoryByDate() {
         item->setForeground(Qt::gray);
         m_chatModel->appendRow(item);
     }
-    ui->chatHintLabel->setText(QString("%1 · %2 · 已筛选 %3 条记录")
+    ui->chatHintLabel->setText(QString("历史记录工作区 · %1 · %2 · 已筛选 %3 条记录")
         .arg(sessionName, selectedDate.toString("yyyy-MM-dd"), QString::number(rows.size())));
     ui->statusbar->showMessage(QString("已筛选 %1 条聊天记录").arg(rows.size()), 2400);
     ui->chatListView->scrollToBottom();
@@ -3565,10 +7806,10 @@ void MainWindow::onExportHistory() {
     const QDateTime exportedAt = QDateTime::currentDateTime();
     const HistoryExportSelectionPlan exportPlan =
         m_historyService.exportSelectionPlan(sessionName, exportedAt);
-    const QString savePath = QFileDialog::getSaveFileName(this,
-                                                          exportPlan.dialogTitle,
-                                                          exportPlan.defaultPath,
-                                                          exportPlan.filters);
+    const QString savePath = selectSaveFilePath(exportPlan.dialogTitle,
+                                                exportPlan.defaultPath,
+                                                exportPlan.filters,
+                                                this);
     if (savePath.isEmpty()) {
         ui->statusbar->showMessage(exportPlan.canceledStatusMessage, exportPlan.canceledStatusTimeoutMs);
         return;
@@ -3582,7 +7823,7 @@ void MainWindow::onExportHistory() {
                                          rows,
                                          exportedAt);
     if (!exportResult.written) {
-        QMessageBox::warning(this, exportResult.failureTitle, exportResult.failureMessage);
+        showWarningDialog(exportResult.failureTitle, exportResult.failureMessage, this);
         ui->statusbar->showMessage(exportResult.failureStatusMessage, exportResult.failureStatusTimeoutMs);
         return;
     }
@@ -3593,7 +7834,11 @@ void MainWindow::onExportHistory() {
 
 void MainWindow::onAddFriend() {
     bool ok = false;
-    QString account = QInputDialog::getText(this, "发送好友申请", "请输入对方 QQ 账号:", QLineEdit::Normal, QString(), &ok).trimmed();
+    const QString account = promptTextValue(QStringLiteral("发起好友申请"),
+                                            QStringLiteral("请输入对方 QQ 账号:"),
+                                            QString(),
+                                            &ok,
+                                            this);
     if (!ok) return;
     searchAndAddAccount(account, this);
 }
@@ -3620,143 +7865,237 @@ void MainWindow::searchAndAddAccount(const QString& account, QWidget* warningPar
     }
 }
 
-void MainWindow::onShowGlobalSearch() {
+void MainWindow::onShowGlobalSearch(const QString& initialFilter) {
     QDialog dialog(this);
-    dialog.setObjectName("globalSearchDialog");
-    dialog.setWindowTitle("综合搜索");
-    dialog.setFixedSize(940, 740);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("globalSearchDialog"),
+        QStringLiteral("综合搜索"),
+        QSize(940, 740),
+        QStringLiteral("searchDialogTitle"),
+        QStringLiteral("综合搜索"),
+        QStringLiteral("searchDialogSubTitle"),
+        QStringLiteral("联系人、群聊、申请入口和结果复制都在这里统一处理。"),
+        QStringLiteral("globalSearchInput"),
+        QStringLiteral("输入 QQ 号 / 昵称搜索"),
+        QStringLiteral("输入 QQ 号、昵称或群名；回车可搜索或打开匹配结果"),
+        QStringLiteral("globalResultList"),
+        false,
+        QStringLiteral("globalActionHint"),
+        QStringLiteral("从这里继续聊天、建群、申请好友和复制摘要。"),
+        QStringLiteral("globalStatsLabel"),
+        QStringLiteral("globalPreviewLabel"),
+        QStringLiteral("选择结果后可直接打开会话，或整理名片、邀请卡和媒体计划。"),
+        QStringLiteral("searchHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(18, 14, 18, 8);
+    shell.headerLayout->setSpacing(10);
+    shell.bodyLayout->setContentsMargins(18, 14, 18, 18);
+    shell.bodyLayout->setSpacing(12);
 
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* resultList = shell.listWidget;
+    QLabel* actionHint = shell.hintLabel;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
 
-    QFrame* header = new QFrame(&dialog);
-    header->setObjectName("searchHeader");
-    QVBoxLayout* headerLayout = new QVBoxLayout(header);
-    headerLayout->setContentsMargins(18, 14, 18, 8);
-    headerLayout->setSpacing(10);
-
-    QHBoxLayout* searchLayout = new QHBoxLayout;
-    QLineEdit* searchEdit = new QLineEdit(header);
-    searchEdit->setObjectName("globalSearchInput");
-    searchEdit->setPlaceholderText("输入 QQ 号 / 昵称搜索");
-    searchEdit->setClearButtonEnabled(true);
-    searchEdit->setToolTip("输入 QQ 号、昵称或群名；回车可搜索或打开匹配结果");
-    QPushButton* searchBtn = new QPushButton("搜索", header);
-    searchBtn->setObjectName("globalSearchPrimaryBtn");
-    searchBtn->setToolTip("按当前关键词刷新综合搜索结果");
-    QPushButton* clearBtn = new QPushButton("清空", header);
-    clearBtn->setObjectName("globalSearchGhostBtn");
-    clearBtn->setToolTip("清空搜索关键词并恢复全部结果");
-    QPushButton* quickAddBtn = new QPushButton("好友申请", header);
-    quickAddBtn->setObjectName("globalSearchGhostBtn");
-    quickAddBtn->setToolTip("打开好友申请窗口，按 QQ 号搜索并发送申请");
-    QPushButton* friendManagerBtn = new QPushButton("好友管理", header);
-    friendManagerBtn->setObjectName("globalSearchGhostBtn");
-    friendManagerBtn->setToolTip("打开好友管理器，查看、搜索和整理好友");
-    searchLayout->addWidget(searchEdit, 1);
-    searchLayout->addWidget(searchBtn);
-    searchLayout->addWidget(clearBtn);
-    searchLayout->addWidget(quickAddBtn);
-    searchLayout->addWidget(friendManagerBtn);
-    headerLayout->addLayout(searchLayout);
+    QPushButton* searchBtn = createWorkspaceButton(shell.headerFrame,
+                                                   &dialog,
+                                                   QStringLiteral("搜索"),
+                                                   QStringLiteral("globalSearchPrimaryBtn"),
+                                                   QStringLiteral("按当前关键词刷新综合搜索结果"),
+                                                   QStyle::SP_FileDialogContentsView);
+    QPushButton* clearBtn = createWorkspaceButton(shell.headerFrame,
+                                                  &dialog,
+                                                  QStringLiteral("清空"),
+                                                  QStringLiteral("globalSearchGhostBtn"),
+                                                  QStringLiteral("清空搜索关键词并恢复全部结果"),
+                                                  QStyle::SP_DialogResetButton);
+    QPushButton* quickAddBtn = createWorkspaceButton(shell.headerFrame,
+                                                     &dialog,
+                                                     QStringLiteral("好友申请"),
+                                                     QStringLiteral("globalSearchGhostBtn"),
+                                                     QStringLiteral("打开好友申请工作区，按 QQ 号搜索并申请"),
+                                                     QStyle::SP_FileDialogNewFolder);
+    QPushButton* friendManagerBtn = createWorkspaceButton(shell.headerFrame,
+                                                          &dialog,
+                                                          QStringLiteral("好友管理"),
+                                                          QStringLiteral("globalSearchGhostBtn"),
+                                                          QStringLiteral("打开好友管理器，查看、搜索和整理好友"),
+                                                          QStyle::SP_FileDialogDetailedView);
+    shell.searchRowLayout->addWidget(searchBtn);
+    shell.searchRowLayout->addWidget(clearBtn);
+    shell.searchRowLayout->addWidget(quickAddBtn);
+    shell.searchRowLayout->addWidget(friendManagerBtn);
 
     QHBoxLayout* tabLayout = new QHBoxLayout;
     const QStringList tabs = {"全部", "用户", "群聊", "小程序", "机器人"};
     for (const QString& tab : tabs) {
-        QLabel* label = new QLabel(tab, header);
+        QLabel* label = new QLabel(tab, shell.headerFrame);
         label->setObjectName(tab == "全部" ? "activeSearchTab" : "searchTab");
         label->setAlignment(Qt::AlignCenter);
         tabLayout->addWidget(label);
     }
     tabLayout->addStretch();
-    headerLayout->addLayout(tabLayout);
-    layout->addWidget(header);
+    shell.headerLayout->addLayout(tabLayout);
 
-    QListWidget* resultList = new QListWidget(&dialog);
-    resultList->setObjectName("globalResultList");
-    layout->addWidget(resultList, 1);
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame,
+                                                 &dialog,
+                                                 QStringLiteral("打开/申请"),
+                                                 QStringLiteral("globalSearchPrimaryBtn"),
+                                                 QStringLiteral("打开当前结果；陌生用户会尝试发起好友申请"),
+                                                 QStyle::SP_ArrowForward);
+    QPushButton* createGroupBtn = createWorkspaceButton(shell.bodyFrame,
+                                                        &dialog,
+                                                        QStringLiteral("用搜索创建群"),
+                                                        QStringLiteral("globalSearchGhostBtn"),
+                                                        QStringLiteral("使用当前搜索关键词创建一个本地群聊"),
+                                                        QStyle::SP_FileDialogNewFolder);
+    QPushButton* inviteVisibleBtn = createWorkspaceButton(shell.bodyFrame,
+                                                          &dialog,
+                                                          QStringLiteral("可见用户建群"),
+                                                          QStringLiteral("globalSearchGhostBtn"),
+                                                          QStringLiteral("用当前可见用户创建群聊，并邀请可申请用户"),
+                                                          QStyle::SP_DialogOpenButton);
+    QPushButton* addVisibleBtn = createWorkspaceButton(shell.bodyFrame,
+                                                       &dialog,
+                                                       QStringLiteral("申请可见用户"),
+                                                       QStringLiteral("globalSearchGhostBtn"),
+                                                       QStringLiteral("向当前列表里可申请的在线用户批量发起好友申请"),
+                                                       QStyle::SP_CommandLink);
+    QPushButton* copyBtn = createWorkspaceButton(shell.bodyFrame,
+                                                 &dialog,
+                                                 QStringLiteral("复制QQ"),
+                                                 QStringLiteral("globalSearchGhostBtn"),
+                                                 QStringLiteral("复制当前选中结果的 QQ 号或群号"),
+                                                 QStyle::SP_DialogSaveButton);
+    QPushButton* copyListBtn = createWorkspaceButton(shell.bodyFrame,
+                                                     &dialog,
+                                                     QStringLiteral("复制结果列表"),
+                                                     QStringLiteral("globalSearchGhostBtn"),
+                                                     QStringLiteral("复制当前可见搜索结果列表"),
+                                                     QStyle::SP_FileDialogListView);
+    QPushButton* copyAddTextBtn = createWorkspaceButton(shell.bodyFrame,
+                                                        &dialog,
+                                                        QStringLiteral("复制申请话术"),
+                                                        QStringLiteral("globalSearchGhostBtn"),
+                                                        QStringLiteral("复制适合当前选中用户的好友申请话术"),
+                                                        QStyle::SP_MessageBoxInformation);
+    QPushButton* copyInviteCardBtn = createWorkspaceButton(shell.bodyFrame,
+                                                           &dialog,
+                                                           QStringLiteral("复制邀请卡"),
+                                                           QStringLiteral("globalSearchGhostBtn"),
+                                                           QStringLiteral("复制当前用户或群聊的邀请卡片"),
+                                                           QStyle::SP_DirLinkIcon);
+    QPushButton* copySearchCardBtn = createWorkspaceButton(shell.bodyFrame,
+                                                           &dialog,
+                                                           QStringLiteral("复制搜索卡片"),
+                                                           QStringLiteral("globalSearchGhostBtn"),
+                                                           QStringLiteral("复制当前搜索条件和结果摘要"),
+                                                           QStyle::SP_FileDialogDetailedView);
+    QPushButton* copySearchMediaPackBtn = createWorkspaceButton(shell.bodyFrame,
+                                                                &dialog,
+                                                                QStringLiteral("复制搜索媒体包"),
+                                                                QStringLiteral("globalSearchGhostBtn"),
+                                                                QStringLiteral("复制搜索场景下发送图片、视频或文件的准备摘要"),
+                                                                QStyle::SP_FileIcon);
+    QPushButton* copyBatchMediaPlanBtn = createWorkspaceButton(shell.bodyFrame,
+                                                               &dialog,
+                                                               QStringLiteral("复制批量媒体计划"),
+                                                               QStringLiteral("globalSearchGhostBtn"),
+                                                               QStringLiteral("复制当前搜索结果的批量媒体发送计划"),
+                                                               QStyle::SP_DriveHDIcon);
+    QPushButton* copyMediaGuideBtn = createWorkspaceButton(shell.bodyFrame,
+                                                           &dialog,
+                                                           QStringLiteral("复制上传指南"),
+                                                           QStringLiteral("globalSearchGhostBtn"),
+                                                           QStringLiteral("复制搜索后发送图片、视频和文件的简短指南"),
+                                                           QStyle::SP_DialogHelpButton);
+    QPushButton* copyOnlineBtn = createWorkspaceButton(shell.bodyFrame,
+                                                       &dialog,
+                                                       QStringLiteral("复制在线"),
+                                                       QStringLiteral("globalSearchGhostBtn"),
+                                                       QStringLiteral("复制当前可见结果中的在线用户"),
+                                                       QStyle::SP_DialogYesButton);
+    QPushButton* profileBtn = createWorkspaceButton(shell.bodyFrame,
+                                                    &dialog,
+                                                    QStringLiteral("复制名片"),
+                                                    QStringLiteral("globalSearchGhostBtn"),
+                                                    QStringLiteral("复制当前选中结果的资料名片"),
+                                                    QStyle::SP_FileDialogInfoView);
 
-    QHBoxLayout* actionLayout = new QHBoxLayout;
-    actionLayout->setContentsMargins(18, 10, 18, 18);
-    QLabel* actionHint = new QLabel("双击结果可聊天、进群或发送好友申请", &dialog);
-    actionHint->setObjectName("globalActionHint");
-    QLabel* statsLabel = new QLabel(&dialog);
-    statsLabel->setObjectName("globalStatsLabel");
-    QLabel* previewLabel = new QLabel("选择结果后可复制QQ、名片、邀请卡或直接打开", &dialog);
-    previewLabel->setObjectName("globalPreviewLabel");
-    QPushButton* openBtn = new QPushButton("打开/申请", &dialog);
-    openBtn->setObjectName("globalSearchPrimaryBtn");
-    openBtn->setToolTip("打开当前结果；陌生用户会尝试发送好友申请");
-    QPushButton* createGroupBtn = new QPushButton("用搜索创建群", &dialog);
-    createGroupBtn->setObjectName("globalSearchGhostBtn");
-    createGroupBtn->setToolTip("使用当前搜索关键词创建一个本地群聊");
-    QPushButton* inviteVisibleBtn = new QPushButton("可见用户建群", &dialog);
-    inviteVisibleBtn->setObjectName("globalSearchGhostBtn");
-    inviteVisibleBtn->setToolTip("用当前可见用户创建群聊，并邀请可申请用户");
-    QPushButton* addVisibleBtn = new QPushButton("申请可见用户", &dialog);
-    addVisibleBtn->setObjectName("globalSearchGhostBtn");
-    addVisibleBtn->setToolTip("向当前列表里可申请的在线用户批量发送好友申请");
-    QPushButton* copyBtn = new QPushButton("复制QQ", &dialog);
-    copyBtn->setObjectName("globalSearchGhostBtn");
-    copyBtn->setToolTip("复制当前选中结果的 QQ 号或群号");
-    QPushButton* copyListBtn = new QPushButton("复制结果列表", &dialog);
-    copyListBtn->setObjectName("globalSearchGhostBtn");
-    copyListBtn->setToolTip("复制当前可见搜索结果列表");
-    QPushButton* copyAddTextBtn = new QPushButton("复制申请话术", &dialog);
-    copyAddTextBtn->setObjectName("globalSearchGhostBtn");
-    copyAddTextBtn->setToolTip("复制适合当前选中用户的好友申请话术");
-    QPushButton* copyInviteCardBtn = new QPushButton("复制邀请卡", &dialog);
-    copyInviteCardBtn->setObjectName("globalSearchGhostBtn");
-    copyInviteCardBtn->setToolTip("复制当前用户或群聊的邀请卡片");
-    QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
-    copySearchCardBtn->setObjectName("globalSearchGhostBtn");
-    copySearchCardBtn->setToolTip("复制当前搜索条件和结果摘要");
-    QPushButton* copySearchMediaPackBtn = new QPushButton("复制搜索媒体包", &dialog);
-    copySearchMediaPackBtn->setObjectName("globalSearchGhostBtn");
-    copySearchMediaPackBtn->setToolTip("复制搜索场景下发送图片、视频或文件的准备摘要");
-    QPushButton* copyBatchMediaPlanBtn = new QPushButton("复制批量媒体计划", &dialog);
-    copyBatchMediaPlanBtn->setObjectName("globalSearchGhostBtn");
-    copyBatchMediaPlanBtn->setToolTip("复制当前搜索结果的批量媒体发送计划");
-    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
-    copyMediaGuideBtn->setObjectName("globalSearchGhostBtn");
-    copyMediaGuideBtn->setToolTip("复制搜索后发送图片、视频和文件的简短指南");
-    QPushButton* copyOnlineBtn = new QPushButton("复制在线", &dialog);
-    copyOnlineBtn->setObjectName("globalSearchGhostBtn");
-    copyOnlineBtn->setToolTip("复制当前可见结果中的在线用户");
-    QPushButton* profileBtn = new QPushButton("复制名片", &dialog);
-    profileBtn->setObjectName("globalSearchGhostBtn");
-    profileBtn->setToolTip("复制当前选中结果的资料名片");
-    actionLayout->addWidget(actionHint);
-    actionLayout->addWidget(statsLabel);
-    actionLayout->addWidget(previewLabel);
-    actionLayout->addStretch();
-    actionLayout->addWidget(createGroupBtn);
-    actionLayout->addWidget(inviteVisibleBtn);
-    actionLayout->addWidget(addVisibleBtn);
-    actionLayout->addWidget(copyBtn);
-    actionLayout->addWidget(copyListBtn);
-    actionLayout->addWidget(copyAddTextBtn);
-    actionLayout->addWidget(copyInviteCardBtn);
-    actionLayout->addWidget(copySearchCardBtn);
-    actionLayout->addWidget(copySearchMediaPackBtn);
-    actionLayout->addWidget(copyBatchMediaPlanBtn);
-    actionLayout->addWidget(copyMediaGuideBtn);
-    actionLayout->addWidget(copyOnlineBtn);
-    actionLayout->addWidget(profileBtn);
-    actionLayout->addWidget(openBtn);
-    layout->addLayout(actionLayout);
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("主操作"),
+        QStringLiteral("先打开结果，再决定是否建群或批量发送申请。"),
+        {openBtn, createGroupBtn, inviteVisibleBtn, addVisibleBtn});
 
-    auto updatePreview = [this, resultList, previewLabel]() {
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("复制与摘要"),
+        QStringLiteral("把当前筛选结果、名片和邀请材料整理出去。"),
+        {copyBtn, copyListBtn, copyAddTextBtn, copyInviteCardBtn, profileBtn, copyOnlineBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("媒体与批量计划"),
+        QStringLiteral("给后续图片、视频、文件发送准备摘要、批量计划和操作指南。"),
+        {copySearchCardBtn, copySearchMediaPackBtn, copyBatchMediaPlanBtn, copyMediaGuideBtn});
+
+    auto globalSearchCopyInputs = [this, resultList]() {
+        QList<GlobalSearchResultCopyInput> inputs;
+        for (int i = 0; i < resultList->count(); ++i) {
+            QListWidgetItem* item = resultList->item(i);
+            const QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty()) {
+                continue;
+            }
+            GlobalSearchResultCopyInput input;
+            input.entryId = id;
+            input.localGroup = id.startsWith(QStringLiteral("local_group_"));
+            input.friendContact = m_friendIds.contains(id);
+            input.online = isContactOnline(id);
+            input.memberCount = input.localGroup ? m_localGroupMembers.value(id).size() : 0;
+            input.displayName = input.localGroup ? m_localGroupNames.value(id, QStringLiteral("群聊")) : contactDisplayName(id);
+            inputs << input;
+        }
+        return inputs;
+    };
+    auto currentGlobalSearchCopyInput = [this, resultList, searchEdit]() {
+        GlobalSearchResultCopyInput input;
+        QListWidgetItem* item = resultList->currentItem();
+        const QString rawId = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
+        input.entryId = rawId;
+        input.localGroup = rawId.startsWith(QStringLiteral("local_group_"));
+        input.friendContact = m_friendIds.contains(rawId);
+        input.online = isContactOnline(rawId);
+        input.memberCount = input.localGroup ? m_localGroupMembers.value(rawId).size() : 0;
+        if (input.localGroup) {
+            input.displayName = m_localGroupNames.value(rawId, QStringLiteral("群聊"));
+        } else if (!rawId.startsWith(QStringLiteral("search_add:"))) {
+            input.displayName = contactDisplayName(rawId);
+        }
+        return input;
+    };
+
+    auto updatePreview = [this, resultList, previewLabel, searchEdit]() {
         QListWidgetItem* item = resultList->currentItem();
         if (!item) {
-            previewLabel->setText("选择结果后可复制QQ、名片、邀请卡或直接打开");
+            previewLabel->setText(firstEnabledListRow(resultList) >= 0
+                                      ? QStringLiteral("选择结果后可直接打开会话，或整理名片、邀请卡和媒体计划。")
+                                      : (searchEdit->text().trimmed().isEmpty()
+                                             ? QStringLiteral("当前没有可见的搜索结果。可输入 QQ 号、昵称或群名开始搜索。")
+                                             : QStringLiteral("当前筛选词“%1”没有匹配到可见结果。\n可继续搜索、建群或整理搜索摘要。")
+                                                   .arg(searchEdit->text().trimmed())));
             return;
         }
         QString id = item->data(Qt::UserRole).toString();
         if (id.startsWith("search_add:")) {
             QString account = id.mid(QString("search_add:").size());
-            previewLabel->setText(QString("准备搜索 QQ:%1 并发送好友申请").arg(account));
+            previewLabel->setText(QString("准备搜索并申请 QQ:%1").arg(account));
         } else if (id.startsWith("local_group_")) {
             previewLabel->setText(QString("群聊 · %1 · 群号:%2 · 成员%3人").arg(m_localGroupNames.value(id, "群聊"), id.mid(QString("local_group_").size())).arg(m_localGroupMembers.value(id).size()));
         } else if (!id.isEmpty()) {
@@ -3764,7 +8103,7 @@ void MainWindow::onShowGlobalSearch() {
             previewLabel->setText(QString("联系人 · %1 · QQ:%2 · %3 · %4")
                 .arg(contactDisplayName(id), id, isContactOnline(id) ? "在线" : "离线", relation));
         } else {
-            previewLabel->setText("输入 QQ 号后可继续搜索并发送申请");
+            previewLabel->setText("输入 QQ 号后可继续搜索，也可以把当前条件整理成搜索卡片。");
         }
     };
 
@@ -3814,112 +8153,134 @@ void MainWindow::onShowGlobalSearch() {
             ++groupCount;
         }
         if (!filter.isEmpty()) {
-            QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索 QQ 账号：%1\n双击或点击搜索可从服务器查找并发送好友申请").arg(filter));
+            QListWidgetItem* searchItem = new QListWidgetItem(QString("搜索并申请 QQ：%1\n双击或点击搜索可从服务器查找并发起好友申请").arg(filter));
             searchItem->setData(Qt::UserRole, "search_add:" + filter);
             searchItem->setForeground(QColor(92, 110, 128));
             searchItem->setSizeHint(QSize(0, 58));
             resultList->addItem(searchItem);
         }
         if (resultList->count() == 0) {
-            QListWidgetItem* emptyItem = new QListWidgetItem("输入 QQ 号搜索用户并发送好友申请");
-            emptyItem->setFlags(Qt::NoItemFlags);
-            emptyItem->setForeground(QColor(135, 150, 165));
-            resultList->addItem(emptyItem);
+            addWorkspaceEmptyStateItem(
+                resultList,
+                QStringLiteral("没有匹配的搜索结果"),
+                QStringLiteral("试试 QQ 号、昵称或群名，或直接从这里建群。"),
+                filter.isEmpty()
+                    ? QStringLiteral("当前没有可见的搜索结果。可输入 QQ 号、昵称或群名开始搜索。")
+                    : QStringLiteral("当前筛选词“%1”没有匹配到可见结果。\n可继续搜索、建群或整理搜索摘要。").arg(filter));
         }
         int directResultCount = friendCount + userCount + groupCount;
         actionHint->setText(filter.isEmpty()
-            ? QString("双击结果可聊天、进群或发送好友申请 · 共%1项").arg(directResultCount)
-            : QString("匹配%1项 · 可继续搜索QQ:%2").arg(directResultCount).arg(filter));
+            ? QString("可继续聊天、进群、建群或复制摘要 · 共 %1 项").arg(directResultCount)
+            : QString("匹配 %1 项 · 当前关键词 QQ:%2").arg(directResultCount).arg(filter));
         statsLabel->setText(QString("好友%1 · 用户%2 · 申请中%3 · 群聊%4").arg(friendCount).arg(userCount).arg(pendingCount).arg(groupCount));
-        if (resultList->count() > 0) resultList->setCurrentRow(0);
+        selectPreferredListRow(resultList, 0);
         updatePreview();
     };
-    fillResults();
 
-    dialog.setStyleSheet(R"(
-        QDialog#globalSearchDialog {
-            background: #F4F4F4;
-            font-family: "Microsoft YaHei", "Segoe UI";
+    auto updateActionState = [=, this]() {
+        const QString searchText = searchEdit->text().trimmed();
+        QListWidgetItem* item = resultList->currentItem();
+        const QString entryId = item ? item->data(Qt::UserRole).toString() : QString();
+        const bool hasSelection = !entryId.isEmpty();
+        const bool searchAddSelection = entryId.startsWith(QStringLiteral("search_add:"));
+        const bool localGroupSelection = entryId.startsWith(QStringLiteral("local_group_"));
+        const bool hasActionableResult = hasEnabledListRow(resultList);
+        const QString targetId = searchAddSelection ? entryId.mid(QStringLiteral("search_add:").size()) : entryId;
+        const QString targetName = targetId.isEmpty()
+            ? QString()
+            : (localGroupSelection ? m_localGroupNames.value(entryId, QStringLiteral("群聊")) : contactDisplayName(targetId));
+        const QList<GlobalSearchResultCopyInput> visibleInputs = globalSearchCopyInputs();
+        bool hasVisibleOnline = false;
+        bool hasVisibleUserTarget = false;
+        for (const GlobalSearchResultCopyInput& input : visibleInputs) {
+            if (!input.localGroup) {
+                hasVisibleUserTarget = true;
+            }
+            if (input.online) {
+                hasVisibleOnline = true;
+            }
         }
-        QFrame#searchHeader {
-            background: white;
-            border-bottom: 1px solid #E8E8E8;
-        }
-        QLineEdit#globalSearchInput {
-            min-height: 36px;
-            background: #F1F2F4;
-            border: none;
-            border-radius: 8px;
-            padding: 4px 12px;
-            color: #263238;
-        }
-        QPushButton#globalSearchPrimaryBtn {
-            min-width: 76px;
-            min-height: 36px;
-            background: #1296F7;
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-weight: 700;
-        }
-        QLabel#activeSearchTab {
-            color: #1296F7;
-            border-bottom: 2px solid #1296F7;
-            font-weight: 700;
-            padding: 8px 12px;
-        }
-        QLabel#searchTab {
-            color: #1F2D3D;
-            padding: 8px 12px;
-        }
-        QLabel#globalActionHint {
-            color: #6B7A88;
-            font-size: 13px;
-            font-weight: 700;
-        }
-        QLabel#globalStatsLabel {
-            color: #1296F7;
-            font-size: 12px;
-            font-weight: 800;
-            padding-left: 10px;
-        }
-        QLabel#globalPreviewLabel {
-            color: #3A4A5A;
-            background: #EAF7FF;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 800;
-            padding: 5px 10px;
-        }
-        QPushButton#globalSearchGhostBtn {
-            min-width: 76px;
-            min-height: 36px;
-            background: white;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
-            border-radius: 10px;
-            font-weight: 700;
-        }
-        QListWidget#globalResultList {
-            background: #F4F4F4;
-            border: none;
-            outline: none;
-            padding: 12px 18px;
-        }
-        QListWidget#globalResultList::item {
-            background: white;
-            border-radius: 12px;
-            margin: 6px 0;
-            padding: 10px 14px;
-            color: #263238;
-        }
-        QListWidget#globalResultList::item:selected, QListWidget#globalResultList::item:hover {
-            background: #EAF7FF;
-        }
-    )");
 
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillResults](const QString& text) {
+        searchBtn->setText(QStringLiteral("搜索服务器"));
+        searchBtn->setEnabled(!searchText.isEmpty());
+        searchBtn->setToolTip(searchText.isEmpty()
+                                  ? QStringLiteral("先输入 QQ 号、昵称或群名再搜索")
+                                  : QStringLiteral("按当前关键词刷新综合搜索结果"));
+        clearBtn->setEnabled(!searchText.isEmpty());
+        clearBtn->setToolTip(searchText.isEmpty()
+                                 ? QStringLiteral("当前没有需要清空的搜索条件")
+                                 : QStringLiteral("清空当前搜索关键词并恢复默认结果"));
+        quickAddBtn->setText(QStringLiteral("好友申请工作区"));
+        friendManagerBtn->setText(QStringLiteral("打开好友管理"));
+        actionHint->setText(!hasActionableResult
+                                ? (searchText.isEmpty()
+                                       ? QStringLiteral("当前没有可见的搜索结果。可输入 QQ 号、昵称或群名开始搜索。")
+                                       : QStringLiteral("当前筛选词“%1”没有匹配到可见结果，可继续搜索、建群或整理搜索摘要。").arg(searchText))
+                                : (searchAddSelection
+                                       ? QStringLiteral("当前是搜索建议项，可直接搜索并申请，或复制搜索摘要与邀请材料。")
+                                       : (localGroupSelection
+                                              ? QStringLiteral("当前结果是群聊，可直接进入、复制群资料或整理群媒体计划。")
+                                              : QStringLiteral("当前结果可继续打开私聊、复制名片、发送申请或整理媒体准备。"))));
+
+        if (!hasSelection) {
+            openBtn->setText(QStringLiteral("打开当前结果"));
+            openBtn->setEnabled(false);
+            openBtn->setToolTip(QStringLiteral("请先选择一个搜索结果"));
+            createGroupBtn->setEnabled(true);
+            createGroupBtn->setText(QStringLiteral("用搜索创建群"));
+            inviteVisibleBtn->setEnabled(hasVisibleUserTarget);
+            addVisibleBtn->setEnabled(hasVisibleUserTarget);
+            copyBtn->setEnabled(false);
+            profileBtn->setEnabled(false);
+            copyAddTextBtn->setEnabled(!searchText.isEmpty());
+            copyInviteCardBtn->setEnabled(false);
+            copyListBtn->setEnabled(!visibleInputs.isEmpty());
+            copySearchCardBtn->setEnabled(!visibleInputs.isEmpty() || !searchText.isEmpty());
+            copySearchMediaPackBtn->setEnabled(!searchText.isEmpty());
+            copyBatchMediaPlanBtn->setEnabled(!visibleInputs.isEmpty());
+            copyMediaGuideBtn->setEnabled(true);
+            copyOnlineBtn->setEnabled(hasVisibleOnline);
+            return;
+        }
+
+        if (searchAddSelection) {
+            openBtn->setText(QStringLiteral("搜索并申请"));
+            openBtn->setToolTip(QStringLiteral("搜索 QQ:%1 并发起好友申请").arg(targetId));
+        } else if (localGroupSelection) {
+            openBtn->setText(QStringLiteral("进入群聊"));
+            openBtn->setToolTip(QStringLiteral("进入群聊 %1").arg(targetName));
+        } else {
+            openBtn->setText(QStringLiteral("打开私聊"));
+            openBtn->setToolTip(QStringLiteral("打开与 %1 的私聊会话").arg(targetName));
+        }
+        openBtn->setEnabled(true);
+        createGroupBtn->setEnabled(true);
+        inviteVisibleBtn->setEnabled(hasVisibleUserTarget);
+        addVisibleBtn->setEnabled(hasVisibleUserTarget);
+        copyBtn->setEnabled(true);
+        profileBtn->setEnabled(true);
+        copyAddTextBtn->setEnabled(true);
+        copyInviteCardBtn->setEnabled(true);
+        copyListBtn->setEnabled(!visibleInputs.isEmpty());
+        copySearchCardBtn->setEnabled(!visibleInputs.isEmpty() || !searchText.isEmpty());
+        copySearchMediaPackBtn->setEnabled(!targetId.isEmpty() || !searchText.isEmpty());
+        copyBatchMediaPlanBtn->setEnabled(!visibleInputs.isEmpty());
+        copyMediaGuideBtn->setEnabled(true);
+        copyOnlineBtn->setEnabled(hasVisibleOnline);
+    };
+    const QString initialSearchText = initialFilter.trimmed();
+    if (!initialSearchText.isEmpty()) {
+        searchEdit->setText(initialSearchText);
+        fillResults(initialSearchText);
+    } else {
+        fillResults();
+    }
+
+    dialog.setStyleSheet(productDialogStyleSheet());
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillResults, updateActionState](const QString& text) {
         fillResults(text.trimmed());
+        updateActionState();
     });
     auto runServerSearch = [this, searchEdit, &dialog]() {
         QString account = searchEdit->text().trimmed();
@@ -3955,7 +8316,7 @@ void MainWindow::onShowGlobalSearch() {
         if (!m_friendIds.contains(id) && m_pendingOutgoingFriendRequests.contains(id)) {
             ui->statusbar->showMessage(QString("%1 的好友申请正在等待确认").arg(contactDisplayName(id)), 2200);
         } else {
-            ensureFriendRequestQueued(id, QStringLiteral("已从综合搜索向 %1（QQ:%2）发送好友申请"));
+            ensureFriendRequestQueued(id, QStringLiteral("已从综合搜索向 %1（QQ:%2）发起好友申请"));
         }
         dialog.accept();
         openPrivateSession(id);
@@ -3963,7 +8324,10 @@ void MainWindow::onShowGlobalSearch() {
     };
 
     connect(searchBtn, &QPushButton::clicked, &dialog, runServerSearch);
-    connect(resultList, &QListWidget::currentItemChanged, &dialog, [updatePreview](QListWidgetItem*, QListWidgetItem*) { updatePreview(); });
+    connect(resultList, &QListWidget::currentItemChanged, &dialog, [updatePreview, updateActionState](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
     connect(clearBtn, &QPushButton::clicked, &dialog, [searchEdit, fillResults]() {
         searchEdit->clear();
         fillResults();
@@ -4012,7 +8376,7 @@ void MainWindow::onShowGlobalSearch() {
             return;
         }
         if (!confirmAction(QStringLiteral("可见用户建群"),
-                           QStringLiteral("确定创建群聊“%1”并邀请 %2 位可见用户吗？其中 %3 位会同时发送好友申请。")
+                           QStringLiteral("确定创建群聊“%1”并邀请 %2 位可见用户吗？其中 %3 位会同时发起好友申请。")
                                .arg(groupName)
                                .arg(invitedCount)
                                .arg(requestIds.size()),
@@ -4038,7 +8402,7 @@ void MainWindow::onShowGlobalSearch() {
         dialog.accept();
         switchToLocalGroup(groupId, groupName);
         QString detail = QString("已从综合搜索建群并邀请 %1 位可见用户").arg(invitedCount);
-        if (!sentNames.isEmpty()) detail += QString("，已发送好友申请 %1 个").arg(sentNames.size());
+        if (!sentNames.isEmpty()) detail += QString("，已发起好友申请 %1 个").arg(sentNames.size());
         if (pendingSkipped > 0) detail += QString("，跳过申请中 %1 个").arg(pendingSkipped);
         if (!failedNames.isEmpty()) detail += QString("，申请失败 %1 个").arg(failedNames.size());
         appendSystemMessage(detail);
@@ -4061,9 +8425,9 @@ void MainWindow::onShowGlobalSearch() {
             searchEdit->setFocus();
             return;
         }
-        if (!confirmAction(QStringLiteral("发送可见用户申请"),
-                           QString("确定向 %1 位可见用户发送好友申请吗？").arg(addIds.size()),
-                           QStringLiteral("已取消发送可见用户申请"),
+        if (!confirmAction(QStringLiteral("发起可见用户申请"),
+                           QString("确定向 %1 位可见用户发起好友申请吗？").arg(addIds.size()),
+                           QStringLiteral("已取消发起可见用户申请"),
                            1600,
                            &dialog)) {
             searchEdit->setFocus();
@@ -4080,13 +8444,13 @@ void MainWindow::onShowGlobalSearch() {
             }
         }
         if (sentNames.isEmpty()) {
-            ui->statusbar->showMessage("可见用户好友申请发送失败", 2600);
+            ui->statusbar->showMessage("可见用户好友申请发起失败", 2600);
             searchEdit->setFocus();
             return;
         }
         refreshFriendList();
         fillResults(searchEdit->text().trimmed());
-        QString detail = QString("已向 %1 个可见用户发送好友申请").arg(sentNames.size());
+        QString detail = QString("已向 %1 个可见用户发起好友申请").arg(sentNames.size());
         if (pendingSkipped > 0) detail += QString(" · 已跳过申请中 %1 个").arg(pendingSkipped);
         if (!failedNames.isEmpty()) detail += QString(" · 失败 %1 个").arg(failedNames.size());
         appendSystemMessage(detail);
@@ -4109,41 +8473,6 @@ void MainWindow::onShowGlobalSearch() {
         QApplication::clipboard()->setText(id);
         ui->statusbar->showMessage("QQ 号已复制: " + id, 2500);
     });
-    auto globalSearchCopyInputs = [this, resultList]() {
-        QList<GlobalSearchResultCopyInput> inputs;
-        for (int i = 0; i < resultList->count(); ++i) {
-            QListWidgetItem* item = resultList->item(i);
-            const QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty()) {
-                continue;
-            }
-            GlobalSearchResultCopyInput input;
-            input.entryId = id;
-            input.localGroup = id.startsWith("local_group_");
-            input.friendContact = m_friendIds.contains(id);
-            input.online = isContactOnline(id);
-            input.memberCount = input.localGroup ? m_localGroupMembers.value(id).size() : 0;
-            input.displayName = input.localGroup ? m_localGroupNames.value(id, "群聊") : contactDisplayName(id);
-            inputs << input;
-        }
-        return inputs;
-    };
-    auto currentGlobalSearchCopyInput = [this, resultList, searchEdit]() {
-        GlobalSearchResultCopyInput input;
-        QListWidgetItem* item = resultList->currentItem();
-        const QString rawId = item ? item->data(Qt::UserRole).toString() : searchEdit->text().trimmed();
-        input.entryId = rawId;
-        input.localGroup = rawId.startsWith("local_group_");
-        input.friendContact = m_friendIds.contains(rawId);
-        input.online = isContactOnline(rawId);
-        input.memberCount = input.localGroup ? m_localGroupMembers.value(rawId).size() : 0;
-        if (input.localGroup) {
-            input.displayName = m_localGroupNames.value(rawId, "群聊");
-        } else if (!rawId.startsWith("search_add:")) {
-            input.displayName = contactDisplayName(rawId);
-        }
-        return input;
-    };
     connect(copyListBtn, &QPushButton::clicked, &dialog, [this, globalSearchCopyInputs]() {
         const GlobalSearchResultCopyState state =
             FriendManager::globalSearchResultCopyState(globalSearchCopyInputs(), false);
@@ -4246,7 +8575,7 @@ void MainWindow::onShowGlobalSearch() {
         QString text = item->text();
         if (id.startsWith("search_add:")) {
             id = id.mid(QString("search_add:").size());
-            text = QString("QQ:%1\n一键搜索并发送好友申请").arg(id);
+            text = QString("QQ:%1\n一键搜索并申请").arg(id);
         } else if (id.startsWith("local_group_")) {
             QString groupNumber = id.mid(QString("local_group_").size());
             text = QString("群聊 QQ:%1\n%2").arg(groupNumber, m_localGroupNames.value(id, "群聊"));
@@ -4258,55 +8587,1034 @@ void MainWindow::onShowGlobalSearch() {
     });
     connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [openResult](QListWidgetItem*) { openResult(); });
 
+    updateActionState();
     searchEdit->setFocus();
     dialog.exec();
 }
 
 void MainWindow::onShowCreateMenu() {
-    QMenu menu(this);
-    auto describeAction = [](QAction* action, const QString& tip) {
-        action->setToolTip(tip);
-        action->setStatusTip(tip);
+    QDialog dialog(this);
+    const bool localGroupContext = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    const bool publicGroupContext = m_privateChatTarget.isEmpty();
+    const QString currentSessionName = publicGroupContext
+        ? QStringLiteral("公共聊天室")
+        : contactDisplayName(m_privateChatTarget);
+    const QString currentGroupId = localGroupContext ? m_privateChatTarget : QString();
+    const QString currentGroupName = localGroupContext
+        ? m_localGroupNames.value(currentGroupId, QStringLiteral("群聊"))
+        : QString();
+
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("workspaceCommandDialog"),
+        QStringLiteral("群组与快捷工作区"),
+        QSize(980, 780),
+        QStringLiteral("searchDialogTitle"),
+        QStringLiteral("群组与快捷工作区"),
+        QStringLiteral("searchDialogSubTitle"),
+        QStringLiteral("把建群、群聊管理、通知入口、媒体发送和摘要复制收在一个面板里统一处理。"),
+        QStringLiteral("workspaceCommandSearch"),
+        QStringLiteral("筛选建群、群聊、通知、媒体动作"),
+        QStringLiteral("输入关键词筛选动作；回车可直接执行当前选中项"),
+        QStringLiteral("workspaceCommandList"),
+        true,
+        QStringLiteral("globalActionHint"),
+        QStringLiteral("先确认当前会话和群聊状态，再执行建群、邀请、公告或媒体动作。"),
+        QStringLiteral("globalStatsLabel"),
+        QStringLiteral("globalPreviewLabel"),
+        QStringLiteral("选择动作后，这里会说明它会改哪里、复制什么，或下一步会打开哪个工作区。"),
+        QStringLiteral("searchHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(18, 16, 18, 10);
+    shell.headerLayout->setSpacing(10);
+    shell.bodyLayout->setContentsMargins(18, 14, 18, 18);
+    shell.bodyLayout->setSpacing(12);
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* actionList = shell.listWidget;
+    QLabel* actionHint = shell.hintLabel;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    shell.subTitleLabel->setText(QStringLiteral("当前会话：%1 · 好友 %2 人 · 本地群 %3 个。")
+                                     .arg(currentSessionName)
+                                     .arg(m_friendIds.size())
+                                     .arg(m_localGroupIds.size()));
+
+    struct WorkspaceActionEntry {
+        QString commandId;
+        QString title;
+        QString section;
+        QString summary;
+        QString disabledReason;
+        QStyle::StandardPixmap iconType = QStyle::SP_FileDialogInfoView;
+        bool primary = false;
+        bool enabled = true;
     };
-    const struct MenuSpec {
-        const char* commandId;
-        const char* title;
-        const char* tip;
-    } specs[] = {
-        {"create-group", "创建群聊", "创建一个新的本地群聊并立即进入"},
-        {"create-group-with-friends", "创建群并拉全部好友", "创建群聊并自动邀请当前全部好友"},
-        {"open-global-search", "申请好友/群", "打开好友申请窗口，搜索 QQ 号并发送申请"},
-        {"focus-contact-search", "定位QQ搜索框", "把焦点定位到左侧 QQ 搜索框"},
-        {"refresh-contacts", "刷新联系人", "重新加载好友、群聊和在线联系人列表"},
-        {"clear-search", "清空搜索", "清空联系人搜索条件"},
-        {"copy-chat-id", "复制当前会话号", "复制当前私聊 QQ 号或群聊号"},
-        {"copy-chat-card", "复制当前会话名片", "复制当前会话的名称、账号和成员摘要"},
-        {"copy-current-invite", "复制当前邀请语", "复制当前会话可用的邀请话术"},
-        {"copy-current-members", "复制当前成员列表", "复制当前群聊的成员列表"},
-        {"copy-current-online", "复制当前在线成员", "复制当前群聊在线成员列表"},
-        {"copy-all-contacts", "复制全部联系人", "复制全部好友、群聊和在线成员摘要"},
-        {"copy-search-summary", "复制搜索摘要", "复制当前搜索条件和联系人统计"},
-        {"copy-quick-guide", "复制QQ功能指南", "复制 QQ 搜索、好友、群聊和媒体操作指南"},
-        {"copy-media-guide", "复制上传指南", "复制图片、视频和文件上传指南"},
-        {"copy-current-media-pack", "复制当前媒体包", "复制当前会话的媒体发送准备包"},
-        {"copy-full-media-plan", "复制完整媒体计划", "复制好友、群聊和媒体发送的完整计划"},
-        {"edit-announcement", "编辑群公告", "编辑当前本地群聊公告"},
-        {"copy-announcement", "复制群公告", "复制当前本地群聊公告"},
-        {"show-friend-notice", "好友通知", "打开好友通知并处理好友申请"},
-        {"show-group-notice", "群通知", "打开群通知并查看群聊、公告和邀请"},
-        {"send-image", "发送图片/视频", "选择图片或视频发送到当前会话"},
-        {"send-file", "闪传文件", "选择文件闪传到当前会话"}
+
+    const QList<WorkspaceActionEntry> actionCatalog = {
+        {QStringLiteral("create-group"), QStringLiteral("创建群聊"), QStringLiteral("群组入口"), QStringLiteral("使用当前关键词或默认名称创建一个新的本地群聊并立即进入。"), QString(), QStyle::SP_FileDialogNewFolder, true, true},
+        {QStringLiteral("create-group-with-friends"), QStringLiteral("创建群并拉全部好友"), QStringLiteral("群组入口"), QStringLiteral("创建群聊并自动邀请当前全部好友，适合快速拉起协作群。"), QString(), QStyle::SP_DialogYesButton, true, true},
+        {QStringLiteral("show-group-notice"), QStringLiteral("打开群通知"), QStringLiteral("群组入口"), QStringLiteral("查看公共聊天室、本地群聊、群公告、成员和入群邀请材料。"), QString(), QStyle::SP_MessageBoxInformation, false, true},
+        {QStringLiteral("edit-announcement"), QStringLiteral("编辑群公告"), QStringLiteral("群组入口"), QStringLiteral("修改当前群聊或公共聊天室的公告内容，并保持统一状态反馈。"), QStringLiteral("切换到公共聊天室或本地群聊后可编辑群公告。"), QStyle::SP_FileDialogDetailedView, false, localGroupContext || publicGroupContext},
+        {QStringLiteral("copy-announcement"), QStringLiteral("复制群公告"), QStringLiteral("群组入口"), QStringLiteral("复制当前群聊或公共聊天室的公告内容，便于同步给成员。"), QStringLiteral("切换到公共聊天室或本地群聊后可复制公告。"), QStyle::SP_DialogSaveButton, false, localGroupContext || publicGroupContext},
+        {QStringLiteral("open-global-search"), QStringLiteral("申请好友/群"), QStringLiteral("通知与搜索"), QStringLiteral("打开综合搜索，继续查找联系人、群聊或发起好友申请。"), QString(), QStyle::SP_FileDialogContentsView, false, true},
+        {QStringLiteral("show-friend-notice"), QStringLiteral("打开好友通知"), QStringLiteral("通知与搜索"), QStringLiteral("进入好友通知工作区，处理待办申请、复制回复和媒体准备材料。"), QString(), QStyle::SP_DialogOpenButton, false, true},
+        {QStringLiteral("focus-contact-search"), QStringLiteral("定位 QQ 搜索框"), QStringLiteral("通知与搜索"), QStringLiteral("回到主界面左侧搜索框，继续输入 QQ 号或昵称筛选联系人。"), QString(), QStyle::SP_ArrowForward, false, true},
+        {QStringLiteral("refresh-contacts"), QStringLiteral("刷新联系人"), QStringLiteral("通知与搜索"), QStringLiteral("重新加载好友、群聊和群成员列表，收敛当前界面状态。"), QString(), QStyle::SP_BrowserReload, false, true},
+        {QStringLiteral("clear-search"), QStringLiteral("清空搜索"), QStringLiteral("通知与搜索"), QStringLiteral("清空联系人和群成员搜索条件，让主窗口回到默认浏览状态。"), QString(), QStyle::SP_DialogResetButton, false, true},
+        {QStringLiteral("copy-search-summary"), QStringLiteral("复制搜索摘要"), QStringLiteral("通知与搜索"), QStringLiteral("复制当前搜索条件、好友数、群聊数和当前会话摘要。"), QString(), QStyle::SP_FileDialogListView, false, true},
+        {QStringLiteral("copy-all-contacts"), QStringLiteral("复制全部联系人"), QStringLiteral("通知与搜索"), QStringLiteral("导出好友、本地群和在线成员摘要，便于外部整理。"), QString(), QStyle::SP_FileDialogDetailedView, false, true},
+        {QStringLiteral("copy-quick-guide"), QStringLiteral("复制 QQ 功能指南"), QStringLiteral("通知与搜索"), QStringLiteral("复制搜索、好友、群聊和媒体发送的简短工作说明。"), QString(), QStyle::SP_DialogHelpButton, false, true},
+        {QStringLiteral("copy-chat-id"), QStringLiteral("复制当前会话号"), QStringLiteral("当前会话"), QStringLiteral("复制当前私聊 QQ、群号或公共聊天室标识。"), QString(), QStyle::SP_DialogSaveButton, false, true},
+        {QStringLiteral("copy-chat-card"), QStringLiteral("复制当前会话名片"), QStringLiteral("当前会话"), QStringLiteral("复制当前会话的名称、账号和公告/成员摘要。"), QString(), QStyle::SP_FileDialogInfoView, false, true},
+        {QStringLiteral("copy-current-invite"), QStringLiteral("复制当前邀请语"), QStringLiteral("当前会话"), QStringLiteral("复制当前会话适用的邀请话术，可直接发给好友或成员。"), QString(), QStyle::SP_DirLinkIcon, false, true},
+        {QStringLiteral("copy-current-members"), QStringLiteral("复制当前成员列表"), QStringLiteral("当前会话"), QStringLiteral("复制当前会话可见成员，用于同步群范围和在场人员。"), QString(), QStyle::SP_FileDialogListView, false, true},
+        {QStringLiteral("copy-current-online"), QStringLiteral("复制当前在线成员"), QStringLiteral("当前会话"), QStringLiteral("复制当前会话里在线成员的 QQ 和昵称。"), QString(), QStyle::SP_DialogApplyButton, false, true},
+        {QStringLiteral("send-image"), QStringLiteral("发送图片/视频"), QStringLiteral("媒体发送"), QStringLiteral("打开图片/视频发送入口，把媒体动作挂回统一工作流。"), QString(), QStyle::SP_FileIcon, true, true},
+        {QStringLiteral("send-file"), QStringLiteral("闪传文件"), QStringLiteral("媒体发送"), QStringLiteral("打开文件闪传入口，继续发送文档、压缩包或媒体文件。"), QString(), QStyle::SP_DriveHDIcon, true, true},
+        {QStringLiteral("copy-current-media-pack"), QStringLiteral("复制当前媒体包"), QStringLiteral("媒体发送"), QStringLiteral("整理当前会话的媒体发送准备摘要、入口和查收话术。"), QString(), QStyle::SP_FileDialogDetailedView, false, true},
+        {QStringLiteral("copy-media-guide"), QStringLiteral("复制上传指南"), QStringLiteral("媒体发送"), QStringLiteral("复制图片、视频和闪传文件的统一使用说明。"), QString(), QStyle::SP_DialogHelpButton, false, true},
+        {QStringLiteral("copy-full-media-plan"), QStringLiteral("复制完整媒体计划"), QStringLiteral("媒体发送"), QStringLiteral("复制好友、群聊、媒体准备和查收话术的一整套执行清单。"), QString(), QStyle::SP_FileDialogContentsView, false, true},
+        {QStringLiteral("invite-friend"), QStringLiteral("邀请好友入群"), QStringLiteral("当前本地群"), QStringLiteral("从好友列表中选择成员加入当前本地群聊。"), QStringLiteral("切换到本地群聊后可邀请好友。"), QStyle::SP_FileDialogNewFolder, false, localGroupContext},
+        {QStringLiteral("invite-by-account"), QStringLiteral("按 QQ 号邀请"), QStringLiteral("当前本地群"), QStringLiteral("直接输入 QQ 号邀请成员入群，并按需触发好友申请。"), QStringLiteral("切换到本地群聊后可按 QQ 号邀请。"), QStyle::SP_CommandLink, false, localGroupContext},
+        {QStringLiteral("invite-all-friends"), QStringLiteral("邀请全部好友"), QStringLiteral("当前本地群"), QStringLiteral("把当前全部好友批量邀请进本地群聊。"), QStringLiteral("切换到本地群聊后可批量邀请。"), QStyle::SP_DialogYesButton, false, localGroupContext},
+        {QStringLiteral("rename-group"), QStringLiteral("重命名当前群聊"), QStringLiteral("当前本地群"), QStringLiteral("修改当前本地群聊名称，并同步左侧联系人列表。"), QStringLiteral("切换到本地群聊后可重命名。"), QStyle::SP_FileDialogInfoView, false, localGroupContext},
+        {QStringLiteral("copy-group-card"), QStringLiteral("复制当前群名片"), QStringLiteral("当前本地群"), QStringLiteral("复制群名、群号、成员数和公告摘要。"), QStringLiteral("切换到本地群聊后可复制群名片。"), QStyle::SP_FileDialogDetailedView, false, localGroupContext},
+        {QStringLiteral("copy-group-invite"), QStringLiteral("复制群邀请语"), QStringLiteral("当前本地群"), QStringLiteral("复制一段更明确的入群邀请语，适合对外发送。"), QStringLiteral("切换到本地群聊后可复制群邀请语。"), QStyle::SP_DirLinkIcon, false, localGroupContext},
+        {QStringLiteral("copy-group-members"), QStringLiteral("复制群成员列表"), QStringLiteral("当前本地群"), QStringLiteral("导出当前群聊的全部成员列表。"), QStringLiteral("切换到本地群聊后可复制群成员列表。"), QStyle::SP_FileDialogListView, false, localGroupContext},
+        {QStringLiteral("copy-group-online-members"), QStringLiteral("复制在线群成员"), QStringLiteral("当前本地群"), QStringLiteral("导出当前群聊里在线成员的 QQ 和昵称。"), QStringLiteral("切换到本地群聊后可复制在线群成员。"), QStyle::SP_DialogApplyButton, false, localGroupContext},
+        {QStringLiteral("delete-group"), QStringLiteral("删除当前群聊"), QStringLiteral("当前本地群"), QStringLiteral("删除当前本地群聊配置，不会在此步骤直接删除聊天记录。"), QStringLiteral("切换到本地群聊后可删除。"), QStyle::SP_TrashIcon, false, localGroupContext}
     };
-    for (const MenuSpec& spec : specs) {
-        QAction* action = menu.addAction(QString::fromUtf8(spec.title));
-        action->setData(QString::fromLatin1(spec.commandId));
-        describeAction(action, QString::fromUtf8(spec.tip));
+
+    auto matchesActionFilter = [](const WorkspaceActionEntry& entry, const QString& filter) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        return entry.title.contains(filter, Qt::CaseInsensitive)
+            || entry.section.contains(filter, Qt::CaseInsensitive)
+            || entry.summary.contains(filter, Qt::CaseInsensitive)
+            || entry.commandId.contains(filter, Qt::CaseInsensitive);
+    };
+
+    auto fillActionList = [=, &dialog]() {
+        const QString filter = searchEdit->text().trimmed();
+        actionList->clear();
+        int visibleCount = 0;
+        int executableCount = 0;
+        for (const WorkspaceActionEntry& entry : actionCatalog) {
+            if (!matchesActionFilter(entry, filter)) {
+                continue;
+            }
+            ++visibleCount;
+            if (entry.enabled) {
+                ++executableCount;
+            }
+            QListWidgetItem* item = new QListWidgetItem(
+                dialog.style()->standardIcon(entry.iconType),
+                QStringLiteral("%1\n%2 · %3").arg(entry.title, entry.section, entry.summary));
+            item->setData(Qt::UserRole, entry.commandId);
+            item->setData(Qt::UserRole + 1, entry.title);
+            item->setData(Qt::UserRole + 2, entry.section);
+            item->setData(Qt::UserRole + 3, entry.summary);
+            item->setData(Qt::UserRole + 4, entry.enabled);
+            item->setData(Qt::UserRole + 5, entry.disabledReason);
+            item->setSizeHint(QSize(0, 78));
+            item->setToolTip(entry.enabled ? entry.summary : entry.disabledReason);
+            if (!entry.enabled) {
+                item->setFlags(Qt::NoItemFlags);
+                item->setForeground(QColor(135, 150, 165));
+            } else if (entry.primary) {
+                item->setForeground(QColor(24, 92, 186));
+            }
+            actionList->addItem(item);
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                actionList,
+                QStringLiteral("没有匹配的快捷动作"),
+                QStringLiteral("试试“建群”、“公告”、“成员”或“媒体”这些关键词。"),
+                filter.isEmpty()
+                    ? QStringLiteral("当前没有可见的快捷工作区动作。可从这里继续进入建群、通知、当前会话摘要或媒体发送入口。")
+                    : QStringLiteral("当前筛选词“%1”没有匹配到快捷动作。\n试试“建群”、“公告”、“成员”或“媒体”这些关键词。").arg(filter));
+        } else {
+            selectPreferredListRow(actionList, 0);
+        }
+        statsLabel->setText(QStringLiteral("动作 %1 · 可执行 %2 · 好友 %3 · 本地群 %4")
+                                .arg(visibleCount)
+                                .arg(executableCount)
+                                .arg(m_friendIds.size())
+                                .arg(m_localGroupIds.size()));
+        actionHint->setText(visibleCount == 0
+                                ? (filter.isEmpty()
+                                       ? QStringLiteral("当前没有可见的快捷动作。可从这里继续进入建群、通知、当前会话摘要或媒体发送入口。")
+                                       : QStringLiteral("当前筛选词“%1”没有匹配到快捷动作。可调整关键词，或清空筛选后重新浏览。").arg(filter))
+                                : (localGroupContext
+                                       ? QStringLiteral("当前本地群：%1 · 可直接处理邀请、重命名、公告和媒体动作。").arg(currentGroupName)
+                                       : QStringLiteral("当前会话：%1 · 建群、通知、复制摘要和媒体动作都从这里统一进入。").arg(currentSessionName)));
+    };
+
+    auto previewTextForItem = [=]() {
+        QListWidgetItem* item = actionList->currentItem();
+        const QString keyword = searchEdit->text().trimmed();
+        if (!item || item->data(Qt::UserRole).toString().isEmpty()) {
+            return keyword.isEmpty()
+                ? QStringLiteral("选择动作后，这里会说明它会改哪里、复制什么，或下一步会打开哪个工作区。")
+                : QStringLiteral("当前关键词：%1\n可继续筛选建群、公告、成员、通知或媒体动作。").arg(keyword);
+        }
+        const QString commandId = item->data(Qt::UserRole).toString();
+        const QString title = item->data(Qt::UserRole + 1).toString();
+        const QString section = item->data(Qt::UserRole + 2).toString();
+        const QString summary = item->data(Qt::UserRole + 3).toString();
+        const bool enabled = item->data(Qt::UserRole + 4).toBool();
+        const QString disabledReason = item->data(Qt::UserRole + 5).toString();
+        QString nextStep;
+        if (commandId == QLatin1String("create-group") || commandId == QLatin1String("create-group-with-friends")) {
+            nextStep = keyword.isEmpty()
+                ? QStringLiteral("未填关键词时会使用默认群名；填了关键词就会直接拿来当群名。")
+                : QStringLiteral("当前会直接使用关键词“%1”作为群名。").arg(keyword);
+        } else if (commandId.startsWith(QLatin1String("copy-"))) {
+            nextStep = QStringLiteral("执行后会保留在当前工作区，方便继续整理其他摘要。");
+        } else if (commandId == QLatin1String("send-image") || commandId == QLatin1String("send-file")) {
+            nextStep = QStringLiteral("执行后会进入发送流程，结果继续回到主窗口工作区显示。");
+        } else if (commandId == QLatin1String("show-group-notice") || commandId == QLatin1String("show-friend-notice") || commandId == QLatin1String("open-global-search")) {
+            nextStep = QStringLiteral("执行后会切换到对应的大弹窗工作区。");
+        } else {
+            nextStep = QStringLiteral("执行后会更新主窗口会话、群资料或输入/确认流程。");
+        }
+        return enabled
+            ? QStringLiteral("%1\n区块：%2\n%3\n下一步：%4").arg(title, section, summary, nextStep)
+            : QStringLiteral("%1\n区块：%2\n%3\n当前不可用：%4").arg(title, section, summary, disabledReason);
+    };
+
+    QPushButton* executeBtn = createWorkspaceButton(shell.headerFrame,
+                                                    &dialog,
+                                                    QStringLiteral("执行选中动作"),
+                                                    QStringLiteral("globalSearchPrimaryBtn"),
+                                                    QStringLiteral("执行当前选中的工作区动作"),
+                                                    QStyle::SP_ArrowForward);
+    QPushButton* clearFilterBtn = createWorkspaceButton(shell.headerFrame,
+                                                        &dialog,
+                                                        QStringLiteral("清空筛选"),
+                                                        QStringLiteral("globalSearchGhostBtn"),
+                                                        QStringLiteral("清空动作筛选关键词"),
+                                                        QStyle::SP_DialogResetButton);
+    QPushButton* openSearchBtn = createWorkspaceButton(shell.headerFrame,
+                                                       &dialog,
+                                                       QStringLiteral("综合搜索"),
+                                                       QStringLiteral("globalSearchGhostBtn"),
+                                                       QStringLiteral("打开综合搜索工作区"),
+                                                       QStyle::SP_FileDialogContentsView);
+    QPushButton* openGroupNoticeBtn = createWorkspaceButton(shell.headerFrame,
+                                                            &dialog,
+                                                            QStringLiteral("群通知"),
+                                                            QStringLiteral("globalSearchGhostBtn"),
+                                                            QStringLiteral("打开群通知工作区"),
+                                                            QStyle::SP_MessageBoxInformation);
+    shell.searchRowLayout->addWidget(executeBtn);
+    shell.searchRowLayout->addWidget(clearFilterBtn);
+    shell.searchRowLayout->addWidget(openSearchBtn);
+    shell.searchRowLayout->addWidget(openGroupNoticeBtn);
+
+    auto runWorkspaceCommand = [&, this](const QString& commandId) {
+        if (commandId.isEmpty()) {
+            return;
+        }
+
+        auto isLocalGroupWorkspaceCommand = [](const QString& id) {
+            return id == QLatin1String("invite-friend")
+                || id == QLatin1String("invite-by-account")
+                || id == QLatin1String("invite-all-friends")
+                || id == QLatin1String("rename-group")
+                || id == QLatin1String("copy-group-card")
+                || id == QLatin1String("copy-group-invite")
+                || id == QLatin1String("copy-group-members")
+                || id == QLatin1String("copy-group-online-members")
+                || id == QLatin1String("delete-group");
+        };
+
+        const QString keyword = searchEdit->text().trimmed();
+        if (commandId == QLatin1String("create-group")) {
+            if (!keyword.isEmpty()) {
+                const QString groupId = createLocalGroupSession(keyword);
+                switchToLocalGroup(groupId, keyword);
+                appendSystemMessage(QStringLiteral("已从群组工作区创建群聊: %1").arg(keyword));
+                ui->statusbar->showMessage(QStringLiteral("已创建群聊：%1").arg(keyword), 2200);
+                return;
+            }
+        } else if (commandId == QLatin1String("create-group-with-friends")) {
+            const QString groupName = keyword.isEmpty() ? QStringLiteral("好友群聊") : keyword;
+            const QStringList members = m_friendIds;
+            const QString groupId = createLocalGroupSession(
+                groupName,
+                members,
+                QStringLiteral("%1 已创建，已自动邀请全部好友。").arg(groupName));
+            switchToLocalGroup(groupId, groupName);
+            appendSystemMessage(QStringLiteral("已从群组工作区创建群聊并邀请 %1 位好友").arg(members.size()));
+            saveHistory(groupId,
+                        QStringLiteral("[%1] [系统] 已创建群聊并邀请 %2 位好友")
+                            .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")))
+                            .arg(members.size()));
+            ui->statusbar->showMessage(QStringLiteral("已创建群聊并邀请全部好友：%1").arg(groupName), 2400);
+            return;
+        }
+
+        if (isLocalGroupWorkspaceCommand(commandId)) {
+            if (!localGroupContext || currentGroupId.isEmpty()) {
+                ui->statusbar->showMessage(QStringLiteral("切换到本地群聊后再使用这个动作"), 2200);
+                return;
+            }
+            handleLocalGroupContextCommand(currentGroupId, currentGroupName, commandId);
+            return;
+        }
+
+        handleCreateMenuCommand(commandId);
+    };
+
+    auto shouldCloseBeforeAction = [](const QString& commandId) {
+        return !commandId.startsWith(QLatin1String("copy-"))
+            && commandId != QLatin1String("refresh-contacts")
+            && commandId != QLatin1String("clear-search");
+    };
+
+    auto executeSelectedAction = [&, this]() {
+        QListWidgetItem* item = actionList->currentItem();
+        if (!item || item->data(Qt::UserRole).toString().isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择一个要执行的工作区动作"), 1800);
+            return;
+        }
+        if (!item->data(Qt::UserRole + 4).toBool()) {
+            ui->statusbar->showMessage(item->data(Qt::UserRole + 5).toString(), 2200);
+            return;
+        }
+        const QString commandId = item->data(Qt::UserRole).toString();
+        if (shouldCloseBeforeAction(commandId)) {
+            dialog.accept();
+        }
+        runWorkspaceCommand(commandId);
+        if (dialog.isVisible()) {
+            fillActionList();
+            previewLabel->setText(previewTextForItem());
+        }
+    };
+
+    auto triggerWorkspaceAction = [&, this](const QString& commandId) {
+        if (shouldCloseBeforeAction(commandId)) {
+            dialog.accept();
+        }
+        runWorkspaceCommand(commandId);
+        if (dialog.isVisible()) {
+            fillActionList();
+            previewLabel->setText(previewTextForItem());
+        }
+    };
+
+    auto updateExecuteState = [=]() {
+        QListWidgetItem* item = actionList->currentItem();
+        const bool enabled = item && item->data(Qt::UserRole + 4).toBool();
+        const QString title = item ? item->data(Qt::UserRole + 1).toString() : QString();
+        executeBtn->setEnabled(enabled);
+        executeBtn->setText(enabled
+                                ? QStringLiteral("执行“%1”").arg(title)
+                                : QStringLiteral("执行选中动作"));
+        executeBtn->setToolTip(enabled
+                                   ? QStringLiteral("执行当前选中的工作区动作：%1").arg(title)
+                                   : QStringLiteral("选择一个可执行动作后再继续"));
+        if ((!item || item->data(Qt::UserRole).toString().isEmpty()) && hasEnabledListRow(actionList)) {
+            previewLabel->setText(QStringLiteral("选择动作后，这里会说明它会改哪里、复制什么，或下一步会打开哪个工作区。"));
+        }
+    };
+
+    QPushButton* createGroupBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("创建群聊"), QStringLiteral("globalSearchPrimaryBtn"), QStringLiteral("使用关键词或默认名称创建本地群聊"), QStyle::SP_FileDialogNewFolder);
+    QPushButton* createAllBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("创建群并拉全部好友"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("创建群聊并自动邀请全部好友"), QStyle::SP_DialogYesButton);
+    QPushButton* editAnnouncementBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("编辑群公告"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("编辑当前群聊或公共聊天室公告"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* openFriendNoticeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("好友通知"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("打开好友通知工作区"), QStyle::SP_DialogOpenButton);
+    QPushButton* copyChatCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制当前会话名片"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制当前会话名称、账号和摘要"), QStyle::SP_FileDialogInfoView);
+    QPushButton* copyCurrentMembersBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制当前成员"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制当前会话可见成员"), QStyle::SP_FileDialogListView);
+    QPushButton* copyCurrentInviteBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制当前邀请语"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制当前会话邀请话术"), QStyle::SP_DirLinkIcon);
+    QPushButton* copySearchSummaryBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制搜索摘要"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制搜索条件和联系人统计"), QStyle::SP_FileDialogContentsView);
+    QPushButton* sendImageBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("发送图片/视频"), QStringLiteral("globalSearchPrimaryBtn"), QStringLiteral("打开图片/视频发送入口"), QStyle::SP_FileIcon);
+    QPushButton* sendFileBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("闪传文件"), QStringLiteral("globalSearchPrimaryBtn"), QStringLiteral("打开文件闪传入口"), QStyle::SP_DriveHDIcon);
+    QPushButton* copyMediaPackBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制当前媒体包"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制当前会话媒体准备摘要"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* copyMediaGuideBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制上传指南"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制统一上传指南"), QStyle::SP_DialogHelpButton);
+    QPushButton* copyFullPlanBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制完整媒体计划"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制完整媒体发送计划"), QStyle::SP_FileDialogContentsView);
+    QPushButton* inviteFriendBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("邀请好友入群"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("从好友列表选择成员加入当前本地群"), QStyle::SP_FileDialogNewFolder);
+    QPushButton* inviteByAccountBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("按 QQ 号邀请"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("输入 QQ 号邀请成员加入当前本地群"), QStyle::SP_CommandLink);
+    QPushButton* inviteAllBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("邀请全部好友"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("把全部好友拉进当前本地群"), QStyle::SP_DialogYesButton);
+    QPushButton* renameGroupBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("重命名群聊"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("修改当前本地群聊名称"), QStyle::SP_FileDialogInfoView);
+    QPushButton* copyGroupMembersBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制群成员"), QStringLiteral("globalSearchGhostBtn"), QStringLiteral("复制当前本地群聊成员列表"), QStyle::SP_FileDialogListView);
+    QPushButton* deleteGroupBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("删除当前群聊"), QStringLiteral("managerDangerBtn"), QStringLiteral("删除当前本地群聊配置"), QStyle::SP_TrashIcon);
+
+    const QList<QPushButton*> localGroupButtons = {
+        inviteFriendBtn, inviteByAccountBtn, inviteAllBtn, renameGroupBtn, copyGroupMembersBtn, deleteGroupBtn
+    };
+    for (QPushButton* button : localGroupButtons) {
+        if (!button) {
+            continue;
+        }
+        button->setEnabled(localGroupContext);
+        if (!localGroupContext) {
+            button->setToolTip(QStringLiteral("切换到本地群聊后可用"));
+        }
     }
-    QAction* selected = menu.exec(ui->createMenuBtn->mapToGlobal(QPoint(0, ui->createMenuBtn->height())));
-    if (!selected) {
-        return;
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("群组入口"),
+        QStringLiteral("先把群聊建立起来，再进入群通知、公告和成员协作流程。"),
+        {createGroupBtn, createAllBtn, editAnnouncementBtn, openGroupNoticeBtn, openFriendNoticeBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("当前会话摘要"),
+        QStringLiteral("把当前会话名片、邀请语、成员和搜索统计整理出去。"),
+        {copyChatCardBtn, copyCurrentMembersBtn, copyCurrentInviteBtn, copySearchSummaryBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("媒体发送"),
+        QStringLiteral("统一从这里进入图片、视频、文件发送，并导出媒体准备材料。"),
+        {sendImageBtn, sendFileBtn, copyMediaPackBtn, copyMediaGuideBtn, copyFullPlanBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("当前本地群"),
+        localGroupContext
+            ? QStringLiteral("当前群聊：%1 · 可继续邀请成员、重命名、复制群成员或直接删除配置。").arg(currentGroupName)
+            : QStringLiteral("切换到本地群聊后，这里会显示邀请、重命名和删除等管理动作。"),
+        {inviteFriendBtn, inviteByAccountBtn, inviteAllBtn, renameGroupBtn, copyGroupMembersBtn},
+        deleteGroupBtn);
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=]() {
+        fillActionList();
+        previewLabel->setText(previewTextForItem());
+        updateExecuteState();
+    });
+    connect(actionList, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        previewLabel->setText(previewTextForItem());
+        updateExecuteState();
+    });
+    connect(actionList, &QListWidget::itemDoubleClicked, &dialog, [=](QListWidgetItem*) {
+        executeSelectedAction();
+    });
+    connect(searchEdit, &QLineEdit::returnPressed, &dialog, executeSelectedAction);
+    connect(executeBtn, &QPushButton::clicked, &dialog, executeSelectedAction);
+    connect(clearFilterBtn, &QPushButton::clicked, &dialog, [=]() {
+        searchEdit->clear();
+        searchEdit->setFocus();
+    });
+    connect(openSearchBtn, &QPushButton::clicked, &dialog, [=, &dialog]() {
+        dialog.accept();
+        onShowGlobalSearch();
+    });
+    connect(openGroupNoticeBtn, &QPushButton::clicked, &dialog, [=, &dialog]() {
+        dialog.accept();
+        onShowGroupNotifications();
+    });
+    connect(createGroupBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("create-group")); });
+    connect(createAllBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("create-group-with-friends")); });
+    connect(editAnnouncementBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("edit-announcement")); });
+    connect(openFriendNoticeBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("show-friend-notice")); });
+    connect(copyChatCardBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-chat-card")); });
+    connect(copyCurrentMembersBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-current-members")); });
+    connect(copyCurrentInviteBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-current-invite")); });
+    connect(copySearchSummaryBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-search-summary")); });
+    connect(sendImageBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("send-image")); });
+    connect(sendFileBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("send-file")); });
+    connect(copyMediaPackBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-current-media-pack")); });
+    connect(copyMediaGuideBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-media-guide")); });
+    connect(copyFullPlanBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-full-media-plan")); });
+    connect(inviteFriendBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("invite-friend")); });
+    connect(inviteByAccountBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("invite-by-account")); });
+    connect(inviteAllBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("invite-all-friends")); });
+    connect(renameGroupBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("rename-group")); });
+    connect(copyGroupMembersBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("copy-group-members")); });
+    connect(deleteGroupBtn, &QPushButton::clicked, &dialog, [=]() { triggerWorkspaceAction(QStringLiteral("delete-group")); });
+
+    fillActionList();
+    previewLabel->setText(previewTextForItem());
+    updateExecuteState();
+    searchEdit->setFocus();
+    dialog.setStyleSheet(productDialogStyleSheet());
+    dialog.exec();
+}
+
+void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
+    QDialog dialog(this);
+    const bool localGroupContext = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    const bool removedFromPublicGroup = isCurrentUserRemovedFromPublicGroup();
+    const bool serverGroupContext = !localGroupContext && !removedFromPublicGroup;
+    const QString currentGroupId = localGroupContext ? m_privateChatTarget : QStringLiteral("public");
+    const QString currentGroupName = localGroupContext
+        ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
+        : QStringLiteral("公共聊天室");
+    const QString ownerId = localGroupContext
+        ? groupOwnerId(m_privateChatTarget)
+        : m_serverGroupOwners.value(QStringLiteral("public"));
+    const QString ownerName = ownerId.isEmpty()
+        ? QStringLiteral("未指定")
+        : (ownerId == m_currentUserId ? m_currentUserName : contactDisplayName(ownerId));
+
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("groupMemberWorkspaceDialog"),
+        QStringLiteral("群成员工作区"),
+        QSize(960, 760),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("群成员工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把成员查看、邀请、备注、复制和权限动作集中处理，减少依赖右键菜单。"),
+        QStringLiteral("groupMemberWorkspaceSearch"),
+        QStringLiteral("搜索成员 QQ / 昵称 / 角色"),
+        QStringLiteral("输入 QQ、昵称或角色筛选成员；回车执行当前主动作"),
+        QStringLiteral("groupMemberWorkspaceList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先筛选成员，再决定邀请、发起好友申请、设置备注或复制群成员摘要。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("选择成员后，这里会说明当前关系、角色、下一步可做什么。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(24, 18, 24, 14);
+    shell.bodyLayout->setContentsMargins(24, 20, 24, 22);
+    shell.bodyLayout->setSpacing(12);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* memberList = shell.listWidget;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* operationGuideLabel = shell.hintLabel;
+
+    auto isManagementEnabledForCurrentContext = [=]() {
+        return localGroupContext ? isCurrentUserGroupOwner(m_privateChatTarget) : canCurrentUserManageServerGroup(QStringLiteral("public"));
+    };
+
+    auto memberGroupRoleText = [=](const QString& memberId) {
+        if (memberId.isEmpty()) {
+            return QString();
+        }
+        if (localGroupContext) {
+            if (memberId == ownerId) {
+                return QStringLiteral("群主");
+            }
+            if (memberId == m_currentUserId) {
+                return QStringLiteral("我");
+            }
+            return QStringLiteral("成员");
+        }
+        const QString serverRole = m_serverGroupMemberRoles.value(QStringLiteral("public|") + memberId, QStringLiteral("member")).toLower();
+        if (serverRole == QLatin1String("owner")) {
+            return QStringLiteral("群主");
+        }
+        if (serverRole == QLatin1String("admin")) {
+            return QStringLiteral("管理员");
+        }
+        if (memberId == m_currentUserId) {
+            return QStringLiteral("我");
+        }
+        return QStringLiteral("成员");
+    };
+
+    struct GroupMemberWorkspaceRow {
+        QString memberId;
+        QString displayName;
+        QString role;
+        QString status;
+        QString relation;
+        QString preview;
+        bool enabled = true;
+        bool self = false;
+        bool online = false;
+        bool friendRelation = false;
+        bool pendingRelation = false;
+        bool inviteCandidate = false;
+        bool searchAddCandidate = false;
+        bool removable = false;
+        bool localGroup = false;
+    };
+
+    auto fillMemberList = [&, this]() {
+        const QString filter = searchEdit->text().trimmed();
+        memberList->clear();
+        QList<GroupMemberWorkspaceRow> rows;
+
+        auto appendRowIfMatches = [&](const GroupMemberWorkspaceRow& row) {
+            if (!filter.isEmpty()
+                && !row.memberId.contains(filter, Qt::CaseInsensitive)
+                && !row.displayName.contains(filter, Qt::CaseInsensitive)
+                && !row.role.contains(filter, Qt::CaseInsensitive)
+                && !row.relation.contains(filter, Qt::CaseInsensitive)) {
+                return;
+            }
+            rows << row;
+        };
+
+        if (removedFromPublicGroup) {
+            GroupMemberWorkspaceRow row;
+            row.memberId = m_currentUserId;
+            row.displayName = m_currentUserName;
+            row.role = QStringLiteral("历史只读");
+            row.status = QStringLiteral("已移出");
+            row.relation = QStringLiteral("等待重新邀请");
+            row.preview = QStringLiteral("公共群历史仍可查看，但当前账号已移出，成员管理不可用。");
+            row.enabled = false;
+            row.self = true;
+            appendRowIfMatches(row);
+        } else if (localGroupContext) {
+            QStringList members = m_localGroupMembers.value(m_privateChatTarget);
+            if (members.isEmpty()) {
+                members << m_currentUserId;
+            }
+            for (const QString& memberId : members) {
+                GroupMemberWorkspaceRow row;
+                row.memberId = memberId;
+                row.displayName = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
+                row.self = memberId == m_currentUserId;
+                row.online = row.self || isContactOnline(memberId);
+                row.friendRelation = m_friendIds.contains(memberId);
+                row.pendingRelation = !row.friendRelation && m_pendingOutgoingFriendRequests.contains(memberId);
+                row.role = memberId == ownerId ? QStringLiteral("群主") : (row.self ? QStringLiteral("我") : QStringLiteral("成员"));
+                row.status = row.online ? QStringLiteral("在线") : QStringLiteral("离线");
+                row.relation = row.self ? QStringLiteral("本人")
+                                        : (row.friendRelation ? QStringLiteral("好友")
+                                                              : (row.pendingRelation ? QStringLiteral("申请中") : QStringLiteral("可邀请/可申请")));
+                row.preview = QStringLiteral("%1 · QQ:%2 · %3 · %4").arg(row.displayName, row.memberId, row.role, row.relation);
+                row.removable = isCurrentUserGroupOwner(m_privateChatTarget) && memberId != ownerId;
+                row.localGroup = true;
+                appendRowIfMatches(row);
+            }
+            if (rows.isEmpty() && !filter.isEmpty()) {
+                GroupMemberWorkspaceRow inviteRow;
+                inviteRow.memberId = filter;
+                inviteRow.displayName = filter;
+                inviteRow.role = QStringLiteral("待邀请");
+                inviteRow.status = QStringLiteral("未入群");
+                inviteRow.relation = QStringLiteral("按 QQ 号邀请");
+                inviteRow.preview = isCurrentUserGroupOwner(m_privateChatTarget)
+                    ? QStringLiteral("双击或点击邀请即可把 QQ:%1 加入当前本地群。").arg(filter)
+                    : QStringLiteral("只有群主可以按 QQ 号邀请新成员入群。");
+                inviteRow.enabled = isCurrentUserGroupOwner(m_privateChatTarget);
+                inviteRow.inviteCandidate = true;
+                inviteRow.localGroup = true;
+                appendRowIfMatches(inviteRow);
+            }
+        } else {
+            QStringList members = m_serverGroupMembers.value(QStringLiteral("public"));
+            if (members.isEmpty()) {
+                members << m_currentUserId;
+            }
+            for (const QString& memberId : members) {
+                GroupMemberWorkspaceRow row;
+                row.memberId = memberId;
+                row.displayName = memberId == m_currentUserId
+                    ? m_currentUserName
+                    : m_serverGroupMemberNames.value(QStringLiteral("public|") + memberId, contactDisplayName(memberId));
+                row.self = memberId == m_currentUserId;
+                row.online = row.self || isContactOnline(memberId);
+                row.friendRelation = m_friendIds.contains(memberId);
+                row.pendingRelation = !row.friendRelation && !row.self && m_pendingOutgoingFriendRequests.contains(memberId);
+                row.role = memberGroupRoleText(memberId);
+                row.status = row.online ? QStringLiteral("在线") : QStringLiteral("离线");
+                row.relation = row.self ? QStringLiteral("本人")
+                                        : (row.friendRelation ? QStringLiteral("好友")
+                                                              : (row.pendingRelation ? QStringLiteral("申请中") : QStringLiteral("可申请")));
+                row.preview = QStringLiteral("%1 · QQ:%2 · %3 · %4").arg(row.displayName, row.memberId, row.role, row.relation);
+                row.removable = canCurrentUserManageServerGroup(QStringLiteral("public")) && memberId != ownerId && memberId != m_currentUserId;
+                appendRowIfMatches(row);
+            }
+            if (rows.isEmpty() && !filter.isEmpty()) {
+                GroupMemberWorkspaceRow searchRow;
+                searchRow.memberId = filter;
+                searchRow.displayName = filter;
+                searchRow.role = isManagementEnabledForCurrentContext() ? QStringLiteral("待邀请") : QStringLiteral("待搜索");
+                searchRow.status = QStringLiteral("未加入");
+                searchRow.relation = isManagementEnabledForCurrentContext() ? QStringLiteral("公共群邀请") : QStringLiteral("好友申请");
+                searchRow.preview = isManagementEnabledForCurrentContext()
+                    ? QStringLiteral("当前账号可管理公共群，双击可提交 QQ:%1 的成员变更。").arg(filter)
+                    : QStringLiteral("当前账号不可直接管理公共群，双击会搜索并申请 QQ:%1。").arg(filter);
+                searchRow.enabled = true;
+                searchRow.searchAddCandidate = true;
+                appendRowIfMatches(searchRow);
+            }
+        }
+
+        int onlineCount = 0;
+        int friendCount = 0;
+        int pendingCount = 0;
+        for (const GroupMemberWorkspaceRow& row : rows) {
+            QListWidgetItem* item = new QListWidgetItem(
+                QStringLiteral("%1  QQ:%2\n%3 · %4 · %5").arg(row.role, row.memberId, row.displayName, row.status, row.relation));
+            item->setData(Qt::UserRole, row.memberId);
+            item->setData(Qt::UserRole + 1, row.displayName);
+            item->setData(Qt::UserRole + 2, row.role);
+            item->setData(Qt::UserRole + 3, row.status);
+            item->setData(Qt::UserRole + 4, row.relation);
+            item->setData(Qt::UserRole + 5, row.preview);
+            item->setData(Qt::UserRole + 6, row.enabled);
+            item->setData(Qt::UserRole + 7, row.self);
+            item->setData(Qt::UserRole + 8, row.online);
+            item->setData(Qt::UserRole + 9, row.friendRelation);
+            item->setData(Qt::UserRole + 10, row.pendingRelation);
+            item->setData(Qt::UserRole + 11, row.inviteCandidate);
+            item->setData(Qt::UserRole + 12, row.searchAddCandidate);
+            item->setData(Qt::UserRole + 13, row.removable);
+            item->setData(Qt::UserRole + 14, row.localGroup);
+            item->setSizeHint(QSize(0, row.inviteCandidate || row.searchAddCandidate ? 72 : 78));
+            item->setToolTip(row.preview);
+            if (!row.enabled) {
+                item->setFlags(Qt::NoItemFlags);
+                item->setForeground(QColor(135, 150, 165));
+            } else if (row.self) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.friendRelation) {
+                item->setForeground(QColor(20, 92, 160));
+            } else if (row.pendingRelation) {
+                item->setForeground(QColor(170, 110, 20));
+            } else if (row.inviteCandidate || row.searchAddCandidate) {
+                item->setForeground(QColor(13, 148, 136));
+            }
+            memberList->addItem(item);
+            if (row.online) ++onlineCount;
+            if (row.friendRelation) ++friendCount;
+            if (row.pendingRelation) ++pendingCount;
+        }
+
+        const int visibleCount = rows.size();
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                memberList,
+                QStringLiteral("没有匹配的成员入口"),
+                QStringLiteral("试试 QQ、昵称、角色或关系关键词。"),
+                filter.isEmpty()
+                    ? QStringLiteral("当前没有可见的成员入口。可刷新成员列表、切换会话，或在这里输入 QQ / 昵称继续筛选。")
+                    : QStringLiteral("当前筛选词“%1”没有匹配到成员入口。\n试试 QQ、昵称、角色或关系关键词。").arg(filter));
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 · 在线 %2 · 好友 %3%4")
+                                .arg(visibleCount)
+                                .arg(onlineCount)
+                                .arg(friendCount)
+                                .arg(pendingCount > 0 ? QStringLiteral(" · 申请中 %1").arg(pendingCount) : QString()));
+        subTitleLabel->setText(localGroupContext
+                                   ? QStringLiteral("当前群：%1 · 群主 %2 · 可管理 %3")
+                                         .arg(currentGroupName)
+                                         .arg(ownerName)
+                                         .arg(isCurrentUserGroupOwner(m_privateChatTarget) ? QStringLiteral("是") : QStringLiteral("否"))
+                                   : (removedFromPublicGroup
+                                          ? QStringLiteral("公共群历史只读 · 当前账号已移出")
+                                          : QStringLiteral("公共聊天室 · 群主 %1 · 可管理 %2")
+                                                .arg(ownerName)
+                                                .arg(isManagementEnabledForCurrentContext() ? QStringLiteral("是") : QStringLiteral("否"))));
+        if (memberList->count() > 0) {
+            selectPreferredListRow(memberList, 0);
+        }
+    };
+
+    auto selectedMemberId = [memberList]() {
+        QListWidgetItem* item = memberList->currentItem();
+        return item ? item->data(Qt::UserRole).toString() : QString();
+    };
+
+    auto updatePreview = [=]() {
+        QListWidgetItem* item = memberList->currentItem();
+        if (!item) {
+            previewLabel->setText(firstEnabledListRow(memberList) >= 0
+                                      ? QStringLiteral("选择成员后，这里会说明当前关系、角色、下一步可做什么。")
+                                      : (searchEdit->text().trimmed().isEmpty()
+                                             ? QStringLiteral("当前没有可见的成员入口。可切换群聊、刷新列表，或输入 QQ / 昵称继续筛选。")
+                                             : QStringLiteral("当前筛选词“%1”没有匹配到成员入口。\n试试 QQ、昵称、角色或关系关键词。").arg(searchEdit->text().trimmed())));
+            return;
+        }
+        previewLabel->setText(item->data(Qt::UserRole + 5).toString());
+    };
+
+    QPushButton* chatBtn = createWorkspaceButton(shell.headerFrame, &dialog, QStringLiteral("打开私聊"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("打开当前选中成员的私聊会话"), QStyle::SP_ArrowForward);
+    QPushButton* refreshBtn = createWorkspaceButton(shell.headerFrame, &dialog, QStringLiteral("刷新成员"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("刷新成员列表和状态"), QStyle::SP_BrowserReload);
+    QPushButton* clearFilterBtn = createWorkspaceButton(shell.headerFrame, &dialog, QStringLiteral("清空筛选"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("清空成员筛选"), QStyle::SP_DialogResetButton);
+    shell.searchRowLayout->addWidget(chatBtn);
+    shell.searchRowLayout->addWidget(refreshBtn);
+    shell.searchRowLayout->addWidget(clearFilterBtn);
+
+    QPushButton* inviteBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("邀请/加成员"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("把当前条目加入群，或对当前成员继续发起邀请动作"), QStyle::SP_FileDialogNewFolder);
+    QPushButton* addFriendBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("发起好友申请"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("向当前成员发起好友申请"), QStyle::SP_CommandLink);
+    QPushButton* remarkBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("设置备注"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("修改当前成员在本地的备注名"), QStyle::SP_FileDialogInfoView);
+    QPushButton* removeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("移出群聊"), QStringLiteral("managerDangerBtn"), QStringLiteral("把当前成员移出群聊"), QStyle::SP_TrashIcon);
+    QPushButton* copyMemberBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制成员卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前成员资料摘要"), QStyle::SP_DialogSaveButton);
+    QPushButton* copyVisibleBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制可见成员"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前筛选后的可见成员"), QStyle::SP_FileDialogListView);
+    QPushButton* copyOnlineBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制在线成员"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前筛选后的在线成员"), QStyle::SP_DialogYesButton);
+    QPushButton* copyInviteTextBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制邀请语"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前成员或群聊邀请话术"), QStyle::SP_DirLinkIcon);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭群成员工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("成员动作"),
+        QStringLiteral("先选中成员，再决定私聊、邀请、发起好友申请、备注或移出群聊。"),
+        {inviteBtn, addFriendBtn, remarkBtn, removeBtn},
+        closeBtn);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("复制与摘要"),
+        QStringLiteral("把成员资料、当前可见成员、在线成员和邀请话术整理出去。"),
+        {copyMemberBtn, copyVisibleBtn, copyOnlineBtn, copyInviteTextBtn});
+
+    auto copyVisibleMembers = [&, this](bool onlineOnly) {
+        QStringList rows;
+        for (int i = 0; i < memberList->count(); ++i) {
+            QListWidgetItem* item = memberList->item(i);
+            if (!item || item->data(Qt::UserRole).toString().isEmpty()) {
+                continue;
+            }
+            const bool online = item->data(Qt::UserRole + 8).toBool();
+            if (onlineOnly && !online) {
+                continue;
+            }
+            rows << QStringLiteral("QQ:%1 昵称:%2 角色:%3 状态:%4 关系:%5")
+                        .arg(item->data(Qt::UserRole).toString(),
+                             item->data(Qt::UserRole + 1).toString(),
+                             item->data(Qt::UserRole + 2).toString(),
+                             item->data(Qt::UserRole + 3).toString(),
+                             item->data(Qt::UserRole + 4).toString());
+        }
+        if (rows.isEmpty()) {
+            ui->statusbar->showMessage(onlineOnly ? QStringLiteral("当前没有可复制的在线成员") : QStringLiteral("当前没有可复制的成员"), 2200);
+            return;
+        }
+        copyTextWithStatus(rows.join(QLatin1Char('\n')),
+                           onlineOnly ? QStringLiteral("在线成员已复制") : QStringLiteral("可见成员已复制"),
+                           2200);
+    };
+
+    auto runInviteAction = [&, this]() {
+        QListWidgetItem* item = memberList->currentItem();
+        if (!item) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择一个成员或邀请条目"), 1800);
+            return;
+        }
+        const QString memberId = item->data(Qt::UserRole).toString();
+        if (memberId.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("当前没有可邀请的目标"), 1800);
+            return;
+        }
+        handleGroupMemberEntryActivated(item->data(Qt::UserRole + 11).toBool()
+                                            ? QStringLiteral("group_invite:%1").arg(memberId)
+                                            : (item->data(Qt::UserRole + 12).toBool()
+                                                   ? QStringLiteral("group_search_add:%1").arg(memberId)
+                                                   : memberId),
+                                        &dialog);
+        fillMemberList();
+        updatePreview();
+    };
+
+    auto runChatAction = [&, this]() {
+        const QString memberId = selectedMemberId();
+        if (memberId.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择一个成员"), 1800);
+            return;
+        }
+        if (memberId == m_currentUserId) {
+            ui->statusbar->showMessage(QStringLiteral("这是你自己，无需打开私聊"), 1800);
+            return;
+        }
+        dialog.accept();
+        if (!m_friendIds.contains(memberId) && !m_pendingOutgoingFriendRequests.contains(memberId)) {
+            ensureFriendRequestQueued(memberId, QStringLiteral("已向群成员发起好友申请 QQ:%1，等待对方同意"), true);
+        }
+        openPrivateSession(memberId);
+    };
+
+    auto runAddFriendAction = [&, this]() {
+        QListWidgetItem* item = memberList->currentItem();
+        if (!item) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择一个成员"), 1800);
+            return;
+        }
+        const QString memberId = item->data(Qt::UserRole).toString();
+        if (memberId.isEmpty() || memberId == m_currentUserId) {
+            ui->statusbar->showMessage(QStringLiteral("当前目标不需要发起好友申请"), 1800);
+            return;
+        }
+        if (m_friendIds.contains(memberId)) {
+            ui->statusbar->showMessage(QStringLiteral("该成员已经是你的好友"), 1800);
+            return;
+        }
+        if (m_pendingOutgoingFriendRequests.contains(memberId)) {
+            ui->statusbar->showMessage(QStringLiteral("该成员好友申请已在等待确认"), 2200);
+            return;
+        }
+        ensureFriendRequestQueued(memberId, QStringLiteral("已向群成员发起好友申请 QQ:%1，等待对方同意"), true);
+        fillMemberList();
+        updatePreview();
+    };
+
+    auto updateActionState = [=]() {
+        QListWidgetItem* item = memberList->currentItem();
+        const bool hasItem = item != nullptr;
+        const bool enabled = hasItem && item->data(Qt::UserRole + 6).toBool();
+        const bool self = hasItem && item->data(Qt::UserRole + 7).toBool();
+        const bool friendRelation = hasItem && item->data(Qt::UserRole + 9).toBool();
+        const bool pendingRelation = hasItem && item->data(Qt::UserRole + 10).toBool();
+        const bool inviteCandidate = hasItem && item->data(Qt::UserRole + 11).toBool();
+        const bool searchAddCandidate = hasItem && item->data(Qt::UserRole + 12).toBool();
+        const bool removable = hasItem && item->data(Qt::UserRole + 13).toBool();
+        const QString memberId = hasItem ? item->data(Qt::UserRole).toString() : QString();
+        const QString memberName = hasItem ? item->data(Qt::UserRole + 1).toString() : QString();
+
+        chatBtn->setText(QStringLiteral("打开私聊"));
+        chatBtn->setEnabled(enabled && !self && !inviteCandidate && !searchAddCandidate);
+        chatBtn->setToolTip(chatBtn->isEnabled()
+                                ? QStringLiteral("打开 %1 的私聊会话").arg(memberName)
+                                : QStringLiteral("选择真实成员后可打开私聊"));
+        inviteBtn->setText(inviteCandidate || searchAddCandidate ? QStringLiteral("处理当前条目") : QStringLiteral("邀请/加成员"));
+        inviteBtn->setEnabled(enabled && !self);
+        inviteBtn->setToolTip(localGroupContext
+                                  ? (isCurrentUserGroupOwner(m_privateChatTarget)
+                                         ? QStringLiteral("邀请成员加入当前本地群聊")
+                                         : QStringLiteral("只有群主可以邀请新成员入群"))
+                                  : (removedFromPublicGroup
+                                         ? QStringLiteral("公共群历史只读，无法邀请成员")
+                                         : (canCurrentUserManageServerGroup(QStringLiteral("public"))
+                                                ? QStringLiteral("提交公共群成员变更")
+                                                : QStringLiteral("搜索成员或发起好友申请"))));
+        addFriendBtn->setText(QStringLiteral("发起好友申请"));
+        addFriendBtn->setEnabled(enabled && !self && !friendRelation && !pendingRelation && !inviteCandidate);
+        addFriendBtn->setToolTip(addFriendBtn->isEnabled()
+                                     ? QStringLiteral("向 %1 发起好友申请").arg(memberId)
+                                     : QStringLiteral("当前成员不需要重复发起好友申请"));
+        remarkBtn->setText(QStringLiteral("设置备注"));
+        remarkBtn->setEnabled(enabled && !inviteCandidate && !searchAddCandidate);
+        removeBtn->setText(QStringLiteral("移出群聊"));
+        removeBtn->setEnabled(removable);
+        copyMemberBtn->setEnabled(enabled);
+        copyInviteTextBtn->setEnabled(enabled);
+        copyVisibleBtn->setEnabled(memberList->count() > 0 && firstEnabledListRow(memberList) >= 0);
+        copyOnlineBtn->setEnabled(memberList->count() > 0 && firstEnabledListRow(memberList) >= 0);
+    };
+
+    auto runRemarkAction = [&, this]() {
+        QListWidgetItem* item = memberList->currentItem();
+        if (!item) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择一个成员"), 1800);
+            return;
+        }
+        if (promptAndSetGroupMemberRemark(item->data(Qt::UserRole).toString(), &dialog)) {
+            fillMemberList();
+            updatePreview();
+            updateActionState();
+        }
+    };
+
+    auto runRemoveAction = [&, this]() {
+        QListWidgetItem* item = memberList->currentItem();
+        if (!item) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择要移出的成员"), 1800);
+            return;
+        }
+        if (!item->data(Qt::UserRole + 13).toBool()) {
+            ui->statusbar->showMessage(QStringLiteral("当前成员不可从群聊移除"), 2200);
+            return;
+        }
+        if (removeGroupMemberWithConfirmation(item->data(Qt::UserRole).toString(), &dialog)) {
+            fillMemberList();
+            updatePreview();
+            updateActionState();
+        }
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=]() {
+        fillMemberList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(memberList, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(memberList, &QListWidget::itemDoubleClicked, &dialog, [=](QListWidgetItem*) {
+        QListWidgetItem* item = memberList->currentItem();
+        if (!item) {
+            return;
+        }
+        if (item->data(Qt::UserRole + 11).toBool() || item->data(Qt::UserRole + 12).toBool()) {
+            runInviteAction();
+        } else {
+            runChatAction();
+        }
+    });
+    connect(searchEdit, &QLineEdit::returnPressed, &dialog, [=]() {
+        QListWidgetItem* item = memberList->currentItem();
+        if (item && (item->data(Qt::UserRole + 11).toBool() || item->data(Qt::UserRole + 12).toBool())) {
+            runInviteAction();
+        } else {
+            runChatAction();
+        }
+    });
+    connect(chatBtn, &QPushButton::clicked, &dialog, runChatAction);
+    connect(refreshBtn, &QPushButton::clicked, &dialog, [=]() {
+        refreshGroupMemberPanel();
+        fillMemberList();
+        updatePreview();
+        updateActionState();
+        ui->statusbar->showMessage(QStringLiteral("群成员工作区已刷新"), 1800);
+    });
+    connect(clearFilterBtn, &QPushButton::clicked, &dialog, [=]() {
+        searchEdit->clear();
+        searchEdit->setFocus();
+    });
+    connect(inviteBtn, &QPushButton::clicked, &dialog, runInviteAction);
+    connect(addFriendBtn, &QPushButton::clicked, &dialog, runAddFriendAction);
+    connect(remarkBtn, &QPushButton::clicked, &dialog, runRemarkAction);
+    connect(removeBtn, &QPushButton::clicked, &dialog, runRemoveAction);
+    connect(copyMemberBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        QListWidgetItem* item = memberList->currentItem();
+        if (!item) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择一个成员"), 1800);
+            return;
+        }
+        const QString text = QStringLiteral("QQ:%1\n昵称:%2\n角色:%3\n状态:%4\n关系:%5")
+            .arg(item->data(Qt::UserRole).toString(),
+                 item->data(Qt::UserRole + 1).toString(),
+                 item->data(Qt::UserRole + 2).toString(),
+                 item->data(Qt::UserRole + 3).toString(),
+                 item->data(Qt::UserRole + 4).toString());
+        copyTextWithStatus(text, QStringLiteral("成员卡片已复制"), 2200);
+    });
+    connect(copyVisibleBtn, &QPushButton::clicked, &dialog, [=]() { copyVisibleMembers(false); });
+    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [=]() { copyVisibleMembers(true); });
+    connect(copyInviteTextBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        QListWidgetItem* item = memberList->currentItem();
+        QString memberId = item ? item->data(Qt::UserRole).toString() : QString();
+        QString memberName = item ? item->data(Qt::UserRole + 1).toString() : QStringLiteral("朋友");
+        QString inviteText = localGroupContext
+            ? QStringLiteral("我邀请你加入群聊“%1”。我是 %2（QQ:%3），进群后我们可以继续沟通。")
+                  .arg(currentGroupName, m_currentUserName, m_currentUserId)
+            : QStringLiteral("%1，你好。我是 %2（QQ:%3），欢迎加入公共聊天室，也可以先加我好友继续沟通。")
+                  .arg(memberName, m_currentUserName, m_currentUserId);
+        if (!memberId.isEmpty() && !memberName.isEmpty() && !localGroupContext) {
+            inviteText = QStringLiteral("%1，你好。我是 %2（QQ:%3），方便的话可以先通过好友申请，我们再继续沟通。")
+                .arg(memberName, m_currentUserName, m_currentUserId);
+        }
+        copyTextWithStatus(inviteText, QStringLiteral("成员邀请语已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    const QString initialSearchText = initialFilter.trimmed();
+    if (!initialSearchText.isEmpty()) {
+        searchEdit->setText(initialSearchText);
     }
-    handleCreateMenuCommand(selected->data().toString());
+    fillMemberList();
+    updatePreview();
+    updateActionState();
+    searchEdit->setFocus();
+    dialog.setStyleSheet(productDialogStyleSheet());
+    dialog.exec();
 }
 
 void MainWindow::switchToLocalGroup(const QString& groupId, const QString& groupName) {
@@ -4326,68 +9634,20 @@ void MainWindow::switchToLocalGroup(const QString& groupId, const QString& group
 }
 
 void MainWindow::onEditGroupAnnouncement() {
-    const bool isLocalGroup = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_");
-    const bool isServerPublicGroup = m_privateChatTarget.isEmpty();
-    if (isLocalGroup && !isCurrentUserGroupOwner(m_privateChatTarget)) {
-        ui->statusbar->showMessage("只有群主可以编辑群公告", 2400);
-        appendSystemMessage("群公告编辑被权限保护拦截：当前账号不是群主");
-        return;
-    }
-    if (isServerPublicGroup && !canCurrentUserManageServerGroup("public")) {
-        ui->statusbar->showMessage("只有群主或管理员可以编辑公共群公告", 2400);
-        appendSystemMessage("公共群公告编辑被服务端角色保护拦截");
-        return;
-    }
-
-    bool ok = false;
-    const QString oldText = ui->announcementBodyLabel->text().trimmed();
-    const QString inputText = QInputDialog::getMultiLineText(
-        this,
-        "编辑群公告",
-        "群公告内容:",
-        oldText,
-        &ok).trimmed();
-    if (!ok) {
-        ui->statusbar->showMessage("已取消编辑群公告", 1600);
-        return;
-    }
-    const GroupAnnouncementEditDecision announcementDecision =
-        GroupManager::announcementEditDecision(oldText,
-                                               inputText,
-                                               isLocalGroup,
-                                               ui->chatTitleLabel->text());
-    if (!announcementDecision.changed) {
-        ui->statusbar->showMessage(announcementDecision.unchangedStatusMessage, 1600);
-        return;
-    }
-    if (isServerPublicGroup) {
-        if (!m_client || !m_client->sendServerGroupAnnouncementUpdate("public", announcementDecision.text)) {
-            ui->statusbar->showMessage("群公告提交失败，请检查连接状态", 2400);
-            appendSystemMessage("群公告提交失败：客户端未连接或发送失败");
-            return;
-        }
-        appendSystemMessage("群公告更新已提交，等待服务端同步");
-        ui->statusbar->showMessage(announcementDecision.submittedStatusMessage, 2200);
-        return;
-    }
-    ui->announcementBodyLabel->setText(announcementDecision.text);
-    if (isLocalGroup) {
-        m_localGroupAnnouncements[m_privateChatTarget] = announcementDecision.text;
-        saveLocalGroups();
-        saveHistory(m_privateChatTarget,
-                    QString("[%1] [系统] 群公告已更新: %2")
-                        .arg(QDateTime::currentDateTime().toString("hh:mm:ss"),
-                             announcementDecision.text));
-    }
-    appendSystemMessage("群公告已更新");
-    ui->statusbar->showMessage(announcementDecision.appliedStatusMessage, 2200);
+    showEditGroupAnnouncementWorkspace(this);
 }
 
 void MainWindow::onInsertEmoji() {
     QMenu menu(this);
     const QStringList emojis = {"😀", "😂", "😊", "😍", "😎", "😭", "👍", "🎉", "❤️", "🔥", "👏", "🙏", "💪", "🤝", "📌", "📎"};
     for (const QString& emoji : emojis) {
-        QAction* action = menu.addAction(emoji);
+        QAction* action = addMenuActionWithIcon(menu,
+                                                this,
+                                                emoji,
+                                                QStringLiteral("把这个表情插入当前输入框"),
+                                                QString(),
+                                                true,
+                                                QStyle::SP_DialogApplyButton);
         connect(action, &QAction::triggered, this, [this, emoji]() {
             ui->messageEdit->insertPlainText(emoji);
             ui->messageEdit->setFocus();
@@ -4398,9 +9658,13 @@ void MainWindow::onInsertEmoji() {
     QMenu* commandMenu = menu.addMenu("QQ快捷指令");
     const QList<ChatContextComposerMenuAction> composerActions = ChatContextManager::composerMenuActions();
     for (const ChatContextComposerMenuAction& spec : composerActions) {
-        QAction* action = commandMenu->addAction(spec.title);
-        action->setToolTip(spec.toolTip);
-        action->setStatusTip(spec.toolTip);
+        QAction* action = addMenuActionWithIcon(*commandMenu,
+                                                this,
+                                                spec.title,
+                                                spec.toolTip,
+                                                QString(),
+                                                true,
+                                                QStyle::SP_ArrowForward);
         connect(action, &QAction::triggered, this, [this, commandId = spec.commandId]() {
             applyChatContextComposerCommand(commandId);
         });
@@ -4410,7 +9674,13 @@ void MainWindow::onInsertEmoji() {
     for (const ChatContextPhraseMenuPlan& plan : phrasePlans) {
         QMenu* phraseMenu = menu.addMenu(plan.title);
         for (const QString& phrase : plan.phrases) {
-            QAction* action = phraseMenu->addAction(phrase);
+            QAction* action = addMenuActionWithIcon(*phraseMenu,
+                                                    this,
+                                                    phrase,
+                                                    plan.insertedStatusMessage,
+                                                    QString(),
+                                                    true,
+                                                    QStyle::SP_FileDialogDetailedView);
             connect(action, &QAction::triggered, this, [this, phrase, plan]() {
                 setChatDraftText(phrase, plan.insertedStatusMessage, 1400);
             });
@@ -4445,7 +9715,13 @@ void MainWindow::onInsertMention() {
             menu.addSeparator();
         }
         const ComposerMentionAction actionPlan = mentionPlan.actions.at(i);
-        QAction* action = menu.addAction(actionPlan.title);
+        QAction* action = addMenuActionWithIcon(menu,
+                                                this,
+                                                actionPlan.title,
+                                                actionPlan.statusMessage,
+                                                QString(),
+                                                true,
+                                                QStyle::SP_ArrowRight);
         connect(action, &QAction::triggered, this, [this, actionPlan]() {
             insertChatDraftText(actionPlan.insertText, actionPlan.statusMessage, 1400);
         });
@@ -4453,56 +9729,1152 @@ void MainWindow::onInsertMention() {
     menu.exec(ui->mentionBtn->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
 }
 
+bool MainWindow::openUserTargetById(const QString& targetId) {
+    if (targetId.isEmpty()) {
+        return false;
+    }
+    if (targetId.startsWith(QStringLiteral("search_add:"))) {
+        searchAndAddAccount(targetId.mid(QStringLiteral("search_add:").size()), this);
+        return true;
+    }
+    if (targetId.startsWith(QStringLiteral("create_group:"))) {
+        QString groupName = targetId.mid(QStringLiteral("create_group:").size()).trimmed();
+        if (groupName.isEmpty()) {
+            groupName = QStringLiteral("我的群聊");
+        }
+        const QString groupId = QStringLiteral("local_group_") + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddhhmmsszzz"));
+        m_localGroupIds << groupId;
+        m_localGroupNames[groupId] = groupName;
+        m_localGroupAnnouncements[groupId] = QStringLiteral("%1 已创建，可继续邀请好友并发送消息。").arg(groupName);
+        m_localGroupMembers[groupId] = QStringList{m_currentUserId};
+        saveLocalGroups();
+        m_contactFilter.clear();
+        ui->contactSearchEdit->clear();
+        refreshFriendList();
+        switchToLocalGroup(groupId, groupName);
+        appendSystemMessage(QStringLiteral("已从联系人搜索创建群聊: ") + groupName);
+        return true;
+    }
+    if (m_localGroupIds.contains(targetId)) {
+        switchToLocalGroup(targetId, m_localGroupNames.value(targetId, QStringLiteral("群聊")));
+        return true;
+    }
+
+    const QString userName = contactDisplayName(targetId);
+    m_privateChatTarget = targetId;
+    m_chatModel->clear();
+    m_chatModel->setHorizontalHeaderLabels({QStringLiteral("聊天记录")});
+    loadHistory(targetId);
+    const PrivateChatUiState privateState = ChatSessionManager::privateChatState(
+        targetId,
+        userName,
+        isContactOnline(targetId),
+        m_client && m_client->hasE2ESession(targetId),
+        m_client && m_client->e2eSessionNeedsRotation(targetId));
+    setWindowTitle(appWindowTitle(privateState.windowSuffix));
+    ui->chatTitleLabel->setText(privateState.titleText);
+    ui->chatHintLabel->setText(privateState.hintText);
+    refreshComposerState();
+    return true;
+}
+
+void MainWindow::showProfileWorkspace() {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("profileWorkspaceDialog"),
+        QStringLiteral("账号工作区"),
+        QSize(880, 720),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("账号工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把当前账号、头像、搜索与好友整理入口放到一个统一工作面里。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索账号动作"),
+        QStringLiteral("按账号、头像、搜索和好友整理动作筛选"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一个账号动作，再决定复制摘要、打开头像工作区、进入综合搜索或联系人工作区。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释当前账号动作会如何影响头像、联系人搜索和会话入口。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* listWidget = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    struct ProfileWorkspaceRow {
+        QString id;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool accent = false;
+    };
+
+    auto buildRows = [this]() {
+        QList<ProfileWorkspaceRow> rows;
+        const QFileInfo avatarInfo(getAvatarFilePath());
+
+        ProfileWorkspaceRow overview;
+        overview.id = QStringLiteral("profile-overview");
+        overview.title = QStringLiteral("当前账号 · %1").arg(m_currentUserName);
+        overview.detail = QStringLiteral("QQ:%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size());
+        overview.preview = QStringLiteral("账号总览\nQQ：%1\n昵称：%2\n好友：%3\n群聊：%4\n当前会话：%5")
+                               .arg(m_currentUserId,
+                                    m_currentUserName,
+                                    QString::number(m_friendIds.size()),
+                                    QString::number(m_localGroupIds.size()),
+                                    m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+        overview.keywords = overview.title + overview.detail + overview.preview + QStringLiteral("账号 总览");
+        overview.accent = true;
+        rows << overview;
+
+        ProfileWorkspaceRow avatar;
+        avatar.id = QStringLiteral("profile-avatar");
+        avatar.title = QStringLiteral("头像工作区");
+        avatar.detail = avatarInfo.exists()
+            ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
+            : QStringLiteral("当前使用默认头像");
+        avatar.preview = avatarInfo.exists()
+            ? QStringLiteral("头像工作区\n当前头像：%1\n路径：%2\n可继续：更换头像、复制路径、打开目录")
+                  .arg(avatarInfo.fileName(), avatarInfo.absoluteFilePath())
+            : QStringLiteral("头像工作区\n当前使用默认头像\n可继续：更换头像、保存本地头像后再复制路径或打开目录");
+        avatar.keywords = avatar.title + avatar.detail + avatar.preview + QStringLiteral("头像 路径 目录");
+        rows << avatar;
+
+        ProfileWorkspaceRow search;
+        search.id = QStringLiteral("profile-search");
+        search.title = QStringLiteral("综合搜索");
+        search.detail = QStringLiteral("统一搜索 QQ、好友和群聊");
+        search.preview = QStringLiteral("综合搜索工作区\n可从账号侧直接跳去查找 QQ、好友与群聊，并整理搜索摘要。");
+        search.keywords = search.title + search.detail + search.preview + QStringLiteral("搜索 QQ 好友 群聊");
+        rows << search;
+
+        ProfileWorkspaceRow contacts;
+        contacts.id = QStringLiteral("profile-contacts");
+        contacts.title = QStringLiteral("联系人工作区");
+        contacts.detail = QStringLiteral("整理联系人、搜索结果和群聊入口");
+        contacts.preview = QStringLiteral("联系人工作区\n可查看联系人、群聊、搜索结果，并继续进入会话或发起好友申请。");
+        contacts.keywords = contacts.title + contacts.detail + contacts.preview + QStringLiteral("联系人 群聊");
+        rows << contacts;
+
+        ProfileWorkspaceRow friendManager;
+        friendManager.id = QStringLiteral("profile-friend-manager");
+        friendManager.title = QStringLiteral("好友管理器");
+        friendManager.detail = QStringLiteral("备注、邀请、删除和批量复制");
+        friendManager.preview = QStringLiteral("好友管理器\n统一处理好友搜索、备注、入群邀请、删除和媒体准备。");
+        friendManager.keywords = friendManager.title + friendManager.detail + friendManager.preview + QStringLiteral("好友 管理");
+        rows << friendManager;
+
+        ProfileWorkspaceRow quickAdd;
+        quickAdd.id = QStringLiteral("profile-quick-add");
+        quickAdd.title = QStringLiteral("好友申请工作区");
+        quickAdd.detail = QStringLiteral("搜索 QQ、发送申请和整理申请话术");
+        quickAdd.preview = QStringLiteral("好友申请工作区\n可搜索 QQ、批量处理推荐对象，并复制申请话术、媒体包和清单。");
+        quickAdd.keywords = quickAdd.title + quickAdd.detail + quickAdd.preview + QStringLiteral("好友 申请 搜索 QQ");
+        rows << quickAdd;
+
+        return rows;
+    };
+
+    auto rows = buildRows();
+    auto emptyPreviewText = [searchEdit]() {
+        const QString filter = searchEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的账号入口。可从这里继续进入头像、联系人、搜索和好友整理工作区。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到账号动作。\n试试“头像”、“搜索”、“联系人”或“好友”这些关键词。").arg(filter);
+    };
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const ProfileWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.id);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (row.accent) {
+                item->setForeground(QColor(29, 78, 216));
+            }
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                listWidget,
+                QStringLiteral("没有匹配的账号动作"),
+                QStringLiteral("试试“头像”、“搜索”、“联系人”或“好友”这些关键词。"),
+                emptyPreviewText());
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+        selectPreferredListRow(listWidget, 0);
+    };
+
+    auto selectedRow = [=, &rows]() -> ProfileWorkspaceRow* {
+        QListWidgetItem* currentItem = listWidget->currentItem();
+        if (!currentItem) {
+            return nullptr;
+        }
+        const QString id = currentItem->data(Qt::UserRole).toString();
+        for (ProfileWorkspaceRow& row : rows) {
+            if (row.id == id) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePreview = [=, &rows]() {
+        ProfileWorkspaceRow* row = selectedRow();
+        previewLabel->setText(row ? row->preview
+                                  : (firstEnabledListRow(listWidget) >= 0
+                                         ? QStringLiteral("这里会解释当前账号动作会如何影响头像、联系人搜索和会话入口。")
+                                         : emptyPreviewText()));
+    };
+
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("执行当前动作"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("执行当前账号动作"), QStyle::SP_ArrowForward);
+    QPushButton* copyCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制账号卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前账号资料摘要"), QStyle::SP_DialogSaveButton);
+    QPushButton* copyStatusBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区状态"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制账号工作区当前状态"), QStyle::SP_MessageBoxInformation);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭账号工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("账号动作"),
+        QStringLiteral("从这里统一进入头像、搜索、联系人与好友整理入口。"),
+        {openBtn, copyCardBtn, copyStatusBtn},
+        closeBtn);
+
+    auto profileCardText = [this]() {
+        return QStringLiteral("账号资料卡\nQQ:%1\n昵称:%2\n好友:%3\n群聊:%4\n当前会话:%5")
+            .arg(m_currentUserId,
+                 m_currentUserName,
+                 QString::number(m_friendIds.size()),
+                 QString::number(m_localGroupIds.size()),
+                 m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+    };
+    auto profileStatusText = [this]() {
+        const QStringList lines = {
+            QStringLiteral("账号工作区状态"),
+            QStringLiteral("QQ:%1").arg(m_currentUserId),
+            QStringLiteral("昵称:%1").arg(m_currentUserName),
+            QStringLiteral("好友:%1").arg(m_friendIds.size()),
+            QStringLiteral("群聊:%1").arg(m_localGroupIds.size()),
+            QStringLiteral("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget))
+        };
+        return lines.join(QLatin1Char('\n'));
+    };
+    auto profileClipboardText = [=, &rows]() {
+        ProfileWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return profileStatusText();
+        }
+        if (row->id == QLatin1String("profile-overview")) {
+            return profileCardText();
+        }
+        return row->preview.trimmed().isEmpty() ? profileStatusText() : row->preview;
+    };
+
+    auto updateActionState = [=, &rows]() {
+        ProfileWorkspaceRow* row = selectedRow();
+        const bool hasActionableRow = hasEnabledListRow(listWidget);
+        if (!row) {
+            openBtn->setEnabled(false);
+            openBtn->setText(QStringLiteral("执行当前动作"));
+            openBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("先选择一个账号动作后继续进入头像、搜索、联系人或好友整理入口")
+                                    : QStringLiteral("当前没有可执行的账号动作"));
+            copyCardBtn->setEnabled(hasActionableRow);
+            copyCardBtn->setToolTip(hasActionableRow
+                                        ? QStringLiteral("复制当前账号工作区总览")
+                                        : QStringLiteral("当前没有可复制的账号摘要"));
+            copyStatusBtn->setEnabled(true);
+            copyStatusBtn->setToolTip(QStringLiteral("复制账号工作区当前状态"));
+            return;
+        }
+
+        openBtn->setEnabled(true);
+        if (row->id == QLatin1String("profile-overview") || row->id == QLatin1String("profile-avatar")) {
+            openBtn->setText(QStringLiteral("打开头像工作区"));
+            openBtn->setToolTip(row->id == QLatin1String("profile-overview")
+                                    ? QStringLiteral("从当前账号总览继续进入头像工作区")
+                                    : QStringLiteral("打开头像工作区并继续整理头像相关动作"));
+        } else if (row->id == QLatin1String("profile-search")) {
+            openBtn->setText(QStringLiteral("打开综合搜索"));
+            openBtn->setToolTip(QStringLiteral("进入综合搜索工作区"));
+        } else if (row->id == QLatin1String("profile-contacts")) {
+            openBtn->setText(QStringLiteral("打开联系人工作区"));
+            openBtn->setToolTip(QStringLiteral("进入联系人工作区"));
+        } else if (row->id == QLatin1String("profile-friend-manager")) {
+            openBtn->setText(QStringLiteral("打开好友管理"));
+            openBtn->setToolTip(QStringLiteral("进入好友管理器"));
+        } else {
+            openBtn->setText(QStringLiteral("好友申请工作区"));
+            openBtn->setToolTip(QStringLiteral("进入好友申请工作区"));
+        }
+        copyCardBtn->setEnabled(true);
+        copyCardBtn->setToolTip(row->id == QLatin1String("profile-overview")
+                                    ? QStringLiteral("复制当前账号资料卡")
+                                    : QStringLiteral("复制当前选中账号动作卡"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制账号工作区当前状态"));
+    };
+
+    auto runOpenSelected = [=, &rows, this, &dialog]() {
+        ProfileWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return;
+        }
+        if (row->id == QStringLiteral("profile-overview") || row->id == QStringLiteral("profile-avatar")) {
+            dialog.accept();
+            showAvatarWorkspace();
+            return;
+        }
+        if (row->id == QStringLiteral("profile-quick-add")) {
+            dialog.accept();
+            onShowQuickAddFriend();
+            return;
+        }
+        dialog.accept();
+        if (row->id == QStringLiteral("profile-search")) {
+            onShowGlobalSearch();
+        } else if (row->id == QStringLiteral("profile-contacts")) {
+            onShowContactWorkspace();
+        } else if (row->id == QStringLiteral("profile-friend-manager")) {
+            onShowFriendManager();
+        }
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [runOpenSelected](QListWidgetItem*) {
+        runOpenSelected();
+    });
+    connect(openBtn, &QPushButton::clicked, &dialog, runOpenSelected);
+    connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        ProfileWorkspaceRow* row = selectedRow();
+        copyTextWithStatus(profileClipboardText(),
+                           row && row->id == QLatin1String("profile-overview")
+                               ? QStringLiteral("账号资料卡已复制")
+                               : QStringLiteral("账号工作区卡片已复制"),
+                           2200);
+    });
+    connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        copyTextWithStatus(profileStatusText(), QStringLiteral("账号工作区状态已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(QStringLiteral("当前账号：%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+}
+
+void MainWindow::showUserEntryWorkspace(const QString& targetId, const QString& fallbackLabel) {
+    if (targetId.isEmpty()) {
+        return;
+    }
+
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("userEntryWorkspaceDialog"),
+        QStringLiteral("对象工作区"),
+        QSize(940, 760),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("对象工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把联系人或群聊的打开、复制、加密和管理动作集中到一个稳定工作面里。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索对象动作"),
+        QStringLiteral("按打开、复制、加密、好友或群聊管理动作筛选"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选一个动作，再决定进入会话、复制资料、处理加密状态，或继续做好友/群聊管理。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释当前对象动作会如何影响会话、联系人关系或群聊成员。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* listWidget = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    const bool isLocalGroup = m_localGroupIds.contains(targetId);
+    const QString displayName = fallbackLabel.isEmpty() ? contactDisplayName(targetId) : fallbackLabel;
+
+    struct UserEntryActionRow {
+        QString commandId;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool accent = false;
+        bool dangerous = false;
+    };
+
+    auto buildRows = [=, this]() {
+        QList<UserEntryActionRow> rows;
+        if (isLocalGroup) {
+            const QString groupName = m_localGroupNames.value(targetId, displayName);
+            const int memberCount = m_localGroupMembers.value(targetId).size();
+            const QString groupNumber = targetId.mid(QStringLiteral("local_group_").size());
+            rows << UserEntryActionRow{
+                QStringLiteral("open-group"),
+                QStringLiteral("进入群聊"),
+                QStringLiteral("打开 %1").arg(groupName),
+                QStringLiteral("群聊\n群名：%1\n群号：%2\n成员：%3\n公告：%4")
+                    .arg(groupName,
+                         groupNumber,
+                         QString::number(memberCount),
+                         m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告"))),
+                QStringLiteral("进入 群聊 打开"),
+                true,
+                false};
+            rows << UserEntryActionRow{QStringLiteral("copy-group-card"), QStringLiteral("复制群名片"), QStringLiteral("复制群号、群名、成员和公告摘要"),
+                                       QStringLiteral("复制群名片\n群名：%1\n群号：%2").arg(groupName, groupNumber),
+                                       QStringLiteral("复制 群 名片 公告")};
+            rows << UserEntryActionRow{QStringLiteral("copy-group-members"), QStringLiteral("复制成员列表"), QStringLiteral("复制当前群聊全部成员"),
+                                       QStringLiteral("复制成员列表\n可用于协作同步、入群校对和状态留档。"),
+                                       QStringLiteral("复制 成员 列表")};
+            rows << UserEntryActionRow{QStringLiteral("invite-friend"), QStringLiteral("邀请好友"), QStringLiteral("从好友里选择成员加入当前群聊"),
+                                       QStringLiteral("邀请好友\n从现有好友列表选择对象加入当前群聊。"),
+                                       QStringLiteral("邀请 好友 入群")};
+            rows << UserEntryActionRow{QStringLiteral("invite-by-account"), QStringLiteral("按QQ号邀请"), QStringLiteral("输入 QQ 号邀请成员入群"),
+                                       QStringLiteral("按 QQ 号邀请\n可直接输入 QQ，并按需补发好友申请。"),
+                                       QStringLiteral("QQ 邀请 入群")};
+            rows << UserEntryActionRow{QStringLiteral("rename-group"), QStringLiteral("重命名群聊"), QStringLiteral("修改当前本地群聊名称"),
+                                       QStringLiteral("重命名群聊\n会同步更新左侧群聊显示和后续会话标题。"),
+                                       QStringLiteral("重命名 群聊")};
+            rows << UserEntryActionRow{QStringLiteral("delete-group"), QStringLiteral("删除群聊"), QStringLiteral("删除本地群聊配置，聊天记录不会在此步骤删除"),
+                                       QStringLiteral("删除群聊\n会移除本地群聊配置；历史聊天不会在此步骤删除。"),
+                                       QStringLiteral("删除 群聊"), false, true};
+            return rows;
+        }
+
+        const bool online = isContactOnline(targetId);
+        const bool isFriend = m_friendIds.contains(targetId);
+        const bool pending = m_pendingOutgoingFriendRequests.contains(targetId);
+        const QString relation = isFriend ? QStringLiteral("好友") : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人"));
+        rows << UserEntryActionRow{
+            QStringLiteral("chat"),
+            QStringLiteral("打开私聊"),
+            QStringLiteral("进入与 %1 的会话").arg(displayName),
+            QStringLiteral("联系人\nQQ：%1\n昵称：%2\n状态：%3\n关系：%4")
+                .arg(targetId,
+                     displayName,
+                     online ? QStringLiteral("在线") : QStringLiteral("离线"),
+                     relation),
+            QStringLiteral("私聊 打开 会话"),
+            true,
+            false};
+        rows << UserEntryActionRow{QStringLiteral("copy-profile-card"), QStringLiteral("复制名片"), QStringLiteral("复制当前联系人资料卡"),
+                                   QStringLiteral("复制名片\nQQ：%1\n昵称：%2\n状态：%3").arg(targetId, displayName, online ? QStringLiteral("在线") : QStringLiteral("离线")),
+                                   QStringLiteral("复制 名片 资料")};
+        rows << UserEntryActionRow{QStringLiteral("copy-chat-starter"), QStringLiteral("复制开聊话术"), QStringLiteral("复制适合当前关系状态的话术"),
+                                   QStringLiteral("开聊话术\n会根据当前是好友、申请中还是陌生联系人生成不同的话术。"),
+                                   QStringLiteral("复制 话术 开聊")};
+        rows << UserEntryActionRow{QStringLiteral("copy-e2e-status"), QStringLiteral("复制加密状态"), QStringLiteral("复制当前联系人端到端加密状态"),
+                                   QStringLiteral("端到端加密状态\n可复制当前会话 readiness、轮换状态和信任概览。"),
+                                   QStringLiteral("加密 状态 e2e")};
+        rows << UserEntryActionRow{QStringLiteral("copy-e2e-identity"), QStringLiteral("复制加密身份"), QStringLiteral("复制身份指纹与验证信息"),
+                                   QStringLiteral("端到端加密身份\n可复制指纹、验证短码、首次/最近看到时间。"),
+                                   QStringLiteral("加密 身份 指纹")};
+        rows << UserEntryActionRow{QStringLiteral("verify-e2e-identity"), QStringLiteral("验证并信任加密身份"), QStringLiteral("输入验证短码并固定信任"),
+                                   QStringLiteral("验证加密身份\n需要通过可信渠道核对短码，再将该身份固定为已验证。"),
+                                   QStringLiteral("验证 信任 加密 短码")};
+        if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+            rows << UserEntryActionRow{QStringLiteral("invite-current-group"), QStringLiteral("邀入当前群"), QStringLiteral("把当前联系人加入正在查看的群聊"),
+                                       QStringLiteral("邀入当前群\n会补齐好友申请状态并把该联系人加入当前本地群聊。"),
+                                       QStringLiteral("邀请 当前群 入群")};
+        }
+        if (isFriend) {
+            rows << UserEntryActionRow{QStringLiteral("rename-friend"), QStringLiteral("设置备注"), QStringLiteral("修改当前好友本地备注"),
+                                       QStringLiteral("设置备注\n会影响左侧联系人显示、工作区摘要和后续会话标题。"),
+                                       QStringLiteral("备注 好友")};
+            rows << UserEntryActionRow{QStringLiteral("remove-friend"), QStringLiteral("删除好友"), QStringLiteral("从本地好友列表删除当前好友"),
+                                       QStringLiteral("删除好友\n删除后仍可重新搜索并申请。"),
+                                       QStringLiteral("删除 好友"), false, true};
+        } else {
+            rows << UserEntryActionRow{QStringLiteral("add-friend"),
+                                       pending ? QStringLiteral("好友申请待确认") : QStringLiteral("加为好友"),
+                                       pending ? QStringLiteral("当前好友申请已发送，等待处理")
+                                               : QStringLiteral("向当前联系人发起好友申请"),
+                                       pending ? QStringLiteral("好友申请已发送\n等待对方确认后可继续私聊。")
+                                               : QStringLiteral("发起好友申请\n当前联系人在线时会发起好友申请，后续可继续私聊或邀入群。"),
+                                       QStringLiteral("好友 申请 添加")};
+        }
+        return rows;
+    };
+
+    auto rows = buildRows();
+    auto emptyPreviewText = [searchEdit, isLocalGroup]() {
+        const QString filter = searchEdit->text().trimmed();
+        const QString scope = isLocalGroup ? QStringLiteral("群对象") : QStringLiteral("联系人对象");
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的%1动作。可调整筛选后继续进入会话、复制资料或处理管理动作。").arg(scope)
+            : QStringLiteral("当前筛选词“%1”没有匹配到%2动作。\n试试“复制”、“加密”、“邀请”或“管理”这些关键词。")
+                  .arg(filter, scope);
+    };
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const UserEntryActionRow& row : rows) {
+            if (!filter.isEmpty() && !(row.title + row.detail + row.preview + row.keywords).contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.commandId);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (row.accent) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.dangerous) {
+                item->setForeground(QColor(180, 35, 24));
+            }
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                listWidget,
+                QStringLiteral("没有匹配的对象动作"),
+                QStringLiteral("试试“复制”、“加密”、“邀请”或“管理”这些关键词。"),
+                emptyPreviewText());
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+        selectPreferredListRow(listWidget, 0);
+    };
+
+    auto selectedRow = [=, &rows]() -> UserEntryActionRow* {
+        QListWidgetItem* currentItem = listWidget->currentItem();
+        if (!currentItem) {
+            return nullptr;
+        }
+        const QString id = currentItem->data(Qt::UserRole).toString();
+        for (UserEntryActionRow& row : rows) {
+            if (row.commandId == id) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePreview = [=, &rows]() {
+        UserEntryActionRow* row = selectedRow();
+        previewLabel->setText(row ? row->preview
+                                  : (firstEnabledListRow(listWidget) >= 0
+                                         ? QStringLiteral("这里会解释当前对象动作会如何影响会话、联系人关系或群聊成员。")
+                                         : emptyPreviewText()));
+    };
+
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("执行当前动作"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("执行当前对象动作"), QStyle::SP_ArrowForward);
+    QPushButton* copyCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制对象卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前对象概览"), QStyle::SP_DialogSaveButton);
+    QPushButton* copyStatusBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区状态"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制对象工作区当前状态"), QStyle::SP_MessageBoxInformation);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭对象工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("对象动作"),
+        QStringLiteral("把联系人或群聊的高频动作收进一个稳定工作面里，不再依赖右键菜单记忆。"),
+        {openBtn, copyCardBtn, copyStatusBtn},
+        closeBtn);
+
+    auto userEntryCardText = [=]() {
+        if (isLocalGroup) {
+            const QString groupNumber = targetId.mid(QStringLiteral("local_group_").size());
+            return QStringLiteral("群对象卡\n群名:%1\n群号:%2\n成员:%3\n公告:%4")
+                .arg(m_localGroupNames.value(targetId, displayName),
+                     groupNumber,
+                     QString::number(m_localGroupMembers.value(targetId).size()),
+                     m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告")));
+        }
+        return QStringLiteral("联系人对象卡\nQQ:%1\n昵称:%2\n状态:%3\n关系:%4")
+            .arg(targetId,
+                 displayName,
+                 isContactOnline(targetId) ? QStringLiteral("在线") : QStringLiteral("离线"),
+                 m_friendIds.contains(targetId) ? QStringLiteral("好友")
+                                                : (m_pendingOutgoingFriendRequests.contains(targetId) ? QStringLiteral("申请中")
+                                                                                                      : QStringLiteral("联系人")));
+    };
+    auto userEntryStatusText = [=]() {
+        QStringList lines;
+        lines << QStringLiteral("对象工作区状态");
+        lines << QStringLiteral("对象:%1").arg(displayName);
+        lines << QStringLiteral("标识:%1").arg(targetId);
+        lines << QStringLiteral("类型:%1").arg(isLocalGroup ? QStringLiteral("群聊") : QStringLiteral("联系人"));
+        if (isLocalGroup) {
+            lines << QStringLiteral("成员:%1").arg(m_localGroupMembers.value(targetId).size());
+        } else {
+            lines << QStringLiteral("状态:%1").arg(isContactOnline(targetId) ? QStringLiteral("在线") : QStringLiteral("离线"));
+            lines << QStringLiteral("关系:%1").arg(m_friendIds.contains(targetId) ? QStringLiteral("好友")
+                                                                                   : (m_pendingOutgoingFriendRequests.contains(targetId) ? QStringLiteral("申请中")
+                                                                                                                                         : QStringLiteral("联系人")));
+        }
+        return lines.join(QLatin1Char('\n'));
+    };
+    auto userEntryClipboardText = [=, &rows]() {
+        UserEntryActionRow* row = selectedRow();
+        if (!row) {
+            return userEntryStatusText();
+        }
+        if (row->commandId == QLatin1String("open-chat")
+            || row->commandId == QLatin1String("open-group")
+            || row->commandId == QLatin1String("copy-card")) {
+            return userEntryCardText();
+        }
+        return row->preview.trimmed().isEmpty() ? userEntryStatusText() : row->preview;
+    };
+
+    auto updateActionState = [=, &rows]() {
+        UserEntryActionRow* row = selectedRow();
+        const bool hasActionableRow = hasEnabledListRow(listWidget);
+        if (!row) {
+            openBtn->setEnabled(false);
+            openBtn->setText(QStringLiteral("执行当前动作"));
+            openBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("先选择一个对象动作后继续进入会话、复制资料或处理管理动作")
+                                    : QStringLiteral("当前没有可执行的对象动作"));
+            copyCardBtn->setEnabled(hasActionableRow);
+            copyCardBtn->setToolTip(hasActionableRow
+                                        ? QStringLiteral("复制当前对象工作区总览")
+                                        : QStringLiteral("当前没有可复制的对象概览"));
+            copyStatusBtn->setEnabled(true);
+            copyStatusBtn->setToolTip(QStringLiteral("复制对象工作区当前状态"));
+            return;
+        }
+
+        openBtn->setEnabled(true);
+        openBtn->setText(row->title);
+        openBtn->setToolTip(row->detail);
+        copyCardBtn->setEnabled(true);
+        copyCardBtn->setToolTip(QStringLiteral("复制当前选中对象卡"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制对象工作区当前状态"));
+    };
+
+    auto runSelectedCommand = [=, &rows, this, &dialog]() {
+        UserEntryActionRow* row = selectedRow();
+        if (!row) {
+            return;
+        }
+        dialog.accept();
+        if (isLocalGroup) {
+            handleLocalGroupContextCommand(targetId, displayName, row->commandId);
+        } else {
+            handleContactContextCommand(targetId, row->commandId);
+        }
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [runSelectedCommand](QListWidgetItem*) {
+        runSelectedCommand();
+    });
+    connect(openBtn, &QPushButton::clicked, &dialog, runSelectedCommand);
+    connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        copyTextWithStatus(userEntryClipboardText(),
+                           isLocalGroup ? QStringLiteral("群对象卡已复制") : QStringLiteral("联系人对象卡已复制"),
+                           2200);
+    });
+    connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        copyTextWithStatus(userEntryStatusText(), QStringLiteral("对象工作区状态已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(isLocalGroup
+        ? QStringLiteral("群聊：%1 · 成员 %2").arg(displayName).arg(m_localGroupMembers.value(targetId).size())
+        : QStringLiteral("联系人：%1 · %2").arg(displayName, isContactOnline(targetId) ? QStringLiteral("在线") : QStringLiteral("离线")));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+}
+
+void MainWindow::showGroupInfoWorkspace() {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("groupInfoWorkspaceDialog"),
+        QStringLiteral("群信息工作区"),
+        QSize(940, 760),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("群信息工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把群公告、成员、通知、邀请和群聊管理入口集中到一个统一工作面里。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索群信息动作"),
+        QStringLiteral("按公告、成员、通知、邀请、重命名或公共群动作筛选"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一个群信息动作，再决定编辑公告、打开成员工作区、进入群通知或执行邀请管理。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释当前群信息动作会如何影响公告、成员、通知或当前会话。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* listWidget = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    const bool localGroupContext = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
+    const bool removedFromPublicGroup = isCurrentUserRemovedFromPublicGroup();
+    const QString currentGroupId = localGroupContext ? m_privateChatTarget : QStringLiteral("public");
+    const QString currentGroupName = localGroupContext
+        ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
+        : QStringLiteral("公共聊天室");
+    const QString announcementText = ui->announcementBodyLabel ? ui->announcementBodyLabel->text().trimmed() : QString();
+    const QString ownerId = localGroupContext ? groupOwnerId(currentGroupId) : m_serverGroupOwners.value(QStringLiteral("public"));
+    const QString ownerName = ownerId.isEmpty()
+        ? QStringLiteral("未指定")
+        : (ownerId == m_currentUserId ? m_currentUserName : contactDisplayName(ownerId));
+
+    struct GroupInfoWorkspaceRow {
+        QString commandId;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool accent = false;
+        bool dangerous = false;
+    };
+
+    auto buildRows = [=, this]() {
+        QList<GroupInfoWorkspaceRow> rows;
+
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-overview"),
+            localGroupContext ? QStringLiteral("当前群聊 · %1").arg(currentGroupName) : QStringLiteral("公共聊天室"),
+            localGroupContext
+                ? QStringLiteral("群主 %1 · 成员 %2").arg(ownerName).arg(m_localGroupMembers.value(currentGroupId).size())
+                : (removedFromPublicGroup
+                       ? QStringLiteral("公共群历史只读")
+                       : QStringLiteral("群主 %1 · 公共群成员 %2").arg(ownerName).arg(m_serverGroupMembers.value(QStringLiteral("public")).size())),
+            QStringLiteral("群信息总览\n群名：%1\n群主：%2\n公告：%3")
+                .arg(currentGroupName,
+                     ownerName,
+                     announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText),
+            QStringLiteral("群 总览 公告 成员"),
+            true,
+            false};
+
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-announcement"),
+            QStringLiteral("群公告"),
+            announcementText.isEmpty() ? QStringLiteral("当前暂无群公告") : announcementText.left(42),
+            QStringLiteral("群公告\n%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText),
+            QStringLiteral("群公告 编辑 公告"),
+            false,
+            false};
+
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-members"),
+            QStringLiteral("群成员工作区"),
+            localGroupContext
+                ? QStringLiteral("当前群成员 %1").arg(m_localGroupMembers.value(currentGroupId).size())
+                : QStringLiteral("当前可见成员 %1").arg(m_serverGroupMembers.value(QStringLiteral("public")).size()),
+            QStringLiteral("群成员工作区\n集中处理成员查看、邀请、备注、复制和权限动作。"),
+            QStringLiteral("群成员 工作区 邀请 备注"),
+            false,
+            false};
+
+        rows << GroupInfoWorkspaceRow{
+            QStringLiteral("group-notices"),
+            QStringLiteral("群通知"),
+            QStringLiteral("查看群创建、群名片、公告和成员摘要"),
+            QStringLiteral("群通知工作区\n统一查看群入口、群公告、成员复制、媒体包和批量计划。"),
+            QStringLiteral("群通知 公告 成员"),
+            false,
+            false};
+
+        if (localGroupContext) {
+            rows << GroupInfoWorkspaceRow{
+                QStringLiteral("group-invite-friend"),
+                QStringLiteral("邀请好友"),
+                QStringLiteral("从现有好友里选择成员加入当前群聊"),
+                QStringLiteral("邀请好友\n从好友列表里选人加入当前群聊，保持当前群上下文。"),
+                QStringLiteral("邀请 好友 入群"),
+                false,
+                false};
+            rows << GroupInfoWorkspaceRow{
+                QStringLiteral("group-invite-account"),
+                QStringLiteral("按QQ号邀请"),
+                QStringLiteral("输入 QQ 号邀请成员入群"),
+                QStringLiteral("按 QQ 号邀请\n可邀请还不是好友的人，并按需补发好友申请。"),
+                QStringLiteral("QQ 邀请 成员"),
+                false,
+                false};
+            rows << GroupInfoWorkspaceRow{
+                QStringLiteral("group-rename"),
+                QStringLiteral("重命名群聊"),
+                QStringLiteral("调整当前本地群聊名称"),
+                QStringLiteral("重命名群聊\n会同步更新左侧列表、会话标题和后续邀请上下文。"),
+                QStringLiteral("重命名 群聊"),
+                false,
+                false};
+        } else {
+            rows << GroupInfoWorkspaceRow{
+                QStringLiteral("group-back-public"),
+                QStringLiteral("返回公共群主会话"),
+                QStringLiteral("回到公共聊天室当前会话视图"),
+                QStringLiteral("公共群主会话\n可恢复公共聊天室视图、公告和成员面板。"),
+                QStringLiteral("公共群 返回 会话"),
+                false,
+                false};
+        }
+
+        if (localGroupContext) {
+            rows << GroupInfoWorkspaceRow{
+                QStringLiteral("group-delete"),
+                QStringLiteral("删除群聊"),
+                QStringLiteral("删除本地群聊配置，聊天记录不会在此步骤删除"),
+                QStringLiteral("删除群聊\n会移除本地群聊配置；历史聊天记录不会在此步骤删除。"),
+                QStringLiteral("删除 群聊"),
+                false,
+                true};
+        }
+
+        return rows;
+    };
+
+    auto rows = buildRows();
+    auto emptyPreviewText = [searchEdit]() {
+        const QString filter = searchEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的群信息动作。可从这里继续进入公告、成员、群通知和邀请管理入口。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到群信息动作。\n试试“公告”、“成员”、“通知”或“邀请”这些关键词。").arg(filter);
+    };
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const GroupInfoWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !(row.title + row.detail + row.preview + row.keywords).contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.commandId);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (row.accent) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.dangerous) {
+                item->setForeground(QColor(180, 35, 24));
+            }
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                listWidget,
+                QStringLiteral("没有匹配的群信息动作"),
+                QStringLiteral("试试“公告”、“成员”、“通知”或“邀请”这些关键词。"),
+                emptyPreviewText());
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+        selectPreferredListRow(listWidget, 0);
+    };
+
+    auto selectedRow = [=, &rows]() -> GroupInfoWorkspaceRow* {
+        QListWidgetItem* currentItem = listWidget->currentItem();
+        if (!currentItem) {
+            return nullptr;
+        }
+        const QString id = currentItem->data(Qt::UserRole).toString();
+        for (GroupInfoWorkspaceRow& row : rows) {
+            if (row.commandId == id) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePreview = [=, &rows]() {
+        GroupInfoWorkspaceRow* row = selectedRow();
+        previewLabel->setText(row ? row->preview
+                                  : (firstEnabledListRow(listWidget) >= 0
+                                         ? QStringLiteral("这里会解释当前群信息动作会如何影响公告、成员、通知或当前会话。")
+                                         : emptyPreviewText()));
+    };
+
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("执行当前动作"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("执行当前群信息动作"), QStyle::SP_ArrowForward);
+    QPushButton* copyCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制群信息卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前群信息摘要"), QStyle::SP_DialogSaveButton);
+    QPushButton* copyStatusBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区状态"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制群信息工作区当前状态"), QStyle::SP_MessageBoxInformation);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭群信息工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("群信息动作"),
+        QStringLiteral("把公告、成员、通知、邀请和管理入口收进一个统一群信息面。"),
+        {openBtn, copyCardBtn, copyStatusBtn},
+        closeBtn);
+
+    auto groupInfoCardText = [=]() {
+        return QStringLiteral("群信息卡\n群名:%1\n群标识:%2\n群主:%3\n成员:%4\n公告:%5")
+            .arg(currentGroupName,
+                 currentGroupId,
+                 ownerName,
+                 localGroupContext
+                     ? QString::number(m_localGroupMembers.value(currentGroupId).size())
+                     : QString::number(m_serverGroupMembers.value(QStringLiteral("public")).size()),
+                 announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
+    };
+    auto groupInfoStatusText = [=]() {
+        QStringList lines;
+        lines << QStringLiteral("群信息工作区状态");
+        lines << QStringLiteral("群名:%1").arg(currentGroupName);
+        lines << QStringLiteral("群标识:%1").arg(currentGroupId);
+        lines << QStringLiteral("群主:%1").arg(ownerName);
+        lines << QStringLiteral("公告:%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
+        lines << QStringLiteral("上下文:%1").arg(localGroupContext ? QStringLiteral("本地群聊") : (removedFromPublicGroup ? QStringLiteral("公共群历史只读") : QStringLiteral("公共聊天室")));
+        return lines.join(QLatin1Char('\n'));
+    };
+    auto groupInfoClipboardText = [=, &rows]() {
+        GroupInfoWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return groupInfoStatusText();
+        }
+        if (row->commandId == QLatin1String("group-overview")) {
+            return groupInfoCardText();
+        }
+        if (row->commandId == QLatin1String("group-announcement")) {
+            return QStringLiteral("群公告\n%1").arg(announcementText.isEmpty() ? QStringLiteral("暂无公告") : announcementText);
+        }
+        return row->preview.trimmed().isEmpty() ? groupInfoStatusText() : row->preview;
+    };
+
+    auto updateActionState = [=, &rows]() {
+        GroupInfoWorkspaceRow* row = selectedRow();
+        const bool hasActionableRow = hasEnabledListRow(listWidget);
+        if (!row) {
+            openBtn->setEnabled(false);
+            openBtn->setText(QStringLiteral("执行当前动作"));
+            openBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("先选择一个群信息动作后继续查看公告、成员、通知或邀请管理")
+                                    : QStringLiteral("当前没有可执行的群信息动作"));
+            copyCardBtn->setEnabled(hasActionableRow);
+            copyCardBtn->setToolTip(hasActionableRow
+                                        ? QStringLiteral("复制当前群信息工作区总览")
+                                        : QStringLiteral("当前没有可复制的群信息摘要"));
+            copyStatusBtn->setEnabled(true);
+            copyStatusBtn->setToolTip(QStringLiteral("复制群信息工作区当前状态"));
+            return;
+        }
+
+        openBtn->setEnabled(true);
+        if (row->commandId == QLatin1String("group-overview")
+            || row->commandId == QLatin1String("group-members")) {
+            openBtn->setText(QStringLiteral("打开群成员工作区"));
+            openBtn->setToolTip(QStringLiteral("进入群成员工作区继续查看成员、复制摘要或处理邀请动作"));
+        } else if (row->commandId == QLatin1String("group-announcement")) {
+            openBtn->setText(QStringLiteral("编辑群公告"));
+            openBtn->setToolTip(QStringLiteral("打开群公告编辑入口"));
+        } else if (row->commandId == QLatin1String("group-notices")) {
+            openBtn->setText(QStringLiteral("打开群通知"));
+            openBtn->setToolTip(QStringLiteral("进入群通知工作区"));
+        } else if (row->commandId == QLatin1String("group-invite-friend")) {
+            openBtn->setText(QStringLiteral("邀请好友入群"));
+            openBtn->setToolTip(QStringLiteral("从好友列表里选择成员加入当前群聊"));
+        } else if (row->commandId == QLatin1String("group-invite-account")) {
+            openBtn->setText(QStringLiteral("按 QQ 号邀请"));
+            openBtn->setToolTip(QStringLiteral("输入 QQ 号邀请成员入群"));
+        } else if (row->commandId == QLatin1String("group-rename")) {
+            openBtn->setText(QStringLiteral("重命名群聊"));
+            openBtn->setToolTip(QStringLiteral("调整当前本地群聊名称"));
+        } else if (row->commandId == QLatin1String("group-back-public")) {
+            openBtn->setText(QStringLiteral("返回公共会话"));
+            openBtn->setToolTip(QStringLiteral("回到公共聊天室当前会话视图"));
+        } else {
+            openBtn->setText(QStringLiteral("删除群聊"));
+            openBtn->setToolTip(QStringLiteral("删除当前本地群聊配置"));
+        }
+        copyCardBtn->setEnabled(true);
+        copyCardBtn->setToolTip(row->commandId == QLatin1String("group-overview")
+                                    ? QStringLiteral("复制当前群信息卡")
+                                    : (row->commandId == QLatin1String("group-announcement")
+                                           ? QStringLiteral("复制当前群公告摘要")
+                                           : QStringLiteral("复制当前选中群信息卡")));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制群信息工作区当前状态"));
+    };
+
+    auto runSelectedCommand = [=, &rows, this, &dialog]() {
+        GroupInfoWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return;
+        }
+        const QString commandId = row->commandId;
+        if (commandId == QLatin1String("group-overview")
+            || commandId == QLatin1String("group-members")) {
+            dialog.accept();
+            onShowGroupMemberWorkspace();
+            return;
+        }
+        if (commandId == QLatin1String("group-announcement")) {
+            dialog.accept();
+            onEditGroupAnnouncement();
+            return;
+        }
+        if (commandId == QLatin1String("group-notices")) {
+            dialog.accept();
+            onShowGroupNotifications();
+            return;
+        }
+        if (commandId == QLatin1String("group-invite-friend")) {
+            dialog.accept();
+            showInviteFriendToGroupWorkspace(currentGroupId, this);
+            return;
+        }
+        if (commandId == QLatin1String("group-invite-account")) {
+            dialog.accept();
+            showInviteAccountToGroupWorkspace(currentGroupId, this);
+            return;
+        }
+        if (commandId == QLatin1String("group-rename")) {
+            dialog.accept();
+            showRenameGroupWorkspace(currentGroupId, this);
+            return;
+        }
+        if (commandId == QLatin1String("group-back-public")) {
+            dialog.accept();
+            onBackToGroupChat();
+            return;
+        }
+        if (commandId == QLatin1String("group-delete")) {
+            dialog.accept();
+            handleLocalGroupContextCommand(currentGroupId, currentGroupName, QStringLiteral("delete-group"));
+            return;
+        }
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [runSelectedCommand](QListWidgetItem*) {
+        runSelectedCommand();
+    });
+    connect(openBtn, &QPushButton::clicked, &dialog, runSelectedCommand);
+    connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        GroupInfoWorkspaceRow* row = selectedRow();
+        copyTextWithStatus(groupInfoClipboardText(),
+                           row && row->commandId == QLatin1String("group-announcement")
+                               ? QStringLiteral("群公告摘要已复制")
+                               : QStringLiteral("群信息卡已复制"),
+                           2200);
+    });
+    connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        copyTextWithStatus(groupInfoStatusText(), QStringLiteral("群信息工作区状态已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(localGroupContext
+        ? QStringLiteral("当前群：%1 · 群主 %2 · 成员 %3").arg(currentGroupName, ownerName).arg(m_localGroupMembers.value(currentGroupId).size())
+        : QStringLiteral("公共聊天室 · 群主 %1 · 上下文 %2")
+              .arg(ownerName, removedFromPublicGroup ? QStringLiteral("历史只读") : QStringLiteral("当前主会话")));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    dialog.exec();
+}
+
 void MainWindow::onShowQuickAddFriend() {
     QDialog dialog(this);
-    dialog.setObjectName("quickAddDialog");
-    dialog.setWindowTitle("好友申请");
-    dialog.setFixedSize(760, 660);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("quickAddWorkspaceDialog"),
+        QStringLiteral("好友申请工作区"),
+        QSize(920, 760),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("好友申请工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把 QQ 搜索、推荐申请、申请话术和通过后的媒体准备统一收进一个稳定工作面。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("输入对方 QQ 号"),
+        QStringLiteral("输入 QQ 号后回车即可搜索并申请"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("可直接输入 QQ 搜索并申请，也可以从推荐列表里双击、批量申请或复制当前申请资料。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会显示当前申请预览、推荐摘要和后续媒体准备说明。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
 
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(26, 22, 26, 22);
-    layout->setSpacing(14);
+    QLineEdit* accountEdit = shell.searchEdit;
+    QListWidget* suggestionList = shell.listWidget;
+    QLabel* hintLabel = shell.hintLabel;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* cardLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
 
-    QLabel* titleLabel = new QLabel("搜索 QQ 账号发送好友申请", &dialog);
-    titleLabel->setObjectName("quickAddTitle");
-    titleLabel->setAlignment(Qt::AlignCenter);
-    layout->addWidget(titleLabel);
-
-    QLineEdit* accountEdit = new QLineEdit(&dialog);
-    accountEdit->setObjectName("quickAddInput");
-    accountEdit->setPlaceholderText("输入对方 QQ 号");
-    accountEdit->setClearButtonEnabled(true);
-    accountEdit->setToolTip("输入对方 QQ 号；回车会搜索并发送好友申请");
-    layout->addWidget(accountEdit);
-
-    QLabel* hintLabel = new QLabel("可搜索在线账号并发送好友申请，通过后自动加入本地好友列表。", &dialog);
-    hintLabel->setObjectName("quickAddHint");
-    hintLabel->setAlignment(Qt::AlignCenter);
-    layout->addWidget(hintLabel);
-
-    QLabel* statsLabel = new QLabel(&dialog);
-    statsLabel->setObjectName("quickAddStats");
-    statsLabel->setAlignment(Qt::AlignCenter);
-    layout->addWidget(statsLabel);
-
-    QLabel* cardLabel = new QLabel(&dialog);
-    cardLabel->setObjectName("quickAddPreviewCard");
-    cardLabel->setAlignment(Qt::AlignCenter);
-    cardLabel->setWordWrap(true);
-    layout->addWidget(cardLabel);
-
-    QLabel* actionTipLabel = new QLabel("输入 QQ 后可一键搜索并发送申请，也可以复制申请话术发给对方。", &dialog);
-    actionTipLabel->setObjectName("quickAddActionTip");
-    actionTipLabel->setAlignment(Qt::AlignCenter);
-    actionTipLabel->setWordWrap(true);
-    layout->addWidget(actionTipLabel);
-
-    QListWidget* suggestionList = new QListWidget(&dialog);
-    suggestionList->setObjectName("quickAddSuggestionList");
-    suggestionList->setFixedHeight(112);
-    layout->addWidget(suggestionList);
-
-    auto fillSuggestions = [this, accountEdit, suggestionList, statsLabel, cardLabel]() {
+    auto emptyQuickAddPreviewText = [accountEdit]() {
+        const QString filter = accountEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的推荐对象。可直接输入 QQ 号搜索并申请，或稍后等待更多在线用户出现。")
+            : QStringLiteral("当前输入“%1”没有匹配到推荐对象。\n可直接回车搜索这个 QQ，或清空输入后浏览推荐列表。").arg(filter);
+    };
+    auto fillSuggestions = [this, accountEdit, suggestionList, statsLabel, cardLabel, subTitleLabel, emptyQuickAddPreviewText]() {
         suggestionList->clear();
         const FriendQuickAddSuggestionUiState suggestionState =
             FriendManager::quickAddSuggestionUiState(m_currentUserId,
@@ -4515,6 +10887,7 @@ void MainWindow::onShowQuickAddFriend() {
                                                      5);
         statsLabel->setText(suggestionState.statsText);
         cardLabel->setText(suggestionState.previewText);
+        subTitleLabel->setText(QStringLiteral("当前账号：%1 · 推荐候选 %2").arg(m_currentUserId).arg(suggestionState.entries.size()));
         for (const FriendQuickAddSuggestionEntryUiState& entry : suggestionState.entries) {
             QListWidgetItem* item = new QListWidgetItem(entry.text);
             item->setData(Qt::UserRole, entry.entryId);
@@ -4527,148 +10900,112 @@ void MainWindow::onShowQuickAddFriend() {
             }
             suggestionList->addItem(item);
         }
-        for (int i = 0; i < suggestionList->count(); ++i) {
-            QListWidgetItem* item = suggestionList->item(i);
-            if (item->flags().testFlag(Qt::ItemIsEnabled) && !item->data(Qt::UserRole).toString().isEmpty()) {
-                suggestionList->setCurrentRow(i);
-                break;
-            }
+        if (!hasEnabledListRow(suggestionList)) {
+            cardLabel->setText(emptyQuickAddPreviewText());
         }
+        selectPreferredListRow(suggestionList, 0);
     };
     fillSuggestions();
 
-    QHBoxLayout* buttonLayout = new QHBoxLayout;
-    QPushButton* cancelBtn = new QPushButton("取消", &dialog);
-    cancelBtn->setObjectName("quickCancelBtn");
-    cancelBtn->setToolTip("关闭好友申请窗口");
-    QPushButton* searchBtn = new QPushButton("搜索申请", &dialog);
-    searchBtn->setObjectName("quickSearchBtn");
+    QPushButton* cancelBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭好友申请工作区"), QStyle::SP_DialogCloseButton);
+    QPushButton* searchBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("搜索并申请"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("按输入的 QQ 号搜索在线账号并发起好友申请"), QStyle::SP_FileDialogContentsView);
     searchBtn->setDefault(true);
-    searchBtn->setToolTip("按输入的 QQ 号搜索在线账号并发送好友申请");
-    QPushButton* recommendBtn = new QPushButton("推荐申请", &dialog);
-    recommendBtn->setObjectName("quickSearchBtn");
-    recommendBtn->setToolTip("向当前推荐列表里的可申请用户批量发送好友申请");
-    QPushButton* copyPreviewBtn = new QPushButton("复制预览", &dialog);
-    copyPreviewBtn->setObjectName("quickCancelBtn");
-    copyPreviewBtn->setToolTip("复制当前申请预览卡片");
-    QPushButton* copyRequestBtn = new QPushButton("复制申请话术", &dialog);
-    copyRequestBtn->setObjectName("quickCancelBtn");
-    copyRequestBtn->setToolTip("复制适合当前 QQ 号或推荐用户的好友申请话术");
-    QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", &dialog);
-    copySearchCardBtn->setObjectName("quickCancelBtn");
-    copySearchCardBtn->setToolTip("复制当前好友申请搜索条件和推荐结果");
-    QPushButton* copyFriendMediaPackBtn = new QPushButton("复制好友媒体包", &dialog);
-    copyFriendMediaPackBtn->setObjectName("quickCancelBtn");
-    copyFriendMediaPackBtn->setToolTip("复制加好友后发送图片、视频或文件的准备摘要");
-    QPushButton* copyAddChecklistBtn = new QPushButton("复制申请清单", &dialog);
-    copyAddChecklistBtn->setObjectName("quickCancelBtn");
-    copyAddChecklistBtn->setToolTip("复制好友申请前后的操作检查清单");
-    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", &dialog);
-    copyMediaGuideBtn->setObjectName("quickCancelBtn");
-    copyMediaGuideBtn->setToolTip("复制通过好友申请后发送媒体和文件的简短指南");
-    buttonLayout->addWidget(cancelBtn);
-    buttonLayout->addWidget(copyPreviewBtn);
-    buttonLayout->addWidget(copyRequestBtn);
-    buttonLayout->addWidget(copySearchCardBtn);
-    buttonLayout->addWidget(copyFriendMediaPackBtn);
-    buttonLayout->addWidget(copyAddChecklistBtn);
-    buttonLayout->addWidget(copyMediaGuideBtn);
-    buttonLayout->addWidget(recommendBtn);
-    buttonLayout->addWidget(searchBtn);
-    layout->addLayout(buttonLayout);
+    QPushButton* recommendBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("批量申请推荐"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("向当前推荐列表里的可申请用户批量发起好友申请"), QStyle::SP_CommandLink);
+    QPushButton* copyPreviewBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制预览"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前申请预览卡片"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* copyRequestBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制申请话术"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制适合当前 QQ 号或推荐用户的好友申请话术"), QStyle::SP_MessageBoxInformation);
+    QPushButton* copySearchCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制搜索卡片"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前好友申请搜索条件和推荐结果"), QStyle::SP_FileDialogInfoView);
+    QPushButton* copyFriendMediaPackBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制好友媒体包"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制加好友后发送图片、视频或文件的准备摘要"), QStyle::SP_FileIcon);
+    QPushButton* copyAddChecklistBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制申请清单"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制好友申请前后的操作检查清单"), QStyle::SP_DriveHDIcon);
+    QPushButton* copyMediaGuideBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制上传指南"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制通过好友申请后发送媒体和文件的简短指南"), QStyle::SP_DialogHelpButton);
 
-    dialog.setStyleSheet(R"(
-        QDialog#quickAddDialog {
-            background: white;
-            font-family: "Microsoft YaHei", "Segoe UI";
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("主操作"),
+        QStringLiteral("确认 QQ 后直接搜索并申请，也可以批量处理推荐对象。"),
+        {searchBtn, recommendBtn},
+        cancelBtn);
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("复制与说明"),
+        QStringLiteral("先整理预览和申请话术，再发给对方或自己留档。"),
+        {copyPreviewBtn, copyRequestBtn, copySearchCardBtn});
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("媒体与清单"),
+        QStringLiteral("为好友通过后的图片、视频、文件发送准备材料和检查项。"),
+        {copyFriendMediaPackBtn, copyAddChecklistBtn, copyMediaGuideBtn});
+
+    auto currentQuickAddSelectionId = [suggestionList]() {
+        QListWidgetItem* item = suggestionList->currentItem();
+        return item ? item->data(Qt::UserRole).toString() : QString();
+    };
+    auto updateQuickAddPreview = [this, accountEdit, suggestionList, cardLabel, emptyQuickAddPreviewText]() {
+        QListWidgetItem* item = suggestionList->currentItem();
+        const QString manualAccount = accountEdit->text().trimmed();
+        const QString selectedId = item ? item->data(Qt::UserRole).toString() : QString();
+        if (!selectedId.isEmpty()) {
+            const QString displayName = contactDisplayName(selectedId);
+            cardLabel->setText(QStringLiteral("邀请预览：%1（QQ:%2）\n你好，我是 %3（QQ:%4），方便加个好友吗？")
+                                   .arg(displayName.isEmpty() ? selectedId : displayName,
+                                        selectedId,
+                                        m_currentUserName,
+                                        m_currentUserId));
+            return;
         }
-        QLabel#quickAddTitle {
-            color: #1F2D3D;
-            font-size: 18px;
-            font-weight: 800;
+        if (!manualAccount.isEmpty()) {
+            cardLabel->setText(QStringLiteral("邀请预览：待搜索好友（QQ:%1）\n你好，我是 %2（QQ:%3），方便加个好友吗？")
+                                   .arg(manualAccount, m_currentUserName, m_currentUserId));
+            return;
         }
-        QLabel#quickAddHint {
-            color: #8A99A8;
-            font-size: 12px;
+        if (hasEnabledListRow(suggestionList)) {
+            cardLabel->setText(QStringLiteral("选择推荐对象后，可直接发起申请或复制申请话术、媒体准备和检查清单。"));
+            return;
         }
-        QLabel#quickAddStats {
-            min-height: 24px;
-            border-radius: 12px;
-            background: #EAF7FF;
-            color: #1296F7;
-            font-size: 12px;
-            font-weight: 800;
-            padding: 2px 10px;
-        }
-        QLabel#quickAddPreviewCard {
-            min-height: 54px;
-            border-radius: 14px;
-            background: #F6FBFF;
-            border: 1px solid #DCEFFF;
-            color: #3A4A5A;
-            font-size: 12px;
-            font-weight: 700;
-            padding: 8px 12px;
-        }
-        QLabel#quickAddActionTip {
-            min-height: 28px;
-            border-radius: 14px;
-            background: #FFF8E8;
-            border: 1px solid #FFE1A8;
-            color: #A36800;
-            font-size: 12px;
-            font-weight: 800;
-            padding: 5px 10px;
-        }
-        QLineEdit#quickAddInput {
-            min-height: 42px;
-            border: 1px solid #DDE7F0;
-            border-radius: 18px;
-            padding: 4px 14px;
-            background: #F8FBFE;
-            color: #263238;
-            font-size: 15px;
-        }
-        QLineEdit#quickAddInput:focus {
-            border: 1px solid #12B7F5;
-            background: white;
-        }
-        QListWidget#quickAddSuggestionList {
-            background: #F8FBFE;
-            border: 1px solid #E4EEF6;
-            border-radius: 12px;
-            padding: 4px;
-            outline: none;
-        }
-        QListWidget#quickAddSuggestionList::item {
-            border-radius: 8px;
-            padding: 4px 8px;
-            color: #3A4A5A;
-        }
-        QListWidget#quickAddSuggestionList::item:selected, QListWidget#quickAddSuggestionList::item:hover {
-            background: #EAF7FF;
-            color: #1296F7;
-        }
-        QPushButton {
-            min-height: 36px;
-            border-radius: 18px;
-            padding: 6px 16px;
-            font-weight: 700;
-        }
-        QPushButton#quickSearchBtn {
-            background: #12B7F5;
-            color: white;
-            border: none;
-        }
-        QPushButton#quickSearchBtn:hover {
-            background: #0AA4E5;
-        }
-        QPushButton#quickCancelBtn {
-            background: #EFF5FA;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
-        }
-    )");
+        cardLabel->setText(emptyQuickAddPreviewText());
+    };
+    auto updateQuickAddActionState = [=]() {
+        const QString manualAccount = accountEdit->text().trimmed();
+        const QString selectedId = currentQuickAddSelectionId();
+        const bool hasManualAccount = !manualAccount.isEmpty();
+        const bool hasActionableSuggestion = hasEnabledListRow(suggestionList);
+        const bool hasRequestContext = !selectedId.isEmpty() || hasManualAccount;
+
+        searchBtn->setEnabled(hasManualAccount);
+        searchBtn->setText(QStringLiteral("搜索并申请"));
+        searchBtn->setToolTip(hasManualAccount
+                                  ? QStringLiteral("搜索 QQ:%1 并发起好友申请").arg(manualAccount)
+                                  : QStringLiteral("先输入对方 QQ 号再搜索并申请"));
+        recommendBtn->setEnabled(hasActionableSuggestion);
+        recommendBtn->setText(QStringLiteral("批量申请推荐"));
+        recommendBtn->setToolTip(hasActionableSuggestion
+                                     ? QStringLiteral("向当前推荐列表里的可申请用户批量发起好友申请")
+                                     : QStringLiteral("当前没有可批量申请的推荐对象"));
+        copyPreviewBtn->setEnabled(hasRequestContext || hasActionableSuggestion);
+        copyPreviewBtn->setToolTip(hasRequestContext || hasActionableSuggestion
+                                       ? QStringLiteral("复制当前申请预览卡片")
+                                       : QStringLiteral("输入 QQ 或选择推荐对象后可复制预览"));
+        copyRequestBtn->setEnabled(hasRequestContext || hasActionableSuggestion);
+        copyRequestBtn->setToolTip(hasRequestContext || hasActionableSuggestion
+                                       ? QStringLiteral("复制适合当前 QQ 号或推荐用户的好友申请话术")
+                                       : QStringLiteral("输入 QQ 或选择推荐对象后可复制申请话术"));
+        copySearchCardBtn->setEnabled(hasRequestContext || hasActionableSuggestion);
+        copySearchCardBtn->setToolTip(hasRequestContext || hasActionableSuggestion
+                                          ? QStringLiteral("复制当前好友申请搜索条件和推荐结果")
+                                          : QStringLiteral("当前没有可整理的搜索条件或推荐结果"));
+        copyFriendMediaPackBtn->setEnabled(hasRequestContext);
+        copyFriendMediaPackBtn->setToolTip(hasRequestContext
+                                               ? QStringLiteral("复制加好友后发送图片、视频或文件的准备摘要")
+                                               : QStringLiteral("输入 QQ 或选择推荐对象后可复制好友媒体包"));
+        copyAddChecklistBtn->setEnabled(hasRequestContext || hasActionableSuggestion);
+        copyAddChecklistBtn->setToolTip(hasRequestContext || hasActionableSuggestion
+                                            ? QStringLiteral("复制好友申请前后的操作检查清单")
+                                            : QStringLiteral("当前没有可整理的申请检查清单"));
+        copyMediaGuideBtn->setEnabled(true);
+        copyMediaGuideBtn->setToolTip(QStringLiteral("复制通过好友申请后发送媒体和文件的简短指南"));
+    };
 
     connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
     auto runQuickAdd = [this, accountEdit, hintLabel, &dialog]() {
@@ -4712,7 +11049,15 @@ void MainWindow::onShowQuickAddFriend() {
         }
         return target;
     };
-    connect(accountEdit, &QLineEdit::textChanged, &dialog, [fillSuggestions]() { fillSuggestions(); });
+    connect(accountEdit, &QLineEdit::textChanged, &dialog, [fillSuggestions, updateQuickAddPreview, updateQuickAddActionState]() {
+        fillSuggestions();
+        updateQuickAddPreview();
+        updateQuickAddActionState();
+    });
+    connect(suggestionList, &QListWidget::currentItemChanged, &dialog, [updateQuickAddPreview, updateQuickAddActionState](QListWidgetItem*, QListWidgetItem*) {
+        updateQuickAddPreview();
+        updateQuickAddActionState();
+    });
     connect(copyPreviewBtn, &QPushButton::clicked, &dialog, [this, cardLabel]() {
         QApplication::clipboard()->setText(cardLabel->text());
         ui->statusbar->showMessage("好友申请预览已复制", 2200);
@@ -4783,12 +11128,11 @@ void MainWindow::onShowQuickAddFriend() {
             ui->statusbar->showMessage("暂无可申请的推荐好友", 2200);
             return;
         }
-        if (QMessageBox::question(&dialog,
-                                  "发送推荐好友申请",
-                                  QString("确定向 %1 位推荐用户发送好友申请吗？").arg(addIds.size()),
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage("已取消发送推荐申请", 1600);
+        if (!confirmAction(QStringLiteral("发起推荐好友申请"),
+                           QStringLiteral("确定向 %1 位推荐用户发起好友申请吗？").arg(addIds.size()),
+                           QStringLiteral("已取消发起推荐申请"),
+                           1600,
+                           &dialog)) {
             return;
         }
         QStringList sentNames;
@@ -4806,15 +11150,15 @@ void MainWindow::onShowQuickAddFriend() {
             }
         }
         if (sentNames.isEmpty()) {
-            hintLabel->setText("好友申请发送失败，请检查连接后重试。");
-            ui->statusbar->showMessage("推荐好友申请发送失败", 2600);
+            hintLabel->setText("好友申请发起失败，请检查连接后重试。");
+            ui->statusbar->showMessage("推荐好友申请发起失败", 2600);
             return;
         }
         refreshFriendList();
         fillSuggestions();
-        appendSystemMessage(QString("已向推荐用户发送好友申请：%1").arg(sentNames.join("、")));
+        appendSystemMessage(QString("已向推荐用户发起好友申请：%1").arg(sentNames.join("、")));
         if (!failedNames.isEmpty()) {
-            appendSystemMessage(QString("以下推荐好友申请发送失败：%1").arg(failedNames.join("、")));
+            appendSystemMessage(QString("以下推荐好友申请发起失败：%1").arg(failedNames.join("、")));
         }
         ui->statusbar->showMessage(QString("已发送 %1 个推荐好友申请，等待确认").arg(sentNames.size()), 2500);
         dialog.accept();
@@ -4822,54 +11166,867 @@ void MainWindow::onShowQuickAddFriend() {
     connect(searchBtn, &QPushButton::clicked, &dialog, runQuickAdd);
     connect(accountEdit, &QLineEdit::returnPressed, &dialog, runQuickAdd);
 
+    dialog.setStyleSheet(productDialogStyleSheet());
+    updateQuickAddPreview();
+    updateQuickAddActionState();
     accountEdit->setFocus();
+    accountEdit->selectAll();
+    dialog.exec();
+}
+
+void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("contactWorkspaceDialog"),
+        QStringLiteral("联系人工作区"),
+        QSize(980, 780),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("联系人工作区"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把账号资料、QQ 搜索、联系人入口和常用复制动作收进同一个侧栏工作面。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索联系人 / QQ / 群聊动作"),
+        QStringLiteral("按联系人、群聊、QQ 搜索动作或工作区动作关键词筛选"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一项，再决定进入会话、打开管理器、复制资料，或发起搜索与建群。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释当前联系人、群聊或侧栏入口会如何影响主界面、会话和后续操作。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* listWidget = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    struct ContactWorkspaceRow {
+        QString rowId;
+        QString actionKey;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool accent = false;
+        bool muted = false;
+    };
+
+    auto buildRows = [this]() {
+        QList<ContactWorkspaceRow> rows;
+
+        ContactWorkspaceRow profileRow;
+        profileRow.rowId = QStringLiteral("profile-overview");
+        profileRow.actionKey = QStringLiteral("profile-overview");
+        profileRow.title = QStringLiteral("当前账号 · %1").arg(m_currentUserName);
+        profileRow.detail = QStringLiteral("QQ:%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size());
+        profileRow.preview = QStringLiteral("当前账号\nQQ：%1\n昵称：%2\n好友：%3\n群聊：%4\n当前会话：%5")
+                                 .arg(m_currentUserId,
+                                      m_currentUserName,
+                                      QString::number(m_friendIds.size()),
+                                      QString::number(m_localGroupIds.size()),
+                                      m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+        profileRow.keywords = profileRow.title + profileRow.detail + profileRow.preview + QStringLiteral("账号 资料 头像 联系人 搜索");
+        rows << profileRow;
+
+        ContactWorkspaceRow quickAddRow;
+        quickAddRow.rowId = QStringLiteral("action-quick-add");
+        quickAddRow.actionKey = QStringLiteral("action-quick-add");
+        quickAddRow.title = QStringLiteral("好友申请工作区");
+        quickAddRow.detail = QStringLiteral("打开申请工作区，按 QQ 搜索并申请");
+        quickAddRow.preview = QStringLiteral("好友申请工作区\n可输入 QQ 搜索、复制申请话术、整理申请前后的媒体和检查清单。");
+        quickAddRow.keywords = quickAddRow.title + quickAddRow.detail + quickAddRow.preview + QStringLiteral("好友申请 添加好友 QQ 搜索");
+        quickAddRow.accent = true;
+        rows << quickAddRow;
+
+        ContactWorkspaceRow globalSearchRow;
+        globalSearchRow.rowId = QStringLiteral("action-global-search");
+        globalSearchRow.actionKey = QStringLiteral("action-global-search");
+        globalSearchRow.title = QStringLiteral("综合搜索");
+        globalSearchRow.detail = QStringLiteral("打开综合搜索工作区，统一搜索 QQ、好友和群聊");
+        globalSearchRow.preview = QStringLiteral("综合搜索工作区\n可查看匹配、复制搜索摘要，并继续跳转到好友、群聊和媒体准备动作。");
+        globalSearchRow.keywords = globalSearchRow.title + globalSearchRow.detail + globalSearchRow.preview + QStringLiteral("搜索 好友 群聊");
+        rows << globalSearchRow;
+
+        ContactWorkspaceRow friendManagerRow;
+        friendManagerRow.rowId = QStringLiteral("action-friend-manager");
+        friendManagerRow.actionKey = QStringLiteral("action-friend-manager");
+        friendManagerRow.title = QStringLiteral("好友管理器");
+        friendManagerRow.detail = QStringLiteral("打开好友管理工作区，做备注、邀请、删除和批量复制");
+        friendManagerRow.preview = QStringLiteral("好友管理器\n统一处理好友筛选、备注、入群邀请、删除和媒体准备动作。");
+        friendManagerRow.keywords = friendManagerRow.title + friendManagerRow.detail + friendManagerRow.preview + QStringLiteral("好友 管理 备注");
+        rows << friendManagerRow;
+
+        const QString pendingSearch = ui->contactSearchEdit ? ui->contactSearchEdit->text().trimmed() : QString();
+        if (!pendingSearch.isEmpty()) {
+            ContactWorkspaceRow pendingSearchRow;
+            pendingSearchRow.rowId = QStringLiteral("pending-search");
+            pendingSearchRow.actionKey = QStringLiteral("pending-search");
+            pendingSearchRow.title = QStringLiteral("QQ 搜索框 · %1").arg(pendingSearch);
+            pendingSearchRow.detail = QStringLiteral("立即用当前输入搜索账号，或创建同名群聊");
+            pendingSearchRow.preview = QStringLiteral("搜索框当前内容：%1\n可直接搜索 QQ、打开综合搜索，或创建同名群聊。").arg(pendingSearch);
+            pendingSearchRow.keywords = pendingSearchRow.title + pendingSearchRow.detail + pendingSearchRow.preview + QStringLiteral("搜索 建群");
+            pendingSearchRow.accent = true;
+            rows << pendingSearchRow;
+        }
+
+        const QList<QStandardItem*> visibleItems = m_userListModel ? m_userListModel->findItems(QStringLiteral("*"), Qt::MatchWildcard) : QList<QStandardItem*>();
+        for (QStandardItem* item : visibleItems) {
+            if (!item) {
+                continue;
+            }
+            const QString targetId = item->data(Qt::UserRole + 1).toString();
+            if (targetId.isEmpty()) {
+                continue;
+            }
+
+            ContactWorkspaceRow row;
+            row.rowId = targetId;
+            row.actionKey = QStringLiteral("open-target");
+            row.title = contactDisplayName(targetId);
+            if (targetId.startsWith(QStringLiteral("search_add:"))) {
+                const QString account = targetId.mid(QStringLiteral("search_add:").size());
+                row.title = QStringLiteral("搜索并申请 · %1").arg(account);
+                row.detail = QStringLiteral("对这个 QQ 发起搜索并申请");
+                row.preview = QStringLiteral("搜索入口\nQQ：%1\n动作：搜索在线账号并准备发起好友申请").arg(account);
+                row.accent = true;
+            } else if (targetId.startsWith(QStringLiteral("create_group:"))) {
+                const QString groupName = targetId.mid(QStringLiteral("create_group:").size()).trimmed();
+                row.title = QStringLiteral("创建群聊 · %1").arg(groupName.isEmpty() ? QStringLiteral("我的群聊") : groupName);
+                row.detail = QStringLiteral("按当前搜索词创建本地群聊");
+                row.preview = QStringLiteral("建群入口\n群名：%1\n动作：创建群聊并切到该群继续邀请好友和发消息。")
+                                  .arg(groupName.isEmpty() ? QStringLiteral("我的群聊") : groupName);
+                row.accent = true;
+            } else if (m_localGroupIds.contains(targetId)) {
+                const QString groupName = m_localGroupNames.value(targetId, row.title);
+                row.title = QStringLiteral("群聊 · %1").arg(groupName);
+                row.detail = QStringLiteral("群号:%1 · 成员 %2").arg(targetId).arg(m_localGroupMembers.value(targetId).size());
+                row.preview = QStringLiteral("本地群聊\n群名：%1\n群号：%2\n成员：%3\n公告：%4")
+                                  .arg(groupName,
+                                       targetId,
+                                       QString::number(m_localGroupMembers.value(targetId).size()),
+                                       m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告")));
+            } else {
+                const bool online = isContactOnline(targetId);
+                const bool isFriend = m_friendIds.contains(targetId);
+                const bool pending = m_pendingOutgoingFriendRequests.contains(targetId);
+                row.detail = QStringLiteral("QQ:%1 · %2 · %3")
+                                 .arg(targetId,
+                                      online ? QStringLiteral("在线") : QStringLiteral("离线"),
+                                      isFriend ? QStringLiteral("好友")
+                                               : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人")));
+                row.preview = QStringLiteral("联系人\nQQ：%1\n昵称：%2\n状态：%3\n关系：%4\n当前可继续：打开私聊、复制名片、查看加密状态或发起好友动作。")
+                                  .arg(targetId,
+                                       contactDisplayName(targetId),
+                                       online ? QStringLiteral("在线") : QStringLiteral("离线"),
+                                       isFriend ? QStringLiteral("好友")
+                                                : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人")));
+                row.accent = online;
+                row.muted = !online;
+            }
+            row.keywords = row.rowId + row.title + row.detail + row.preview;
+            rows << row;
+        }
+
+        return rows;
+    };
+
+    auto rows = buildRows();
+    auto emptyPreviewText = [searchEdit]() {
+        const QString filter = searchEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的联系人入口。可从这里继续进入联系人、群聊、搜索和好友管理入口。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到联系人入口。\n试试 QQ、昵称、“群聊”、“申请”或“管理”这些关键词。").arg(filter);
+    };
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const ContactWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.rowId);
+            item->setData(Qt::UserRole + 1, row.actionKey);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (row.accent) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.muted) {
+                item->setForeground(QColor(100, 116, 139));
+            }
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                listWidget,
+                QStringLiteral("没有匹配的联系人入口"),
+                QStringLiteral("试试 QQ、昵称、“群聊”、“申请”或“管理”这些关键词。"),
+                emptyPreviewText());
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+        selectPreferredListRow(listWidget, 0);
+    };
+
+    auto selectedRow = [=, &rows]() -> ContactWorkspaceRow* {
+        QListWidgetItem* currentItem = listWidget->currentItem();
+        if (!currentItem) {
+            return nullptr;
+        }
+        const QString rowId = currentItem->data(Qt::UserRole).toString();
+        const QString actionKey = currentItem->data(Qt::UserRole + 1).toString();
+        for (ContactWorkspaceRow& row : rows) {
+            if (row.rowId == rowId && row.actionKey == actionKey) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePreview = [=, &rows]() {
+        ContactWorkspaceRow* row = selectedRow();
+        previewLabel->setText(row ? row->preview
+                                  : (firstEnabledListRow(listWidget) >= 0
+                                         ? QStringLiteral("这里会解释当前联系人、群聊或侧栏入口会如何影响主界面、会话和后续操作。")
+                                         : emptyPreviewText()));
+    };
+
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("执行当前动作"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("进入当前联系人、群聊或工作区入口"), QStyle::SP_ArrowForward);
+    QPushButton* searchBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("搜索当前QQ"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("把当前选中 QQ 带入搜索或申请流程"), QStyle::SP_FileDialogContentsView);
+    QPushButton* copyCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制资料卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前账号、联系人或群聊摘要"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* copyStatusBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区状态"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前侧栏工作区摘要"), QStyle::SP_MessageBoxInformation);
+    QPushButton* friendManagerBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("打开好友管理"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("跳转到好友管理器"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭联系人工作区"), QStyle::SP_DialogCloseButton);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("主动作"),
+        QStringLiteral("统一打开联系人、群聊或搜索入口，减少左侧列表和右键之间的来回切换。"),
+        {openBtn, searchBtn, friendManagerBtn},
+        closeBtn);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("复制与记录"),
+        QStringLiteral("把联系人、群聊和侧栏状态整理成可复制的摘要，便于反馈、留档和继续处理。"),
+        {copyCardBtn, copyStatusBtn});
+
+    auto contactStatusText = [=, &rows]() {
+        QStringList lines;
+        lines << QStringLiteral("联系人工作区状态");
+        lines << QStringLiteral("当前账号:%1 (%2)").arg(m_currentUserName, m_currentUserId);
+        lines << QStringLiteral("好友:%1").arg(m_friendIds.size());
+        lines << QStringLiteral("群聊:%1").arg(m_localGroupIds.size());
+        lines << QStringLiteral("搜索框:%1").arg(ui->contactSearchEdit->text().trimmed().isEmpty() ? QStringLiteral("空") : ui->contactSearchEdit->text().trimmed());
+        ContactWorkspaceRow* row = selectedRow();
+        if (row) {
+            lines << QStringLiteral("当前选中:%1").arg(row->title);
+            lines << QStringLiteral("当前详情:%1").arg(row->detail);
+        }
+        return lines.join(QLatin1Char('\n'));
+    };
+    auto contactClipboardText = [=, &rows]() {
+        ContactWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return contactStatusText();
+        }
+        return row->preview.trimmed().isEmpty() ? contactStatusText() : row->preview;
+    };
+
+    auto updateActionState = [=, &rows]() {
+        ContactWorkspaceRow* row = selectedRow();
+        const bool hasSelection = row != nullptr;
+        const bool hasActionableRow = hasEnabledListRow(listWidget);
+        openBtn->setEnabled(hasSelection);
+        friendManagerBtn->setEnabled(true);
+        friendManagerBtn->setToolTip(QStringLiteral("直接跳转到好友管理器"));
+        if (!hasSelection) {
+            openBtn->setText(QStringLiteral("执行当前动作"));
+            openBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("先选择一个联系人、群聊或入口动作后继续进入会话或工作区")
+                                    : QStringLiteral("当前没有可执行的联系人或群聊入口"));
+            searchBtn->setEnabled(false);
+            searchBtn->setToolTip(QStringLiteral("先选择一个可搜索的 QQ，或直接进入好友申请工作区"));
+            copyCardBtn->setEnabled(hasActionableRow);
+            copyCardBtn->setToolTip(hasActionableRow
+                                        ? QStringLiteral("复制当前联系人工作区总览")
+                                        : QStringLiteral("当前没有可复制的联系人摘要"));
+            copyStatusBtn->setEnabled(true);
+            copyStatusBtn->setToolTip(QStringLiteral("复制联系人工作区当前状态"));
+            return;
+        }
+        if (row->rowId == QLatin1String("profile-overview")) {
+            openBtn->setText(QStringLiteral("打开账号工作区"));
+        } else if (row->rowId == QLatin1String("action-quick-add")) {
+            openBtn->setText(QStringLiteral("好友申请工作区"));
+        } else if (row->rowId == QLatin1String("action-global-search")) {
+            openBtn->setText(QStringLiteral("打开综合搜索"));
+        } else if (row->rowId == QLatin1String("action-friend-manager")) {
+            openBtn->setText(QStringLiteral("打开好友管理"));
+        } else if (row->rowId == QLatin1String("pending-search") || row->rowId.startsWith(QStringLiteral("search_add:"))) {
+            openBtn->setText(QStringLiteral("搜索并申请"));
+        } else if (row->rowId.startsWith(QStringLiteral("create_group:"))) {
+            openBtn->setText(QStringLiteral("创建群聊"));
+        } else if (m_localGroupIds.contains(row->rowId)) {
+            openBtn->setText(QStringLiteral("进入群聊"));
+        } else {
+            openBtn->setText(QStringLiteral("打开私聊"));
+        }
+        openBtn->setToolTip(row->detail);
+        const bool searchCapable = row->rowId.startsWith(QStringLiteral("search_add:"))
+            || (!m_localGroupIds.contains(row->rowId)
+                && row->actionKey == QStringLiteral("open-target")
+                && !row->rowId.startsWith(QStringLiteral("create_group:"))
+                && row->rowId != QStringLiteral("profile-overview")
+                && !row->rowId.startsWith(QStringLiteral("action-"))
+                && row->rowId != QStringLiteral("pending-search"));
+        searchBtn->setEnabled(searchCapable || row->rowId == QStringLiteral("pending-search"));
+        searchBtn->setToolTip(row->rowId == QStringLiteral("pending-search")
+                                  ? QStringLiteral("用当前搜索框内容发起搜索和好友申请")
+                                  : (searchCapable
+                                         ? QStringLiteral("把当前选中 QQ 带入搜索或申请流程")
+                                         : QStringLiteral("当前项不支持直接搜索 QQ")));
+        copyCardBtn->setEnabled(true);
+        copyCardBtn->setToolTip(QStringLiteral("复制当前选中联系人、群聊或入口卡"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制联系人工作区当前状态"));
+    };
+
+    auto runOpenSelected = [=, &rows, this, &dialog]() {
+        ContactWorkspaceRow* row = selectedRow();
+        if (!row) {
+            ui->statusbar->showMessage(QStringLiteral("请先选择联系人或工作区入口"), 1800);
+            return;
+        }
+        if (row->rowId == QStringLiteral("profile-overview")) {
+            dialog.accept();
+            showProfileWorkspace();
+            return;
+        }
+        if (row->rowId == QStringLiteral("action-quick-add")) {
+            dialog.accept();
+            onShowQuickAddFriend();
+            return;
+        }
+        if (row->rowId == QStringLiteral("action-global-search")) {
+            dialog.accept();
+            onShowGlobalSearch();
+            return;
+        }
+        if (row->rowId == QStringLiteral("action-friend-manager")) {
+            dialog.accept();
+            onShowFriendManager();
+            return;
+        }
+        if (row->rowId == QStringLiteral("pending-search")) {
+            const QString text = ui->contactSearchEdit->text().trimmed();
+            if (text.isEmpty()) {
+                ui->statusbar->showMessage(QStringLiteral("当前搜索框为空"), 1600);
+                return;
+            }
+            dialog.accept();
+            searchAndAddAccount(text, this);
+            return;
+        }
+        dialog.accept();
+        openUserTargetById(row->rowId);
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [runOpenSelected](QListWidgetItem*) {
+        runOpenSelected();
+    });
+    connect(openBtn, &QPushButton::clicked, &dialog, runOpenSelected);
+    connect(friendManagerBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        dialog.accept();
+        onShowFriendManager();
+    });
+    connect(searchBtn, &QPushButton::clicked, &dialog, [this, &rows, &dialog, selectedRow]() {
+        ContactWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return;
+        }
+        QString account;
+        if (row->rowId == QStringLiteral("pending-search")) {
+            account = ui->contactSearchEdit->text().trimmed();
+        } else if (row->rowId.startsWith(QStringLiteral("search_add:"))) {
+            account = row->rowId.mid(QStringLiteral("search_add:").size());
+        } else if (!m_localGroupIds.contains(row->rowId)
+                   && row->actionKey == QStringLiteral("open-target")
+                   && !row->rowId.startsWith(QStringLiteral("create_group:"))
+                   && !row->rowId.startsWith(QStringLiteral("action-"))
+                   && row->rowId != QStringLiteral("profile-overview")) {
+            account = row->rowId;
+        }
+        if (account.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("当前项不支持直接搜索 QQ"), 1800);
+            return;
+        }
+        dialog.accept();
+        searchAndAddAccount(account, this);
+    });
+    connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        copyTextWithStatus(contactClipboardText(), QStringLiteral("联系人工作区资料卡已复制"), 2200);
+    });
+    connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        copyTextWithStatus(contactStatusText(), QStringLiteral("联系人工作区状态已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    const QString initialSearchText = initialFilter.trimmed();
+    if (!initialSearchText.isEmpty()) {
+        searchEdit->setText(initialSearchText);
+    }
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(QStringLiteral("当前账号：%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size()));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
+    if (!initialSearchText.isEmpty()) {
+        searchEdit->selectAll();
+    }
+    dialog.exec();
+}
+
+void MainWindow::onShowNotificationWorkspace() {
+    QDialog dialog(this);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("notificationWorkspaceDialog"),
+        QStringLiteral("通知控制台"),
+        QSize(960, 760),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("通知控制台"),
+        QStringLiteral("managerSubTitle"),
+        QStringLiteral("把好友通知、群通知、批量处理和通知摘要统一收进同一个稳定工作面。"),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索通知动作"),
+        QStringLiteral("按好友通知、群通知、批量处理或通知摘要关键词筛选"),
+        QStringLiteral("managerList"),
+        true,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先选中一项，再决定进入好友通知、群通知，或复制当前通知控制台摘要与处理计划。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("这里会解释当前通知动作会如何影响好友申请、群聊通知和批量处理流程。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    moveWorkspaceShellStatsToHeader(shell);
+
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* listWidget = shell.listWidget;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* previewLabel = shell.previewLabel;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+
+    struct NotificationWorkspaceRow {
+        QString id;
+        QString title;
+        QString detail;
+        QString preview;
+        QString keywords;
+        bool accent = false;
+        bool dangerous = false;
+    };
+
+    auto notificationSummaryText = [this]() {
+        const FriendNoticeUiState friendState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+        const GroupNoticeUiState groupState = m_groupManager.noticeUiState(m_localGroupIds.size());
+        const int publicGroupMembers = publicGroupNoticeMemberIds().size();
+        QStringList lines;
+        lines << QStringLiteral("通知控制台摘要");
+        lines << QStringLiteral("我的QQ:%1 · 昵称:%2").arg(m_currentUserId, m_currentUserName);
+        lines << QStringLiteral("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室")
+                                                                                  : contactDisplayName(m_privateChatTarget));
+        lines << QStringLiteral("好友申请:%1 · 已有好友:%2").arg(m_pendingFriendRequests.size()).arg(m_friendIds.size());
+        lines << QStringLiteral("群通知入口:%1 · 公共聊天室在线:%2").arg(m_localGroupIds.size() + 1).arg(publicGroupMembers);
+        lines << QStringLiteral("好友通知按钮:%1").arg(friendState.text);
+        lines << QStringLiteral("群通知按钮:%1").arg(groupState.text);
+        return lines.join(QLatin1Char('\n'));
+    };
+
+    auto notificationFriendTargets = [this]() {
+        QList<FriendManagerVisibleTargetSummary> targets;
+        QStringList seenIds;
+        for (const QString& pendingId : m_pendingFriendRequests) {
+            const QString trimmedId = pendingId.trimmed();
+            if (trimmedId.isEmpty() || seenIds.contains(trimmedId)) {
+                continue;
+            }
+            seenIds << trimmedId;
+            targets << friendNoticeVisibleTarget(trimmedId);
+        }
+        return targets;
+    };
+    auto notificationFriendPlanText = [this, notificationFriendTargets]() {
+        const GlobalSearchSelectionCopyState state = FriendManager::friendNoticeBatchPlanState(
+            m_currentUserId,
+            m_currentUserName,
+            m_pendingFriendRequests.size(),
+            QString(),
+            notificationFriendTargets());
+        return state.text;
+    };
+    auto notificationGroupTargets = [this]() {
+        QList<GroupNoticeBatchTargetInput> targets;
+
+        GroupNoticeBatchTargetInput publicTarget;
+        publicTarget.entryId = QString();
+        publicTarget.groupName = QStringLiteral("公共聊天室");
+        publicTarget.groupNumber = QStringLiteral("公共聊天室");
+        publicTarget.memberCount = publicGroupNoticeMemberIds().size();
+        publicTarget.onlineCount = publicTarget.memberCount;
+        targets << publicTarget;
+
+        for (const QString& groupId : m_localGroupIds) {
+            GroupNoticeBatchTargetInput target;
+            target.entryId = groupId;
+            target.groupName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
+            target.groupNumber = groupId.mid(QStringLiteral("local_group_").size());
+            const QStringList members = groupNoticeMemberIds(groupId);
+            int groupOnline = 0;
+            for (const QString& memberId : members) {
+                if (memberId == m_currentUserId || isContactOnline(memberId)) {
+                    ++groupOnline;
+                }
+            }
+            target.memberCount = qMax(1, members.size());
+            target.onlineCount = groupOnline;
+            targets << target;
+        }
+        return targets;
+    };
+    auto notificationGroupPlanText = [this, notificationGroupTargets]() {
+        const GroupNoticeBatchPlanState state = NotificationPanelManager::groupNoticeBatchPlanState(
+            QString(),
+            notificationGroupTargets(),
+            m_currentUserName,
+            m_currentUserId);
+        return state.text;
+    };
+
+    auto buildRows = [this, notificationSummaryText, notificationFriendPlanText, notificationGroupPlanText]() {
+        QList<NotificationWorkspaceRow> rows;
+        const FriendNoticeUiState friendState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+        const GroupNoticeUiState groupState = m_groupManager.noticeUiState(m_localGroupIds.size());
+
+        rows << NotificationWorkspaceRow{
+            QStringLiteral("notice-overview"),
+            QStringLiteral("通知总览"),
+            QStringLiteral("好友申请 %1 · 群通知入口 %2").arg(m_pendingFriendRequests.size()).arg(m_localGroupIds.size() + 1),
+            notificationSummaryText(),
+            QStringLiteral("通知 总览 控制台 好友 群聊"),
+            true,
+            false};
+        rows << NotificationWorkspaceRow{
+            QStringLiteral("notice-friend"),
+            QStringLiteral("好友通知"),
+            friendState.toolTip,
+            QStringLiteral("好友通知工作区\n集中处理待通过好友申请、批量回复、申请话术和媒体准备。\n\n%1")
+                .arg(notificationFriendPlanText()),
+            QStringLiteral("好友通知 好友申请 批量回复"),
+            m_pendingFriendRequests.size() > 0,
+            false};
+        rows << NotificationWorkspaceRow{
+            QStringLiteral("notice-group"),
+            QStringLiteral("群通知"),
+            groupState.toolTip,
+            QStringLiteral("群通知工作区\n集中处理群入口、群公告、成员复制、媒体包和批量计划。\n\n%1")
+                .arg(notificationGroupPlanText()),
+            QStringLiteral("群通知 群聊 公告 成员"),
+            false,
+            false};
+        rows << NotificationWorkspaceRow{
+            QStringLiteral("notice-copy-summary"),
+            QStringLiteral("复制通知摘要"),
+            QStringLiteral("复制好友申请、群聊入口和当前通知按钮状态"),
+            QStringLiteral("复制通知摘要\n适合留档、反馈当前待处理量和入口状态。"),
+            QStringLiteral("复制 通知 摘要"),
+            false,
+            false};
+        rows << NotificationWorkspaceRow{
+            QStringLiteral("notice-copy-friend-plan"),
+            QStringLiteral("复制好友处理计划"),
+            QStringLiteral("汇总当前好友申请和通过后的媒体准备"),
+            QStringLiteral("好友处理计划\n把当前待处理好友申请、回复流程和媒体发送准备整理成一份摘要。"),
+            QStringLiteral("好友 处理 计划 媒体"),
+            false,
+            false};
+        rows << NotificationWorkspaceRow{
+            QStringLiteral("notice-copy-group-plan"),
+            QStringLiteral("复制群处理计划"),
+            QStringLiteral("汇总当前群入口、成员复制和群内媒体计划"),
+            QStringLiteral("群处理计划\n把当前群入口、成员同步和群内媒体发送准备整理成一份摘要。"),
+            QStringLiteral("群 处理 计划 成员 媒体"),
+            false,
+            false};
+
+        return rows;
+    };
+
+    auto rows = buildRows();
+    auto emptyPreviewText = [searchEdit]() {
+        const QString filter = searchEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有可见的通知动作。可从这里继续进入好友通知、群通知或复制处理计划。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到通知动作。\n试试“好友通知”、“群通知”、“计划”或“摘要”这些关键词。").arg(filter);
+    };
+
+    auto fillList = [=, &rows]() {
+        const QString filter = searchEdit->text().trimmed();
+        listWidget->clear();
+        int visibleCount = 0;
+        for (const NotificationWorkspaceRow& row : rows) {
+            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+            item->setData(Qt::UserRole, row.id);
+            item->setToolTip(row.preview);
+            item->setSizeHint(QSize(0, 78));
+            if (row.accent) {
+                item->setForeground(QColor(29, 78, 216));
+            } else if (row.dangerous) {
+                item->setForeground(QColor(180, 35, 24));
+            }
+            listWidget->addItem(item);
+            ++visibleCount;
+        }
+        if (visibleCount == 0) {
+            addWorkspaceEmptyStateItem(
+                listWidget,
+                QStringLiteral("没有匹配的通知动作"),
+                QStringLiteral("试试“好友通知”、“群通知”、“计划”或“摘要”这些关键词。"),
+                emptyPreviewText());
+        }
+        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+        selectPreferredListRow(listWidget, 0);
+    };
+
+    auto selectedRow = [=, &rows]() -> NotificationWorkspaceRow* {
+        QListWidgetItem* currentItem = listWidget->currentItem();
+        if (!currentItem) {
+            return nullptr;
+        }
+        const QString id = currentItem->data(Qt::UserRole).toString();
+        for (NotificationWorkspaceRow& row : rows) {
+            if (row.id == id) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePreview = [=, &rows]() {
+        NotificationWorkspaceRow* row = selectedRow();
+        previewLabel->setText(row ? row->preview
+                                  : (firstEnabledListRow(listWidget) >= 0
+                                         ? QStringLiteral("这里会解释当前通知动作会如何影响好友申请、群聊通知和批量处理流程。")
+                                         : emptyPreviewText()));
+    };
+    auto rowClipboardText = [=, &rows]() {
+        NotificationWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return notificationSummaryText();
+        }
+        if (row->id == QLatin1String("notice-copy-friend-plan")) {
+            return notificationFriendPlanText();
+        }
+        if (row->id == QLatin1String("notice-copy-group-plan")) {
+            return notificationGroupPlanText();
+        }
+        if (row->id == QLatin1String("notice-friend")) {
+            return QStringLiteral("%1\n\n%2").arg(notificationSummaryText(), notificationFriendPlanText());
+        }
+        if (row->id == QLatin1String("notice-group")) {
+            return QStringLiteral("%1\n\n%2").arg(notificationSummaryText(), notificationGroupPlanText());
+        }
+        return row->preview.trimmed().isEmpty() ? notificationSummaryText() : row->preview;
+    };
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("执行当前动作"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("执行当前通知动作"), QStyle::SP_ArrowForward);
+    QPushButton* copyCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制通知卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前通知摘要"), QStyle::SP_DialogSaveButton);
+    QPushButton* copyStatusBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区状态"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制通知控制台当前状态"), QStyle::SP_MessageBoxInformation);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭通知控制台"), QStyle::SP_DialogCloseButton);
+
+    auto updateActionState = [=, &rows]() {
+        NotificationWorkspaceRow* row = selectedRow();
+        const bool hasActionableRow = hasEnabledListRow(listWidget);
+        if (!row) {
+            openBtn->setEnabled(false);
+            openBtn->setText(QStringLiteral("执行当前动作"));
+            openBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("先选择一个通知动作后继续进入好友通知、群通知或复制处理计划")
+                                    : QStringLiteral("当前没有可执行的通知动作"));
+            copyCardBtn->setEnabled(hasActionableRow);
+            copyCardBtn->setToolTip(hasActionableRow
+                                        ? QStringLiteral("复制当前通知控制台总览")
+                                        : QStringLiteral("当前没有可复制的通知卡"));
+            copyStatusBtn->setEnabled(true);
+            copyStatusBtn->setToolTip(QStringLiteral("复制通知控制台当前状态"));
+            return;
+        }
+        openBtn->setEnabled(true);
+        if (row->id == QLatin1String("notice-friend")) {
+            openBtn->setText(QStringLiteral("进入好友通知"));
+            openBtn->setToolTip(QStringLiteral("打开好友通知工作区"));
+        } else if (row->id == QLatin1String("notice-group")) {
+            openBtn->setText(QStringLiteral("进入群通知"));
+            openBtn->setToolTip(QStringLiteral("打开群通知工作区"));
+        } else if (row->id == QLatin1String("notice-copy-friend-plan")) {
+            openBtn->setText(QStringLiteral("复制好友计划"));
+            openBtn->setToolTip(QStringLiteral("复制好友通知处理计划"));
+        } else if (row->id == QLatin1String("notice-copy-group-plan")) {
+            openBtn->setText(QStringLiteral("复制群计划"));
+            openBtn->setToolTip(QStringLiteral("复制群通知处理计划"));
+        } else {
+            openBtn->setText(QStringLiteral("复制通知摘要"));
+            openBtn->setToolTip(QStringLiteral("复制通知控制台摘要"));
+        }
+        copyCardBtn->setEnabled(true);
+        copyCardBtn->setToolTip(QStringLiteral("复制当前选中通知卡"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制通知控制台当前状态"));
+    };
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("通知动作"),
+        QStringLiteral("统一进入好友通知、群通知和批量处理摘要，减少入口来回切换。"),
+        {openBtn, copyCardBtn, copyStatusBtn},
+        closeBtn);
+
+    auto runSelectedCommand = [=, &rows, this, &dialog]() {
+        NotificationWorkspaceRow* row = selectedRow();
+        if (!row) {
+            return;
+        }
+        const QString commandId = row->id;
+        if (commandId == QLatin1String("notice-friend")) {
+            dialog.accept();
+            onShowFriendNotifications();
+            return;
+        }
+        if (commandId == QLatin1String("notice-group")) {
+            dialog.accept();
+            onShowGroupNotifications();
+            return;
+        }
+        if (commandId == QLatin1String("notice-overview")
+            || commandId == QLatin1String("notice-copy-summary")) {
+            copyTextWithStatus(notificationSummaryText(), QStringLiteral("通知摘要已复制"), 2200);
+            return;
+        }
+        if (commandId == QLatin1String("notice-copy-friend-plan")) {
+            copyTextWithStatus(notificationFriendPlanText(), QStringLiteral("好友处理计划已复制"), 2200);
+            return;
+        }
+        if (commandId == QLatin1String("notice-copy-group-plan")) {
+            copyTextWithStatus(notificationGroupPlanText(), QStringLiteral("群处理计划已复制"), 2200);
+            return;
+        }
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
+        rows = buildRows();
+        fillList();
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+        updatePreview();
+        updateActionState();
+    });
+    connect(listWidget, &QListWidget::itemDoubleClicked, &dialog, [runSelectedCommand](QListWidgetItem*) {
+        runSelectedCommand();
+    });
+    connect(openBtn, &QPushButton::clicked, &dialog, runSelectedCommand);
+    connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        copyTextWithStatus(rowClipboardText(), QStringLiteral("通知卡已复制"), 2200);
+    });
+    connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
+        QStringList lines;
+        lines << notificationSummaryText();
+        lines << QString();
+        lines << notificationFriendPlanText();
+        lines << QString();
+        lines << notificationGroupPlanText();
+        copyTextWithStatus(lines.join(QLatin1Char('\n')), QStringLiteral("通知控制台状态已复制"), 2200);
+    });
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    rows = buildRows();
+    fillList();
+    updatePreview();
+    updateActionState();
+    subTitleLabel->setText(QStringLiteral("好友申请 %1 · 群通知入口 %2 · 当前会话 %3")
+                               .arg(m_pendingFriendRequests.size())
+                               .arg(m_localGroupIds.size() + 1)
+                               .arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室")
+                                                                  : contactDisplayName(m_privateChatTarget)));
+    dialog.setStyleSheet(productDialogStyleSheet());
+    searchEdit->setFocus();
     dialog.exec();
 }
 
 void MainWindow::onShowFriendManager() {
     QDialog dialog(this);
-    dialog.setObjectName("friendManagerDialog");
-    dialog.setWindowTitle("好友管理器");
-    dialog.setFixedSize(900, 700);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("friendManagerDialog"),
+        QStringLiteral("好友管理器"),
+        QSize(900, 700),
+        QStringLiteral("managerTitle"),
+        QStringLiteral("好友管理器"),
+        QStringLiteral("managerSubTitle"),
+        QString("当前 QQ：%1 · 好友 %2 人").arg(m_currentUserId).arg(m_friendIds.size()),
+        QStringLiteral("managerSearch"),
+        QStringLiteral("搜索好友 QQ 号 / 昵称"),
+        QStringLiteral("按 QQ 号或昵称筛选好友；无结果时可直接搜索并申请。"),
+        QStringLiteral("managerList"),
+        false,
+        QStringLiteral("managerOperationGuide"),
+        QStringLiteral("先筛选好友，再决定发消息、加备注、邀入群或发起新的好友申请。"),
+        QStringLiteral("managerStats"),
+        QStringLiteral("managerSelectionPreview"),
+        QStringLiteral("选择好友后可直接发消息，也能整理名片、邀请语和群聊操作。"),
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(26, 18, 26, 16);
+    shell.bodyLayout->setContentsMargins(24, 22, 24, 22);
+    shell.bodyLayout->setSpacing(12);
 
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    QLineEdit* searchEdit = shell.searchEdit;
+    QListWidget* friendList = shell.listWidget;
+    QLabel* subTitleLabel = shell.subTitleLabel;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* selectionPreviewLabel = shell.previewLabel;
+    QLabel* operationGuideLabel = shell.hintLabel;
+    const QString friendManagerEmptyPreviewText = QStringLiteral("当前没有可见的好友入口。可直接发起好友申请，或稍后刷新好友列表。");
+    const QString friendManagerNoSelectionPreviewText =
+        m_friendManager.managerSelectionPreviewUiState(QString(), QString(), false, false).text;
 
-    QFrame* header = new QFrame(&dialog);
-    header->setObjectName("managerHeader");
-    header->setFixedHeight(132);
-    QVBoxLayout* headerLayout = new QVBoxLayout(header);
-    headerLayout->setContentsMargins(26, 18, 26, 16);
-    QLabel* titleLabel = new QLabel("好友管理器", header);
-    titleLabel->setObjectName("managerTitle");
-    QLabel* subTitleLabel = new QLabel(QString("当前 QQ：%1 · 好友 %2 人").arg(m_currentUserId).arg(m_friendIds.size()), header);
-    subTitleLabel->setObjectName("managerSubTitle");
-    QLabel* statsLabel = new QLabel(header);
-    statsLabel->setObjectName("managerStats");
-    headerLayout->addWidget(titleLabel);
-    headerLayout->addWidget(subTitleLabel);
-    headerLayout->addWidget(statsLabel);
-    layout->addWidget(header);
-
-    QFrame* body = new QFrame(&dialog);
-    body->setObjectName("managerBody");
-    QVBoxLayout* bodyLayout = new QVBoxLayout(body);
-    bodyLayout->setContentsMargins(24, 22, 24, 22);
-    bodyLayout->setSpacing(12);
-
-    QLineEdit* searchEdit = new QLineEdit(body);
-    searchEdit->setObjectName("managerSearch");
-    searchEdit->setPlaceholderText("搜索好友 QQ 号 / 昵称");
-    searchEdit->setClearButtonEnabled(true);
-    searchEdit->setToolTip("按 QQ 号或昵称筛选好友；无结果时可用搜索申请发送好友申请");
-    bodyLayout->addWidget(searchEdit);
-
-    QListWidget* friendList = new QListWidget(body);
-    friendList->setObjectName("managerList");
-    bodyLayout->addWidget(friendList, 1);
-
-    auto fillList = [this, friendList, subTitleLabel, statsLabel](const QString& filter = QString()) {
+    auto fillList = [this, friendList, subTitleLabel, statsLabel, friendManagerEmptyPreviewText](const QString& filter = QString()) {
         friendList->clear();
         const FriendManagerListRenderUiState listState = m_friendManager.managerListRenderUiState(
             m_currentUserId,
@@ -4887,191 +12044,73 @@ void MainWindow::onShowFriendManager() {
             }
             friendList->addItem(item);
         }
+        if (listState.entries.isEmpty()) {
+            addWorkspaceEmptyStateItem(
+                friendList,
+                QStringLiteral("没有匹配的好友入口"),
+                QStringLiteral("试试 QQ、昵称，或直接搜索并申请。"),
+                filter.trimmed().isEmpty()
+                    ? friendManagerEmptyPreviewText
+                    : QStringLiteral("当前筛选词“%1”没有匹配到好友入口。\n试试 QQ、昵称，或直接搜索并申请。").arg(filter.trimmed()));
+        } else {
+            selectPreferredListRow(friendList, 0);
+        }
         subTitleLabel->setText(listState.summary.subTitle);
         statsLabel->setText(listState.summary.statsText);
     };
     fillList();
-
-    QLabel* selectionPreviewLabel = new QLabel("选择好友后可复制名片、邀请语或邀入群", body);
-    selectionPreviewLabel->setObjectName("managerSelectionPreview");
-    bodyLayout->addWidget(selectionPreviewLabel);
-
-    QLabel* operationGuideLabel = new QLabel("可在列表内双击私聊；搜索无结果时可直接按“搜索申请”发送 QQ 好友申请。", body);
-    operationGuideLabel->setObjectName("managerOperationGuide");
     operationGuideLabel->setWordWrap(true);
-    bodyLayout->addWidget(operationGuideLabel);
 
-    QHBoxLayout* buttonLayout = new QHBoxLayout;
-    QPushButton* addBtn = new QPushButton("发申请", body);
-    addBtn->setObjectName("managerPrimaryBtn");
-    addBtn->setToolTip("打开好友申请窗口，输入 QQ 号并发送申请");
-    QPushButton* searchAddBtn = new QPushButton("搜索申请", body);
-    searchAddBtn->setObjectName("managerPrimaryBtn");
-    searchAddBtn->setToolTip("使用当前搜索框内容搜索 QQ 并发送好友申请");
-    QPushButton* clearSearchBtn = new QPushButton("清空搜索", body);
-    clearSearchBtn->setObjectName("managerSecondaryBtn");
-    clearSearchBtn->setToolTip("清空筛选条件并显示全部好友");
-    QPushButton* chatBtn = new QPushButton("发消息", body);
-    chatBtn->setObjectName("managerSecondaryBtn");
-    chatBtn->setToolTip("打开当前选中好友的私聊会话");
-    QPushButton* copyBtn = new QPushButton("复制QQ", body);
-    copyBtn->setObjectName("managerSecondaryBtn");
-    copyBtn->setToolTip("复制当前选中好友的 QQ 号");
-    QPushButton* copyAllBtn = new QPushButton("复制可见列表", body);
-    copyAllBtn->setObjectName("managerSecondaryBtn");
-    copyAllBtn->setToolTip("复制当前筛选出的好友列表");
-    QPushButton* profileBtn = new QPushButton("复制名片", body);
-    profileBtn->setObjectName("managerSecondaryBtn");
-    profileBtn->setToolTip("复制当前选中好友的 QQ、昵称和在线状态");
-    QPushButton* inviteTextBtn = new QPushButton("复制邀请语", body);
-    inviteTextBtn->setObjectName("managerSecondaryBtn");
-    inviteTextBtn->setToolTip("复制一段邀请当前好友加入群聊的话术");
-    QPushButton* copyStatsBtn = new QPushButton("复制好友统计", body);
-    copyStatsBtn->setObjectName("managerSecondaryBtn");
-    copyStatsBtn->setToolTip("复制好友数量、在线状态和群聊统计");
-    QPushButton* copyOnlineBtn = new QPushButton("复制在线", body);
-    copyOnlineBtn->setObjectName("managerSecondaryBtn");
-    copyOnlineBtn->setToolTip("复制当前可见列表中的在线好友");
-    QPushButton* copySearchCardBtn = new QPushButton("复制搜索卡片", body);
-    copySearchCardBtn->setObjectName("managerSecondaryBtn");
-    copySearchCardBtn->setToolTip("复制当前搜索条件、选中好友和可见结果摘要");
-    QPushButton* copyFriendMediaPackBtn = new QPushButton("复制好友媒体包", body);
-    copyFriendMediaPackBtn->setObjectName("managerSecondaryBtn");
-    copyFriendMediaPackBtn->setToolTip("复制给好友发送图片、视频或文件前的准备摘要");
-    QPushButton* copyBatchMediaPlanBtn = new QPushButton("复制批量媒体计划", body);
-    copyBatchMediaPlanBtn->setObjectName("managerSecondaryBtn");
-    copyBatchMediaPlanBtn->setToolTip("复制当前可见好友的批量媒体发送计划");
-    QPushButton* copyMediaGuideBtn = new QPushButton("复制上传指南", body);
-    copyMediaGuideBtn->setObjectName("managerSecondaryBtn");
-    copyMediaGuideBtn->setToolTip("复制好友私聊中发送图片、视频和文件的简短指南");
-    QPushButton* remarkBtn = new QPushButton("备注", body);
-    remarkBtn->setObjectName("managerSecondaryBtn");
-    remarkBtn->setToolTip("修改当前选中好友在本地显示的备注名");
-    QPushButton* inviteBtn = new QPushButton("邀入群", body);
-    inviteBtn->setObjectName("managerSecondaryBtn");
-    inviteBtn->setToolTip("把当前选中好友邀请进最近的本地群聊");
-    QPushButton* inviteVisibleBtn = new QPushButton("邀请可见", body);
-    inviteVisibleBtn->setObjectName("managerSecondaryBtn");
-    inviteVisibleBtn->setToolTip("把当前筛选出的可见好友批量邀请进群聊");
-    QPushButton* deleteBtn = new QPushButton("删除好友", body);
-    deleteBtn->setObjectName("managerDangerBtn");
-    deleteBtn->setToolTip("从本地好友列表中删除当前选中好友");
-    QPushButton* closeBtn = new QPushButton("关闭", body);
-    closeBtn->setObjectName("managerSecondaryBtn");
-    closeBtn->setToolTip("关闭好友管理器");
-    buttonLayout->addWidget(addBtn);
-    buttonLayout->addWidget(searchAddBtn);
-    buttonLayout->addWidget(clearSearchBtn);
-    buttonLayout->addWidget(chatBtn);
-    buttonLayout->addWidget(copyBtn);
-    buttonLayout->addWidget(copyAllBtn);
-    buttonLayout->addWidget(profileBtn);
-    buttonLayout->addWidget(inviteTextBtn);
-    buttonLayout->addWidget(copyStatsBtn);
-    buttonLayout->addWidget(copyOnlineBtn);
-    buttonLayout->addWidget(copySearchCardBtn);
-    buttonLayout->addWidget(copyFriendMediaPackBtn);
-    buttonLayout->addWidget(copyBatchMediaPlanBtn);
-    buttonLayout->addWidget(copyMediaGuideBtn);
-    buttonLayout->addWidget(remarkBtn);
-    buttonLayout->addWidget(inviteBtn);
-    buttonLayout->addWidget(inviteVisibleBtn);
-    buttonLayout->addWidget(deleteBtn);
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(closeBtn);
-    bodyLayout->addLayout(buttonLayout);
-    layout->addWidget(body);
+    QPushButton* addBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("好友申请工作区"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("打开好友申请工作区，输入 QQ 号后搜索并申请"), QStyle::SP_FileDialogNewFolder);
+    QPushButton* searchAddBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("搜索并申请"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("使用当前搜索框内容搜索 QQ 并发起好友申请"), QStyle::SP_FileDialogContentsView);
+    QPushButton* clearSearchBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("清空搜索"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("清空筛选条件并显示全部好友"), QStyle::SP_DialogResetButton);
+    QPushButton* chatBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("发消息"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("打开当前选中好友的私聊会话"), QStyle::SP_MessageBoxInformation);
+    QPushButton* copyBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制QQ"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前选中好友的 QQ 号"), QStyle::SP_DialogSaveButton);
+    QPushButton* copyAllBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制可见列表"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前筛选出的好友列表"), QStyle::SP_FileDialogListView);
+    QPushButton* profileBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制名片"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前选中好友的 QQ、昵称和在线状态"), QStyle::SP_FileDialogInfoView);
+    QPushButton* inviteTextBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制邀请语"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制一段邀请当前好友加入群聊的话术"), QStyle::SP_DirLinkIcon);
+    QPushButton* copyStatsBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制好友统计"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制好友数量、在线状态和群聊统计"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* copyOnlineBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制在线"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前可见列表中的在线好友"), QStyle::SP_DialogYesButton);
+    QPushButton* copySearchCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制搜索卡片"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前搜索条件、选中好友和可见结果摘要"), QStyle::SP_FileDialogContentsView);
+    QPushButton* copyFriendMediaPackBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制好友媒体包"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制给好友发送图片、视频或文件前的准备摘要"), QStyle::SP_FileIcon);
+    QPushButton* copyBatchMediaPlanBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制批量媒体计划"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前可见好友的批量媒体发送计划"), QStyle::SP_DriveHDIcon);
+    QPushButton* copyMediaGuideBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制上传指南"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制好友私聊中发送图片、视频和文件的简短指南"), QStyle::SP_DialogHelpButton);
+    QPushButton* remarkBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("备注"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("修改当前选中好友在本地显示的备注名"), QStyle::SP_FileDialogDetailedView);
+    QPushButton* inviteBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("邀入群"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("把当前选中好友邀请进最近的本地群聊"), QStyle::SP_DialogOpenButton);
+    QPushButton* inviteVisibleBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("邀请可见"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("把当前筛选出的可见好友批量邀请进群聊"), QStyle::SP_CommandLink);
+    QPushButton* deleteBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("删除好友"), QStringLiteral("managerDangerBtn"), QStringLiteral("从本地好友列表中删除当前选中好友"), QStyle::SP_TrashIcon);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭好友管理器"), QStyle::SP_DialogCloseButton);
 
-    dialog.setStyleSheet(R"(
-        QDialog#friendManagerDialog {
-            background: #EEF3F8;
-            font-family: "Microsoft YaHei", "Segoe UI";
-        }
-        QFrame#managerHeader {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #18C1F7, stop:1 #0877C9);
-        }
-        QLabel#managerTitle {
-            color: white;
-            font-size: 24px;
-            font-weight: 900;
-        }
-        QLabel#managerSubTitle {
-            color: rgba(255, 255, 255, 220);
-            font-size: 13px;
-        }
-        QLabel#managerStats {
-            color: white;
-            background: rgba(255, 255, 255, 35);
-            border-radius: 12px;
-            padding: 3px 10px;
-            font-size: 12px;
-            font-weight: 800;
-        }
-        QLabel#managerSelectionPreview {
-            color: #3A4A5A;
-            background: #EAF7FF;
-            border: 1px solid #DCEFFF;
-            border-radius: 14px;
-            padding: 7px 12px;
-            font-size: 12px;
-            font-weight: 800;
-        }
-        QLabel#managerOperationGuide {
-            color: #7A5310;
-            background: #FFF8E8;
-            border: 1px solid #FFE1A8;
-            border-radius: 14px;
-            padding: 7px 12px;
-            font-size: 12px;
-            font-weight: 800;
-        }
-        QFrame#managerBody {
-            background: #F7FAFD;
-        }
-        QLineEdit#managerSearch {
-            min-height: 38px;
-            border: 1px solid #DDE7F0;
-            border-radius: 18px;
-            padding: 4px 14px;
-            background: white;
-        }
-        QListWidget#managerList {
-            background: white;
-            border: 1px solid #DCE8F2;
-            border-radius: 18px;
-            padding: 8px;
-            outline: none;
-        }
-        QListWidget#managerList::item {
-            border-radius: 12px;
-            padding: 8px 12px;
-            color: #263238;
-        }
-        QListWidget#managerList::item:selected, QListWidget#managerList::item:hover {
-            background: #EAF7FF;
-        }
-        QPushButton {
-            min-height: 34px;
-            border-radius: 17px;
-            padding: 6px 14px;
-            font-weight: 700;
-        }
-        QPushButton#managerPrimaryBtn {
-            background: #12B7F5;
-            color: white;
-            border: none;
-        }
-        QPushButton#managerSecondaryBtn {
-            background: white;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
-        }
-        QPushButton#managerDangerBtn {
-            background: white;
-            color: #D35454;
-            border: 1px solid #F1CCCC;
-        }
-    )");
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("主操作"),
+        QStringLiteral("先打开会话或直接发起好友申请，再决定群聊邀请和备注管理。"),
+        {addBtn, searchAddBtn, clearSearchBtn, chatBtn, remarkBtn, inviteBtn, inviteVisibleBtn},
+        closeBtn);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("复制与统计"),
+        QStringLiteral("把当前好友、可见列表、搜索摘要和邀请话术整理出去。"),
+        {copyBtn, copyAllBtn, profileBtn, inviteTextBtn, copyStatsBtn, copyOnlineBtn, copySearchCardBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("媒体与批量计划"),
+        QStringLiteral("为好友私聊里的图片、视频和文件发送准备媒体包、批量计划和上传指南。"),
+        {copyFriendMediaPackBtn, copyBatchMediaPlanBtn, copyMediaGuideBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("危险操作"),
+        QStringLiteral("删除好友会移出本地好友列表，但后续仍可重新搜索并申请。"),
+        {deleteBtn});
+
+    dialog.setStyleSheet(productDialogStyleSheet());
 
     auto openSelectedFriend = [this, &dialog, friendList]() {
         QListWidgetItem* selected = friendList->currentItem();
@@ -5094,11 +12133,12 @@ void MainWindow::onShowFriendManager() {
         ui->statusbar->showMessage(QString("已打开与 %1 的私聊").arg(contactDisplayName(id)), 1800);
     };
 
-    auto updateSelectionPreview = [this, friendList, selectionPreviewLabel]() {
+    auto updateSelectionPreview = [this, friendList, selectionPreviewLabel, friendManagerNoSelectionPreviewText, friendManagerEmptyPreviewText]() {
         QListWidgetItem* selected = friendList->currentItem();
         if (!selected) {
-            selectionPreviewLabel->setText(
-                m_friendManager.managerSelectionPreviewUiState(QString(), QString(), false, false).text);
+            selectionPreviewLabel->setText(firstEnabledListRow(friendList) >= 0
+                                               ? friendManagerNoSelectionPreviewText
+                                               : friendManagerEmptyPreviewText);
             return;
         }
         const QString id = selected->data(Qt::UserRole).toString();
@@ -5111,9 +12151,144 @@ void MainWindow::onShowFriendManager() {
     };
     updateSelectionPreview();
 
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList, updateSelectionPreview](const QString& text) {
+    auto updateActionState = [=, this]() {
+        const QString searchText = searchEdit->text().trimmed();
+        QListWidgetItem* selected = friendList->currentItem();
+        const QString entryId = selected ? selected->data(Qt::UserRole).toString() : QString();
+        const bool hasSelection = !entryId.isEmpty();
+        const bool searchAddSelection = entryId.startsWith(QStringLiteral("search_add:"));
+        const QString friendId = searchAddSelection ? entryId.mid(QStringLiteral("search_add:").size()) : entryId;
+        const bool validFriendSelection = hasSelection && !searchAddSelection;
+        const QString friendName = friendId.isEmpty() ? QString() : contactDisplayName(friendId);
+        const QStringList visibleIds = visibleFriendManagerIds(friendList);
+        bool hasVisibleOnline = false;
+        for (const QString& visibleId : visibleIds) {
+            if (isContactOnline(visibleId)) {
+                hasVisibleOnline = true;
+                break;
+            }
+        }
+
+        addBtn->setText(QStringLiteral("好友申请工作区"));
+        addBtn->setToolTip(QStringLiteral("打开好友申请工作区"));
+        searchAddBtn->setText(QStringLiteral("搜索并申请"));
+        searchAddBtn->setEnabled(!searchText.isEmpty());
+        searchAddBtn->setToolTip(searchText.isEmpty()
+                                     ? QStringLiteral("先输入 QQ 账号再搜索并申请")
+                                     : QStringLiteral("搜索当前输入的 QQ 并发起好友申请"));
+        clearSearchBtn->setEnabled(!searchText.isEmpty());
+        clearSearchBtn->setToolTip(searchText.isEmpty()
+                                       ? QStringLiteral("当前没有需要清空的筛选条件")
+                                       : QStringLiteral("清空当前好友筛选"));
+
+        if (!hasSelection) {
+            chatBtn->setText(QStringLiteral("打开私聊"));
+            chatBtn->setEnabled(false);
+            chatBtn->setToolTip(QStringLiteral("请先选择一个好友或搜索建议项"));
+            copyBtn->setEnabled(false);
+            copyBtn->setToolTip(QStringLiteral("请先选择一个好友再复制 QQ"));
+            profileBtn->setEnabled(false);
+            profileBtn->setToolTip(QStringLiteral("请先选择一个好友再复制名片"));
+            remarkBtn->setText(QStringLiteral("设置备注"));
+            remarkBtn->setEnabled(false);
+            remarkBtn->setToolTip(QStringLiteral("请先选择一个好友再设置备注"));
+            inviteBtn->setText(QStringLiteral("邀请入群"));
+            inviteBtn->setEnabled(false);
+            inviteBtn->setToolTip(QStringLiteral("请先选择一个好友再邀请入群"));
+            deleteBtn->setEnabled(false);
+            deleteBtn->setToolTip(QStringLiteral("请先选择一个好友再删除"));
+            inviteTextBtn->setEnabled(!searchText.isEmpty() || !visibleIds.isEmpty());
+            inviteTextBtn->setToolTip(inviteTextBtn->isEnabled()
+                                          ? QStringLiteral("复制当前筛选上下文的邀请话术")
+                                          : QStringLiteral("先选中好友或输入搜索条件再复制邀请语"));
+            copyAllBtn->setEnabled(!visibleIds.isEmpty());
+            copyAllBtn->setToolTip(copyAllBtn->isEnabled()
+                                       ? QStringLiteral("复制当前筛选出的好友列表")
+                                       : QStringLiteral("当前没有可复制的可见好友列表"));
+            copyStatsBtn->setEnabled(!visibleIds.isEmpty() || !searchText.isEmpty() || !m_friendIds.isEmpty());
+            copyStatsBtn->setToolTip(QStringLiteral("复制好友数量、在线状态和当前可见列表统计"));
+            copyOnlineBtn->setEnabled(hasVisibleOnline);
+            copyOnlineBtn->setToolTip(hasVisibleOnline
+                                          ? QStringLiteral("复制当前可见列表中的在线好友")
+                                          : QStringLiteral("当前没有可复制的在线好友"));
+            copySearchCardBtn->setEnabled(!searchText.isEmpty() || !visibleIds.isEmpty());
+            copySearchCardBtn->setToolTip(copySearchCardBtn->isEnabled()
+                                              ? QStringLiteral("复制当前搜索条件、选中好友和可见结果摘要")
+                                              : QStringLiteral("先输入搜索条件或筛出好友再复制搜索卡片"));
+            copyFriendMediaPackBtn->setEnabled(!searchText.isEmpty());
+            copyFriendMediaPackBtn->setToolTip(copyFriendMediaPackBtn->isEnabled()
+                                                   ? QStringLiteral("复制当前搜索或筛选上下文下的好友媒体准备摘要")
+                                                   : QStringLiteral("先输入搜索条件再复制好友媒体包"));
+            copyBatchMediaPlanBtn->setEnabled(!visibleIds.isEmpty());
+            copyBatchMediaPlanBtn->setToolTip(copyBatchMediaPlanBtn->isEnabled()
+                                                  ? QStringLiteral("复制当前可见好友的批量媒体发送计划")
+                                                  : QStringLiteral("当前没有可复制的批量媒体计划"));
+            copyMediaGuideBtn->setEnabled(true);
+            copyMediaGuideBtn->setToolTip(QStringLiteral("复制好友私聊中发送图片、视频和文件的简短指南"));
+            return;
+        }
+
+        chatBtn->setText(searchAddSelection ? QStringLiteral("搜索并申请") : QStringLiteral("打开私聊"));
+        chatBtn->setEnabled(true);
+        chatBtn->setToolTip(searchAddSelection
+                                ? QStringLiteral("搜索 QQ:%1 并发起好友申请").arg(friendId)
+                                : QStringLiteral("打开 %1 的私聊会话").arg(friendName));
+        copyBtn->setEnabled(validFriendSelection);
+        copyBtn->setToolTip(validFriendSelection
+                                ? QStringLiteral("复制 %1 的 QQ 号").arg(friendName)
+                                : QStringLiteral("搜索建议项没有可直接复制的好友 QQ"));
+        profileBtn->setEnabled(validFriendSelection);
+        profileBtn->setToolTip(validFriendSelection
+                                   ? QStringLiteral("复制 %1 的名片").arg(friendName)
+                                   : QStringLiteral("搜索建议项没有可直接复制的好友名片"));
+        remarkBtn->setText(QStringLiteral("设置备注"));
+        remarkBtn->setEnabled(validFriendSelection);
+        remarkBtn->setToolTip(validFriendSelection
+                                  ? QStringLiteral("修改 %1 的本地备注").arg(friendName)
+                                  : QStringLiteral("搜索建议项不能直接设置备注"));
+        inviteBtn->setText(QStringLiteral("邀请入群"));
+        inviteBtn->setEnabled(validFriendSelection);
+        inviteBtn->setToolTip(validFriendSelection
+                                  ? QStringLiteral("把 %1 邀请进最近的本地群聊").arg(friendName)
+                                  : QStringLiteral("搜索建议项不能直接邀请入群"));
+        deleteBtn->setEnabled(validFriendSelection);
+        deleteBtn->setToolTip(validFriendSelection
+                                  ? QStringLiteral("从本地好友列表删除 %1").arg(friendName)
+                                  : QStringLiteral("搜索建议项不能直接删除好友"));
+        inviteTextBtn->setEnabled(!friendId.isEmpty());
+        inviteTextBtn->setToolTip(friendId.isEmpty()
+                                      ? QStringLiteral("先选中好友或输入搜索条件再复制邀请语")
+                                      : QStringLiteral("复制面向 %1 的邀请话术").arg(friendName.isEmpty() ? friendId : friendName));
+        copyAllBtn->setEnabled(!visibleIds.isEmpty());
+        copyAllBtn->setToolTip(copyAllBtn->isEnabled()
+                                   ? QStringLiteral("复制当前筛选出的好友列表")
+                                   : QStringLiteral("当前没有可复制的可见好友列表"));
+        copyStatsBtn->setEnabled(true);
+        copyStatsBtn->setToolTip(QStringLiteral("复制好友数量、在线状态和当前可见列表统计"));
+        copyOnlineBtn->setEnabled(hasVisibleOnline);
+        copyOnlineBtn->setToolTip(hasVisibleOnline
+                                      ? QStringLiteral("复制当前可见列表中的在线好友")
+                                      : QStringLiteral("当前没有可复制的在线好友"));
+        copySearchCardBtn->setEnabled(!searchText.isEmpty() || !visibleIds.isEmpty());
+        copySearchCardBtn->setToolTip(copySearchCardBtn->isEnabled()
+                                          ? QStringLiteral("复制当前搜索条件、选中好友和可见结果摘要")
+                                          : QStringLiteral("先输入搜索条件或筛出好友再复制搜索卡片"));
+        copyFriendMediaPackBtn->setEnabled(!friendId.isEmpty() || !searchText.isEmpty());
+        copyFriendMediaPackBtn->setToolTip(copyFriendMediaPackBtn->isEnabled()
+                                               ? QStringLiteral("复制给当前好友或当前筛选上下文准备的媒体摘要")
+                                               : QStringLiteral("先选中好友或输入搜索条件再复制好友媒体包"));
+        copyBatchMediaPlanBtn->setEnabled(!visibleIds.isEmpty());
+        copyBatchMediaPlanBtn->setToolTip(copyBatchMediaPlanBtn->isEnabled()
+                                              ? QStringLiteral("复制当前可见好友的批量媒体发送计划")
+                                              : QStringLiteral("当前没有可复制的批量媒体计划"));
+        copyMediaGuideBtn->setEnabled(true);
+        copyMediaGuideBtn->setToolTip(QStringLiteral("复制好友私聊中发送图片、视频和文件的简短指南"));
+    };
+
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillList, updateSelectionPreview, updateActionState](const QString& text) {
         fillList(text.trimmed());
         updateSelectionPreview();
+        updateActionState();
     });
     connect(addBtn, &QPushButton::clicked, &dialog, [this, &dialog]() {
         dialog.accept();
@@ -5123,20 +12298,24 @@ void MainWindow::onShowFriendManager() {
         QString account = searchEdit->text().trimmed();
         if (account.isEmpty()) {
             searchEdit->setFocus();
-            ui->statusbar->showMessage("请输入 QQ 账号后搜索申请", 2200);
+            ui->statusbar->showMessage("请输入 QQ 账号后搜索并申请", 2200);
             return;
         }
         dialog.accept();
         searchAndAddAccount(account, this);
     });
-    connect(clearSearchBtn, &QPushButton::clicked, &dialog, [searchEdit, fillList, updateSelectionPreview]() {
+    connect(clearSearchBtn, &QPushButton::clicked, &dialog, [searchEdit, fillList, updateSelectionPreview, updateActionState]() {
         searchEdit->clear();
         fillList();
         updateSelectionPreview();
+        updateActionState();
         searchEdit->setFocus();
     });
     connect(chatBtn, &QPushButton::clicked, &dialog, openSelectedFriend);
-    connect(friendList, &QListWidget::currentItemChanged, &dialog, [updateSelectionPreview](QListWidgetItem*, QListWidgetItem*) { updateSelectionPreview(); });
+    connect(friendList, &QListWidget::currentItemChanged, &dialog, [updateSelectionPreview, updateActionState](QListWidgetItem*, QListWidgetItem*) {
+        updateSelectionPreview();
+        updateActionState();
+    });
     connect(friendList, &QListWidget::itemDoubleClicked, &dialog, [openSelectedFriend](QListWidgetItem*) { openSelectedFriend(); });
     connect(copyBtn, &QPushButton::clicked, &dialog, [this, friendList]() {
         QString id;
@@ -5365,7 +12544,7 @@ void MainWindow::onShowFriendManager() {
         }
         QString displayName = contactDisplayName(id);
         if (!confirmAction(QStringLiteral("删除好友"),
-                           QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, id),
+                           QString("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并申请。").arg(displayName, id),
                            QStringLiteral("已取消删除好友"),
                            1600,
                            &dialog)) {
@@ -5380,15 +12559,16 @@ void MainWindow::onShowFriendManager() {
         appendSystemMessage(QString("已删除好友: %1（QQ:%2）").arg(displayName, id));
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    updateActionState();
     dialog.exec();
 }
 
 void MainWindow::onUploadAvatar() {
     const LocalAvatarSelectionPlan selectionPlan = LocalFileManager::avatarSelectionPlan();
-    const QString selectedPath = QFileDialog::getOpenFileName(this,
-                                                              selectionPlan.dialogTitle,
-                                                              LocalFileManager::lastAvatarDirectory(),
-                                                              selectionPlan.filters);
+    const QString selectedPath = selectOpenFilePath(selectionPlan.dialogTitle,
+                                                    LocalFileManager::lastAvatarDirectory(),
+                                                    selectionPlan.filters,
+                                                    this);
     const LocalFileSelectionResult selection = LocalFileManager::selectAvatarFile(selectedPath);
     applyAvatarSelection(selection);
 }
@@ -5408,11 +12588,11 @@ void MainWindow::onBackToGroupChat() {
             ? QStringLiteral("等待群主或管理员重新邀请")
             : QStringLiteral("由 %1 移出%2，等待重新邀请")
                 .arg(removedBy, removedAt.isEmpty() ? QString() : QStringLiteral("于 %1").arg(removedAt));
-        ui->chatHintLabel->setText(QString("当前账号 %1 已不在公共群 · %2").arg(m_currentUserId, removedDetail));
+        ui->chatHintLabel->setText(QString("公共会话工作区受限 · 当前账号 %1 已不在公共群 · %2").arg(m_currentUserId, removedDetail));
         ui->announcementTitleLabel->setText("群公告");
         ui->announcementBodyLabel->setText(QString("当前账号已不在公共群，%1。你仍可查看本机历史记录；重新邀请后会自动恢复群公告和成员列表。").arg(removedDetail));
     } else {
-        ui->chatHintLabel->setText(QString("账号 %1 · 双击左侧成员可私聊").arg(m_currentUserId));
+        ui->chatHintLabel->setText(QString("公共会话工作区 · 当前账号 QQ %1 · 双击左侧成员即可切换私聊").arg(m_currentUserId));
         ui->announcementTitleLabel->setText(canCurrentUserManageServerGroup("public")
             ? "群公告 <a href=\"edit\">编辑</a>"
             : "群公告");
@@ -5486,37 +12666,35 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
     if (!exactMatch) {
         if (!online) {
             ui->statusbar->showMessage(QString("模糊匹配到 %1（QQ:%2），但当前离线").arg(displayName, userId), 3500);
-            appendSystemMessage(QString("模糊匹配到 %1（QQ:%2），对方离线，暂不能发送好友申请").arg(displayName, userId));
+            appendSystemMessage(QString("模糊匹配到 %1（QQ:%2），对方离线，暂不能发起好友申请").arg(displayName, userId));
             return;
         }
 
-        const QMessageBox::StandardButton choice = QMessageBox::question(
-            this,
-            "确认模糊匹配",
-            QString("%1\n\n是否向该用户发送好友申请？").arg(profileCard),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
-        if (choice != QMessageBox::Yes) {
-            ui->statusbar->showMessage(QString("已查看资料卡，未发送好友申请：%1").arg(displayName), 2600);
+        if (!confirmAction(QStringLiteral("确认模糊匹配"),
+                           QStringLiteral("%1\n\n是否向该用户发起好友申请？").arg(profileCard),
+                           QStringLiteral("已查看资料卡，未发起好友申请：%1").arg(displayName),
+                           2600,
+                           this)) {
+            ui->statusbar->showMessage(QString("已查看资料卡，未发起好友申请：%1").arg(displayName), 2600);
             return;
         }
     }
 
     if (online) {
         if (!m_client->sendFriendRequest(userId)) {
-            appendSystemMessage(QString("好友申请发送失败 QQ:%1，请检查连接后重试").arg(userId));
-            ui->statusbar->showMessage(QString("好友申请发送失败：%1").arg(displayName), 3000);
+            appendSystemMessage(QString("好友申请发起失败 QQ:%1，请检查连接后重试").arg(userId));
+            ui->statusbar->showMessage(QString("好友申请发起失败：%1").arg(displayName), 3000);
             return;
         }
         if (!m_pendingOutgoingFriendRequests.contains(userId)) {
             m_pendingOutgoingFriendRequests << userId;
         }
         saveFriends();
-        appendSystemMessage(QString("已发送好友申请 QQ:%1，等待对方同意 · %2").arg(userId, exactMatch ? "精确匹配" : "模糊匹配确认"));
-        ui->statusbar->showMessage(QString("好友申请已发送给 %1").arg(displayName), 2500);
+        appendSystemMessage(QString("已发起好友申请 QQ:%1，等待对方同意 · %2").arg(userId, exactMatch ? "精确匹配" : "模糊匹配确认"));
+        ui->statusbar->showMessage(QString("已向 %1 发起好友申请").arg(displayName), 2500);
         refreshFriendList();
     } else {
-        ui->statusbar->showMessage(QString("QQ 账号 %1 当前离线，暂不能发送好友申请").arg(userId), 3000);
+        ui->statusbar->showMessage(QString("QQ 账号 %1 当前离线，暂不能发起好友申请").arg(userId), 3000);
         appendSystemMessage(QString("QQ:%1 当前离线，未加入好友列表，可稍后重试").arg(userId));
     }
 }
@@ -5635,78 +12813,11 @@ bool MainWindow::handleLocalGroupContextCommand(const QString& groupId,
             appendSystemMessage(QStringLiteral("当前没有好友可邀请"));
             return true;
         }
-        QStringList friendLabels;
-        QMap<QString, QString> labelToId;
-        for (const QString& friendId : m_friendIds) {
-            const QString label = QStringLiteral("%1 (QQ:%2)").arg(m_friendNames.value(friendId, friendId), friendId);
-            friendLabels << label;
-            labelToId[label] = friendId;
-        }
-        bool ok = false;
-        const QString selectedFriend = promptItemValue(QStringLiteral("邀请好友"),
-                                                       QStringLiteral("选择好友:"),
-                                                       friendLabels,
-                                                       &ok);
-        if (!ok || selectedFriend.isEmpty()) {
-            return true;
-        }
-        const QString friendId = labelToId.value(selectedFriend);
-        const QString friendName = m_friendNames.value(friendId, friendId);
-        if (!m_localGroupMembers[groupId].contains(friendId)) {
-            m_localGroupMembers[groupId] << friendId;
-            saveLocalGroups();
-        }
-        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
-        appendSystemMessage(QStringLiteral("已邀请 %1 加入群聊").arg(friendName));
-        saveHistory(groupId,
-                    QStringLiteral("[%1] [系统] 已邀请 %2 加入群聊")
-                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")), friendName));
+        showInviteFriendToGroupWorkspace(groupId, this);
         return true;
     }
     if (commandId == QLatin1String("invite-by-account")) {
-        bool ok = false;
-        const QString account = promptTextValue(QStringLiteral("按QQ号邀请"),
-                                                QStringLiteral("输入 QQ 账号:"),
-                                                QString(),
-                                                &ok);
-        if (!ok) {
-            return true;
-        }
-        if (account.isEmpty()) {
-            ui->statusbar->showMessage(QStringLiteral("请输入 QQ 号后再邀请入群"), 1800);
-            return true;
-        }
-        if (account == m_currentUserId) {
-            ui->statusbar->showMessage(QStringLiteral("你已在当前群聊中，无需重复邀请"), 1800);
-            return true;
-        }
-        if (m_localGroupMembers[groupId].contains(account)) {
-            ui->statusbar->showMessage(QStringLiteral("该 QQ 已在当前群聊中"), 1800);
-            return true;
-        }
-        QString requestNote;
-        m_localGroupMembers[groupId] << account;
-        if (!m_friendIds.contains(account) && !m_pendingOutgoingFriendRequests.contains(account)) {
-            const QString displayName = contactDisplayName(account);
-            if (m_client && m_client->sendFriendRequest(account)) {
-                m_friendNames[account] = displayName;
-                m_pendingOutgoingFriendRequests << account;
-                requestNote = QStringLiteral("，好友申请等待确认");
-            } else {
-                requestNote = QStringLiteral("，好友申请发送失败");
-                ui->statusbar->showMessage(QStringLiteral("已邀请入群，但好友申请发送失败：%1").arg(displayName), 3000);
-            }
-        } else if (m_pendingOutgoingFriendRequests.contains(account)) {
-            requestNote = QStringLiteral("，好友申请已在等待确认");
-        }
-        saveLocalGroups();
-        refreshFriendList();
-        switchToLocalGroup(groupId, m_localGroupNames.value(groupId, QStringLiteral("群聊")));
-        refreshGroupMemberPanel();
-        appendSystemMessage(QStringLiteral("已按 QQ 号邀请 %1 加入群聊%2").arg(account, requestNote));
-        saveHistory(groupId,
-                    QStringLiteral("[%1] [系统] 已按 QQ 号邀请 %2 加入群聊")
-                        .arg(QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss")), account));
+        showInviteAccountToGroupWorkspace(groupId, this);
         return true;
     }
     if (commandId == QLatin1String("invite-all-friends")) {
@@ -5749,30 +12860,7 @@ bool MainWindow::handleLocalGroupContextCommand(const QString& groupId,
         return true;
     }
     if (commandId == QLatin1String("rename-group")) {
-        bool ok = false;
-        const QString oldName = m_localGroupNames.value(groupId, QStringLiteral("群聊"));
-        const QString newName = promptTextValue(QStringLiteral("重命名群聊"),
-                                                QStringLiteral("群聊名称:"),
-                                                oldName,
-                                                &ok);
-        if (!ok) {
-            return true;
-        }
-        if (newName.isEmpty()) {
-            ui->statusbar->showMessage(QStringLiteral("群聊名称不能为空"), 1800);
-            return true;
-        }
-        if (newName == oldName) {
-            ui->statusbar->showMessage(QStringLiteral("群聊名称未改变"), 1600);
-            return true;
-        }
-        m_localGroupNames[groupId] = newName;
-        saveLocalGroups();
-        refreshFriendList();
-        if (m_privateChatTarget == groupId) {
-            switchToLocalGroup(groupId, newName);
-        }
-        ui->statusbar->showMessage(QStringLiteral("群聊已重命名为：%1").arg(newName), 2200);
+        showRenameGroupWorkspace(groupId, this);
         return true;
     }
     if (commandId == QLatin1String("delete-group")) {
@@ -5838,7 +12926,7 @@ bool MainWindow::handleContactContextCommand(const QString& userId,
             ? QStringLiteral("%1，在吗？我是 %2（QQ:%3），想和你私聊确认一下刚才的消息。")
                   .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
             : m_pendingOutgoingFriendRequests.contains(userId)
-                ? QStringLiteral("%1，你好，我是 %2（QQ:%3），我已经发送好友申请了，通过后我们可以继续私聊。")
+                ? QStringLiteral("%1，你好，我是 %2（QQ:%3），我已经发起好友申请了，通过后我们可以继续私聊。")
                       .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId)
                 : QStringLiteral("你好 %1，我是 %2（QQ:%3）。通过 QQ 搜索看到你，方便通过好友申请后再聊吗？")
                       .arg(contactDisplayName(userId), m_currentUserName, m_currentUserId);
@@ -5966,8 +13054,8 @@ bool MainWindow::handleContactContextCommand(const QString& userId,
                 m_pendingOutgoingFriendRequests << userId;
                 requestNote = QStringLiteral("，好友申请等待确认");
             } else {
-                requestNote = QStringLiteral("，好友申请发送失败");
-                ui->statusbar->showMessage(QStringLiteral("已邀请入群，但好友申请发送失败：%1").arg(contactDisplayName(userId)), 3000);
+                requestNote = QStringLiteral("，好友申请发起失败");
+                ui->statusbar->showMessage(QStringLiteral("已邀请入群，但好友申请发起失败：%1").arg(contactDisplayName(userId)), 3000);
             }
         }
         if (!m_localGroupMembers[m_privateChatTarget].contains(userId)) {
@@ -6016,21 +13104,21 @@ bool MainWindow::handleContactContextCommand(const QString& userId,
         if (!m_friendIds.contains(userId)) {
             const QString displayName = contactDisplayName(userId);
             if (!m_client || !m_client->sendFriendRequest(userId)) {
-                ui->statusbar->showMessage(QStringLiteral("好友申请发送失败：%1").arg(displayName), 3000);
-                appendSystemMessage(QStringLiteral("好友申请发送失败 QQ:%1，请检查连接后重试").arg(userId));
+                ui->statusbar->showMessage(QStringLiteral("好友申请发起失败：%1").arg(displayName), 3000);
+                appendSystemMessage(QStringLiteral("好友申请发起失败 QQ:%1，请检查连接后重试").arg(userId));
                 return true;
             }
             m_friendNames[userId] = displayName;
             m_pendingOutgoingFriendRequests << userId;
             refreshFriendList();
-            appendSystemMessage(QStringLiteral("已发送好友申请: %1（QQ:%2），等待对方同意").arg(displayName, userId));
+            appendSystemMessage(QStringLiteral("已发起好友申请：%1（QQ:%2），等待对方同意").arg(displayName, userId));
         }
         return true;
     }
     if (commandId == QLatin1String("remove-friend")) {
         const QString displayName = contactDisplayName(userId);
         if (!confirmAction(QStringLiteral("删除好友"),
-                           QStringLiteral("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并发送申请。").arg(displayName, userId),
+                           QStringLiteral("确定删除好友“%1”（QQ:%2）吗？删除后可重新搜索并申请。").arg(displayName, userId),
                            QStringLiteral("已取消删除好友"))) {
             return true;
         }
@@ -6054,163 +13142,73 @@ void MainWindow::onUserContextMenu(const QPoint& pos) {
     userName.remove(QRegularExpression("^[★☆○]\\s*"));
     userName.remove(QRegularExpression("^群聊\\s+QQ:[^\\n]+\\n\\s*"));
     userName.remove(QRegularExpression("\\s*\\[(在线|离线|本地)\\]$"));
-
+    const QString displayName = userName.trimmed().isEmpty() ? contactDisplayName(userId) : userName.trimmed();
     QMenu menu(this);
-    if (m_localGroupIds.contains(userId)) {
-        const struct GroupActionSpec {
-            const char* id;
-            const char* title;
-            const char* tip;
-        } specs[] = {
-            {"open-group", "进入群聊", "进入当前本地群聊并加载聊天记录"},
-            {"copy-group-id", "复制群号", "复制当前群聊的群号"},
-            {"copy-group-card", "复制群名片", "复制群名、群号、成员数和公告摘要"},
-            {"copy-group-invite", "复制群邀请语", "复制一段可发送给好友的入群邀请语"},
-            {"copy-group-members", "复制成员列表", "复制当前群聊的全部成员列表"},
-            {"invite-friend", "邀请好友", "从好友列表中选择一个好友邀请入群"},
-            {"invite-by-account", "按QQ号邀请", "输入 QQ 号邀请用户入群，并按需发送好友申请"},
-            {"invite-all-friends", "邀请全部好友", "把当前全部好友批量邀请进该群聊"},
-            {"copy-group-online-members", "复制在线成员", "复制当前群聊在线成员的 QQ 和昵称"},
-            {"rename-group", "重命名群聊", "修改当前本地群聊名称"},
-            {"delete-group", "删除群聊", "删除当前本地群聊配置，聊天记录不会在此步骤删除"}
-        };
-        for (const GroupActionSpec& spec : specs) {
-            QAction* action = menu.addAction(QString::fromUtf8(spec.title));
-            action->setData(QString::fromLatin1(spec.id));
-            action->setToolTip(QString::fromUtf8(spec.tip));
-            action->setStatusTip(QString::fromUtf8(spec.tip));
-        }
-        QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
-        if (!selected) return;
-        handleLocalGroupContextCommand(userId, userName, selected->data().toString());
+    QAction* contactWorkspaceAction = addMenuActionWithIcon(menu,
+                                                            this,
+                                                            QStringLiteral("打开联系人工作区"),
+                                                            QStringLiteral("带当前联系人上下文进入联系人工作区，统一处理资料、搜索和跳转"),
+                                                            QString(),
+                                                            true,
+                                                            QStyle::SP_FileDialogDetailedView);
+    QAction* objectWorkspaceAction = addMenuActionWithIcon(menu,
+                                                           this,
+                                                           QStringLiteral("打开对象工作区"),
+                                                           QStringLiteral("带当前联系人或群聊对象进入对象工作区，集中处理当前项动作"),
+                                                           QString(),
+                                                           true,
+                                                           QStyle::SP_FileDialogInfoView);
+    QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
+    if (selected == contactWorkspaceAction) {
+        onShowContactWorkspace(QStringLiteral("%1 %2").arg(displayName, userId).trimmed());
         return;
     }
-
-    const QJsonObject currentE2EIdentity = m_client ? m_client->e2ePeerIdentityStatus(userId) : QJsonObject();
-    const QJsonObject currentE2ESession = m_client ? m_client->e2eSessionStatus(userId) : QJsonObject();
-    const QJsonObject currentE2ELocalIdentity = m_client ? m_client->e2eLocalIdentityStatus() : QJsonObject();
-    const bool e2eBackendMigrationRequired =
-        currentE2ELocalIdentity.value("backendMigrationRequired").toBool(false)
-        || currentE2EIdentity.value("backendMigrationRequired").toBool(false)
-        || currentE2ESession.value("backendMigrationRequired").toBool(false);
-    const bool hasPendingOutgoing = m_pendingOutgoingFriendRequests.contains(userId);
-    const struct ContactActionSpec {
-        const char* id;
-        const char* title;
-        const char* tip;
-        bool enabled;
-    } baseSpecs[] = {
-        {"chat", "发送消息", "打开当前联系人私聊会话", true},
-        {"copy-account", "复制QQ号", "复制当前联系人 QQ 号", true},
-        {"copy-profile-card", "复制名片", "复制当前联系人 QQ、昵称和关系状态", true},
-        {"copy-add-text", "复制申请话术", "复制适合当前联系人的好友申请话术", true},
-        {"copy-online-card", "复制在线名片", "复制当前联系人的在线名片和状态", true},
-        {"copy-chat-starter", "复制开聊话术", "复制一段可直接发送的开聊话术", true},
-        {"copy-e2e-status", "复制加密状态", "复制当前联系人端到端加密会话状态", true},
-        {"copy-e2e-identity", "复制加密身份指纹", "复制本机记录的联系人端到端加密身份指纹", true},
-        {"copy-e2e-verification", "复制加密验证短码", "复制需要与对方跨设备核对的端到端加密验证短码", true},
-        {"trust-e2e-identity", "信任加密身份", "仅固定当前记录的联系人端到端加密身份指纹，仍需验证短码后才能用于默认加密", true},
-        {"verify-e2e-identity", "验证并信任加密身份", "输入与对方核对一致的验证短码并将身份标记为已验证信任", true},
-        {"request-e2e-rotation", "请求加密轮换", "向当前联系人发送端到端加密会话轮换请求；不包含本机会话密钥", true}
-    };
-    for (const ContactActionSpec& spec : baseSpecs) {
-        QAction* action = menu.addAction(QString::fromUtf8(spec.title));
-        action->setData(QString::fromLatin1(spec.id));
-        action->setToolTip(QString::fromUtf8(spec.tip));
-        action->setStatusTip(QString::fromUtf8(spec.tip));
-        action->setEnabled(spec.enabled);
-    }
-    if (currentE2EIdentity.value("pinned").toBool(false)) {
-        QAction* action = menu.addAction(QStringLiteral("清除加密身份信任"));
-        action->setData(QStringLiteral("clear-e2e-identity-trust"));
-        action->setToolTip(QStringLiteral("清除当前联系人端到端加密身份固定信任并恢复为未验证"));
-        action->setStatusTip(action->toolTip());
-    }
-    if (m_client && m_client->hasE2ESession(userId)) {
-        QAction* action = menu.addAction(QStringLiteral("关闭本机会话密钥"));
-        action->setData(QStringLiteral("clear-e2e-session"));
-        action->setToolTip(QStringLiteral("清除本机为该联系人保存的端到端会话密钥"));
-        action->setStatusTip(action->toolTip());
-    }
-    if (e2eBackendMigrationRequired) {
-        QAction* action = menu.addAction(QStringLiteral("清理加密后端迁移状态"));
-        action->setData(QStringLiteral("clear-e2e-backend-migration"));
-        action->setToolTip(QStringLiteral("清除本机旧加密后端身份、信任和会话状态，等待新后端重新建立信任"));
-        action->setStatusTip(action->toolTip());
-    }
-    if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
-        QAction* action = menu.addAction(QStringLiteral("邀入当前群"));
-        action->setData(QStringLiteral("invite-current-group"));
-        action->setToolTip(QStringLiteral("邀请当前联系人加入正在查看的本地群聊"));
-        action->setStatusTip(action->toolTip());
-    }
-    if (m_friendIds.contains(userId)) {
-        QAction* renameAction = menu.addAction(QStringLiteral("设置备注"));
-        renameAction->setData(QStringLiteral("rename-friend"));
-        renameAction->setToolTip(QStringLiteral("修改当前好友在本地显示的备注名"));
-        renameAction->setStatusTip(renameAction->toolTip());
-        QAction* removeAction = menu.addAction(QStringLiteral("删除好友"));
-        removeAction->setData(QStringLiteral("remove-friend"));
-        removeAction->setToolTip(QStringLiteral("从本地好友列表删除当前好友"));
-        removeAction->setStatusTip(removeAction->toolTip());
-    } else {
-        QAction* addAction = menu.addAction(hasPendingOutgoing ? QStringLiteral("好友申请待确认") : QStringLiteral("加为好友"));
-        addAction->setData(QStringLiteral("add-friend"));
-        addAction->setEnabled(!hasPendingOutgoing);
-        addAction->setToolTip(hasPendingOutgoing ? QStringLiteral("好友申请已发送，等待对方处理")
-                                                 : QStringLiteral("向当前联系人发送好友申请"));
-        addAction->setStatusTip(addAction->toolTip());
-    }
-
-    QAction* selected = menu.exec(ui->userListView->viewport()->mapToGlobal(pos));
-    if (!selected) return;
-    const QString commandId = selected->data().toString();
-    if (commandId == QLatin1String("chat")) {
-        onPrivateChat(index);
-    } else {
-        handleContactContextCommand(userId, commandId);
+    if (selected == objectWorkspaceAction) {
+        showUserEntryWorkspace(userId, displayName);
     }
 }
 
 void MainWindow::onShowFriendNotifications() {
     const FriendNoticeDialogChrome chrome = NotificationPanelManager::friendNoticeDialogChrome();
     QDialog dialog(this);
-    dialog.setObjectName("noticeDialog");
-    dialog.setWindowTitle(chrome.windowTitle);
-    dialog.setFixedSize(chrome.dialogSize);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("noticeDialog"),
+        chrome.windowTitle,
+        chrome.dialogSize,
+        QStringLiteral("noticeTitle"),
+        chrome.titleText,
+        QStringLiteral("noticeSubTitle"),
+        QString(),
+        QStringLiteral("noticeSearch"),
+        chrome.searchPlaceholder,
+        chrome.searchToolTip,
+        QStringLiteral("noticeList"),
+        true,
+        QStringLiteral("globalActionHint"),
+        QStringLiteral("先确认筛选范围，再处理单条申请、批量回复或整理发送材料。"),
+        QStringLiteral("globalStatsLabel"),
+        QStringLiteral("globalPreviewLabel"),
+        chrome.previewPlaceholder,
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(28, 24, 28, 18);
+    shell.bodyLayout->setContentsMargins(28, 0, 28, 24);
+    shell.bodyLayout->setSpacing(14);
 
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(28, 24, 28, 24);
-    layout->setSpacing(18);
+    QListWidget* noticeList = shell.listWidget;
+    QLineEdit* searchEdit = shell.searchEdit;
+    QLabel* statsLabel = shell.statsLabel;
+    QLabel* actionHint = shell.hintLabel;
+    QLabel* requestPreviewLabel = shell.previewLabel;
 
-    QHBoxLayout* titleLayout = new QHBoxLayout;
-    QLabel* titleLabel = new QLabel(chrome.titleText, &dialog);
-    titleLabel->setObjectName("noticeTitle");
-    titleLayout->addWidget(titleLabel);
-    titleLayout->addStretch();
-    QPushButton* clearBtn = new QPushButton(chrome.clearButton.text, &dialog);
-    clearBtn->setObjectName(chrome.clearButton.objectName);
-    clearBtn->setToolTip(chrome.clearButton.toolTip);
-    titleLayout->addWidget(clearBtn);
-    layout->addLayout(titleLayout);
-
-    QLabel* statsLabel = new QLabel(&dialog);
-    statsLabel->setObjectName("noticeSubTitle");
-    layout->addWidget(statsLabel);
-
-    QLineEdit* searchEdit = new QLineEdit(&dialog);
-    searchEdit->setObjectName("noticeSearch");
-    searchEdit->setPlaceholderText(chrome.searchPlaceholder);
-    searchEdit->setClearButtonEnabled(true);
-    searchEdit->setToolTip(chrome.searchToolTip);
-    layout->addWidget(searchEdit);
-
-    QListWidget* noticeList = new QListWidget(&dialog);
-    noticeList->setObjectName("noticeList");
-    noticeList->setWordWrap(true);
-    layout->addWidget(noticeList, 1);
-
-    auto fillList = [this, noticeList, statsLabel, searchEdit]() {
+    auto emptyFriendNoticePreviewText = [searchEdit]() {
+        const QString filter = searchEdit->text().trimmed();
+        return filter.isEmpty()
+            ? QStringLiteral("当前没有待处理的好友申请。可在这里输入 QQ 号直接搜索并申请，或稍后回来处理新的通知。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到待处理申请。\n可直接搜索这个 QQ，或清空搜索后查看全部申请。").arg(filter);
+    };
+    auto fillList = [this, noticeList, statsLabel, searchEdit, actionHint, emptyFriendNoticePreviewText]() {
         noticeList->clear();
         const FriendNoticeListRenderUiState renderState =
             NotificationPanelManager::friendNoticeListRenderUiState(m_pendingFriendRequests,
@@ -6233,80 +13231,55 @@ void MainWindow::onShowFriendNotifications() {
             }
             noticeList->addItem(item);
         }
-        for (int i = 0; i < noticeList->count(); ++i) {
-            if (noticeList->item(i)->flags().testFlag(Qt::ItemIsEnabled)) {
-                noticeList->setCurrentRow(i);
-                break;
-            }
+        if (!hasEnabledListRow(noticeList)) {
+            actionHint->setText(emptyFriendNoticePreviewText());
         }
+        selectPreferredListRow(noticeList, 0);
     };
     fillList();
+    QPushButton* acceptBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.acceptButton, QStyle::SP_DialogApplyButton);
+    QPushButton* acceptAllBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.acceptAllButton, QStyle::SP_DialogYesButton);
+    QPushButton* rejectBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.rejectButton, QStyle::SP_DialogCancelButton);
+    QPushButton* rejectAllBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.rejectAllButton, QStyle::SP_TrashIcon);
+    QPushButton* copyBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyCardButton, QStyle::SP_FileDialogInfoView);
+    QPushButton* copyInviteBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyInviteButton, QStyle::SP_DirLinkIcon);
+    QPushButton* copyAllBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyAllButton, QStyle::SP_FileDialogListView);
+    QPushButton* copyRequestMediaPackBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyMediaPackButton, QStyle::SP_FileIcon);
+    QPushButton* copyRequestBatchPlanBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyBatchPlanButton, QStyle::SP_DriveHDIcon);
+    QPushButton* copyMediaGuideBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyMediaGuideButton, QStyle::SP_DialogHelpButton);
+    QPushButton* clearBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.clearButton, QStyle::SP_DialogResetButton);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.closeButton, QStyle::SP_DialogCloseButton);
 
-    QLabel* requestPreviewLabel = new QLabel(chrome.previewPlaceholder, &dialog);
-    requestPreviewLabel->setObjectName("noticePreviewLabel");
-    layout->addWidget(requestPreviewLabel);
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("主操作"),
+        QStringLiteral("同意、拒绝和批量处理都会跟随当前选中项或筛选范围联动启用。"),
+        {acceptBtn, acceptAllBtn, rejectBtn, rejectAllBtn},
+        closeBtn);
 
-    QVBoxLayout* buttonLayout = new QVBoxLayout;
-    buttonLayout->setSpacing(8);
-    QHBoxLayout* decisionButtonLayout = new QHBoxLayout;
-    decisionButtonLayout->setSpacing(8);
-    QHBoxLayout* copyButtonLayout = new QHBoxLayout;
-    copyButtonLayout->setSpacing(8);
-    QHBoxLayout* mediaButtonLayout = new QHBoxLayout;
-    mediaButtonLayout->setSpacing(8);
-    QPushButton* acceptBtn = new QPushButton(chrome.acceptButton.text, &dialog);
-    acceptBtn->setObjectName(chrome.acceptButton.objectName);
-    acceptBtn->setToolTip(chrome.acceptButton.toolTip);
-    QPushButton* acceptAllBtn = new QPushButton(chrome.acceptAllButton.text, &dialog);
-    acceptAllBtn->setObjectName(chrome.acceptAllButton.objectName);
-    acceptAllBtn->setToolTip(chrome.acceptAllButton.toolTip);
-    QPushButton* rejectBtn = new QPushButton(chrome.rejectButton.text, &dialog);
-    rejectBtn->setObjectName(chrome.rejectButton.objectName);
-    rejectBtn->setToolTip(chrome.rejectButton.toolTip);
-    QPushButton* rejectAllBtn = new QPushButton(chrome.rejectAllButton.text, &dialog);
-    rejectAllBtn->setObjectName(chrome.rejectAllButton.objectName);
-    rejectAllBtn->setToolTip(chrome.rejectAllButton.toolTip);
-    QPushButton* copyBtn = new QPushButton(chrome.copyCardButton.text, &dialog);
-    copyBtn->setObjectName(chrome.copyCardButton.objectName);
-    copyBtn->setToolTip(chrome.copyCardButton.toolTip);
-    QPushButton* copyInviteBtn = new QPushButton(chrome.copyInviteButton.text, &dialog);
-    copyInviteBtn->setObjectName(chrome.copyInviteButton.objectName);
-    copyInviteBtn->setToolTip(chrome.copyInviteButton.toolTip);
-    QPushButton* copyAllBtn = new QPushButton(chrome.copyAllButton.text, &dialog);
-    copyAllBtn->setObjectName(chrome.copyAllButton.objectName);
-    copyAllBtn->setToolTip(chrome.copyAllButton.toolTip);
-    QPushButton* copyRequestMediaPackBtn = new QPushButton(chrome.copyMediaPackButton.text, &dialog);
-    copyRequestMediaPackBtn->setObjectName(chrome.copyMediaPackButton.objectName);
-    copyRequestMediaPackBtn->setToolTip(chrome.copyMediaPackButton.toolTip);
-    QPushButton* copyRequestBatchPlanBtn = new QPushButton(chrome.copyBatchPlanButton.text, &dialog);
-    copyRequestBatchPlanBtn->setObjectName(chrome.copyBatchPlanButton.objectName);
-    copyRequestBatchPlanBtn->setToolTip(chrome.copyBatchPlanButton.toolTip);
-    QPushButton* copyMediaGuideBtn = new QPushButton(chrome.copyMediaGuideButton.text, &dialog);
-    copyMediaGuideBtn->setObjectName(chrome.copyMediaGuideButton.objectName);
-    copyMediaGuideBtn->setToolTip(chrome.copyMediaGuideButton.toolTip);
-    QPushButton* closeBtn = new QPushButton(chrome.closeButton.text, &dialog);
-    closeBtn->setObjectName(chrome.closeButton.objectName);
-    closeBtn->setToolTip(chrome.closeButton.toolTip);
-    decisionButtonLayout->addWidget(acceptBtn);
-    decisionButtonLayout->addWidget(acceptAllBtn);
-    decisionButtonLayout->addWidget(rejectBtn);
-    decisionButtonLayout->addWidget(rejectAllBtn);
-    decisionButtonLayout->addStretch();
-    decisionButtonLayout->addWidget(closeBtn);
-    copyButtonLayout->addWidget(copyBtn);
-    copyButtonLayout->addWidget(copyInviteBtn);
-    copyButtonLayout->addWidget(copyAllBtn);
-    copyButtonLayout->addStretch();
-    mediaButtonLayout->addWidget(copyRequestMediaPackBtn);
-    mediaButtonLayout->addWidget(copyRequestBatchPlanBtn);
-    mediaButtonLayout->addWidget(copyMediaGuideBtn);
-    mediaButtonLayout->addStretch();
-    buttonLayout->addLayout(decisionButtonLayout);
-    buttonLayout->addLayout(copyButtonLayout);
-    buttonLayout->addLayout(mediaButtonLayout);
-    layout->addLayout(buttonLayout);
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("复制与回复"),
+        QStringLiteral("把申请人名片、回复话术和当前筛选结果整理出去，减少重复操作。"),
+        {copyBtn, copyInviteBtn, copyAllBtn});
 
-    dialog.setStyleSheet(NotificationPanelManager::friendNoticeDialogStyleSheet());
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("媒体与处理计划"),
+        QStringLiteral("为通过好友后的图片、视频、文件发送提前准备摘要、批量计划和上传说明。"),
+        {copyRequestMediaPackBtn, copyRequestBatchPlanBtn, copyMediaGuideBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("清理与收尾"),
+        QStringLiteral("只清空当前待处理队列，不会自动代你回复对方。"),
+        {clearBtn});
+
+    dialog.setStyleSheet(productDialogStyleSheet() + NotificationPanelManager::friendNoticeDialogStyleSheet());
 
     auto updateBadge = [this]() {
         const FriendNoticeUiState noticeState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
@@ -6327,6 +13300,10 @@ void MainWindow::onShowFriendNotifications() {
             currentRequestId(),
             !m_pendingFriendRequests.isEmpty(),
             !searchEdit->text().trimmed().isEmpty());
+        const QString currentId = currentRequestId();
+        const bool hasRealRequest = NotificationPanelManager::isRealFriendNoticeRequestId(currentId);
+        const bool hasSearchEntry = NotificationPanelManager::isSearchAddEntryId(currentId);
+        const bool hasActionableRow = hasEnabledListRow(noticeList);
         acceptBtn->setEnabled(state.acceptEnabled);
         acceptBtn->setText(state.acceptText);
         acceptBtn->setToolTip(state.acceptToolTip);
@@ -6350,10 +13327,21 @@ void MainWindow::onShowFriendNotifications() {
         rejectAllBtn->setToolTip(state.rejectAllToolTip);
         clearBtn->setEnabled(state.clearEnabled);
         clearBtn->setToolTip(state.clearToolTip);
+        actionHint->setText(!hasActionableRow
+                                ? emptyFriendNoticePreviewText()
+                                : (hasRealRequest
+                                       ? QStringLiteral("当前申请可立即同意、拒绝、复制名片或整理通过后的媒体计划。")
+                                       : (hasSearchEntry
+                                              ? QStringLiteral("当前是搜索建议项，可直接搜索并申请，或复制回复与媒体准备材料。")
+                                              : QStringLiteral("先确认筛选范围，再处理单条申请、批量回复或整理发送材料。"))));
     };
-    auto updateRequestPreview = [this, noticeList, searchEdit, requestPreviewLabel]() {
+    auto updateRequestPreview = [this, noticeList, searchEdit, requestPreviewLabel, emptyFriendNoticePreviewText]() {
         const FriendNoticeSelectionSnapshot snapshot = currentFriendNoticeSelectionSnapshot(noticeList, searchEdit);
-        requestPreviewLabel->setText(snapshot.previewText);
+        requestPreviewLabel->setText(snapshot.currentId.isEmpty()
+                                         ? (hasEnabledListRow(noticeList)
+                                                ? QStringLiteral("先选中申请，再决定同意、回复整理或复制申请人名片。")
+                                                : emptyFriendNoticePreviewText())
+                                         : snapshot.previewText);
     };
     updateRequestPreview();
     updateRequestActionState();
@@ -6411,12 +13399,11 @@ void MainWindow::onShowFriendNotifications() {
             ui->statusbar->showMessage(actionState.emptyStatusMessage, 1800);
             return;
         }
-        if (QMessageBox::question(&dialog,
-                                  actionState.title,
-                                  actionState.questionText,
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage(actionState.cancelledStatusMessage, 1600);
+        if (!confirmAction(actionState.title,
+                           actionState.questionText,
+                           actionState.cancelledStatusMessage,
+                           1600,
+                           &dialog)) {
             return;
         }
         for (const QString& id : pending) {
@@ -6442,7 +13429,7 @@ void MainWindow::onShowFriendNotifications() {
         if (!trySelectedRealFriendNoticeId(noticeList,
                                            ui->statusbar,
                                            "请先选择要拒绝的好友申请",
-                                           "这是搜索占位项，可先搜索并发送申请",
+                                           "这是搜索占位项，可先搜索并申请",
                                            &id)) {
             return;
         }
@@ -6466,12 +13453,11 @@ void MainWindow::onShowFriendNotifications() {
             ui->statusbar->showMessage(actionState.emptyStatusMessage, 1800);
             return;
         }
-        if (QMessageBox::question(&dialog,
-                                  actionState.title,
-                                  actionState.questionText,
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage(actionState.cancelledStatusMessage, 1600);
+        if (!confirmAction(actionState.title,
+                           actionState.questionText,
+                           actionState.cancelledStatusMessage,
+                           1600,
+                           &dialog)) {
             return;
         }
         for (const QString& id : pending) {
@@ -6492,7 +13478,7 @@ void MainWindow::onShowFriendNotifications() {
         if (!trySelectedRealFriendNoticeId(noticeList,
                                            ui->statusbar,
                                            "请先选择要复制的好友申请",
-                                           "这是搜索占位项，请先搜索申请人",
+                                           "这是搜索占位项，请先搜索这个 QQ",
                                            &id)) {
             return;
         }
@@ -6557,12 +13543,11 @@ void MainWindow::onShowFriendNotifications() {
             ui->statusbar->showMessage(actionState.emptyStatusMessage, 1600);
             return;
         }
-        if (QMessageBox::question(&dialog,
-                                  actionState.title,
-                                  actionState.questionText,
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) != QMessageBox::Yes) {
-            ui->statusbar->showMessage(actionState.cancelledStatusMessage, 1600);
+        if (!confirmAction(actionState.title,
+                           actionState.questionText,
+                           actionState.cancelledStatusMessage,
+                           1600,
+                           &dialog)) {
             return;
         }
         m_pendingFriendRequests.clear();
@@ -6579,124 +13564,104 @@ void MainWindow::onShowFriendNotifications() {
 void MainWindow::onShowGroupNotifications() {
     const GroupNoticeDialogChrome chrome = NotificationPanelManager::groupNoticeDialogChrome();
     QDialog dialog(this);
-    dialog.setObjectName("noticeDialog");
-    dialog.setWindowTitle(chrome.windowTitle);
-    dialog.setFixedSize(chrome.dialogSize);
+    WorkspaceDialogShell shell = createWorkspaceDialogShell(
+        dialog,
+        QStringLiteral("noticeDialog"),
+        chrome.windowTitle,
+        chrome.dialogSize,
+        QStringLiteral("noticeTitle"),
+        chrome.titleText,
+        QStringLiteral("noticeSubTitle"),
+        QString(),
+        QStringLiteral("noticeSearch"),
+        chrome.searchPlaceholder,
+        chrome.searchToolTip,
+        QStringLiteral("noticeList"),
+        true,
+        QStringLiteral("globalActionHint"),
+        chrome.hintPlaceholder,
+        QStringLiteral("globalStatsLabel"),
+        QStringLiteral("globalPreviewLabel"),
+        chrome.previewPlaceholder,
+        QStringLiteral("managerHeader"),
+        QStringLiteral("managerBody"));
+    shell.headerLayout->setContentsMargins(28, 24, 28, 18);
+    shell.bodyLayout->setContentsMargins(28, 0, 28, 24);
+    shell.bodyLayout->setSpacing(14);
+    shell.statsLabel->setText(chrome.countTextTemplate.arg(m_localGroupIds.size() + 1));
+    moveWorkspaceShellStatsToHeader(shell);
 
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(28, 24, 28, 24);
-    layout->setSpacing(18);
-
-    QHBoxLayout* titleLayout = new QHBoxLayout;
-    QLabel* titleLabel = new QLabel(chrome.titleText, &dialog);
-    titleLabel->setObjectName("noticeTitle");
-    titleLayout->addWidget(titleLabel);
-    titleLayout->addStretch();
-    QLabel* countLabel = new QLabel(chrome.countTextTemplate.arg(m_localGroupIds.size() + 1), &dialog);
-    countLabel->setObjectName("noticeSubTitle");
-    titleLayout->addWidget(countLabel);
-    layout->addLayout(titleLayout);
-
-    QLineEdit* searchEdit = new QLineEdit(&dialog);
-    searchEdit->setObjectName("noticeSearch");
-    searchEdit->setPlaceholderText(chrome.searchPlaceholder);
-    searchEdit->setClearButtonEnabled(true);
-    searchEdit->setToolTip(chrome.searchToolTip);
-    layout->addWidget(searchEdit);
-
-    QListWidget* noticeList = new QListWidget(&dialog);
-    noticeList->setObjectName("noticeList");
-    noticeList->setWordWrap(true);
+    QListWidget* noticeList = shell.listWidget;
+    QLineEdit* searchEdit = shell.searchEdit;
+    QLabel* countLabel = shell.statsLabel;
+    QLabel* hintLabel = shell.hintLabel;
+    QLabel* groupPreviewLabel = shell.previewLabel;
+    auto emptyGroupNoticePreviewText = [searchEdit]() {
+        const QString keyword = searchEdit->text().trimmed();
+        return keyword.isEmpty()
+            ? QStringLiteral("当前没有额外群聊筛选压力。可进入公共聊天室、浏览已有群聊，或输入关键词创建新群。")
+            : QStringLiteral("当前筛选词“%1”没有匹配到群聊。\n可直接用这个关键词创建新群，或清空搜索后查看全部群聊。").arg(keyword);
+    };
 
     auto fillGroups = [this, noticeList, countLabel, searchEdit]() {
         fillGroupNoticeList(noticeList, countLabel, searchEdit);
     };
     fillGroups();
 
-    QLabel* groupPreviewLabel = new QLabel(chrome.previewPlaceholder, &dialog);
-    groupPreviewLabel->setObjectName("noticePreviewLabel");
-    layout->addWidget(groupPreviewLabel);
-    layout->addWidget(noticeList, 1);
+    QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.openButton, QStyle::SP_ArrowForward);
+    QPushButton* copyBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyIdButton, QStyle::SP_DialogSaveButton);
+    QPushButton* cardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyCardButton, QStyle::SP_FileDialogInfoView);
+    QPushButton* announceBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyAnnouncementButton, QStyle::SP_MessageBoxInformation);
+    QPushButton* inviteTextBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyInviteButton, QStyle::SP_DirLinkIcon);
+    QPushButton* memberBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyMembersButton, QStyle::SP_FileDialogListView);
+    QPushButton* onlineMemberBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyOnlineMembersButton, QStyle::SP_DialogYesButton);
+    QPushButton* copyGroupMediaPackBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyMediaPackButton, QStyle::SP_FileIcon);
+    QPushButton* copyGroupBatchPlanBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyBatchPlanButton, QStyle::SP_DriveHDIcon);
+    QPushButton* copyMediaGuideBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.copyMediaGuideButton, QStyle::SP_DialogHelpButton);
+    QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, chrome.closeButton, QStyle::SP_DialogCloseButton);
 
-    QVBoxLayout* actionLayout = new QVBoxLayout;
-    actionLayout->setSpacing(8);
-    QHBoxLayout* hintLayout = new QHBoxLayout;
-    QHBoxLayout* groupMainActionLayout = new QHBoxLayout;
-    groupMainActionLayout->setSpacing(8);
-    QHBoxLayout* groupMemberActionLayout = new QHBoxLayout;
-    groupMemberActionLayout->setSpacing(8);
-    QHBoxLayout* groupMediaActionLayout = new QHBoxLayout;
-    groupMediaActionLayout->setSpacing(8);
-    QLabel* hintLabel = new QLabel(chrome.hintPlaceholder, &dialog);
-    hintLabel->setObjectName("noticeHint");
-    hintLayout->addWidget(hintLabel);
-    hintLayout->addStretch();
-    QPushButton* openBtn = new QPushButton(chrome.openButton.text, &dialog);
-    openBtn->setObjectName(chrome.openButton.objectName);
-    openBtn->setToolTip(chrome.openButton.toolTip);
-    QPushButton* copyBtn = new QPushButton(chrome.copyIdButton.text, &dialog);
-    copyBtn->setObjectName(chrome.copyIdButton.objectName);
-    copyBtn->setToolTip(chrome.copyIdButton.toolTip);
-    QPushButton* cardBtn = new QPushButton(chrome.copyCardButton.text, &dialog);
-    cardBtn->setObjectName(chrome.copyCardButton.objectName);
-    cardBtn->setToolTip(chrome.copyCardButton.toolTip);
-    QPushButton* announceBtn = new QPushButton(chrome.copyAnnouncementButton.text, &dialog);
-    announceBtn->setObjectName(chrome.copyAnnouncementButton.objectName);
-    announceBtn->setToolTip(chrome.copyAnnouncementButton.toolTip);
-    QPushButton* inviteTextBtn = new QPushButton(chrome.copyInviteButton.text, &dialog);
-    inviteTextBtn->setObjectName(chrome.copyInviteButton.objectName);
-    inviteTextBtn->setToolTip(chrome.copyInviteButton.toolTip);
-    QPushButton* memberBtn = new QPushButton(chrome.copyMembersButton.text, &dialog);
-    memberBtn->setObjectName(chrome.copyMembersButton.objectName);
-    memberBtn->setToolTip(chrome.copyMembersButton.toolTip);
-    QPushButton* onlineMemberBtn = new QPushButton(chrome.copyOnlineMembersButton.text, &dialog);
-    onlineMemberBtn->setObjectName(chrome.copyOnlineMembersButton.objectName);
-    onlineMemberBtn->setToolTip(chrome.copyOnlineMembersButton.toolTip);
-    QPushButton* copyGroupMediaPackBtn = new QPushButton(chrome.copyMediaPackButton.text, &dialog);
-    copyGroupMediaPackBtn->setObjectName(chrome.copyMediaPackButton.objectName);
-    copyGroupMediaPackBtn->setToolTip(chrome.copyMediaPackButton.toolTip);
-    QPushButton* copyGroupBatchPlanBtn = new QPushButton(chrome.copyBatchPlanButton.text, &dialog);
-    copyGroupBatchPlanBtn->setObjectName(chrome.copyBatchPlanButton.objectName);
-    copyGroupBatchPlanBtn->setToolTip(chrome.copyBatchPlanButton.toolTip);
-    QPushButton* copyMediaGuideBtn = new QPushButton(chrome.copyMediaGuideButton.text, &dialog);
-    copyMediaGuideBtn->setObjectName(chrome.copyMediaGuideButton.objectName);
-    copyMediaGuideBtn->setToolTip(chrome.copyMediaGuideButton.toolTip);
-    QPushButton* closeBtn = new QPushButton(chrome.closeButton.text, &dialog);
-    closeBtn->setObjectName(chrome.closeButton.objectName);
-    closeBtn->setToolTip(chrome.closeButton.toolTip);
-    groupMainActionLayout->addWidget(openBtn);
-    groupMainActionLayout->addWidget(copyBtn);
-    groupMainActionLayout->addWidget(cardBtn);
-    groupMainActionLayout->addWidget(announceBtn);
-    groupMainActionLayout->addStretch();
-    groupMainActionLayout->addWidget(closeBtn);
-    groupMemberActionLayout->addWidget(inviteTextBtn);
-    groupMemberActionLayout->addWidget(memberBtn);
-    groupMemberActionLayout->addWidget(onlineMemberBtn);
-    groupMemberActionLayout->addStretch();
-    groupMediaActionLayout->addWidget(copyGroupMediaPackBtn);
-    groupMediaActionLayout->addWidget(copyGroupBatchPlanBtn);
-    groupMediaActionLayout->addWidget(copyMediaGuideBtn);
-    groupMediaActionLayout->addStretch();
-    actionLayout->addLayout(hintLayout);
-    actionLayout->addLayout(groupMainActionLayout);
-    actionLayout->addLayout(groupMemberActionLayout);
-    actionLayout->addLayout(groupMediaActionLayout);
-    layout->addLayout(actionLayout);
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("主操作"),
+        QStringLiteral("先进入选中群聊，再继续复制资料、发邀请或展开后续群内动作。"),
+        {openBtn},
+        closeBtn);
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("复制与群信息"),
+        QStringLiteral("把群号、群名片、公告和邀请话术整理成一套可直接发送的上下文。"),
+        {copyBtn, cardBtn, announceBtn, inviteTextBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("成员与在线状态"),
+        QStringLiteral("成员清单和在线成员会跟随当前群聊切换，方便快速同步给协作者。"),
+        {memberBtn, onlineMemberBtn});
+
+    addWorkspaceSectionCard(
+        shell.bodyLayout,
+        shell.bodyFrame,
+        QStringLiteral("媒体与批量计划"),
+        QStringLiteral("为后续群内图片、视频、文件发送准备媒体包、批量计划和上传说明。"),
+        {copyGroupMediaPackBtn, copyGroupBatchPlanBtn, copyMediaGuideBtn});
 
     auto openSelectedGroup = [this, noticeList, &dialog]() {
         openSelectedGroupNoticeEntry(noticeList, &dialog);
     };
-    dialog.setStyleSheet(NotificationPanelManager::groupNoticeDialogStyleSheet());
+    dialog.setStyleSheet(productDialogStyleSheet() + NotificationPanelManager::groupNoticeDialogStyleSheet());
     connect(openBtn, &QPushButton::clicked, &dialog, openSelectedGroup);
-    auto updateGroupPreview = [this, noticeList, searchEdit, groupPreviewLabel]() {
-        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
-        groupPreviewLabel->setText(snapshot.previewText);
-    };
     auto updateGroupActionState = [=]() {
+        const QString currentId = selectedGroupNoticeEntryId(noticeList);
+        const bool hasSelection = noticeList->currentItem() != nullptr;
+        const bool createEntry = isGroupCreateEntryId(currentId);
+        const bool hasActionableGroup = hasEnabledListRow(noticeList);
         const GroupNoticeActionState state = NotificationPanelManager::groupNoticeActionState(
-            selectedGroupNoticeEntryId(noticeList),
-            noticeList->currentItem() != nullptr,
+            currentId,
+            hasSelection,
             !searchEdit->text().trimmed().isEmpty(),
             noticeList->count());
         openBtn->setEnabled(state.openEnabled);
@@ -6720,17 +13685,31 @@ void MainWindow::onShowGroupNotifications() {
         copyGroupBatchPlanBtn->setToolTip(state.copyBatchPlanToolTip);
         copyMediaGuideBtn->setEnabled(state.copyMediaGuideEnabled);
         copyMediaGuideBtn->setToolTip(state.copyMediaGuideToolTip);
-        hintLabel->setText(state.hintText);
+        hintLabel->setText(!hasActionableGroup
+                               ? emptyGroupNoticePreviewText()
+                               : (createEntry
+                                      ? QStringLiteral("当前是建群建议项，可直接创建并进入，再继续邀请好友或整理群资料。")
+                                      : (currentId.isEmpty()
+                                             ? QStringLiteral("当前选中公共聊天室，可先进入，再复制成员与发送指南。")
+                                             : state.hintText)));
     };
-    updateGroupPreview();
+    auto updateGroupPreviewState = [this, noticeList, searchEdit, groupPreviewLabel, emptyGroupNoticePreviewText]() {
+        const GroupNoticeSelectionSnapshot snapshot = currentGroupNoticeSelectionSnapshot(noticeList, searchEdit);
+        groupPreviewLabel->setText(noticeList->currentItem()
+                                       ? snapshot.previewText
+                                       : (hasEnabledListRow(noticeList)
+                                              ? QStringLiteral("选择群聊后可进入、复制群资料、查看成员或整理媒体计划。")
+                                              : emptyGroupNoticePreviewText()));
+    };
+    updateGroupPreviewState();
     updateGroupActionState();
-    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateGroupPreview, updateGroupActionState](QListWidgetItem*, QListWidgetItem*) {
-        updateGroupPreview();
+    connect(noticeList, &QListWidget::currentItemChanged, &dialog, [updateGroupPreviewState, updateGroupActionState](QListWidgetItem*, QListWidgetItem*) {
+        updateGroupPreviewState();
         updateGroupActionState();
     });
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillGroups, updateGroupPreview, updateGroupActionState]() {
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [fillGroups, updateGroupPreviewState, updateGroupActionState]() {
         fillGroups();
-        updateGroupPreview();
+        updateGroupPreviewState();
         updateGroupActionState();
     });
     connect(searchEdit, &QLineEdit::returnPressed, &dialog, openSelectedGroup);
@@ -6893,10 +13872,10 @@ bool MainWindow::selectTransferFile(const TransferSelectionPlan& selectionPlan,
         return false;
     }
 
-    const QString selectedPath = QFileDialog::getOpenFileName(this,
-                                                              selectionPlan.dialogTitle,
-                                                              LocalFileManager::lastTransferDirectory(),
-                                                              selectionPlan.filters);
+    const QString selectedPath = selectOpenFilePath(selectionPlan.dialogTitle,
+                                                    LocalFileManager::lastTransferDirectory(),
+                                                    selectionPlan.filters,
+                                                    this);
     TransferSelectionUiState selectionState =
         m_transferManager.transferSelectionUiState(selectionPlan, selectedPath);
     if (!handleTransferSelectionUiState(&selectionState)) {
@@ -6931,9 +13910,15 @@ bool MainWindow::handleTransferSelectionUiState(TransferSelectionUiState* select
     while (true) {
         const TransferSelectionFeedbackPlan feedbackPlan =
             m_transferManager.transferSelectionFeedbackPlan(*selectionState);
+        const TransferSendUiState workspaceState =
+            m_transferManager.selectionFeedbackWorkspaceState(*selectionState, feedbackPlan);
+        if (!workspaceState.workspaceTitle.trimmed().isEmpty()
+            || !workspaceState.workspaceDetail.trimmed().isEmpty()) {
+            setTransferWorkspaceSendState(workspaceState);
+        }
 
         if (feedbackPlan.dialogKind == TransferSelectionFeedbackPlan::DialogKind::Warning) {
-            QMessageBox::warning(this, feedbackPlan.dialogTitle, feedbackPlan.dialogMessage);
+            showWarningDialog(feedbackPlan.dialogTitle, feedbackPlan.dialogMessage, this);
         }
 
         if (!feedbackPlan.hintText.isEmpty()) {
@@ -6944,11 +13929,11 @@ bool MainWindow::handleTransferSelectionUiState(TransferSelectionUiState* select
         }
 
         if (feedbackPlan.requiresConfirmation) {
-            const bool confirmed = QMessageBox::question(this,
-                                                         feedbackPlan.dialogTitle,
-                                                         feedbackPlan.dialogMessage,
-                                                         QMessageBox::Yes | QMessageBox::No,
-                                                         QMessageBox::No) == QMessageBox::Yes;
+            const bool confirmed = confirmAction(feedbackPlan.dialogTitle,
+                                                 feedbackPlan.dialogMessage,
+                                                 feedbackPlan.statusMessage,
+                                                 feedbackPlan.statusTimeoutMs,
+                                                 this);
             *selectionState = m_transferManager.resolveTransferSelectionUiState(*selectionState, confirmed);
             continue;
         }
@@ -6960,6 +13945,7 @@ bool MainWindow::handleTransferSelectionUiState(TransferSelectionUiState* select
 void MainWindow::applyTransferSendState(const TransferSendUiState& state) {
     ui->chatHintLabel->setText(state.hintText);
     ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+    setTransferWorkspaceSendState(state);
 }
 
 void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
@@ -6991,6 +13977,7 @@ void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
 
     ui->chatHintLabel->setText(state.hintText);
     ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+    setTransferWorkspaceSendState(state);
     ui->chatListView->scrollToBottom();
 }
 
@@ -7101,13 +14088,14 @@ void MainWindow::handleRemoteTransferResult(bool ok,
         const TransferSendUiState state = m_transferManager.canceledSendState(kind, info.fileName());
         ui->chatHintLabel->setText(QString("%1 · %2").arg(state.hintText, targetName));
         ui->statusbar->showMessage(state.statusMessage, state.statusTimeoutMs);
+        setTransferWorkspaceSendState(state);
         refreshComposerState();
         return;
     }
 
     const TransferSendUiState state = m_transferManager.failedSendState(kind, info.fileName(), fileSize, targetName);
     applyTransferSendState(state);
-    QMessageBox::warning(this, state.warningTitle, state.warningMessage);
+    showWarningDialog(state.warningTitle, state.warningMessage, this);
     refreshComposerState();
 }
 
@@ -7147,12 +14135,49 @@ void MainWindow::applyReceivedTransferRenderPlan(const TransferReceiveRenderPlan
     ui->statusbar->showMessage(plan.statusMessage, plan.statusTimeoutMs);
 }
 
+void MainWindow::showReceivedTransferWorkspace(const ReceivedTransferContext& context,
+                                               const QString& displayName,
+                                               bool saved) {
+    const TransferReceivedWorkspaceState workspace =
+        m_transferManager.receivedTransferWorkspaceState(context.kind,
+                                                         context.receivedName,
+                                                         context.receivedSize,
+                                                         displayName,
+                                                         context.manifestSuffix,
+                                                         context.integrityText,
+                                                         context.integritySuffix,
+                                                         context.savePath,
+                                                         saved);
+
+    const LocalSavedFileState savedState =
+        LocalFileManager::savedFileStateFromChatText(QStringLiteral("保存路径：") + context.savePath);
+    if (!context.savePath.trimmed().isEmpty()) {
+        setTransferWorkspaceSavedFileState(savedState, workspace.previewText);
+    }
+
+    TransferSendUiState workspaceState;
+    workspaceState.workspaceTitle = workspace.workspaceTitle;
+    workspaceState.workspaceDetail = QStringLiteral("%1\n%2\n%3")
+                                         .arg(workspace.workspaceDetail,
+                                              workspace.nextStep,
+                                              workspace.preservedState);
+    workspaceState.hintText = saved
+        ? QStringLiteral("接收结果已同步到文件工作区 · %1").arg(context.receivedName)
+        : QStringLiteral("接收保存失败需排查 · %1").arg(context.receivedName);
+    workspaceState.statusMessage = saved
+        ? QStringLiteral("已同步接收结果到文件工作区：") + context.receivedName
+        : QStringLiteral("接收保存失败已同步到文件工作区：") + context.receivedName;
+    workspaceState.statusTone = workspace.statusTone;
+    setTransferWorkspaceSendState(workspaceState);
+}
+
 bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& context,
                                                 const QString& displayName,
                                                 const QString& transferId,
                                                 const QByteArray& fileData,
                                                 qint64 totalBytes) {
     const bool saved = LocalFileManager::writeReceivedTransferPayload(context.savePath, fileData);
+    showReceivedTransferWorkspace(context, displayName, saved);
     applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, saved),
                                     context.receivedName,
                                     transferId,
@@ -7453,8 +14478,8 @@ void MainWindow::refreshFriendList() {
         QStandardItem* section = new QStandardItem(title);
         section->setEditable(false);
         section->setEnabled(false);
-        section->setForeground(QColor(176, 212, 232));
-        section->setBackground(QColor(22, 46, 64));
+        section->setForeground(QColor(93, 109, 126));
+        section->setBackground(QColor(236, 243, 249));
         m_userListModel->appendRow(section);
     };
 
@@ -7476,7 +14501,7 @@ void MainWindow::refreshFriendList() {
         if (!matchesFilter(friendId, name)) continue;
         QStandardItem* item = new QStandardItem(QString("☆ QQ:%1\n   %2 [离线]").arg(friendId, name));
         item->setData(friendId, Qt::UserRole + 1);
-        item->setForeground(QColor(180, 215, 235));
+        item->setForeground(QColor(77, 98, 118));
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleFriends;
@@ -7488,7 +14513,7 @@ void MainWindow::refreshFriendList() {
         if (!matchesFilter(groupId, groupName)) continue;
         QStandardItem* item = new QStandardItem(QString("群聊 QQ:%1\n   %2 [本地]").arg(groupId.mid(QString("local_group_").size()), groupName));
         item->setData(groupId, Qt::UserRole + 1);
-        item->setForeground(QColor(164, 220, 255));
+        item->setForeground(QColor(29, 78, 216));
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleGroups;
@@ -7510,7 +14535,8 @@ void MainWindow::refreshFriendList() {
         const QString stateSuffix = isFriend ? " [在线]" : (isPending ? " [申请中]" : "");
         QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n   %3%4").arg(marker, user.id, user.name, stateSuffix));
         item->setData(user.id, Qt::UserRole + 1);
-        item->setForeground(isFriend ? Qt::white : (isPending ? QColor(255, 225, 160) : QColor(220, 240, 255)));
+        item->setForeground(isFriend ? QColor(15, 23, 42)
+                                     : (isPending ? QColor(170, 110, 20) : QColor(60, 78, 96)));
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleOnlineUsers;
@@ -7519,21 +14545,32 @@ void MainWindow::refreshFriendList() {
 
     const QString pendingPart = visiblePendingOutgoing > 0 ? QString(" · 申请中%1").arg(visiblePendingOutgoing) : QString();
     ui->onlineTitleLabel->setText(m_contactFilter.isEmpty()
-        ? QString("联系人 · 好友%1/%2在线 · 群聊%3%4 · 陌生人%5").arg(onlineFriendCount).arg(m_friendIds.size()).arg(visibleGroups).arg(pendingPart).arg(visibleStrangers)
-        : QString("联系人 · 匹配%1 · 好友%2 · 群聊%3 · 在线%4%5 · 陌生人%6").arg(visibleCount).arg(visibleFriends + onlineFriendCount).arg(visibleGroups).arg(visibleOnlineUsers).arg(pendingPart).arg(visibleStrangers));
+        ? QString("联系人工作区 · 好友在线 %1/%2 · 群聊 %3%4 · 可发现 %5")
+              .arg(onlineFriendCount)
+              .arg(m_friendIds.size())
+              .arg(visibleGroups)
+              .arg(pendingPart)
+              .arg(visibleStrangers)
+        : QString("联系人工作区 · 匹配 %1 项 · 好友 %2 · 群聊 %3 · 在线 %4%5 · 可发现 %6")
+              .arg(visibleCount)
+              .arg(visibleFriends + onlineFriendCount)
+              .arg(visibleGroups)
+              .arg(visibleOnlineUsers)
+              .arg(pendingPart)
+              .arg(visibleStrangers));
 
     if (visibleCount == 0 && !m_contactFilter.isEmpty()) {
-        QStandardItem* addItem = new QStandardItem(QString("搜索并发送申请 QQ:%1\n   回车或双击查找好友").arg(m_contactFilter));
+        QStandardItem* addItem = new QStandardItem(QString("搜索并申请 QQ:%1\n   回车或双击查找好友").arg(m_contactFilter));
         addItem->setData("search_add:" + m_contactFilter, Qt::UserRole + 1);
-        addItem->setForeground(QColor(255, 255, 255));
-        addItem->setBackground(QColor(18, 183, 245));
+        addItem->setForeground(QColor(29, 78, 216));
+        addItem->setBackground(QColor(232, 240, 254));
         m_userListModel->appendRow(addItem);
         QStandardItem* groupItem = new QStandardItem(QString("创建群聊:%1\n   双击立即建群并进入").arg(m_contactFilter));
         groupItem->setData("create_group:" + m_contactFilter, Qt::UserRole + 1);
-        groupItem->setForeground(QColor(255, 255, 255));
-        groupItem->setBackground(QColor(36, 203, 162));
+        groupItem->setForeground(QColor(13, 148, 136));
+        groupItem->setBackground(QColor(229, 248, 244));
         m_userListModel->appendRow(groupItem);
-        ui->onlineTitleLabel->setText(QString("联系人 · 未匹配 · 可搜索QQ或建群:%1").arg(m_contactFilter));
+        ui->onlineTitleLabel->setText(QString("联系人工作区 · 未匹配结果 · 可搜索 QQ 或创建群聊：%1").arg(m_contactFilter));
     }
 }
 
@@ -7541,7 +14578,7 @@ void MainWindow::onContactSearchChanged(const QString& text) {
     m_contactFilter = text.trimmed();
     refreshFriendList();
     if (!m_contactFilter.isEmpty()) {
-        ui->statusbar->showMessage(QString("QQ搜索:%1 · 无结果可双击搜索申请或建群").arg(m_contactFilter), 1800);
+        ui->statusbar->showMessage(QString("QQ搜索:%1 · 无结果可双击搜索并申请或建群").arg(m_contactFilter), 1800);
     } else {
         ui->statusbar->showMessage(QString("联系人已显示 · 好友%1 · 本地群%2 · 在线%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size()), 1200);
     }
@@ -7581,12 +14618,14 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(display.role, memberId, name, display.state, display.actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
-            item->setForeground(memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(20, 92, 160) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56))));
+            item->setForeground(memberId == m_currentUserId ? QColor(29, 78, 216)
+                                                            : (isFriend ? QColor(20, 92, 160)
+                                                                        : (isPending ? QColor(170, 110, 20) : QColor(60, 78, 96))));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
         QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
-        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5")
+        ui->memberTitleLabel->setText(QString("群成员工作区 · 共 %1 人 · 群主 %2 · 在线 %3 · 好友 %4%5")
             .arg(members.size())
             .arg(ownerName)
             .arg(onlineMembers)
@@ -7596,11 +14635,11 @@ void MainWindow::refreshGroupMemberPanel() {
             QStandardItem* addItem = new QStandardItem(QString("邀请 QQ:%1\n双击自动加入当前群聊").arg(filter));
             addItem->setData("group_invite:" + filter, Qt::UserRole + 1);
             addItem->setEditable(false);
-            addItem->setForeground(QColor(18, 150, 247));
+            addItem->setForeground(QColor(29, 78, 216));
             addItem->setEnabled(isCurrentUserGroupOwner(m_privateChatTarget));
             addItem->setToolTip(isCurrentUserGroupOwner(m_privateChatTarget) ? "双击邀请该 QQ 入群" : "只有群主可以邀请新成员入群");
             m_groupMemberModel->appendRow(addItem);
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · %6QQ:%7")
+            ui->memberTitleLabel->setText(QString("群成员工作区 · 共 %1 人 · 群主 %2 · 在线 %3 · 好友 %4%5 · %6 QQ:%7")
                 .arg(members.size())
                 .arg(ownerName)
                 .arg(onlineMembers)
@@ -7608,8 +14647,9 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(isCurrentUserGroupOwner(m_privateChatTarget) ? "可邀请" : "无权限邀请")
                 .arg(filter));
+            refreshMainWorkbenchChrome();
         } else if (!filter.isEmpty()) {
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · 匹配%6")
+            ui->memberTitleLabel->setText(QString("群成员工作区 · 共 %1 人 · 群主 %2 · 在线 %3 · 好友 %4%5 · 匹配 %6")
                 .arg(members.size())
                 .arg(ownerName)
                 .arg(onlineMembers)
@@ -7617,6 +14657,7 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(visibleMembers));
         }
+        refreshMainWorkbenchChrome();
         return;
     }
 
@@ -7642,7 +14683,8 @@ void MainWindow::refreshGroupMemberPanel() {
         } else {
             delete removedItem;
         }
-        ui->memberTitleLabel->setText("公共群成员 · 当前账号已被移出 · 历史只读");
+        ui->memberTitleLabel->setText("公共群工作区 · 当前账号已移出 · 历史只读");
+        refreshMainWorkbenchChrome();
         return;
     }
 
@@ -7683,7 +14725,10 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(display.role, memberId, name, display.state, display.actionText));
             item->setData(memberId, Qt::UserRole + 1);
             item->setEditable(false);
-            item->setForeground(display.isOwner ? QColor(156, 98, 0) : (memberId == m_currentUserId ? QColor(18, 150, 247) : (isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)))));
+            item->setForeground(display.isOwner ? QColor(156, 98, 0)
+                                                : (memberId == m_currentUserId ? QColor(29, 78, 216)
+                                                                               : (isFriend ? QColor(20, 92, 160)
+                                                                                           : (isPending ? QColor(170, 110, 20) : QColor(60, 78, 96)))));
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
@@ -7691,18 +14736,19 @@ void MainWindow::refreshGroupMemberPanel() {
         if (visibleMembers == 0 && !filter.isEmpty()) {
             QStandardItem* addItem = new QStandardItem(canManagePublicGroup
                 ? QString("邀请 QQ:%1 加入公共群\n双击提交服务端成员变更").arg(filter)
-                : QString("搜索并发送申请 QQ:%1\n双击查找好友").arg(filter));
+                : QString("搜索并申请 QQ:%1\n双击查找好友").arg(filter));
             addItem->setData("group_search_add:" + filter, Qt::UserRole + 1);
             addItem->setEditable(false);
-            addItem->setForeground(QColor(18, 150, 247));
-            addItem->setToolTip(canManagePublicGroup ? "双击后由服务端校验群主/管理员权限并添加成员" : "双击查找该 QQ 并发送好友申请");
+            addItem->setForeground(canManagePublicGroup ? QColor(13, 148, 136) : QColor(29, 78, 216));
+            addItem->setToolTip(canManagePublicGroup ? "双击后由服务端校验群主/管理员权限并添加成员" : "双击查找该 QQ 并发起好友申请");
             m_groupMemberModel->appendRow(addItem);
-            ui->memberTitleLabel->setText(QString("群聊成员 %1 · 群主:%2 · 在线%3 · %4QQ:%5")
+            ui->memberTitleLabel->setText(QString("公共群工作区 · 共 %1 人 · 群主 %2 · 在线 %3 · %4 QQ:%5")
                 .arg(memberCount)
                 .arg(ownerName.isEmpty() ? "未指定" : ownerName)
                 .arg(onlineMembers)
                 .arg(canManagePublicGroup ? "可邀请" : "可搜索")
                 .arg(filter));
+            refreshMainWorkbenchChrome();
             return;
         }
 
@@ -7728,14 +14774,14 @@ void MainWindow::refreshGroupMemberPanel() {
             }
         }
         ui->memberTitleLabel->setText(filter.isEmpty()
-            ? QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5%6")
+            ? QString("公共群工作区 · 共 %1 人 · 群主 %2 · 在线 %3 · 好友 %4%5%6")
                 .arg(memberCount)
                 .arg(ownerName.isEmpty() ? "未指定" : ownerName)
                 .arg(onlineMembers)
                 .arg(friendMembers)
                 .arg(pendingPart)
                 .arg(auditEvents.isEmpty() ? QString() : QString(" · 审计%1").arg(auditEvents.size()))
-            : QString("群聊成员 %1 · 群主:%2 · 在线%3 · 好友%4%5 · 匹配%6%7")
+            : QString("公共群工作区 · 共 %1 人 · 群主 %2 · 在线 %3 · 好友 %4%5 · 匹配 %6%7")
                 .arg(memberCount)
                 .arg(ownerName.isEmpty() ? "未指定" : ownerName)
                 .arg(onlineMembers)
@@ -7743,13 +14789,14 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(visibleMembers)
                 .arg(auditVisibleCount > 0 ? QString(" · 审计%1").arg(auditVisibleCount) : QString()));
+        refreshMainWorkbenchChrome();
         return;
     }
 
     QStandardItem* selfItem = new QStandardItem(QString("我  QQ:%1\n%2 · 在线").arg(m_currentUserId, m_currentUserName));
     selfItem->setData(m_currentUserId, Qt::UserRole + 1);
     selfItem->setEditable(false);
-    selfItem->setForeground(QColor(18, 150, 247));
+    selfItem->setForeground(QColor(29, 78, 216));
     if (filter.isEmpty() || m_currentUserId.contains(filter, Qt::CaseInsensitive) || m_currentUserName.contains(filter, Qt::CaseInsensitive)) {
         m_groupMemberModel->appendRow(selfItem);
     } else {
@@ -7778,23 +14825,25 @@ void MainWindow::refreshGroupMemberPanel() {
         QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · 在线 · %4").arg(isFriend ? "好友" : (isPending ? "申请中" : "成员"), user.id, user.name, isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请")));
         item->setData(user.id, Qt::UserRole + 1);
         item->setEditable(false);
-        item->setForeground(isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)));
+        item->setForeground(isFriend ? QColor(20, 92, 160) : (isPending ? QColor(170, 110, 20) : QColor(60, 78, 96)));
         m_groupMemberModel->appendRow(item);
         ++visibleMembers;
     }
     if (visibleMembers == 0 && !filter.isEmpty()) {
-        QStandardItem* addItem = new QStandardItem(QString("搜索并发送申请 QQ:%1\n双击查找好友").arg(filter));
+        QStandardItem* addItem = new QStandardItem(QString("搜索并申请 QQ:%1\n双击查找好友").arg(filter));
         addItem->setData("group_search_add:" + filter, Qt::UserRole + 1);
         addItem->setEditable(false);
-        addItem->setForeground(QColor(18, 150, 247));
+        addItem->setForeground(QColor(29, 78, 216));
         m_groupMemberModel->appendRow(addItem);
-        ui->memberTitleLabel->setText(QString("群聊成员 %1 · 在线%2 · 可搜索QQ:%3").arg(memberCount).arg(onlineMembers).arg(filter));
+        ui->memberTitleLabel->setText(QString("群成员工作区 · 共 %1 人 · 在线 %2 · 可搜索 QQ:%3").arg(memberCount).arg(onlineMembers).arg(filter));
+        refreshMainWorkbenchChrome();
         return;
     }
     QString pendingPart = pendingMembers > 0 ? QString(" · 申请中%1").arg(pendingMembers) : QString();
     ui->memberTitleLabel->setText(filter.isEmpty()
-        ? QString("群聊成员 %1 · 在线%2 · 好友%3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
-        : QString("群聊成员 %1 · 在线%2 · 好友%3%4 · 匹配%5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
+        ? QString("群成员工作区 · 共 %1 人 · 在线 %2 · 好友 %3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
+        : QString("群成员工作区 · 共 %1 人 · 在线 %2 · 好友 %3%4 · 匹配 %5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
+    refreshMainWorkbenchChrome();
 }
 
 void MainWindow::loadAvatar() {
@@ -7808,6 +14857,7 @@ void MainWindow::loadAvatar() {
         ui->avatarLabel->setToolTip(avatarTip);
         ui->uploadAvatarBtn->setToolTip(avatarTip);
     }
+    refreshAvatarWorkspaceCard();
 }
 
 QString MainWindow::contactDisplayName(const QString& userId) const {

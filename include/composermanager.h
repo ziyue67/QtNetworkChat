@@ -20,6 +20,10 @@ struct ComposerUiState {
     bool canSend = false;
     bool sendFileEnabled = false;
     bool sendImageEnabled = false;
+    QString workspaceTitle;
+    QString workspaceDetail;
+    QString draftSummary;
+    QString stateTone;
     QString sendToolTip;
     QString messagePlaceholder;
     QString messageToolTip;

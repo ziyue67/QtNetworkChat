@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
                     && emptyNoticeList.entries.size() == 1
                     && !emptyNoticeList.entries.first().enabled
                     && emptyNoticeList.entries.first().muted
-                    && emptyNoticeList.entries.first().text == QString::fromUtf8("暂无新的好友申请"),
+                    && emptyNoticeList.entries.first().text == QString::fromUtf8("当前没有新的好友申请"),
                 "empty friend notice list should render a muted placeholder") && ok;
 
     const FriendNoticeListRenderUiState emptySearchNoticeList =
@@ -172,7 +172,7 @@ int main(int argc, char** argv) {
     const FriendNoticeActionState searchFriendState =
         NotificationPanelManager::friendNoticeActionState(QStringLiteral("search_add:12345"), false, true);
     ok = expect(searchFriendState.acceptEnabled
-                    && searchFriendState.acceptText == QString::fromUtf8("搜索并添加")
+                    && searchFriendState.acceptText == QString::fromUtf8("搜索并申请")
                     && !searchFriendState.rejectEnabled
                     && searchFriendState.copyMediaGuideEnabled,
                 "search friend notice state should enable add path and draft helpers") && ok;
@@ -200,7 +200,7 @@ int main(int argc, char** argv) {
                                                                 QString::fromUtf8("小明"));
     ok = expect(!emptyFriendSnapshot.hasSelection
                     && emptyFriendSnapshot.targetId.isEmpty()
-                    && emptyFriendSnapshot.previewText == QString::fromUtf8("选择申请后可同意、拒绝、复制名片或回复话术")
+                    && emptyFriendSnapshot.previewText == QString::fromUtf8("先选中申请，再决定同意、回复整理或复制申请人名片。")
                     && searchFriendSnapshot.searchEntry
                     && !searchFriendSnapshot.realRequest
                     && searchFriendSnapshot.targetId == QStringLiteral("9988")
@@ -212,7 +212,7 @@ int main(int argc, char** argv) {
                 "friend notice selection snapshot should centralize target normalization and preview state") && ok;
 
     ok = expect(NotificationPanelManager::friendNoticePreviewText(QString(), QStringLiteral("Alice"))
-                        == QString::fromUtf8("选择申请后可同意、拒绝、复制名片或回复话术")
+                        == QString::fromUtf8("先选中申请，再决定同意、回复整理或复制申请人名片。")
                     && NotificationPanelManager::friendNoticePreviewText(QStringLiteral("search_add:9988"), QStringLiteral("Alice")).contains(QStringLiteral("9988"))
                     && NotificationPanelManager::friendNoticePreviewText(QStringLiteral("9988"), QStringLiteral("Alice")).contains(QString::fromUtf8("Alice")),
                 "friend notice preview text should cover empty, search and request states") && ok;

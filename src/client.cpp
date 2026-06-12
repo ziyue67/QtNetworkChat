@@ -2597,6 +2597,7 @@ bool Client::respondE2ESessionRotation(const QString& peerId,
                                        bool accepted,
                                        const QString& reason,
                                        QString* rejectReason) {
+    Q_UNUSED(publicKey);
     if (rejectReason) rejectReason->clear();
     if (!isConnected()) {
         if (rejectReason) *rejectReason = QStringLiteral("not-connected");

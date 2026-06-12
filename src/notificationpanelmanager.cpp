@@ -17,7 +17,7 @@ FriendNoticeDialogChrome NotificationPanelManager::friendNoticeDialogChrome() {
     };
     chrome.searchPlaceholder = QStringLiteral("搜索申请人 QQ 号 / 昵称");
     chrome.searchToolTip = QStringLiteral("按 QQ 号或昵称筛选好友申请；回车可搜索账号");
-    chrome.previewPlaceholder = QStringLiteral("选择申请后可同意、拒绝、复制名片或回复话术");
+    chrome.previewPlaceholder = QStringLiteral("先选中申请，再决定通过、回复整理或批量清理。");
     chrome.acceptButton = {
         QStringLiteral("同意"),
         QStringLiteral("noticePrimaryBtn"),
@@ -84,8 +84,8 @@ GroupNoticeDialogChrome NotificationPanelManager::groupNoticeDialogChrome() {
     chrome.countTextTemplate = QStringLiteral("已加入 %1 个群聊");
     chrome.searchPlaceholder = QStringLiteral("搜索群名 / 群号 / 公告");
     chrome.searchToolTip = QStringLiteral("按群名、群号或公告筛选；无结果时可按回车创建新群");
-    chrome.previewPlaceholder = QStringLiteral("选择群聊后可复制群号、公告、成员或入群话术");
-    chrome.hintPlaceholder = QStringLiteral("双击群通知可直接进入群聊");
+    chrome.previewPlaceholder = QStringLiteral("先选中群聊，再复制群信息、成员资料或批量媒体计划。");
+    chrome.hintPlaceholder = QStringLiteral("双击可直接进入群聊，复制动作会跟随当前筛选结果。");
     chrome.openButton = {
         QStringLiteral("进入选中群聊"),
         QStringLiteral("noticePrimaryBtn"),
@@ -147,82 +147,98 @@ GroupNoticeDialogChrome NotificationPanelManager::groupNoticeDialogChrome() {
 QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
     return QStringLiteral(R"(
         QDialog#noticeDialog {
-            background: #F4F4F4;
+            background: #F3F6FB;
             font-family: "Microsoft YaHei", "Segoe UI";
         }
         QLabel#noticeTitle {
-            color: #111111;
+            color: #0F172A;
             font-size: 20px;
-            font-weight: 900;
+            font-weight: 800;
         }
         QLabel#noticeSubTitle {
-            color: #6B7A88;
-            font-size: 13px;
-            font-weight: 800;
-            padding-left: 4px;
-        }
-        QLabel#noticePreviewLabel {
-            color: #3A4A5A;
-            background: #EAF7FF;
-            border: 1px solid #DCEFFF;
-            border-radius: 14px;
-            padding: 7px 12px;
+            color: #5F7285;
             font-size: 12px;
             font-weight: 800;
+            padding-left: 2px;
+        }
+        QLabel#noticePreviewLabel {
+            color: #223548;
+            background: #FFFFFF;
+            border: 1px solid #D8E4EE;
+            border-radius: 14px;
+            padding: 10px 12px;
+            font-size: 12px;
+            font-weight: 700;
         }
         QLineEdit#noticeSearch {
-            min-height: 38px;
-            background: white;
-            border: 1px solid #DDE7F0;
-            border-radius: 18px;
+            min-height: 40px;
+            background: #F8FBFD;
+            border: 1px solid #D7E2EC;
+            border-radius: 16px;
             padding: 4px 14px;
-            color: #263238;
+            color: #162334;
         }
         QLineEdit#noticeSearch:focus {
-            border: 1px solid #12B7F5;
+            background: #FFFFFF;
+            border: 1px solid #3B82F6;
         }
         QListWidget#noticeList {
-            background: #F4F4F4;
-            border: none;
+            background: #FFFFFF;
+            border: 1px solid #DCE8F2;
+            border-radius: 16px;
+            padding: 8px;
             outline: none;
         }
         QListWidget#noticeList::item {
-            background: white;
-            border-radius: 10px;
-            margin: 8px 80px;
-            padding: 14px 18px;
-            color: #263238;
+            background: #F8FBFD;
+            border-radius: 12px;
+            margin: 4px 0;
+            padding: 12px 14px;
+            color: #223548;
         }
         QListWidget#noticeList::item:selected, QListWidget#noticeList::item:hover {
-            background: #EAF7FF;
+            background: #EAF2FF;
+            color: #174EA6;
         }
         QPushButton {
-            min-height: 34px;
-            border-radius: 17px;
-            padding: 6px 18px;
+            min-height: 36px;
+            border-radius: 14px;
+            padding: 6px 16px;
             font-weight: 700;
         }
         QPushButton#noticePrimaryBtn {
-            background: #1296F7;
-            color: white;
-            border: none;
+            background: #2563EB;
+            color: #FFFFFF;
+            border: 1px solid #2563EB;
         }
         QPushButton#noticeDangerBtn {
-            background: white;
+            background: #FFF6F5;
             color: #D35454;
-            border: 1px solid #F1CCCC;
+            border: 1px solid #F0D0CB;
         }
         QPushButton#noticeGhostBtn {
-            background: white;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
+            background: #FFFFFF;
+            color: #324659;
+            border: 1px solid #D7E2EC;
+        }
+        QPushButton#noticePrimaryBtn:hover {
+            background: #1D4ED8;
+            border-color: #1D4ED8;
+        }
+        QPushButton#noticeDangerBtn:hover {
+            background: #FEEDEC;
+            border-color: #EAB8B0;
+        }
+        QPushButton#noticeGhostBtn:hover {
+            background: #F7FAFE;
+            border-color: #BFD0E2;
         }
         QPushButton#noticePrimaryBtn:disabled,
         QPushButton#noticeDangerBtn:disabled,
         QPushButton#noticeGhostBtn:disabled {
-            background: #F3F6F9;
+            background: #F8FAFC;
             color: #9AA8B6;
-            border: 1px solid #E3EAF1;
+            border: 1px solid #E2E8F0;
         }
     )");
 }
@@ -230,79 +246,90 @@ QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
 QString NotificationPanelManager::groupNoticeDialogStyleSheet() {
     return QStringLiteral(R"(
         QDialog#noticeDialog {
-            background: #F4F4F4;
+            background: #F3F6FB;
             font-family: "Microsoft YaHei", "Segoe UI";
         }
         QLabel#noticeTitle {
-            color: #111111;
+            color: #0F172A;
             font-size: 20px;
-            font-weight: 900;
+            font-weight: 800;
         }
         QLabel#noticeSubTitle, QLabel#noticeHint {
-            color: #6B7A88;
-            font-size: 13px;
+            color: #5F7285;
+            font-size: 12px;
             font-weight: 700;
         }
         QLabel#noticePreviewLabel {
-            color: #3A4A5A;
-            background: #EAF7FF;
-            border: 1px solid #DCEFFF;
+            color: #223548;
+            background: #FFFFFF;
+            border: 1px solid #D8E4EE;
             border-radius: 14px;
-            padding: 7px 12px;
+            padding: 10px 12px;
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 700;
         }
         QLineEdit#noticeSearch {
-            min-height: 38px;
-            background: white;
-            border: 1px solid #DDE7F0;
-            border-radius: 18px;
+            min-height: 40px;
+            background: #F8FBFD;
+            border: 1px solid #D7E2EC;
+            border-radius: 16px;
             padding: 4px 14px;
-            color: #263238;
+            color: #162334;
         }
         QLineEdit#noticeSearch:focus {
-            border: 1px solid #12B7F5;
+            background: #FFFFFF;
+            border: 1px solid #3B82F6;
         }
         QListWidget#noticeList {
-            background: #F4F4F4;
-            border: none;
+            background: #FFFFFF;
+            border: 1px solid #DCE8F2;
+            border-radius: 16px;
+            padding: 8px;
             outline: none;
         }
         QListWidget#noticeList::item {
-            background: white;
-            border-radius: 10px;
-            margin: 7px 44px;
-            padding: 14px 18px;
-            color: #263238;
+            background: #F8FBFD;
+            border-radius: 12px;
+            margin: 4px 0;
+            padding: 12px 14px;
+            color: #223548;
         }
-        QListWidget#noticeList::item:selected {
-            background: #DFF2FF;
-            color: #102A43;
+        QListWidget#noticeList::item:selected, QListWidget#noticeList::item:hover {
+            background: #EAF2FF;
+            color: #174EA6;
         }
         QPushButton#noticePrimaryBtn {
-            min-height: 34px;
-            border-radius: 17px;
-            padding: 6px 18px;
+            min-height: 36px;
+            border-radius: 14px;
+            padding: 6px 16px;
             font-weight: 800;
-            background: #12B7F5;
-            color: white;
-            border: none;
+            background: #2563EB;
+            color: #FFFFFF;
+            border: 1px solid #2563EB;
+        }
+        QPushButton#noticePrimaryBtn:hover {
+            background: #1D4ED8;
+            border-color: #1D4ED8;
         }
         QPushButton#noticePrimaryBtn:disabled,
         QPushButton#noticeDangerBtn:disabled,
         QPushButton#noticeGhostBtn:disabled {
-            background: #F3F6F9;
+            background: #F8FAFC;
             color: #9AA8B6;
-            border: 1px solid #E3EAF1;
+            border: 1px solid #E2E8F0;
         }
         QPushButton#noticeGhostBtn {
-            min-height: 34px;
-            border-radius: 17px;
-            padding: 6px 18px;
+            min-height: 36px;
+            border-radius: 14px;
+            padding: 6px 16px;
             font-weight: 700;
-            background: white;
-            color: #3A4A5A;
-            border: 1px solid #D4E1EC;
+            background: #FFFFFF;
+            color: #324659;
+            border: 1px solid #D7E2EC;
+        }
+        QPushButton#noticeGhostBtn:hover {
+            background: #F7FAFE;
+            border-color: #BFD0E2;
         }
     )");
 }
@@ -325,13 +352,13 @@ FriendNoticeListRenderUiState NotificationPanelManager::friendNoticeListRenderUi
         entry.muted = true;
         entry.rowHeight = 68;
         if (keyword.isEmpty()) {
-            entry.text = QStringLiteral("暂无新的好友申请");
-            entry.toolTip = QStringLiteral("当前没有待处理好友申请，可在搜索框输入 QQ 号后回车查找");
+            entry.text = QStringLiteral("当前没有新的好友申请");
+            entry.toolTip = QStringLiteral("当前没有待处理好友申请，可在搜索框输入 QQ 号直接搜索并申请");
         } else {
             state.statsText = QStringLiteral("暂无待处理申请 · 可搜索 QQ:%1").arg(keyword);
             entry.entryId = kSearchAddPrefix + keyword;
-            entry.text = QStringLiteral("暂无待处理申请，可直接搜索并添加 QQ:%1").arg(keyword);
-            entry.toolTip = QStringLiteral("选择后点击“搜索并添加”，或按回车搜索 QQ:%1").arg(keyword);
+            entry.text = QStringLiteral("暂无待处理申请，可直接搜索并申请 QQ:%1").arg(keyword);
+            entry.toolTip = QStringLiteral("选择后点击“搜索并申请”，或按回车搜索 QQ:%1").arg(keyword);
             entry.enabled = true;
             entry.muted = false;
             entry.accent = true;
@@ -370,8 +397,8 @@ FriendNoticeListRenderUiState NotificationPanelManager::friendNoticeListRenderUi
     if (visibleCount == 0 && !keyword.isEmpty()) {
         FriendNoticeListEntryUiState entry;
         entry.entryId = kSearchAddPrefix + keyword;
-        entry.text = QStringLiteral("未找到申请人，可清空搜索或直接添加 QQ:%1").arg(keyword);
-        entry.toolTip = QStringLiteral("没有匹配的好友申请，可直接搜索并添加 QQ:%1").arg(keyword);
+        entry.text = QStringLiteral("未找到匹配申请，可清空搜索或直接搜索并申请 QQ:%1").arg(keyword);
+        entry.toolTip = QStringLiteral("没有匹配的好友申请，可直接搜索并申请 QQ:%1").arg(keyword);
         entry.accent = true;
         entry.rowHeight = 68;
         state.entries << entry;
@@ -388,11 +415,11 @@ FriendNoticeActionState NotificationPanelManager::friendNoticeActionState(const 
     const bool canAccept = isSearchAdd || isRealRequest;
 
     state.acceptEnabled = canAccept;
-    state.acceptText = isSearchAdd ? QStringLiteral("搜索并添加") : QStringLiteral("同意");
+    state.acceptText = isSearchAdd ? QStringLiteral("搜索并申请") : QStringLiteral("同意");
     state.acceptToolTip = isRealRequest
         ? QStringLiteral("同意当前选中的好友申请并加入好友列表")
         : (isSearchAdd
-            ? QStringLiteral("对搜索结果里的 QQ 号发送好友申请")
+            ? QStringLiteral("对搜索结果里的 QQ 号发起好友申请")
             : QStringLiteral("选择申请后可同意，或先搜索 QQ 号"));
 
     state.rejectEnabled = isRealRequest;
@@ -457,7 +484,7 @@ GroupNoticeListRenderUiState NotificationPanelManager::groupNoticeListRenderUiSt
         || QStringLiteral("默认公共聊天室").contains(keyword, Qt::CaseInsensitive);
     if (publicMatched) {
         GroupNoticeListEntryUiState entry;
-        entry.text = QStringLiteral("默认公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人")
+        entry.text = QStringLiteral("公共聊天室\n你已加入默认群聊，可直接发送消息、图片和文件。\n在线成员：%1 人")
             .arg(publicOnlineCount);
         entry.toolTip = QStringLiteral("进入公共聊天室，当前在线成员 %1 人")
             .arg(publicOnlineCount);
@@ -572,13 +599,13 @@ FriendNoticeSelectionSnapshot NotificationPanelManager::friendNoticeSelectionSna
 QString NotificationPanelManager::friendNoticePreviewText(const QString& currentId,
                                                           const QString& displayName) {
     if (currentId.isEmpty()) {
-        return QStringLiteral("选择申请后可同意、拒绝、复制名片或回复话术");
+        return QStringLiteral("先选中申请，再决定同意、回复整理或复制申请人名片。");
     }
     if (isSearchAddEntryId(currentId)) {
-        return QStringLiteral("未找到申请人，可搜索并发送申请 QQ:%1")
+        return QStringLiteral("未找到匹配申请，可直接搜索并申请 QQ:%1")
             .arg(searchAddEntryTarget(currentId));
     }
-    return QStringLiteral("申请人 · %1 · QQ:%2 · 可自动同意并加为好友")
+    return QStringLiteral("好友申请\n申请人：%1\nQQ：%2\n下一步：可同意加入好友列表，或先复制名片与回复话术。")
         .arg(displayName, currentId);
 }
 
@@ -596,7 +623,7 @@ GroupNoticeActionState NotificationPanelManager::groupNoticeActionState(const QS
         ? QStringLiteral("创建并进入群聊")
         : (currentId.isEmpty() ? QStringLiteral("进入公共聊天室") : QStringLiteral("进入选中群聊"));
     state.openToolTip = !hasSelection
-        ? QStringLiteral("选择群聊后可进入")
+        ? QStringLiteral("选择群聊后可进入、复制资料或整理媒体计划")
         : (isCreateEntry
             ? QStringLiteral("按当前关键词创建新群并立即进入")
             : QStringLiteral("进入当前选中的公共聊天室或本地群聊"));
@@ -639,7 +666,7 @@ GroupNoticeActionState NotificationPanelManager::groupNoticeActionState(const QS
         ? QStringLiteral("复制群聊中发送图片、视频和文件的简短指南")
         : QStringLiteral("当前没有可复制的上传指南");
     state.hintText = !hasSelection
-        ? QStringLiteral("先选择群聊后再进入或复制信息")
+        ? QStringLiteral("先选择群聊后再进入、复制资料或整理媒体计划")
         : (isCreateEntry
             ? QStringLiteral("双击可按当前关键词创建新群并进入")
             : QStringLiteral("双击群通知可直接进入群聊"));

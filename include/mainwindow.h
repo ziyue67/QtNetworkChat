@@ -30,6 +30,7 @@ namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
 class QAction;
+class QLabel;
 class QListWidget;
 class QLineEdit;
 
@@ -72,9 +73,15 @@ private slots:
     void onCopyAccount();
     void onLogout();
     void onShowQuickAddFriend();
+    void onShowContactWorkspace(const QString& initialFilter = QString());
     void onShowFriendManager();
-    void onShowGlobalSearch();
+    void onShowGlobalSearch(const QString& initialFilter = QString());
     void onShowCreateMenu();
+    void onShowGroupMemberWorkspace(const QString& initialFilter = QString());
+    void onShowTransferWorkspace();
+    void onShowComposerWorkspace();
+    void onShowChatHistoryWorkspace();
+    void onShowNotificationWorkspace();
     void onShowFriendNotifications();
     void onShowGroupNotifications();
     void onEditGroupAnnouncement();
@@ -161,6 +168,9 @@ private:
                                         const QString& transferId,
                                         const QByteArray& fileData,
                                         qint64 totalBytes);
+    void showReceivedTransferWorkspace(const ReceivedTransferContext& context,
+                                       const QString& displayName,
+                                       bool saved);
     bool handleReceivedTransferMessage(const Message& msg,
                                        const QString& displayName);
     TransferReceiveRenderPlan receivedTransferPersistencePlan(const ReceivedTransferContext& context,
@@ -187,6 +197,15 @@ private:
     void refreshFriendList();
     void refreshGroupMemberPanel();
     void refreshComposerState();
+    void refreshTransferWorkspaceCard(const TransferRecoveryUiState* recoveryState = nullptr,
+                                      const TransferStatusEvent* latestEvent = nullptr,
+                                      const TransferSendUiState* sendState = nullptr);
+    TransferWorkspaceSummaryState currentTransferWorkspaceSummary(const TransferRecoveryUiState* recoveryState = nullptr,
+                                                                 const TransferStatusEvent* latestEvent = nullptr,
+                                                                 const TransferSendUiState* sendState = nullptr) const;
+    void refreshMainWorkbenchChrome();
+    void setTransferWorkspaceSendState(const TransferSendUiState& state);
+    void clearTransferWorkspaceSendState();
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     LocalSavedFileState savedFileActionState(const QModelIndex& index) const;
@@ -194,12 +213,55 @@ private:
     bool copySavedFilePathToClipboard(const ChatContextSavedFileCommand& command);
     bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     bool openSavedFolderFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
+    void showSavedFileWorkspace(const LocalSavedFileState& savedFileState,
+                                const QString& chatText,
+                                const QString& fallbackStatusMessage = QString());
+    void showChatHistoryWorkspaceForRow(int preferredRow = -1);
+    void clearSavedFileWorkspace();
+    void setTransferWorkspaceSavedFileState(const LocalSavedFileState& savedFileState,
+                                            const QString& chatText = QString());
+    QString transferWorkspaceStatusSnapshotText() const;
+    void showAvatarWorkspace();
+    void showAvatarWorkspaceMenu(const QPoint& globalPos);
+    void refreshAvatarWorkspaceCard();
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
+    bool showChoiceDialog(const QString& title,
+                          const QString& message,
+                          const QString& confirmText,
+                          const QString& cancelText,
+                          bool destructiveConfirm,
+                          const QString& canceledStatusMessage = QString(),
+                          int canceledStatusTimeoutMs = 1600,
+                          QWidget* parent = nullptr) const;
+    QString showSingleFieldDialog(const QString& dialogObjectName,
+                                  const QString& title,
+                                  const QString& subTitle,
+                                  const QString& fieldLabel,
+                                  const QString& placeholder,
+                                  const QString& initialValue,
+                                  bool multiline,
+                                  bool* accepted,
+                                  QWidget* parent = nullptr) const;
+    QString showItemPickerDialog(const QString& dialogObjectName,
+                                 const QString& title,
+                                 const QString& subTitle,
+                                 const QString& label,
+                                 const QStringList& items,
+                                 bool* accepted,
+                                 QWidget* parent = nullptr) const;
     bool confirmAction(const QString& title,
                        const QString& message,
                        const QString& canceledStatusMessage = QString(),
                        int canceledStatusTimeoutMs = 1600,
                        QWidget* parent = nullptr);
+    void showWarningDialog(const QString& title,
+                           const QString& message,
+                           QWidget* parent = nullptr) const;
+    bool confirmDestructiveAction(const QString& title,
+                                  const QString& message,
+                                  const QString& confirmText = QStringLiteral("继续"),
+                                  const QString& cancelText = QStringLiteral("取消"),
+                                  QWidget* parent = nullptr) const;
     QString promptTextValue(const QString& title,
                             const QString& label,
                             const QString& initialValue,
@@ -215,6 +277,14 @@ private:
                             const QStringList& items,
                             bool* accepted,
                             QWidget* parent = nullptr) const;
+    QString selectOpenFilePath(const QString& title,
+                               const QString& initialPath,
+                               const QString& filters,
+                               QWidget* parent = nullptr) const;
+    QString selectSaveFilePath(const QString& title,
+                               const QString& initialPath,
+                               const QString& filters,
+                               QWidget* parent = nullptr) const;
     QStringList currentSessionMemberIds() const;
     bool applyAvatarSelection(const LocalFileSelectionResult& selection);
     bool persistAvatarPixmap(const QPixmap& pixmap, const QFileInfo& info);
@@ -226,6 +296,21 @@ private:
                                     const QStringList& members = QStringList(),
                                     const QString& announcement = QString());
     int appendMembersToLocalGroup(const QString& groupId, const QStringList& memberIds);
+    bool addAccountToCurrentLocalGroup(const QString& account, QWidget* parent = nullptr);
+    bool handleGroupMemberSearchSubmit(const QString& text, QWidget* parent = nullptr);
+    bool handleGroupMemberEntryActivated(const QString& targetId, QWidget* parent = nullptr);
+    void copyVisibleGroupMembers(bool onlineOnly);
+    bool promptAndSetGroupMemberRemark(const QString& memberId, QWidget* parent = nullptr);
+    bool removeGroupMemberWithConfirmation(const QString& memberId, QWidget* parent = nullptr);
+    bool showCreateGroupWorkspace(QWidget* parent = nullptr);
+    bool showInviteFriendToGroupWorkspace(const QString& groupId, QWidget* parent = nullptr);
+    bool showInviteAccountToGroupWorkspace(const QString& groupId, QWidget* parent = nullptr);
+    bool showRenameGroupWorkspace(const QString& groupId, QWidget* parent = nullptr);
+    bool showEditGroupAnnouncementWorkspace(QWidget* parent = nullptr);
+    void showProfileWorkspace();
+    void showUserEntryWorkspace(const QString& targetId, const QString& fallbackLabel = QString());
+    void showGroupInfoWorkspace();
+    bool openUserTargetById(const QString& targetId);
     bool handleCreateMenuCommand(const QString& commandId);
     bool handleLocalGroupContextCommand(const QString& groupId,
                                         const QString& groupLabel,
@@ -247,7 +332,9 @@ private:
                                                                      QLineEdit* searchEdit) const;
     QList<GroupNoticeBatchTargetInput> visibleGroupNoticeBatchTargets(QListWidget* noticeList) const;
     bool openSelectedGroupNoticeEntry(QListWidget* noticeList, QDialog* dialog = nullptr);
-    bool handleSavedFileContextCommand(const QString& commandId, const LocalSavedFileState& savedFileState);
+    bool handleSavedFileContextCommand(const QString& commandId,
+                                       const QString& chatText,
+                                       const LocalSavedFileState& savedFileState);
     void setChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     void insertChatDraftText(const QString& text, const QString& statusMessage, int timeoutMs = 1400);
     ChatContextComposerState currentChatContextComposerState() const;
@@ -322,6 +409,15 @@ private:
     QAction* m_clearSavedTransferAction;
     QAction* m_copyLastTransferStatusAction;
     QString m_lastTransferStatusDiagnostic;
+    bool m_hasLastTransferRecoveryUiState;
+    TransferRecoveryUiState m_lastTransferRecoveryUiState;
+    bool m_hasLastTransferStatusEvent;
+    TransferStatusEvent m_lastTransferStatusEvent;
+    bool m_hasTransferWorkspaceSendState;
+    TransferSendUiState m_transferWorkspaceSendState;
+    bool m_hasTransferWorkspaceSavedFileState;
+    LocalSavedFileState m_transferWorkspaceSavedFileState;
+    QString m_transferWorkspaceSavedChatText;
     int m_unreadCount;
     bool m_isQuitting;
 

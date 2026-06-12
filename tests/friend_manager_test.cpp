@@ -159,9 +159,9 @@ int main(int argc, char** argv) {
                 "friend manager render state should provide muted placeholder entries for empty filters") && ok;
 
     ok = expect(FriendManager::managerSelectionPreviewText(QString(), QStringLiteral("Alice"), true, false)
-                        == QString::fromUtf8("选择好友后可复制名片、邀请语或邀入群")
+                        == QString::fromUtf8("先选中一个好友，再决定打开私聊、复制名片、整理邀请语或邀请进当前群聊。")
                     && FriendManager::managerSelectionPreviewText(QStringLiteral("search_add:9988"), QStringLiteral("Alice"), true, false).contains(QStringLiteral("9988"))
-                    && FriendManager::managerSelectionPreviewText(QStringLiteral("1001"), QStringLiteral("Alice"), true, true).contains(QString::fromUtf8("可邀入当前群")),
+                    && FriendManager::managerSelectionPreviewText(QStringLiteral("1001"), QStringLiteral("Alice"), true, true).contains(QString::fromUtf8("可打开私聊、复制名片，或直接邀请进当前群聊")),
                 "friend manager selection preview should cover empty, search, and friend entries") && ok;
     FriendManagerSelectionPreviewUiState emptyPreviewState =
         FriendManager::managerSelectionPreviewUiState(QString(), QStringLiteral("Alice"), true, false);
@@ -169,9 +169,9 @@ int main(int argc, char** argv) {
         FriendManager::managerSelectionPreviewUiState(QStringLiteral("search_add:9988"), QStringLiteral("Alice"), true, false);
     FriendManagerSelectionPreviewUiState friendPreviewState =
         FriendManager::managerSelectionPreviewUiState(QStringLiteral("1001"), QStringLiteral("Alice"), true, true);
-    ok = expect(emptyPreviewState.text == QString::fromUtf8("选择好友后可复制名片、邀请语或邀入群")
+    ok = expect(emptyPreviewState.text == QString::fromUtf8("先选中一个好友，再决定打开私聊、复制名片、整理邀请语或邀请进当前群聊。")
                     && searchPreviewState.text.contains(QStringLiteral("9988"))
-                    && friendPreviewState.text.contains(QString::fromUtf8("可邀入当前群")),
+                    && friendPreviewState.text.contains(QString::fromUtf8("可打开私聊、复制名片，或直接邀请进当前群聊")),
                 "friend manager selection preview ui state should mirror preview text") && ok;
 
     FriendManagerContactCopyInput aliceCopy;
@@ -228,9 +228,9 @@ int main(int argc, char** argv) {
     ok = expect(friendManagerSearchCard.valid
                     && friendManagerSearchCard.text.contains(QString::fromUtf8("好友管理搜索卡片"))
                     && friendManagerSearchCard.text.contains(QString::fromUtf8("关键词:ali"))
-                    && friendManagerSearchCard.text.contains(QString::fromUtf8("好友 QQ:1001 昵称:Alice 状态:在线"))
-                    && friendManagerSearchCard.text.contains(QString::fromUtf8("可搜索申请 QQ:7788"))
-                    && friendManagerSearchCard.text.contains(QString::fromUtf8("可见好友:2 · 全部好友:6 · 群聊:2")),
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("好友：Alice · QQ:1001 · 在线"))
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("可继续搜索并申请 QQ:7788"))
+                    && friendManagerSearchCard.text.contains(QString::fromUtf8("可见好友:2 · 全部好友:6 · 本地群:2")),
                 "friend manager search card should summarize visible friends and search placeholders") && ok;
 
     const GlobalSearchSelectionCopyState friendManagerMediaPack =
@@ -243,7 +243,7 @@ int main(int argc, char** argv) {
     ok = expect(friendManagerMediaPack.valid
                     && friendManagerMediaPack.text.contains(QString::fromUtf8("好友媒体包 · 目标:Alice · QQ:1001"))
                     && friendManagerMediaPack.text.contains(QString::fromUtf8("当前筛选:ali · 全部好友:6"))
-                    && friendManagerMediaPack.text.contains(QString::fromUtf8("邀请话术：Alice，你好，我是 Tester（QQ:9000）")),
+                    && friendManagerMediaPack.text.contains(QString::fromUtf8("发起话术：Alice，你好，我是 Tester（QQ:9000）")),
                 "friend manager media pack should summarize selected visible friend") && ok;
 
     const GlobalSearchSelectionCopyState friendManagerBatchPlan =
@@ -387,7 +387,7 @@ int main(int argc, char** argv) {
             QList<GlobalSearchResultCopyInput>{searchAddResult, groupResult, onlineSearchResult, offlineSearchResult},
             false);
     ok = expect(searchCopy.rows.size() == 4
-                    && searchCopy.rows.at(0) == QStringLiteral("搜索申请 QQ:9988")
+                    && searchCopy.rows.at(0) == QStringLiteral("搜索并申请 QQ:9988")
                     && searchCopy.rows.at(1) == QString::fromUtf8("群聊 QQ:7788 名称:产品群")
                     && searchCopy.rows.at(2) == QString::fromUtf8("QQ:1001 昵称:Alice 状态:在线")
                     && searchCopy.copiedStatusMessage == QString::fromUtf8("已复制 4 条搜索结果"),
@@ -444,7 +444,7 @@ int main(int argc, char** argv) {
     ok = expect(searchSummaryCard.valid
                     && searchSummaryCard.text.contains(QString::fromUtf8("综合搜索卡片"))
                     && searchSummaryCard.text.contains(QString::fromUtf8("关键词:alice"))
-                    && searchSummaryCard.text.contains(QString::fromUtf8("继续搜索申请 QQ:9988"))
+                    && searchSummaryCard.text.contains(QString::fromUtf8("继续搜索并申请 QQ:9988"))
                     && searchSummaryCard.text.contains(QString::fromUtf8("匹配好友:1 · 可申请用户:1 · 群聊:1")),
                 "global search summary card should aggregate search/add/group/user rows") && ok;
 
