@@ -1,7 +1,7 @@
 param(
     [string]$BuildDir = "build-qt6-mingw",
     [string]$Configuration = "Release",
-    [string]$PackageDir = "dist",
+    [string]$PackageDir = "build-qt6-mingw\\release-package",
     [string]$QtRoot,
     [string]$PostgresBinDir = "D:\Program Files\PostgreSQL\17\bin",
     [switch]$SkipBuild,

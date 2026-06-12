@@ -736,6 +736,13 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_local_release_review_package.cmake
     )
     add_test(
+        NAME ReleaseDeliveryHandoffPackage
+        COMMAND ${CMAKE_COMMAND}
+            -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package-release-delivery-handoff.ps1
+            -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_release_delivery_handoff_package.cmake
+    )
+    add_test(
         NAME E2ELinkedCandidatePromotion
         COMMAND ${CMAKE_COMMAND}
             -DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts/promote-e2e-linked-candidate.ps1

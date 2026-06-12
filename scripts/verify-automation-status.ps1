@@ -106,10 +106,13 @@ $linkedCandidateRolloutJsonPath = Join-Path $tempDir "e2e-rollout-observability-
 $linkedCandidateRolloutMarkdownPath = Join-Path $tempDir "e2e-rollout-observability-linked-candidate.md"
 $linkedCandidateCiStatusPath = Join-Path $tempDir "github-windows-build-status-linked-candidate.json"
 $bootstrapScriptPath = Join-Path $PSScriptRoot "bootstrap-automation-tasks.ps1"
+$releaseDeliveryHandoffDir = Join-Path $tempDir "release-delivery-handoff"
+$releaseDeliveryHandoffManifestPath = Join-Path $releaseDeliveryHandoffDir "release-delivery-handoff-manifest.json"
 Ensure-Directory -Path $e2eRolloutDir
 Ensure-Directory -Path $e2eReleaseEvidenceDir
 Ensure-Directory -Path $e2eCurrentHeadCiStaleEvidenceDir
 Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
+Ensure-Directory -Path $releaseDeliveryHandoffDir
 
 @'
 {
@@ -231,6 +234,16 @@ End testing: Jun 03 04:01
     -CTestCount 2 `
     -CTestLogPath $autoCTestLogPath `
     -FailOnSensitive | Out-Null
+
+@'
+{
+  "format":"qtnetworkchat-release-delivery-handoff-v1",
+  "deliveryReady":true,
+  "deliveryGate":"ready-local-delivery-handoff",
+  "packageSha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "deliveryTailCount":0
+}
+'@ | Set-Content -LiteralPath $releaseDeliveryHandoffManifestPath -Encoding UTF8
 
 @'
 {
@@ -468,6 +481,7 @@ End testing: Jun 03 04:01
     -E2ERolloutObservabilityMarkdownPath $e2eRolloutMarkdownPath `
     -E2EReleaseEvidenceManifestPath $e2eReleaseEvidenceManifestPath `
     -E2ELinkedReleaseCandidateManifestPath $e2eLinkedReleaseCandidateManifestPath `
+    -ReleaseDeliveryHandoffManifestPath $releaseDeliveryHandoffManifestPath `
     -DatabaseHealthStatusPath $dbStatusPath `
     -DatabaseHealthLastRunPath $dbLastRunPath `
     -DatabaseHealthTaskPreviewPath $dbPreviewPath `
@@ -551,6 +565,7 @@ foreach ($expected in @(
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
     'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false; packageSha256=',
+    'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0; packageSha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc`',
     'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed; packageSha256=',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
@@ -574,9 +589,10 @@ foreach ($expected in @(
     'S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates',
     'legacy URL/path-like object locators are suppressed from recovery status',
     'Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback',
-    'current-head production-linked release artifact is now generated locally from the reviewed linked build path, the local release review bundle now archives the verified E2E/S3/governance/PostgreSQL evidence in one place, and the remaining work is the human final archive decision plus non-E2E delivery-tail items such as installer/upload/diagnostic handoff',
+    'current-head production-linked release artifact is now generated locally from the reviewed linked build path, the local release review bundle now archives the verified E2E/S3/governance/PostgreSQL evidence in one place, and the local release delivery handoff bundle now covers packaging/upload/install/diagnostic handoff for the same HEAD',
     'File/offline attachment productization is closed for the current automation lane',
     'Group productization is closed for the current automation lane',
+    'Release and operations delivery now has a local handoff package',
     'README information architecture and current-state alignment are now the main documentation lane',
     'Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete',
     'QTNETWORKCHAT_PGPASSWORD',
@@ -605,6 +621,7 @@ $autoMarkdownPath = Join-Path $tempDir "automation-status-auto-readback.md"
     -TrackedRemoteHash "auto1234567890abcdef" `
     -BuildDir $tempDir `
     -LocalVerificationStatusPath $localVerificationPath `
+    -ReleaseDeliveryHandoffManifestPath $releaseDeliveryHandoffManifestPath `
     -GitHubRunListJsonPath $autoRunListPath `
     -CTestLogPath $autoCTestLogPath `
     -DatabaseHealthStatusPath $dbStatusPath `

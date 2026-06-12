@@ -23,7 +23,8 @@ param(
     [string]$PgsqlEvidenceManifestPath = "build-qt6-mingw\\automation-tasks\\pgsql-release-acceptance\\evidence\\pgsql-release-evidence-manifest.json",
     [string]$PgsqlRollbackLivePath = "build-qt6-mingw\\pgsql-rollback-live-evidence\\pgsql-rollback-live-evidence.json",
     [string]$PgsqlRollbackEvidenceManifestPath = "build-qt6-mingw\\pgsql-rollback-live-evidence\\evidence\\pgsql-rollback-live-evidence-manifest.json",
-    [string]$WindowsPackageManifestPath = "build-qt6-mingw\\qpsql-package-probe\\QtNetworkChat-1.0.0-win-x64\\manifest.json",
+    [string]$WindowsPackageManifestPath = "build-qt6-mingw\\release-package\\QtNetworkChat-1.0.0-win-x64\\manifest.json",
+    [string]$ReleaseDeliveryHandoffManifestPath = "build-qt6-mingw\\release-delivery-handoff\\release-delivery-handoff-manifest.json",
 
     [switch]$NoFailOnSensitive
 )
@@ -41,13 +42,6 @@ $sensitivePatterns = @(
     'Authorization\s*[:=]',
     'Credential\s*=',
     'Signature\s*='
-)
-
-$deliveryTailPending = @(
-    "release-auto-upload-not-implemented",
-    "installer-not-packaged",
-    "crash-diagnostic-collection-not-productized",
-    "non-dev-ops-handoff-not-productized"
 )
 
 function Resolve-OptionalPath([string]$PathValue) {
@@ -317,6 +311,7 @@ $resolvedPgsqlEvidenceManifestPath = Resolve-RepoPath $PgsqlEvidenceManifestPath
 $resolvedPgsqlRollbackLivePath = Resolve-RepoPath $PgsqlRollbackLivePath
 $resolvedPgsqlRollbackEvidenceManifestPath = Resolve-RepoPath $PgsqlRollbackEvidenceManifestPath
 $resolvedWindowsPackageManifestPath = Resolve-RepoPath $WindowsPackageManifestPath
+$resolvedReleaseDeliveryHandoffManifestPath = Resolve-RepoPath $ReleaseDeliveryHandoffManifestPath
 
 $e2eManifest = Read-OptionalJson $resolvedE2EReleaseEvidenceManifestPath
 $e2ePromotion = Read-OptionalJson $resolvedE2EReleasePromotionPath
@@ -326,10 +321,26 @@ $governanceDashboard = Read-OptionalJson $resolvedLargeFileGovernanceDashboardPa
 $pgsqlAcceptance = Read-OptionalJson $resolvedPgsqlAcceptancePath
 $pgsqlRollbackLive = Read-OptionalJson $resolvedPgsqlRollbackLivePath
 $windowsPackageManifest = Read-OptionalJson $resolvedWindowsPackageManifestPath
+$releaseDeliveryHandoffManifest = Read-OptionalJson $resolvedReleaseDeliveryHandoffManifestPath
 
 $artifactSummaries = New-Object System.Collections.ArrayList
 $blockers = New-Object System.Collections.ArrayList
 $nonBlockingObservations = New-Object System.Collections.ArrayList
+
+$deliveryTailPending = @(
+    "release-auto-upload-not-implemented",
+    "installer-not-packaged",
+    "crash-diagnostic-collection-not-productized",
+    "non-dev-ops-handoff-not-productized"
+)
+if ($null -ne $releaseDeliveryHandoffManifest -and (Get-JsonValue $releaseDeliveryHandoffManifest "format" "") -eq "qtnetworkchat-release-delivery-handoff-v1") {
+    $manifestTail = @(Get-JsonValue $releaseDeliveryHandoffManifest "deliveryTailPending" @())
+    if ($manifestTail.Count -eq 0 -and [bool](Get-JsonValue $releaseDeliveryHandoffManifest "deliveryReady" $false)) {
+        $deliveryTailPending = @()
+    } elseif ($manifestTail.Count -gt 0) {
+        $deliveryTailPending = @($manifestTail | ForEach-Object { [string]$_ })
+    }
+}
 
 $localVerificationReady = $false
 $localVerificationGate = "local-verification-missing"
@@ -473,6 +484,7 @@ if ($windowsPackagePresent) {
     [void]$nonBlockingObservations.Add("windows-package-manifest-missing")
 }
 [void]$artifactSummaries.Add((New-ArtifactSummary "windows-package" $windowsPackagePresent ($windowsPackagePresent -and $windowsPackageCurrentHeadMatch) $windowsPackageGate $windowsPackageDetail $false))
+[void]$artifactSummaries.Add((New-ArtifactSummary "release-delivery-handoff" ($null -ne $releaseDeliveryHandoffManifest) ([bool](Get-JsonValue $releaseDeliveryHandoffManifest "deliveryReady" $false)) (Format-Value (Get-JsonValue $releaseDeliveryHandoffManifest "deliveryGate" "unknown")) ('deliveryTail={0}' -f $deliveryTailPending.Count) $false))
 
 $reviewReady = $blockers.Count -eq 0
 $reviewGate = if ($reviewReady) { "ready-for-final-archive-decision" } else { "blocked-local-release-review-core-gates" }
@@ -507,6 +519,7 @@ $scanPaths = New-Object System.Collections.ArrayList
 [void](Copy-EvidenceFile $resolvedPgsqlRollbackLivePath $stagingDir "pgsql/pgsql-rollback-live-evidence.json" "pgsql-rollback-live-evidence" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedPgsqlRollbackEvidenceManifestPath $stagingDir "pgsql/pgsql-rollback-live-evidence-manifest.json" "pgsql-rollback-live-evidence-manifest" $manifestInputs $scanPaths)
 [void](Copy-EvidenceFile $resolvedWindowsPackageManifestPath $stagingDir "windows/manifest.json" "windows-package-manifest" $manifestInputs $scanPaths)
+[void](Copy-EvidenceFile $resolvedReleaseDeliveryHandoffManifestPath $stagingDir "delivery/release-delivery-handoff-manifest.json" "release-delivery-handoff-manifest" $manifestInputs $scanPaths)
 
 $summaryLines = New-Object System.Collections.Generic.List[string]
 $summaryLines.Add("# Local Release Review")
