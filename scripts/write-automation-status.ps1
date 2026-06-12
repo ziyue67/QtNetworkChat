@@ -2643,6 +2643,14 @@ $e2eLinkedReleaseCandidateReadback =
 $activeE2EReleaseEvidenceReadback = $e2eReleaseEvidenceReadback
 $activeE2EReleaseEvidenceLabel = "default-fail-closed"
 $activeE2EReleaseEvidenceUsesLinkedCandidate = $false
+$releaseEvidenceCurrentHeadReady = ($e2eReleaseEvidenceReadback.state -eq "ok") `
+    -and ((Format-StatusValue $e2eReleaseEvidenceReadback.probeFixture) -eq "false") `
+    -and ((Format-StatusValue $e2eReleaseEvidenceReadback.targetMatchesCurrentHead) -eq "true") `
+    -and ((Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedReady) -eq "true") `
+    -and ((Format-StatusValue $e2eReleaseEvidenceReadback.releaseReady) -eq "true")
+if ($releaseEvidenceCurrentHeadReady) {
+    $activeE2EReleaseEvidenceLabel = "current-head-release-evidence"
+}
 
 if ($e2eReleaseEvidenceReadback.state -eq "ok" `
         -and $localVerificationReadback.readable `
