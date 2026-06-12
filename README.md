@@ -750,7 +750,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 3. **发布与运维体验**：本地发布交付包已经收口 Windows package、上传说明、安装入口、脱敏诊断采集、非开发交接清单和最终本地归档；独立的 `release-archive-decision` 与 `release-final-local-archive` 产物会分别记录最终归档决定和 stop-writing 归档快照。剩余工作主要是按你自己的渠道把生成好的 zip 发布到团队共享盘、工单系统或发行页面，并在 publication record / archive decision 里回写发布状态。
 4. **文件 / 离线附件整线收口**：文件工作区已经完成一轮产品化收口，当前能集中展示发送状态、恢复来源、失败原因、保留证据、治理状态、性能状态和下一步动作，但这条线仍是当前主线，后续还会继续收紧 object / offline / resend / same-wire 分支口径、补高价值测试，并把 README / focused docs 与真实状态完全对齐。
 5. **结构拆分的最终收尾**：`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 已经承担主职责。MainWindow / UI 尾部收口仍是后续第二大包，会继续处理剩余的大弹窗编排、少量状态挂接和主工作台细节统一。
-6. **性能与非阻塞增强**：大文件治理已经补上 dashboard 和 performance summary，当前文件工作区也能直接打开这些产物并读取 delivery closure、fallback protection、S3 transient pressure、receipt archive pressure 和 bottleneck 摘要；后续更适合继续补更重的性能压测，以及必要时增加少量高价值回归测试。
+6. **性能与非阻塞增强**：大文件治理已经补上 dashboard 和 performance summary，当前文件工作区也能直接打开这些产物并读取 delivery closure、fallback protection、S3 transient pressure、receipt archive pressure 和 bottleneck 摘要；文件传输集成测试也已经锁住发送进度单调性、ACK 重试后的已确认字节收敛和 file-specific progress 追踪。后续更适合继续补更重的性能压测，以及必要时增加少量高价值回归测试。
 
 ## 说明
 

@@ -932,8 +932,15 @@ int main(int argc, char** argv) {
     ok = expect(sender.sendFile(filePath), "sender should succeed after retrying the unacked chunk") && ok;
     ok = expect(server.chunkAttempts() == 2, "sender should retry the same chunk after the first ack is lost") && ok;
     ok = expect(!progressValues.isEmpty(), "sender should emit transfer progress") && ok;
+    ok = expect(progressValues.first() == 0,
+                "sender progress should start from zero prepared bytes for the current transfer") && ok;
     ok = expect(progressValues.last() == server.acknowledgedBytes(),
                 "sender progress should use the acked received byte count after retry") && ok;
+    const QVector<qint64> fileSpecificProgress = progressByFileName.value(QFileInfo(filePath).fileName());
+    ok = expect(!fileSpecificProgress.isEmpty()
+                    && fileSpecificProgress.first() == 0
+                    && fileSpecificProgress.last() == server.acknowledgedBytes(),
+                "file-specific progress tracking should converge to the acknowledged byte count") && ok;
 
     const QString invalidAckProgressPath = tempDir.filePath(QString::fromLatin1(kInvalidAckProgressFileName));
     ok = expect(writeSmallFile(invalidAckProgressPath),
