@@ -47,6 +47,17 @@ struct GroupInfoWorkspaceRow {
     bool dangerous = false;
 };
 
+struct ContactWorkspaceRow {
+    QString rowId;
+    QString actionKey;
+    QString title;
+    QString detail;
+    QString preview;
+    QString keywords;
+    bool accent = false;
+    bool muted = false;
+};
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -388,6 +399,28 @@ private:
                                       const QString& currentGroupId,
                                       const QString& currentGroupName,
                                       QDialog* dialog);
+    QList<ContactWorkspaceRow> buildContactWorkspaceRows() const;
+    void fillContactWorkspaceList(QListWidget* listWidget,
+                                  QLabel* statsLabel,
+                                  const QList<ContactWorkspaceRow>& rows,
+                                  const QString& filter,
+                                  const QString& emptyPreviewText) const;
+    ContactWorkspaceRow* selectedContactWorkspaceRow(QList<ContactWorkspaceRow>& rows,
+                                                     QListWidget* listWidget) const;
+    QString contactWorkspaceStatusText(QList<ContactWorkspaceRow>& rows,
+                                       QListWidget* listWidget) const;
+    QString contactWorkspaceClipboardText(QList<ContactWorkspaceRow>& rows,
+                                          QListWidget* listWidget) const;
+    QString selectedContactWorkspaceSearchAccount(ContactWorkspaceRow* row) const;
+    void updateContactWorkspaceActionState(QPushButton* openBtn,
+                                           QPushButton* searchBtn,
+                                           QPushButton* copyCardBtn,
+                                           QPushButton* copyStatusBtn,
+                                           QPushButton* friendManagerBtn,
+                                           QListWidget* listWidget,
+                                           QList<ContactWorkspaceRow>& rows) const;
+    void runContactWorkspaceOpenAction(ContactWorkspaceRow* row,
+                                       QDialog* dialog);
     bool openUserTargetById(const QString& targetId);
     bool handleCreateMenuCommand(const QString& commandId);
     bool handleLocalGroupContextCommand(const QString& groupId,

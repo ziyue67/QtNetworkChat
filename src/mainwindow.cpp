@@ -11689,6 +11689,329 @@ void MainWindow::onShowQuickAddFriend() {
     dialog.exec();
 }
 
+QList<ContactWorkspaceRow> MainWindow::buildContactWorkspaceRows() const {
+    QList<ContactWorkspaceRow> rows;
+
+    ContactWorkspaceRow profileRow;
+    profileRow.rowId = QStringLiteral("profile-overview");
+    profileRow.actionKey = QStringLiteral("profile-overview");
+    profileRow.title = QStringLiteral("当前账号 · %1").arg(m_currentUserName);
+    profileRow.detail = QStringLiteral("QQ:%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size());
+    profileRow.preview = QStringLiteral("当前账号\nQQ：%1\n昵称：%2\n好友：%3\n群聊：%4\n当前会话：%5")
+                             .arg(m_currentUserId,
+                                  m_currentUserName,
+                                  QString::number(m_friendIds.size()),
+                                  QString::number(m_localGroupIds.size()),
+                                  m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+    profileRow.keywords = profileRow.title + profileRow.detail + profileRow.preview + QStringLiteral("账号 资料 头像 联系人 搜索");
+    rows << profileRow;
+
+    ContactWorkspaceRow quickAddRow;
+    quickAddRow.rowId = QStringLiteral("action-quick-add");
+    quickAddRow.actionKey = QStringLiteral("action-quick-add");
+    quickAddRow.title = QStringLiteral("好友申请工作区");
+    quickAddRow.detail = QStringLiteral("打开申请工作区，按 QQ 搜索并申请");
+    quickAddRow.preview = QStringLiteral("好友申请工作区\n可输入 QQ 搜索、复制申请话术、整理申请前后的媒体和检查清单。");
+    quickAddRow.keywords = quickAddRow.title + quickAddRow.detail + quickAddRow.preview + QStringLiteral("好友申请 添加好友 QQ 搜索");
+    quickAddRow.accent = true;
+    rows << quickAddRow;
+
+    ContactWorkspaceRow globalSearchRow;
+    globalSearchRow.rowId = QStringLiteral("action-global-search");
+    globalSearchRow.actionKey = QStringLiteral("action-global-search");
+    globalSearchRow.title = QStringLiteral("综合搜索");
+    globalSearchRow.detail = QStringLiteral("打开综合搜索工作区，统一搜索 QQ、好友和群聊");
+    globalSearchRow.preview = QStringLiteral("综合搜索工作区\n可查看匹配、复制搜索摘要，并继续跳转到好友、群聊和媒体准备动作。");
+    globalSearchRow.keywords = globalSearchRow.title + globalSearchRow.detail + globalSearchRow.preview + QStringLiteral("搜索 好友 群聊");
+    rows << globalSearchRow;
+
+    ContactWorkspaceRow friendManagerRow;
+    friendManagerRow.rowId = QStringLiteral("action-friend-manager");
+    friendManagerRow.actionKey = QStringLiteral("action-friend-manager");
+    friendManagerRow.title = QStringLiteral("好友管理器");
+    friendManagerRow.detail = QStringLiteral("打开好友管理工作区，做备注、邀请、删除和批量复制");
+    friendManagerRow.preview = QStringLiteral("好友管理器\n统一处理好友筛选、备注、入群邀请、删除和媒体准备动作。");
+    friendManagerRow.keywords = friendManagerRow.title + friendManagerRow.detail + friendManagerRow.preview + QStringLiteral("好友 管理 备注");
+    rows << friendManagerRow;
+
+    const QString pendingSearch = ui->contactSearchEdit ? ui->contactSearchEdit->text().trimmed() : QString();
+    if (!pendingSearch.isEmpty()) {
+        ContactWorkspaceRow pendingSearchRow;
+        pendingSearchRow.rowId = QStringLiteral("pending-search");
+        pendingSearchRow.actionKey = QStringLiteral("pending-search");
+        pendingSearchRow.title = QStringLiteral("QQ 搜索框 · %1").arg(pendingSearch);
+        pendingSearchRow.detail = QStringLiteral("立即用当前输入搜索账号，或创建同名群聊");
+        pendingSearchRow.preview = QStringLiteral("搜索框当前内容：%1\n可直接搜索 QQ、打开综合搜索，或创建同名群聊。").arg(pendingSearch);
+        pendingSearchRow.keywords = pendingSearchRow.title + pendingSearchRow.detail + pendingSearchRow.preview + QStringLiteral("搜索 建群");
+        pendingSearchRow.accent = true;
+        rows << pendingSearchRow;
+    }
+
+    const QList<QStandardItem*> visibleItems = m_userListModel ? m_userListModel->findItems(QStringLiteral("*"), Qt::MatchWildcard) : QList<QStandardItem*>();
+    for (QStandardItem* item : visibleItems) {
+        if (!item) {
+            continue;
+        }
+        const QString targetId = item->data(Qt::UserRole + 1).toString();
+        if (targetId.isEmpty()) {
+            continue;
+        }
+
+        ContactWorkspaceRow row;
+        row.rowId = targetId;
+        row.actionKey = QStringLiteral("open-target");
+        row.title = contactDisplayName(targetId);
+        if (targetId.startsWith(QStringLiteral("search_add:"))) {
+            const QString account = targetId.mid(QStringLiteral("search_add:").size());
+            row.title = QStringLiteral("搜索并申请 · %1").arg(account);
+            row.detail = QStringLiteral("对这个 QQ 发起搜索并申请");
+            row.preview = QStringLiteral("搜索入口\nQQ：%1\n动作：搜索在线账号并准备发起好友申请").arg(account);
+            row.accent = true;
+        } else if (targetId.startsWith(QStringLiteral("create_group:"))) {
+            const QString groupName = targetId.mid(QStringLiteral("create_group:").size()).trimmed();
+            row.title = QStringLiteral("创建群聊 · %1").arg(groupName.isEmpty() ? QStringLiteral("我的群聊") : groupName);
+            row.detail = QStringLiteral("按当前搜索词创建本地群聊");
+            row.preview = QStringLiteral("建群入口\n群名：%1\n动作：创建群聊并切到该群继续邀请好友和发消息。")
+                              .arg(groupName.isEmpty() ? QStringLiteral("我的群聊") : groupName);
+            row.accent = true;
+        } else if (m_localGroupIds.contains(targetId)) {
+            const QString groupName = m_localGroupNames.value(targetId, row.title);
+            row.title = QStringLiteral("群聊 · %1").arg(groupName);
+            row.detail = QStringLiteral("群号:%1 · 成员 %2").arg(targetId).arg(m_localGroupMembers.value(targetId).size());
+            row.preview = QStringLiteral("本地群聊\n群名：%1\n群号：%2\n成员：%3\n公告：%4")
+                              .arg(groupName,
+                                   targetId,
+                                   QString::number(m_localGroupMembers.value(targetId).size()),
+                                   m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告")));
+        } else {
+            const bool online = isContactOnline(targetId);
+            const bool isFriend = m_friendIds.contains(targetId);
+            const bool pending = m_pendingOutgoingFriendRequests.contains(targetId);
+            row.detail = QStringLiteral("QQ:%1 · %2 · %3")
+                             .arg(targetId,
+                                  online ? QStringLiteral("在线") : QStringLiteral("离线"),
+                                  isFriend ? QStringLiteral("好友")
+                                           : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人")));
+            row.preview = QStringLiteral("联系人\nQQ：%1\n昵称：%2\n状态：%3\n关系：%4\n当前可继续：打开私聊、复制名片、查看加密状态或发起好友动作。")
+                              .arg(targetId,
+                                   contactDisplayName(targetId),
+                                   online ? QStringLiteral("在线") : QStringLiteral("离线"),
+                                   isFriend ? QStringLiteral("好友")
+                                            : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人")));
+            row.accent = online;
+            row.muted = !online;
+        }
+        row.keywords = row.rowId + row.title + row.detail + row.preview;
+        rows << row;
+    }
+
+    return rows;
+}
+
+void MainWindow::fillContactWorkspaceList(QListWidget* listWidget,
+                                          QLabel* statsLabel,
+                                          const QList<ContactWorkspaceRow>& rows,
+                                          const QString& filter,
+                                          const QString& emptyPreviewText) const {
+    if (!listWidget || !statsLabel) {
+        return;
+    }
+    listWidget->clear();
+    int visibleCount = 0;
+    for (const ContactWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.rowId);
+        item->setData(Qt::UserRole + 1, row.actionKey);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (row.accent) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.muted) {
+            item->setForeground(QColor(100, 116, 139));
+        }
+        listWidget->addItem(item);
+        ++visibleCount;
+    }
+    if (visibleCount == 0) {
+        addWorkspaceEmptyStateItem(
+            listWidget,
+            QStringLiteral("没有匹配的联系人入口"),
+            QStringLiteral("试试 QQ、昵称、“群聊”、“申请”或“管理”这些关键词。"),
+            emptyPreviewText);
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+    selectPreferredListRow(listWidget, 0);
+}
+
+ContactWorkspaceRow* MainWindow::selectedContactWorkspaceRow(QList<ContactWorkspaceRow>& rows,
+                                                             QListWidget* listWidget) const {
+    if (!listWidget) {
+        return nullptr;
+    }
+    QListWidgetItem* currentItem = listWidget->currentItem();
+    if (!currentItem) {
+        return nullptr;
+    }
+    const QString rowId = currentItem->data(Qt::UserRole).toString();
+    const QString actionKey = currentItem->data(Qt::UserRole + 1).toString();
+    for (ContactWorkspaceRow& row : rows) {
+        if (row.rowId == rowId && row.actionKey == actionKey) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::contactWorkspaceStatusText(QList<ContactWorkspaceRow>& rows,
+                                               QListWidget* listWidget) const {
+    QStringList lines;
+    lines << QStringLiteral("联系人工作区状态");
+    lines << QStringLiteral("当前账号:%1 (%2)").arg(m_currentUserName, m_currentUserId);
+    lines << QStringLiteral("好友:%1").arg(m_friendIds.size());
+    lines << QStringLiteral("群聊:%1").arg(m_localGroupIds.size());
+    lines << QStringLiteral("搜索框:%1").arg(ui->contactSearchEdit->text().trimmed().isEmpty() ? QStringLiteral("空") : ui->contactSearchEdit->text().trimmed());
+    ContactWorkspaceRow* row = selectedContactWorkspaceRow(rows, listWidget);
+    if (row) {
+        lines << QStringLiteral("当前选中:%1").arg(row->title);
+        lines << QStringLiteral("当前详情:%1").arg(row->detail);
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString MainWindow::contactWorkspaceClipboardText(QList<ContactWorkspaceRow>& rows,
+                                                  QListWidget* listWidget) const {
+    ContactWorkspaceRow* row = selectedContactWorkspaceRow(rows, listWidget);
+    if (!row) {
+        return contactWorkspaceStatusText(rows, listWidget);
+    }
+    return row->preview.trimmed().isEmpty() ? contactWorkspaceStatusText(rows, listWidget) : row->preview;
+}
+
+QString MainWindow::selectedContactWorkspaceSearchAccount(ContactWorkspaceRow* row) const {
+    if (!row) {
+        return QString();
+    }
+    if (row->rowId == QStringLiteral("pending-search")) {
+        return ui->contactSearchEdit->text().trimmed();
+    }
+    if (row->rowId.startsWith(QStringLiteral("search_add:"))) {
+        return row->rowId.mid(QStringLiteral("search_add:").size());
+    }
+    if (!m_localGroupIds.contains(row->rowId)
+        && row->actionKey == QStringLiteral("open-target")
+        && !row->rowId.startsWith(QStringLiteral("create_group:"))
+        && !row->rowId.startsWith(QStringLiteral("action-"))
+        && row->rowId != QStringLiteral("profile-overview")) {
+        return row->rowId;
+    }
+    return QString();
+}
+
+void MainWindow::updateContactWorkspaceActionState(QPushButton* openBtn,
+                                                   QPushButton* searchBtn,
+                                                   QPushButton* copyCardBtn,
+                                                   QPushButton* copyStatusBtn,
+                                                   QPushButton* friendManagerBtn,
+                                                   QListWidget* listWidget,
+                                                   QList<ContactWorkspaceRow>& rows) const {
+    ContactWorkspaceRow* row = selectedContactWorkspaceRow(rows, listWidget);
+    const bool hasSelection = row != nullptr;
+    const bool hasActionableRow = hasEnabledListRow(listWidget);
+    if (!openBtn || !searchBtn || !copyCardBtn || !copyStatusBtn || !friendManagerBtn) {
+        return;
+    }
+    openBtn->setEnabled(hasSelection);
+    friendManagerBtn->setEnabled(true);
+    friendManagerBtn->setToolTip(QStringLiteral("直接跳转到好友管理器"));
+    if (!hasSelection) {
+        openBtn->setText(QStringLiteral("执行当前动作"));
+        openBtn->setToolTip(hasActionableRow
+                                ? QStringLiteral("先选择一个联系人、群聊或入口动作后继续进入会话或工作区")
+                                : QStringLiteral("当前没有可执行的联系人或群聊入口"));
+        searchBtn->setEnabled(false);
+        searchBtn->setToolTip(QStringLiteral("先选择一个可搜索的 QQ，或直接进入好友申请工作区"));
+        copyCardBtn->setEnabled(hasActionableRow);
+        copyCardBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("复制当前联系人工作区总览")
+                                    : QStringLiteral("当前没有可复制的联系人摘要"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制联系人工作区当前状态"));
+        return;
+    }
+    if (row->rowId == QLatin1String("profile-overview")) {
+        openBtn->setText(QStringLiteral("打开账号工作区"));
+    } else if (row->rowId == QLatin1String("action-quick-add")) {
+        openBtn->setText(QStringLiteral("好友申请工作区"));
+    } else if (row->rowId == QLatin1String("action-global-search")) {
+        openBtn->setText(QStringLiteral("打开综合搜索"));
+    } else if (row->rowId == QLatin1String("action-friend-manager")) {
+        openBtn->setText(QStringLiteral("打开好友管理"));
+    } else if (row->rowId == QLatin1String("pending-search") || row->rowId.startsWith(QStringLiteral("search_add:"))) {
+        openBtn->setText(QStringLiteral("搜索并申请"));
+    } else if (row->rowId.startsWith(QStringLiteral("create_group:"))) {
+        openBtn->setText(QStringLiteral("创建群聊"));
+    } else if (m_localGroupIds.contains(row->rowId)) {
+        openBtn->setText(QStringLiteral("进入群聊"));
+    } else {
+        openBtn->setText(QStringLiteral("打开私聊"));
+    }
+    openBtn->setToolTip(row->detail);
+    const bool searchCapable = !selectedContactWorkspaceSearchAccount(row).isEmpty();
+    searchBtn->setEnabled(searchCapable);
+    searchBtn->setToolTip(row->rowId == QStringLiteral("pending-search")
+                              ? QStringLiteral("用当前搜索框内容发起搜索和好友申请")
+                              : (searchCapable
+                                     ? QStringLiteral("把当前选中 QQ 带入搜索或申请流程")
+                                     : QStringLiteral("当前项不支持直接搜索 QQ")));
+    copyCardBtn->setEnabled(true);
+    copyCardBtn->setToolTip(QStringLiteral("复制当前选中联系人、群聊或入口卡"));
+    copyStatusBtn->setEnabled(true);
+    copyStatusBtn->setToolTip(QStringLiteral("复制联系人工作区当前状态"));
+}
+
+void MainWindow::runContactWorkspaceOpenAction(ContactWorkspaceRow* row,
+                                               QDialog* dialog) {
+    if (!row) {
+        ui->statusbar->showMessage(QStringLiteral("请先选择联系人或工作区入口"), 1800);
+        return;
+    }
+    if (row->rowId == QStringLiteral("profile-overview")) {
+        if (dialog) dialog->accept();
+        showProfileWorkspace();
+        return;
+    }
+    if (row->rowId == QStringLiteral("action-quick-add")) {
+        if (dialog) dialog->accept();
+        onShowQuickAddFriend();
+        return;
+    }
+    if (row->rowId == QStringLiteral("action-global-search")) {
+        if (dialog) dialog->accept();
+        onShowGlobalSearch();
+        return;
+    }
+    if (row->rowId == QStringLiteral("action-friend-manager")) {
+        if (dialog) dialog->accept();
+        onShowFriendManager();
+        return;
+    }
+    if (row->rowId == QStringLiteral("pending-search")) {
+        const QString text = ui->contactSearchEdit->text().trimmed();
+        if (text.isEmpty()) {
+            ui->statusbar->showMessage(QStringLiteral("当前搜索框为空"), 1600);
+            return;
+        }
+        if (dialog) dialog->accept();
+        searchAndAddAccount(text, this);
+        return;
+    }
+    if (dialog) dialog->accept();
+    openUserTargetById(row->rowId);
+}
+
 void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
     QDialog dialog(this);
     WorkspaceDialogShell shell = createWorkspaceDialogShell(
@@ -11720,137 +12043,7 @@ void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
     QLabel* previewLabel = shell.previewLabel;
     QLabel* subTitleLabel = shell.subTitleLabel;
 
-    struct ContactWorkspaceRow {
-        QString rowId;
-        QString actionKey;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool accent = false;
-        bool muted = false;
-    };
-
-    auto buildRows = [this]() {
-        QList<ContactWorkspaceRow> rows;
-
-        ContactWorkspaceRow profileRow;
-        profileRow.rowId = QStringLiteral("profile-overview");
-        profileRow.actionKey = QStringLiteral("profile-overview");
-        profileRow.title = QStringLiteral("当前账号 · %1").arg(m_currentUserName);
-        profileRow.detail = QStringLiteral("QQ:%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size());
-        profileRow.preview = QStringLiteral("当前账号\nQQ：%1\n昵称：%2\n好友：%3\n群聊：%4\n当前会话：%5")
-                                 .arg(m_currentUserId,
-                                      m_currentUserName,
-                                      QString::number(m_friendIds.size()),
-                                      QString::number(m_localGroupIds.size()),
-                                      m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
-        profileRow.keywords = profileRow.title + profileRow.detail + profileRow.preview + QStringLiteral("账号 资料 头像 联系人 搜索");
-        rows << profileRow;
-
-        ContactWorkspaceRow quickAddRow;
-        quickAddRow.rowId = QStringLiteral("action-quick-add");
-        quickAddRow.actionKey = QStringLiteral("action-quick-add");
-        quickAddRow.title = QStringLiteral("好友申请工作区");
-        quickAddRow.detail = QStringLiteral("打开申请工作区，按 QQ 搜索并申请");
-        quickAddRow.preview = QStringLiteral("好友申请工作区\n可输入 QQ 搜索、复制申请话术、整理申请前后的媒体和检查清单。");
-        quickAddRow.keywords = quickAddRow.title + quickAddRow.detail + quickAddRow.preview + QStringLiteral("好友申请 添加好友 QQ 搜索");
-        quickAddRow.accent = true;
-        rows << quickAddRow;
-
-        ContactWorkspaceRow globalSearchRow;
-        globalSearchRow.rowId = QStringLiteral("action-global-search");
-        globalSearchRow.actionKey = QStringLiteral("action-global-search");
-        globalSearchRow.title = QStringLiteral("综合搜索");
-        globalSearchRow.detail = QStringLiteral("打开综合搜索工作区，统一搜索 QQ、好友和群聊");
-        globalSearchRow.preview = QStringLiteral("综合搜索工作区\n可查看匹配、复制搜索摘要，并继续跳转到好友、群聊和媒体准备动作。");
-        globalSearchRow.keywords = globalSearchRow.title + globalSearchRow.detail + globalSearchRow.preview + QStringLiteral("搜索 好友 群聊");
-        rows << globalSearchRow;
-
-        ContactWorkspaceRow friendManagerRow;
-        friendManagerRow.rowId = QStringLiteral("action-friend-manager");
-        friendManagerRow.actionKey = QStringLiteral("action-friend-manager");
-        friendManagerRow.title = QStringLiteral("好友管理器");
-        friendManagerRow.detail = QStringLiteral("打开好友管理工作区，做备注、邀请、删除和批量复制");
-        friendManagerRow.preview = QStringLiteral("好友管理器\n统一处理好友筛选、备注、入群邀请、删除和媒体准备动作。");
-        friendManagerRow.keywords = friendManagerRow.title + friendManagerRow.detail + friendManagerRow.preview + QStringLiteral("好友 管理 备注");
-        rows << friendManagerRow;
-
-        const QString pendingSearch = ui->contactSearchEdit ? ui->contactSearchEdit->text().trimmed() : QString();
-        if (!pendingSearch.isEmpty()) {
-            ContactWorkspaceRow pendingSearchRow;
-            pendingSearchRow.rowId = QStringLiteral("pending-search");
-            pendingSearchRow.actionKey = QStringLiteral("pending-search");
-            pendingSearchRow.title = QStringLiteral("QQ 搜索框 · %1").arg(pendingSearch);
-            pendingSearchRow.detail = QStringLiteral("立即用当前输入搜索账号，或创建同名群聊");
-            pendingSearchRow.preview = QStringLiteral("搜索框当前内容：%1\n可直接搜索 QQ、打开综合搜索，或创建同名群聊。").arg(pendingSearch);
-            pendingSearchRow.keywords = pendingSearchRow.title + pendingSearchRow.detail + pendingSearchRow.preview + QStringLiteral("搜索 建群");
-            pendingSearchRow.accent = true;
-            rows << pendingSearchRow;
-        }
-
-        const QList<QStandardItem*> visibleItems = m_userListModel ? m_userListModel->findItems(QStringLiteral("*"), Qt::MatchWildcard) : QList<QStandardItem*>();
-        for (QStandardItem* item : visibleItems) {
-            if (!item) {
-                continue;
-            }
-            const QString targetId = item->data(Qt::UserRole + 1).toString();
-            if (targetId.isEmpty()) {
-                continue;
-            }
-
-            ContactWorkspaceRow row;
-            row.rowId = targetId;
-            row.actionKey = QStringLiteral("open-target");
-            row.title = contactDisplayName(targetId);
-            if (targetId.startsWith(QStringLiteral("search_add:"))) {
-                const QString account = targetId.mid(QStringLiteral("search_add:").size());
-                row.title = QStringLiteral("搜索并申请 · %1").arg(account);
-                row.detail = QStringLiteral("对这个 QQ 发起搜索并申请");
-                row.preview = QStringLiteral("搜索入口\nQQ：%1\n动作：搜索在线账号并准备发起好友申请").arg(account);
-                row.accent = true;
-            } else if (targetId.startsWith(QStringLiteral("create_group:"))) {
-                const QString groupName = targetId.mid(QStringLiteral("create_group:").size()).trimmed();
-                row.title = QStringLiteral("创建群聊 · %1").arg(groupName.isEmpty() ? QStringLiteral("我的群聊") : groupName);
-                row.detail = QStringLiteral("按当前搜索词创建本地群聊");
-                row.preview = QStringLiteral("建群入口\n群名：%1\n动作：创建群聊并切到该群继续邀请好友和发消息。")
-                                  .arg(groupName.isEmpty() ? QStringLiteral("我的群聊") : groupName);
-                row.accent = true;
-            } else if (m_localGroupIds.contains(targetId)) {
-                const QString groupName = m_localGroupNames.value(targetId, row.title);
-                row.title = QStringLiteral("群聊 · %1").arg(groupName);
-                row.detail = QStringLiteral("群号:%1 · 成员 %2").arg(targetId).arg(m_localGroupMembers.value(targetId).size());
-                row.preview = QStringLiteral("本地群聊\n群名：%1\n群号：%2\n成员：%3\n公告：%4")
-                                  .arg(groupName,
-                                       targetId,
-                                       QString::number(m_localGroupMembers.value(targetId).size()),
-                                       m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告")));
-            } else {
-                const bool online = isContactOnline(targetId);
-                const bool isFriend = m_friendIds.contains(targetId);
-                const bool pending = m_pendingOutgoingFriendRequests.contains(targetId);
-                row.detail = QStringLiteral("QQ:%1 · %2 · %3")
-                                 .arg(targetId,
-                                      online ? QStringLiteral("在线") : QStringLiteral("离线"),
-                                      isFriend ? QStringLiteral("好友")
-                                               : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人")));
-                row.preview = QStringLiteral("联系人\nQQ：%1\n昵称：%2\n状态：%3\n关系：%4\n当前可继续：打开私聊、复制名片、查看加密状态或发起好友动作。")
-                                  .arg(targetId,
-                                       contactDisplayName(targetId),
-                                       online ? QStringLiteral("在线") : QStringLiteral("离线"),
-                                       isFriend ? QStringLiteral("好友")
-                                                : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人")));
-                row.accent = online;
-                row.muted = !online;
-            }
-            row.keywords = row.rowId + row.title + row.detail + row.preview;
-            rows << row;
-        }
-
-        return rows;
-    };
-
-    auto rows = buildRows();
+    auto rows = buildContactWorkspaceRows();
     auto emptyPreviewText = [searchEdit]() {
         const QString filter = searchEdit->text().trimmed();
         return filter.isEmpty()
@@ -11858,55 +12051,20 @@ void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
             : QStringLiteral("当前筛选词“%1”没有匹配到联系人入口。\n试试 QQ、昵称、“群聊”、“申请”或“管理”这些关键词。").arg(filter);
     };
 
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        listWidget->clear();
-        int visibleCount = 0;
-        for (const ContactWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.rowId);
-            item->setData(Qt::UserRole + 1, row.actionKey);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (row.accent) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.muted) {
-                item->setForeground(QColor(100, 116, 139));
-            }
-            listWidget->addItem(item);
-            ++visibleCount;
-        }
-        if (visibleCount == 0) {
-            addWorkspaceEmptyStateItem(
-                listWidget,
-                QStringLiteral("没有匹配的联系人入口"),
-                QStringLiteral("试试 QQ、昵称、“群聊”、“申请”或“管理”这些关键词。"),
-                emptyPreviewText());
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
-        selectPreferredListRow(listWidget, 0);
+    auto fillList = [=, &rows, this]() {
+        fillContactWorkspaceList(listWidget,
+                                 statsLabel,
+                                 rows,
+                                 searchEdit->text().trimmed(),
+                                 emptyPreviewText());
     };
 
-    auto selectedRow = [=, &rows]() -> ContactWorkspaceRow* {
-        QListWidgetItem* currentItem = listWidget->currentItem();
-        if (!currentItem) {
-            return nullptr;
-        }
-        const QString rowId = currentItem->data(Qt::UserRole).toString();
-        const QString actionKey = currentItem->data(Qt::UserRole + 1).toString();
-        for (ContactWorkspaceRow& row : rows) {
-            if (row.rowId == rowId && row.actionKey == actionKey) {
-                return &row;
-            }
-        }
-        return nullptr;
+    auto selectedRow = [=, &rows, this]() -> ContactWorkspaceRow* {
+        return selectedContactWorkspaceRow(rows, listWidget);
     };
 
-    auto updatePreview = [=, &rows]() {
-        ContactWorkspaceRow* row = selectedRow();
+    auto updatePreview = [=, &rows, this]() {
+        ContactWorkspaceRow* row = selectedContactWorkspaceRow(rows, listWidget);
         previewLabel->setText(row ? row->preview
                                   : (firstEnabledListRow(listWidget) >= 0
                                          ? QStringLiteral("这里会解释当前联系人、群聊或侧栏入口会如何影响主界面、会话和后续操作。")
@@ -11935,129 +12093,29 @@ void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
         QStringLiteral("把联系人、群聊和侧栏状态整理成可复制的摘要，便于反馈、留档和继续处理。"),
         {copyCardBtn, copyStatusBtn});
 
-    auto contactStatusText = [=, &rows]() {
-        QStringList lines;
-        lines << QStringLiteral("联系人工作区状态");
-        lines << QStringLiteral("当前账号:%1 (%2)").arg(m_currentUserName, m_currentUserId);
-        lines << QStringLiteral("好友:%1").arg(m_friendIds.size());
-        lines << QStringLiteral("群聊:%1").arg(m_localGroupIds.size());
-        lines << QStringLiteral("搜索框:%1").arg(ui->contactSearchEdit->text().trimmed().isEmpty() ? QStringLiteral("空") : ui->contactSearchEdit->text().trimmed());
-        ContactWorkspaceRow* row = selectedRow();
-        if (row) {
-            lines << QStringLiteral("当前选中:%1").arg(row->title);
-            lines << QStringLiteral("当前详情:%1").arg(row->detail);
-        }
-        return lines.join(QLatin1Char('\n'));
+    auto contactStatusText = [=, &rows, this]() {
+        return contactWorkspaceStatusText(rows, listWidget);
     };
-    auto contactClipboardText = [=, &rows]() {
-        ContactWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return contactStatusText();
-        }
-        return row->preview.trimmed().isEmpty() ? contactStatusText() : row->preview;
+    auto contactClipboardText = [=, &rows, this]() {
+        return contactWorkspaceClipboardText(rows, listWidget);
     };
 
-    auto updateActionState = [=, &rows]() {
-        ContactWorkspaceRow* row = selectedRow();
-        const bool hasSelection = row != nullptr;
-        const bool hasActionableRow = hasEnabledListRow(listWidget);
-        openBtn->setEnabled(hasSelection);
-        friendManagerBtn->setEnabled(true);
-        friendManagerBtn->setToolTip(QStringLiteral("直接跳转到好友管理器"));
-        if (!hasSelection) {
-            openBtn->setText(QStringLiteral("执行当前动作"));
-            openBtn->setToolTip(hasActionableRow
-                                    ? QStringLiteral("先选择一个联系人、群聊或入口动作后继续进入会话或工作区")
-                                    : QStringLiteral("当前没有可执行的联系人或群聊入口"));
-            searchBtn->setEnabled(false);
-            searchBtn->setToolTip(QStringLiteral("先选择一个可搜索的 QQ，或直接进入好友申请工作区"));
-            copyCardBtn->setEnabled(hasActionableRow);
-            copyCardBtn->setToolTip(hasActionableRow
-                                        ? QStringLiteral("复制当前联系人工作区总览")
-                                        : QStringLiteral("当前没有可复制的联系人摘要"));
-            copyStatusBtn->setEnabled(true);
-            copyStatusBtn->setToolTip(QStringLiteral("复制联系人工作区当前状态"));
-            return;
-        }
-        if (row->rowId == QLatin1String("profile-overview")) {
-            openBtn->setText(QStringLiteral("打开账号工作区"));
-        } else if (row->rowId == QLatin1String("action-quick-add")) {
-            openBtn->setText(QStringLiteral("好友申请工作区"));
-        } else if (row->rowId == QLatin1String("action-global-search")) {
-            openBtn->setText(QStringLiteral("打开综合搜索"));
-        } else if (row->rowId == QLatin1String("action-friend-manager")) {
-            openBtn->setText(QStringLiteral("打开好友管理"));
-        } else if (row->rowId == QLatin1String("pending-search") || row->rowId.startsWith(QStringLiteral("search_add:"))) {
-            openBtn->setText(QStringLiteral("搜索并申请"));
-        } else if (row->rowId.startsWith(QStringLiteral("create_group:"))) {
-            openBtn->setText(QStringLiteral("创建群聊"));
-        } else if (m_localGroupIds.contains(row->rowId)) {
-            openBtn->setText(QStringLiteral("进入群聊"));
-        } else {
-            openBtn->setText(QStringLiteral("打开私聊"));
-        }
-        openBtn->setToolTip(row->detail);
-        const bool searchCapable = row->rowId.startsWith(QStringLiteral("search_add:"))
-            || (!m_localGroupIds.contains(row->rowId)
-                && row->actionKey == QStringLiteral("open-target")
-                && !row->rowId.startsWith(QStringLiteral("create_group:"))
-                && row->rowId != QStringLiteral("profile-overview")
-                && !row->rowId.startsWith(QStringLiteral("action-"))
-                && row->rowId != QStringLiteral("pending-search"));
-        searchBtn->setEnabled(searchCapable || row->rowId == QStringLiteral("pending-search"));
-        searchBtn->setToolTip(row->rowId == QStringLiteral("pending-search")
-                                  ? QStringLiteral("用当前搜索框内容发起搜索和好友申请")
-                                  : (searchCapable
-                                         ? QStringLiteral("把当前选中 QQ 带入搜索或申请流程")
-                                         : QStringLiteral("当前项不支持直接搜索 QQ")));
-        copyCardBtn->setEnabled(true);
-        copyCardBtn->setToolTip(QStringLiteral("复制当前选中联系人、群聊或入口卡"));
-        copyStatusBtn->setEnabled(true);
-        copyStatusBtn->setToolTip(QStringLiteral("复制联系人工作区当前状态"));
+    auto updateActionState = [=, &rows, this]() {
+        updateContactWorkspaceActionState(openBtn,
+                                          searchBtn,
+                                          copyCardBtn,
+                                          copyStatusBtn,
+                                          friendManagerBtn,
+                                          listWidget,
+                                          rows);
     };
 
     auto runOpenSelected = [=, &rows, this, &dialog]() {
-        ContactWorkspaceRow* row = selectedRow();
-        if (!row) {
-            ui->statusbar->showMessage(QStringLiteral("请先选择联系人或工作区入口"), 1800);
-            return;
-        }
-        if (row->rowId == QStringLiteral("profile-overview")) {
-            dialog.accept();
-            showProfileWorkspace();
-            return;
-        }
-        if (row->rowId == QStringLiteral("action-quick-add")) {
-            dialog.accept();
-            onShowQuickAddFriend();
-            return;
-        }
-        if (row->rowId == QStringLiteral("action-global-search")) {
-            dialog.accept();
-            onShowGlobalSearch();
-            return;
-        }
-        if (row->rowId == QStringLiteral("action-friend-manager")) {
-            dialog.accept();
-            onShowFriendManager();
-            return;
-        }
-        if (row->rowId == QStringLiteral("pending-search")) {
-            const QString text = ui->contactSearchEdit->text().trimmed();
-            if (text.isEmpty()) {
-                ui->statusbar->showMessage(QStringLiteral("当前搜索框为空"), 1600);
-                return;
-            }
-            dialog.accept();
-            searchAndAddAccount(text, this);
-            return;
-        }
-        dialog.accept();
-        openUserTargetById(row->rowId);
+        runContactWorkspaceOpenAction(selectedContactWorkspaceRow(rows, listWidget), &dialog);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
+        rows = buildContactWorkspaceRows();
         fillList();
         updatePreview();
         updateActionState();
@@ -12076,21 +12134,7 @@ void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
     });
     connect(searchBtn, &QPushButton::clicked, &dialog, [this, &rows, &dialog, selectedRow]() {
         ContactWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return;
-        }
-        QString account;
-        if (row->rowId == QStringLiteral("pending-search")) {
-            account = ui->contactSearchEdit->text().trimmed();
-        } else if (row->rowId.startsWith(QStringLiteral("search_add:"))) {
-            account = row->rowId.mid(QStringLiteral("search_add:").size());
-        } else if (!m_localGroupIds.contains(row->rowId)
-                   && row->actionKey == QStringLiteral("open-target")
-                   && !row->rowId.startsWith(QStringLiteral("create_group:"))
-                   && !row->rowId.startsWith(QStringLiteral("action-"))
-                   && row->rowId != QStringLiteral("profile-overview")) {
-            account = row->rowId;
-        }
+        const QString account = selectedContactWorkspaceSearchAccount(row);
         if (account.isEmpty()) {
             ui->statusbar->showMessage(QStringLiteral("当前项不支持直接搜索 QQ"), 1800);
             return;
@@ -12110,7 +12154,7 @@ void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
     if (!initialSearchText.isEmpty()) {
         searchEdit->setText(initialSearchText);
     }
-    rows = buildRows();
+    rows = buildContactWorkspaceRows();
     fillList();
     updatePreview();
     updateActionState();
