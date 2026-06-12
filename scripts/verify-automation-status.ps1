@@ -112,6 +112,8 @@ $releaseDeliveryHandoffDir = Join-Path $tempDir "release-delivery-handoff"
 $releaseDeliveryHandoffManifestPath = Join-Path $releaseDeliveryHandoffDir "release-delivery-handoff-manifest.json"
 $releaseCloseoutSummaryDir = Join-Path $tempDir "release-closeout-summary"
 $releaseCloseoutSummaryManifestPath = Join-Path $releaseCloseoutSummaryDir "release-closeout-summary-manifest.json"
+$localReleaseReviewDir = Join-Path $tempDir "local-release-review"
+$localReleaseReviewManifestPath = Join-Path $localReleaseReviewDir "local-release-review-manifest.json"
 Ensure-Directory -Path $e2eRolloutDir
 Ensure-Directory -Path $e2eReleaseEvidenceDir
 Ensure-Directory -Path $e2eCurrentHeadCiStaleEvidenceDir
@@ -119,6 +121,7 @@ Ensure-Directory -Path $e2eLinkedReleaseCandidateDir
 Ensure-Directory -Path $releaseArchiveDecisionDir
 Ensure-Directory -Path $releaseDeliveryHandoffDir
 Ensure-Directory -Path $releaseCloseoutSummaryDir
+Ensure-Directory -Path $localReleaseReviewDir
 
 @'
 {
@@ -276,6 +279,31 @@ End testing: Jun 03 04:01
   "releaseDiagnostics":{"ok":true}
 }
 '@ | Set-Content -LiteralPath $releaseCloseoutSummaryManifestPath -Encoding UTF8
+
+@'
+{
+  "format":"qtnetworkchat-local-release-review-package-v1",
+  "reviewReady":true,
+  "reviewGate":"review-complete-archive-decision-recorded",
+  "targetReleaseHead":"closeout1234",
+  "packageSha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "sourceArtifacts":{
+    "e2eReleaseReview":{
+      "present":true,
+      "ready":true,
+      "releaseGate":"ready-local-verification-only",
+      "source":"linked-current-head-candidate",
+      "targetReleaseHead":"closeout1234",
+      "targetHeadMatches":true,
+      "packageSha256":"abababababababababababababababababababababababababababababababab"
+    }
+  },
+  "finalArchiveDecision":{
+    "blockerCount":0,
+    "deliveryTailCount":0
+  }
+}
+'@ | Set-Content -LiteralPath $localReleaseReviewManifestPath -Encoding UTF8
 
 @'
 {
@@ -502,8 +530,8 @@ End testing: Jun 03 04:01
 
 & $ScriptPath `
     -MarkdownPath $markdownPath `
-    -Head "abc1234" `
-    -OriginMain "abc1234" `
+    -Head "closeout1234" `
+    -OriginMain "closeout1234" `
     -CiStatus "success" `
     -CiRunId "26816554264" `
     -BuildStatus "passed" `
@@ -513,6 +541,7 @@ End testing: Jun 03 04:01
     -E2ERolloutObservabilityMarkdownPath $e2eRolloutMarkdownPath `
     -E2EReleaseEvidenceManifestPath $e2eReleaseEvidenceManifestPath `
     -E2ELinkedReleaseCandidateManifestPath $e2eLinkedReleaseCandidateManifestPath `
+    -LocalReleaseReviewManifestPath $localReleaseReviewManifestPath `
     -ReleaseArchiveDecisionManifestPath $releaseArchiveDecisionManifestPath `
     -ReleaseDeliveryHandoffManifestPath $releaseDeliveryHandoffManifestPath `
     -ReleaseCloseoutSummaryManifestPath $releaseCloseoutSummaryManifestPath `
@@ -537,7 +566,7 @@ if (-not (Test-Path -LiteralPath $markdownPath -PathType Leaf)) {
 $markdown = Get-Content -LiteralPath $markdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'QtNetworkChat Automation Status',
-    'HEAD: `abc1234`',
+    'HEAD: `closeout1234`',
     'HEAD note: `current local verification head; GitHub Windows Build is disabled by policy and does not gate this status.`',
     'GitHub Windows Build: `success`',
     'Local CTest count: `51`',
@@ -550,13 +579,15 @@ foreach ($expected in @(
     'Offline recovery evidence: action=`enable-reviewed-offline-ciphertext-mirror-or-fail-closed-to-resend`, capturePolicy=`safe-object-token-hash-size-envelope-header-session-metadata-only`, noSensitiveExport=`true`',
     'Sensitive export proof: noSensitiveExport=`false`, suppressed=`true`',
     'GitHub Windows Build policy: `disabled`',
-    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, inputs=`4`',
-    'Evidence verification baseline: localBuild=`passed`, localCTest=`passed`, count=`2`, noSensitiveExport=`true`, githubWindowsBuild=`disabled/not-required`',
-    'Evidence artifact: manifestPackagedAs=`manifest.json`, manifestEmbedded=`true`, packageSha256=`',
-    'Production-linked release: ready=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, blockers=`rollout-not-ready,production-acceptance-not-accepted,production-acceptance-not-linked,production-acceptance-not-ready,production-acceptance-gate-not-accepted,production-rollout-not-accepted,production-rollout-not-linked,production-rollout-not-ready,production-rollout-gate-not-ready,production-release-run-not-observable,release-run-not-production-required,production-backend-mismatch,release-run-requested-backend-mismatch,release-run-backend-mismatch,production-operation-counts-not-ready,production-no-sensitive-proof-missing`, acceptanceBackend=`unknown`, rolloutBackend=`unknown`, releaseRunBackend=`unknown`, operationCountsReady=`false`, noSensitiveReady=`false`',
-    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
-    'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
-    'Evidence local review baseline: currentHead=`abc1234`, targetReleaseHead=`unknown`, artifactFreshness=`false`, githubWindowsBuild=`disabled/not-required`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
+    'E2E release evidence package: ok=`true`, releaseReady=`true`, releaseGate=`ready-local-verification-only`, inputs=`4`',
+    'Active evidence source: source=`release-review-current-head-closeout`, currentHeadLinkedCandidate=`false`',
+    'Active closeout baseline: `current-head local-release-review and release-closeout-summary override the older fail-closed baseline for release review.`',
+    'Evidence verification baseline: localBuild=`passed`, localCTest=`passed`, count=`51`, noSensitiveExport=`true`, githubWindowsBuild=`disabled/not-required`',
+    'Evidence artifact: manifestPackagedAs=`embedded-in-local-release-review`, manifestEmbedded=`closeout-current-head`, packageSha256=`ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff`',
+    'Production-linked release: ready=`true`, releaseGate=`production-linked-rollout-ready`, blockers=`unknown`, acceptanceBackend=`openssl-reviewed-adapter-v1`, rolloutBackend=`openssl-reviewed-adapter-v1`, releaseRunBackend=`openssl-reviewed-adapter-v1`, operationCountsReady=`true`, noSensitiveReady=`true`',
+    'Promotion decision: promoted=`true`, ready=`true`, releaseGate=`ready-local-verification-only`, blockers=`unknown`',
+    'Promotion action: `Current-head local release review and release closeout summary already archive the verified E2E release evidence for this HEAD.`',
+    'Evidence local review baseline: currentHead=`closeout1234`, targetReleaseHead=`closeout1234`, artifactFreshness=`false`, githubWindowsBuild=`disabled/not-required`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
     'Linked runtime candidate: localBuild=`passed`, localCTest=`passed`, productionLinked=`true`, releaseReady=`false`, promotion=`blocked-e2e-release-artifact-promotion`, githubWindowsBuild=`disabled/not-required`',
     'Automation Guardrails',
     'Registered Preview Tasks',
@@ -598,7 +629,7 @@ foreach ($expected in @(
     'Automation ack drill artifacts: `state=exercised; ok=true; acknowledged=true; releaseGate=automation-ack-drill-exercised`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
     'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; releaseGate=',
-    'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false`',
+    'Active E2E release review artifacts: `source=release-review-current-head-closeout; releaseReady=true; promoted=true; releaseGate=ready-local-verification-only; productionLinked=true; closeoutCurrentHead=true`',
     'Release archive decision artifacts: `manifest=ok; decisionRecorded=false; decisionState=pending-human-decision; decisionGate=ready-for-archive-decision-record; publishing=not-started; publishingRecord=false; deliveryDrill=false; blockers=0`',
     'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0`',
     'Release closeout summary artifacts: `manifest=ok; closeoutReady=true; closeoutGate=release-closeout-ready-for-stop-writing; publishing=pending-environment-publication; diagnosticsOk=true`',

@@ -13,11 +13,13 @@ file(MAKE_DIRECTORY "${TEMP_DIR}")
 
 set(SOURCE_DIR "${TEMP_DIR}/source-candidate")
 set(SOURCE_EVIDENCE_DIR "${SOURCE_DIR}/e2e-release-evidence")
+set(SOURCE_EXISTING_LINKED_DIR "${SOURCE_DIR}/e2e_release_evidence_linked_candidate/e2e-release-evidence")
 set(OUTPUT_DIR "${TEMP_DIR}/current-head-candidate")
 set(SOURCE_BUILD_DIR "${TEMP_DIR}/source-build")
 set(SOURCE_BUILD_EVIDENCE_DIR "${SOURCE_BUILD_DIR}/e2e_rollout_observability_evidence")
 set(OUTPUT_BUILD_DIR "${TEMP_DIR}/current-head-candidate-from-build")
 file(MAKE_DIRECTORY "${SOURCE_EVIDENCE_DIR}")
+file(MAKE_DIRECTORY "${SOURCE_EXISTING_LINKED_DIR}")
 file(MAKE_DIRECTORY "${SOURCE_BUILD_EVIDENCE_DIR}")
 
 set(ROLLOUT_JSON "${SOURCE_EVIDENCE_DIR}/e2e-rollout-observability.json")
@@ -80,6 +82,8 @@ file(WRITE "${ROLLOUT_JSON}" "{\n"
 file(WRITE "${ROLLOUT_MD}" "# Linked rollout evidence\n\n- Release gate: `production-rollout-observability-ready`\n")
 file(COPY "${ROLLOUT_JSON}" DESTINATION "${SOURCE_BUILD_EVIDENCE_DIR}")
 file(COPY "${ROLLOUT_MD}" DESTINATION "${SOURCE_BUILD_EVIDENCE_DIR}")
+file(COPY "${ROLLOUT_JSON}" DESTINATION "${SOURCE_EXISTING_LINKED_DIR}")
+file(COPY "${ROLLOUT_MD}" DESTINATION "${SOURCE_EXISTING_LINKED_DIR}")
 file(WRITE "${CI_JSON}" "{\n"
 "  \"format\":\"qtnetworkchat-github-windows-build-status-v1\",\n"
 "  \"headSha\":\"not-required\",\n"

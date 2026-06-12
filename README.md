@@ -276,6 +276,8 @@ powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
 
 这个收官脚本会按固定顺序重生成当前 HEAD 的 closeout 产物，包含 `local-release-review`、`release-archive-decision`、`release-delivery-handoff`、`release-delivery-drill`、`release-publication-record` 与 `release-closeout-summary`，避免 `automation-status` 和各归档包因交叉引用旧 manifest 而停留在旧基线。`docs/automation-status.md` 也只保留稳定的 gate/ready/tail/decision 摘要，不再回写这些归档包自身的 SHA-256，以免状态文档与被其打包的归档产物形成自引用漂移。
 
+当默认 fail-closed 的 E2E release evidence baseline 仍保留旧 HEAD、而 current-head 的 `local-release-review` 与 `release-closeout-summary` 已经完成时，`automation-status` 会把 current-head closeout 视为活跃收官基线。旧 baseline 仍会保留在状态板里作为信息性诊断项，但不会再覆盖当前 HEAD 的本地 release review 结论。
+
 ### 可选 MinIO S3 手动验证
 
 S3/MinIO 后端默认仍保持关闭；需要验证当前 SigV4 签名和 path-style 请求边界时，可手动运行：
@@ -727,7 +729,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 ## 后续优化优先级
 
 1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。本地 `release review` 收官包现在会把 current-head E2E candidate、S3 readiness、large-file governance、PostgreSQL acceptance/rollback、README 和 automation-status 一起归档，供后续 archive decision 产物直接引用。
-2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，README、automation-status、focused docs、closeout summary 和脚本生成内容现在已经能收敛到同一套 release closeout 口径。剩余工作主要是继续避免把默认 fail-closed 基线证据误读成当前 head 未闭环，并在确有新的 external publication 动作时只通过 `release-publication-record` 回写。
+2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，README、automation-status、focused docs、closeout summary 和脚本生成内容现在已经能收敛到同一套 release closeout 口径。当前收官语义已经明确：若 current-head 的 `local-release-review` 与 `release-closeout-summary` 都完成，则它们就是活跃 release-review 基线；默认 fail-closed baseline 只保留为信息性诊断，不再代表当前 head 未闭环。后续只需在确有新的 external publication 动作时通过 `release-publication-record` 回写。
 3. **发布与运维体验**：本地发布交付包已经收口 Windows package、上传说明、安装入口、脱敏诊断采集和非开发交接清单；现在又补上了独立的 `release-archive-decision` 产物，用来记录最终归档决定与环境外发布状态。剩余工作主要是按你自己的渠道把生成好的 zip 发布到团队共享盘、工单系统或发行页面，并在 archive decision 里回写发布状态。
 4. **结构拆分的最终收尾**：第一阶段和第二阶段所需的 UI 统一、文件工作区整线产品化已经完成，`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 也都已经承担了主职责。后续结构拆分不再是当前主线，只在确实影响维护性或回归定位时，继续处理剩余的大弹窗编排和少量 MainWindow 收口。
 5. **性能与非阻塞增强**：文件/离线附件的用户可见状态、恢复入口、失败入口和工作区摘要已经统一。大文件治理现在已经补上独立的 performance summary，能把 delivery closure、fallback protection、S3 transient pressure、receipt archive pressure 和 coverage gap 收成可归档证据；后续更适合做的主要是更重的性能压测，以及必要时补充少量高价值回归测试。

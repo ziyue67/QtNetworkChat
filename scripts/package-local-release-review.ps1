@@ -578,6 +578,71 @@ $releaseArchiveDecisionDetail = if ($releaseArchiveDecisionAvailable) {
 }
 [void]$artifactSummaries.Add((New-ArtifactSummary "release-archive-decision" $releaseArchiveDecisionAvailable $releaseArchiveDecisionRecorded $releaseArchiveDecisionGate $releaseArchiveDecisionDetail $false))
 
+$sourceArtifacts = [ordered]@{
+    localVerification = [ordered]@{
+        present = ($null -ne $localVerification)
+        ready = $localVerificationReady
+        releaseGate = $localVerificationGate
+        detail = $localVerificationDetail
+    }
+    e2eReleaseReview = [ordered]@{
+        present = ($null -ne $e2eManifest)
+        ready = $e2eReady
+        releaseGate = $e2eGate
+        source = $e2eSource
+        targetReleaseHead = $e2eTargetReleaseHead
+        targetHeadMatches = $e2eTargetHeadMatches
+        packageSha256 = $e2ePackageSha256
+    }
+    s3RealBackendReadiness = [ordered]@{
+        present = ($null -ne $s3Readiness)
+        ready = $s3Ready
+        releaseGate = $s3Gate
+        detail = $s3Detail
+    }
+    largeFileGovernance = [ordered]@{
+        present = ($null -ne $governanceDashboard)
+        ready = $governanceReady
+        releaseGate = $governanceGate
+        detail = $governanceDetail
+    }
+    pgsqlAcceptance = [ordered]@{
+        present = ($null -ne $pgsqlAcceptance)
+        ready = $pgsqlAcceptanceReady
+        releaseGate = $pgsqlAcceptanceGate
+        detail = $pgsqlAcceptanceDetail
+    }
+    pgsqlRollbackLive = [ordered]@{
+        present = ($null -ne $pgsqlRollbackLive)
+        ready = $pgsqlRollbackReady
+        releaseGate = $pgsqlRollbackGate
+        detail = $pgsqlRollbackDetail
+    }
+    windowsPackage = [ordered]@{
+        present = $windowsPackagePresent
+        ready = ($windowsPackagePresent -and $windowsPackageCurrentHeadMatch)
+        releaseGate = $windowsPackageGate
+        gitCommit = if ($windowsPackagePresent) { $windowsGitCommit } else { "unknown" }
+        runtimeOk = $windowsRuntimeOk
+        postgresRuntimeOk = $windowsPostgresOk
+        currentHeadMatch = $windowsPackageCurrentHeadMatch
+    }
+    releaseDeliveryHandoff = [ordered]@{
+        present = $releaseDeliveryHandoffAvailable
+        ready = $releaseDeliveryHandoffReady
+        releaseGate = (Format-Value (Get-JsonValue $releaseDeliveryHandoffManifest "deliveryGate" "unknown"))
+        deliveryTailCount = $deliveryTailPending.Count
+        deliveryTailPending = @($deliveryTailPending)
+    }
+    releaseArchiveDecision = [ordered]@{
+        present = $releaseArchiveDecisionAvailable
+        recorded = $releaseArchiveDecisionRecorded
+        decisionGate = $releaseArchiveDecisionGate
+        decisionState = (Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "decisionState" "unknown"))
+        publishingStatus = (Format-Value (Get-JsonValue $releaseArchiveDecisionManifest "publishingStatus" "unknown"))
+    }
+}
+
 $reviewReady = $blockers.Count -eq 0
 $humanDecisionRequired = $reviewReady -and -not $releaseArchiveDecisionRecorded
 $reviewGate = if (-not $reviewReady) {
@@ -720,6 +785,7 @@ $manifest = [ordered]@{
     inputCount = $manifestInputs.Count
     inputs = @($manifestInputs)
     artifacts = @($artifactSummaries)
+    sourceArtifacts = $sourceArtifacts
     finalArchiveDecision = [ordered]@{
         ready = $reviewReady
         reviewGate = $reviewGate

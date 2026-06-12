@@ -28,6 +28,11 @@ function Ensure-File([string]$PathValue, [string]$Label) {
 function Resolve-LinkedRolloutSource([string]$BaseDir) {
     $candidates = @(
         [pscustomobject]@{
+            label = "existing-linked-candidate-package"
+            json = Join-Path $BaseDir "e2e_release_evidence_linked_candidate\e2e-release-evidence\e2e-rollout-observability.json"
+            markdown = Join-Path $BaseDir "e2e_release_evidence_linked_candidate\e2e-release-evidence\e2e-rollout-observability.md"
+        },
+        [pscustomobject]@{
             label = "packaged-linked-candidate"
             json = Join-Path $BaseDir "e2e-release-evidence\e2e-rollout-observability.json"
             markdown = Join-Path $BaseDir "e2e-release-evidence\e2e-rollout-observability.md"

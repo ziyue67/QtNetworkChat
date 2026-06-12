@@ -285,7 +285,7 @@ file(READ "${AUTOMATION_STATUS_PATH}" automation_status_content)
 foreach(expected_text
         "- GitHub run id: `not-required`"
         "count=`86`"
-        "source=`linked-current-head-candidate`"
+        "source=`release-review-current-head-closeout`"
         "productionLinked=`true`"
         "currentHead=`${release_head}`"
         "targetReleaseHead=`${release_head}`"

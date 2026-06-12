@@ -25,6 +25,7 @@ Release closeout is the final local evidence bundle for a current `HEAD`. It kee
 - A local release closeout is considered complete only when the local release review, archive decision, delivery handoff, delivery drill, publication record, and diagnostics package are all present and readable.
 - Environment-specific publication remains outside the repository, even when the local closeout chain is complete.
 - `docs/automation-status.md` should summarize the stable gates and readiness state of this chain; it should not become the only place where release closeout semantics exist.
+- When the default fail-closed E2E release evidence artifact and the current-head closeout chain disagree, the active release-review baseline is the current-head `local-release-review` plus `release-closeout-summary` pair. The older baseline remains useful as an informational artifact, but it must not override a current-head closeout that is already complete.
 
 ## Refresh
 
@@ -42,3 +43,4 @@ powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
 ```
 
 That refresh updates the closeout artifacts in a fixed order and regenerates `docs/automation-status.md` from the resulting manifests instead of relying on stale cross-references.
+After the refresh, `docs/automation-status.md` is expected to report the current-head closeout baseline as the active release-review source whenever `local-release-review` and `release-closeout-summary` both point at the same reviewed HEAD.

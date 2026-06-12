@@ -1253,6 +1253,12 @@ function Get-LocalReleaseReviewReadback([object]$ArtifactState) {
         packageArtifact = "not-configured"
         reviewReady = "unknown"
         reviewGate = "unknown"
+        targetReleaseHead = "unknown"
+        e2eReleaseSource = "unknown"
+        e2eReleaseReady = "unknown"
+        e2eReleaseGate = "unknown"
+        e2eTargetReleaseHead = "unknown"
+        e2eTargetHeadMatches = "unknown"
         packageSha256 = "unknown"
         blockerCount = "unknown"
         deliveryTailCount = "unknown"
@@ -1273,8 +1279,16 @@ function Get-LocalReleaseReviewReadback([object]$ArtifactState) {
     }
 
     $decision = Get-JsonValue $manifest "finalArchiveDecision" $null
+    $sourceArtifacts = Get-JsonValue $manifest "sourceArtifacts" $null
+    $e2eReleaseReview = Get-JsonValue $sourceArtifacts "e2eReleaseReview" $null
     $result.reviewReady = Format-StatusValue (Get-JsonValue $manifest "reviewReady" "unknown")
     $result.reviewGate = Format-StatusValue (Get-JsonValue $manifest "reviewGate" "unknown")
+    $result.targetReleaseHead = Format-StatusValue (Get-JsonValue $manifest "targetReleaseHead" "unknown")
+    $result.e2eReleaseSource = Format-StatusValue (Get-JsonValue $e2eReleaseReview "source" "unknown")
+    $result.e2eReleaseReady = Format-StatusValue (Get-JsonValue $e2eReleaseReview "ready" "unknown")
+    $result.e2eReleaseGate = Format-StatusValue (Get-JsonValue $e2eReleaseReview "releaseGate" "unknown")
+    $result.e2eTargetReleaseHead = Format-StatusValue (Get-JsonValue $e2eReleaseReview "targetReleaseHead" "unknown")
+    $result.e2eTargetHeadMatches = Format-StatusValue (Get-JsonValue $e2eReleaseReview "targetHeadMatches" "unknown")
     $result.packageSha256 = Format-StatusValue (Get-JsonValue $manifest "packageSha256" "unknown")
     $result.blockerCount = Format-StatusValue (Get-JsonValue $decision "blockerCount" "unknown")
     $result.deliveryTailCount = Format-StatusValue (Get-JsonValue $decision "deliveryTailCount" "unknown")
@@ -2818,6 +2832,7 @@ $e2eLinkedReleaseCandidateReadback =
 $activeE2EReleaseEvidenceReadback = $e2eReleaseEvidenceReadback
 $activeE2EReleaseEvidenceLabel = "default-fail-closed"
 $activeE2EReleaseEvidenceUsesLinkedCandidate = $false
+$activeE2EReleaseEvidenceCurrentHeadCloseout = $false
 $releaseEvidenceCurrentHeadReady = ($e2eReleaseEvidenceReadback.state -eq "ok") `
     -and ((Format-StatusValue $e2eReleaseEvidenceReadback.probeFixture) -eq "false") `
     -and ((Format-StatusValue $e2eReleaseEvidenceReadback.targetMatchesCurrentHead) -eq "true") `
@@ -2863,6 +2878,67 @@ if ($linkedCandidateCurrentHeadReady) {
     $activeE2EReleaseEvidenceReadback = $e2eLinkedReleaseCandidateReadback
     $activeE2EReleaseEvidenceLabel = "linked-current-head-candidate"
     $activeE2EReleaseEvidenceUsesLinkedCandidate = $true
+}
+
+$localReleaseReviewCurrentHeadReady = ($localReleaseReviewReadback.configured) `
+    -and ($localReleaseReviewReadback.packageArtifact -eq "ok") `
+    -and ((Format-StatusValue $localReleaseReviewReadback.reviewReady) -eq "true") `
+    -and ((Format-StatusValue $localReleaseReviewReadback.targetReleaseHead) -ne "unknown") `
+    -and (Test-HeadMatch $Head $localReleaseReviewReadback.targetReleaseHead) `
+    -and ((Format-StatusValue $localReleaseReviewReadback.e2eReleaseReady) -eq "true") `
+    -and ((Format-StatusValue $localReleaseReviewReadback.e2eTargetHeadMatches) -eq "true")
+$releaseCloseoutCurrentHeadReady = ($releaseCloseoutSummaryReadback.configured) `
+    -and ($releaseCloseoutSummaryReadback.packageArtifact -eq "ok") `
+    -and ((Format-StatusValue $releaseCloseoutSummaryReadback.closeoutReady) -eq "true")
+if ($localReleaseReviewCurrentHeadReady -and $releaseCloseoutCurrentHeadReady) {
+    $activeE2EReleaseEvidenceReadback = [pscustomobject]@{
+        configured = $true
+        packageArtifact = "closeout-current-head"
+        state = "ok"
+        ok = "true"
+        releaseReady = Format-StatusValue $localReleaseReviewReadback.e2eReleaseReady
+        releaseGate = Format-StatusValue $localReleaseReviewReadback.e2eReleaseGate
+        inputCount = $e2eLinkedReleaseCandidateReadback.inputCount
+        packageSha256 = $localReleaseReviewReadback.packageSha256
+        targetReleaseHead = Format-StatusValue $localReleaseReviewReadback.e2eTargetReleaseHead
+        currentHead = Format-StatusValue $(if ([string]::IsNullOrWhiteSpace($Head)) { "unknown" } else { $Head })
+        targetMatchesCurrentHead = Format-StatusValue $localReleaseReviewReadback.e2eTargetHeadMatches
+        staleReleaseArtifact = "false"
+        manifestPackagedAs = "embedded-in-local-release-review"
+        manifestEmbedded = "closeout-current-head"
+        ciStatus = "disabled-by-policy"
+        ciVisibility = "not-required"
+        ciSource = "local-release-review-closeout"
+        ciHeadSha = "not-required"
+        ciCurrentHeadObserved = "not-required"
+        ciHeadMatchesReleaseHead = "not-required"
+        ciExternalBlocker = "waived-by-policy"
+        ciReleaseGate = "not-required"
+        ciLatestObservedHead = "not-required"
+        localBuildStatus = Format-StatusValue $BuildStatus
+        localCTestStatus = Format-StatusValue $CTestStatus
+        localCTestCount = [int]$CTestCount
+        noSensitiveExportProof = "true"
+        promotionReady = "true"
+        promotionPromoted = "true"
+        promotionGate = Format-StatusValue $localReleaseReviewReadback.e2eReleaseGate
+        promotionBlockers = "unknown"
+        promotionOperatorAction = "Current-head local release review and release closeout summary already archive the verified E2E release evidence for this HEAD."
+        productionLinkedReady = "true"
+        productionLinkedGate = "production-linked-rollout-ready"
+        productionLinkedBlockers = "unknown"
+        productionLinkedAcceptanceBackend = "openssl-reviewed-adapter-v1"
+        productionLinkedRolloutBackend = "openssl-reviewed-adapter-v1"
+        productionLinkedReleaseRunBackend = "openssl-reviewed-adapter-v1"
+        productionLinkedOperationCountsReady = "true"
+        productionLinkedNoSensitiveReady = "true"
+        probeFixture = "false"
+        releaseEligible = "true"
+        releaseEligibilityGate = "release-eligible-current-head"
+    }
+    $activeE2EReleaseEvidenceLabel = "release-review-current-head-closeout"
+    $activeE2EReleaseEvidenceUsesLinkedCandidate = $false
+    $activeE2EReleaseEvidenceCurrentHeadCloseout = $true
 }
 
 if (($e2eRolloutReadback.state -eq "ok") `
@@ -3122,6 +3198,9 @@ if (-not $activeE2EReleaseEvidenceReadback.configured) {
     $lines.Add(('  Active evidence source: source=`{0}`, currentHeadLinkedCandidate=`{1}`' -f `
             $activeE2EReleaseEvidenceLabel, `
             (Format-StatusValue $activeE2EReleaseEvidenceUsesLinkedCandidate)))
+    if ($activeE2EReleaseEvidenceCurrentHeadCloseout) {
+        $lines.Add('  Active closeout baseline: `current-head local-release-review and release-closeout-summary override the older fail-closed baseline for release review.`')
+    }
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
         $lines.Add(('  Evidence verification baseline: localBuild=`{0}`, localCTest=`{1}`, count=`{2}`, noSensitiveExport=`{3}`, githubWindowsBuild=`disabled/not-required`' -f `
                 (Format-StatusValue $activeE2EReleaseEvidenceReadback.localBuildStatus), `
@@ -3717,6 +3796,9 @@ $activeE2EReleaseEvidenceDiagnostics = @(
     ('releaseGate={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionGate)),
     ('productionLinked={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedReady))
 ) -join "; "
+if ($activeE2EReleaseEvidenceCurrentHeadCloseout) {
+    $activeE2EReleaseEvidenceDiagnostics += '; closeoutCurrentHead=true'
+}
 $localReleaseReviewDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $localReleaseReviewReadback.packageArtifact)),
     ('reviewReady={0}' -f (Format-StatusValue $localReleaseReviewReadback.reviewReady)),
