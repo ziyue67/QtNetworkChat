@@ -70,6 +70,8 @@ struct TransferRecoveryUiState {
     bool clearVisible = false;
     bool clearEnabled = false;
     bool e2eFileEncrypted = false;
+    QString recoverySource;
+    QString recoveryAction;
     QString recoveryMode;
     QString recoveryReason;
     QString fileName;

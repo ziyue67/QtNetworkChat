@@ -238,6 +238,7 @@ private:
     void setTransferWorkspaceSendState(const TransferSendUiState& state);
     void clearTransferWorkspaceSendState();
     void updateSavedOutgoingTransferRecoveryUi(bool announce = false);
+    QJsonObject readLocalGovernanceArtifact(const QString& fileName) const;
     void showFileTransferStatusEvent(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     LocalSavedFileState savedFileActionState(const QModelIndex& index) const;
     ChatContextSavedFileState chatContextSavedFileState(const LocalSavedFileState& savedFileState) const;

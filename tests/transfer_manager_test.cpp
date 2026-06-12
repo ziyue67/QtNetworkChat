@@ -24,12 +24,14 @@ QJsonObject savedState(const QString& filePath, const QString& receiverId) {
 QJsonObject recoveryStatus(bool canAutoResume,
                            const QString& mode = QStringLiteral("resume"),
                            const QString& reason = QStringLiteral("ok"),
-                           bool e2eFileEncrypted = false) {
+                           bool e2eFileEncrypted = false,
+                           const QString& action = QStringLiteral("resume-transfer")) {
     QJsonObject status;
     status["canAutoResume"] = canAutoResume;
     status["recoveryMode"] = mode;
     status["reason"] = reason;
     status["e2eFileEncrypted"] = e2eFileEncrypted;
+    status["action"] = action;
     return status;
 }
 
@@ -82,6 +84,8 @@ int main(int argc, char** argv) {
                     && resumable.clearAction.enabled
                     && resumable.fileName == QStringLiteral("report.zip")
                     && resumable.targetName == QStringLiteral("QQ:920001")
+                    && resumable.recoverySource == QString::fromUtf8("普通续传")
+                    && resumable.recoveryAction == QStringLiteral("resume-transfer")
                     && resumable.resumeToolTip == resumable.detail
                     && resumable.resumeAction.toolTip == resumable.resumeToolTip
                     && resumable.clearAction.toolTip == resumable.clearToolTip
@@ -104,12 +108,14 @@ int main(int argc, char** argv) {
         true,
         true,
         savedState(QStringLiteral("C:/tmp/secret.bin"), QString()),
-        recoveryStatus(false, QStringLiteral("resend"), QStringLiteral("e2e-file-resend-required"), true),
+        recoveryStatus(false, QStringLiteral("resend"), QStringLiteral("e2e-file-resend-required"), true, QStringLiteral("resend-file")),
         true);
     ok = expect(resend.resumeVisible
                     && !resend.resumeEnabled
                     && resend.clearEnabled
                     && resend.targetName == QString::fromUtf8("公共聊天室")
+                    && resend.recoverySource == QString::fromUtf8("手动重发")
+                    && resend.recoveryAction == QStringLiteral("resend-file")
                     && resend.resumeToolTip.contains(QStringLiteral("e2e-file-resend-required"))
                     && resend.announceMessage.contains(QString::fromUtf8("端到端加密"))
                     && resend.statusMessage.contains(QString::fromUtf8("需要重新发送")),
@@ -128,7 +134,7 @@ int main(int argc, char** argv) {
 
     TransferResumeBlockedPrompt blockedPrompt = TransferManager::resumeBlockedPrompt(
         savedState(QStringLiteral("C:/tmp/secret.bin"), QString()),
-        recoveryStatus(false, QStringLiteral("resend"), QStringLiteral("e2e-file-resend-required"), true));
+        recoveryStatus(false, QStringLiteral("resend"), QStringLiteral("e2e-file-resend-required"), true, QStringLiteral("resend-file")));
     ok = expect(blockedPrompt.fileName == QStringLiteral("secret.bin")
                     && blockedPrompt.targetName == QString::fromUtf8("公共聊天室")
                     && blockedPrompt.reason == QStringLiteral("e2e-file-resend-required")
@@ -608,6 +614,7 @@ int main(int argc, char** argv) {
                     && savedWorkspace.nextStep.contains(QString::fromUtf8("打开文件"))
                     && savedWorkspace.preservedState.contains(QString::fromUtf8("保存路径"))
                     && savedWorkspace.diagnosticHint.contains(QString::fromUtf8("复制文件工作区摘要"))
+                    && savedWorkspace.previewText.contains(QString::fromUtf8("恢复决策：无需恢复"))
                     && savedWorkspace.statusTone == QStringLiteral("success"),
                 "received transfer workspace state should expose saved next step and preserved state") && ok;
 
@@ -626,16 +633,19 @@ int main(int argc, char** argv) {
                     && failedWorkspace.nextStep.contains(QString::fromUtf8("检查下载目录权限"))
                     && failedWorkspace.preservedState.contains(QString::fromUtf8("接收来源"))
                     && failedWorkspace.diagnosticHint.contains(QString::fromUtf8("复制文件工作区摘要"))
+                    && failedWorkspace.previewText.contains(QString::fromUtf8("发送端暂不需要立即重发"))
                     && failedWorkspace.statusTone == QStringLiteral("danger"),
                 "received transfer workspace state should expose failure next step and preserved state") && ok;
 
     TransferWorkspaceSummaryState recoverySummary =
         TransferManager::recoveryWorkspaceSummary(resend, &objectReadbackEvent, true);
     ok = expect(recoverySummary.title == QString::fromUtf8("文件工作区 · 需手动重发")
+                    && recoverySummary.detail.contains(QString::fromUtf8("恢复来源：手动重发"))
                     && recoverySummary.detail.contains(QString::fromUtf8("当前不会自动续传"))
-                    && recoverySummary.nextStep.contains(QString::fromUtf8("重新选择原文件发送"))
-                    && recoverySummary.preservedState.contains(QString::fromUtf8("不会自动调用续传"))
+                    && recoverySummary.nextStep.contains(QString::fromUtf8("重新选择原文件手动重发"))
+                    && recoverySummary.preservedState.contains(QString::fromUtf8("恢复来源"))
                     && recoverySummary.diagnosticHint.contains(QString::fromUtf8("复制最近传输诊断"))
+                    && recoverySummary.previewText.contains(QString::fromUtf8("恢复来源：手动重发"))
                     && recoverySummary.previewText.contains(QStringLiteral("e2e-file-resend-required"))
                     && recoverySummary.statusTone == QStringLiteral("danger"),
                 "recovery workspace summary should centralize fail-closed resend guidance") && ok;
@@ -647,6 +657,7 @@ int main(int argc, char** argv) {
                     && statusSummary.nextStep.contains(QString::fromUtf8("对象存储"))
                     && statusSummary.preservedState.contains(QString::fromUtf8("恢复记录"))
                     && statusSummary.diagnosticHint.contains(QString::fromUtf8("复制最近传输诊断"))
+                    && statusSummary.previewText.contains(QString::fromUtf8("恢复来源：object/offline 读回链路"))
                     && statusSummary.previewText.contains(QStringLiteral("object-readback-unavailable"))
                     && statusSummary.statusTone == QStringLiteral("warning"),
                 "status workspace summary should expose category, next step and preserved recovery context") && ok;
@@ -675,6 +686,48 @@ int main(int argc, char** argv) {
                     && emptySummary.diagnosticHint.contains(QString::fromUtf8("复制最近一次传输诊断"))
                     && emptySummary.statusTone == QStringLiteral("muted"),
                 "empty workspace summary should still surface next step and preserved diagnostic context") && ok;
+
+    TransferRecoveryUiState sameWireResume = TransferManager::recoveryUiState(
+        true,
+        true,
+        savedState(QStringLiteral("C:/tmp/encrypted.bin"), QStringLiteral("930002")),
+        recoveryStatus(true,
+                       QStringLiteral("resume"),
+                       QStringLiteral("e2e-file-same-wire-cache-ready"),
+                       true,
+                       QStringLiteral("resume-same-wire-envelope")),
+        false);
+    ok = expect(sameWireResume.recoverySource == QString::fromUtf8("same-wire 本机密文缓存")
+                    && sameWireResume.recoveryAction == QStringLiteral("resume-same-wire-envelope"),
+                "same-wire recovery should expose a distinct recovery source and action") && ok;
+
+    TransferRecoveryUiState objectRecoveryBlocked = TransferManager::recoveryUiState(
+        true,
+        true,
+        savedState(QStringLiteral("C:/tmp/object.bin"), QStringLiteral("930003")),
+        recoveryStatus(false,
+                       QStringLiteral("resend"),
+                       QStringLiteral("e2e-file-object-recovery-read-path-unavailable"),
+                       true,
+                       QStringLiteral("resend-or-wait-for-object-recovery")),
+        false);
+    ok = expect(objectRecoveryBlocked.recoverySource == QString::fromUtf8("object/offline 候选证据")
+                    && objectRecoveryBlocked.recoveryAction == QStringLiteral("resend-or-wait-for-object-recovery"),
+                "object/offline blocked recovery should expose candidate evidence source and wait-or-resend action") && ok;
+
+    TransferRecoveryUiState sessionMismatch = TransferManager::recoveryUiState(
+        true,
+        true,
+        savedState(QStringLiteral("C:/tmp/mismatch.bin"), QStringLiteral("930004")),
+        recoveryStatus(false,
+                       QStringLiteral("resend"),
+                       QStringLiteral("e2e-file-session-mismatch"),
+                       true,
+                       QStringLiteral("reestablish-e2e-session-before-resume")),
+        false);
+    ok = expect(sessionMismatch.recoverySource == QString::fromUtf8("手动重发")
+                    && sessionMismatch.recoveryAction == QStringLiteral("reestablish-e2e-session-before-resume"),
+                "session mismatch recovery should expose the reestablish-session action") && ok;
 
     TransferProgressUiState resumeCancel = TransferManager::resumeCancelState(QStringLiteral("report.zip"));
     ok = expect(resumeCancel.labelText.contains(QString::fromUtf8("正在取消恢复发送"))

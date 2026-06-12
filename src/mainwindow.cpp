@@ -2491,6 +2491,15 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
         rows << QStringLiteral("恢复模式:%1").arg(m_lastTransferRecoveryUiState.recoveryMode.isEmpty()
                                                       ? QStringLiteral("未标记")
                                                       : m_lastTransferRecoveryUiState.recoveryMode);
+        if (!m_lastTransferRecoveryUiState.recoverySource.isEmpty()) {
+            rows << QStringLiteral("恢复来源:%1").arg(m_lastTransferRecoveryUiState.recoverySource);
+        }
+        rows << QStringLiteral("恢复原因:%1").arg(m_lastTransferRecoveryUiState.recoveryReason.isEmpty()
+                                                      ? QStringLiteral("无额外原因")
+                                                      : m_lastTransferRecoveryUiState.recoveryReason);
+        if (!m_lastTransferRecoveryUiState.recoveryAction.isEmpty()) {
+            rows << QStringLiteral("恢复动作:%1").arg(m_lastTransferRecoveryUiState.recoveryAction);
+        }
         rows << QStringLiteral("恢复状态:%1").arg(m_lastTransferRecoveryUiState.canAutoResume
                                                       ? QStringLiteral("可恢复")
                                                       : QStringLiteral("需手动重发"));
@@ -2501,6 +2510,9 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
 
     if (m_hasLastTransferStatusEvent && !m_lastTransferStatusEvent.message.isEmpty()) {
         rows << QStringLiteral("最近事件:%1").arg(m_lastTransferStatusEvent.message);
+        if (!m_lastTransferStatusEvent.category.isEmpty()) {
+            rows << QStringLiteral("事件分类:%1").arg(m_lastTransferStatusEvent.category);
+        }
         if (!m_lastTransferStatusEvent.actionHint.isEmpty()) {
             rows << QStringLiteral("事件建议:%1").arg(m_lastTransferStatusEvent.actionHint);
         }
@@ -2523,6 +2535,32 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
     if (!m_lastTransferStatusDiagnostic.trimmed().isEmpty()) {
         rows << QStringLiteral("最近诊断:%1").arg(m_lastTransferStatusDiagnostic);
     }
+    const QJsonObject governanceDashboard = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-dashboard.json"));
+    if (!governanceDashboard.isEmpty()) {
+        rows << QStringLiteral("治理状态:%1").arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")));
+        rows << QStringLiteral("治理告警:%1").arg(QString::number(governanceDashboard.value(QStringLiteral("alertCount")).toInt(0)));
+        rows << QStringLiteral("治理动作:%1").arg(governanceDashboard.value(QStringLiteral("summary")).toObject().value(QStringLiteral("operatorAction")).toString(QStringLiteral("归档治理证据")));
+    } else {
+        rows << QStringLiteral("治理状态:未找到 large-file-governance-dashboard.json");
+    }
+    const QJsonObject performanceSummary = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-performance-summary.json"));
+    if (!performanceSummary.isEmpty()) {
+        const QJsonArray bottlenecks = performanceSummary.value(QStringLiteral("bottlenecks")).toArray();
+        QStringList bottleneckTexts;
+        for (const QJsonValue& value : bottlenecks) {
+            const QString text = value.toString().trimmed();
+            if (!text.isEmpty()) {
+                bottleneckTexts << text;
+            }
+        }
+        rows << QStringLiteral("性能状态:%1").arg(performanceSummary.value(QStringLiteral("status")).toString(QStringLiteral("unknown")));
+        rows << QStringLiteral("性能瓶颈:%1").arg(bottleneckTexts.isEmpty() ? QStringLiteral("none") : bottleneckTexts.join(QStringLiteral(", ")));
+    } else {
+        rows << QStringLiteral("性能状态:未生成 performance summary");
+    }
+    rows << QStringLiteral("状态结论:%1").arg(summary.nextStep.trimmed().isEmpty()
+                                                 ? QStringLiteral("继续观察文件工作区")
+                                                 : summary.nextStep);
     return rows.join(QLatin1Char('\n'));
 }
 
@@ -3466,6 +3504,16 @@ void MainWindow::setTransferWorkspaceSendState(const TransferSendUiState& state)
 void MainWindow::clearTransferWorkspaceSendState() {
     m_hasTransferWorkspaceSendState = false;
     m_transferWorkspaceSendState = TransferSendUiState();
+}
+
+QJsonObject MainWindow::readLocalGovernanceArtifact(const QString& fileName) const {
+    const QString artifactDir = QDir::current().filePath(QStringLiteral("build-qt6-mingw/automation-tasks/large-file-governance"));
+    QFile file(QDir(artifactDir).filePath(fileName));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QJsonObject();
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    return doc.isObject() ? doc.object() : QJsonObject();
 }
 
 FriendManagerVisibleTargetSummary MainWindow::friendNoticeVisibleTarget(const QString& userId) const {
@@ -5277,6 +5325,8 @@ void MainWindow::onShowTransferWorkspace() {
         const bool activeSendUsesSavedFileActions =
             m_hasTransferWorkspaceSendState
             && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
+        const QJsonObject governanceDashboard = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-dashboard.json"));
+        const QJsonObject performanceSummary = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-performance-summary.json"));
         {
             TransferWorkspaceRow row;
             row.id = QStringLiteral("send-file");
@@ -5381,6 +5431,62 @@ void MainWindow::onShowTransferWorkspace() {
                 rows << row;
             }
         }
+        {
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("governance-status");
+            row.title = QStringLiteral("治理状态");
+            if (!governanceDashboard.isEmpty()) {
+                row.detail = QStringLiteral("large-file governance 当前为 %1 · 告警 %2 条")
+                                 .arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                      QString::number(governanceDashboard.value(QStringLiteral("alertCount")).toInt(0)));
+                row.preview = QStringLiteral("治理状态：%1\n当前动作：%2\n关键产物：dashboard=%3, report=%4, diagnostics=%5")
+                                  .arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                       governanceDashboard.value(QStringLiteral("summary")).toObject().value(QStringLiteral("operatorAction")).toString(QStringLiteral("归档治理证据")),
+                                       governanceDashboard.value(QStringLiteral("artifacts")).toArray().isEmpty() ? QStringLiteral("unknown") : QStringLiteral("present"),
+                                       QStringLiteral("see governance report"),
+                                       QStringLiteral("see diagnostics package"));
+                row.statusTone = governanceDashboard.value(QStringLiteral("ok")).toBool(false)
+                    ? QStringLiteral("success")
+                    : QStringLiteral("warning");
+            } else {
+                row.detail = QStringLiteral("当前未找到 large-file governance dashboard 产物");
+                row.preview = QStringLiteral("治理状态产物缺失\n下一步：运行或刷新 large-file governance 任务，再回到文件工作区查看当前健康度。");
+                row.statusTone = QStringLiteral("warning");
+            }
+            row.keywords = row.title + row.detail + row.preview + QStringLiteral("治理 governance dashboard alert status");
+            rows << row;
+        }
+        {
+            TransferWorkspaceRow row;
+            row.id = QStringLiteral("performance-status");
+            row.title = QStringLiteral("性能状态");
+            if (!performanceSummary.isEmpty()) {
+                const QJsonArray bottlenecks = performanceSummary.value(QStringLiteral("bottlenecks")).toArray();
+                QStringList bottleneckTexts;
+                for (const QJsonValue& value : bottlenecks) {
+                    const QString text = value.toString().trimmed();
+                    if (!text.isEmpty()) {
+                        bottleneckTexts << text;
+                    }
+                }
+                row.detail = QStringLiteral("performance summary 当前为 %1 · 瓶颈 %2 项")
+                                 .arg(performanceSummary.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                      QString::number(bottleneckTexts.size()));
+                row.preview = QStringLiteral("性能状态：%1\n瓶颈：%2\n建议：%3")
+                                  .arg(performanceSummary.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                       bottleneckTexts.isEmpty() ? QStringLiteral("none") : bottleneckTexts.join(QStringLiteral(", ")),
+                                       performanceSummary.value(QStringLiteral("summary")).toObject().value(QStringLiteral("operatorAction")).toString(QStringLiteral("生成 performance summary 并复核压力点")));
+                row.statusTone = performanceSummary.value(QStringLiteral("ok")).toBool(false)
+                    ? QStringLiteral("success")
+                    : QStringLiteral("warning");
+            } else {
+                row.detail = QStringLiteral("当前未生成 large-file governance performance summary");
+                row.preview = QStringLiteral("性能摘要缺失\n下一步：生成 performance summary，再确认 delivery closure、fallback protection、S3 transient pressure 和 receipt archive pressure。");
+                row.statusTone = QStringLiteral("warning");
+            }
+            row.keywords = row.title + row.detail + row.preview + QStringLiteral("性能 performance bottlenecks pressure");
+            rows << row;
+        }
         if (rows.isEmpty()) {
             const TransferWorkspaceSummaryState summary =
                 m_transferManager.emptyWorkspaceSummary(!m_lastTransferStatusDiagnostic.trimmed().isEmpty());
@@ -5484,12 +5590,16 @@ void MainWindow::onShowTransferWorkspace() {
         const bool sendMediaSelected = rowId == QLatin1String("send-media");
         const bool recoverySelected = rowId == QLatin1String("recovery");
         const bool activeSendSelected = rowId == QLatin1String("active-send");
+        const bool governanceSelected = rowId == QLatin1String("governance-status");
+        const bool performanceSelected = rowId == QLatin1String("performance-status");
         const bool activeSendUsesSavedFileActions =
             activeSendSelected
             && m_hasTransferWorkspaceSendState
             && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
         const bool diagnosticSelected = rowId == QLatin1String("diagnostic")
-            || (activeSendSelected && !activeSendUsesSavedFileActions);
+            || (activeSendSelected && !activeSendUsesSavedFileActions)
+            || governanceSelected
+            || performanceSelected;
         const bool savedFileSelected = rowId == QLatin1String("saved-file");
         const bool savedFileCapableSelected = savedFileSelected || activeSendUsesSavedFileActions;
         sendFileBtn->setEnabled(sendFileSelected || rowId.isEmpty() || rowId == QLatin1String("empty"));
