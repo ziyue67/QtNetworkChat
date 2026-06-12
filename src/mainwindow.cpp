@@ -3507,13 +3507,21 @@ void MainWindow::clearTransferWorkspaceSendState() {
 }
 
 QJsonObject MainWindow::readLocalGovernanceArtifact(const QString& fileName) const {
-    const QString artifactDir = QDir::current().filePath(QStringLiteral("build-qt6-mingw/automation-tasks/large-file-governance"));
-    QFile file(QDir(artifactDir).filePath(fileName));
-    if (!file.open(QIODevice::ReadOnly)) {
-        return QJsonObject();
+    const QStringList candidateDirs{
+        QDir::current().filePath(QStringLiteral("build-qt6-mingw/automation-tasks/large-file-governance")),
+        QDir::current().filePath(QStringLiteral("build-qt6-mingw/large_file_governance_runner_sample/governance"))
+    };
+    for (const QString& artifactDir : candidateDirs) {
+        QFile file(QDir(artifactDir).filePath(fileName));
+        if (!file.open(QIODevice::ReadOnly)) {
+            continue;
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        if (doc.isObject()) {
+            return doc.object();
+        }
     }
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    return doc.isObject() ? doc.object() : QJsonObject();
+    return QJsonObject();
 }
 
 FriendManagerVisibleTargetSummary MainWindow::friendNoticeVisibleTarget(const QString& userId) const {
@@ -5561,6 +5569,19 @@ void MainWindow::onShowTransferWorkspace() {
     QPushButton* copyPathBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制路径"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前已保存文件路径"), QStyle::SP_FileDialogDetailedView);
     QPushButton* copySnapshotBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区摘要"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前文件工作区状态摘要"), QStyle::SP_FileDialogListView);
     QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭文件工作区"), QStyle::SP_DialogCloseButton);
+    auto governanceArtifactPath = [](const QString& fileName) {
+        const QStringList candidateDirs{
+            QDir::current().filePath(QStringLiteral("build-qt6-mingw/automation-tasks/large-file-governance")),
+            QDir::current().filePath(QStringLiteral("build-qt6-mingw/large_file_governance_runner_sample/governance"))
+        };
+        for (const QString& artifactDir : candidateDirs) {
+            const QString candidate = QDir(artifactDir).filePath(fileName);
+            if (QFileInfo::exists(candidate)) {
+                return candidate;
+            }
+        }
+        return QString();
+    };
 
     addWorkspaceSectionCard(
         shell.bodyLayout,
@@ -5607,9 +5628,15 @@ void MainWindow::onShowTransferWorkspace() {
         resumeBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.resumeAction.enabled);
         clearBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.clearAction.enabled);
         copyDiagBtn->setEnabled((diagnosticSelected || recoverySelected) && !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
-        openFileBtn->setEnabled(savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFile);
-        openFolderBtn->setEnabled(savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFolder);
-        copyPathBtn->setEnabled(savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath);
+        openFileBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFile)
+                                || (governanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json")).isEmpty())
+                                || (performanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json")).isEmpty()));
+        openFolderBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFolder)
+                                  || governanceSelected
+                                  || performanceSelected);
+        copyPathBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath)
+                                || (governanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json")).isEmpty())
+                                || (performanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json")).isEmpty()));
         copySnapshotBtn->setEnabled(true);
     };
 
@@ -5623,7 +5650,7 @@ void MainWindow::onShowTransferWorkspace() {
         updatePreview();
         updateActionState();
     });
-    connect(stateList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog](QListWidgetItem* item) {
+    connect(stateList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog, governanceArtifactPath](QListWidgetItem* item) {
         if (!item) {
             return;
         }
@@ -5641,6 +5668,17 @@ void MainWindow::onShowTransferWorkspace() {
         if (rowId == QLatin1String("recovery")) {
             dialog.accept();
             onResumeSavedOutgoingTransfer();
+            return;
+        }
+        if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
+            const QString artifactPath = rowId == QLatin1String("governance-status")
+                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+            if (!artifactPath.isEmpty()) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(artifactPath));
+            } else {
+                ui->statusbar->showMessage(QStringLiteral("对应治理产物暂未生成"), 2200);
+            }
             return;
         }
         const bool activeSendUsesSavedFileActions =
@@ -5682,7 +5720,19 @@ void MainWindow::onShowTransferWorkspace() {
         QApplication::clipboard()->setText(copyState.clipboardText);
         ui->statusbar->showMessage(copyState.copiedStatusMessage, 2200);
     });
-    connect(openFileBtn, &QPushButton::clicked, &dialog, [this]() {
+    connect(openFileBtn, &QPushButton::clicked, &dialog, [this, governanceArtifactPath, selectedRowId]() {
+        const QString rowId = selectedRowId();
+        if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
+            const QString artifactPath = rowId == QLatin1String("governance-status")
+                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+            if (!artifactPath.isEmpty()) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(artifactPath));
+            } else {
+                ui->statusbar->showMessage(QStringLiteral("对应治理产物暂未生成"), 2200);
+            }
+            return;
+        }
         if (!m_hasTransferWorkspaceSavedFileState) {
             ui->statusbar->showMessage(QStringLiteral("当前没有可打开的已保存文件"), 1800);
             return;
@@ -5693,7 +5743,19 @@ void MainWindow::onShowTransferWorkspace() {
         command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
         openSavedFileFromState(m_transferWorkspaceSavedFileState, command);
     });
-    connect(openFolderBtn, &QPushButton::clicked, &dialog, [this]() {
+    connect(openFolderBtn, &QPushButton::clicked, &dialog, [this, governanceArtifactPath, selectedRowId]() {
+        const QString rowId = selectedRowId();
+        if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
+            const QString artifactPath = rowId == QLatin1String("governance-status")
+                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+            if (!artifactPath.isEmpty()) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(artifactPath).absolutePath()));
+            } else {
+                ui->statusbar->showMessage(QStringLiteral("对应治理目录暂未生成"), 2200);
+            }
+            return;
+        }
         if (!m_hasTransferWorkspaceSavedFileState) {
             ui->statusbar->showMessage(QStringLiteral("当前没有可打开的保存目录"), 1800);
             return;
@@ -5703,7 +5765,19 @@ void MainWindow::onShowTransferWorkspace() {
                                                                                          m_transferWorkspaceSavedFileState.savePath);
         openSavedFolderFromState(m_transferWorkspaceSavedFileState, command);
     });
-    connect(copyPathBtn, &QPushButton::clicked, &dialog, [this]() {
+    connect(copyPathBtn, &QPushButton::clicked, &dialog, [this, governanceArtifactPath, selectedRowId]() {
+        const QString rowId = selectedRowId();
+        if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
+            const QString artifactPath = rowId == QLatin1String("governance-status")
+                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+            if (!artifactPath.isEmpty()) {
+                copyTextWithStatus(artifactPath, QStringLiteral("治理产物路径已复制"), 2200);
+            } else {
+                ui->statusbar->showMessage(QStringLiteral("对应治理产物暂未生成"), 2200);
+            }
+            return;
+        }
         if (!m_hasTransferWorkspaceSavedFileState) {
             ui->statusbar->showMessage(QStringLiteral("当前没有可复制的保存路径"), 1800);
             return;
