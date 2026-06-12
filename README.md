@@ -748,8 +748,9 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。本地 `release review` 收官包现在会把 current-head E2E candidate、S3 readiness、large-file governance、PostgreSQL acceptance/rollback、README 和 automation-status 一起归档，供后续 archive decision 产物直接引用。
 2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，README、automation-status、focused docs、closeout summary、final local archive 和脚本生成内容现在已经能收敛到同一套 release closeout 口径。当前收官语义已经明确：若 current-head 的 `local-release-review`、`release-closeout-summary` 和 `release-final-local-archive` 都完成，则它们共同构成当前 HEAD 的 stop-writing 基线；默认 fail-closed baseline 只保留为信息性诊断，不再代表当前 head 未闭环。后续只需在确有新的 external publication 动作时通过 `release-publication-record` 回写。
 3. **发布与运维体验**：本地发布交付包已经收口 Windows package、上传说明、安装入口、脱敏诊断采集、非开发交接清单和最终本地归档；独立的 `release-archive-decision` 与 `release-final-local-archive` 产物会分别记录最终归档决定和 stop-writing 归档快照。剩余工作主要是按你自己的渠道把生成好的 zip 发布到团队共享盘、工单系统或发行页面，并在 publication record / archive decision 里回写发布状态。
-4. **结构拆分的最终收尾**：第一阶段和第二阶段所需的 UI 统一、文件工作区整线产品化已经完成，`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 也都已经承担了主职责。后续结构拆分不再是当前主线，只在确实影响维护性或回归定位时，继续处理剩余的大弹窗编排和少量 MainWindow 收口。
-5. **性能与非阻塞增强**：文件/离线附件的用户可见状态、恢复入口、失败入口和工作区摘要已经统一。大文件治理现在已经补上独立的 performance summary，能把 delivery closure、fallback protection、S3 transient pressure、receipt archive pressure 和 coverage gap 收成可归档证据；后续更适合做的主要是更重的性能压测，以及必要时补充少量高价值回归测试。
+4. **文件 / 离线附件整线收口**：文件工作区已经完成一轮产品化收口，当前能集中展示发送状态、恢复来源、失败原因、保留证据、治理状态、性能状态和下一步动作，但这条线仍是当前主线，后续还会继续收紧 object / offline / resend / same-wire 分支口径、补高价值测试，并把 README / focused docs 与真实状态完全对齐。
+5. **结构拆分的最终收尾**：`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 已经承担主职责。MainWindow / UI 尾部收口仍是后续第二大包，会继续处理剩余的大弹窗编排、少量状态挂接和主工作台细节统一。
+6. **性能与非阻塞增强**：大文件治理已经补上 dashboard 和 performance summary，当前文件工作区也能直接打开这些产物并读取 delivery closure、fallback protection、S3 transient pressure、receipt archive pressure 和 bottleneck 摘要；后续更适合继续补更重的性能压测，以及必要时增加少量高价值回归测试。
 
 ## 说明
 
