@@ -25,14 +25,23 @@ ui_*.h
 moc_*.cpp
 qrc_*.cpp
 Makefile
+Makefile.Debug
+Makefile.Release
 .qmake.stash
 
 # IDE / local tooling
 .vscode/
 .idea/
 .qtcreator/
+.qtc_clangd/
 .claude/
+.polaris/
+AGENTS.md
+CLAUDE.md
 CMakeUserPresets.json
+
+# Local vendor / scratch imports
+third_party/
 
 # Runtime data / private local state
 *.sqlite
@@ -45,3 +54,7 @@ avatar_*.png
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local automation / verification artifacts
+automation_status_sample_*/
+automation_status_configured_missing_sample_*/

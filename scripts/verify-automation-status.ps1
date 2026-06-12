@@ -64,9 +64,11 @@ function Ensure-Directory {
 }
 
 $sampleRunId = "{0}-{1}" -f $PID, ([guid]::NewGuid().ToString("N"))
-$tempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ("..\automation_status_sample_{0}" -f $sampleRunId)))
-$configuredTempDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ("..\automation_status_configured_missing_sample_{0}" -f $sampleRunId)))
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "qtas"
+$tempDir = [System.IO.Path]::GetFullPath((Join-Path $tempRoot ("sample_{0}" -f $sampleRunId)))
+$configuredTempDir = [System.IO.Path]::GetFullPath((Join-Path $tempRoot ("cfg_{0}" -f $sampleRunId)))
 Remove-Item -Recurse -Force $tempDir, $configuredTempDir -ErrorAction SilentlyContinue
+Ensure-Directory -Path $tempRoot
 Ensure-Directory -Path $tempDir
 Ensure-Directory -Path $configuredTempDir
 
@@ -547,7 +549,8 @@ foreach ($expected in @(
     'Automation history artifacts: `history=ok; ack=ok; registrationAck=not-configured`',
     'Automation ack drill artifacts: `state=exercised; ok=true; acknowledged=true; releaseGate=automation-ack-drill-exercised`',
     'E2E rollout observability artifacts: `json=ok; markdown=ok; bundle=json+markdown`',
-    'E2E release evidence artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
+    'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
+    'Active E2E release review artifacts: `source=default-fail-closed; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; productionLinked=false; packageSha256=',
     'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed; packageSha256=',
     'Treat mirror branch pushes as explicit per-run opt-ins; the automation status has no fixed secondary branch target.',
     'Priority Backlog',
@@ -571,10 +574,11 @@ foreach ($expected in @(
     'S3/offline without reviewed opt-ins expose only safe object-key-token evidence and fixed not-reviewed gates',
     'legacy URL/path-like object locators are suppressed from recovery status',
     'Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback',
-    'remaining E2E release work is final production-linked release artifact promotion plus local release review',
+    'current-head production-linked release artifact is now generated locally from the reviewed linked build path, and the remaining E2E release work is the local release review plus any non-E2E operational gates that still need closure before final archive',
+    'File/offline attachment productization is closed for the current automation lane',
     'Group productization is closed for the current automation lane',
-    'Mainwindow structure split is no longer the active lane but remains partially complete',
-    'README information architecture is closed for now',
+    'README information architecture and current-state alignment are now the main documentation lane',
+    'Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete',
     'QTNETWORKCHAT_PGPASSWORD',
     'generated evidence must remain redacted'
 )) {
@@ -2295,11 +2299,15 @@ $currentHeadCiStaleMarkdownPath =
 $currentHeadCiStaleMarkdown =
     Get-Content -LiteralPath $currentHeadCiStaleMarkdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
-    'E2E release evidence package: ok=`true`, releaseReady=`false`, releaseGate=`blocked-production-linked-rollout-not-ready`, inputs=`4`',
-    'Promotion decision: promoted=`false`, ready=`false`, releaseGate=`blocked-e2e-release-artifact-promotion`, blockers=`rollout-not-ready,production-linked-rollout-not-ready`',
-    'Promotion action: `Do not promote the E2E release artifact; resolve local verification or production-linked evidence blockers and regenerate this promotion decision.`',
+    'E2E release evidence package: ok=`true`, releaseReady=`true`, releaseGate=`ready-local-verification-only`, inputs=`4`',
+    'Active evidence source: source=`linked-current-head-candidate`, currentHeadLinkedCandidate=`true`',
+    'Production-linked release: ready=`true`, releaseGate=`production-linked-rollout-ready`, blockers=`unknown`, acceptanceBackend=`openssl-reviewed-adapter-v1`, rolloutBackend=`openssl-reviewed-adapter-v1`, releaseRunBackend=`openssl-reviewed-adapter-v1`, operationCountsReady=`true`, noSensitiveReady=`true`',
+    'Promotion decision: promoted=`true`, ready=`true`, releaseGate=`ready-local-verification-only`, blockers=`unknown`',
+    'Promotion action: `GitHub Windows Build is disabled by repo policy and not part of the active release gate; use local build/CTest and linked production evidence for release review.`',
     'Evidence local review baseline: currentHead=`current-head-ci-stale`, targetReleaseHead=`current-head-ci-stale`, artifactFreshness=`false`, githubWindowsBuild=`disabled/not-required`, note=`GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.`',
-    'Linked runtime candidate: localBuild=`passed`, localCTest=`passed`, productionLinked=`true`, releaseReady=`true`, promotion=`ready-local-verification-only`, githubWindowsBuild=`disabled/not-required`'
+    'Linked runtime candidate: localBuild=`passed`, localCTest=`passed`, productionLinked=`true`, releaseReady=`true`, promotion=`ready-local-verification-only`, githubWindowsBuild=`disabled/not-required`',
+    'E2E release evidence baseline artifacts: `manifest=ok; manifestEmbedded=true; packageSha256=',
+    'Active E2E release review artifacts: `source=linked-current-head-candidate; releaseReady=true; promoted=true; releaseGate=ready-local-verification-only; productionLinked=true; packageSha256='
 )) {
     Assert-Contains -Text $currentHeadCiStaleMarkdown -Expected $expected
 }

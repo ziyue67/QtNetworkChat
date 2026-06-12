@@ -1,0 +1,30 @@
+#ifndef QTNETWORKCHAT_E2E_CRYPTO_CONFIG_H
+#define QTNETWORKCHAT_E2E_CRYPTO_CONFIG_H
+
+// qmake builds do not run CMake's configure_file step, so keep a fail-closed
+// fallback config header in source control for the legacy build path.
+#define QTNETWORKCHAT_E2E_COMPILED_BACKEND_ID "draft-qt-hmac-stream-v1"
+#define QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_ID "openssl-reviewed-adapter-v1"
+#define QTNETWORKCHAT_E2E_REQUESTED_PRODUCTION_BACKEND "none"
+#define QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REQUESTED 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_AVAILABLE 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REQUESTED 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_LINKED 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_SESSION_KEY_GENERATION 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_IDENTITY_KEY_GENERATION 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_PUBLIC_KEY_DERIVATION 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_AGREEMENT_SIGN 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_AGREEMENT_VERIFY 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_SESSION_DERIVE 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_PAYLOAD_ENCRYPT 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_PAYLOAD_DECRYPT 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_BACKEND_REASON "production-backend-not-requested"
+#define QTNETWORKCHAT_E2E_PRODUCTION_ADAPTER_REASON "production-adapter-not-requested"
+#define QTNETWORKCHAT_E2E_PRODUCTION_REQUIRED_OPERATIONS "session-key-generation,identity-key-generation,public-key-derivation,agreement-sign,agreement-verify,session-derive,payload-encrypt,payload-decrypt"
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_ABI "qtnetworkchat-e2e-provider-table-v1"
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_API_HEADER "include/qtnetworkchat_e2e_provider_api.h"
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REQUIRED_SYMBOLS "qnc_e2e_op_session_key_generation_v1,qnc_e2e_op_identity_key_generation_v1,qnc_e2e_op_public_key_derivation_v1,qnc_e2e_op_agreement_sign_v1,qnc_e2e_op_agreement_verify_v1,qnc_e2e_op_session_derive_v1,qnc_e2e_op_payload_encrypt_v1,qnc_e2e_op_payload_decrypt_v1"
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_BOUND 0
+#define QTNETWORKCHAT_E2E_PRODUCTION_PROVIDER_TABLE_REASON "production-provider-table-not-requested"
+
+#endif // QTNETWORKCHAT_E2E_CRYPTO_CONFIG_H

@@ -2640,6 +2640,10 @@ $e2eLinkedReleaseCandidateManifestState =
 $e2eLinkedReleaseCandidateReadback =
     Get-E2EReleaseEvidenceReadback $e2eLinkedReleaseCandidateManifestState $Head
 
+$activeE2EReleaseEvidenceReadback = $e2eReleaseEvidenceReadback
+$activeE2EReleaseEvidenceLabel = "default-fail-closed"
+$activeE2EReleaseEvidenceUsesLinkedCandidate = $false
+
 if ($e2eReleaseEvidenceReadback.state -eq "ok" `
         -and $localVerificationReadback.readable `
         -and (Test-IsDefaultBuildArtifactPath $E2EReleaseEvidenceManifestPath)) {
@@ -2666,6 +2670,16 @@ if ($e2eLinkedReleaseCandidateReadback.state -eq "ok" `
     if ($localVerificationReadback.ctestCount -gt 0) {
         $e2eLinkedReleaseCandidateReadback.localCTestCount = [int]$localVerificationReadback.ctestCount
     }
+}
+
+$linkedCandidateCurrentHeadReady = ($e2eLinkedReleaseCandidateReadback.state -eq "ok") `
+    -and ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.probeFixture) -eq "false") `
+    -and ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.targetMatchesCurrentHead) -eq "true") `
+    -and ((Format-StatusValue $e2eLinkedReleaseCandidateReadback.productionLinkedReady) -eq "true")
+if ($linkedCandidateCurrentHeadReady) {
+    $activeE2EReleaseEvidenceReadback = $e2eLinkedReleaseCandidateReadback
+    $activeE2EReleaseEvidenceLabel = "linked-current-head-candidate"
+    $activeE2EReleaseEvidenceUsesLinkedCandidate = $true
 }
 
 if (($e2eRolloutReadback.state -eq "ok") `
@@ -2826,9 +2840,9 @@ $automationTaskHistory = $automationTaskHistoryState.value
 $automationTaskAck = $automationTaskAckState.value
 
 $e2eReleaseTail = if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
-    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy and removed from the active release gate, so current verification closes on local build plus local CTest, and the remaining E2E release work is final production-linked release artifact promotion plus local release review."
+    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with repo automation policy and local build/CTest readback; GitHub Windows Build is disabled by repo policy and removed from the active release gate, so current verification closes on local build plus local CTest. The current-head production-linked release artifact is now generated locally from the reviewed linked build path, and the remaining E2E release work is the local release review plus any non-E2E operational gates that still need closure before final archive."
 } else {
-    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with the active verification policy, current CI readback, and local build/CTest readback; remaining E2E release work stays on production-linked release artifact promotion plus whichever CI/local verification path the active policy requires."
+    "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with the active verification policy, current CI readback, and local build/CTest readback; remaining E2E release work stays on release review plus whichever CI/local verification path the active policy requires."
 }
 $e2eProductionBacklog = @(
     "1. E2E production crypto is the active automation lane again. Linked OpenSSL builds now run the reviewed provider table through public API dispatch. The default status surface keeps the callable manifest, sanitized execution result contract, explicit reviewed runtime-preflight/arming/execution-acceptance probe readiness, and production rotation dry-run/execute evidence, promotes sanitized provider invocation probe evidence through reviewed candidate, call handoff, stub, callable bridge/interface, runtime preflight, arming, execution acceptance, data-plane bridge, and public primitive execution, and linked reviewed builds can pass the early operation, provider control, and explicit reviewed tail probe evidence gates to reach productionAcceptance.accepted=true / releaseGate=production-crypto-accepted."
@@ -2909,73 +2923,76 @@ if (-not $e2eRolloutReadback.configured) {
             (Format-StatusValue $e2eRolloutReadback.noSensitiveExportProof), `
             (Format-StatusValue $e2eRolloutReadback.sensitiveFieldsSuppressed)))
 }
-if (-not $e2eReleaseEvidenceReadback.configured) {
+if (-not $activeE2EReleaseEvidenceReadback.configured) {
     $lines.Add('- E2E release evidence package: `not configured`')
-} elseif ($e2eReleaseEvidenceReadback.state -ne "ok") {
+} elseif ($activeE2EReleaseEvidenceReadback.state -ne "ok") {
     $lines.Add(('- E2E release evidence package: state=`{0}`, releaseGate=`{1}`, artifact=`{2}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.state), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.packageArtifact)))
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.state), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseGate), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.packageArtifact)))
 } else {
     $lines.Add(('- E2E release evidence package: ok=`{0}`, releaseReady=`{1}`, releaseGate=`{2}`, inputs=`{3}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.ok), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.releaseReady), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.inputCount)))
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.ok), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseReady), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseGate), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.inputCount)))
+    $lines.Add(('  Active evidence source: source=`{0}`, currentHeadLinkedCandidate=`{1}`' -f `
+            $activeE2EReleaseEvidenceLabel, `
+            (Format-StatusValue $activeE2EReleaseEvidenceUsesLinkedCandidate)))
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
         $lines.Add(('  Evidence verification baseline: localBuild=`{0}`, localCTest=`{1}`, count=`{2}`, noSensitiveExport=`{3}`, githubWindowsBuild=`disabled/not-required`' -f `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.localBuildStatus), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.localBuildStatus), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.localCTestStatus), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.localCTestCount), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.noSensitiveExportProof)))
     } else {
         $lines.Add(('  Evidence verification: ciStatus=`{0}`, ciVisibility=`{1}`, localBuild=`{2}`, localCTest=`{3}`, count=`{4}`, noSensitiveExport=`{5}`' -f `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciStatus), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciVisibility), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.localBuildStatus), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestStatus), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.localCTestCount), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.noSensitiveExportProof)))
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciStatus), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciVisibility), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.localBuildStatus), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.localCTestStatus), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.localCTestCount), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.noSensitiveExportProof)))
     }
     $lines.Add(('  Evidence artifact: manifestPackagedAs=`{0}`, manifestEmbedded=`{1}`, packageSha256=`{2}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.manifestPackagedAs), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.manifestEmbedded), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)))
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.manifestPackagedAs), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.manifestEmbedded), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.packageSha256)))
     $lines.Add(('  Production-linked release: ready=`{0}`, releaseGate=`{1}`, blockers=`{2}`, acceptanceBackend=`{3}`, rolloutBackend=`{4}`, releaseRunBackend=`{5}`, operationCountsReady=`{6}`, noSensitiveReady=`{7}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedReady), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedGate), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedBlockers), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedAcceptanceBackend), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedRolloutBackend), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedReleaseRunBackend), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedOperationCountsReady), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.productionLinkedNoSensitiveReady)))
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedReady), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedGate), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedBlockers), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedAcceptanceBackend), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedRolloutBackend), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedReleaseRunBackend), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedOperationCountsReady), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedNoSensitiveReady)))
     $lines.Add(('  Promotion decision: promoted=`{0}`, ready=`{1}`, releaseGate=`{2}`, blockers=`{3}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionPromoted), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionReady), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionGate), `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionBlockers)))
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionPromoted), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionReady), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionGate), `
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionBlockers)))
     $lines.Add(('  Promotion action: `{0}`' -f `
-            (Format-StatusValue $e2eReleaseEvidenceReadback.promotionOperatorAction)))
+            (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionOperatorAction)))
     if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
         $lines.Add(('  Evidence local review baseline: currentHead=`{0}`, targetReleaseHead=`{1}`, artifactFreshness=`{2}`, githubWindowsBuild=`disabled/not-required`, note=`{3}`' -f `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.currentHead), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.targetReleaseHead), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.staleReleaseArtifact), `
                 'GitHub Windows Build is disabled by policy and removed from the active release gate; current HEAD is the local verification baseline, while targetReleaseHead remains informational for evidence refresh and production-linked review.'))
     } else {
         $lines.Add(('  Evidence policy gate: currentHeadObserved=`{0}`, externalBlocker=`{1}`, releaseGate=`{2}`, latestObservedHead=`{3}`' -f `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciCurrentHeadObserved), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciExternalBlocker), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciReleaseGate), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciLatestObservedHead)))
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciCurrentHeadObserved), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciExternalBlocker), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciReleaseGate), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciLatestObservedHead)))
         $lines.Add(('  Evidence CI head match: targetReleaseHead=`{0}`, ciHead=`{1}`, matches=`{2}`, currentHead=`{3}`, targetMatchesCurrentHead=`{4}`, stale=`{5}`' -f `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.targetReleaseHead), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadSha), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.ciHeadMatchesReleaseHead), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.currentHead), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.targetMatchesCurrentHead), `
-                (Format-StatusValue $e2eReleaseEvidenceReadback.staleReleaseArtifact)))
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.targetReleaseHead), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciHeadSha), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.ciHeadMatchesReleaseHead), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.currentHead), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.targetMatchesCurrentHead), `
+                (Format-StatusValue $activeE2EReleaseEvidenceReadback.staleReleaseArtifact)))
     }
 }
 if ($e2eLinkedReleaseCandidateReadback.configured) {
@@ -3503,6 +3520,14 @@ $e2eReleaseEvidenceDiagnostics = @(
     ('packageSha256={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.packageSha256)),
     ('releaseGate={0}' -f (Format-StatusValue $e2eReleaseEvidenceReadback.releaseGate))
 ) -join "; "
+$activeE2EReleaseEvidenceDiagnostics = @(
+    ('source={0}' -f $activeE2EReleaseEvidenceLabel),
+    ('releaseReady={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseReady)),
+    ('promoted={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionPromoted)),
+    ('releaseGate={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.promotionGate)),
+    ('productionLinked={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.productionLinkedReady)),
+    ('packageSha256={0}' -f (Format-StatusValue $activeE2EReleaseEvidenceReadback.packageSha256))
+) -join "; "
 $e2eLinkedReleaseCandidateDiagnostics = @(
     ('manifest={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.packageArtifact)),
     ('releaseReady={0}' -f (Format-StatusValue $e2eLinkedReleaseCandidateReadback.releaseReady)),
@@ -3526,10 +3551,11 @@ $lines.Add('- Large-file governance artifacts: `' + $largeFileGovernanceDiagnost
 $lines.Add('- S3 real backend readiness artifacts: `' + $s3RealBackendReadinessDiagnostics + '`')
 $lines.Add('- Automation history artifacts: `' + $automationHistoryDiagnostics + '`')
 if ($automationAckDrillState.configured) {
-    $lines.Add('- Automation ack drill artifacts: `' + $automationAckDrillDiagnostics + '`')
+$lines.Add('- Automation ack drill artifacts: `' + $automationAckDrillDiagnostics + '`')
 }
 $lines.Add('- E2E rollout observability artifacts: `' + $e2eRolloutDiagnostics + '`')
-$lines.Add('- E2E release evidence artifacts: `' + $e2eReleaseEvidenceDiagnostics + '`')
+$lines.Add('- E2E release evidence baseline artifacts: `' + $e2eReleaseEvidenceDiagnostics + '`')
+$lines.Add('- Active E2E release review artifacts: `' + $activeE2EReleaseEvidenceDiagnostics + '`')
 if ($e2eLinkedReleaseCandidateReadback.configured) {
     $lines.Add('- E2E linked release candidate artifacts: `' + $e2eLinkedReleaseCandidateDiagnostics + '`')
 }
@@ -3537,10 +3563,11 @@ $lines.Add("")
 $lines.Add("## Priority Backlog")
 $lines.Add("")
 $lines.Add($e2eProductionBacklog)
-$lines.Add("2. Group productization is closed for the current automation lane: private group creation/invitation/removal, private scoped messages/files, non-member and removed-member fail-closed behavior, snapshot permission fields, removed-member read-only history markers, history visibility policy fields, and send/reject audit evidence are implemented.")
-$lines.Add("3. README information architecture is closed for now: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, and E2E hardening status in focused docs, and keep CTest/automation-status references pointed at those docs so long paragraphs do not return.")
-$lines.Add("4. Mainwindow structure split is no longer the active lane but remains partially complete: production-linked E2E evidence stays first priority, while HistoryService, TransferManager, FriendManager, GroupManager, ClientStorage, LocalFileManager, ChatContextManager, and NotificationPanelManager are already extracted with focused CTest coverage. ChatContextManager now also owns composer context-menu planning for quick replies, slash commands, session cards, current-summary inserts, and chat-item command routing; TransferManager/local helpers now own selected-transfer context handoff, receive-save success/failure render plans, and the remaining received-payload persistence render boundary; HistoryService now also owns export default-path/writeout/status copy; FriendManager now owns friend-manager visible/online contact copy text plus global-search result copy text; GroupManager now owns group announcement edit decisions and group member context-menu planning; NotificationPanelManager now owns friend/group notice list rendering, friend selection snapshots, public group member dedupe, group member copy text, group selection snapshots, and friend/group notification action state, while MainWindow local helpers now also own avatar apply/save flow, private-session/friend-request/local-group shared helpers, create-menu command dispatch, local-group/contact context-menu dispatch, and reusable non-notification confirm/input dialog helpers. Global-search and friend-manager dialogs now reuse those shared helpers for open/chat/add/invite/remark/delete flows; continue with the remaining heavier group-notice composition and any further modal split only when the crypto lane does not need the full turn.")
-$lines.Add("5. PostgreSQL productization is closed for the current automation mainline: QPSQL smoke boundary evidence and rollback live evidence are both covered. Only fix PostgreSQL regressions or CI failures; do not keep adding PostgreSQL polish before the requested README/group/mainwindow work.")
+$lines.Add("2. File/offline attachment productization is closed for the current automation lane: unified transfer workspace summaries now cover send progress, recovery, saved-file/open-path handling, receive-save success or failure, preserved fallback state, and next-step guidance, with focused TransferManager coverage to keep that user-facing chain stable.")
+$lines.Add("3. Group productization is closed for the current automation lane: private group creation/invitation/removal, private scoped messages/files, non-member and removed-member fail-closed behavior, snapshot permission fields, removed-member read-only history markers, history visibility policy fields, and send/reject audit evidence are implemented.")
+$lines.Add("4. README information architecture and current-state alignment are now the main documentation lane: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, and E2E hardening status in focused docs, and keep automation-status plus README backlog wording synchronized with the actual verified code paths.")
+$lines.Add("5. Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete for the current automation scope: HistoryService, TransferManager, FriendManager, GroupManager, ClientStorage, LocalFileManager, ChatContextManager, ComposerManager, and NotificationPanelManager already own the main extracted behavior. Only continue heavier dialog or modal decomposition when it materially improves maintenance or unblocks the E2E/mainline closeout lane.")
+$lines.Add("6. PostgreSQL productization is closed for the current automation mainline: QPSQL smoke boundary evidence and rollback live evidence are both covered. Only fix PostgreSQL regressions or CI failures; do not keep adding PostgreSQL polish before the remaining E2E release promotion and release-governance closeout.")
 $lines.Add("")
 $lines.Add("## Last Local Verification")
 $lines.Add("")

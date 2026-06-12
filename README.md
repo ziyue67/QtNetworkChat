@@ -137,6 +137,7 @@ make
 ```
 
 Windows 下可根据 Qt Kit 使用 `mingw32-make`、`nmake` 或 `jom`。
+`QtNetworkChat.pro` 现在会显式包含仓库内的 `include/qtnetworkchat_e2e_crypto_config.h`。这个头文件不是生成垃圾，而是给 qmake/legacy 构建路径保留的 fail-closed E2E fallback 配置；CMake 路径仍会通过 `include/qtnetworkchat_e2e_crypto_config.h.in` 在构建目录生成当前配置头。
 
 ### 使用 CMake
 
@@ -146,6 +147,7 @@ cmake --build build
 ```
 
 如果 CMake 找不到 Qt，需要设置 `CMAKE_PREFIX_PATH`，或配置 `Qt6_DIR` / `Qt5_DIR`。
+默认 CMake 会根据 `include/qtnetworkchat_e2e_crypto_config.h.in` 生成构建目录内的 `generated/qtnetworkchat_e2e_crypto_config.h`，以反映当前 production adapter / provider table / fail-closed 状态；源码目录内同名头只服务 qmake fallback，不参与 CMake 生成结果覆盖。
 
 ### 自动化验证
 
@@ -628,19 +630,11 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 后续优化优先级
 
-1. **Redis 跨实例大文件治理**：跨实例大文件链路已经形成 filesystem 与显式启用 S3/MinIO 后端的 fail-closed 闭环。源实例会先进入离线兜底队列，再按 `storeType` 发布小体积 `large_file_offer`；远端只认领本地后端匹配的 offer，unsupported/mismatch、对象缺失、校验失败、客户端断开或 ACK 超时都会发布固定 reason 的 `large_file_failed` 并保留源实例离线兜底。服务端已提供测试专用 ObjectStore 工厂注入点，默认 CTest 使用注入替身，不连接真实 S3/MinIO。
-
-   S3 稳定化覆盖已从对象层推进到服务端路由层：写入、HEAD/GET 校验、GET/open 读取、DELETE/remove 清理失败都会收敛到 timeout、network、tls、auth、retryable、client、server、not_found、hash、size、unknown 等固定桶，route log、Redis 事件、离线队列、报告和诊断包不携带 endpoint、bucket、object URL、凭据、session token、Authorization/Credential/Signature 或底层错误文本；delivered cleanup 仍以离线兜底匹配结果为准，不会因为 S3 删除失败误删或误报。跨实例测试已覆盖源端写入失败不发布 offer、远端 validate/read fail-closed、源端 delete retained、下发失败 fallback retained，以及收件人回源实例后的离线回放。
-
-   运维闭环已经接入一键治理入口、真实后端 evidence 汇总、S3 批量失败演练、S3 稳定化 runbook、统一 alert summary、健康检查、JSON/Markdown dashboard、只读 status CLI、Markdown/HTML 运维报告和治理诊断 zip。`stabilizationCoverage` 会在 runbook、dashboard、status、report 和 diagnostics manifest 中展示默认测试已覆盖的稳定化边界、固定 reason 桶和观测缺口，便于人工验收和计划任务消费。真实本地 MinIO/S3 smoke/evidence 已可通过 `scripts/minio-s3-smoke.ps1` 生成脱敏证据包，后续只在需要故障注入增强时继续扩展。
-2. **安全增强**：账号密码已升级为带盐 PBKDF2-SHA256 KDF，并兼容旧 SHA-256 派生账号的登录后迁移；客户端本地登录记忆已改为不保存明文密码并清理旧明文；TLS 已支持证书链校验和证书 SHA-256 指纹固定；端到端加密已具备最小 envelope/key agreement 协议骨架、身份公告/指纹固定、draft 身份签名协商、跨设备短码验证、私聊文本加解密执行路径、默认强制私聊文件 payload 加密、Redis 跨实例 E2E 控制面、E2E 大文件对象路由证据、加密私聊文件 same-wire 密文缓存续传/fail-closed 恢复、filesystem 对象密文读回续传、对象/离线恢复候选证据、离线密文附件回放解密校验、会话状态/轮换门禁、UI 状态入口、信任门禁、历史 encrypted/plaintext/decrypt-failed 状态治理、生产后端 contract/探测/选择门禁、adapter registry readiness、adapter execution context、provider dispatch contract、provider readiness/self-test 证据、provider compatibility/known-answer 证据、逐项 operation matrix、callable manifest ABI/fixture 门禁、sanitized execution result contract、provider C ABI header、provider table ABI/build-probe 绑定门禁、provider table binding probe、runtime provider table registration gate、provider operation preflight gate、provider call frame gate、provider invocation dry-run gate、provider invocation result capture gate、provider execution decision gate、provider callback harness gate、provider vector self-test gate、provider execution slot binding gate、provider execution path gate、provider invocation sandbox gate、provider invocation vector result gate、provider invocation execution gate。
-
-   显式 provider invocation execution probe、真实 provider probe 贯通到默认 productionAcceptance 的 reviewed handoff/data-plane/public primitive 证据、production rollout observability/recovery prompts 脱敏状态面、filesystem/S3/offline object ciphertext readback 发布观测证据、发布运行 observability JSON/Markdown 导出器、known-answer vector/fixture mismatch 矩阵和 status/material/pointer/table-blocked scope 分类、非执行 provider table 结构校验器、显式 production adapter 请求 fail-closed/linked OpenSSL dispatch 证据、32 字节 production material handle 输入合约和 malformed handle/public key/session key invalid-input 负向检查、draft identity/pin/session migration-required 状态、迁移 plan/execute 脱敏证据、多端 production rotation/restart runtime gate 和迁移恢复清理入口已经接入；后续重点是把真实发布采集闭环到审计通过。
-3. **群组和权限边界**：服务端群组模型已覆盖公共群和私有群的成员变更、重复成员添加拒绝、公告权限、群主自移除保护、管理员升降级、管理员越权拒绝、私有群文件权限、被移出成员文件/消息拒绝、被移出后只读历史标记、历史可见性字段和拒绝 reason 审计。后续可进入 UI 交互细化或结构拆分。
-4. **结构拆分**：历史 SQLite/legacy file 持久化、按日期查询、导出默认路径/写盘反馈、清理和旧文本导入已经抽到 `HistoryService`；文件恢复菜单状态、E2E same-wire/resend 提示、最近文件状态诊断事件、普通发送/恢复发送进度文案、百分比、校验清单摘要、文件选择反馈、文件选择上下文、本地群/远端文件媒体发送结果渲染入口、接收端图片/文件 payload 预览保存渲染，以及接收保存 success/failure plan 已经抽到 `TransferManager`/局部 helper；联系人显示名、在线状态、好友通知 badge、搜索匹配、关系标签、好友管理列表复制、综合搜索结果复制和好友申请推荐列表/统计/预览计划已经抽到 `FriendManager`；群通知 badge、本地群主解析、服务端 owner/admin 管理权限、成员角色/动作文案、群公告编辑决策和群成员右键菜单权限/tooltip/拒绝文案计划已经抽到 `GroupManager`；profile/friends/local groups 的 SQLite 写入、legacy file 读写和本地路径生成已经抽到 `ClientStorage`；最近传输目录、头像目录、本地文件/头像校验边界以及头像应用后的状态文案已经抽到 `LocalFileManager`；输入框 reachability/tooltip 状态和 @ 提及菜单计划已经抽到 `ComposerManager`；聊天右键菜单的复制文案、媒体卡片/话术拼装、草稿动作分发，以及消息输入框上下文菜单里的快捷语/指令/会话摘要插入规划已经抽到 `ChatContextManager`；好友通知/群通知弹窗的列表渲染、选择快照、公共群成员去重、群成员复制文案、预览文案、按钮 enable/text/tooltip 状态、search/group-create entry 解析，以及好友/群弹窗里可见目标、成员复制输入和批量媒体计划目标编排已经抽到 `NotificationPanelManager` 与 `MainWindow` 局部 helper。`mainwindow.cpp` 当前主要保留弹窗挂接、模型刷新和少量会话切换/真实数据落地；头像上传/保存边界、创建菜单分发、联系人/本地群右键菜单剩余动作分发，以及更大块的非通知确认/输入弹窗 helper 已进一步抽成私有 helper，后续主看仍值得继续拆的全局搜索、好友管理和群通知大弹窗编排。
-5. **发布与运维体验**：CMake 版本号已注入窗口标题，Windows 打包脚本已生成带版本目录/ZIP、manifest 和运行时依赖检查。后续可继续补 Release 自动上传、安装包、崩溃日志和可选诊断日志，方便非开发环境使用。
-6. **文件传输后续收尾**：在线文件/图片已覆盖 ACK 超时续传、跨连接持久化续传、元数据冲突隔离、临时拒绝重试、硬拒绝不重试和离线附件缺口续发；后续只建议补用户可见状态、治理指标和性能压测，不再作为首要功能线。
-7. **测试补齐方向**：优先补高价值边界和回归风险点，而不是继续堆同类协议测试；当前更值得覆盖对象/离线级加密文件恢复 UX、端到端加密发布观测归档接入真实发布工件、私有群/群文件权限细分、Release 上传和安装包脚本。
+1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。这个方向上剩余工作已经从“补 current-head 候选”收缩为“归档本地 release review 结论，并把 release evidence 与剩余运维 gate 一起收官”。
+2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，接下来更值得做的是把 README、automation-status、focused docs、脚本生成内容和当前代码状态彻底对齐，把“已经完成”“当前阻塞”“真实剩余风险”写成一套一致口径；同时明确默认 fail-closed 基线证据与 current-head release review evidence 的区别，避免将基线阻塞误读成当前 head 未闭环，并继续清理长期保留但已不再代表现状的 backlog 描述和本地导入目录边界。
+3. **发布与运维体验**：Windows 打包、manifest、运行时依赖检查和 PostgreSQL / S3 / governance evidence 已经具备基础闭环。剩余更偏交付面的工作是 Release 自动上传、安装包、崩溃/诊断日志收集，以及把本地值班证据更顺手地接给非开发环境使用。
+4. **结构拆分的最终收尾**：第一阶段和第二阶段所需的 UI 统一、文件工作区整线产品化已经完成，`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 也都已经承担了主职责。后续结构拆分不再是当前主线，只在确实影响维护性或回归定位时，继续处理剩余的大弹窗编排和少量 MainWindow 收口。
+5. **性能与非阻塞增强**：文件/离线附件的用户可见状态、恢复入口、失败入口和工作区摘要已经统一。后续更适合做的不是再补基础产品链，而是性能压测、治理指标细化，以及必要时补充少量高价值回归测试。
 
 ## 说明
 
