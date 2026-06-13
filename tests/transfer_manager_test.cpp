@@ -232,6 +232,41 @@ int main(int argc, char** argv) {
                     && completedEvent.statusBarTimeoutMs == 2600
                     && !completedEvent.statusBarMessage.contains(QString::fromUtf8("稍后重试")),
                 "completed status event should be short-lived and avoid retry guidance") && ok;
+    TransferWorkspaceCardState idleWorkspace = TransferManager::idleWorkspaceState(true, false, false);
+    ok = expect(idleWorkspace.stageText == QString::fromUtf8("等待新传输")
+                    && idleWorkspace.summaryText.contains(QString::fromUtf8("Redis 主链路正常"))
+                    && idleWorkspace.detailText.contains(QString::fromUtf8("最近一次文件生命周期"))
+                    && idleWorkspace.actionText.contains(QString::fromUtf8("选择文件或图片/视频")),
+                "idle workspace state should describe the productized file workbench") && ok;
+    TransferWorkspaceCardState recoveryWorkspace = TransferManager::recoveryWorkspaceState(resumable);
+    ok = expect(recoveryWorkspace.stageText == QString::fromUtf8("未完成发送待恢复")
+                    && recoveryWorkspace.summaryText == QStringLiteral("report.zip -> QQ:920001")
+                    && recoveryWorkspace.detailText.contains(QString::fromUtf8("自动续传"))
+                    && recoveryWorkspace.actionText.contains(QString::fromUtf8("恢复未完成发送")),
+                "recovery workspace state should expose resumable saved transfer guidance") && ok;
+    TransferWorkspaceCardState blockedWorkspace = TransferManager::resumeBlockedWorkspaceState(blockedPrompt);
+    ok = expect(blockedWorkspace.stageText == QString::fromUtf8("续传被策略拦截")
+                    && blockedWorkspace.summaryText == QString::fromUtf8("secret.bin -> 公共聊天室")
+                    && blockedWorkspace.detailText.contains(QStringLiteral("e2e-file-resend-required"))
+                    && blockedWorkspace.actionText.contains(QString::fromUtf8("重新发送原文件")),
+                "blocked workspace state should surface resend-only policy") && ok;
+    TransferWorkspaceCardState resumeFailedWorkspace = TransferManager::resumeResultWorkspaceState(resumeFailed);
+    ok = expect(resumeFailedWorkspace.stageText == QString::fromUtf8("恢复发送失败")
+                    && resumeFailedWorkspace.summaryText == QStringLiteral("report.zip -> QQ:920001")
+                    && resumeFailedWorkspace.detailText.contains(QStringLiteral("server-resume-state-mismatch"))
+                    && resumeFailedWorkspace.actionText.contains(QString::fromUtf8("稍后重试恢复")),
+                "failed resume workspace state should keep retained-record guidance") && ok;
+    TransferWorkspaceCardState statusWorkspace = TransferManager::statusWorkspaceState(QStringLiteral("report.zip"),
+                                                                                       QStringLiteral("transfer-abcdefABCDEF00"),
+                                                                                       QStringLiteral("chunk-ack-timeout"),
+                                                                                       1024,
+                                                                                       4096);
+    ok = expect(statusWorkspace.stageText == QString::fromUtf8("文件分片未被接收端确认")
+                    && statusWorkspace.summaryText.contains(QStringLiteral("report.zip"))
+                    && statusWorkspace.summaryText.contains(QStringLiteral("1024/4096"))
+                    && statusWorkspace.detailText.contains(QString::fromUtf8("ACK 超时"))
+                    && statusWorkspace.actionText.contains(QString::fromUtf8("稍后重试")),
+                "status workspace state should summarize file status event progress and next action") && ok;
 
     TransferDiagnosticCopyUiState emptyCopy = TransferManager::diagnosticCopyUiState(QStringLiteral("  "));
     ok = expect(emptyCopy.action.visible
@@ -283,6 +318,35 @@ int main(int argc, char** argv) {
     ok = expect(sendingPrepared.manifestSummary == QString::fromUtf8("4片 · 分片1.0 KB · SHA-256 abcdefABCDEF")
                     && sendingPrepared.labelText.contains(QString::fromUtf8("文件校验清单已生成")),
                 "sending prepared state should expose manifest summary and label") && ok;
+    TransferWorkspaceCardState preparingWorkspace = TransferManager::preparingSendWorkspaceState(QString::fromUtf8("文件"),
+                                                                                                 QStringLiteral("report.zip"),
+                                                                                                 QStringLiteral("4.0 KB"),
+                                                                                                 QStringLiteral("QQ:920001"));
+    ok = expect(preparingWorkspace.stageText == QString::fromUtf8("准备发送文件")
+                    && preparingWorkspace.summaryText == QStringLiteral("report.zip -> QQ:920001")
+                    && preparingWorkspace.detailText.contains(QStringLiteral("4.0 KB"))
+                    && preparingWorkspace.actionText.contains(QString::fromUtf8("等待清单生成")),
+                "preparing send workspace state should capture the start of a transfer lifecycle") && ok;
+    TransferWorkspaceCardState sendingWorkspace = TransferManager::sendingProgressWorkspaceState(QString::fromUtf8("文件"),
+                                                                                                QStringLiteral("report.zip"),
+                                                                                                QStringLiteral("QQ:920001"),
+                                                                                                1536,
+                                                                                                2048);
+    ok = expect(sendingWorkspace.stageText == QString::fromUtf8("文件发送进行中")
+                    && sendingWorkspace.detailText.contains(QStringLiteral("1.5 KB / 2.0 KB"))
+                    && sendingWorkspace.actionText.contains(QString::fromUtf8("等待 ACK")),
+                "sending progress workspace state should show active transfer progress") && ok;
+    TransferWorkspaceCardState preparedWorkspace = TransferManager::sendingPreparedWorkspaceState(QString::fromUtf8("文件"),
+                                                                                                  QStringLiteral("report.zip"),
+                                                                                                  QStringLiteral("QQ:920001"),
+                                                                                                  4096,
+                                                                                                  1024,
+                                                                                                  4,
+                                                                                                  QStringLiteral("abcdefABCDEF00"));
+    ok = expect(preparedWorkspace.stageText == QString::fromUtf8("文件清单已生成")
+                    && preparedWorkspace.detailText == QString::fromUtf8("4片 · 分片1.0 KB · SHA-256 abcdefABCDEF")
+                    && preparedWorkspace.actionText.contains(QString::fromUtf8("离线回放")),
+                "prepared workspace state should preserve manifest and delivery guidance") && ok;
 
     TransferSendUiState publicRemoved = TransferManager::publicGroupRemovedState(QString::fromUtf8("图片/视频"));
     ok = expect(publicRemoved.hintText.contains(QString::fromUtf8("图片/视频发送暂停"))
@@ -457,6 +521,23 @@ int main(int argc, char** argv) {
                     && failedSend.warningMessage.contains(QString::fromUtf8("图片“photo.png”（512 KB）未发送到 好友A"))
                     && failedSend.statusTimeoutMs == 3000,
                 "failed send state should centralize warning and retry guidance") && ok;
+    TransferWorkspaceCardState canceledWorkspace = TransferManager::canceledSendWorkspaceState(QString::fromUtf8("文件"),
+                                                                                               QStringLiteral("report.zip"),
+                                                                                               QStringLiteral("QQ:920001"));
+    ok = expect(canceledWorkspace.stageText == QString::fromUtf8("文件发送已取消")
+                    && canceledWorkspace.summaryText == QStringLiteral("report.zip -> QQ:920001")
+                    && canceledWorkspace.detailText.contains(QString::fromUtf8("已由当前客户端取消"))
+                    && canceledWorkspace.actionText.contains(QString::fromUtf8("重新发送")),
+                "canceled send workspace state should retain restart guidance") && ok;
+    TransferWorkspaceCardState failedWorkspace = TransferManager::failedSendWorkspaceState(QString::fromUtf8("图片"),
+                                                                                           QStringLiteral("photo.png"),
+                                                                                           QStringLiteral("512 KB"),
+                                                                                           QString::fromUtf8("好友A"));
+    ok = expect(failedWorkspace.stageText == QString::fromUtf8("图片发送失败")
+                    && failedWorkspace.summaryText == QString::fromUtf8("photo.png -> 好友A")
+                    && failedWorkspace.detailText.contains(QStringLiteral("512 KB"))
+                    && failedWorkspace.actionText.contains(QString::fromUtf8("Redis/对象存储")),
+                "failed send workspace state should centralize retry guidance for the workbench") && ok;
 
     TransferSendUiState localCompleted = TransferManager::localSendCompletedState(QString::fromUtf8("文件"),
                                                                                  QStringLiteral("report.zip"),
@@ -470,6 +551,16 @@ int main(int argc, char** argv) {
                     && localCompleted.statusMessage == QString::fromUtf8("已发送文件到 本地群 · 4.0 KB")
                     && localCompleted.statusTimeoutMs == 2200,
                 "local completed send state should centralize local file card and receipt copy") && ok;
+    TransferWorkspaceCardState localCompletedWorkspace = TransferManager::localSendCompletedWorkspaceState(QString::fromUtf8("文件"),
+                                                                                                            QStringLiteral("report.zip"),
+                                                                                                            QStringLiteral("4.0 KB"),
+                                                                                                            QString::fromUtf8("本地群"),
+                                                                                                            QStringLiteral("12:00:00"));
+    ok = expect(localCompletedWorkspace.stageText == QString::fromUtf8("文件已写入本地群会话")
+                    && localCompletedWorkspace.summaryText == QString::fromUtf8("report.zip -> 本地群")
+                    && localCompletedWorkspace.detailText.contains(QStringLiteral("12:00:00"))
+                    && localCompletedWorkspace.actionText.contains(QString::fromUtf8("邀请更多好友")),
+                "local completed workspace state should summarize local-group file lifecycle completion") && ok;
 
     TransferSendUiState remoteCompleted = TransferManager::remoteSendCompletedState(QString::fromUtf8("图片"),
                                                                                    QStringLiteral("photo.png"),
@@ -484,6 +575,18 @@ int main(int argc, char** argv) {
                     && remoteCompleted.statusMessage == QString::fromUtf8("已发送图片到 好友A · 512 KB · 4片 · 分片128 KB")
                     && remoteCompleted.statusTimeoutMs == 2600,
                 "remote completed send state should include transfer summary in all completion surfaces") && ok;
+    TransferWorkspaceCardState remoteCompletedWorkspace = TransferManager::remoteSendCompletedWorkspaceState(QString::fromUtf8("图片"),
+                                                                                                              QStringLiteral("photo.png"),
+                                                                                                              QStringLiteral("512 KB"),
+                                                                                                              QString::fromUtf8("好友A"),
+                                                                                                              QStringLiteral("12:00:01"),
+                                                                                                              QString::fromUtf8("4片 · 分片128 KB"));
+    ok = expect(remoteCompletedWorkspace.stageText == QString::fromUtf8("图片已送达")
+                    && remoteCompletedWorkspace.summaryText == QString::fromUtf8("photo.png -> 好友A")
+                    && remoteCompletedWorkspace.detailText.contains(QStringLiteral("12:00:01"))
+                    && remoteCompletedWorkspace.detailText.contains(QString::fromUtf8("4片 · 分片128 KB"))
+                    && remoteCompletedWorkspace.actionText.contains(QString::fromUtf8("等待对端查收")),
+                "remote completed workspace state should summarize delivery result for the workbench") && ok;
 
     TransferReceiveSaveUiState savedReceive = TransferManager::receivedTransferSaveUiState(QString::fromUtf8("文件"),
                                                                                            QStringLiteral("report.zip"),
@@ -582,6 +685,21 @@ int main(int argc, char** argv) {
                     && savedPersistencePlan.hintText.contains(QString::fromUtf8("已接收文件"))
                     && savedPersistencePlan.statusMessage.contains(QString::fromUtf8("已保存到下载目录")),
                 "received transfer persistence render plan should centralize saved receive rendering") && ok;
+    TransferWorkspaceCardState savedReceiveWorkspace = TransferManager::receivedTransferWorkspaceState(QString::fromUtf8("文件"),
+                                                                                                       QStringLiteral("report.zip"),
+                                                                                                       QStringLiteral("4.0 KB"),
+                                                                                                       QString::fromUtf8("好友A"),
+                                                                                                       QString::fromUtf8(" · 4片"),
+                                                                                                       QString::fromUtf8("完整性已验证"),
+                                                                                                       QString::fromUtf8(" · 完整性已验证"),
+                                                                                                       QStringLiteral("C:/Downloads/report.zip"),
+                                                                                                       true);
+    ok = expect(savedReceiveWorkspace.stageText == QString::fromUtf8("文件接收已落盘")
+                    && savedReceiveWorkspace.summaryText == QString::fromUtf8("report.zip <- 好友A")
+                    && savedReceiveWorkspace.detailText.contains(QStringLiteral("C:/Downloads/report.zip"))
+                    && savedReceiveWorkspace.detailText.contains(QString::fromUtf8("完整性已验证"))
+                    && savedReceiveWorkspace.actionText.contains(QString::fromUtf8("双击打开文件")),
+                "saved receive workspace state should summarize persisted inbound transfer") && ok;
 
     TransferReceiveRenderPlan failedPersistencePlan =
         TransferManager::receivedTransferPersistenceRenderPlan(QString::fromUtf8("图片"),
@@ -598,6 +716,20 @@ int main(int argc, char** argv) {
                     && failedPersistencePlan.hintText == QString::fromUtf8("图片保存失败 · photo.png · 来自 好友A")
                     && failedPersistencePlan.statusMessage == QString::fromUtf8("图片保存失败，请检查下载目录权限"),
                 "received transfer persistence render plan should centralize failed receive rendering") && ok;
+    TransferWorkspaceCardState failedReceiveWorkspace = TransferManager::receivedTransferWorkspaceState(QString::fromUtf8("图片"),
+                                                                                                        QStringLiteral("photo.png"),
+                                                                                                        QStringLiteral("512 KB"),
+                                                                                                        QString::fromUtf8("好友A"),
+                                                                                                        QString(),
+                                                                                                        QString(),
+                                                                                                        QString(),
+                                                                                                        QStringLiteral("C:/Downloads/photo.png"),
+                                                                                                        false);
+    ok = expect(failedReceiveWorkspace.stageText == QString::fromUtf8("图片接收保存失败")
+                    && failedReceiveWorkspace.summaryText == QString::fromUtf8("photo.png <- 好友A")
+                    && failedReceiveWorkspace.detailText.contains(QString::fromUtf8("写入下载目录失败"))
+                    && failedReceiveWorkspace.actionText.contains(QString::fromUtf8("检查目录权限")),
+                "failed receive workspace state should retain recovery guidance on the workbench") && ok;
 
     TransferReceivedWorkspaceState savedWorkspace =
         TransferManager::receivedTransferWorkspaceState(QString::fromUtf8("文件"),

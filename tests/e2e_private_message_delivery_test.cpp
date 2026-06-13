@@ -1,6 +1,7 @@
 #include "client.h"
 #include "e2eenvelope.h"
 #include "server.h"
+#include "test_redis_support.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -24,7 +25,12 @@ QString testAppDataDir() {
     if (!overrideDir.isEmpty()) {
         return QDir::cleanPath(overrideDir);
     }
-    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString baseDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    const QString appName = QCoreApplication::applicationName().trimmed().isEmpty()
+        ? QStringLiteral("qtnetworkchat-e2e-private-message-delivery")
+        : QCoreApplication::applicationName().trimmed();
+    return QDir(baseDir).filePath(QStringLiteral("%1-%2")
+                                      .arg(appName, QString::number(QCoreApplication::applicationPid())));
 }
 
 bool expect(bool condition, const char* message) {
@@ -351,6 +357,13 @@ bool runProductionRotationLocalRebindScenario() {
     const quint16 port = freeLocalPort();
     ok = expect(port != 0, "a local production rotation test port should be available") && ok;
     if (!ok) return false;
+
+    TestRedisServerEnvironment productionRedis(QStringLiteral("qtchat-e2e-production-rotation-test"));
+    QString productionRedisError;
+    ok = expect(productionRedis.start(&productionRedisError),
+                "fake Redis should start for production rotation test") && ok;
+    if (!ok) return false;
+    productionRedis.applyEnvironment();
 
     {
         Server server;
@@ -1055,6 +1068,7 @@ bool runProductionRotationLocalRebindScenario() {
         disconnectClient(carolRestartedPeer);
         qunsetenv("QTNETWORKCHAT_E2E_CRYPTO_BACKEND");
     }
+    productionRedis.stop();
     return ok;
 }
 }
@@ -1079,6 +1093,12 @@ int main(int argc, char** argv) {
     bool ok = true;
     ok = expect(port != 0, "a local test port should be available") && ok;
     if (!ok) return 1;
+
+    TestRedisServerEnvironment redis(QStringLiteral("qtchat-e2e-private-message-delivery-test"));
+    QString redisError;
+    ok = expect(redis.start(&redisError), "fake Redis should start for e2e private message delivery test") && ok;
+    if (!ok) return 1;
+    redis.applyEnvironment();
 
     {
         Server server;
@@ -2665,6 +2685,7 @@ int main(int argc, char** argv) {
         server.stop();
         drainEvents();
     }
+    redis.stop();
     drainEvents();
 
     if (!appDataDir.isEmpty()) {

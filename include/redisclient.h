@@ -57,6 +57,7 @@ public:
     bool setPresence(const QString& userId, const QString& userName, int ttlSeconds = 90, int timeoutMs = 200);
     bool clearPresence(const QString& userId, int timeoutMs = 200);
     bool hasPresence(const QString& userId, int timeoutMs = 200);
+    bool queryPresence(const QString& userId, bool* online, int timeoutMs = 200);
     bool fetchOnlinePresence(QList<Presence>* users, int timeoutMs = 300);
     bool publish(const QString& channel, const QByteArray& payload, int timeoutMs = 200);
 
@@ -99,6 +100,7 @@ public:
 signals:
     void messageReceived(const RedisClient::PubSubMessage& message);
     void disconnected();
+    void subscriptionStateChanged(bool subscribed);
 
 private slots:
     void onReadyRead();

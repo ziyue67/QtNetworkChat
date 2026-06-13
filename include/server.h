@@ -32,6 +32,8 @@ public:
     bool start(quint16 port = 8888);
     void stop();
     quint16 serverPort() const { return m_serverPort; }
+    bool isServiceReady() const { return m_serviceReady; }
+    QString serviceReadinessReason() const { return m_serviceReadinessReason; }
     QString transportSecurityDescription() const;
     QJsonObject databaseHealthSnapshot() const;
     void setObjectStoreFactoryForTesting(ObjectStoreFactory factory);
@@ -71,9 +73,16 @@ private:
     void handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket);
     bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     void cleanupExpiredFileTransfers();
+    bool ensureRedisReadyForStartup();
+    void tryRecoverRedisCommandAvailability();
+    void updateRedisCommandAvailability(bool available, const QString& reason = QString());
+    void updateRedisSubscriberAvailability(bool available, const QString& reason = QString());
+    void refreshServiceReadiness();
+    bool ensureServiceReady(QTcpSocket* socket, const QString& action);
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
-    bool isRedisUserOnline(const QString& userId) const;
+    bool isRedisUserOnline(const QString& userId, bool* online = nullptr) const;
+    bool canPublishRedisMessageEvent(const Message& msg, const QString& deliveryState) const;
     bool publishRedisMessageEvent(const Message& msg, const QString& deliveryState);
     bool publishRedisE2EControlEvent(const QJsonObject& forwarded) const;
     bool publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const;
@@ -171,6 +180,10 @@ private:
     quint16 m_serverPort;
     bool m_tlsEnabled;
     QString m_instanceId;
+    bool m_serviceReady = false;
+    QString m_serviceReadinessReason;
+    bool m_redisCommandReady = false;
+    bool m_redisSubscriberReady = false;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
     QSet<QString> m_usedNames;

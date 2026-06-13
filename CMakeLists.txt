@@ -217,6 +217,11 @@ if(BUILD_TESTING)
         target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
     endfunction()
 
+    set(QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES
+        tests/test_redis_support.cpp
+        tests/test_redis_support.h
+    )
+
     add_executable(message_serialization_test
         tests/message_serialization_test.cpp
         src/message.cpp
@@ -259,6 +264,7 @@ if(BUILD_TESTING)
 
     add_executable(e2e_private_message_delivery_test
         tests/e2e_private_message_delivery_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -308,6 +314,7 @@ if(BUILD_TESTING)
 
     add_executable(server_group_member_update_test
         tests/server_group_member_update_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -329,6 +336,7 @@ if(BUILD_TESTING)
 
     add_executable(account_password_kdf_test
         tests/account_password_kdf_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -468,6 +476,7 @@ if(BUILD_TESTING)
 
     add_executable(file_transfer_cancel_test
         tests/file_transfer_cancel_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -489,6 +498,7 @@ if(BUILD_TESTING)
 
     add_executable(file_chunk_duplicate_ack_test
         tests/file_chunk_duplicate_ack_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -525,6 +535,7 @@ if(BUILD_TESTING)
 
     add_executable(offline_attachment_quota_test
         tests/offline_attachment_quota_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -560,8 +571,8 @@ if(BUILD_TESTING)
     target_include_directories(objectstore_test PRIVATE include)
     target_link_libraries(objectstore_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
 
-    add_executable(redis_unavailable_fallback_test
-        tests/redis_unavailable_fallback_test.cpp
+    add_executable(redis_startup_requirement_test
+        tests/redis_startup_requirement_test.cpp
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -577,12 +588,13 @@ if(BUILD_TESTING)
         include/chatuser.h
         include/heartbeatmonitor.h
     )
-    qtnetworkchat_target_include_dirs(redis_unavailable_fallback_test)
-    target_link_libraries(redis_unavailable_fallback_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
-    qtnetworkchat_attach_production_adapter(redis_unavailable_fallback_test)
+    qtnetworkchat_target_include_dirs(redis_startup_requirement_test)
+    target_link_libraries(redis_startup_requirement_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(redis_startup_requirement_test)
 
     add_executable(database_health_test
         tests/database_health_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
         src/server.cpp
         src/client.cpp
         ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
@@ -630,6 +642,25 @@ if(BUILD_TESTING)
     )
     target_include_directories(redis_presence_flow_test PRIVATE include)
     target_link_libraries(redis_presence_flow_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+
+    add_executable(redis_server_readiness_test
+        tests/redis_server_readiness_test.cpp
+        src/server.cpp
+        src/redisclient.cpp
+        src/message.cpp
+        src/e2eenvelope.cpp
+        src/objectstore.cpp
+        src/heartbeatmonitor.cpp
+        include/server.h
+        include/redisclient.h
+        include/message.h
+        include/objectstore.h
+        include/chatuser.h
+        include/heartbeatmonitor.h
+    )
+    qtnetworkchat_target_include_dirs(redis_server_readiness_test)
+    target_link_libraries(redis_server_readiness_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(redis_server_readiness_test)
 
     add_executable(redis_cross_instance_chat_test
         tests/redis_cross_instance_chat_test.cpp
@@ -967,9 +998,9 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
     add_test(
-        NAME RedisUnavailableFallback
+        NAME RedisStartupRequirement
         COMMAND ${CMAKE_COMMAND}
-            -DTEST_EXE=$<TARGET_FILE:redis_unavailable_fallback_test>
+            -DTEST_EXE=$<TARGET_FILE:redis_startup_requirement_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
@@ -991,6 +1022,13 @@ if(BUILD_TESTING)
         NAME RedisPresenceCommandFlow
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:redis_presence_flow_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME RedisServerReadiness
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:redis_server_readiness_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

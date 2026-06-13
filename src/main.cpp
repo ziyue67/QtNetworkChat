@@ -694,14 +694,14 @@ int main(int argc, char *argv[])
     if (!server->start(port)) {
         delete server;
         server = nullptr;
-        nameLabel->setText("QtNetworkChat · 客户端");
-        serviceBadgeLabel->setText("连接已有服务");
-        serviceBadgeLabel->setToolTip("端口 8888 已有服务，本窗口会作为客户端连接");
-        modeStatusLabel->setText("已检测到本地服务运行中，本窗口将直接连接。");
+        nameLabel->setText("QtNetworkChat · Redis 未就绪");
+        serviceBadgeLabel->setText("服务未启动");
+        serviceBadgeLabel->setToolTip("本地服务端依赖 Redis；启动失败时不会降级到无 Redis 模式");
+        modeStatusLabel->setText("本地服务启动失败，请先确认 Redis 已在 127.0.0.1:6379 可连接，然后重新打开程序。");
     } else {
         serviceBadgeLabel->setText("托管本地服务");
-        serviceBadgeLabel->setToolTip("本窗口已启动端口 8888，本机其他客户端会自动连接");
-        modeStatusLabel->setText("本窗口正在托管本地服务，可再打开一个客户端测试互发消息。");
+        serviceBadgeLabel->setToolTip("本窗口已启动端口 8888，且 Redis 已通过启动检查");
+        modeStatusLabel->setText("本窗口正在托管本地服务，Redis 已就绪，可再打开一个客户端测试互发消息。");
         maybeWriteDatabaseHealthSnapshot(server);
     }
     Client* client = nullptr;

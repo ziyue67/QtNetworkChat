@@ -1,4 +1,5 @@
 #include "server.h"
+#include "test_redis_support.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -142,6 +143,12 @@ int main(int argc, char** argv) {
     bool ok = true;
     ok = expect(port != 0, "a local test port should be available") && ok;
     if (!ok) return 1;
+
+    TestRedisServerEnvironment redis(QStringLiteral("qtchat-file-chunk-duplicate-ack-test"));
+    QString redisError;
+    ok = expect(redis.start(&redisError), "fake Redis should start for duplicate ack test") && ok;
+    if (!ok) return 1;
+    redis.applyEnvironment();
 
     Server server;
     ok = expect(server.start(port), "server should start on the test port") && ok;
@@ -672,6 +679,7 @@ int main(int argc, char** argv) {
 
     socket.disconnectFromHost();
     server.stop();
+    redis.stop();
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();
     }
