@@ -582,7 +582,7 @@ $markdown = Get-Content -LiteralPath $markdownPath -Raw -Encoding UTF8
 foreach ($expected in @(
     'QtNetworkChat Automation Status',
     'HEAD: `closeout1234`',
-    'HEAD note: `current local verification head; GitHub Windows Build is disabled by policy and does not gate this status.`',
+    'HEAD note: `recorded local verification/evidence head; GitHub Windows Build is disabled by policy and does not gate this status, and the commit containing this generated file may be newer.`',
     'GitHub Windows Build: `success`',
     'Local CTest count: `51`',
     'Protected untracked entries: `.polaris/, AGENTS.md`',

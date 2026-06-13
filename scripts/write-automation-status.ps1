@@ -3170,7 +3170,7 @@ $lines.Add("")
 $lines.Add('- Generated at: `' + $generatedAt + '`')
 $lines.Add('- HEAD: `' + $Head + '`')
 if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
-    $lines.Add('- HEAD note: `current local verification head; GitHub Windows Build is disabled by policy and does not gate this status.`')
+    $lines.Add('- HEAD note: `recorded local verification/evidence head; GitHub Windows Build is disabled by policy and does not gate this status, and the commit containing this generated file may be newer.`')
 } else {
     $lines.Add('- HEAD note: `status source/evidence head; the commit containing this generated status file may be newer`')
 }

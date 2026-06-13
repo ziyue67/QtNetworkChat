@@ -363,7 +363,7 @@ export QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS=30000
 
 仓库保留 `.github/workflows/windows-build.yml` 作为可选补充覆盖：推送到 `main` 或提交 PR 时可在 GitHub Actions 上安装 Qt 6.8.3 MSVC 2022 x64、构建项目并运行 CTest，失败或取消时会上传 `windows-build-diagnostics` artifact，手动触发时还会运行 Windows 打包脚本并上传 `QtNetworkChat-win-x64.zip`。当前仓库自动化策略已明确将 GitHub Windows Build 视为 `disabled / not-required`，不参与当前 release gate，也不影响当前 head 的闭环判断；即使 run list 未观察到当前 HEAD，也只记录为 skipped/not-required。提交前有效验证只看本地 Qt MinGW `build-qt6-mingw`、PowerShell timeout wrapper 构建和本地全量 CTest。
 
-自动化闭环状态可用 `scripts/write-automation-status.ps1` 生成或更新 `docs/automation-status.md`。默认不传任务路径时，脚本会在 `build-qt6-mingw/automation-tasks/` 下 bootstrap database-health、large-file-governance 和 PostgreSQL release acceptance 的 preview、status、last-run、history、ack 与脱敏 evidence 占位产物，并稳定回读到状态板；后续真实计划任务运行会覆盖同一 artifact。脚本也会回读 `docs/automation-policy.json`，可把 GitHub Windows Build 标记为 `disabled`、`optional` 或 `required`；当前策略为 `disabled` 时，状态板会将 Windows Build 记为 `disabled-by-policy` / `not-required`，并明确移出当前 release gate，release evidence promotion 只看本地 MinGW build/CTest、production-linked evidence 和当前 head 对应的本地 release review。更多任务 preview、ack/history 与新鲜度约定见 [Large-file governance](docs/large-file-governance.md) 和 [PostgreSQL operations](docs/postgresql-operations.md)。
+自动化闭环状态可用 `scripts/write-automation-status.ps1` 生成或更新 `docs/automation-status.md`。默认不传任务路径时，脚本会在 `build-qt6-mingw/automation-tasks/` 下 bootstrap database-health、large-file-governance 和 PostgreSQL release acceptance 的 preview、status、last-run、history、ack 与脱敏 evidence 占位产物，并稳定回读到状态板；后续真实计划任务运行会覆盖同一 artifact。脚本也会回读 `docs/automation-policy.json`，可把 GitHub Windows Build 标记为 `disabled`、`optional` 或 `required`；当前策略为 `disabled` 时，状态板会将 Windows Build 记为 `disabled-by-policy` / `not-required`，并明确移出当前 release gate，release evidence promotion 只看本地 MinGW build/CTest、production-linked evidence 和对应验证基线的本地 release review。由于 `docs/automation-status.md` 本身也是收官归档输入，状态板里的 `HEAD` 表示最近一次已验证的证据基线，提交该文件后仓库提交可能再前进一步，这是预期行为。更多任务 preview、ack/history 与新鲜度约定见 [Large-file governance](docs/large-file-governance.md) 和 [PostgreSQL operations](docs/postgresql-operations.md)。
 
 ## 运行方式
 
@@ -749,7 +749,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 收官后维护边界
 
-1. **文档 / 状态 / 脚本口径**：当前 README、`docs/automation-status.md`、`docs/release-closeout.md`、`docs/e2e-hardening-status.md` 与 closeout 脚本生成物应保持同一套 current-HEAD 收官语义；后续只做维护性同步，不再把这条线表述成未完成主任务。
+1. **文档 / 状态 / 脚本口径**：当前 README、`docs/automation-status.md`、`docs/release-closeout.md`、`docs/e2e-hardening-status.md` 与 closeout 脚本生成物应保持同一套 current-head closeout 语义；其中 `docs/automation-status.md` 记录的是最近一次已验证证据基线，不要求机械等于包含该文件的最新提交。后续只做维护性同步，不再把这条线表述成未完成主任务。
 2. **本地 release closeout 基线**：current-HEAD 的 `local-release-review`、`release-archive-decision`、`release-delivery-handoff`、`release-closeout-summary` 和 `release-final-local-archive` 现在共同构成 stop-writing 基线。环境外发布仍是显式记录项，但不再反向否定已经完成的本地收官链。
 3. **高价值补强与仓库清理**：后续只补少量最值钱的回归测试、维护型清理和文档一致性修正，不再在当前分支开启新的产品主线。
 4. **环境外发布跟踪**：如果后面确实把生成好的 zip 发到团队共享盘、工单系统或发行页面，再通过 `release-publication-record` 或 archive decision 回写发布状态；这属于环境外动作，不是当前仓库 closeout 的前置条件。

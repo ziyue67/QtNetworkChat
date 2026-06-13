@@ -40,7 +40,7 @@ When that combination is present, the repository is already in stop-writing mode
 - A final local archive is considered ready only when that closeout chain is complete and the current head has an explicit local archive decision recorded on the same baseline.
 - Environment-specific publication remains outside the repository, even when the local closeout chain is complete.
 - `pending-environment-publication` is a valid recorded follow-up state after local closeout is complete. It means the repository-side stop-writing archive is already ready, while publication is intentionally tracked as an external action.
-- `docs/automation-status.md` should summarize the stable gates and readiness state of this chain; it should not become the only place where release closeout semantics exist.
+- `docs/automation-status.md` should summarize the stable gates and readiness state of this chain; it should not become the only place where release closeout semantics exist. Its recorded `HEAD` is the most recent verified evidence baseline, so the commit containing that file may be newer after the status document itself is committed.
 - When the default fail-closed E2E release evidence artifact and the current-head closeout chain disagree, the active release-review baseline is the current-head `local-release-review` plus `release-closeout-summary` pair. The older baseline remains useful as an informational artifact, but it must not override a current-head closeout that is already complete.
 
 ## Refresh
