@@ -25,6 +25,8 @@ param(
 
     [string]$SQLitePath = "accounts.sqlite3",
 
+    [int]$SlowQueryMs = 1500,
+
     [Parameter(Mandatory = $true)]
     [string]$OutputDir,
 
@@ -107,6 +109,9 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 }
 if ($Schedule -eq "Hourly" -and $EveryHours -lt 1) {
     throw "EveryHours must be greater than zero."
+}
+if ($SlowQueryMs -lt 1) {
+    throw "SlowQueryMs must be greater than zero."
 }
 if ($PostgresPort -lt 1 -or $PostgresPort -gt 65535) {
     throw "PostgresPort must be between 1 and 65535."
@@ -211,6 +216,7 @@ Add-ScalarArg $lines "PostgresDatabase" $PostgresDatabase
 Add-ScalarArg $lines "PostgresUser" $PostgresUser
 [void]$lines.Add('    @postgresPasswordArgs `')
 Add-ScalarArg $lines "SQLitePath" $SQLitePath
+Add-IntArg $lines "SlowQueryMs" $SlowQueryMs
 Add-SwitchArg $lines "PlanOnly" $PlanOnly.IsPresent
 Add-SwitchArg $lines "FailOnUnhealthy" $FailOnUnhealthy.IsPresent
 Add-ScalarArg $lines "JsonPath" $healthPath
@@ -342,6 +348,7 @@ $preview = [pscustomobject]@{
     passwordSource = if ($Driver -eq "postgres") { "QTNETWORKCHAT_PGPASSWORD" } else { "" }
     readOnly = $true
     notes = "Default mode writes this preview and launcher script only. The launcher reads PostgreSQL password from QTNETWORKCHAT_PGPASSWORD at run time and writes redacted database health JSON, status JSON/Markdown, optional dashboard JSON/Markdown, a last-run log with exit codes and artifact paths, and automation task history JSON/Markdown derived from last-run.log plus same-directory ack state."
+    slowQueryMs = $SlowQueryMs
 }
 $preview | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $previewPath -Encoding UTF8
 

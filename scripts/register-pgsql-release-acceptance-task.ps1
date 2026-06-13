@@ -43,6 +43,8 @@ param(
 
     [switch]$InjectSlowQueryProbe,
 
+    [int]$SlowQueryMs = 1500,
+
     [int]$SlowQueryProbeSeconds = 1,
 
     [ValidateSet("none", "query", "schema", "auth", "network", "tls")]
@@ -121,6 +123,9 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 }
 if ($AckExpiryHours -lt 1) {
     throw "AckExpiryHours must be greater than zero."
+}
+if ($SlowQueryMs -lt 1) {
+    throw "SlowQueryMs must be greater than zero."
 }
 if ($Schedule -eq "Hourly" -and $EveryHours -lt 1) {
     throw "EveryHours must be greater than zero."
@@ -258,6 +263,7 @@ if ($PlanOnly.IsPresent) {
 Add-ScalarArg $lines "SQLitePath" $SQLitePath
 Add-SwitchArg $lines "FailOnUnhealthy" $FailOnUnhealthy.IsPresent
 Add-SwitchArg $lines "InjectSlowQueryProbe" $InjectSlowQueryProbe.IsPresent
+Add-IntArg $lines "SlowQueryMs" $SlowQueryMs
 Add-IntArg $lines "SlowQueryProbeSeconds" $SlowQueryProbeSeconds
 if ($InjectQueryFailureReason -ne "none") {
     Add-ScalarArg $lines "InjectQueryFailureReason" $InjectQueryFailureReason
@@ -528,6 +534,7 @@ $preview = [pscustomobject]@{
     ensureDatabase = $EnsureDatabase.IsPresent
     migrationMode = $MigrationMode
     injectSlowQueryProbe = $InjectSlowQueryProbe.IsPresent
+    slowQueryMs = $SlowQueryMs
     slowQueryProbeSeconds = $SlowQueryProbeSeconds
     injectQueryFailureReason = $InjectQueryFailureReason
     packageEvidence = (-not $SkipEvidencePackage.IsPresent)
