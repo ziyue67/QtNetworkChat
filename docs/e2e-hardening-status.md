@@ -27,4 +27,4 @@ QtNetworkChat treats the server as a transparent carrier for private-message E2E
 
 - Keep this document aligned with the active closeout baseline, not with older rollout-only artifacts.
 - If closeout artifacts, production-linked evidence wording, or publication-state framing changes, update this document in the same maintenance pass as `README.md`, `docs/release-closeout.md`, and `docs/automation-status.md`.
-- Let operational/live follow-up states continue to roll in `docs/automation-status.md`; this document should keep the durable E2E closeout boundary and current verified semantics.
+- Let operational/live follow-up states continue to roll in `docs/automation-status.md`, including rolling readbacks such as database health, PostgreSQL acceptance, automation ack, task freshness, governance summaries, and publication state; this document should keep the durable E2E closeout boundary and current verified semantics instead of reclassifying those operational updates as unfinished product work.

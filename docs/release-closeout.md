@@ -80,4 +80,5 @@ After repo-scope closeout is complete, the maintenance rule is simple:
 
 - Keep `README.md`, `docs/automation-status.md`, `docs/release-closeout.md`, and `docs/e2e-hardening-status.md` synchronized whenever closeout artifacts, publication state, or status-script readback changes.
 - Treat `docs/automation-status.md` as the rolling live-evidence surface for operational follow-up states, while the other docs keep the durable semantics and current-head closeout boundary.
+- Expect live operational readbacks such as database health, PostgreSQL release acceptance, automation ack/renewal, task history freshness, governance dashboard summaries, and publication/readback state to move over time; refresh them when trusted evidence changes, and treat that work as operations evidence maintenance rather than reopened product development.
 - Update documentation and closeout artifacts in the same maintenance slice so the repository does not drift into mixed generations of current-state wording.
