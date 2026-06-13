@@ -749,11 +749,11 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 ## 收官后维护边界
 
-1. **文档 / 状态 / 脚本口径**：当前 README、`docs/automation-status.md`、`docs/release-closeout.md`、`docs/e2e-hardening-status.md` 与 closeout 脚本生成物应保持同一套 current-head closeout 语义；其中 `docs/automation-status.md` 记录的是最近一次已验证证据基线，不要求机械等于包含该文件的最新提交。后续只做维护性同步，不再把这条线表述成未完成主任务。
+1. **文档 / 状态 / 脚本口径**：当前 README、`docs/automation-status.md`、`docs/release-closeout.md`、`docs/e2e-hardening-status.md` 与 closeout 脚本生成物应保持同一套 current-head closeout 语义；其中 `docs/automation-status.md` 记录的是最近一次已验证证据基线，不要求机械等于包含该文件的最新提交。后续若 closeout 产物、状态板或脚本输出发生变化，只做同一轮维护性同步，不再把这条线表述成未完成主任务。
 2. **本地 release closeout 基线**：current-HEAD 的 `local-release-review`、`release-archive-decision`、`release-delivery-handoff`、`release-closeout-summary` 和 `release-final-local-archive` 现在共同构成 stop-writing 基线。环境外发布仍是显式记录项，但不再反向否定已经完成的本地收官链。
 3. **高价值补强与仓库清理**：后续只补少量最值钱的回归测试、维护型清理和文档一致性修正，不再在当前分支开启新的产品主线。
 4. **环境外发布跟踪**：如果后面确实把生成好的 zip 发到团队共享盘、工单系统或发行页面，再通过 `release-publication-record` 或 archive decision 回写发布状态；这属于环境外动作，不是当前仓库 closeout 的前置条件。
-5. **运维后续动作**：当前 live evidence 下，PostgreSQL follow-up=`can-review-cutover`、automation acknowledgement follow-up=`passing`、acknowledgement renewal follow-up=`not-required`。后续如果真实值班产物再次变化，状态板也可能回到 `review-slow-queries`、`review-query-failures`、`acknowledged-operational-remediation-gated`、`renew-soon` 或 `renew-required` 等运维态；这些都属于运维队列，不等于当前分支代码或产品闭环倒退。
+5. **运维后续动作**：当前 live evidence 下，PostgreSQL follow-up=`can-review-cutover`、automation acknowledgement follow-up=`passing`、acknowledgement renewal follow-up=`not-required`。后续如果真实值班产物再次变化，状态板应继续按 live evidence 回读并滚动更新，可能回到 `review-slow-queries`、`review-query-failures`、`acknowledged-operational-remediation-gated`、`renew-soon` 或 `renew-required` 等运维态；这些都属于运维队列，不等于当前分支代码或产品闭环倒退。
 
 ## 说明
 

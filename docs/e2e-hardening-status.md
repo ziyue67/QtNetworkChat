@@ -22,3 +22,9 @@ QtNetworkChat treats the server as a transparent carrier for private-message E2E
 ## Production Crypto Closeout Boundary
 
 - Linked reviewed OpenSSL builds now produce a current-HEAD production-linked release artifact that reaches `ready-local-verification-only` under the repo policy that disables GitHub Windows Build. Default unlinked builds remain fail-closed, and probe fixtures stay validation-only. The local release review bundle now archives the current-head production-linked evidence together with S3/governance/PostgreSQL closeout evidence, the release archive decision bundle records the final local archive state separately from publication state, and the local release delivery handoff bundle adds the current-head Windows package, upload plan, installer bootstrap, and sanitized diagnostics collector. Any environment-specific publishing step still sits outside the verified code gate and must be recorded explicitly rather than inferred from local verification. For this branch, production crypto remains a recorded closeout boundary and evidence lane rather than an open-ended feature expansion track.
+
+## Maintenance Rule
+
+- Keep this document aligned with the active closeout baseline, not with older rollout-only artifacts.
+- If closeout artifacts, production-linked evidence wording, or publication-state framing changes, update this document in the same maintenance pass as `README.md`, `docs/release-closeout.md`, and `docs/automation-status.md`.
+- Let operational/live follow-up states continue to roll in `docs/automation-status.md`; this document should keep the durable E2E closeout boundary and current verified semantics.

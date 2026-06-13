@@ -73,3 +73,11 @@ The current repository baseline is already closed out for repo scope. The remain
 - Acknowledgement reminder is currently `not-required`; it may later move between `renew-soon`, `renew-required`, or `not-required` as live task history rolls forward. Treat it as operational freshness metadata, not a reopened code-closeout failure.
 
 These items are useful to keep visible, but they do not invalidate the local release review, archive decision, closeout summary, or final local archive that already exist for the verified current-head baseline.
+
+## Ongoing Maintenance
+
+After repo-scope closeout is complete, the maintenance rule is simple:
+
+- Keep `README.md`, `docs/automation-status.md`, `docs/release-closeout.md`, and `docs/e2e-hardening-status.md` synchronized whenever closeout artifacts, publication state, or status-script readback changes.
+- Treat `docs/automation-status.md` as the rolling live-evidence surface for operational follow-up states, while the other docs keep the durable semantics and current-head closeout boundary.
+- Update documentation and closeout artifacts in the same maintenance slice so the repository does not drift into mixed generations of current-state wording.
