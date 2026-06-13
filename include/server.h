@@ -81,6 +81,8 @@ private:
     bool ensureServiceReady(QTcpSocket* socket, const QString& action);
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
+    bool publishRedisPresenceEvent(const QString& userId, const QString& action) const;
+    void refreshConnectedClientViews();
     bool isRedisUserOnline(const QString& userId, bool* online = nullptr) const;
     bool canPublishRedisMessageEvent(const Message& msg, const QString& deliveryState) const;
     bool publishRedisMessageEvent(const Message& msg, const QString& deliveryState);

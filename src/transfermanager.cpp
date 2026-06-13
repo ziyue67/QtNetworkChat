@@ -44,6 +44,43 @@ QString transferManifestSummary(qint64 totalBytes, qint64 chunkSize, qint64 chun
     return parts.join(QStringLiteral(" · "));
 }
 
+QString recoverySourceLabel(const QString& recoveryMode,
+                            const QString& recoveryReason,
+                            const QString& recoveryAction) {
+    const QString mode = recoveryMode.trimmed().toLower();
+    const QString reason = recoveryReason.trimmed().toLower();
+    const QString action = recoveryAction.trimmed().toLower();
+    if (reason.contains(QStringLiteral("same-wire")) || action.contains(QStringLiteral("same-wire"))) {
+        return QStringLiteral("same-wire 本机密文缓存");
+    }
+    if (reason.contains(QStringLiteral("filesystem-object"))
+            || action.contains(QStringLiteral("filesystem-object"))) {
+        return QStringLiteral("filesystem object 密文回读");
+    }
+    if (reason.contains(QStringLiteral("s3-object"))
+            || action.contains(QStringLiteral("s3-object"))
+            || reason.contains(QStringLiteral("reviewed-s3"))
+            || action.contains(QStringLiteral("reviewed-s3"))) {
+        return QStringLiteral("reviewed S3 密文回读");
+    }
+    if (reason.contains(QStringLiteral("offline-object"))
+            || action.contains(QStringLiteral("offline-object"))
+            || reason.contains(QStringLiteral("offline-mirror"))
+            || action.contains(QStringLiteral("offline-mirror"))) {
+        return QStringLiteral("reviewed offline mirror 密文回读");
+    }
+    if (reason.contains(QStringLiteral("object-recovery-ready")) || action.contains(QStringLiteral("object-wire-envelope"))) {
+        return QStringLiteral("object/offline 密文回读");
+    }
+    if (reason.contains(QStringLiteral("object")) || action.contains(QStringLiteral("object"))) {
+        return QStringLiteral("object/offline 候选证据");
+    }
+    if (mode == QLatin1String("resend") || action.contains(QStringLiteral("resend"))) {
+        return QStringLiteral("手动重发");
+    }
+    return QStringLiteral("普通续传");
+}
+
 int transferPercent(qint64 bytesPrepared, qint64 totalBytes) {
     return totalBytes > 0
         ? qBound(0, static_cast<int>((bytesPrepared * 100) / totalBytes), 100)
@@ -152,8 +189,10 @@ TransferRecoveryUiState TransferManager::recoveryUiState(bool hasSavedTransfer,
     result.targetName = savedTransferTargetName(state);
     result.detail = QStringLiteral("检测到未完成发送：%1 -> %2").arg(result.fileName, result.targetName);
     result.e2eFileEncrypted = recoveryStatus.value(QStringLiteral("e2eFileEncrypted")).toBool(false);
+    result.recoveryAction = recoveryStatus.value(QStringLiteral("action")).toString();
     result.recoveryMode = recoveryStatus.value(QStringLiteral("recoveryMode")).toString();
     result.recoveryReason = recoveryStatus.value(QStringLiteral("reason")).toString();
+    result.recoverySource = recoverySourceLabel(result.recoveryMode, result.recoveryReason, result.recoveryAction);
     result.resumeToolTip = result.canAutoResume
         ? result.detail
         : result.detail + QStringLiteral("（需要重新发送，原因：%1）").arg(result.recoveryReason);

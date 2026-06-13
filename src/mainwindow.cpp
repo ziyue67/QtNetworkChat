@@ -55,8 +55,99 @@
 #include <QDateEdit>
 #include <QDialogButtonBox>
 #include <QCryptographicHash>
+#include <QPainterPath>
+#include <QStyledItemDelegate>
+#include <QBuffer>
 
 namespace {
+enum ChatVisualRole {
+    ChatSenderIdRole = Qt::UserRole + 900,
+    ChatSenderNameRole,
+    ChatAvatarPathRole,
+    ChatOutgoingRole,
+    ChatSystemRole
+};
+
+QPixmap roundAvatarPixmap(const QPixmap& source, int side);
+QIcon generatedPeerAvatarIcon(const QString& displayName, const QString& seedId, int side);
+
+class ChatMessageDelegate : public QStyledItemDelegate {
+public:
+    explicit ChatMessageDelegate(QObject* parent = nullptr)
+        : QStyledItemDelegate(parent) {
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        const bool system = index.data(ChatSystemRole).toBool();
+        const int width = qMax(360, option.rect.width() > 0 ? option.rect.width() : 640);
+        QFontMetrics fm(option.font);
+        const int maxTextWidth = system ? width - 80 : qMin(520, qMax(240, width - 156));
+        const QRect textBounds = fm.boundingRect(QRect(0, 0, maxTextWidth, 1000),
+                                                 Qt::TextWordWrap,
+                                                 index.data(Qt::DisplayRole).toString());
+        return QSize(width, qMax(system ? 42 : 58, textBounds.height() + (system ? 22 : 30)));
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        const QString text = index.data(Qt::DisplayRole).toString();
+        const bool outgoing = index.data(ChatOutgoingRole).toBool();
+        const bool system = index.data(ChatSystemRole).toBool();
+        const QRect rect = option.rect.adjusted(10, 4, -10, -4);
+        QFontMetrics fm(option.font);
+
+        if (system) {
+            const int maxWidth = qMin(rect.width() - 40, 620);
+            const QRect textRect = fm.boundingRect(QRect(0, 0, maxWidth, 1000), Qt::TextWordWrap, text);
+            const QRect bubble(QPoint(rect.center().x() - textRect.width() / 2 - 14, rect.top() + 5),
+                               QSize(textRect.width() + 28, textRect.height() + 14));
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(QColor(245, 247, 250));
+            painter->drawRoundedRect(bubble, 13, 13);
+            painter->setPen(QColor(102, 116, 130));
+            painter->drawText(bubble.adjusted(14, 7, -14, -7), Qt::TextWordWrap | Qt::AlignCenter, text);
+            painter->restore();
+            return;
+        }
+
+        const int avatarSize = 38;
+        const int sideInset = 14;
+        const int avatarX = outgoing ? rect.right() - avatarSize - sideInset : rect.left() + sideInset;
+        const QRect avatarRect(avatarX, rect.top() + 8, avatarSize, avatarSize);
+        QPixmap avatar;
+        const QString avatarPath = index.data(ChatAvatarPathRole).toString();
+        if (!avatarPath.isEmpty()) {
+            avatar.load(avatarPath);
+        }
+        if (avatar.isNull()) {
+            avatar = generatedPeerAvatarIcon(index.data(ChatSenderNameRole).toString(),
+                                             index.data(ChatSenderIdRole).toString(),
+                                             avatarSize).pixmap(avatarSize, avatarSize);
+        } else {
+            avatar = roundAvatarPixmap(avatar, avatarSize);
+        }
+        painter->drawPixmap(avatarRect, avatar);
+
+        const int maxBubbleWidth = qMin(560, qMax(250, rect.width() - avatarSize - 88));
+        const QRect textBounds = fm.boundingRect(QRect(0, 0, maxBubbleWidth, 1000), Qt::TextWordWrap, text);
+        const QSize bubbleSize(textBounds.width() + 28, textBounds.height() + 20);
+        const int bubbleX = outgoing
+            ? avatarRect.left() - 10 - bubbleSize.width()
+            : avatarRect.right() + 10;
+        const QRect bubbleRect(QPoint(bubbleX, rect.top() + 6), bubbleSize);
+
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(outgoing ? QColor(218, 241, 255) : QColor(246, 250, 253));
+        painter->drawRoundedRect(bubbleRect, 14, 14);
+        painter->setPen(outgoing ? QColor(20, 92, 160) : QColor(38, 50, 56));
+        painter->drawText(bubbleRect.adjusted(14, 10, -14, -10), Qt::TextWordWrap, text);
+
+        painter->restore();
+    }
+};
+
 void applyTransferActionState(QAction* action, const TransferActionUiState& state) {
     if (!action) return;
     action->setVisible(state.visible);
@@ -299,6 +390,50 @@ QPixmap squareAvatarPixmap(const QPixmap& source, int side) {
     const int x = qMax(0, (scaled.width() - side) / 2);
     const int y = qMax(0, (scaled.height() - side) / 2);
     return scaled.copy(x, y, side, side);
+}
+
+QPixmap roundAvatarPixmap(const QPixmap& source, int side) {
+    const QPixmap square = squareAvatarPixmap(source, side);
+    if (square.isNull() || side <= 0) {
+        return QPixmap();
+    }
+
+    QPixmap rounded(side, side);
+    rounded.fill(Qt::transparent);
+    QPainter painter(&rounded);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QPainterPath path;
+    path.addEllipse(0, 0, side, side);
+    painter.setClipPath(path);
+    painter.drawPixmap(0, 0, square);
+    return rounded;
+}
+
+QIcon generatedPeerAvatarIcon(const QString& displayName, const QString& seedId, int side = 36) {
+    QPixmap pixmap(side, side);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QByteArray hash = QCryptographicHash::hash((seedId + "|" + displayName).toUtf8(), QCryptographicHash::Sha1);
+    const int hue = hash.isEmpty() ? 210 : static_cast<unsigned char>(hash.at(0)) % 360;
+    QColor start = QColor::fromHsv(hue, 120, 220);
+    QColor end = QColor::fromHsv((hue + 28) % 360, 150, 200);
+    QLinearGradient gradient(0, 0, side, side);
+    gradient.setColorAt(0.0, start);
+    gradient.setColorAt(1.0, end);
+    painter.setBrush(gradient);
+    painter.setPen(Qt::NoPen);
+    painter.drawEllipse(0, 0, side, side);
+
+    QFont font = painter.font();
+    font.setFamily(QStringLiteral("Microsoft YaHei"));
+    font.setBold(true);
+    font.setPixelSize(qMax(14, side / 2));
+    painter.setFont(font);
+    painter.setPen(QColor(255, 255, 255, 245));
+    painter.drawText(QRect(0, 0, side, side), Qt::AlignCenter, displayName.trimmed().isEmpty() ? QStringLiteral("?") : displayName.left(1).toUpper());
+    return QIcon(pixmap);
 }
 
 QString appWindowTitle(const QString& suffix = QString()) {
@@ -965,6 +1100,15 @@ bool MainWindow::persistAvatarPixmap(const QPixmap& pixmap, const QFileInfo& inf
 
     ui->avatarLabel->setPixmap(squareAvatarPixmap(savedAvatar, ui->avatarLabel->width()));
     saveProfileToSqlite();
+    QByteArray avatarBytes;
+    QBuffer avatarBuffer(&avatarBytes);
+    if (avatarBuffer.open(QIODevice::WriteOnly) && savedAvatar.save(&avatarBuffer, "PNG")) {
+        if (m_client && m_client->isConnected()) {
+            m_client->sendAvatarUpdate(avatarBytes);
+        } else if (m_client) {
+            m_client->setAvatarData(avatarBytes);
+        }
+    }
     const LocalAvatarAppliedState appliedState = LocalFileManager::avatarAppliedState(info);
     ui->avatarLabel->setToolTip(appliedState.toolTip);
     ui->uploadAvatarBtn->setToolTip(appliedState.toolTip);
@@ -1691,6 +1835,9 @@ void MainWindow::setupUi() {
 
     m_chatModel->setHorizontalHeaderLabels({"聊天记录"});
     ui->chatListView->setModel(m_chatModel);
+    ui->chatListView->setItemDelegate(new ChatMessageDelegate(ui->chatListView));
+    ui->chatListView->setIconSize(QSize(34, 34));
+    ui->chatListView->setSpacing(8);
     ui->chatListView->setContextMenuPolicy(Qt::CustomContextMenu);
     ui->chatListView->setToolTip("右键消息可复制、引用和转发；双击带保存路径的文件记录可直接打开文件");
 
@@ -1988,9 +2135,9 @@ void MainWindow::setupUi() {
             outline: none;
         }
         QListView#chatListView::item {
-            min-height: 32px;
-            padding: 8px 12px;
-            margin: 4px 0;
+            min-height: 58px;
+            padding: 0;
+            margin: 0;
             border-radius: 14px;
         }
         QListView#chatListView::item:hover {
@@ -3118,6 +3265,7 @@ void MainWindow::onSendMessage() {
 
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
+        decorateChatItem(item, m_currentUserId, m_currentUserName, true);
         item->setForeground(QColor(20, 92, 160));
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -3180,6 +3328,7 @@ void MainWindow::onSendMessage() {
 
         QStandardItem* item = new QStandardItem(line);
         item->setEditable(false);
+        decorateChatItem(item, m_currentUserId, m_currentUserName, true);
         item->setForeground(QColor(20, 92, 160));
         item->setBackground(QColor(218, 241, 255));
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -3314,6 +3463,7 @@ void MainWindow::onSendImage() {
 
 void MainWindow::onNewMessage(const Message& msg) {
     QString displayName = msg.senderName;
+    const QString avatarUserId = msg.senderId == m_currentUserId ? m_currentUserId : msg.senderId;
     if (msg.type == MessageType::System) {
         appendSystemMessage(msg.content);
         return;
@@ -3365,6 +3515,7 @@ void MainWindow::onNewMessage(const Message& msg) {
 
     QStandardItem* item = new QStandardItem(line);
     item->setEditable(false);
+    decorateChatItem(item, avatarUserId, displayName, msg.senderId == m_currentUserId);
     if (msg.isPrivate()) {
         item->setForeground(Qt::darkMagenta);
         item->setBackground(QColor(252, 240, 255));
@@ -3431,6 +3582,7 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
     m_knownUsers.clear();
     for (const ChatUser& user : users) {
         m_knownUsers[user.id] = user;
+        cachePeerAvatar(user);
     }
     refreshFriendList();
     if (!m_privateChatTarget.isEmpty()) {
@@ -7078,6 +7230,7 @@ void MainWindow::appendSystemMessage(const QString& text) {
     QString line = QString("[%1] [系统] %2").arg(timeStr, text);
     QStandardItem* item = new QStandardItem(line);
     item->setEditable(false);
+    decorateChatItem(item, QString(), QStringLiteral("系统"), false, true);
     item->setBackground(QColor(245, 247, 250));
     item->setForeground(Qt::darkGray);
     m_chatModel->appendRow(item);
@@ -7519,6 +7672,90 @@ void MainWindow::saveHistory(const QString& peerId,
                              const QString& e2eKeyId,
                              const QString& e2eKeyFingerprint) {
     m_historyService.save(peerId, content, encryptionState, e2eKeyId, e2eKeyFingerprint);
+}
+
+void MainWindow::cachePeerAvatar(const ChatUser& user) {
+    if (user.id.trimmed().isEmpty() || user.avatar.trimmed().isEmpty()) {
+        return;
+    }
+
+    const QByteArray avatarBytes = QByteArray::fromBase64(user.avatar.toLatin1());
+    if (avatarBytes.isEmpty()) {
+        return;
+    }
+
+    if (!m_clientStorage.savePeerAvatar(user.id, avatarBytes)) {
+        return;
+    }
+
+    if (ensureClientDatabase()) {
+        m_clientStorage.savePeerAvatarToSqlite(clientDbPath(), user.id, m_clientStorage.peerAvatarFilePath(user.id));
+    }
+}
+
+QString MainWindow::peerAvatarPath(const QString& userId) const {
+    if (userId.trimmed().isEmpty()) {
+        return QString();
+    }
+
+    const QString filePath = m_clientStorage.peerAvatarFilePath(userId);
+    if (QFileInfo::exists(filePath)) {
+        return filePath;
+    }
+
+    if (ensureClientDatabase()) {
+        const QMap<QString, QString> peerIndex = m_clientStorage.loadPeerAvatarIndexFromSqlite(clientDbPath());
+        const QString indexedPath = peerIndex.value(userId).trimmed();
+        if (!indexedPath.isEmpty() && QFileInfo::exists(indexedPath)) {
+            return indexedPath;
+        }
+    }
+    return QString();
+}
+
+QString MainWindow::chatAvatarPath(const QString& userId) const {
+    const QString trimmedUserId = userId.trimmed();
+    if (trimmedUserId.isEmpty()) {
+        return QString();
+    }
+    if (trimmedUserId == m_currentUserId) {
+        const QString selfAvatarPath = getAvatarFilePath();
+        if (QFileInfo::exists(selfAvatarPath)) {
+            return selfAvatarPath;
+        }
+    }
+    return peerAvatarPath(trimmedUserId);
+}
+
+QIcon MainWindow::peerAvatarIcon(const QString& userId, const QString& displayName) const {
+    const QString avatarPath = chatAvatarPath(userId);
+    if (!avatarPath.isEmpty()) {
+        const QPixmap avatarPixmap(avatarPath);
+        const QPixmap rounded = roundAvatarPixmap(avatarPixmap, 34);
+        if (!rounded.isNull()) {
+            return QIcon(rounded);
+        }
+    }
+    return generatedPeerAvatarIcon(displayName, userId, 34);
+}
+
+void MainWindow::decorateChatItem(QStandardItem* item,
+                                  const QString& senderId,
+                                  const QString& senderName,
+                                  bool outgoing,
+                                  bool system) const {
+    if (!item) {
+        return;
+    }
+
+    item->setData(senderId, ChatSenderIdRole);
+    item->setData(senderName, ChatSenderNameRole);
+    item->setData(chatAvatarPath(senderId), ChatAvatarPathRole);
+    item->setData(outgoing, ChatOutgoingRole);
+    item->setData(system, ChatSystemRole);
+    if (!system) {
+        item->setIcon(peerAvatarIcon(senderId, senderName));
+    }
 }
 
 bool MainWindow::ensureClientDatabase() const {
@@ -8060,6 +8297,15 @@ void MainWindow::loadAvatar() {
     QPixmap pixmap(avatarPath);
     if (!pixmap.isNull()) {
         ui->avatarLabel->setPixmap(squareAvatarPixmap(pixmap, ui->avatarLabel->width()));
+        QFile avatarFile(avatarPath);
+        if (m_client && avatarFile.open(QIODevice::ReadOnly)) {
+            const QByteArray avatarBytes = avatarFile.readAll();
+            if (m_client->isConnected()) {
+                m_client->sendAvatarUpdate(avatarBytes);
+            } else {
+                m_client->setAvatarData(avatarBytes);
+            }
+        }
         QFileInfo info(avatarPath);
         const QString avatarTip = QString("当前头像：本地头像 · %1；点击“换头像”重新选择")
                                       .arg(LocalFileManager::humanFileSize(info.size()));

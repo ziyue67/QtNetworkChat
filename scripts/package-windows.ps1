@@ -208,6 +208,49 @@ function Copy-PostgresSqlRuntime {
     }
 }
 
+function Copy-QtSqliteRuntime {
+    param(
+        [string]$StagePath,
+        [string]$QtRuntimeRoot
+    )
+
+    $copied = @()
+    $missing = @()
+    $pluginSource = $null
+    $pluginTarget = $null
+
+    if ([string]::IsNullOrWhiteSpace($QtRuntimeRoot)) {
+        $missing += "Qt runtime root"
+    } else {
+        $candidate = Join-Path $QtRuntimeRoot "plugins\sqldrivers\qsqlite.dll"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $pluginSource = (Resolve-Path -LiteralPath $candidate).Path
+            $targetDir = Join-Path $StagePath "sqldrivers"
+            New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+            $pluginTarget = Join-Path $targetDir "qsqlite.dll"
+            Copy-Item -LiteralPath $pluginSource -Destination $pluginTarget -Force
+            $copied += [pscustomobject]@{
+                name = "qsqlite.dll"
+                source = $pluginSource
+                path = "sqldrivers/qsqlite.dll"
+                size = (Get-Item -LiteralPath $pluginTarget).Length
+            }
+        } else {
+            $missing += "qsqlite.dll"
+        }
+    }
+
+    return [pscustomobject]@{
+        requested = $true
+        ok = $missing.Count -eq 0
+        qtRoot = $QtRuntimeRoot
+        pluginSource = $pluginSource
+        pluginTarget = if ($pluginTarget) { $pluginTarget.Substring($StagePath.Length).TrimStart('\', '/') } else { $null }
+        copiedFiles = $copied
+        missing = $missing
+    }
+}
+
 function Find-BuiltExecutable([string]$BuildPath) {
     $candidates = New-Object System.Collections.Generic.List[System.IO.FileInfo]
     $excludedSegments = @(
@@ -334,8 +377,12 @@ $postgresSqlRuntime = [pscustomobject]@{
     copiedFiles = @()
     missing = @()
 }
+$resolvedQtRoot = Resolve-QtRuntimeRoot -ExplicitQtRoot $QtRoot -BuildPath $buildPath -DeployToolPath $deployToolPath
+$sqliteRuntime = Copy-QtSqliteRuntime -StagePath $stagePath -QtRuntimeRoot $resolvedQtRoot
+if (-not $sqliteRuntime.ok) {
+    Write-Warning ("SQLite SQL runtime check has warnings. Missing: {0}" -f ($sqliteRuntime.missing -join ", "))
+}
 if ($IncludePostgresSql) {
-    $resolvedQtRoot = Resolve-QtRuntimeRoot -ExplicitQtRoot $QtRoot -BuildPath $buildPath -DeployToolPath $deployToolPath
     Write-Host "Collecting PostgreSQL Qt SQL runtime"
     $postgresSqlRuntime = Copy-PostgresSqlRuntime -StagePath $stagePath -QtRuntimeRoot $resolvedQtRoot -PostgresBinDir $PostgresBinDir
     if ($FailOnMissingPostgresSql -and -not $postgresSqlRuntime.ok) {
@@ -361,6 +408,7 @@ $manifest = [ordered]@{
     executableSize = $exe.Length
     deployTool = if ($deployToolPath) { $deployToolPath } else { $null }
     runtimeCheck = $runtimeCheck
+    sqliteRuntime = $sqliteRuntime
     postgresSqlRuntime = $postgresSqlRuntime
     files = @(Get-ChildItem -LiteralPath $stagePath -File -Recurse | ForEach-Object {
         [pscustomobject]@{

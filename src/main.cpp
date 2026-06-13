@@ -25,11 +25,53 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTcpSocket>
 
 namespace {
 bool envEnabled(const char* name) {
     const QByteArray value = qgetenv(name).trimmed().toLower();
     return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+bool canConnectToRedisEndpoint(const QString& host, quint16 port, int timeoutMs = 250) {
+    QTcpSocket socket;
+    socket.connectToHost(host, port);
+    const bool connected = socket.waitForConnected(timeoutMs);
+    if (connected) {
+        socket.disconnectFromHost();
+    }
+    return connected;
+}
+
+void ensureDesktopRedisEnvironment() {
+    if (envEnabled("QTNETWORKCHAT_REDIS")) {
+        return;
+    }
+
+    const QByteArray configuredHost = qgetenv("QTNETWORKCHAT_REDIS_HOST").trimmed();
+    const QString host = configuredHost.isEmpty()
+        ? QStringLiteral("127.0.0.1")
+        : QString::fromLocal8Bit(configuredHost);
+    bool portOk = false;
+    const int configuredPort = QString::fromLocal8Bit(qgetenv("QTNETWORKCHAT_REDIS_PORT")).trimmed().toInt(&portOk);
+    const quint16 port = portOk && configuredPort > 0 && configuredPort <= 65535
+        ? static_cast<quint16>(configuredPort)
+        : static_cast<quint16>(6379);
+
+    if (!canConnectToRedisEndpoint(host, port)) {
+        return;
+    }
+
+    qputenv("QTNETWORKCHAT_REDIS", "1");
+    if (configuredHost.isEmpty()) {
+        qputenv("QTNETWORKCHAT_REDIS_HOST", host.toUtf8());
+    }
+    if (qgetenv("QTNETWORKCHAT_REDIS_PORT").trimmed().isEmpty()) {
+        qputenv("QTNETWORKCHAT_REDIS_PORT", QByteArray::number(port));
+    }
+    if (qgetenv("QTNETWORKCHAT_REDIS_PREFIX").trimmed().isEmpty()) {
+        qputenv("QTNETWORKCHAT_REDIS_PREFIX", "qtchat");
+    }
 }
 
 QString appDataDir() {
@@ -515,6 +557,7 @@ private:
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+    ensureDesktopRedisEnvironment();
     a.setApplicationName("QtNetworkChat");
     a.setApplicationVersion("1.0.0");
     a.setStyle(QStyleFactory::create("Fusion"));

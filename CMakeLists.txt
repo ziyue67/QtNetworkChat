@@ -193,6 +193,16 @@ if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
     target_link_libraries(QtNetworkChat PRIVATE OpenSSL::Crypto)
 endif()
 
+set(QTNETWORKCHAT_QSQLITE_PLUGIN "$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/../plugins/sqldrivers/qsqlite.dll")
+add_custom_command(TARGET QtNetworkChat POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:QtNetworkChat>/sqldrivers"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QTNETWORKCHAT_QSQLITE_PLUGIN}"
+        "$<TARGET_FILE_DIR:QtNetworkChat>/sqldrivers/qsqlite.dll"
+    COMMENT "Deploying Qt SQLite driver for local account/group/avatar persistence"
+    VERBATIM
+)
+
 add_executable(sqlite_to_postgres_migrator
     tools/sqlite_to_postgres_migrator.cpp
 )

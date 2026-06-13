@@ -17,6 +17,7 @@ int main() {
     Message original;
     original.senderId = "10001";
     original.senderName = "Alice";
+    original.senderAvatar = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
     original.receiverId = "10002";
     original.content = "file payload";
     original.fileName = "report.bin";
@@ -56,6 +57,7 @@ int main() {
     bool ok = true;
     ok = expect(restored.senderId == original.senderId, "senderId should round-trip") && ok;
     ok = expect(restored.senderName == original.senderName, "senderName should round-trip") && ok;
+    ok = expect(restored.senderAvatar == original.senderAvatar, "senderAvatar should round-trip") && ok;
     ok = expect(restored.receiverId == original.receiverId, "receiverId should round-trip") && ok;
     ok = expect(restored.content == original.content, "content should round-trip") && ok;
     ok = expect(restored.fileName == original.fileName, "fileName should round-trip") && ok;

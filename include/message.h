@@ -20,6 +20,7 @@ enum class MessageType {
 struct Message {
     QString senderId;
     QString senderName;
+    QString senderAvatar;
     QString receiverId;       // empty means broadcast
     QString content;
     QByteArray fileData;

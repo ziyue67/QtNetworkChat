@@ -8,6 +8,7 @@ QByteArray Message::toJson() const {
     QJsonObject obj;
     obj["senderId"] = senderId;
     obj["senderName"] = senderName;
+    obj["senderAvatar"] = senderAvatar;
     obj["receiverId"] = receiverId;
     obj["content"] = content;
     obj["type"] = static_cast<int>(type);
@@ -54,6 +55,7 @@ Message Message::fromJson(const QByteArray& json) {
     QJsonObject obj = doc.object();
     msg.senderId = obj["senderId"].toString();
     msg.senderName = obj["senderName"].toString();
+    msg.senderAvatar = obj["senderAvatar"].toString();
     msg.receiverId = obj["receiverId"].toString();
     msg.content = obj["content"].toString();
     msg.type = static_cast<MessageType>(obj["type"].toInt());

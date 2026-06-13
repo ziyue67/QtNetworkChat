@@ -77,6 +77,13 @@ MOC_DIR = $$PWD/build/moc
 RCC_DIR = $$PWD/build/rcc
 UI_DIR = $$PWD/build/ui
 
+win32 {
+    QSQLITE_SOURCE = $$[QT_INSTALL_PLUGINS]/sqldrivers/qsqlite.dll
+    QSQLITE_TARGET = $$DESTDIR/sqldrivers/qsqlite.dll
+    QMAKE_POST_LINK += $$QMAKE_MKDIR $$shell_path($$DESTDIR/sqldrivers) $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$QMAKE_COPY $$shell_path($$QSQLITE_SOURCE) $$shell_path($$QSQLITE_TARGET) $$escape_expand(\\n\\t)
+}
+
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target

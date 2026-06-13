@@ -4339,6 +4339,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.type = static_cast<MessageType>(obj["messageType"].toInt());
         msg.senderId = obj["senderId"].toString();
         msg.senderName = obj["senderName"].toString();
+        msg.senderAvatar = obj["senderAvatar"].toString();
         msg.receiverId = obj["receiverId"].toString();
         msg.content = obj["content"].toString();
         msg.timestamp = QDateTime::currentDateTime();
@@ -4374,6 +4375,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.type = static_cast<MessageType>(obj["messageType"].toInt(static_cast<int>(MessageType::File)));
         msg.senderId = obj["senderId"].toString();
         msg.senderName = obj["senderName"].toString();
+        msg.senderAvatar = obj["senderAvatar"].toString();
         msg.receiverId = obj["receiverId"].toString();
         msg.content = obj["content"].toString();
         msg.fileName = obj["fileName"].toString();
@@ -4401,6 +4403,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         msg.type = MessageType::Text;
         msg.senderId = obj["senderId"].toString();
         msg.senderName = obj["senderName"].toString();
+        msg.senderAvatar = obj["senderAvatar"].toString();
         msg.receiverId = obj["groupId"].toString(obj["receiverId"].toString());
         msg.content = obj["content"].toString();
         msg.timestamp = QDateTime::currentDateTime();

@@ -33,6 +33,7 @@ class QAction;
 class QLabel;
 class QListWidget;
 class QLineEdit;
+class QIcon;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -199,6 +200,15 @@ private:
     bool copySavedFilePathToClipboard(const ChatContextSavedFileCommand& command);
     bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     bool openSavedFolderFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
+    void cachePeerAvatar(const ChatUser& user);
+    QString peerAvatarPath(const QString& userId) const;
+    QIcon peerAvatarIcon(const QString& userId, const QString& displayName) const;
+    QString chatAvatarPath(const QString& userId) const;
+    void decorateChatItem(QStandardItem* item,
+                          const QString& senderId,
+                          const QString& senderName,
+                          bool outgoing,
+                          bool system = false) const;
     void copyTextWithStatus(const QString& text, const QString& statusMessage, int timeoutMs = 1800);
     bool confirmAction(const QString& title,
                        const QString& message,

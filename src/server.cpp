@@ -368,13 +368,6 @@ void recordAccountDatabaseOpenFailure(const QString& scope, const QSqlError& err
     metrics.lastFailureScope = scope;
 }
 
-void recordAccountDatabaseBackoffSkip(const QString& scope) {
-    QMutexLocker locker(&accountDatabasePoolMutex());
-    AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
-    ++metrics.backoffSkips;
-    metrics.lastFailureScope = scope;
-}
-
 void recordAccountDatabaseQueryResult(const QString& scope, qint64 elapsedMs, bool ok, const QSqlError& error = QSqlError()) {
     QMutexLocker locker(&accountDatabasePoolMutex());
     AccountDatabasePoolMetrics& metrics = accountDatabasePoolMetrics();
@@ -1430,6 +1423,8 @@ void Server::onClientReadyRead() {
                 obj["receivedBytes"].toVariant().toLongLong());
         } else if (type == "private") {
             handleMessage(obj, socket);
+        } else if (type == "profile_update") {
+            handleProfileUpdate(obj, socket);
         } else if (type == "e2e_identity_announce") {
             handleE2EIdentityAnnouncement(obj, socket);
         } else if (type == "e2e_key_rotation_request" || type == "e2e_key_rotation_response") {
@@ -1481,11 +1476,7 @@ void Server::onClientDisconnected() {
         sysMsg.content = userName + " 离开了聊天室";
         sysMsg.timestamp = QDateTime::currentDateTime();
         broadcastMessage(sysMsg, socket);
-        for (QTcpSocket* clientSocket : m_clients.keys()) {
-            if (clientSocket->state() == QAbstractSocket::ConnectedState) {
-                sendUserList(clientSocket);
-            }
-        }
+        refreshConnectedClientViews();
 
         qDebug() << "User disconnected:" << userName;
     }
@@ -1626,8 +1617,12 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
         accountObj["passwordHash"] = passwordHash;
         accountObj["userName"] = userName;
         accountObj["userId"] = account;
+        accountObj["avatar"] = obj["avatar"].toString();
         accounts[account] = accountObj;
-        insertAccountToSqlite(account, passwordHash, userName);
+        insertAccountToSqlite(account,
+                              passwordHash,
+                              userName,
+                              accountObj["avatar"].toString());
     } else if (accounts.contains(account)) {
         QJsonObject accountObj = accounts[account].toObject();
         QString storedHash = accountObj["passwordHash"].toString();
@@ -1636,7 +1631,10 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
             accountObj.remove("password");
             accountObj["passwordHash"] = storedHash;
             accounts[account] = accountObj;
-            insertAccountToSqlite(account, storedHash, accountObj["userName"].toString(userName));
+            insertAccountToSqlite(account,
+                                  storedHash,
+                                  accountObj["userName"].toString(userName),
+                                  accountObj["avatar"].toString());
         }
         bool needsPasswordHashUpgrade = false;
         if (!verifyStoredPasswordHash(account, password, storedHash, &needsPasswordHashUpgrade)) {
@@ -1672,6 +1670,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     ChatUser user;
     user.id = account.isEmpty() ? QString::number(QDateTime::currentMSecsSinceEpoch()) : account;
     user.name = userName;
+    user.avatar = accounts.value(user.id).toObject().value("avatar").toString();
     user.address = socket->peerAddress();
     user.port = socket->peerPort();
     user.isOnline = true;
@@ -1695,13 +1694,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     socket->write("\n");
     socket->flush();
 
-    sendUserList(socket);
-    sendServerGroupSnapshot(user.id, socket);
-    for (QTcpSocket* clientSocket : m_clients.keys()) {
-        if (clientSocket != socket && clientSocket->state() == QAbstractSocket::ConnectedState) {
-            sendUserList(clientSocket);
-        }
-    }
+    refreshConnectedClientViews();
     emit userJoined(user.id, user.name);
     emit clientConnected(user.id);
 
@@ -1735,6 +1728,7 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
     if (ChatUser* sender = findUserBySocket(socket)) {
         msg.senderId = sender->id;
         msg.senderName = sender->name;
+        msg.senderAvatar = sender->avatar;
     }
 
     if (obj.value("e2eEnvelope").isObject()) {
@@ -1769,6 +1763,12 @@ void Server::handleMessage(const QJsonObject& obj, QTcpSocket* socket) {
             }
         }
     } else {
+        if (!isServerGroupMember("public", msg.senderId)) {
+            ChatUser* sender = findUserBySocket(socket);
+            if (sender) {
+                recordDefaultGroupMembership(*sender);
+            }
+        }
         if (!isServerGroupMember("public", msg.senderId)) {
             sendSystemNotice(socket, "公共群消息发送失败：你已不在该群组，请联系群主或管理员重新邀请。");
             return;
@@ -1991,6 +1991,37 @@ void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket)
     sendServerGroupSnapshot(requester->id, socket);
 }
 
+void Server::handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket) {
+    ChatUser* user = findUserBySocket(socket);
+    if (!user) {
+        sendSystemNotice(socket, QStringLiteral("头像更新失败：请先登录"));
+        return;
+    }
+
+    const QString avatarBase64 = obj.value("avatar").toString().trimmed();
+    if (!ensureAccountDatabase()) {
+        sendSystemNotice(socket, QStringLiteral("头像更新失败：账号存储不可用"));
+        return;
+    }
+
+    const QJsonObject accounts = loadAccountsFromSqlite();
+    const QJsonObject existing = accounts.value(user->id).toObject();
+    const QString passwordHash = existing.value("passwordHash").toString();
+    const QString userName = existing.value("userName").toString(user->name);
+    if (passwordHash.isEmpty()) {
+        sendSystemNotice(socket, QStringLiteral("头像更新失败：账号资料缺失"));
+        return;
+    }
+
+    if (!insertAccountToSqlite(user->id, passwordHash, userName, avatarBase64)) {
+        sendSystemNotice(socket, QStringLiteral("头像更新失败：保存到账号资料失败"));
+        return;
+    }
+
+    user->avatar = avatarBase64;
+    refreshConnectedClientViews();
+}
+
 void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket) {
     ChatUser* sender = findUserBySocket(socket);
     if (!sender) {
@@ -2034,6 +2065,7 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
     Message msg;
     msg.senderId = sender->id;
     msg.senderName = sender->name;
+    msg.senderAvatar = sender->avatar;
     msg.receiverId = groupId;
     msg.content = content;
     msg.type = MessageType::Text;
@@ -2592,6 +2624,7 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     if (ChatUser* sender = findUserBySocket(socket)) {
         msg.senderId = sender->id;
         msg.senderName = sender->name;
+        msg.senderAvatar = sender->avatar;
     }
     const QString routedGroupId = !serverGroupId.isEmpty()
         ? serverGroupId
@@ -2989,13 +3022,47 @@ void Server::refreshRedisPresence(const ChatUser& user) {
     if (!m_redisClient || !m_redisClient->isEnabled()) return;
     if (!m_redisClient->setPresence(user.id, user.name)) {
         updateRedisCommandAvailability(false, m_redisClient->lastError());
+        return;
     }
+    publishRedisPresenceEvent(user.id, QStringLiteral("online"));
 }
 
 void Server::clearRedisPresence(const QString& userId) {
     if (!m_redisClient || !m_redisClient->isEnabled()) return;
     if (!m_redisClient->clearPresence(userId)) {
         updateRedisCommandAvailability(false, m_redisClient->lastError());
+        return;
+    }
+    publishRedisPresenceEvent(userId, QStringLiteral("offline"));
+}
+
+bool Server::publishRedisPresenceEvent(const QString& userId, const QString& action) const {
+    if (!m_redisClient || !m_redisClient->isEnabled() || userId.trimmed().isEmpty()) {
+        return false;
+    }
+
+    QJsonObject event;
+    event["eventType"] = QStringLiteral("presence_update");
+    event["instanceId"] = m_instanceId;
+    event["userId"] = userId.trimmed();
+    event["action"] = action.trimmed().isEmpty() ? QStringLiteral("online") : action.trimmed();
+    event["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    const bool published = m_redisClient->publish(QStringLiteral("messages"),
+                                                  QJsonDocument(event).toJson(QJsonDocument::Compact));
+    if (!published) {
+        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
+    }
+    return published;
+}
+
+void Server::refreshConnectedClientViews() {
+    for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
+        QTcpSocket* clientSocket = it.key();
+        if (!clientSocket || clientSocket->state() != QAbstractSocket::ConnectedState) {
+            continue;
+        }
+        sendUserList(clientSocket);
+        sendServerGroupSnapshot(it.value().id, clientSocket);
     }
 }
 
@@ -3288,6 +3355,11 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     }
     if (eventType == "large_file_failed") {
         handleRedisLargeFileFailed(event);
+        return;
+    }
+    if (eventType == "presence_update") {
+        if (event["instanceId"].toString() == m_instanceId) return;
+        refreshConnectedClientViews();
         return;
     }
     if (eventType != "chat_message") return;
@@ -3647,19 +3719,20 @@ QJsonObject Server::loadAccountsFromSqlite() const {
     QString connectionName = "accounts_read_" + QString::number(reinterpret_cast<quintptr>(this));
     {
         QSqlDatabase db = openAccountDatabase(connectionName);
-        if (!openAccountDatabaseConnection(db, connectionName)) return accounts;
-
-        QSqlQuery query(db);
-        if (query.exec("SELECT account, password_hash, user_name FROM accounts")) {
-            while (query.next()) {
-                QJsonObject accountObj;
-                accountObj["passwordHash"] = query.value(1).toString();
-                accountObj["userName"] = query.value(2).toString();
-                accountObj["userId"] = query.value(0).toString();
-                accounts[query.value(0).toString()] = accountObj;
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            if (query.exec("SELECT account, password_hash, user_name, COALESCE(avatar, '') FROM accounts")) {
+                while (query.next()) {
+                    QJsonObject accountObj;
+                    accountObj["passwordHash"] = query.value(1).toString();
+                    accountObj["userName"] = query.value(2).toString();
+                    accountObj["avatar"] = query.value(3).toString();
+                    accountObj["userId"] = query.value(0).toString();
+                    accounts[query.value(0).toString()] = accountObj;
+                }
             }
+            db.close();
         }
-        db.close();
     }
     releaseAccountDatabase(connectionName);
 
@@ -3672,10 +3745,15 @@ QJsonObject Server::loadAccountsFromSqlite() const {
                 passwordHash = legacyPasswordHash(it.key(), accountObj["password"].toString());
             }
             QString userName = accountObj["userName"].toString(it.key());
-            if (!passwordHash.isEmpty() && insertAccountToSqlite(it.key(), passwordHash, userName)) {
+            if (!passwordHash.isEmpty()
+                && insertAccountToSqlite(it.key(),
+                                         passwordHash,
+                                         userName,
+                                         accountObj["avatar"].toString())) {
                 QJsonObject migratedObj;
                 migratedObj["passwordHash"] = passwordHash;
                 migratedObj["userName"] = userName;
+                migratedObj["avatar"] = accountObj["avatar"].toString();
                 migratedObj["userId"] = it.key();
                 accounts[it.key()] = migratedObj;
             }
@@ -3685,7 +3763,10 @@ QJsonObject Server::loadAccountsFromSqlite() const {
     return accounts;
 }
 
-bool Server::insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const {
+bool Server::insertAccountToSqlite(const QString& account,
+                                   const QString& passwordHash,
+                                   const QString& userName,
+                                   const QString& avatarBase64) const {
     if (!ensureAccountDatabase()) return false;
 
     QString connectionName = "accounts_write_" + QString::number(reinterpret_cast<quintptr>(this));
@@ -3696,15 +3777,25 @@ bool Server::insertAccountToSqlite(const QString& account, const QString& passwo
             QSqlQuery query(db);
             query.prepare(insertReplaceSql(
                 QStringLiteral("accounts"),
-                {QStringLiteral("account"), QStringLiteral("password_hash"), QStringLiteral("user_name"), QStringLiteral("updated_at")},
-                {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                {QStringLiteral("account"),
+                 QStringLiteral("password_hash"),
+                 QStringLiteral("user_name"),
+                 QStringLiteral("avatar"),
+                 QStringLiteral("updated_at")},
+                {QStringLiteral("?"),
+                 QStringLiteral("?"),
+                 QStringLiteral("?"),
+                 QStringLiteral("?"),
+                 QStringLiteral("CURRENT_TIMESTAMP")},
                 {QStringLiteral("account")},
                 {QStringLiteral("password_hash = EXCLUDED.password_hash"),
                  QStringLiteral("user_name = EXCLUDED.user_name"),
+                 QStringLiteral("avatar = EXCLUDED.avatar"),
                  QStringLiteral("updated_at = EXCLUDED.updated_at")}));
             query.addBindValue(account);
             query.addBindValue(passwordHash);
             query.addBindValue(userName);
+            query.addBindValue(avatarBase64);
             ok = query.exec();
             db.close();
         }
@@ -4035,9 +4126,11 @@ bool Server::ensureAccountDatabase() const {
                             "account TEXT PRIMARY KEY, "
                             "password_hash TEXT NOT NULL, "
                             "user_name TEXT NOT NULL, "
+                            "avatar TEXT DEFAULT '', "
                             "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
                             "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             if (ok) {
+                query.exec("ALTER TABLE accounts ADD COLUMN avatar TEXT DEFAULT ''");
                 query.exec("ALTER TABLE accounts ADD COLUMN last_login_at TEXT");
                 query.exec("ALTER TABLE accounts ADD COLUMN last_login_address TEXT");
                 query.exec("ALTER TABLE accounts ADD COLUMN login_count INTEGER DEFAULT 0");
@@ -4680,6 +4773,7 @@ void Server::saveOfflineMessage(const Message& msg) const {
     obj["messageType"] = static_cast<int>(msg.type);
     obj["senderId"] = msg.senderId;
     obj["senderName"] = msg.senderName;
+    obj["senderAvatar"] = msg.senderAvatar;
     obj["receiverId"] = msg.receiverId;
     obj["content"] = msg.content;
     obj["fileName"] = msg.fileName;
@@ -5113,6 +5207,7 @@ bool Server::sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket) {
         obj["messageType"] = static_cast<int>(msg.type);
         obj["senderId"] = msg.senderId;
         obj["senderName"] = msg.senderName;
+        obj["senderAvatar"] = msg.senderAvatar;
         obj["receiverId"] = msg.receiverId;
         obj["content"] = msg.content;
         obj["fileName"] = msg.fileName;
@@ -5242,6 +5337,7 @@ void Server::broadcastMessage(const Message& msg, QTcpSocket* excludeSocket) {
     obj["messageType"] = static_cast<int>(msg.type);
     obj["senderId"] = msg.senderId;
     obj["senderName"] = msg.senderName;
+    obj["senderAvatar"] = msg.senderAvatar;
     obj["receiverId"] = msg.receiverId;
     obj["content"] = msg.content;
     obj["fileName"] = msg.fileName;
@@ -5286,6 +5382,7 @@ void Server::sendToUser(const Message& msg) {
         obj["messageType"] = static_cast<int>(msg.type);
         obj["senderId"] = msg.senderId;
         obj["senderName"] = msg.senderName;
+        obj["senderAvatar"] = msg.senderAvatar;
         obj["receiverId"] = msg.receiverId;
         obj["content"] = msg.content;
         obj["fileName"] = msg.fileName;
@@ -5307,30 +5404,83 @@ void Server::sendToUser(const Message& msg) {
 }
 
 void Server::sendUserList(QTcpSocket* socket) {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+        return;
+    }
+
     QJsonObject obj;
     obj["type"] = "userlist";
 
+    QSet<QString> onlineIds;
+    QMap<QString, QString> onlineNames;
     QJsonArray users;
     if (m_redisClient && m_redisClient->isEnabled()) {
         QList<RedisClient::Presence> redisUsers;
         if (m_redisClient->fetchOnlinePresence(&redisUsers)) {
             for (const RedisClient::Presence& user : redisUsers) {
-                if (user.userId.isEmpty()) {
+                const QString userId = user.userId.trimmed();
+                if (userId.isEmpty()) {
                     continue;
                 }
-                QJsonObject u;
-                u["id"] = user.userId;
-                u["name"] = user.userName.isEmpty() ? user.userId : user.userName;
-                u["online"] = true;
-                users.append(u);
+                onlineIds.insert(userId);
+                if (!user.userName.trimmed().isEmpty()) {
+                    onlineNames.insert(userId, user.userName.trimmed());
+                }
             }
         } else {
             updateRedisCommandAvailability(false, m_redisClient->lastError());
         }
     }
+
+    const QJsonObject accounts = loadAccountsFromSqlite();
+    for (auto it = accounts.constBegin(); it != accounts.constEnd(); ++it) {
+        const QString userId = it.key().trimmed();
+        if (userId.isEmpty()) {
+            continue;
+        }
+        const QJsonObject account = it.value().toObject();
+        const QString persistedName = account.value("userName").toString().trimmed();
+        QJsonObject u;
+        u["id"] = userId;
+        u["name"] = onlineNames.value(userId, persistedName.isEmpty() ? userId : persistedName);
+        u["avatar"] = account.value("avatar").toString();
+        u["online"] = onlineIds.contains(userId);
+        users.append(u);
+    }
+
+    for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
+        const ChatUser& user = it.value();
+        if (user.id.trimmed().isEmpty()) {
+            continue;
+        }
+
+        bool merged = false;
+        for (int i = 0; i < users.size(); ++i) {
+            QJsonObject existing = users.at(i).toObject();
+            if (existing.value("id").toString() != user.id) {
+                continue;
+            }
+            existing["name"] = user.name.isEmpty() ? user.id : user.name;
+            existing["avatar"] = user.avatar;
+            existing["online"] = true;
+            users.replace(i, existing);
+            merged = true;
+            break;
+        }
+        if (merged) {
+            continue;
+        }
+
+        QJsonObject u;
+        u["id"] = user.id;
+        u["name"] = user.name.isEmpty() ? user.id : user.name;
+        u["avatar"] = user.avatar;
+        u["online"] = true;
+        users.append(u);
+    }
     obj["users"] = users;
 
-    socket->write(QJsonDocument(obj).toJson());
+    socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();
 }
