@@ -278,7 +278,7 @@ End testing: Jun 03 04:01
   "closeoutReady":true,
   "closeoutGate":"release-closeout-ready-for-stop-writing",
   "packageSha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-  "releasePublicationRecord":{"publishingStatus":"pending-environment-publication"},
+  "releasePublicationRecord":{"publishingStatus":"published-outside-repo"},
   "releaseDiagnostics":{"ok":true}
 }
 '@ | Set-Content -LiteralPath $releaseCloseoutSummaryManifestPath -Encoding UTF8
@@ -289,7 +289,7 @@ End testing: Jun 03 04:01
   "archiveReady":true,
   "archiveGate":"ready-final-local-archive",
   "decisionState":"approved-local-archive",
-  "publishingStatus":"pending-environment-publication",
+  "publishingStatus":"published-outside-repo",
   "closeoutReady":true
 }
 '@ | Set-Content -LiteralPath $releaseFinalLocalArchiveManifestPath -Encoding UTF8
@@ -648,12 +648,12 @@ foreach ($expected in @(
     'Active E2E release review artifacts: `source=release-review-current-head-closeout; releaseReady=true; promoted=true; releaseGate=ready-local-verification-only; productionLinked=true; closeoutCurrentHead=true`',
     'Release archive decision artifacts: `manifest=ok; decisionRecorded=false; decisionState=pending-human-decision; decisionGate=ready-for-archive-decision-record; publishing=not-started; publishingRecord=false; deliveryDrill=false; blockers=0`',
     'Release delivery handoff artifacts: `manifest=ok; deliveryReady=true; deliveryGate=ready-local-delivery-handoff; deliveryTail=0`',
-    'Release closeout summary artifacts: `manifest=ok; closeoutReady=true; closeoutGate=release-closeout-ready-for-stop-writing; publishing=pending-environment-publication; diagnosticsOk=true`',
-    'Final local archive artifacts: `manifest=ok; archiveReady=true; archiveGate=ready-final-local-archive; decisionState=approved-local-archive; publishing=pending-environment-publication; closeoutReady=true`',
+    'Release closeout summary artifacts: `manifest=ok; closeoutReady=true; closeoutGate=release-closeout-ready-for-stop-writing; publishing=published-outside-repo; diagnosticsOk=true`',
+    'Final local archive artifacts: `manifest=ok; archiveReady=true; archiveGate=ready-final-local-archive; decisionState=approved-local-archive; publishing=published-outside-repo; closeoutReady=true`',
     'E2E linked release candidate artifacts: `manifest=ok; releaseReady=false; promoted=false; releaseGate=blocked-e2e-release-artifact-promotion; probeFixture=false; releaseEligible=informational-only; localBuild=passed; localCTest=passed`',
     'Remaining External Follow-up',
     'Repository closeout status: `complete-for-repo-scope`; local release review, archive decision, delivery handoff, closeout summary, and final local archive are already ready on the recorded evidence baseline.',
-    'Environment publication follow-up: `pending-environment-publication`; publication remains an explicit out-of-repo action and does not reopen local closeout by itself.',
+    'Environment publication follow-up: `not-started`; publication remains an explicit out-of-repo action; treat the exact state as a readback from the current publication record.',
     'PostgreSQL operations follow-up: `not-configured`; current evidence stays in operational review with action=`no PostgreSQL release acceptance evidence configured`.',
     'Automation acknowledgement follow-up: `acknowledged-operational-remediation-gated`; current operational gate action=`continue operational remediation; keep release gate until failures clear`.',
     'Acknowledgement renewal follow-up: `acknowledged`; current reminder action=`none`.',

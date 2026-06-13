@@ -7,7 +7,7 @@ Release closeout is the final local evidence bundle for a current `HEAD`. It kee
 For the current branch baseline, local release closeout is already treated as complete when the generated manifests agree on all of the following:
 
 - `local-release-review`: `reviewReady=true` and `reviewGate=review-complete-archive-decision-recorded`
-- `release-archive-decision`: `decisionRecorded=true`, `decisionState=approved-local-archive`, and publication tracked separately as `pending-environment-publication`
+- `release-archive-decision`: `decisionRecorded=true`, `decisionState=approved-local-archive`, and publication tracked separately as either `pending-environment-publication` or `published-outside-repo`
 - `release-delivery-handoff`: `deliveryReady=true` and `deliveryGate=ready-local-delivery-handoff`
 - `release-closeout-summary`: `closeoutReady=true` and `closeoutGate=release-closeout-ready-for-stop-writing`
 - `release-final-local-archive`: `archiveReady=true` and `archiveGate=ready-final-local-archive`
@@ -40,6 +40,7 @@ When that combination is present, the repository is already in stop-writing mode
 - A final local archive is considered ready only when that closeout chain is complete and the current head has an explicit local archive decision recorded on the same baseline.
 - Environment-specific publication remains outside the repository, even when the local closeout chain is complete.
 - `pending-environment-publication` is a valid recorded follow-up state after local closeout is complete. It means the repository-side stop-writing archive is already ready, while publication is intentionally tracked as an external action.
+- `published-outside-repo` is also a valid recorded follow-up state. It means the environment-specific publication handoff has been recorded without changing the underlying local code-closeout conclusion.
 - `docs/automation-status.md` should summarize the stable gates and readiness state of this chain; it should not become the only place where release closeout semantics exist. Its recorded `HEAD` is the most recent verified evidence baseline, so the commit containing that file may be newer after the status document itself is committed.
 - When the default fail-closed E2E release evidence artifact and the current-head closeout chain disagree, the active release-review baseline is the current-head `local-release-review` plus `release-closeout-summary` pair. The older baseline remains useful as an informational artifact, but it must not override a current-head closeout that is already complete.
 
@@ -54,7 +55,7 @@ powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
   -ArchiveDecisionState approved-local-archive `
   -ArchiveDecidedBy jun23 `
   -ArchiveDecisionReason "Current-head release closeout verified locally." `
-  -ArchivePublishingStatus pending-environment-publication `
+  -ArchivePublishingStatus published-outside-repo `
   -ArchivePublishingChannel team-share
 ```
 
@@ -65,6 +66,7 @@ After the refresh, `docs/automation-status.md` is expected to report the current
 
 The current repository baseline is already closed out for repo scope. The remaining tail items are intentionally outside the code-closeout gate:
 
+- `published-outside-repo`: the local archive is still the verified code-closeout baseline, and the environment-specific publication handoff has also been recorded.
 - `pending-environment-publication`: the local archive is ready, but any team-share upload, ticket update, or release page record still has to be performed and recorded outside this repository.
 - PostgreSQL release evidence is currently at `can-review-cutover`; if live evidence changes later, it may move back to operational review states such as `review-slow-queries` or `review-query-failures`. Treat the exact gate as a readback from current redacted artifacts rather than a fixed closeout label.
 - Automation acknowledgement is currently `passing`; if future operational evidence fails again, the queue may return to `acknowledged-operational-remediation-gated` until remediation clears.

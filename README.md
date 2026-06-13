@@ -229,7 +229,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package-release-archive-decisio
   -DecisionState approved-local-archive `
   -DecidedBy jun23 `
   -DecisionReason "Current-head release evidence reviewed locally." `
-  -PublishingStatus pending-environment-publication
+  -PublishingStatus published-outside-repo
 ```
 
 这样 `automation-status`、诊断包、release review 和 release delivery handoff 都能回读同一份 archive decision，而不会把“代码验证已通过”和“外部渠道是否已发布”混在一起。
@@ -243,7 +243,7 @@ powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
   -ArchiveDecisionState approved-local-archive `
   -ArchiveDecidedBy jun23 `
   -ArchiveDecisionReason "Current-head release closeout verified locally." `
-  -ArchivePublishingStatus pending-environment-publication `
+  -ArchivePublishingStatus published-outside-repo `
   -ArchivePublishingChannel team-share
 ```
 

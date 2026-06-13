@@ -3938,7 +3938,25 @@ $lines.Add("")
 $lines.Add("## Remaining External Follow-up")
 $lines.Add("")
 $lines.Add('- Repository closeout status: `complete-for-repo-scope`; local release review, archive decision, delivery handoff, closeout summary, and final local archive are already ready on the recorded evidence baseline.')
-$lines.Add('- Environment publication follow-up: `pending-environment-publication`; publication remains an explicit out-of-repo action and does not reopen local closeout by itself.')
+$publicationFollowUpState = "not-configured"
+$publicationFollowUpText = "publication record is not configured"
+if ($releaseArchiveDecisionReadback.configured) {
+    $publicationFollowUpState = Format-StatusValue $releaseArchiveDecisionReadback.publishingStatus
+    switch ($publicationFollowUpState) {
+        "published-outside-repo" {
+            $publicationFollowUpText = "publication has been recorded outside the repository; keep the local archive as the verified code-closeout baseline."
+        }
+        "pending-environment-publication" {
+            $publicationFollowUpText = "publication remains an explicit out-of-repo action and does not reopen local closeout by itself."
+        }
+        default {
+            $publicationFollowUpText = "publication remains an explicit out-of-repo action; treat the exact state as a readback from the current publication record."
+        }
+    }
+}
+$lines.Add(('- Environment publication follow-up: `{0}`; {1}' -f `
+        $publicationFollowUpState, `
+        $publicationFollowUpText))
 $pgsqlTailGate = "not-configured"
 $pgsqlTailAction = "no PostgreSQL release acceptance evidence configured"
 if ($pgsqlReleaseAcceptanceReadbacks.Count -gt 0) {
