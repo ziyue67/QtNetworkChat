@@ -60,3 +60,14 @@ powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
 
 That refresh updates the closeout artifacts in a fixed order, regenerates the final local archive, and then rewrites `docs/automation-status.md` from the resulting manifests instead of relying on stale cross-references.
 After the refresh, `docs/automation-status.md` is expected to report the current-head closeout baseline as the active release-review source whenever `local-release-review` and `release-closeout-summary` both point at the same reviewed HEAD.
+
+## Remaining Follow-up
+
+The current repository baseline is already closed out for repo scope. The remaining tail items are intentionally outside the code-closeout gate:
+
+- `pending-environment-publication`: the local archive is ready, but any team-share upload, ticket update, or release page record still has to be performed and recorded outside this repository.
+- `review-query-failures`: PostgreSQL/database-health evidence is still under operational review because the current redacted artifacts report query failure buckets and failed checks.
+- `acknowledged-operational-remediation-gated`: the automation queue has been acknowledged, but remediation is still open for failed operational evidence.
+- `renew-required`: the acknowledgement window itself must be renewed if you want the operational review trail to stay current.
+
+These items are useful to keep visible, but they do not invalidate the local release review, archive decision, closeout summary, or final local archive that already exist for the verified current-head baseline.
