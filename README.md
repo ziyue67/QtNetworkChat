@@ -269,7 +269,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package-release-closeout-summar
 - `build-qt6-mingw/release-closeout-summary/release-closeout-summary-manifest.json`
 - `build-qt6-mingw/release-closeout-summary/release-closeout-summary.md`
 
-其中 `closeoutGate=release-closeout-ready-for-stop-writing` 表示本地 release review、archive decision、delivery handoff、delivery drill、publication record 和 diagnostics package 都已经在同一基线上齐备；环境外发布是否真的完成，仍然只通过 `release-publication-record` 的脱敏状态显式记录，而不会被本地构建/测试结果隐式代替。
+其中 `closeoutGate=release-closeout-ready-for-stop-writing` 表示本地 closeout 链已经在同一基线上齐备；环境外发布是否真的完成，仍然只通过 `release-publication-record` 的脱敏状态显式记录，而不会被本地构建/测试结果隐式代替。
 
 ### 本地最终归档
 
@@ -286,7 +286,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package-release-final-local-arc
 - `build-qt6-mingw/release-final-local-archive/release-final-local-archive-manifest.json`
 - `build-qt6-mingw/release-final-local-archive/release-final-local-archive.md`
 
-其中 `archiveGate=ready-final-local-archive` 表示当前 HEAD 的本地 release review、最终 archive decision、delivery handoff、delivery drill、publication record、diagnostics package 和 closeout summary 已经在同一条本地基线上齐备；后续如果只是环境外发布状态变化，只需要刷新 publication record 并重新生成这份最终归档，而不需要重新解释代码验证结论。
+其中 `archiveGate=ready-final-local-archive` 表示当前 HEAD 的本地最终归档已经在同一条基线上齐备；后续如果只是环境外发布状态变化，只需要刷新 publication record 并重新生成这份最终归档，而不需要重新解释代码验证结论。
 
 如果需要把当前 HEAD 的本地验证、Windows 包、linked E2E candidate、release review、release delivery handoff 和 `docs/automation-status.md` 一次性刷新到同一基线，可运行：
 
@@ -295,9 +295,7 @@ powershell -ExecutionPolicy Bypass -File scripts/refresh-release-closeout.ps1 `
   -BuildDir build-qt6-mingw
 ```
 
-这个收官脚本会按固定顺序重生成当前 HEAD 的 closeout 产物，包含 `local-release-review`、`release-archive-decision`、`release-delivery-handoff`、`release-delivery-drill`、`release-publication-record`、`release-closeout-summary` 与 `release-final-local-archive`，避免 `automation-status` 和各归档包因交叉引用旧 manifest 而停留在旧基线。`docs/automation-status.md` 也只保留稳定的 gate/ready/tail/decision 摘要，不再回写这些归档包自身的 SHA-256，以免状态文档与被其打包的归档产物形成自引用漂移。
-
-当默认 fail-closed 的 E2E release evidence baseline 仍保留旧 HEAD、而 current-head 的 `local-release-review` 与 `release-closeout-summary` 已经完成时，`automation-status` 会把 current-head closeout 视为活跃收官基线。旧 baseline 仍会保留在状态板里作为信息性诊断项，但不会再覆盖当前 HEAD 的本地 release review 结论。
+这个收官脚本会按固定顺序重生成当前 HEAD 的 closeout 产物，包含 `local-release-review`、`release-archive-decision`、`release-delivery-handoff`、`release-delivery-drill`、`release-publication-record`、`release-closeout-summary` 与 `release-final-local-archive`，避免 `automation-status` 和各归档包因交叉引用旧 manifest 而停留在旧基线。`docs/automation-status.md` 也只保留稳定的 gate/ready/tail/decision 摘要，不再回写这些归档包自身的 SHA-256，以免状态文档与被其打包的归档产物形成自引用漂移；如果默认 fail-closed 的旧 E2E baseline 仍存在，状态板会把 current-head closeout 继续视为活跃收官基线，而把旧 baseline 保留为信息性诊断项。
 
 ### 可选 MinIO S3 手动验证
 
