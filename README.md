@@ -754,6 +754,8 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 5. **运维后续动作**：当前 live evidence 下，PostgreSQL follow-up=`can-review-cutover`、automation acknowledgement follow-up=`passing`、acknowledgement renewal follow-up=`not-required`。后续如果真实值班产物再次变化，`docs/automation-status.md` 应继续按 live evidence 回读并滚动刷新 database health、PostgreSQL release acceptance、automation ack、task history freshness、governance dashboard、publication/readback state 等运维证据，可能回到 `review-slow-queries`、`review-query-failures`、`acknowledged-operational-remediation-gated`、`renew-soon` 或 `renew-required` 等运维态；这些都属于运维队列和证据更新，不等于当前分支代码、产品闭环或本地 closeout 结论倒退。
 6. **未来新主线单独立项**：如果后面要做更重的产品或架构变化，例如强制 Redis 成为硬依赖、整套 UI 再重做、重定义 MainWindow 结构、重做文件/离线/恢复交互模型、上更严格的生产化运维/发布体系、做明显更重的性能工程、或改服务端/客户端运行模型，应直接作为新的主线 / 新阶段 / 新分支 / 新目标单独计算进度，而不是回头解释成“当前这个分支还没做完”。
 
+以上三类后续动作应统一理解为同一套维护边界：文档随 live evidence 滚动同步，运维证据继续刷新，但未来的大型产品/架构推进要单独立项，不回溯性重写当前分支已经完成的 closeout 结论。
+
 ## 说明
 
 本项目主要用于学习和演示 Qt 桌面开发、TCP 网络通信和即时通讯系统设计。当前分支已经完成仓库范围内的 closeout；如果后续要把它继续推进到更严格的生产环境要求，应作为新的独立主线评估安全性、稳定性、离线传输治理和传输性能，而不是回溯性否定当前本地收官结论。
