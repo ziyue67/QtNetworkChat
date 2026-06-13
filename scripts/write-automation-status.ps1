@@ -3939,9 +3939,34 @@ $lines.Add("## Remaining External Follow-up")
 $lines.Add("")
 $lines.Add('- Repository closeout status: `complete-for-repo-scope`; local release review, archive decision, delivery handoff, closeout summary, and final local archive are already ready on the recorded evidence baseline.')
 $lines.Add('- Environment publication follow-up: `pending-environment-publication`; publication remains an explicit out-of-repo action and does not reopen local closeout by itself.')
-$lines.Add('- PostgreSQL operations follow-up: `review-query-failures`; current evidence stays in review until database health warnings and query failure buckets are cleared or explicitly accepted operationally.')
-$lines.Add('- Automation acknowledgement follow-up: `acknowledged-operational-remediation-gated`; live task failures are acknowledged, but remediation is still open and keeps the operational gate visible.')
-$lines.Add('- Acknowledgement renewal follow-up: `renew-required`; renew the expired acknowledgement window before treating the operational queue as freshly reviewed again.')
+$pgsqlTailGate = "not-configured"
+$pgsqlTailAction = "no PostgreSQL release acceptance evidence configured"
+if ($pgsqlReleaseAcceptanceReadbacks.Count -gt 0) {
+    $pgsqlPrimaryTailReadback = $pgsqlReleaseAcceptanceReadbacks | Select-Object -First 1
+    $pgsqlTailGate = Format-StatusValue $pgsqlPrimaryTailReadback.releaseGateSummary
+    $pgsqlTailAction = Format-StatusValue $pgsqlPrimaryTailReadback.operatorActionSummary
+}
+$automationAckTailGate = "not-configured"
+$automationAckTailAction = "no automation acknowledgement gate configured"
+if ($automationTaskAckGate.configured) {
+    $automationAckTailGate = Format-StatusValue $automationTaskAckGate.releaseGate
+    $automationAckTailAction = Format-StatusValue $automationTaskAckGate.action
+}
+$automationAckReminderState = "not-configured"
+$automationAckReminderAction = "no automation acknowledgement reminder configured"
+if ($automationTaskAckReminder.configured) {
+    $automationAckReminderState = Format-StatusValue $automationTaskAckReminder.state
+    $automationAckReminderAction = Format-StatusValue $automationTaskAckReminder.action
+}
+$lines.Add(('- PostgreSQL operations follow-up: `{0}`; current evidence stays in operational review with action=`{1}`.' -f `
+        $pgsqlTailGate, `
+        $pgsqlTailAction))
+$lines.Add(('- Automation acknowledgement follow-up: `{0}`; current operational gate action=`{1}`.' -f `
+        $automationAckTailGate, `
+        $automationAckTailAction))
+$lines.Add(('- Acknowledgement renewal follow-up: `{0}`; current reminder action=`{1}`.' -f `
+        $automationAckReminderState, `
+        $automationAckReminderAction))
 $lines.Add("")
 $lines.Add("## Closeout Maintenance Boundaries")
 $lines.Add("")

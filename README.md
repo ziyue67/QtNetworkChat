@@ -753,7 +753,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 2. **本地 release closeout 基线**：current-HEAD 的 `local-release-review`、`release-archive-decision`、`release-delivery-handoff`、`release-closeout-summary` 和 `release-final-local-archive` 现在共同构成 stop-writing 基线。环境外发布仍是显式记录项，但不再反向否定已经完成的本地收官链。
 3. **高价值补强与仓库清理**：后续只补少量最值钱的回归测试、维护型清理和文档一致性修正，不再在当前分支开启新的产品主线。
 4. **环境外发布跟踪**：如果后面确实把生成好的 zip 发到团队共享盘、工单系统或发行页面，再通过 `release-publication-record` 或 archive decision 回写发布状态；这属于环境外动作，不是当前仓库 closeout 的前置条件。
-5. **运维后续动作**：`review-query-failures`、`acknowledged-operational-remediation-gated` 和 `renew-required` 代表 PostgreSQL/数据库健康证据复核、任务失败 remediation 和 ack 续签仍需继续跟进；它们属于运维队列，不等于当前分支代码或产品闭环倒退。
+5. **运维后续动作**：PostgreSQL / 数据库健康 release gate、automation acknowledgement gate 和 acknowledgement reminder 以后都以当前 live evidence 为准，可能表现为 `review-slow-queries`、`review-query-failures`、`acknowledged-operational-remediation-gated`、`renew-soon` 或 `renew-required` 等状态；它们属于运维队列，不等于当前分支代码或产品闭环倒退。
 
 ## 说明
 
