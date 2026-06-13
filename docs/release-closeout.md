@@ -66,8 +66,8 @@ After the refresh, `docs/automation-status.md` is expected to report the current
 The current repository baseline is already closed out for repo scope. The remaining tail items are intentionally outside the code-closeout gate:
 
 - `pending-environment-publication`: the local archive is ready, but any team-share upload, ticket update, or release page record still has to be performed and recorded outside this repository.
-- PostgreSQL release evidence may remain under operational review as live evidence changes, for example `review-slow-queries` or `review-query-failures`; treat the exact gate as a readback from the current redacted artifacts rather than a fixed closeout label.
-- `acknowledged-operational-remediation-gated`: the automation queue has been acknowledged, but remediation is still open for failed operational evidence.
-- Acknowledgement reminder state may move between `renew-soon`, `renew-required`, or `not-required` as live task history rolls forward; treat it as operational freshness metadata, not a reopened code-closeout failure.
+- PostgreSQL release evidence is currently at `can-review-cutover`; if live evidence changes later, it may move back to operational review states such as `review-slow-queries` or `review-query-failures`. Treat the exact gate as a readback from current redacted artifacts rather than a fixed closeout label.
+- Automation acknowledgement is currently `passing`; if future operational evidence fails again, the queue may return to `acknowledged-operational-remediation-gated` until remediation clears.
+- Acknowledgement reminder is currently `not-required`; it may later move between `renew-soon`, `renew-required`, or `not-required` as live task history rolls forward. Treat it as operational freshness metadata, not a reopened code-closeout failure.
 
 These items are useful to keep visible, but they do not invalidate the local release review, archive decision, closeout summary, or final local archive that already exist for the verified current-head baseline.
