@@ -38,7 +38,8 @@ bool createClientTables(const QString& databasePath) {
             ok = execSql(db, QStringLiteral("CREATE TABLE friends (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"))
                 && execSql(db, QStringLiteral("CREATE TABLE friend_requests (request_id TEXT NOT NULL, display_name TEXT NOT NULL, direction TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(request_id, direction))"))
                 && execSql(db, QStringLiteral("CREATE TABLE local_groups (group_id TEXT PRIMARY KEY, group_name TEXT NOT NULL, members TEXT NOT NULL, announcement TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"))
-                && execSql(db, QStringLiteral("CREATE TABLE profile (user_id TEXT PRIMARY KEY, user_name TEXT NOT NULL, avatar_path TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
+                && execSql(db, QStringLiteral("CREATE TABLE profile (user_id TEXT PRIMARY KEY, user_name TEXT NOT NULL, avatar_path TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"))
+                && execSql(db, QStringLiteral("CREATE TABLE peer_avatars (user_id TEXT PRIMARY KEY, avatar_path TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             db.close();
         }
     }
@@ -149,6 +150,10 @@ int main(int argc, char** argv) {
                                             QStringLiteral("Alice"),
                                             storage.avatarFilePath()),
                 "profile should save to sqlite") && ok;
+    ok = expect(storage.savePeerAvatarToSqlite(databasePath,
+                                               QStringLiteral("peer_1001"),
+                                               storage.peerAvatarFilePath(QStringLiteral("peer_1001"))),
+                "peer avatar index should save to sqlite") && ok;
     ok = expect(storage.saveFriendsToSqlite(databasePath,
                                             friendIds,
                                             friendNames,
@@ -163,10 +168,15 @@ int main(int argc, char** argv) {
                                                 groupAnnouncements),
                 "local groups should save to sqlite") && ok;
     ok = expect(countRows(databasePath, QStringLiteral("profile")) == 1
+                    && countRows(databasePath, QStringLiteral("peer_avatars")) == 1
                     && countRows(databasePath, QStringLiteral("friends")) == 2
                     && countRows(databasePath, QStringLiteral("friend_requests")) == 2
                     && countRows(databasePath, QStringLiteral("local_groups")) == 2,
                 "sqlite persistence should write expected row counts and skip requests for existing friends") && ok;
+
+    const QMap<QString, QString> peerAvatarIndex = storage.loadPeerAvatarIndexFromSqlite(databasePath);
+    ok = expect(peerAvatarIndex.value(QStringLiteral("peer_1001")) == storage.peerAvatarFilePath(QStringLiteral("peer_1001")),
+                "peer avatar index should load back from sqlite") && ok;
 
     if (!appDataDir.isEmpty()) {
         QDir(appDataDir).removeRecursively();

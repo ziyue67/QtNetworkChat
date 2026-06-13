@@ -390,7 +390,7 @@ $operatorAction = switch ($decisionGate) {
         "Review the local release review and release delivery handoff manifests, then rerun this script with an explicit archive decision state."
     }
     "archive-decision-recorded-publication-pending" {
-        "The local archive decision is recorded. Publish the already-generated release bundle through the environment-specific channel outside this repository when ready."
+        "The local archive decision is recorded and the repository-side closeout stays complete. Publish the already-generated release bundle through the environment-specific channel outside this repository when ready."
     }
     "archive-decision-recorded-and-published" {
         "The local archive decision and external publication handoff are both recorded. Preserve this manifest with the release evidence bundle."
@@ -402,7 +402,7 @@ $operatorAction = switch ($decisionGate) {
         "The archive decision is rejected. Do not publish this release bundle; refresh only after a replacement head is reviewed."
     }
     default {
-        "Do not record or publish a final archive decision yet; regenerate the local release review and release delivery handoff artifacts until the blockers clear."
+        "Do not record or publish a final archive decision yet; regenerate the local release review and release delivery handoff artifacts until the current-head local blockers clear."
     }
 }
 

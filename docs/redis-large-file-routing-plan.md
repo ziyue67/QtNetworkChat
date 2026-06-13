@@ -159,7 +159,7 @@
 - **String to sign**：`AWS4-HMAC-SHA256`、UTC `yyyyMMddTHHmmssZ`、`date/region/s3/aws4_request` scope 和 canonical request hash。
 - **Signing key**：`AWS4 + secret` 依次 HMAC `date`、`region`、`s3`、`aws4_request`；日志和错误不得输出 secret、derived key 或 Authorization header。
 - **Qt Network 调用**：用 `QNetworkAccessManager` 发 path-style `QNetworkRequest`；TLS 默认校验证书链，只有 `QTNETWORKCHAT_OBJECT_S3_TLS_VERIFY=0` 时才允许跳过并输出 warning；每次请求必须套用 `QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS` 的有界超时；超时、HTTP 4xx/5xx、证书错误和 hash/size mismatch 都走对象路由失败回退；HTTP 状态先通过 `classifyS3HttpStatus()` 归类，避免把权限、缺对象、限流和服务端错误混成同一种失败。
-- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档、治理入口编排、统一 alert summary、告警聚合、健康检查、不健康通知、完整样例管线、服务端 offer storeType 一致性边界、S3 GET/open 失败 reason 接线、S3 DELETE/remove 失败 reason 接线、远端对象下发阶段 `offer_delivery operation=deliver` 固定 reason 日志、服务端注入式 S3 跨实例失败兜底测试和 GET/DELETE 失败组合测试已完成；下一步转向更大的 Redis/S3 治理功能包，保持失败时 fail-closed 和离线兜底。
+- **实现顺序**：签名纯函数测试、固定 AWS 示例向量、不联网 request 构造测试、对象方法白名单、HTTP 状态分类、S3 请求超时配置并写入 `QNetworkRequest`、可选 session token 签名头、请求执行结果结构、错误脱敏 helper、失败 reason 聚合 helper、注入式 `PUT`/`GET`/`HEAD`/`DELETE` 执行边界、GET 响应体 size/hash 最终校验、真实 Qt Network 执行器薄层、显式发布 gating、可选 MinIO 手动 smoke 脚本、服务端安全日志字段、人工验收清单、失败回退演练、只读 delivered 对账原型、`delivered_reconcile` 日志聚合、只读 route log 生成、服务端只读日志事件、receipt/fallback 输入导出、一键只读对账编排脚本、脱敏样例生成脚本、delivered receipt 摘要持久化原型、一键对账直接读取持久化 receipt、receipt 摘要轮转/压缩脚本、样例脚本一键轮转演练、轮转摘要落盘、轮转环境变量默认值、轮转摘要阈值告警脚本、真实人工验收输出打包归档、治理入口编排、统一 alert summary、告警聚合、健康检查、不健康通知、完整样例管线、服务端 offer storeType 一致性边界、S3 GET/open 失败 reason 接线、S3 DELETE/remove 失败 reason 接线、远端对象下发阶段 `offer_delivery operation=deliver` 固定 reason 日志、服务端注入式 S3 跨实例失败兜底测试和 GET/DELETE 失败组合测试均已纳入当前分支完成基线；后续若继续补证，也只按维护性 closeout 校验处理，并继续保持 fail-closed 和离线兜底。
 
 测试替身计划：
 
@@ -291,7 +291,7 @@
 84. 已完成：把 S3 稳定化 runbook 接入治理入口和计划任务 preview，route log 分析后可直接生成 runbook/alert summary，并随统一告警、dashboard/status 和诊断包消费。
 85. 已完成：补 S3 稳定化覆盖缺口告警开关，`-WarnUnobservedCoverage`/`-WarnS3CoverageGaps` 可把未观测到的 stabilizationCoverage 区域写入 runbook alert summary，并通过统一 alert overview、health、dashboard/status 和计划任务 preview 消费。
 86. 已完成：补 S3 覆盖缺口 policy 门禁，`-CoveragePolicyPath`/`-S3CoveragePolicyPath` 支持 requiredAreas、allowedGapAreas、minObservedAreas，并把 coverageActionableGapAreas 透出到 runbook、alert、dashboard、report、status 和计划任务 preview。
-87. 下一步：继续沿服务端真实后端稳定化推进，例如补真实后端 retry/timeout 注入式服务端组合边界。
+87. 收官边界：当前分支内的大文件 Redis/S3 路由、治理入口、证据汇总、稳定化 runbook 与 fail-closed 兜底语义已完成既定闭环。后续若继续调整，应只作为维护性补强或真实后端验收补证，例如针对 retry/timeout 的额外注入式组合验证；这类环境外验收不再作为当前分支本地收官的前置条件。
 
 ## 当前保护边界
 
@@ -315,4 +315,4 @@
 - 已有 S3 配置校验骨架，覆盖 endpoint/bucket/凭据/session token/prefix/TLS/请求超时/显式启用开关解析和错误脱敏；真实后端默认保持关闭。
 - 已有 `S3ObjectStore` 薄适配类，默认构造和工厂未显式启用时 fail-closed 且不泄露凭据；测试注入执行器可覆盖 PUT/GET/HEAD/DELETE 语义。
 - 已有 S3 path-style URL 生成、Signature V4 纯函数、固定 AWS 测试向量、不联网 Qt Network 请求构造测试、对象方法白名单、transfer timeout、HTTP 状态分类、请求结果归一化、错误脱敏、失败 reason 聚合、注入式 PUT/GET/HEAD/DELETE 边界、GET 响应体 size/hash 校验、真实 Qt Network 执行器薄层和显式发布 gating，真实后端默认关闭。
-- 后续进入真实 S3/MinIO 治理闭环时，优先转向横跨服务端、脚本、测试和文档的大块功能包；避免只改一两个字段或只补一个小脚本，并继续保持 fail-closed 和离线兜底安全边界。
+- 后续若继续触碰真实 S3/MinIO 治理链路，应视为收官后的维护或环境验收补证：优先保持服务端、脚本、测试和文档同基线更新，并继续坚持 fail-closed 与离线兜底安全边界，而不是把这条线重新表述成当前分支的未完成主开发任务。

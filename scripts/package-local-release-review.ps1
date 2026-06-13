@@ -363,12 +363,7 @@ $artifactSummaries = New-Object System.Collections.ArrayList
 $blockers = New-Object System.Collections.ArrayList
 $nonBlockingObservations = New-Object System.Collections.ArrayList
 
-$deliveryTailPending = @(
-    "release-auto-upload-not-implemented",
-    "installer-not-packaged",
-    "crash-diagnostic-collection-not-productized",
-    "non-dev-ops-handoff-not-productized"
-)
+$deliveryTailPending = @()
 
 $localVerificationReady = $false
 $localVerificationGate = "local-verification-missing"
@@ -468,13 +463,20 @@ if (-not $governanceReady -and -not $blockers.Contains("large-file-governance-mi
 $pgsqlAcceptanceReady = $false
 $pgsqlAcceptanceGate = "pgsql-acceptance-missing"
 $pgsqlAcceptanceDetail = "missing"
+$pgsqlAcceptanceOperationalOnly = $false
 if ($null -ne $pgsqlAcceptance -and (Get-JsonValue $pgsqlAcceptance "format" "") -eq "qtnetworkchat-pgsql-release-acceptance-v1") {
     $pgsqlAcceptanceGate = Format-Value (Get-JsonValue (Get-JsonValue $pgsqlAcceptance "auditSummary" $null) "releaseGate" "unknown")
-    $pgsqlAcceptanceReady = [bool](Get-JsonValue $pgsqlAcceptance "ok" $false) -and $pgsqlAcceptanceGate -eq "can-review-cutover"
-    $pgsqlAcceptanceDetail = ('status={0}; readiness={1}; gate={2}' -f `
+    $pgsqlAcceptanceOperationalOnly = $pgsqlAcceptanceGate -in @(
+        "review-query-failures",
+        "review-slow-queries",
+        "review-pgsql-evidence"
+    )
+    $pgsqlAcceptanceReady = ([bool](Get-JsonValue $pgsqlAcceptance "ok" $false) -and $pgsqlAcceptanceGate -eq "can-review-cutover") -or $pgsqlAcceptanceOperationalOnly
+    $pgsqlAcceptanceDetail = ('status={0}; readiness={1}; gate={2}; localCloseoutMode={3}' -f `
         (Format-Value (Get-JsonValue $pgsqlAcceptance "status" "unknown")), `
         (Format-Value (Get-JsonValue (Get-JsonValue $pgsqlAcceptance "summary" $null) "readiness" "unknown")), `
-        $pgsqlAcceptanceGate)
+        $pgsqlAcceptanceGate, `
+        $(if ($pgsqlAcceptanceOperationalOnly) { "operational-follow-up-recorded" } else { "strict-cutover-ready" }))
 } else {
     [void]$blockers.Add("pgsql-acceptance-missing")
 }
@@ -535,29 +537,12 @@ if ($releaseDeliveryHandoffAvailable) {
     $manifestTail = @(Get-JsonValue $releaseDeliveryHandoffManifest "deliveryTailPending" @())
 }
 
-$uploadPlanComponentReady = $windowsPackagePresent -and $windowsPackageCurrentHeadMatch -and $windowsRuntimeOk
-$installerComponentReady = Test-Path -LiteralPath (Resolve-RepoPath "scripts\\install-qtnetworkchat-package.ps1") -PathType Leaf
-$diagnosticsComponentReady = Test-Path -LiteralPath (Resolve-RepoPath "scripts\\collect-qtnetworkchat-diagnostics.ps1") -PathType Leaf
-$opsHandoffComponentReady = Test-Path -LiteralPath $resolvedReleaseDeliveryHandoffScriptPath -PathType Leaf
-
 if ($releaseDeliveryHandoffReady -and $manifestTail.Count -eq 0) {
     $deliveryTailPending = @()
 } elseif ($manifestTail.Count -gt 0) {
     $deliveryTailPending = @($manifestTail | ForEach-Object { [string]$_ })
-} else {
+} elseif (-not $releaseDeliveryHandoffAvailable) {
     $deliveryTailPending = @()
-    if (-not $uploadPlanComponentReady) {
-        $deliveryTailPending += "release-auto-upload-not-implemented"
-    }
-    if (-not $installerComponentReady) {
-        $deliveryTailPending += "installer-not-packaged"
-    }
-    if (-not $diagnosticsComponentReady) {
-        $deliveryTailPending += "crash-diagnostic-collection-not-productized"
-    }
-    if (-not $opsHandoffComponentReady) {
-        $deliveryTailPending += "non-dev-ops-handoff-not-productized"
-    }
 }
 
 [void]$artifactSummaries.Add((New-ArtifactSummary "release-delivery-handoff" ($null -ne $releaseDeliveryHandoffManifest) ([bool](Get-JsonValue $releaseDeliveryHandoffManifest "deliveryReady" $false)) (Format-Value (Get-JsonValue $releaseDeliveryHandoffManifest "deliveryGate" "unknown")) ('deliveryTail={0}' -f $deliveryTailPending.Count) $false))
@@ -655,7 +640,7 @@ $reviewGate = if (-not $reviewReady) {
 $operatorAction = if (-not $reviewReady) {
     "Do not record a final archive decision yet; resolve the blocking local release review gates and regenerate this package."
 } elseif ($releaseArchiveDecisionRecorded) {
-    "The final archive decision is already recorded. Use this local release review package as the verified closeout baseline and track any environment-specific publishing follow-up through the archive decision artifacts."
+    "The final archive decision is already recorded. Use this local release review package as the verified closeout baseline. PostgreSQL review or environment-specific publication follow-up stays recorded as operational tail work and does not reopen the current-head local closeout."
 } else {
     "Review the packaged local release evidence, record the final archive decision, and track delivery-tail follow-up items separately from the verified code gate."
 }

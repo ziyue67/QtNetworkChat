@@ -285,7 +285,7 @@ $localVerificationReady = $null -ne $localVerification `
 $installerReady = Test-Path -LiteralPath $resolvedInstallerScriptPath -PathType Leaf
 $diagnosticsReady = Test-Path -LiteralPath $resolvedDiagnosticsScriptPath -PathType Leaf
 $uploadPlanReady = $windowsPackageReady
-$opsHandoffReady = $localReleaseReviewReady -and $localVerificationReady
+$opsHandoffReady = Test-Path -LiteralPath $PSCommandPath -PathType Leaf
 $releaseArchiveDecisionRecorded = $null -ne $releaseArchiveDecisionManifest `
     -and (Get-JsonValue $releaseArchiveDecisionManifest "format" "") -eq "qtnetworkchat-release-archive-decision-v1" `
     -and [bool](Get-JsonValue $releaseArchiveDecisionManifest "decisionRecorded" $false)

@@ -8,8 +8,11 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QStandardPaths>
 #include <QTcpServer>
+#include <QTextStream>
 #include <QThread>
 
 #include <functional>
@@ -25,6 +28,7 @@ QString testAppDataDir() {
 
 bool expect(bool condition, const char* message) {
     if (!condition) {
+        QTextStream(stderr) << message << Qt::endl;
         qWarning() << message;
         return false;
     }
@@ -43,6 +47,28 @@ bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
     return predicate();
 }
 
+QString scalarString(const QString& databasePath, const QString& sql, const QVariantList& binds = QVariantList()) {
+    const QString connectionName = QStringLiteral("redis_fallback_avatar_check_") + QString::number(qHash(sql));
+    QString result;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        db.setDatabaseName(databasePath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare(sql);
+            for (const QVariant& bind : binds) {
+                query.addBindValue(bind);
+            }
+            if (query.exec() && query.next()) {
+                result = query.value(0).toString();
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return result;
+}
+
 quint16 freeLocalPort() {
     QTcpServer probe;
     if (!probe.listen(QHostAddress::LocalHost, 0)) return 0;
@@ -54,18 +80,20 @@ quint16 freeLocalPort() {
 bool registerClient(Client& client,
                     const QString& account,
                     const QString& userName,
-                    quint16 port) {
+                    quint16 port,
+                    bool registerMode = true) {
     client.setUserInfo(account, userName);
-    client.setAccountInfo(account, "secret", true);
+    client.setAccountInfo(account, "secret", registerMode);
     if (!client.connectToServer("127.0.0.1", port)) return false;
     return client.waitForLoginResult(5000);
 }
 
 QByteArray tinyPngAvatar(uchar marker) {
-    QByteArray png = QByteArray::fromBase64(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=");
-    png.append(static_cast<char>(marker));
-    return png;
+    static const QByteArray avatarA = QByteArray::fromBase64(
+        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQImWNkYPj/n4GBgYGJAQoAAB0nA/2bQVWkAAAAAElFTkSuQmCC");
+    static const QByteArray avatarB = QByteArray::fromBase64(
+        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQImWP8z/D/PwMDAwMTAxQAABoSA/0ZKq8cAAAAAElFTkSuQmCC");
+    return marker == 1 ? avatarA : avatarB;
 }
 }
 
@@ -161,7 +189,35 @@ int main(int argc, char** argv) {
                     return false;
                 }),
                 "user list should refresh peer avatar metadata after profile update") && ok;
+    const QString persistedAvatarBase64 = scalarString(QDir(appDataDir).filePath(QStringLiteral("accounts.sqlite3")),
+                                                       QStringLiteral("SELECT COALESCE(avatar_base64, '') FROM accounts WHERE account = ?"),
+                                                       QVariantList{QStringLiteral("930002")});
+    ok = expect(persistedAvatarBase64 == updatedAvatarBase64,
+                "server account storage should persist the latest avatar_base64 after profile update") && ok;
 
+    avatarPeer.disconnectFromServer();
+    ok = expect(waitFor([&] {
+                    for (const ChatUser& user : client.onlineUsers()) {
+                        if (user.id == QStringLiteral("930002")) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }),
+                "avatar peer should disappear from the online user list after disconnect") && ok;
+
+    Client avatarPeerRelogin;
+    ok = expect(registerClient(avatarPeerRelogin, "930002", "AvatarPeer", chatPort, false),
+                "avatar peer should be able to relogin from persisted account state") && ok;
+    ok = expect(waitFor([&] {
+                    for (const ChatUser& user : client.onlineUsers()) {
+                        if (user.id == QStringLiteral("930002") && user.avatar == updatedAvatarBase64) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }),
+                "user list should restore peer avatar metadata from persisted account state after relogin") && ok;
     QStringList receivedMessages;
     QObject::connect(&client, &Client::newMessage, &app, [&](const Message& msg) {
         if (msg.type == MessageType::Text) {
@@ -174,7 +230,7 @@ int main(int argc, char** argv) {
     ok = expect(waitFor([&] { return receivedMessages.contains(fallbackMessage); }),
                 "client should receive the local broadcast even when Redis publish falls back") && ok;
 
-    avatarPeer.disconnectFromServer();
+    avatarPeerRelogin.disconnectFromServer();
     client.disconnectFromServer();
     server.stop();
 

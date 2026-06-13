@@ -1,4 +1,4 @@
-QT += network widgets sql
+QT += network widgets sql multimedia
 
 CONFIG += c++17
 
@@ -15,6 +15,7 @@ SOURCES += \
     src/logincredentialstore.cpp \
     src/historyservice.cpp \
     src/historymetadata.cpp \
+    src/historyattachmentparser.cpp \
     src/transfermanager.cpp \
     src/transferchatitemrenderer.cpp \
     src/chatsessionmanager.cpp \
@@ -41,6 +42,7 @@ HEADERS += \
     include/logincredentialstore.h \
     include/historyservice.h \
     include/historymetadata.h \
+    include/historyattachmentparser.h \
     include/transfermanager.h \
     include/transferchatitemrenderer.h \
     include/chatsessionmanager.h \

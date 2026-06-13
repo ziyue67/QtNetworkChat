@@ -108,12 +108,13 @@ configure_file(
     @ONLY
 )
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Test)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Network Sql Multimedia)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Network Sql Multimedia Test)
 
 set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/tlssecurity.cpp
     src/filetransferstatus.cpp
+    src/historyattachmentparser.cpp
     src/chatcontextmanager.cpp
     src/transfermanager.cpp
     src/localfilemanager.cpp
@@ -126,6 +127,7 @@ set(QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES
     src/e2eenvelope.cpp
     include/tlssecurity.h
     include/filetransferstatus.h
+    include/historyattachmentparser.h
     include/chatcontextmanager.h
     include/transfermanager.h
     include/localfilemanager.h
@@ -186,7 +188,7 @@ add_executable(QtNetworkChat
 )
 
 target_include_directories(QtNetworkChat PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated include)
-target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+target_link_libraries(QtNetworkChat PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Multimedia)
 if(QTNETWORKCHAT_E2E_LINK_PRODUCTION_ADAPTER AND OpenSSL_FOUND)
     target_link_libraries(QtNetworkChat PRIVATE OpenSSL::Crypto)
 endif()
@@ -283,6 +285,16 @@ if(BUILD_TESTING)
     )
     target_include_directories(history_metadata_test PRIVATE include)
     target_link_libraries(history_metadata_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql)
+
+    add_executable(history_attachment_parser_test
+        tests/history_attachment_parser_test.cpp
+        src/historyattachmentparser.cpp
+        src/localfilemanager.cpp
+        include/historyattachmentparser.h
+        include/localfilemanager.h
+    )
+    target_include_directories(history_attachment_parser_test PRIVATE include)
+    target_link_libraries(history_attachment_parser_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Widgets)
 
     add_executable(history_service_test
         tests/history_service_test.cpp
@@ -790,6 +802,13 @@ if(BUILD_TESTING)
         NAME HistoryEncryptionMetadata
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:history_metadata_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME HistoryAttachmentParser
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:history_attachment_parser_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

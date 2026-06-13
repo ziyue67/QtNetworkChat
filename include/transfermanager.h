@@ -2,6 +2,7 @@
 #define TRANSFERMANAGER_H
 
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QList>
 #include <QJsonObject>
 #include <QString>
@@ -351,6 +352,8 @@ public:
                                                                   bool canOpenFile,
                                                                   bool canOpenFolder,
                                                                   const QString& contextText = QString());
+    static TransferWorkspaceSummaryState governanceWorkspaceSummary(const QJsonObject& governanceDashboard,
+                                                                    const QJsonObject& performanceSummary = QJsonObject());
     static TransferWorkspaceSummaryState emptyWorkspaceSummary(bool hasDiagnostic = false);
     static TransferProgressUiState resumeInitialState(const QString& fileName,
                                                       const QString& targetName);

@@ -89,7 +89,10 @@ private:
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
-    bool insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const;
+    bool insertAccountToSqlite(const QString& account,
+                               const QString& passwordHash,
+                               const QString& userName,
+                               const QString& avatarBase64 = QString()) const;
     bool updateAccountPasswordHashInSqlite(const QString& account, const QString& passwordHash) const;
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool recordDefaultGroupMembership(const ChatUser& user) const;

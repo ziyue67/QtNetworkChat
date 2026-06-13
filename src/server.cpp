@@ -1509,6 +1509,7 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     QString account = obj["account"].toString().trimmed();
     QString password = obj["password"].toString();
     QString userName = obj["userName"].toString().trimmed();
+    const QString avatarBase64 = normalizedAvatarBase64(obj["avatar"].toString());
 
     if (mode != "register" && account.isEmpty()) account = userName;
     if (userName.isEmpty()) userName = account.isEmpty() ? "User" : account;
@@ -1541,8 +1542,9 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
         accountObj["passwordHash"] = passwordHash;
         accountObj["userName"] = userName;
         accountObj["userId"] = account;
+        accountObj["avatar"] = avatarBase64;
         accounts[account] = accountObj;
-        insertAccountToSqlite(account, passwordHash, userName);
+        insertAccountToSqlite(account, passwordHash, userName, avatarBase64);
     } else if (accounts.contains(account)) {
         QJsonObject accountObj = accounts[account].toObject();
         QString storedHash = accountObj["passwordHash"].toString();
@@ -1551,7 +1553,10 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
             accountObj.remove("password");
             accountObj["passwordHash"] = storedHash;
             accounts[account] = accountObj;
-            insertAccountToSqlite(account, storedHash, accountObj["userName"].toString(userName));
+            insertAccountToSqlite(account,
+                                  storedHash,
+                                  accountObj["userName"].toString(userName),
+                                  accountObj["avatar"].toString());
         }
         bool needsPasswordHashUpgrade = false;
         if (!verifyStoredPasswordHash(account, password, storedHash, &needsPasswordHashUpgrade)) {
@@ -1570,6 +1575,10 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
             updateAccountPasswordHashInSqlite(account, upgradedHash);
         }
         userName = accountObj["userName"].toString(userName);
+        if (avatarBase64.isEmpty()) {
+            accountObj["avatar"] = normalizedAvatarBase64(accountObj["avatar"].toString());
+            accounts[account] = accountObj;
+        }
     } else if (!account.isEmpty()) {
         QJsonObject response;
         response["type"] = "login_failed";
@@ -1590,7 +1599,9 @@ void Server::handleLogin(const QJsonObject& obj, QTcpSocket* socket) {
     user.address = socket->peerAddress();
     user.port = socket->peerPort();
     user.isOnline = true;
-    user.avatar = normalizedAvatarBase64(obj["avatar"].toString());
+    user.avatar = avatarBase64.isEmpty()
+        ? normalizedAvatarBase64(accounts.value(account).toObject().value("avatar").toString())
+        : avatarBase64;
     user.lastActive = QDateTime::currentDateTime();
 
     m_clients[socket] = user;
@@ -1711,6 +1722,21 @@ void Server::handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket) {
 
     const QString avatar = normalizedAvatarBase64(obj["avatar"].toString());
     user->avatar = avatar;
+    if (!user->id.isEmpty() && ensureAccountDatabase()) {
+        const QString connectionName = "accounts_avatar_update_" + QString::number(reinterpret_cast<quintptr>(socket));
+        {
+            QSqlDatabase db = openAccountDatabase(connectionName);
+            if (openAccountDatabaseConnection(db, connectionName)) {
+                QSqlQuery query(db);
+                query.prepare("UPDATE accounts SET avatar_base64 = ?, updated_at = CURRENT_TIMESTAMP WHERE account = ?");
+                query.addBindValue(avatar);
+                query.addBindValue(user->id);
+                query.exec();
+                db.close();
+            }
+        }
+        releaseAccountDatabase(connectionName);
+    }
     refreshRedisPresence(*user);
 
     for (QTcpSocket* clientSocket : m_clients.keys()) {
@@ -2395,6 +2421,7 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
             response["found"] = true;
             response["userId"] = account;
             response["userName"] = accountObj["userName"].toString(account);
+            response["avatar"] = normalizedAvatarBase64(accountObj["avatar"].toString());
             response["online"] = m_userSockets.contains(account);
             response["exactMatch"] = true;
             response["matchCount"] = 1;
@@ -2424,6 +2451,7 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
                 response["found"] = true;
                 response["userId"] = matchedId;
                 response["userName"] = matchedName.isEmpty() ? matchedId : matchedName;
+                response["avatar"] = normalizedAvatarBase64(accounts[matchedId].toObject()["avatar"].toString());
                 response["online"] = m_userSockets.contains(matchedId);
             } else {
                 response["found"] = false;
@@ -3514,12 +3542,13 @@ QJsonObject Server::loadAccountsFromSqlite() const {
         if (!openAccountDatabaseConnection(db, connectionName)) return accounts;
 
         QSqlQuery query(db);
-        if (query.exec("SELECT account, password_hash, user_name FROM accounts")) {
+        if (query.exec("SELECT account, password_hash, user_name, COALESCE(avatar_base64, '') FROM accounts")) {
             while (query.next()) {
                 QJsonObject accountObj;
                 accountObj["passwordHash"] = query.value(1).toString();
                 accountObj["userName"] = query.value(2).toString();
                 accountObj["userId"] = query.value(0).toString();
+                accountObj["avatar"] = query.value(3).toString();
                 accounts[query.value(0).toString()] = accountObj;
             }
         }
@@ -3549,7 +3578,10 @@ QJsonObject Server::loadAccountsFromSqlite() const {
     return accounts;
 }
 
-bool Server::insertAccountToSqlite(const QString& account, const QString& passwordHash, const QString& userName) const {
+bool Server::insertAccountToSqlite(const QString& account,
+                                   const QString& passwordHash,
+                                   const QString& userName,
+                                   const QString& avatarBase64) const {
     if (!ensureAccountDatabase()) return false;
 
     QString connectionName = "accounts_write_" + QString::number(reinterpret_cast<quintptr>(this));
@@ -3560,15 +3592,17 @@ bool Server::insertAccountToSqlite(const QString& account, const QString& passwo
             QSqlQuery query(db);
             query.prepare(insertReplaceSql(
                 QStringLiteral("accounts"),
-                {QStringLiteral("account"), QStringLiteral("password_hash"), QStringLiteral("user_name"), QStringLiteral("updated_at")},
-                {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                {QStringLiteral("account"), QStringLiteral("password_hash"), QStringLiteral("user_name"), QStringLiteral("avatar_base64"), QStringLiteral("updated_at")},
+                {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
                 {QStringLiteral("account")},
                 {QStringLiteral("password_hash = EXCLUDED.password_hash"),
                  QStringLiteral("user_name = EXCLUDED.user_name"),
+                 QStringLiteral("avatar_base64 = EXCLUDED.avatar_base64"),
                  QStringLiteral("updated_at = EXCLUDED.updated_at")}));
             query.addBindValue(account);
             query.addBindValue(passwordHash);
             query.addBindValue(userName);
+            query.addBindValue(normalizedAvatarBase64(avatarBase64));
             ok = query.exec();
             db.close();
         }
@@ -3618,12 +3652,14 @@ bool Server::recordUserSessionToSqlite(const ChatUser& user, const QString& even
                 QSqlQuery accountQuery(db);
                 accountQuery.prepare("UPDATE accounts SET "
                                      "user_name = ?, "
+                                     "avatar_base64 = ?, "
                                      "last_login_at = CURRENT_TIMESTAMP, "
                                      "last_login_address = ?, "
                                      "login_count = COALESCE(login_count, 0) + 1, "
                                      "updated_at = CURRENT_TIMESTAMP "
                                      "WHERE account = ?");
                 accountQuery.addBindValue(user.name);
+                accountQuery.addBindValue(normalizedAvatarBase64(user.avatar));
                 accountQuery.addBindValue(user.address.toString());
                 accountQuery.addBindValue(user.id);
                 ok = accountQuery.exec();
@@ -3899,9 +3935,11 @@ bool Server::ensureAccountDatabase() const {
                             "account TEXT PRIMARY KEY, "
                             "password_hash TEXT NOT NULL, "
                             "user_name TEXT NOT NULL, "
+                            "avatar_base64 TEXT, "
                             "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
                             "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             if (ok) {
+                query.exec("ALTER TABLE accounts ADD COLUMN avatar_base64 TEXT");
                 query.exec("ALTER TABLE accounts ADD COLUMN last_login_at TEXT");
                 query.exec("ALTER TABLE accounts ADD COLUMN last_login_address TEXT");
                 query.exec("ALTER TABLE accounts ADD COLUMN login_count INTEGER DEFAULT 0");

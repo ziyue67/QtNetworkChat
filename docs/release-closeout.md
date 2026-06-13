@@ -2,6 +2,18 @@
 
 Release closeout is the final local evidence bundle for a current `HEAD`. It keeps code verification, local archive approval, install/diagnostic drill evidence, and environment-specific publication state separate so the repository can stop writing without pretending that an external release has already happened.
 
+## Current Baseline
+
+For the current branch baseline, local release closeout is already treated as complete when the generated manifests agree on all of the following:
+
+- `local-release-review`: `reviewReady=true` and `reviewGate=review-complete-archive-decision-recorded`
+- `release-archive-decision`: `decisionRecorded=true`, `decisionState=approved-local-archive`, and publication tracked separately as `pending-environment-publication`
+- `release-delivery-handoff`: `deliveryReady=true` and `deliveryGate=ready-local-delivery-handoff`
+- `release-closeout-summary`: `closeoutReady=true` and `closeoutGate=release-closeout-ready-for-stop-writing`
+- `release-final-local-archive`: `archiveReady=true` and `archiveGate=ready-final-local-archive`
+
+When that combination is present, the repository is already in stop-writing mode for the verified current `HEAD`. Any later team-share upload, ticket handoff, release page update, or other environment-specific publishing step remains operational follow-up outside this repository; it does not reopen code verification or local archive readiness by itself.
+
 ## Artifacts
 
 - `build-qt6-mingw/local-release-review/local-release-review.zip`
@@ -27,6 +39,7 @@ Release closeout is the final local evidence bundle for a current `HEAD`. It kee
 - A local release closeout is considered complete only when the local release review, archive decision, delivery handoff, delivery drill, publication record, and diagnostics package are all present and readable.
 - A final local archive is considered ready only when that closeout chain is complete and the current head has an explicit local archive decision recorded on the same baseline.
 - Environment-specific publication remains outside the repository, even when the local closeout chain is complete.
+- `pending-environment-publication` is a valid recorded follow-up state after local closeout is complete. It means the repository-side stop-writing archive is already ready, while publication is intentionally tracked as an external action.
 - `docs/automation-status.md` should summarize the stable gates and readiness state of this chain; it should not become the only place where release closeout semantics exist.
 - When the default fail-closed E2E release evidence artifact and the current-head closeout chain disagree, the active release-review baseline is the current-head `local-release-review` plus `release-closeout-summary` pair. The older baseline remains useful as an informational artifact, but it must not override a current-head closeout that is already complete.
 

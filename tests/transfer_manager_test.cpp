@@ -658,6 +658,7 @@ int main(int argc, char** argv) {
                     && statusSummary.preservedState.contains(QString::fromUtf8("恢复记录"))
                     && statusSummary.diagnosticHint.contains(QString::fromUtf8("复制最近传输诊断"))
                     && statusSummary.previewText.contains(QString::fromUtf8("恢复来源：object/offline 读回链路"))
+                    && statusSummary.previewText.contains(QString::fromUtf8("same-wire/object/offline 候选证据"))
                     && statusSummary.previewText.contains(QStringLiteral("object-readback-unavailable"))
                     && statusSummary.statusTone == QStringLiteral("warning"),
                 "status workspace summary should expose category, next step and preserved recovery context") && ok;
@@ -675,8 +676,36 @@ int main(int argc, char** argv) {
                     && savedFileSummary.preservedState.contains(QString::fromUtf8("保存路径"))
                     && savedFileSummary.diagnosticHint.contains(QStringLiteral("C:/Downloads/report.zip"))
                     && savedFileSummary.previewText.contains(QString::fromUtf8("聊天上下文"))
+                    && savedFileSummary.previewText.contains(QString::fromUtf8("保留状态"))
                     && savedFileSummary.statusTone == QStringLiteral("warning"),
                 "saved file workspace summary should centralize missing-file path guidance") && ok;
+
+    QJsonObject governanceDashboard;
+    governanceDashboard[QStringLiteral("status")] = QStringLiteral("healthy");
+    governanceDashboard[QStringLiteral("alertCount")] = 2;
+    QJsonObject performanceSummary;
+    QJsonArray bottlenecks;
+    bottlenecks.append(QStringLiteral("receipt-archive-pressure"));
+    bottlenecks.append(QStringLiteral("fallback-protection-gap"));
+    performanceSummary[QStringLiteral("bottlenecks")] = bottlenecks;
+    TransferWorkspaceSummaryState governanceSummary =
+        TransferManager::governanceWorkspaceSummary(governanceDashboard, performanceSummary);
+    ok = expect(governanceSummary.title == QString::fromUtf8("文件工作区 · 治理与性能")
+                    && governanceSummary.detail.contains(QString::fromUtf8("治理状态 healthy"))
+                    && governanceSummary.detail.contains(QString::fromUtf8("性能瓶颈"))
+                    && governanceSummary.nextStep.contains(QString::fromUtf8("先处理性能瓶颈"))
+                    && governanceSummary.preservedState.contains(QString::fromUtf8("治理 dashboard"))
+                    && governanceSummary.previewText.contains(QString::fromUtf8("receipt-archive-pressure"))
+                    && governanceSummary.statusTone == QStringLiteral("warning"),
+                "governance workspace summary should expose bottlenecks, preserved evidence and next-step guidance") && ok;
+
+    TransferWorkspaceSummaryState missingGovernanceSummary =
+        TransferManager::governanceWorkspaceSummary(QJsonObject(), QJsonObject());
+    ok = expect(missingGovernanceSummary.detail.contains(QString::fromUtf8("当前没有治理 dashboard"))
+                    && missingGovernanceSummary.nextStep.contains(QString::fromUtf8("先生成 large-file governance dashboard"))
+                    && missingGovernanceSummary.preservedState.contains(QString::fromUtf8("恢复记录"))
+                    && missingGovernanceSummary.statusTone == QStringLiteral("warning"),
+                "governance workspace summary should still explain missing artifacts and preserved transfer context") && ok;
 
     TransferWorkspaceSummaryState emptySummary = TransferManager::emptyWorkspaceSummary(true);
     ok = expect(emptySummary.title == QString::fromUtf8("文件工作区")
@@ -684,6 +713,7 @@ int main(int argc, char** argv) {
                     && emptySummary.nextStep.contains(QString::fromUtf8("发送文件"))
                     && emptySummary.preservedState.contains(QString::fromUtf8("上一条传输诊断"))
                     && emptySummary.diagnosticHint.contains(QString::fromUtf8("复制最近一次传输诊断"))
+                    && emptySummary.previewText.contains(QString::fromUtf8("等待恢复链路还是重新发送"))
                     && emptySummary.statusTone == QStringLiteral("muted"),
                 "empty workspace summary should still surface next step and preserved diagnostic context") && ok;
 
@@ -714,6 +744,69 @@ int main(int argc, char** argv) {
     ok = expect(objectRecoveryBlocked.recoverySource == QString::fromUtf8("object/offline 候选证据")
                     && objectRecoveryBlocked.recoveryAction == QStringLiteral("resend-or-wait-for-object-recovery"),
                 "object/offline blocked recovery should expose candidate evidence source and wait-or-resend action") && ok;
+
+    TransferRecoveryUiState filesystemObjectResume = TransferManager::recoveryUiState(
+        true,
+        true,
+        savedState(QStringLiteral("C:/tmp/fs-object.bin"), QStringLiteral("930005")),
+        recoveryStatus(false,
+                       QStringLiteral("resend"),
+                       QStringLiteral("e2e-file-filesystem-object-readback-wait"),
+                       true,
+                       QStringLiteral("wait-for-filesystem-object-readback")),
+        false);
+    ok = expect(filesystemObjectResume.recoverySource == QString::fromUtf8("filesystem object 密文回读")
+                    && filesystemObjectResume.recoveryAction == QStringLiteral("wait-for-filesystem-object-readback"),
+                "filesystem object recovery should expose a distinct recovery source and action") && ok;
+
+    TransferRecoveryUiState reviewedS3Resume = TransferManager::recoveryUiState(
+        true,
+        true,
+        savedState(QStringLiteral("C:/tmp/s3-object.bin"), QStringLiteral("930006")),
+        recoveryStatus(false,
+                       QStringLiteral("resend"),
+                       QStringLiteral("e2e-file-reviewed-s3-readback-wait"),
+                       true,
+                       QStringLiteral("wait-for-reviewed-s3-object-readback")),
+        false);
+    ok = expect(reviewedS3Resume.recoverySource == QString::fromUtf8("reviewed S3 密文回读")
+                    && reviewedS3Resume.recoveryAction == QStringLiteral("wait-for-reviewed-s3-object-readback"),
+                "reviewed S3 recovery should expose a distinct recovery source and action") && ok;
+
+    TransferRecoveryUiState offlineMirrorResume = TransferManager::recoveryUiState(
+        true,
+        true,
+        savedState(QStringLiteral("C:/tmp/offline-mirror.bin"), QStringLiteral("930007")),
+        recoveryStatus(false,
+                       QStringLiteral("resend"),
+                       QStringLiteral("e2e-file-offline-mirror-readback-wait"),
+                       true,
+                       QStringLiteral("wait-for-offline-mirror-readback")),
+        false);
+    ok = expect(offlineMirrorResume.recoverySource == QString::fromUtf8("reviewed offline mirror 密文回读")
+                    && offlineMirrorResume.recoveryAction == QStringLiteral("wait-for-offline-mirror-readback"),
+                "reviewed offline mirror recovery should expose a distinct recovery source and action") && ok;
+
+    TransferWorkspaceSummaryState filesystemRecoverySummary =
+        TransferManager::recoveryWorkspaceSummary(filesystemObjectResume, &objectReadbackEvent, true);
+    ok = expect(filesystemRecoverySummary.detail.contains(QString::fromUtf8("filesystem object 密文回读"))
+                    && filesystemRecoverySummary.nextStep.contains(QString::fromUtf8("等待本机对象读回条件恢复"))
+                    && filesystemRecoverySummary.previewText.contains(QString::fromUtf8("filesystem object 密文回读")),
+                "filesystem object recovery summary should explain the retained object-readback path") && ok;
+
+    TransferWorkspaceSummaryState reviewedS3RecoverySummary =
+        TransferManager::recoveryWorkspaceSummary(reviewedS3Resume, &objectReadbackEvent, true);
+    ok = expect(reviewedS3RecoverySummary.detail.contains(QString::fromUtf8("reviewed S3 密文回读"))
+                    && reviewedS3RecoverySummary.nextStep.contains(QString::fromUtf8("等待对象读回条件恢复"))
+                    && reviewedS3RecoverySummary.previewText.contains(QString::fromUtf8("reviewed S3 密文回读")),
+                "reviewed S3 recovery summary should explain the retained S3 readback path") && ok;
+
+    TransferWorkspaceSummaryState offlineMirrorRecoverySummary =
+        TransferManager::recoveryWorkspaceSummary(offlineMirrorResume, &objectReadbackEvent, true);
+    ok = expect(offlineMirrorRecoverySummary.detail.contains(QString::fromUtf8("reviewed offline mirror 密文回读"))
+                    && offlineMirrorRecoverySummary.nextStep.contains(QString::fromUtf8("等待镜像读回条件恢复"))
+                    && offlineMirrorRecoverySummary.previewText.contains(QString::fromUtf8("reviewed offline mirror 密文回读")),
+                "reviewed offline mirror recovery summary should explain the retained mirror readback path") && ok;
 
     TransferRecoveryUiState sessionMismatch = TransferManager::recoveryUiState(
         true,

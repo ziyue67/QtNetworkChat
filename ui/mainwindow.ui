@@ -269,10 +269,51 @@
         </widget>
        </item>
        <item>
-        <widget class="QLabel" name="onlineTitleLabel">
+       <widget class="QLabel" name="onlineTitleLabel">
          <property name="text">
           <string>联系人与会话</string>
          </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="contactSummaryCard">
+         <property name="frameShape">
+          <enum>QFrame::Shape::NoFrame</enum>
+         </property>
+         <layout class="QVBoxLayout" name="contactSummaryLayout">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <property name="leftMargin">
+           <number>12</number>
+          </property>
+          <property name="topMargin">
+           <number>12</number>
+          </property>
+          <property name="rightMargin">
+           <number>12</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="contactSummaryTitleLabel">
+            <property name="text">
+             <string>联系人工作区</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="contactSummaryDetailLabel">
+            <property name="text">
+             <string>左侧会持续汇总好友、群聊、在线成员和搜索入口，方便直接进入会话或继续发起动作。</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </widget>
        </item>
        <item>
@@ -455,6 +496,47 @@
                </property>
                <property name="alignment">
                 <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="chatActionSummaryCard">
+            <property name="frameShape">
+             <enum>QFrame::Shape::NoFrame</enum>
+            </property>
+            <layout class="QVBoxLayout" name="chatActionSummaryLayout">
+             <property name="spacing">
+              <number>6</number>
+             </property>
+             <property name="leftMargin">
+              <number>14</number>
+             </property>
+             <property name="topMargin">
+              <number>12</number>
+             </property>
+             <property name="rightMargin">
+              <number>14</number>
+             </property>
+             <property name="bottomMargin">
+              <number>12</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="chatActionSummaryTitleLabel">
+               <property name="text">
+                <string>当前会话动作</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="chatActionSummaryDetailLabel">
+               <property name="text">
+                <string>这里会持续说明当前会话最适合继续做什么，例如发送消息、进入通知工作区、查看群成员或继续文件操作。</string>
                </property>
                <property name="wordWrap">
                 <bool>true</bool>
@@ -826,10 +908,51 @@
         </widget>
        </item>
        <item>
-        <widget class="QLabel" name="memberTitleLabel">
+       <widget class="QLabel" name="memberTitleLabel">
          <property name="text">
           <string>群成员</string>
          </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="memberSummaryCard">
+         <property name="frameShape">
+          <enum>QFrame::Shape::NoFrame</enum>
+         </property>
+         <layout class="QVBoxLayout" name="memberSummaryLayout">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <property name="leftMargin">
+           <number>12</number>
+          </property>
+          <property name="topMargin">
+           <number>12</number>
+          </property>
+          <property name="rightMargin">
+           <number>12</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="memberSummaryTitleLabel">
+            <property name="text">
+             <string>成员与权限</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="memberSummaryDetailLabel">
+            <property name="text">
+             <string>右侧会持续说明当前会话的公告、成员、权限边界和下一步协作动作。</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </widget>
        </item>
        <item>

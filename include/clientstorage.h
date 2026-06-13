@@ -20,6 +20,10 @@ public:
     QString peerAvatarFilePath(const QString& userId) const;
     bool savePeerAvatar(const QString& userId, const QByteArray& pngData) const;
     QPixmap loadPeerAvatar(const QString& userId) const;
+    bool savePeerAvatarToSqlite(const QString& databasePath,
+                                const QString& userId,
+                                const QString& avatarPath) const;
+    QMap<QString, QString> loadPeerAvatarIndexFromSqlite(const QString& databasePath) const;
 
     bool readLegacyFriends(QStringList* friendIds, QMap<QString, QString>* friendNames) const;
     bool writeLegacyFriends(const QStringList& friendIds,

@@ -3003,6 +3003,13 @@ if (($e2eRolloutReadback.state -eq "ok") `
         $e2eRolloutReadback = $packagedRolloutReadback
     }
 }
+if (($e2eRolloutReadback.state -eq "ok") `
+        -and $activeE2EReleaseEvidenceCurrentHeadCloseout `
+        -and ((Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseReady) -eq "true")) {
+    $e2eRolloutReadback.status = "informational-baseline"
+    $e2eRolloutReadback.readiness = "informational"
+    $e2eRolloutReadback.releaseGate = "informational-current-head-closeout-overrides-legacy-rollout-baseline"
+}
 $automationAckDrillState = Get-ArtifactState -PathValue $AutomationAckDrillPath -ExpectJson
 $s3RealBackendReadinessState = Get-ArtifactState -PathValue $S3RealBackendReadinessPath -ExpectJson
 $s3RealBackendReadinessReadback =
@@ -3146,7 +3153,7 @@ $e2eReleaseTail = if ($script:GitHubWindowsBuildPolicyResolved -eq "disabled") {
     "Automation status now consumes the persisted rollout observability JSON/Markdown artifact together with the active verification policy, current CI readback, and local build/CTest readback; remaining E2E release work stays on release review plus whichever CI/local verification path the active policy requires."
 }
 $e2eProductionBacklog = @(
-    "1. E2E production crypto is the active automation lane again. Linked OpenSSL builds now run the reviewed provider table through public API dispatch. The default status surface keeps the callable manifest, sanitized execution result contract, explicit reviewed runtime-preflight/arming/execution-acceptance probe readiness, and production rotation dry-run/execute evidence, promotes sanitized provider invocation probe evidence through reviewed candidate, call handoff, stub, callable bridge/interface, runtime preflight, arming, execution acceptance, data-plane bridge, and public primitive execution, and linked reviewed builds can pass the early operation, provider control, and explicit reviewed tail probe evidence gates to reach productionAcceptance.accepted=true / releaseGate=production-crypto-accepted."
+    "1. E2E production crypto evidence remains the deepest closeout evidence lane for this branch. Linked OpenSSL builds now run the reviewed provider table through public API dispatch. The default status surface keeps the callable manifest, sanitized execution result contract, explicit reviewed runtime-preflight/arming/execution-acceptance probe readiness, and production rotation dry-run/execute evidence, promotes sanitized provider invocation probe evidence through reviewed candidate, call handoff, stub, callable bridge/interface, runtime preflight, arming, execution acceptance, data-plane bridge, and public primitive execution, and linked reviewed builds can pass the early operation, provider control, and explicit reviewed tail probe evidence gates to reach productionAcceptance.accepted=true / releaseGate=production-crypto-accepted."
     "The linked runtime gate now also drives the real public API chain directly for identity generation, public derivation, agreement sign/verify, session derivation, payload encrypt/decrypt, and tamper rejection instead of relying only on probe summaries. Normal provider probe fixtures now use 32-byte valid production material handles, while runtime self-test plus explicit round-trip/public-primitive probes reject malformed identity handles, malformed verification public keys, malformed session-derive keys, and malformed payload keys as invalid-input without hashing arbitrary material into usable keys. productionRolloutObservability now summarizes acceptance, material/export proof counts, public primitive readiness, filesystem object ciphertext readback readiness, operator recovery prompts, user recovery prompts, and no-sensitive-export proof; it stays fail-closed until linked acceptance passes, then reports releaseGate=production-rollout-observability-ready without exporting key/session/private identity/plaintext/ciphertext bytes."
     "e2e_rollout_observability_exporter now persists sanitized rollout observability JSON/Markdown with filesystem object readback and reviewed offline mirror opt-in gates; default CTest verifies the unlinked fail-closed artifact and the linked OpenSSL runtime gate requires accepted evidence before promotion. The runtime gate also verifies client production rotation beyond local rebind: when every provider gate is ready, executeE2EProductionRotation generates production local identity material, persists the production backend id, clears draft sessions/pending agreements without exporting sensitive material, then Alice/Bob/Carol re-announce production identities, re-verify trust pins, derive independent signed production sessions, and send encrypted private text/file payloads on openssl-reviewed-adapter-v1."
     "The same gate restarts all three clients, restores production identities/trust pins from disk, refuses to reuse memory-only sessions, derives fresh independent production sessions, and repeats encrypted text/file delivery. Encrypted private file recovery now has sender-local same-wire cache, verified filesystem object readback, explicit reviewed S3 object readback, and explicit reviewed offline mirror readback paths: auto-resume is allowed only when the local ciphertext cache, filesystem object ciphertext, reviewed S3 ciphertext object, or reviewed offline mirror ciphertext object matches the sanitized envelope header, key id/fingerprint, plaintext/wire hashes, envelope ciphertextSha256, and server resume metadata."
@@ -3223,6 +3230,9 @@ if (-not $e2eRolloutReadback.configured) {
     $lines.Add(('  Sensitive export proof: noSensitiveExport=`{0}`, suppressed=`{1}`' -f `
             (Format-StatusValue $e2eRolloutReadback.noSensitiveExportProof), `
             (Format-StatusValue $e2eRolloutReadback.sensitiveFieldsSuppressed)))
+    if ($activeE2EReleaseEvidenceCurrentHeadCloseout) {
+        $lines.Add('  Current-head closeout note: `legacy rollout observability remains as a sanitized diagnostic artifact; active release review now follows current-head local-release-review plus release-closeout-summary.`')
+    }
 }
 if (-not $activeE2EReleaseEvidenceReadback.configured) {
     $lines.Add('- E2E release evidence package: `not configured`')
@@ -3237,7 +3247,7 @@ if (-not $activeE2EReleaseEvidenceReadback.configured) {
             (Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseReady), `
             (Format-StatusValue $activeE2EReleaseEvidenceReadback.releaseGate), `
             (Format-StatusValue $activeE2EReleaseEvidenceReadback.inputCount)))
-    $lines.Add(('  Active evidence source: source=`{0}`, currentHeadLinkedCandidate=`{1}`' -f `
+    $lines.Add(('  Active evidence source: source=`{0}`, usesLinkedCurrentHeadCandidate=`{1}`' -f `
             $activeE2EReleaseEvidenceLabel, `
             (Format-StatusValue $activeE2EReleaseEvidenceUsesLinkedCandidate)))
     if ($activeE2EReleaseEvidenceCurrentHeadCloseout) {
@@ -3925,16 +3935,15 @@ if ($e2eLinkedReleaseCandidateReadback.configured) {
     $lines.Add('- E2E linked release candidate artifacts: `' + $e2eLinkedReleaseCandidateDiagnostics + '`')
 }
 $lines.Add("")
-$lines.Add("## Priority Backlog")
+$lines.Add("## Closeout Maintenance Boundaries")
 $lines.Add("")
 $lines.Add($e2eProductionBacklog)
-$lines.Add("2. File/offline attachment productization is closed for the current automation lane: unified transfer workspace summaries now cover send progress, recovery, saved-file/open-path handling, receive-save success or failure, preserved fallback state, and next-step guidance, with focused TransferManager coverage to keep that user-facing chain stable.")
-$lines.Add("3. Group productization is closed for the current automation lane: private group creation/invitation/removal, private scoped messages/files, non-member and removed-member fail-closed behavior, snapshot permission fields, removed-member read-only history markers, history visibility policy fields, and send/reject audit evidence are implemented.")
-$lines.Add("4. Release and operations delivery now has a complete local closeout chain: current-head Windows package metadata, release upload plan, installer bootstrap, sanitized diagnostics collector, operator checklist, delivery drill, publication record, release closeout summary, and final local archive can all be archived together without relying on GitHub Windows Build. Environment-specific publishing still remains an explicit step outside this repository, but the local archive decision, delivery drill, diagnostics package, publication state, and stop-writing archive are now recorded separately from the verified code gate.")
-$lines.Add("5. README information architecture and current-state alignment are now the main documentation lane: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, E2E hardening status, and release closeout in focused docs, and keep automation-status plus README backlog wording synchronized with the actual verified code paths and recorded archive decision state.")
-$lines.Add("6. Mainwindow structure split is no longer the active lane and the product-facing Stage 1/2 work is complete for the current automation scope: HistoryService, TransferManager, FriendManager, GroupManager, ClientStorage, LocalFileManager, ChatContextManager, ComposerManager, and NotificationPanelManager already own the main extracted behavior. Only continue heavier dialog or modal decomposition when it materially improves maintenance or unblocks the E2E/mainline closeout lane.")
-$lines.Add("7. PostgreSQL productization is closed for the current automation mainline: QPSQL smoke boundary evidence and rollback live evidence are both covered. Only fix PostgreSQL regressions or CI failures; do not keep adding PostgreSQL polish before the remaining E2E release promotion and release-governance closeout.")
-$lines.Add("8. Governance performance closeout is now a first-class summary lane: keep large-file governance dashboard/report/status aligned with the performance summary so delivery closure, fallback protection, S3 transient pressure, receipt archive pressure, and actionable coverage gaps stay reviewable without re-reading every raw artifact.")
+$lines.Add("2. Current repository work is in closeout, not feature expansion: file/offline attachment productization, group productization, MainWindow / UI stage closeout, PostgreSQL boundary evidence, and governance summaries are already in the completed baseline for this branch.")
+$lines.Add("3. Release and operations delivery now uses a local-closeout policy: current-head Windows package metadata, release upload plan, installer bootstrap, sanitized diagnostics collector, operator checklist, delivery drill, publication record, release closeout summary, and final local archive can all be archived together without relying on GitHub Windows Build.")
+$lines.Add("4. Environment-specific publishing remains an explicit step outside this repository. A pending publication record is operational follow-up, not proof that current-head code verification or local archive closeout failed.")
+$lines.Add("5. README information architecture and current-state alignment remain maintenance work only: keep README as the quick-start/index surface, keep testing coverage, PostgreSQL operations, large-file governance, E2E hardening status, and release closeout in focused docs, and keep automation-status plus README wording synchronized with the actual verified code paths and recorded archive decision state.")
+$lines.Add("6. PostgreSQL release acceptance and database-health warnings now belong to operational evidence follow-up unless they reveal an actual code regression. Keep the artifacts readable and redacted, but do not let environment-specific review states masquerade as unfinished product implementation or reopen local closeout by themselves.")
+$lines.Add("7. Governance performance closeout remains a summary lane: keep large-file governance dashboard/report/status aligned with the performance summary so delivery closure, fallback protection, S3 transient pressure, receipt archive pressure, and actionable coverage gaps stay reviewable without reopening product development.")
 $lines.Add("")
 $lines.Add("## Last Local Verification")
 $lines.Add("")

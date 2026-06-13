@@ -62,16 +62,16 @@ Assert-Contains $readme "docs/release-closeout.md"
 $automationStatusPath = Join-Path $docsRoot "automation-status.md"
 Assert-File $automationStatusPath
 $automationStatus = Read-Utf8Text $automationStatusPath
-Assert-Contains $automationStatus "E2E production crypto is the active automation lane"
+Assert-Contains $automationStatus "E2E production crypto evidence remains the deepest closeout evidence lane for this branch"
 Assert-Contains $automationStatus "callable manifest"
 Assert-Contains $automationStatus "sanitized execution result contract"
 Assert-Contains $automationStatus "production rotation dry-run/execute evidence"
-Assert-Contains $automationStatus "File/offline attachment productization remains the current active product lane"
-Assert-Contains $automationStatus "Group productization is closed for the current automation lane"
-Assert-Contains $automationStatus "Mainwindow structure split is not the current lane yet"
-Assert-Contains $automationStatus "README information architecture and current-state alignment are now the main documentation lane"
-Assert-Contains $automationStatus "Release and operations delivery now has a complete local closeout chain"
-Assert-Contains $automationStatus "Governance performance closeout is now a first-class summary lane"
+Assert-Contains $automationStatus "Current repository work is in closeout, not feature expansion"
+Assert-Contains $automationStatus "Release and operations delivery now uses a local-closeout policy"
+Assert-Contains $automationStatus "Environment-specific publishing remains an explicit step outside this repository"
+Assert-Contains $automationStatus "README information architecture and current-state alignment remain maintenance work only"
+Assert-Contains $automationStatus "PostgreSQL release acceptance and database-health warnings now belong to operational evidence follow-up"
+Assert-Contains $automationStatus "Governance performance closeout remains a summary lane"
 
 $utf8 = [System.Text.Encoding]::UTF8
 $lineNumber = 0

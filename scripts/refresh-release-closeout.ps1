@@ -108,14 +108,25 @@ function Invoke-LocalReleaseReviewPackage {
     Invoke-RepoScript "scripts/package-local-release-review.ps1" @(
         "-OutputDir", $localReleaseReviewDir,
         "-ReleaseHead", $head,
+        "-ReadmePath", (Join-Path $repoRoot "README.md"),
         "-AutomationStatusPath", $resolvedAutomationStatusPath,
         "-LocalVerificationStatusPath", $localVerificationStatusPath,
         "-E2EReleaseEvidenceManifestPath", $linkedEvidenceManifestPath,
         "-E2EReleasePromotionPath", $linkedPromotionPath,
+        "-S3RealBackendReadinessPath", (Join-Path $resolvedBuildDir "s3-real-backend-readiness.json"),
+        "-LargeFileGovernanceDashboardPath", (Join-Path $resolvedBuildDir "automation-tasks\large-file-governance\large-file-governance-dashboard.json"),
+        "-LargeFileGovernanceReportPath", (Join-Path $resolvedBuildDir "automation-tasks\large-file-governance\large-file-governance-report.md"),
+        "-LargeFileGovernancePerformanceSummaryPath", (Join-Path $resolvedBuildDir "automation-tasks\large-file-governance\large-file-governance-performance-summary.json"),
+        "-LargeFileGovernanceDiagnosticsPath", (Join-Path $resolvedBuildDir "automation-tasks\large-file-governance\diagnostics-package\large-file-governance-diagnostics.zip"),
+        "-PgsqlAcceptancePath", (Join-Path $resolvedBuildDir "automation-tasks\pgsql-release-acceptance\pgsql-release-acceptance.json"),
+        "-PgsqlEvidenceManifestPath", (Join-Path $resolvedBuildDir "automation-tasks\pgsql-release-acceptance\evidence\pgsql-release-evidence-manifest.json"),
+        "-PgsqlRollbackLivePath", (Join-Path $resolvedBuildDir "pgsql-rollback-live-evidence\pgsql-rollback-live-evidence.json"),
+        "-PgsqlRollbackEvidenceManifestPath", (Join-Path $resolvedBuildDir "pgsql-rollback-live-evidence\evidence\pgsql-rollback-live-evidence-manifest.json"),
         "-WindowsPackageManifestPath", $windowsPackageManifestPath,
         "-ReleaseDeliveryHandoffManifestPath", $releaseDeliveryHandoffManifestPath,
         "-ReleaseArchiveDecisionManifestPath", $releaseArchiveDecisionManifestPath,
-        "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath
+        "-ReleaseArchiveDecisionMarkdownPath", $releaseArchiveDecisionMarkdownPath,
+        "-AutomationPolicyPath", (Join-Path $repoRoot "docs\automation-policy.json")
     )
 }
 

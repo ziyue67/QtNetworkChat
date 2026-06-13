@@ -15,7 +15,8 @@ public:
         OpenPathRole,
         SenderIdRole,
         SenderNameRole,
-        AvatarPathRole
+        AvatarPathRole,
+        DurationLabelRole
     };
 
     static QColor foregroundForRole(const QString& role);

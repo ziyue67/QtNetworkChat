@@ -47,7 +47,8 @@ bool ClientStorage::savePeerAvatar(const QString& userId, const QByteArray& pngD
     if (!pixmap.loadFromData(pngData, "PNG")) {
         return false;
     }
-    return pixmap.save(peerAvatarFilePath(userId), "PNG");
+    const QString filePath = peerAvatarFilePath(userId);
+    return pixmap.save(filePath, "PNG");
 }
 
 QPixmap ClientStorage::loadPeerAvatar(const QString& userId) const {
@@ -56,6 +57,63 @@ QPixmap ClientStorage::loadPeerAvatar(const QString& userId) const {
         return QPixmap();
     }
     return QPixmap(filePath);
+}
+
+bool ClientStorage::savePeerAvatarToSqlite(const QString& databasePath,
+                                           const QString& userId,
+                                           const QString& avatarPath) const {
+    if (databasePath.isEmpty() || userId.trimmed().isEmpty() || avatarPath.trimmed().isEmpty()) {
+        return false;
+    }
+
+    const QString connectionName = QStringLiteral("client_storage_peer_avatar_%1_%2")
+        .arg(QString::number(reinterpret_cast<quintptr>(this)))
+        .arg(safeToken(userId, QStringLiteral("peer")));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        db.setDatabaseName(databasePath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            query.prepare(QStringLiteral("INSERT OR REPLACE INTO peer_avatars(user_id, avatar_path, updated_at) "
+                                         "VALUES(?, ?, datetime('now'))"));
+            query.addBindValue(userId.trimmed());
+            query.addBindValue(avatarPath.trimmed());
+            ok = query.exec();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+QMap<QString, QString> ClientStorage::loadPeerAvatarIndexFromSqlite(const QString& databasePath) const {
+    QMap<QString, QString> result;
+    if (databasePath.isEmpty()) {
+        return result;
+    }
+
+    const QString connectionName = QStringLiteral("client_storage_peer_avatar_read_%1")
+        .arg(QString::number(reinterpret_cast<quintptr>(this)));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        db.setDatabaseName(databasePath);
+        if (db.open()) {
+            QSqlQuery query(db);
+            if (query.exec(QStringLiteral("SELECT user_id, avatar_path FROM peer_avatars ORDER BY updated_at DESC"))) {
+                while (query.next()) {
+                    const QString userId = query.value(0).toString().trimmed();
+                    const QString avatarPath = query.value(1).toString().trimmed();
+                    if (!userId.isEmpty() && !avatarPath.isEmpty()) {
+                        result.insert(userId, avatarPath);
+                    }
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return result;
 }
 
 bool ClientStorage::readLegacyFriends(QStringList* friendIds, QMap<QString, QString>* friendNames) const {

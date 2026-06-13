@@ -9,6 +9,7 @@
 #include "qtnetworkchat_version.h"
 #include "transferchatitemrenderer.h"
 #include "windowstatemanager.h"
+#include "historyattachmentparser.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -59,8 +60,788 @@
 #include <QStyle>
 #include <QProgressBar>
 #include <QBuffer>
+#include <QStyledItemDelegate>
+#include <QScrollArea>
+#include <QMediaPlayer>
+#include <QVideoSink>
+#include <QVideoFrame>
+#include <QEventLoop>
+#include <QTimer>
+#include <QWheelEvent>
+#include <QMouseEvent>
+#include <QScrollBar>
+#include <QPoint>
+#include <functional>
+#include <memory>
 
 namespace {
+class PreviewImageLabel : public QLabel {
+public:
+    explicit PreviewImageLabel(QWidget* parent = nullptr)
+        : QLabel(parent) {
+        setAlignment(Qt::AlignCenter);
+        setMouseTracking(true);
+    }
+
+    std::function<void(int)> wheelHandler;
+    std::function<void()> doubleClickHandler;
+    std::function<void(QMouseEvent*)> mousePressHandler;
+    std::function<void(QMouseEvent*)> mouseMoveHandler;
+    std::function<void(QMouseEvent*)> mouseReleaseHandler;
+
+protected:
+    void wheelEvent(QWheelEvent* event) override {
+        if (wheelHandler) {
+            wheelHandler(event ? event->angleDelta().y() : 0);
+            if (event) {
+                event->accept();
+            }
+            return;
+        }
+        QLabel::wheelEvent(event);
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if (doubleClickHandler) {
+            doubleClickHandler();
+            if (event) {
+                event->accept();
+            }
+            return;
+        }
+        QLabel::mouseDoubleClickEvent(event);
+    }
+
+    void mousePressEvent(QMouseEvent* event) override {
+        if (mousePressHandler) {
+            mousePressHandler(event);
+            if (event && event->isAccepted()) {
+                return;
+            }
+        }
+        QLabel::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (mouseMoveHandler) {
+            mouseMoveHandler(event);
+            if (event && event->isAccepted()) {
+                return;
+            }
+        }
+        QLabel::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (mouseReleaseHandler) {
+            mouseReleaseHandler(event);
+            if (event && event->isAccepted()) {
+                return;
+            }
+        }
+        QLabel::mouseReleaseEvent(event);
+    }
+};
+
+struct MediaPreviewFooterWidgets {
+    QHBoxLayout* layout = nullptr;
+    QLabel* primaryLabel = nullptr;
+    QLabel* secondaryLabel = nullptr;
+    QLabel* hintLabel = nullptr;
+};
+
+struct MediaPreviewActionWidgets {
+    QHBoxLayout* layout = nullptr;
+    QHBoxLayout* leadingLayout = nullptr;
+    QHBoxLayout* trailingLayout = nullptr;
+    QPushButton* primaryButton = nullptr;
+    QPushButton* openFileButton = nullptr;
+    QPushButton* openFolderButton = nullptr;
+    QPushButton* copyPathButton = nullptr;
+    QPushButton* closeButton = nullptr;
+};
+
+struct MediaPreviewActionBarOptions {
+    bool includePrimaryButton = false;
+    QString primaryButtonText;
+    QString primaryButtonToolTip;
+    bool includeOpenFileButton = true;
+    bool includeOpenFolderButton = true;
+    bool includeCopyPathButton = true;
+    QString closeButtonText = QStringLiteral("关闭预览");
+    QString closeButtonToolTip = QStringLiteral("关闭当前媒体查看器");
+};
+
+struct MediaPreviewToolbarWidgets {
+    QHBoxLayout* layout = nullptr;
+    QPushButton* previousButton = nullptr;
+    QPushButton* nextButton = nullptr;
+    QPushButton* zoomOutButton = nullptr;
+    QPushButton* zoomInButton = nullptr;
+    QPushButton* fitButton = nullptr;
+    QPushButton* originalSizeButton = nullptr;
+    QLabel* zoomLabel = nullptr;
+};
+
+struct MediaPreviewHeaderWidgets {
+    QVBoxLayout* layout = nullptr;
+    QLabel* titleLabel = nullptr;
+    QLabel* subtitleLabel = nullptr;
+};
+
+struct MediaPreviewPathWidgets {
+    QVBoxLayout* layout = nullptr;
+    QLabel* pathLabel = nullptr;
+};
+
+struct MediaPreviewBottomSectionWidgets {
+    QLabel* primaryLabel = nullptr;
+    QLabel* secondaryLabel = nullptr;
+    QLabel* hintLabel = nullptr;
+    QLabel* pathLabel = nullptr;
+    QPushButton* primaryButton = nullptr;
+    QPushButton* openFileButton = nullptr;
+    QPushButton* openFolderButton = nullptr;
+    QPushButton* copyPathButton = nullptr;
+    QPushButton* closeButton = nullptr;
+};
+
+struct MediaPreviewPathWarningState {
+    QString text;
+    QString tone;
+};
+
+void applyMediaPreviewHintTone(QLabel* hintLabel, const QString& tone);
+void wireMediaPreviewCommonActions(QDialog* dialog,
+                                   QLabel* pathLabel,
+                                   QPushButton* openFileButton,
+                                   QPushButton* openFolderButton,
+                                   QPushButton* copyPathButton,
+                                   QPushButton* closeButton,
+                                   const QString& subjectLabel,
+                                   const std::function<void(const QString&, const QString&)>& pushPreviewStatus);
+
+struct MediaPreviewStatusController {
+    QLabel* hintLabel = nullptr;
+    QTimer* resetTimer = nullptr;
+    QString defaultText;
+    int restoreDelayMs = 2600;
+    std::function<void(const QString&, const QString&)> push;
+    std::function<void()> reset;
+};
+
+MediaPreviewFooterWidgets createMediaPreviewFooter(QWidget* parent,
+                                                   const QString& hintText,
+                                                   bool primaryAccent = true) {
+    MediaPreviewFooterWidgets widgets;
+    widgets.layout = new QHBoxLayout();
+    widgets.layout->setSpacing(8);
+    widgets.primaryLabel = new QLabel(parent);
+    widgets.secondaryLabel = new QLabel(parent);
+    widgets.hintLabel = new QLabel(hintText, parent);
+    widgets.primaryLabel->setStyleSheet(primaryAccent
+        ? QStringLiteral("color:#5F7388;font-weight:600;")
+        : QStringLiteral("color:#5F7388;"));
+    widgets.secondaryLabel->setStyleSheet(QStringLiteral("color:#5F7388;"));
+    widgets.hintLabel->setStyleSheet(QStringLiteral("color:#8AA0B2;"));
+    widgets.layout->addWidget(widgets.primaryLabel);
+    widgets.layout->addSpacing(10);
+    widgets.layout->addWidget(widgets.secondaryLabel);
+    widgets.layout->addStretch(1);
+    widgets.layout->addWidget(widgets.hintLabel);
+    return widgets;
+}
+
+MediaPreviewActionWidgets createMediaPreviewActionBar(QWidget* parent,
+                                                      const MediaPreviewActionBarOptions& options) {
+    MediaPreviewActionWidgets widgets;
+    widgets.layout = new QHBoxLayout();
+    widgets.layout->setSpacing(8);
+    widgets.leadingLayout = new QHBoxLayout();
+    widgets.leadingLayout->setSpacing(8);
+    widgets.trailingLayout = new QHBoxLayout();
+    widgets.trailingLayout->setSpacing(8);
+    if (options.includePrimaryButton) {
+        widgets.primaryButton = new QPushButton(options.primaryButtonText, parent);
+        widgets.primaryButton->setObjectName(QStringLiteral("managerPrimaryBtn"));
+        if (!options.primaryButtonToolTip.trimmed().isEmpty()) {
+            widgets.primaryButton->setToolTip(options.primaryButtonToolTip);
+        }
+        widgets.leadingLayout->addWidget(widgets.primaryButton);
+    }
+    if (options.includeOpenFileButton) {
+        widgets.openFileButton = new QPushButton(QStringLiteral("打开原文件"), parent);
+        widgets.openFileButton->setObjectName(QStringLiteral("managerSecondaryBtn"));
+        widgets.leadingLayout->addWidget(widgets.openFileButton);
+    }
+    if (options.includeOpenFolderButton) {
+        widgets.openFolderButton = new QPushButton(QStringLiteral("打开目录"), parent);
+        widgets.openFolderButton->setObjectName(QStringLiteral("managerSecondaryBtn"));
+        widgets.leadingLayout->addWidget(widgets.openFolderButton);
+    }
+    if (options.includeCopyPathButton) {
+        widgets.copyPathButton = new QPushButton(QStringLiteral("复制路径"), parent);
+        widgets.copyPathButton->setObjectName(QStringLiteral("managerSecondaryBtn"));
+        widgets.leadingLayout->addWidget(widgets.copyPathButton);
+    }
+    widgets.closeButton = new QPushButton(options.closeButtonText, parent);
+    widgets.closeButton->setObjectName(QStringLiteral("managerSecondaryBtn"));
+    widgets.closeButton->setToolTip(options.closeButtonToolTip);
+    widgets.trailingLayout->addWidget(widgets.closeButton);
+    widgets.layout->addLayout(widgets.leadingLayout);
+    widgets.layout->addStretch(1);
+    widgets.layout->addLayout(widgets.trailingLayout);
+    return widgets;
+}
+
+MediaPreviewToolbarWidgets createMediaPreviewToolbar(QWidget* parent,
+                                                     bool includeNavigation,
+                                                     bool includeZoomControls,
+                                                     bool includeOriginalSize) {
+    MediaPreviewToolbarWidgets widgets;
+    widgets.layout = new QHBoxLayout();
+    widgets.layout->setSpacing(8);
+    if (includeNavigation) {
+        widgets.previousButton = new QPushButton(QStringLiteral("上一张"), parent);
+        widgets.nextButton = new QPushButton(QStringLiteral("下一张"), parent);
+        widgets.layout->addWidget(widgets.previousButton);
+        widgets.layout->addWidget(widgets.nextButton);
+        widgets.layout->addSpacing(8);
+    }
+    if (includeZoomControls) {
+        widgets.zoomOutButton = new QPushButton(QStringLiteral("缩小"), parent);
+        widgets.zoomInButton = new QPushButton(QStringLiteral("放大"), parent);
+        widgets.fitButton = new QPushButton(QStringLiteral("适应窗口"), parent);
+        widgets.layout->addWidget(widgets.zoomOutButton);
+        widgets.layout->addWidget(widgets.zoomInButton);
+        widgets.layout->addWidget(widgets.fitButton);
+        if (includeOriginalSize) {
+            widgets.originalSizeButton = new QPushButton(QStringLiteral("原图 100%"), parent);
+            widgets.layout->addWidget(widgets.originalSizeButton);
+        }
+    }
+    widgets.layout->addStretch(1);
+    widgets.zoomLabel = new QLabel(parent);
+    widgets.zoomLabel->setStyleSheet(QStringLiteral("color:#5F7388;"));
+    widgets.layout->addWidget(widgets.zoomLabel);
+    return widgets;
+}
+
+void applyMediaPreviewHintTone(QLabel* hintLabel, const QString& tone) {
+    if (!hintLabel) {
+        return;
+    }
+    if (tone == QLatin1String("success")) {
+        hintLabel->setStyleSheet(QStringLiteral("color:#0F8A5F;font-weight:600;"));
+    } else if (tone == QLatin1String("warning")) {
+        hintLabel->setStyleSheet(QStringLiteral("color:#B96A16;font-weight:600;"));
+    } else if (tone == QLatin1String("info")) {
+        hintLabel->setStyleSheet(QStringLiteral("color:#3B6EA8;font-weight:600;"));
+    } else {
+        hintLabel->setStyleSheet(QStringLiteral("color:#8AA0B2;"));
+    }
+}
+
+MediaPreviewHeaderWidgets createMediaPreviewHeader(QWidget* parent,
+                                                   const QString& titleText,
+                                                   const QString& subtitleText = QString()) {
+    MediaPreviewHeaderWidgets widgets;
+    widgets.layout = new QVBoxLayout();
+    widgets.layout->setContentsMargins(0, 0, 0, 0);
+    widgets.layout->setSpacing(2);
+    widgets.titleLabel = new QLabel(titleText, parent);
+    widgets.titleLabel->setStyleSheet(QStringLiteral("font-size:16px;font-weight:600;color:#122033;"));
+    widgets.layout->addWidget(widgets.titleLabel);
+    widgets.subtitleLabel = new QLabel(subtitleText, parent);
+    widgets.subtitleLabel->setStyleSheet(QStringLiteral("font-size:12px;color:#7A8C9F;"));
+    widgets.subtitleLabel->setVisible(!subtitleText.trimmed().isEmpty());
+    widgets.layout->addWidget(widgets.subtitleLabel);
+    return widgets;
+}
+
+MediaPreviewPathWidgets createMediaPreviewPathBlock(QWidget* parent,
+                                                    const QString& filePath) {
+    MediaPreviewPathWidgets widgets;
+    widgets.layout = new QVBoxLayout();
+    widgets.layout->setContentsMargins(0, 0, 0, 0);
+    widgets.layout->setSpacing(0);
+    widgets.pathLabel = new QLabel(QStringLiteral("路径：%1").arg(filePath), parent);
+    widgets.pathLabel->setWordWrap(true);
+    widgets.pathLabel->setStyleSheet(QStringLiteral("color:#5F7388;"));
+    widgets.layout->addWidget(widgets.pathLabel);
+    return widgets;
+}
+
+MediaPreviewBottomSectionWidgets createMediaPreviewBottomSection(QWidget* parent,
+                                                                QVBoxLayout* hostLayout,
+                                                                const QString& hintText,
+                                                                const QString& filePath,
+                                                                const MediaPreviewActionBarOptions& actionOptions,
+                                                                bool primaryAccent = true) {
+    MediaPreviewBottomSectionWidgets widgets;
+    MediaPreviewFooterWidgets footer = createMediaPreviewFooter(parent, hintText, primaryAccent);
+    widgets.primaryLabel = footer.primaryLabel;
+    widgets.secondaryLabel = footer.secondaryLabel;
+    widgets.hintLabel = footer.hintLabel;
+    hostLayout->addLayout(footer.layout);
+
+    MediaPreviewPathWidgets pathBlock = createMediaPreviewPathBlock(parent, filePath);
+    widgets.pathLabel = pathBlock.pathLabel;
+    hostLayout->addLayout(pathBlock.layout);
+
+    MediaPreviewActionWidgets actions = createMediaPreviewActionBar(parent, actionOptions);
+    widgets.primaryButton = actions.primaryButton;
+    widgets.openFileButton = actions.openFileButton;
+    widgets.openFolderButton = actions.openFolderButton;
+    widgets.copyPathButton = actions.copyPathButton;
+    widgets.closeButton = actions.closeButton;
+    hostLayout->addLayout(actions.layout);
+    return widgets;
+}
+
+QString mediaPreviewResolvedPath(const QLabel* pathLabel) {
+    if (!pathLabel) {
+        return QString();
+    }
+    return pathLabel->text().section(QStringLiteral("路径："), 1, 1).trimmed();
+}
+
+MediaPreviewStatusController createMediaPreviewStatusController(QWidget* owner,
+                                                               QLabel* hintLabel,
+                                                               const QString& defaultText,
+                                                               int restoreDelayMs = 2600) {
+    MediaPreviewStatusController controller;
+    controller.hintLabel = hintLabel;
+    controller.defaultText = defaultText;
+    controller.restoreDelayMs = restoreDelayMs;
+    controller.resetTimer = new QTimer(owner);
+    controller.resetTimer->setSingleShot(true);
+    controller.reset = [hintLabel, defaultText, timer = controller.resetTimer]() {
+        if (!hintLabel) {
+            return;
+        }
+        hintLabel->setText(defaultText);
+        applyMediaPreviewHintTone(hintLabel, QStringLiteral("default"));
+        if (timer) {
+            timer->stop();
+        }
+    };
+    QObject::connect(controller.resetTimer, &QTimer::timeout, owner, [reset = controller.reset]() {
+        reset();
+    });
+    controller.push = [hintLabel, timer = controller.resetTimer, restoreDelayMs](const QString& text, const QString& tone) {
+        if (!hintLabel) {
+            return;
+        }
+        hintLabel->setText(text);
+        applyMediaPreviewHintTone(hintLabel, tone);
+        if (timer) {
+            timer->start(restoreDelayMs);
+        }
+    };
+    return controller;
+}
+
+MediaPreviewPathWarningState mediaPreviewPathWarningState(const QString& resolvedPath,
+                                                          bool forFolderAction,
+                                                          const QString& subjectLabel) {
+    const QString safeSubject = subjectLabel.trimmed().isEmpty()
+        ? (forFolderAction ? QStringLiteral("媒体目录") : QStringLiteral("媒体文件"))
+        : subjectLabel.trimmed();
+    if (resolvedPath.trimmed().isEmpty()) {
+        return {forFolderAction
+                    ? QStringLiteral("%1路径缺失，暂时无法定位所在目录").arg(safeSubject)
+                    : QStringLiteral("%1路径缺失，当前没有可用的本地记录").arg(safeSubject),
+                QStringLiteral("warning")};
+    }
+    const QFileInfo fileInfo(resolvedPath);
+    if (!fileInfo.exists()) {
+        return {forFolderAction
+                    ? QStringLiteral("%1所在目录不存在，可能已被移动、清理或尚未生成").arg(safeSubject)
+                    : QStringLiteral("%1已不存在，可能已被移动、删除或清理").arg(safeSubject),
+                QStringLiteral("warning")};
+    }
+    if (forFolderAction) {
+        const QString folderPath = fileInfo.absolutePath();
+        const QDir folder(folderPath);
+        if (folderPath.trimmed().isEmpty() || !folder.exists()) {
+            return {QStringLiteral("%1所在目录不存在，可能已被移动、清理或尚未生成").arg(safeSubject),
+                    QStringLiteral("warning")};
+        }
+    }
+    return {};
+}
+
+void applyMediaPreviewActionAvailability(QLabel* pathLabel,
+                                         QPushButton* openFileButton,
+                                         QPushButton* openFolderButton,
+                                         QPushButton* copyPathButton,
+                                         const QString& subjectLabel,
+                                         const std::function<void(const QString&, const QString&)>& pushPreviewStatus) {
+    const QString resolvedPath = mediaPreviewResolvedPath(pathLabel);
+    const MediaPreviewPathWarningState fileState = mediaPreviewPathWarningState(resolvedPath, false, subjectLabel);
+    const MediaPreviewPathWarningState folderState = mediaPreviewPathWarningState(resolvedPath, true, subjectLabel);
+
+    if (openFileButton) {
+        const bool enabled = fileState.text.isEmpty();
+        openFileButton->setEnabled(enabled);
+        openFileButton->setToolTip(enabled ? QStringLiteral("直接用系统打开当前文件") : fileState.text);
+    }
+    if (openFolderButton) {
+        const bool enabled = folderState.text.isEmpty();
+        openFolderButton->setEnabled(enabled);
+        openFolderButton->setToolTip(enabled ? QStringLiteral("打开当前文件所在目录") : folderState.text);
+    }
+    if (copyPathButton) {
+        const bool enabled = !resolvedPath.trimmed().isEmpty();
+        copyPathButton->setEnabled(enabled);
+        copyPathButton->setToolTip(enabled ? QStringLiteral("复制当前媒体文件路径") : QStringLiteral("当前没有可复制的本地路径"));
+    }
+
+    if (!fileState.text.isEmpty()) {
+        pushPreviewStatus(fileState.text, fileState.tone.isEmpty() ? QStringLiteral("warning") : fileState.tone);
+        return;
+    }
+    if (!folderState.text.isEmpty()) {
+        pushPreviewStatus(folderState.text, folderState.tone.isEmpty() ? QStringLiteral("warning") : folderState.tone);
+        return;
+    }
+    pushPreviewStatus(QStringLiteral("路径与目录都已就绪，可继续预览、打开原文件或定位目录"),
+                      QStringLiteral("info"));
+}
+
+void showMediaPreviewPathActionStatus(const QString& resolvedPath,
+                                      const QString& subjectLabel,
+                                      const QString& successMessage,
+                                      const std::function<void(const QString&, const QString&)>& pushPreviewStatus) {
+    const QString safeSubject = subjectLabel.trimmed().isEmpty() ? QStringLiteral("媒体文件") : subjectLabel.trimmed();
+    if (resolvedPath.trimmed().isEmpty()) {
+        pushPreviewStatus(QStringLiteral("%1路径缺失，当前没有可用的本地记录").arg(safeSubject),
+                          QStringLiteral("warning"));
+        return;
+    }
+    if (!QFileInfo::exists(resolvedPath)) {
+        pushPreviewStatus(QStringLiteral("%1已不存在，可能已被移动、删除或清理").arg(safeSubject),
+                          QStringLiteral("warning"));
+        return;
+    }
+    if (QDesktopServices::openUrl(QUrl::fromLocalFile(resolvedPath))) {
+        pushPreviewStatus(successMessage, QStringLiteral("info"));
+        return;
+    }
+    pushPreviewStatus(QStringLiteral("系统暂时无法打开%1，建议先复制路径再继续排查").arg(safeSubject),
+                      QStringLiteral("warning"));
+}
+
+void showMediaPreviewFolderActionStatus(const QString& resolvedPath,
+                                        const QString& subjectLabel,
+                                        const QString& successMessage,
+                                        const std::function<void(const QString&, const QString&)>& pushPreviewStatus) {
+    const QString safeSubject = subjectLabel.trimmed().isEmpty() ? QStringLiteral("媒体目录") : subjectLabel.trimmed();
+    if (resolvedPath.trimmed().isEmpty()) {
+        pushPreviewStatus(QStringLiteral("%1路径缺失，暂时无法定位所在目录").arg(safeSubject),
+                          QStringLiteral("warning"));
+        return;
+    }
+    const QFileInfo fileInfo(resolvedPath);
+    const QString folderPath = fileInfo.absolutePath();
+    const QDir folder(folderPath);
+    if (folderPath.trimmed().isEmpty() || !folder.exists()) {
+        pushPreviewStatus(QStringLiteral("%1所在目录不存在，可能已被移动、清理或尚未生成").arg(safeSubject),
+                          QStringLiteral("warning"));
+        return;
+    }
+    if (QDesktopServices::openUrl(QUrl::fromLocalFile(folderPath))) {
+        pushPreviewStatus(successMessage, QStringLiteral("info"));
+        return;
+    }
+    pushPreviewStatus(QStringLiteral("系统暂时无法打开%1所在目录，建议先复制路径再检查").arg(safeSubject),
+                      QStringLiteral("warning"));
+}
+
+void showMediaPreviewCopyPathStatus(const QString& resolvedPath,
+                                    const QString& successMessage,
+                                    const QString& missingMessage,
+                                    const std::function<void(const QString&, const QString&)>& pushPreviewStatus) {
+    if (resolvedPath.trimmed().isEmpty()) {
+        pushPreviewStatus(missingMessage, QStringLiteral("warning"));
+        return;
+    }
+    QApplication::clipboard()->setText(resolvedPath);
+    pushPreviewStatus(successMessage, QStringLiteral("success"));
+}
+
+void wireMediaPreviewCommonActions(QDialog* dialog,
+                                   QLabel* pathLabel,
+                                   QPushButton* openFileButton,
+                                   QPushButton* openFolderButton,
+                                   QPushButton* copyPathButton,
+                                   QPushButton* closeButton,
+                                   const QString& subjectLabel,
+                                   const std::function<void(const QString&, const QString&)>& pushPreviewStatus) {
+    if (!dialog || !pathLabel) {
+        return;
+    }
+
+    const QString safeSubject = subjectLabel.trimmed().isEmpty() ? QStringLiteral("媒体文件") : subjectLabel.trimmed();
+    applyMediaPreviewActionAvailability(pathLabel,
+                                        openFileButton,
+                                        openFolderButton,
+                                        copyPathButton,
+                                        safeSubject,
+                                        pushPreviewStatus);
+
+    if (openFileButton) {
+        QObject::connect(openFileButton, &QPushButton::clicked, dialog, [pathLabel, safeSubject, pushPreviewStatus]() {
+            showMediaPreviewPathActionStatus(mediaPreviewResolvedPath(pathLabel),
+                                             safeSubject,
+                                             QStringLiteral("已请求系统打开原文件"),
+                                             pushPreviewStatus);
+        });
+    }
+    if (openFolderButton) {
+        QObject::connect(openFolderButton, &QPushButton::clicked, dialog, [pathLabel, safeSubject, pushPreviewStatus]() {
+            showMediaPreviewFolderActionStatus(mediaPreviewResolvedPath(pathLabel),
+                                               safeSubject,
+                                               QStringLiteral("已请求系统打开所在目录"),
+                                               pushPreviewStatus);
+        });
+    }
+    if (copyPathButton) {
+        QObject::connect(copyPathButton, &QPushButton::clicked, dialog, [pathLabel, safeSubject, pushPreviewStatus]() {
+            const QString trimmedSubject = safeSubject.endsWith(QStringLiteral("文件"))
+                ? safeSubject.left(safeSubject.size() - 2)
+                : safeSubject;
+            showMediaPreviewCopyPathStatus(mediaPreviewResolvedPath(pathLabel),
+                                           QStringLiteral("%1路径已复制到剪贴板").arg(trimmedSubject),
+                                           QStringLiteral("当前没有可复制的%1路径").arg(trimmedSubject),
+                                           pushPreviewStatus);
+        });
+    }
+    if (closeButton) {
+        QObject::connect(closeButton, &QPushButton::clicked, dialog, [dialog, pushPreviewStatus]() {
+            pushPreviewStatus(QStringLiteral("已关闭当前媒体查看器"), QStringLiteral("info"));
+            dialog->accept();
+        });
+    }
+}
+
+QPixmap createMediaFailureCard(const QSize& canvasSize,
+                               const QString& title,
+                               const QString& body,
+                               const QString& glyph,
+                               const QColor& accentColor = QColor(196, 107, 30),
+                               const QColor& accentBackground = QColor(255, 244, 229)) {
+    const QSize safeSize = canvasSize.expandedTo(QSize(420, 320));
+    QPixmap cardPixmap(safeSize);
+    cardPixmap.fill(Qt::transparent);
+
+    QPainter painter(&cardPixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QRect cardRect = cardPixmap.rect().adjusted(40, 28, -40, -28);
+    painter.setPen(QPen(QColor(217, 226, 236), 1));
+    painter.setBrush(QColor(250, 252, 255));
+    painter.drawRoundedRect(cardRect, 22, 22);
+
+    QRect iconRect(cardRect.center().x() - 34, cardRect.top() + 42, 68, 68);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(accentBackground);
+    painter.drawEllipse(iconRect);
+    painter.setPen(accentColor);
+    QFont iconFont = painter.font();
+    iconFont.setBold(true);
+    iconFont.setPixelSize(30);
+    painter.setFont(iconFont);
+    painter.drawText(iconRect, Qt::AlignCenter, glyph);
+
+    painter.setPen(QColor(18, 32, 51));
+    QFont titleFont = painter.font();
+    titleFont.setBold(true);
+    titleFont.setPixelSize(20);
+    painter.setFont(titleFont);
+    painter.drawText(QRect(cardRect.left() + 30, iconRect.bottom() + 18, cardRect.width() - 60, 30),
+                     Qt::AlignCenter,
+                     title);
+
+    painter.setPen(QColor(95, 114, 133));
+    QFont bodyFont = painter.font();
+    bodyFont.setBold(false);
+    bodyFont.setPixelSize(13);
+    painter.setFont(bodyFont);
+    painter.drawText(QRect(cardRect.left() + 36, iconRect.bottom() + 58, cardRect.width() - 72, 78),
+                     Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap,
+                     body);
+    return cardPixmap;
+}
+
+class ChatBubbleItemDelegate : public QStyledItemDelegate {
+public:
+    explicit ChatBubbleItemDelegate(QObject* parent = nullptr)
+        : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        const QString text = index.data(Qt::DisplayRole).toString();
+        const QString mediaKind = index.data(TransferChatItemRenderer::MediaKindRole).toString().trimmed();
+        const bool hasMedia = !mediaKind.isEmpty();
+        const int horizontalPadding = 16;
+        const int verticalPadding = 12;
+        const int bubbleWidth = qMax(240, option.rect.width() > 0 ? qMin(420, option.rect.width() - 72) : 360);
+        QFontMetrics metrics(option.font);
+        QRect textRect = metrics.boundingRect(QRect(0, 0, bubbleWidth - horizontalPadding * 2, 1000),
+                                              Qt::TextWordWrap,
+                                              text);
+        int height = textRect.height() + verticalPadding * 2;
+        if (hasMedia) {
+            const QPixmap pixmap = qvariant_cast<QPixmap>(index.data(Qt::DecorationRole));
+            const int mediaHeight = pixmap.isNull() ? 148 : qMin(220, pixmap.height() + 12);
+            height = qMax(height, mediaHeight + verticalPadding * 2);
+        }
+        return QSize(option.rect.width(), qMax(68, height + 10));
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        if (!painter) {
+            return;
+        }
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        const QString text = index.data(Qt::DisplayRole).toString();
+        const QString mediaKind = index.data(TransferChatItemRenderer::MediaKindRole).toString().trimmed();
+        const bool hasMedia = !mediaKind.isEmpty();
+        const bool alignRight = (index.data(Qt::TextAlignmentRole).toInt() & Qt::AlignRight) == Qt::AlignRight;
+        const QPixmap pixmap = qvariant_cast<QPixmap>(index.data(Qt::DecorationRole));
+        const QString durationLabel = index.data(TransferChatItemRenderer::DurationLabelRole).toString().trimmed();
+        const QString senderName = index.data(TransferChatItemRenderer::SenderNameRole).toString().trimmed();
+        const QString senderId = index.data(TransferChatItemRenderer::SenderIdRole).toString().trimmed();
+        const QColor bubbleColor = index.data(Qt::BackgroundRole).value<QColor>().isValid()
+            ? index.data(Qt::BackgroundRole).value<QColor>()
+            : QColor(246, 250, 253);
+        const QColor textColor = index.data(Qt::ForegroundRole).value<QColor>().isValid()
+            ? index.data(Qt::ForegroundRole).value<QColor>()
+            : QColor(38, 50, 56);
+        const QColor metaColor = alignRight ? QColor(87, 121, 148) : QColor(118, 134, 148);
+
+        QRect contentRect = option.rect.adjusted(10, 5, -10, -5);
+        int bubbleWidth = qMin(420, qMax(240, contentRect.width() - 72));
+        if (hasMedia && !pixmap.isNull()) {
+            bubbleWidth = qMin(qMax(bubbleWidth, pixmap.width() + 28), qMax(280, contentRect.width() - 24));
+        }
+        bool groupedWithPrevious = false;
+        if (index.row() > 0) {
+            const QModelIndex previous = index.model()->index(index.row() - 1, index.column());
+            groupedWithPrevious = previous.data(TransferChatItemRenderer::SenderIdRole).toString().trimmed() == senderId
+                && previous.data(TransferChatItemRenderer::MediaKindRole).toString().trimmed() == mediaKind;
+        }
+
+        QRect bubbleRect = alignRight
+            ? QRect(contentRect.right() - bubbleWidth + 1, contentRect.top(), bubbleWidth, contentRect.height())
+            : QRect(contentRect.left(), contentRect.top(), bubbleWidth, contentRect.height());
+        bubbleRect.setHeight(option.rect.height() - 10);
+
+        if (option.state & QStyle::State_Selected) {
+            painter->setBrush(bubbleColor.darker(106));
+            painter->setPen(Qt::NoPen);
+            painter->drawRoundedRect(bubbleRect, 16, 16);
+        }
+
+        painter->setBrush(bubbleColor);
+        painter->setPen(QPen((option.state & QStyle::State_MouseOver) ? QColor(198, 214, 228) : QColor(228, 236, 244), 1));
+        painter->drawRoundedRect(bubbleRect.adjusted(0, 0, -1, -1), 16, 16);
+
+        QRect innerRect = bubbleRect.adjusted(14, groupedWithPrevious ? 8 : 12, -14, -12);
+        int textTop = innerRect.top();
+        if (!groupedWithPrevious && !senderName.isEmpty() && !text.startsWith(QStringLiteral("["))) {
+            QFont metaFont = option.font;
+            metaFont.setPointSize(qMax(8, metaFont.pointSize() - 1));
+            painter->setFont(metaFont);
+            painter->setPen(metaColor);
+            QRect senderRect(innerRect.left(), innerRect.top(), innerRect.width(), 18);
+            painter->drawText(senderRect,
+                              (alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter,
+                              senderName);
+            textTop = senderRect.bottom() + 6;
+        }
+        if (hasMedia && !pixmap.isNull()) {
+            const int mediaWidth = qMin(innerRect.width(), pixmap.width());
+            const int mediaHeight = qMin(220, pixmap.height());
+            QRect mediaRect(innerRect.left(), innerRect.top(), mediaWidth, mediaHeight);
+            if (alignRight) {
+                mediaRect.moveRight(innerRect.right());
+            }
+            const QPixmap scaledPixmap = pixmap.scaled(mediaRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            const QPoint drawPoint(mediaRect.x() + (mediaRect.width() - scaledPixmap.width()) / 2,
+                                   mediaRect.y() + (mediaRect.height() - scaledPixmap.height()) / 2);
+            painter->drawPixmap(drawPoint, scaledPixmap);
+            if (mediaKind == QLatin1String("video") && !durationLabel.isEmpty()) {
+                const QSize badgeSize = QSize(qMax(66, durationLabel.size() * 9 + 28), 24);
+                QRect badgeRect(drawPoint.x() + scaledPixmap.width() - badgeSize.width() - 10,
+                                drawPoint.y() + scaledPixmap.height() - badgeSize.height() - 10,
+                                badgeSize.width(),
+                                badgeSize.height());
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(QColor(18, 28, 41, 190));
+                painter->drawRoundedRect(badgeRect, 12, 12);
+                painter->setPen(QColor(255, 255, 255));
+                QFont badgeFont = option.font;
+                badgeFont.setPointSize(qMax(8, badgeFont.pointSize() - 1));
+                badgeFont.setBold(true);
+                painter->setFont(badgeFont);
+                painter->drawText(badgeRect.adjusted(10, 0, -10, 0),
+                                  Qt::AlignCenter,
+                                  durationLabel);
+            }
+            textTop = mediaRect.bottom() + 10;
+        } else if (hasMedia) {
+            QRect mediaRect(innerRect.left(), innerRect.top(), innerRect.width(), 148);
+            painter->setBrush(QColor(255, 255, 255, 170));
+            painter->setPen(QPen(QColor(210, 224, 238), 1));
+            painter->drawRoundedRect(mediaRect, 12, 12);
+            painter->setPen(mediaKind == QLatin1String("video") ? QColor(126, 87, 194) : QColor(49, 94, 140));
+            QFont mediaFont = option.font;
+            mediaFont.setBold(true);
+            mediaFont.setPointSize(qMax(10, mediaFont.pointSize()));
+            painter->setFont(mediaFont);
+            painter->drawText(mediaRect, Qt::AlignCenter, mediaKind == QLatin1String("video") ? QStringLiteral("视频预览") : QStringLiteral("文件预览"));
+            textTop = mediaRect.bottom() + 10;
+        }
+
+        QString bodyText = text;
+        QString metaPrefix;
+        const QRegularExpression linePattern(QStringLiteral("^\\[(\\d{2}:\\d{2}:\\d{2})\\]\\s*(?:<([^>]+)>\\s*)?(.*)$"));
+        const QRegularExpressionMatch match = linePattern.match(text);
+        if (match.hasMatch()) {
+            const QString timeText = match.captured(1).trimmed();
+            const QString senderText = match.captured(2).trimmed();
+            bodyText = match.captured(3).trimmed();
+            metaPrefix = senderText.isEmpty() ? timeText : QStringLiteral("%1  ·  %2").arg(senderText, timeText);
+        }
+
+        if (!groupedWithPrevious && !metaPrefix.isEmpty()) {
+            QFont metaFont = option.font;
+            metaFont.setPointSize(qMax(8, metaFont.pointSize() - 1));
+            painter->setFont(metaFont);
+            painter->setPen(metaColor);
+            QRect metaRect(innerRect.left(), textTop, innerRect.width(), 18);
+            painter->drawText(metaRect,
+                              (alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter,
+                              metaPrefix);
+            textTop = metaRect.bottom() + 6;
+        }
+
+        painter->setPen(textColor);
+        QFont bodyFont = option.font;
+        bodyFont.setPointSize(qMax(9, bodyFont.pointSize()));
+        painter->setFont(bodyFont);
+        QRect textRect(innerRect.left(), textTop, innerRect.width(), innerRect.bottom() - textTop + 1);
+        painter->drawText(textRect,
+                          (alignRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignTop | Qt::TextWordWrap,
+                          bodyText);
+        painter->restore();
+    }
+};
+
 void applyTransferActionState(QAction* action, const TransferActionUiState& state) {
     if (!action) return;
     action->setVisible(state.visible);
@@ -168,7 +949,10 @@ QString productMainWindowStyleSheet() {
         QFrame#composerStatusCard,
         QFrame#groupSummaryCard,
         QFrame#transferStatusCard,
-        QFrame#avatarStatusCard {
+        QFrame#avatarStatusCard,
+        QFrame#contactSummaryCard,
+        QFrame#memberSummaryCard,
+        QFrame#chatActionSummaryCard {
             background: #F8FBFD;
             border: 1px solid #D8E4EE;
             border-radius: 14px;
@@ -177,7 +961,10 @@ QString productMainWindowStyleSheet() {
         QFrame#composerStatusCard[tone="accent"],
         QFrame#groupSummaryCard[tone="accent"],
         QFrame#transferStatusCard[tone="accent"],
-        QFrame#avatarStatusCard[tone="accent"] {
+        QFrame#avatarStatusCard[tone="accent"],
+        QFrame#contactSummaryCard[tone="accent"],
+        QFrame#memberSummaryCard[tone="accent"],
+        QFrame#chatActionSummaryCard[tone="accent"] {
             background: #EEF5FF;
             border: 1px solid #CFE0F8;
         }
@@ -185,7 +972,10 @@ QString productMainWindowStyleSheet() {
         QFrame#composerStatusCard[tone="warning"],
         QFrame#groupSummaryCard[tone="warning"],
         QFrame#transferStatusCard[tone="warning"],
-        QFrame#avatarStatusCard[tone="warning"] {
+        QFrame#avatarStatusCard[tone="warning"],
+        QFrame#contactSummaryCard[tone="warning"],
+        QFrame#memberSummaryCard[tone="warning"],
+        QFrame#chatActionSummaryCard[tone="warning"] {
             background: #FFF7ED;
             border: 1px solid #F1D4AB;
         }
@@ -193,7 +983,10 @@ QString productMainWindowStyleSheet() {
         QFrame#composerStatusCard[tone="success"],
         QFrame#groupSummaryCard[tone="success"],
         QFrame#transferStatusCard[tone="success"],
-        QFrame#avatarStatusCard[tone="success"] {
+        QFrame#avatarStatusCard[tone="success"],
+        QFrame#contactSummaryCard[tone="success"],
+        QFrame#memberSummaryCard[tone="success"],
+        QFrame#chatActionSummaryCard[tone="success"] {
             background: #F0FDF4;
             border: 1px solid #C5E7D0;
         }
@@ -201,7 +994,10 @@ QString productMainWindowStyleSheet() {
         QFrame#composerStatusCard[tone="danger"],
         QFrame#groupSummaryCard[tone="danger"],
         QFrame#transferStatusCard[tone="danger"],
-        QFrame#avatarStatusCard[tone="danger"] {
+        QFrame#avatarStatusCard[tone="danger"],
+        QFrame#contactSummaryCard[tone="danger"],
+        QFrame#memberSummaryCard[tone="danger"],
+        QFrame#chatActionSummaryCard[tone="danger"] {
             background: #FFF5F5;
             border: 1px solid #F2C8C5;
         }
@@ -264,6 +1060,13 @@ QString productMainWindowStyleSheet() {
             font-size: 12px;
             font-weight: 800;
         }
+        QLabel#contactSummaryTitleLabel,
+        QLabel#memberSummaryTitleLabel,
+        QLabel#chatActionSummaryTitleLabel {
+            color: #0F172A;
+            font-size: 12px;
+            font-weight: 800;
+        }
         QLabel#transferStatusTitleLabel {
             color: #0F172A;
             font-size: 12px;
@@ -280,6 +1083,13 @@ QString productMainWindowStyleSheet() {
             font-weight: 600;
         }
         QLabel#avatarStatusDetailLabel {
+            color: #5F7285;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#contactSummaryDetailLabel,
+        QLabel#memberSummaryDetailLabel,
+        QLabel#chatActionSummaryDetailLabel {
             color: #5F7285;
             font-size: 12px;
             font-weight: 600;
@@ -2201,6 +3011,11 @@ QString MainWindow::avatarPathForUser(const QString& userId) const {
         }
     }
 
+    const QString indexedPeerAvatar = m_peerAvatarIndex.value(trimmedUserId).trimmed();
+    if (!trimmedUserId.isEmpty() && QFileInfo::exists(indexedPeerAvatar)) {
+        return indexedPeerAvatar;
+    }
+
     const QString cachedPeerAvatar = m_clientStorage.peerAvatarFilePath(trimmedUserId);
     if (!trimmedUserId.isEmpty() && QFileInfo::exists(cachedPeerAvatar)) {
         return cachedPeerAvatar;
@@ -2214,14 +3029,34 @@ QString MainWindow::avatarPathForUser(const QString& userId) const {
     return QString();
 }
 
-void MainWindow::cacheKnownUserAvatars() const {
+void MainWindow::cacheKnownUserAvatars() {
     for (auto it = m_knownUsers.constBegin(); it != m_knownUsers.constEnd(); ++it) {
         const QString userId = it.key().trimmed();
         const QString avatar = it.value().avatar.trimmed();
         if (userId.isEmpty() || avatar.isEmpty()) {
             continue;
         }
-        m_clientStorage.savePeerAvatar(userId, QByteArray::fromBase64(avatar.toLatin1()));
+        const QByteArray pngData = QByteArray::fromBase64(avatar.toLatin1());
+        if (m_clientStorage.savePeerAvatar(userId, pngData)) {
+            const QString filePath = m_clientStorage.peerAvatarFilePath(userId);
+            if (!clientDbPath().trimmed().isEmpty()) {
+                m_clientStorage.savePeerAvatarToSqlite(clientDbPath(), userId, filePath);
+            }
+            m_peerAvatarIndex.insert(userId, filePath);
+        }
+    }
+}
+
+void MainWindow::loadPeerAvatarIndexFromStorage() {
+    m_peerAvatarIndex.clear();
+    if (!ensureClientDatabase()) {
+        return;
+    }
+    const QMap<QString, QString> loaded = m_clientStorage.loadPeerAvatarIndexFromSqlite(clientDbPath());
+    for (auto it = loaded.constBegin(); it != loaded.constEnd(); ++it) {
+        if (QFileInfo::exists(it.value())) {
+            m_peerAvatarIndex.insert(it.key(), it.value());
+        }
     }
 }
 
@@ -2245,6 +3080,11 @@ QPixmap MainWindow::chatAvatarPixmap(const QString& userId, const QString& displ
         }
     }
     return initialAvatarPixmap(displayName.isEmpty() ? userId : displayName, side);
+}
+
+QPixmap MainWindow::groupAvatarPixmap(const QString& groupId, const QString& groupName, int side) const {
+    Q_UNUSED(groupId)
+    return initialAvatarPixmap(groupName.isEmpty() ? QStringLiteral("群聊") : groupName, side);
 }
 
 QPixmap MainWindow::chatAttachmentDecoration(const QString& senderId,
@@ -2314,6 +3154,12 @@ void MainWindow::applyChatItemVisualMetadata(QStandardItem* item,
     if (!openPath.trimmed().isEmpty()) {
         item->setData(openPath.trimmed(), TransferChatItemRenderer::OpenPathRole);
     }
+    if (mediaKind == QLatin1String("video") && !openPath.trimmed().isEmpty()) {
+        const QString durationLabel = formatDurationLabel(videoDurationMs(openPath.trimmed()));
+        if (!durationLabel.isEmpty()) {
+            item->setData(durationLabel, TransferChatItemRenderer::DurationLabelRole);
+        }
+    }
 
     const bool isVideo = mediaKind == QLatin1String("video");
     if (mediaKind == QLatin1String("image") || mediaKind == QLatin1String("video") || mediaKind == QLatin1String("file")) {
@@ -2368,9 +3214,17 @@ QStandardItem* MainWindow::createChatMessageItem(const QString& text,
 }
 
 bool MainWindow::openChatAttachmentFromIndex(const QModelIndex& index) {
+    const QString mediaKind = index.data(TransferChatItemRenderer::MediaKindRole).toString().trimmed();
     const LocalSavedFileState savedFileState = savedFileActionState(index);
     if (!savedFileState.hasSavePath) {
         return false;
+    }
+
+    if (mediaKind == QLatin1String("image") && savedFileState.canOpenFile) {
+        return showChatImagePreview(savedFileState.savePath, index.data().toString());
+    }
+    if (mediaKind == QLatin1String("video") && savedFileState.canOpenFile) {
+        return showChatVideoPreview(savedFileState.savePath, index.data().toString());
     }
 
     showSavedFileWorkspace(savedFileState,
@@ -2382,6 +3236,655 @@ bool MainWindow::openChatAttachmentFromIndex(const QModelIndex& index) {
     command.failureStatusMessage = QStringLiteral("文件不存在或无法打开");
     openSavedFileFromState(savedFileState, command);
     return true;
+}
+
+bool MainWindow::showChatImagePreview(const QString& filePath,
+                                      const QString& titleText) const {
+    if (filePath.trimmed().isEmpty() || !QFileInfo::exists(filePath)) {
+        return false;
+    }
+
+    std::unique_ptr<QDialog> dialogHolder(createMediaPreviewDialog(QStringLiteral("imagePreview/geometry"),
+                                                                   titleText.trimmed().isEmpty() ? QStringLiteral("图片预览") : titleText.trimmed()));
+    QDialog& dialog = *dialogHolder;
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(14, 14, 14, 14);
+    layout->setSpacing(10);
+
+    MediaPreviewHeaderWidgets header = createMediaPreviewHeader(
+        &dialog,
+        titleText.trimmed().isEmpty() ? QStringLiteral("图片预览") : titleText.trimmed(),
+        QStringLiteral("统一媒体查看器 · 支持切图、缩放、路径动作与即时提示"));
+    layout->addLayout(header.layout);
+
+    QStringList imagePaths = visibleChatImagePaths();
+    int currentIndex = visibleChatImageIndex(filePath);
+    if (currentIndex < 0 && !imagePaths.isEmpty()) {
+        currentIndex = imagePaths.indexOf(filePath);
+    }
+
+    QScrollArea* scrollArea = new QScrollArea(&dialog);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setStyleSheet(QStringLiteral("background:#F7FAFD;border:1px solid #D8E4EE;border-radius:14px;"));
+
+    PreviewImageLabel* imageLabel = new PreviewImageLabel(scrollArea);
+    imageLabel->setMinimumSize(420, 320);
+    scrollArea->setWidget(imageLabel);
+    layout->addWidget(scrollArea, 1);
+
+    MediaPreviewToolbarWidgets toolbar = createMediaPreviewToolbar(&dialog, true, true, true);
+    QPushButton* prevBtn = toolbar.previousButton;
+    QPushButton* nextBtn = toolbar.nextButton;
+    QPushButton* zoomOutBtn = toolbar.zoomOutButton;
+    QPushButton* zoomInBtn = toolbar.zoomInButton;
+    QPushButton* resetZoomBtn = toolbar.fitButton;
+    QPushButton* originalSizeBtn = toolbar.originalSizeButton;
+    QLabel* zoomLabel = toolbar.zoomLabel;
+    layout->addLayout(toolbar.layout);
+
+    MediaPreviewActionBarOptions actionOptions;
+    actionOptions.includeCopyPathButton = true;
+    actionOptions.closeButtonText = QStringLiteral("关闭查看器");
+    actionOptions.closeButtonToolTip = QStringLiteral("关闭当前图片查看器");
+    MediaPreviewBottomSectionWidgets bottomSection = createMediaPreviewBottomSection(
+        &dialog,
+        layout,
+        QStringLiteral("左右键翻图，Home/End 跳转头尾，Ctrl+0/+/− 缩放，滚轮缩放，双击切换缩放"),
+        filePath,
+        actionOptions);
+    QLabel* positionLabel = bottomSection.primaryLabel;
+    QLabel* resolutionLabel = bottomSection.secondaryLabel;
+    QLabel* pathLabel = bottomSection.pathLabel;
+    QPushButton* openFileBtn = bottomSection.openFileButton;
+    QPushButton* openFolderBtn = bottomSection.openFolderButton;
+    QPushButton* copyPathBtn = bottomSection.copyPathButton;
+    QPushButton* closeBtn = bottomSection.closeButton;
+    const QString defaultHintText = QStringLiteral("左右键翻图，Home/End 跳转头尾，Ctrl+0/+/− 缩放，滚轮缩放，双击切换缩放");
+    MediaPreviewStatusController statusController =
+        createMediaPreviewStatusController(&dialog, bottomSection.hintLabel, defaultHintText);
+    auto pushPreviewStatus = statusController.push;
+    auto pushPersistentPreviewStatus = [&](const QString& text, const QString& tone) {
+        if (statusController.resetTimer) {
+            statusController.resetTimer->stop();
+        }
+        if (bottomSection.hintLabel) {
+            bottomSection.hintLabel->setText(text);
+            applyMediaPreviewHintTone(bottomSection.hintLabel, tone);
+        }
+    };
+    wireMediaPreviewCommonActions(&dialog,
+                                  pathLabel,
+                                  openFileBtn,
+                                  openFolderBtn,
+                                  copyPathBtn,
+                                  closeBtn,
+                                  QStringLiteral("图片文件"),
+                                  pushPreviewStatus);
+
+    double zoomFactor = 1.0;
+    bool fitToWindow = true;
+    bool draggingImage = false;
+    QPoint lastDragPos;
+    bool currentImageValid = false;
+    double viewportCenterXRatio = 0.5;
+    double viewportCenterYRatio = 0.5;
+    auto clampScrollbarValue = [](QScrollBar* bar, int proposedValue) {
+        if (!bar) {
+            return proposedValue;
+        }
+        const int minValue = bar->minimum();
+        const int maxValue = bar->maximum();
+        if (proposedValue < minValue) {
+            return minValue - (minValue - proposedValue) / 3;
+        }
+        if (proposedValue > maxValue) {
+            return maxValue + (proposedValue - maxValue) / 3;
+        }
+        return proposedValue;
+    };
+    auto clampZoom = [](double zoom) {
+        return qBound(0.1, zoom, 8.0);
+    };
+    auto updateViewportCenterRatios = [&]() {
+        QScrollBar* horizontalBar = scrollArea->horizontalScrollBar();
+        QScrollBar* verticalBar = scrollArea->verticalScrollBar();
+        viewportCenterXRatio = horizontalBar->maximum() > 0
+            ? static_cast<double>(horizontalBar->value() + scrollArea->viewport()->width() / 2) / static_cast<double>(horizontalBar->maximum() + scrollArea->viewport()->width())
+            : 0.5;
+        viewportCenterYRatio = verticalBar->maximum() > 0
+            ? static_cast<double>(verticalBar->value() + scrollArea->viewport()->height() / 2) / static_cast<double>(verticalBar->maximum() + scrollArea->viewport()->height())
+            : 0.5;
+        viewportCenterXRatio = qBound(0.0, viewportCenterXRatio, 1.0);
+        viewportCenterYRatio = qBound(0.0, viewportCenterYRatio, 1.0);
+    };
+    auto restoreViewportCenter = [&]() {
+        QScrollBar* horizontalBar = scrollArea->horizontalScrollBar();
+        QScrollBar* verticalBar = scrollArea->verticalScrollBar();
+        if (horizontalBar->maximum() > 0) {
+            const int centerValue = static_cast<int>((horizontalBar->maximum() + scrollArea->viewport()->width()) * viewportCenterXRatio) - scrollArea->viewport()->width() / 2;
+            horizontalBar->setValue(qBound(horizontalBar->minimum(), centerValue, horizontalBar->maximum()));
+        }
+        if (verticalBar->maximum() > 0) {
+            const int centerValue = static_cast<int>((verticalBar->maximum() + scrollArea->viewport()->height()) * viewportCenterYRatio) - scrollArea->viewport()->height() / 2;
+            verticalBar->setValue(qBound(verticalBar->minimum(), centerValue, verticalBar->maximum()));
+        }
+    };
+
+    std::function<void()> renderCurrentImage;
+    std::function<void(int, bool)> renderImageAt;
+    renderImageAt = [&](int index, bool preserveZoomState) {
+        if (imagePaths.isEmpty() || index < 0 || index >= imagePaths.size()) {
+            return;
+        }
+        currentIndex = index;
+        const QString currentPath = imagePaths.at(currentIndex);
+        header.titleLabel->setText(QFileInfo(currentPath).fileName());
+        pathLabel->setText(QStringLiteral("路径：%1").arg(currentPath));
+        positionLabel->setText(QStringLiteral("第 %1 张 / 共 %2 张").arg(currentIndex + 1).arg(imagePaths.size()));
+        prevBtn->setEnabled(currentIndex > 0);
+        nextBtn->setEnabled(currentIndex >= 0 && currentIndex < imagePaths.size() - 1);
+        applyMediaPreviewActionAvailability(pathLabel,
+                                            openFileBtn,
+                                            openFolderBtn,
+                                            copyPathBtn,
+                                            QStringLiteral("图片文件"),
+                                            pushPreviewStatus);
+        if (!preserveZoomState) {
+            fitToWindow = true;
+            zoomFactor = 1.0;
+            viewportCenterXRatio = 0.5;
+            viewportCenterYRatio = 0.5;
+        } else {
+            updateViewportCenterRatios();
+        }
+        renderCurrentImage();
+    };
+
+    renderCurrentImage = [&]() {
+        if (imagePaths.isEmpty() || currentIndex < 0 || currentIndex >= imagePaths.size()) {
+            return;
+        }
+        const QString currentPath = imagePaths.at(currentIndex);
+        QPixmap currentPixmap(currentPath);
+        currentImageValid = !currentPixmap.isNull();
+        if (!currentImageValid) {
+            resolutionLabel->setText(QStringLiteral("原始分辨率：不可读取"));
+            zoomLabel->setText(QStringLiteral("缩放：不可用"));
+            imageLabel->resize(scrollArea->viewport()->size().expandedTo(QSize(420, 320)));
+            const QPixmap emptyState = createMediaFailureCard(
+                imageLabel->size(),
+                QStringLiteral("这张图片当前无法预览"),
+                QStringLiteral("文件可能已损坏、格式不完整，或已被其他程序改写。你仍可切换到上一张/下一张，或回到聊天记录检查原始文件路径。"),
+                QStringLiteral("!"));
+            imageLabel->setPixmap(emptyState);
+            imageLabel->setCursor(Qt::ArrowCursor);
+            pushPersistentPreviewStatus(QStringLiteral("这张图片暂时不可读。可以复制路径、打开原文件或所在目录继续检查"),
+                                      QStringLiteral("warning"));
+            zoomOutBtn->setEnabled(false);
+            zoomInBtn->setEnabled(false);
+            resetZoomBtn->setEnabled(false);
+            originalSizeBtn->setEnabled(false);
+            copyPathBtn->setEnabled(true);
+            return;
+        }
+        statusController.reset();
+        resolutionLabel->setText(QStringLiteral("原始分辨率：%1 × %2").arg(currentPixmap.width()).arg(currentPixmap.height()));
+
+        const QSize viewportSize = scrollArea->viewport()->size().expandedTo(QSize(420, 320));
+        QSize renderSize = currentPixmap.size();
+        if (fitToWindow) {
+            renderSize.scale(viewportSize.width() - 24,
+                             viewportSize.height() - 24,
+                             Qt::KeepAspectRatio);
+        } else {
+            renderSize = currentPixmap.size() * zoomFactor;
+        }
+        renderSize = renderSize.expandedTo(QSize(120, 120));
+
+        const QPixmap scaled = currentPixmap.scaled(renderSize,
+                                                    Qt::KeepAspectRatio,
+                                                    Qt::SmoothTransformation);
+        imageLabel->setPixmap(scaled);
+        imageLabel->resize(scaled.size());
+        imageLabel->setCursor(fitToWindow ? Qt::ArrowCursor : Qt::OpenHandCursor);
+        restoreViewportCenter();
+        const double ratio = currentPixmap.width() > 0
+            ? (static_cast<double>(scaled.width()) / static_cast<double>(currentPixmap.width())) * 100.0
+            : 100.0;
+        zoomLabel->setText(fitToWindow
+                               ? QStringLiteral("缩放：适应窗口 · %1%").arg(QString::number(ratio, 'f', 0))
+                               : QStringLiteral("缩放：%1%").arg(QString::number(ratio, 'f', 0)));
+        zoomOutBtn->setEnabled(!fitToWindow || ratio > 12.0);
+        zoomInBtn->setEnabled(ratio < 800.0);
+        resetZoomBtn->setEnabled(!fitToWindow);
+        originalSizeBtn->setEnabled(true);
+    };
+
+    auto stepZoom = [&](double factorDelta) {
+        if (!currentImageValid) {
+            return;
+        }
+        fitToWindow = false;
+        zoomFactor = clampZoom(zoomFactor * factorDelta);
+        renderCurrentImage();
+    };
+
+    QObject::connect(prevBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (currentIndex > 0) {
+            renderImageAt(currentIndex - 1, true);
+        }
+    });
+    QObject::connect(nextBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (currentIndex >= 0 && currentIndex < imagePaths.size() - 1) {
+            renderImageAt(currentIndex + 1, true);
+        }
+    });
+    QObject::connect(zoomOutBtn, &QPushButton::clicked, &dialog, [&]() {
+        updateViewportCenterRatios();
+        stepZoom(1.0 / 1.2);
+    });
+    QObject::connect(zoomInBtn, &QPushButton::clicked, &dialog, [&]() {
+        updateViewportCenterRatios();
+        stepZoom(1.2);
+    });
+    QObject::connect(resetZoomBtn, &QPushButton::clicked, &dialog, [&]() {
+        fitToWindow = true;
+        zoomFactor = 1.0;
+        renderCurrentImage();
+    });
+    QObject::connect(originalSizeBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (!currentImageValid) {
+            return;
+        }
+        fitToWindow = false;
+        zoomFactor = 1.0;
+        updateViewportCenterRatios();
+        renderCurrentImage();
+    });
+    imageLabel->wheelHandler = [&](int delta) {
+        if (delta == 0) {
+            return;
+        }
+        updateViewportCenterRatios();
+        stepZoom(delta > 0 ? 1.12 : (1.0 / 1.12));
+    };
+    imageLabel->doubleClickHandler = [&]() {
+        updateViewportCenterRatios();
+        if (fitToWindow) {
+            fitToWindow = false;
+            zoomFactor = 1.8;
+        } else {
+            fitToWindow = true;
+            zoomFactor = 1.0;
+        }
+        renderCurrentImage();
+    };
+    imageLabel->mousePressHandler = [&](QMouseEvent* event) {
+        if (!event || fitToWindow || event->button() != Qt::LeftButton) {
+            return;
+        }
+        draggingImage = true;
+        lastDragPos = event->globalPosition().toPoint();
+        imageLabel->setCursor(Qt::ClosedHandCursor);
+        event->accept();
+    };
+    imageLabel->mouseMoveHandler = [&](QMouseEvent* event) {
+        if (!event || !draggingImage) {
+            return;
+        }
+        const QPoint currentPos = event->globalPosition().toPoint();
+        const QPoint delta = currentPos - lastDragPos;
+        QScrollBar* horizontalBar = scrollArea->horizontalScrollBar();
+        QScrollBar* verticalBar = scrollArea->verticalScrollBar();
+        horizontalBar->setValue(clampScrollbarValue(horizontalBar, horizontalBar->value() - delta.x()));
+        verticalBar->setValue(clampScrollbarValue(verticalBar, verticalBar->value() - delta.y()));
+        lastDragPos = currentPos;
+        event->accept();
+    };
+    imageLabel->mouseReleaseHandler = [&](QMouseEvent* event) {
+        if (!event || event->button() != Qt::LeftButton) {
+            return;
+        }
+        draggingImage = false;
+        QScrollBar* horizontalBar = scrollArea->horizontalScrollBar();
+        QScrollBar* verticalBar = scrollArea->verticalScrollBar();
+        horizontalBar->setValue(qBound(horizontalBar->minimum(), horizontalBar->value(), horizontalBar->maximum()));
+        verticalBar->setValue(qBound(verticalBar->minimum(), verticalBar->value(), verticalBar->maximum()));
+        imageLabel->setCursor(fitToWindow ? Qt::ArrowCursor : Qt::OpenHandCursor);
+        event->accept();
+    };
+    QObject::connect(scrollArea->horizontalScrollBar(), &QScrollBar::rangeChanged, &dialog, [&]() {
+        renderCurrentImage();
+    });
+    QObject::connect(scrollArea->verticalScrollBar(), &QScrollBar::rangeChanged, &dialog, [&]() {
+        renderCurrentImage();
+    });
+    QShortcut* previousShortcut = new QShortcut(QKeySequence(Qt::Key_Left), &dialog);
+    QShortcut* nextShortcut = new QShortcut(QKeySequence(Qt::Key_Right), &dialog);
+    QShortcut* firstShortcut = new QShortcut(QKeySequence(Qt::Key_Home), &dialog);
+    QShortcut* lastShortcut = new QShortcut(QKeySequence(Qt::Key_End), &dialog);
+    QShortcut* resetZoomShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+0")), &dialog);
+    QShortcut* originalSizeShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+1")), &dialog);
+    QShortcut* zoomInShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl++")), &dialog);
+    QShortcut* zoomInEqualShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+=")), &dialog);
+    QShortcut* zoomOutShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+-")), &dialog);
+    QShortcut* helpShortcut = new QShortcut(QKeySequence(Qt::Key_Slash), &dialog);
+    QShortcut* helpShiftShortcut = new QShortcut(QKeySequence(QStringLiteral("?")), &dialog);
+    QShortcut* closeShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), &dialog);
+    QObject::connect(previousShortcut, &QShortcut::activated, &dialog, [&]() {
+        if (currentIndex > 0) {
+            renderImageAt(currentIndex - 1, true);
+        }
+    });
+    QObject::connect(nextShortcut, &QShortcut::activated, &dialog, [&]() {
+        if (currentIndex >= 0 && currentIndex < imagePaths.size() - 1) {
+            renderImageAt(currentIndex + 1, true);
+        }
+    });
+    QObject::connect(firstShortcut, &QShortcut::activated, &dialog, [&]() {
+        if (!imagePaths.isEmpty()) {
+            renderImageAt(0, true);
+        }
+    });
+    QObject::connect(lastShortcut, &QShortcut::activated, &dialog, [&]() {
+        if (!imagePaths.isEmpty()) {
+            renderImageAt(imagePaths.size() - 1, true);
+        }
+    });
+    QObject::connect(resetZoomShortcut, &QShortcut::activated, &dialog, [&]() {
+        fitToWindow = true;
+        zoomFactor = 1.0;
+        renderCurrentImage();
+    });
+    QObject::connect(originalSizeShortcut, &QShortcut::activated, &dialog, [&]() {
+        if (!currentImageValid) {
+            return;
+        }
+        fitToWindow = false;
+        zoomFactor = 1.0;
+        renderCurrentImage();
+    });
+    QObject::connect(zoomInShortcut, &QShortcut::activated, &dialog, [&]() {
+        updateViewportCenterRatios();
+        stepZoom(1.2);
+    });
+    QObject::connect(zoomInEqualShortcut, &QShortcut::activated, &dialog, [&]() {
+        updateViewportCenterRatios();
+        stepZoom(1.2);
+    });
+    QObject::connect(zoomOutShortcut, &QShortcut::activated, &dialog, [&]() {
+        updateViewportCenterRatios();
+        stepZoom(1.0 / 1.2);
+    });
+    QObject::connect(helpShortcut, &QShortcut::activated, &dialog, [&]() {
+        const QString briefHelp = QStringLiteral("快捷键：←/→ 翻图，Home/End 跳头尾，Ctrl+0 适应窗口，Ctrl+1 原图，Ctrl++/Ctrl+- 缩放，Esc 关闭");
+        const QString current = bottomSection.hintLabel->text().trimmed();
+        if (current == briefHelp) {
+            statusController.reset();
+        } else {
+            pushPreviewStatus(briefHelp, QStringLiteral("info"));
+            if (statusController.resetTimer) {
+                statusController.resetTimer->start(3200);
+            }
+        }
+    });
+    QObject::connect(helpShiftShortcut, &QShortcut::activated, &dialog, [&]() {
+        helpShortcut->activated();
+    });
+    QObject::connect(closeShortcut, &QShortcut::activated, &dialog, [&]() {
+        dialog.accept();
+    });
+    renderImageAt(qMax(0, currentIndex), false);
+    dialog.exec();
+    return true;
+}
+
+bool MainWindow::showChatVideoPreview(const QString& filePath,
+                                      const QString& titleText) const {
+    if (filePath.trimmed().isEmpty() || !QFileInfo::exists(filePath)) {
+        return false;
+    }
+
+    std::unique_ptr<QDialog> dialogHolder(createMediaPreviewDialog(QStringLiteral("videoPreview/geometry"),
+                                                                   titleText.trimmed().isEmpty() ? QStringLiteral("视频预览") : titleText.trimmed()));
+    QDialog& dialog = *dialogHolder;
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(14, 14, 14, 14);
+    layout->setSpacing(10);
+
+    MediaPreviewHeaderWidgets header = createMediaPreviewHeader(
+        &dialog,
+        titleText.trimmed().isEmpty() ? QStringLiteral("视频预览") : titleText.trimmed(),
+        QStringLiteral("统一媒体查看器 · 支持系统播放、路径动作与即时提示"));
+    layout->addLayout(header.layout);
+
+    QLabel* previewCard = new QLabel(&dialog);
+    previewCard->setMinimumSize(420, 320);
+    previewCard->setAlignment(Qt::AlignCenter);
+    previewCard->setStyleSheet(QStringLiteral("background:#F7FAFD;border:1px solid #D8E4EE;border-radius:14px;"));
+    layout->addWidget(previewCard, 1);
+
+    MediaPreviewToolbarWidgets toolbar = createMediaPreviewToolbar(&dialog, false, false, false);
+    toolbar.zoomLabel->setText(QStringLiteral("视频封面预览"));
+    layout->addLayout(toolbar.layout);
+
+    MediaPreviewActionBarOptions actionOptions;
+    actionOptions.includePrimaryButton = true;
+    actionOptions.primaryButtonText = QStringLiteral("用系统播放器播放");
+    actionOptions.primaryButtonToolTip = QStringLiteral("交给系统默认播放器打开当前视频");
+    actionOptions.includeCopyPathButton = true;
+    actionOptions.closeButtonText = QStringLiteral("关闭查看器");
+    actionOptions.closeButtonToolTip = QStringLiteral("关闭当前视频查看器");
+    MediaPreviewBottomSectionWidgets bottomSection = createMediaPreviewBottomSection(
+        &dialog,
+        layout,
+        QStringLiteral("统一媒体查看器 · 预览封面后可直接打开原视频或目录"),
+        filePath,
+        actionOptions);
+    QLabel* durationLabel = bottomSection.primaryLabel;
+    QLabel* resolutionLabel = bottomSection.secondaryLabel;
+    QLabel* pathLabel = bottomSection.pathLabel;
+    QPushButton* playSystemBtn = bottomSection.primaryButton;
+    QPushButton* openFileBtn = bottomSection.openFileButton;
+    QPushButton* openFolderBtn = bottomSection.openFolderButton;
+    QPushButton* copyPathBtn = bottomSection.copyPathButton;
+    QPushButton* closeBtn = bottomSection.closeButton;
+    const QString defaultHintText = QStringLiteral("统一媒体查看器 · 预览封面后可直接打开原视频或目录");
+    MediaPreviewStatusController statusController =
+        createMediaPreviewStatusController(&dialog, bottomSection.hintLabel, defaultHintText);
+    auto pushPreviewStatus = statusController.push;
+    auto pushPersistentPreviewStatus = [&](const QString& text, const QString& tone) {
+        if (statusController.resetTimer) {
+            statusController.resetTimer->stop();
+        }
+        if (bottomSection.hintLabel) {
+            bottomSection.hintLabel->setText(text);
+            applyMediaPreviewHintTone(bottomSection.hintLabel, tone);
+        }
+    };
+    wireMediaPreviewCommonActions(&dialog,
+                                  pathLabel,
+                                  openFileBtn,
+                                  openFolderBtn,
+                                  copyPathBtn,
+                                  closeBtn,
+                                  QStringLiteral("视频文件"),
+                                  pushPreviewStatus);
+    QObject::connect(playSystemBtn, &QPushButton::clicked, &dialog, [&]() {
+        showMediaPreviewPathActionStatus(mediaPreviewResolvedPath(pathLabel),
+                                         QStringLiteral("视频文件"),
+                                         QStringLiteral("已请求系统播放器播放当前视频"),
+                                         pushPreviewStatus);
+    });
+    QShortcut* helpShortcut = new QShortcut(QKeySequence(Qt::Key_Slash), &dialog);
+    QShortcut* helpShiftShortcut = new QShortcut(QKeySequence(QStringLiteral("?")), &dialog);
+    QObject::connect(helpShortcut, &QShortcut::activated, &dialog, [&]() {
+        const QString briefHelp = QStringLiteral("快捷键：/ 显示帮助，Esc 关闭；可直接系统播放、打开原文件、打开目录或复制路径");
+        const QString current = bottomSection.hintLabel->text().trimmed();
+        if (current == briefHelp) {
+            statusController.reset();
+        } else {
+            pushPreviewStatus(briefHelp, QStringLiteral("info"));
+            if (statusController.resetTimer) {
+                statusController.resetTimer->start(3200);
+            }
+        }
+    });
+    QObject::connect(helpShiftShortcut, &QShortcut::activated, &dialog, [&]() {
+        helpShortcut->activated();
+    });
+
+    const QPixmap preview = videoPreviewFrame(filePath, QSize(760, 460));
+    if (!preview.isNull()) {
+        previewCard->setPixmap(preview);
+    } else {
+        const QPixmap emptyState = createMediaFailureCard(
+            previewCard->minimumSize(),
+            QStringLiteral("当前无法提取视频封面"),
+            QStringLiteral("你仍可直接打开原视频文件，复制路径，或打开所在目录继续检查。"),
+            QStringLiteral(">"),
+            QColor(90, 88, 196),
+            QColor(239, 236, 255));
+        previewCard->setPixmap(emptyState);
+        pushPersistentPreviewStatus(QStringLiteral("当前无法提取视频封面。可以直接播放原视频，或打开原文件与所在目录继续检查"),
+                                  QStringLiteral("warning"));
+    }
+
+    durationLabel->setText(QStringLiteral("时长：%1").arg(formatDurationLabel(videoDurationMs(filePath)).isEmpty()
+        ? QStringLiteral("未知")
+        : formatDurationLabel(videoDurationMs(filePath))));
+    const QPixmap resolutionProbe(filePath);
+    if (!resolutionProbe.isNull()) {
+        resolutionLabel->setText(QStringLiteral("封面分辨率：%1 × %2").arg(resolutionProbe.width()).arg(resolutionProbe.height()));
+    } else {
+        resolutionLabel->setText(QStringLiteral("封面分辨率：按视频帧生成"));
+    }
+
+    dialog.exec();
+    return true;
+}
+
+QDialog* MainWindow::createMediaPreviewDialog(const QString& geometryKey,
+                                              const QString& windowTitle) const {
+    QDialog* dialog = new QDialog(const_cast<MainWindow*>(this));
+    dialog->setWindowTitle(windowTitle);
+    dialog->setStyleSheet(productDialogStyleSheet());
+    QSettings* settings = new QSettings(QStringLiteral("QtNetworkChat"), QStringLiteral("QtNetworkChat"), dialog);
+    const QByteArray previewGeometry = settings->value(geometryKey).toByteArray();
+    if (!previewGeometry.isEmpty()) {
+        dialog->restoreGeometry(previewGeometry);
+    } else {
+        dialog->resize(920, 680);
+    }
+    QObject::connect(dialog, &QDialog::finished, dialog, [dialog, settings, geometryKey](int) {
+        settings->setValue(geometryKey, dialog->saveGeometry());
+    });
+    return dialog;
+}
+
+QStringList MainWindow::visibleChatImagePaths() const {
+    QStringList paths;
+    if (!m_chatModel) {
+        return paths;
+    }
+    for (int row = 0; row < m_chatModel->rowCount(); ++row) {
+        const QModelIndex index = m_chatModel->index(row, 0);
+        if (index.data(TransferChatItemRenderer::MediaKindRole).toString().trimmed() == QLatin1String("image")) {
+            const QString path = index.data(TransferChatItemRenderer::OpenPathRole).toString().trimmed();
+            if (!path.isEmpty() && QFileInfo::exists(path)) {
+                paths << path;
+            }
+        }
+    }
+    paths.removeDuplicates();
+    return paths;
+}
+
+int MainWindow::visibleChatImageIndex(const QString& filePath) const {
+    const QStringList paths = visibleChatImagePaths();
+    return paths.indexOf(filePath);
+}
+
+QPixmap MainWindow::videoPreviewFrame(const QString& filePath,
+                                      const QSize& targetSize) const {
+    if (filePath.trimmed().isEmpty() || !QFileInfo::exists(filePath)) {
+        return QPixmap();
+    }
+
+    QMediaPlayer player;
+    QVideoSink sink;
+    player.setVideoSink(&sink);
+
+    QPixmap result;
+    QEventLoop loop;
+    QTimer timeoutTimer;
+    timeoutTimer.setSingleShot(true);
+    QObject::connect(&timeoutTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    QObject::connect(&sink, &QVideoSink::videoFrameChanged, &loop, [&](const QVideoFrame& frame) {
+        if (!frame.isValid()) {
+            return;
+        }
+        const QImage image = frame.toImage();
+        if (!image.isNull()) {
+            result = QPixmap::fromImage(image.scaled(targetSize,
+                                                     Qt::KeepAspectRatio,
+                                                     Qt::SmoothTransformation));
+            loop.quit();
+        }
+    });
+
+    player.setSource(QUrl::fromLocalFile(filePath));
+    player.play();
+    timeoutTimer.start(2500);
+    loop.exec();
+    player.stop();
+    return result;
+}
+
+qint64 MainWindow::videoDurationMs(const QString& filePath) const {
+    if (filePath.trimmed().isEmpty() || !QFileInfo::exists(filePath)) {
+        return -1;
+    }
+
+    QMediaPlayer player;
+    QEventLoop loop;
+    QTimer timeoutTimer;
+    timeoutTimer.setSingleShot(true);
+    qint64 duration = -1;
+
+    QObject::connect(&timeoutTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    QObject::connect(&player, &QMediaPlayer::durationChanged, &loop, [&](qint64 value) {
+        if (value > 0) {
+            duration = value;
+            loop.quit();
+        }
+    });
+    player.setSource(QUrl::fromLocalFile(filePath));
+    timeoutTimer.start(1200);
+    loop.exec();
+    return duration;
+}
+
+QString MainWindow::formatDurationLabel(qint64 durationMs) const {
+    if (durationMs <= 0) {
+        return QString();
+    }
+    const qint64 totalSeconds = durationMs / 1000;
+    const qint64 hours = totalSeconds / 3600;
+    const qint64 minutes = (totalSeconds % 3600) / 60;
+    const qint64 seconds = totalSeconds % 60;
+    if (hours > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(hours, 2, 10, QLatin1Char('0'))
+            .arg(minutes, 2, 10, QLatin1Char('0'))
+            .arg(seconds, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2")
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(seconds, 2, 10, QLatin1Char('0'));
 }
 
 ChatContextSavedFileState MainWindow::chatContextSavedFileState(const LocalSavedFileState& savedFileState) const {
@@ -2468,13 +3971,14 @@ void MainWindow::setTransferWorkspaceSavedFileState(const LocalSavedFileState& s
 QString MainWindow::transferWorkspaceStatusSnapshotText() const {
     QStringList rows;
     rows << QStringLiteral("文件工作区状态");
+    rows << QString();
 
     const TransferWorkspaceSummaryState summary = currentTransferWorkspaceSummary();
     if (!summary.title.trimmed().isEmpty()) {
-        rows << QStringLiteral("摘要标题:%1").arg(summary.title);
+        rows << QStringLiteral("当前摘要:%1").arg(summary.title);
     }
     if (!summary.detail.trimmed().isEmpty()) {
-        rows << QStringLiteral("摘要说明:%1").arg(summary.detail);
+        rows << QStringLiteral("当前说明:%1").arg(summary.detail);
     }
     if (!summary.nextStep.trimmed().isEmpty()) {
         rows << QStringLiteral("下一步:%1").arg(summary.nextStep);
@@ -2487,6 +3991,8 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
     }
 
     if (m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer) {
+        rows << QString();
+        rows << QStringLiteral("恢复链:");
         rows << QStringLiteral("恢复记录:%1").arg(m_lastTransferRecoveryUiState.fileName);
         rows << QStringLiteral("恢复模式:%1").arg(m_lastTransferRecoveryUiState.recoveryMode.isEmpty()
                                                       ? QStringLiteral("未标记")
@@ -2509,6 +4015,8 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
     }
 
     if (m_hasLastTransferStatusEvent && !m_lastTransferStatusEvent.message.isEmpty()) {
+        rows << QString();
+        rows << QStringLiteral("最近事件:");
         rows << QStringLiteral("最近事件:%1").arg(m_lastTransferStatusEvent.message);
         if (!m_lastTransferStatusEvent.category.isEmpty()) {
             rows << QStringLiteral("事件分类:%1").arg(m_lastTransferStatusEvent.category);
@@ -2519,6 +4027,8 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
     }
 
     if (m_hasTransferWorkspaceSendState && !m_transferWorkspaceSendState.workspaceTitle.isEmpty()) {
+        rows << QString();
+        rows << QStringLiteral("发送工作区:");
         rows << QStringLiteral("当前工作区:%1").arg(m_transferWorkspaceSendState.workspaceTitle);
         if (!m_transferWorkspaceSendState.workspaceDetail.isEmpty()) {
             rows << QStringLiteral("工作区详情:%1").arg(m_transferWorkspaceSendState.workspaceDetail);
@@ -2526,6 +4036,8 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
     }
 
     if (m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath) {
+        rows << QString();
+        rows << QStringLiteral("保存文件:");
         rows << QStringLiteral("保存文件:%1").arg(m_transferWorkspaceSavedFileState.fileInfo.fileName());
         rows << QStringLiteral("保存路径:%1").arg(m_transferWorkspaceSavedFileState.savePath);
         rows << QStringLiteral("文件可打开:%1").arg(m_transferWorkspaceSavedFileState.canOpenFile ? QStringLiteral("是") : QStringLiteral("否"));
@@ -2536,6 +4048,8 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
         rows << QStringLiteral("最近诊断:%1").arg(m_lastTransferStatusDiagnostic);
     }
     const QJsonObject governanceDashboard = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-dashboard.json"));
+    rows << QString();
+    rows << QStringLiteral("治理与性能:");
     if (!governanceDashboard.isEmpty()) {
         rows << QStringLiteral("治理状态:%1").arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")));
         rows << QStringLiteral("治理告警:%1").arg(QString::number(governanceDashboard.value(QStringLiteral("alertCount")).toInt(0)));
@@ -2558,6 +4072,7 @@ QString MainWindow::transferWorkspaceStatusSnapshotText() const {
     } else {
         rows << QStringLiteral("性能状态:未生成 performance summary");
     }
+    rows << QString();
     rows << QStringLiteral("状态结论:%1").arg(summary.nextStep.trimmed().isEmpty()
                                                  ? QStringLiteral("继续观察文件工作区")
                                                  : summary.nextStep);
@@ -2623,6 +4138,11 @@ TransferWorkspaceSummaryState MainWindow::currentTransferWorkspaceSummary(const 
                                                            m_transferWorkspaceSavedFileState.canOpenFile,
                                                            m_transferWorkspaceSavedFileState.canOpenFolder,
                                                            ChatContextManager::plainContentText(m_transferWorkspaceSavedChatText));
+    }
+    const QJsonObject governanceDashboard = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-dashboard.json"));
+    const QJsonObject performanceSummary = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-performance-summary.json"));
+    if (!governanceDashboard.isEmpty() || !performanceSummary.isEmpty()) {
+        return m_transferManager.governanceWorkspaceSummary(governanceDashboard, performanceSummary);
     }
     return m_transferManager.emptyWorkspaceSummary(hasDiagnostic);
 }
@@ -2718,102 +4238,7 @@ void MainWindow::showAvatarWorkspace() {
     QLabel* statsLabel = shell.statsLabel;
     QLabel* previewLabel = shell.previewLabel;
     QLabel* subTitleLabel = shell.subTitleLabel;
-
-    struct AvatarWorkspaceRow {
-        QString id;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool accent = false;
-        bool muted = false;
-    };
-
-    auto avatarCardText = [this]() {
-        const QFileInfo avatarInfo(getAvatarFilePath());
-        return QStringLiteral("我的头像卡片\nQQ:%1\n昵称:%2\n头像:%3")
-            .arg(m_currentUserId,
-                 m_currentUserName,
-                 avatarInfo.exists()
-                     ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
-                     : QStringLiteral("当前使用默认头像"));
-    };
-    auto avatarStatusText = [this]() {
-        const QFileInfo avatarInfo(getAvatarFilePath());
-        return avatarInfo.exists()
-            ? QStringLiteral("头像工作区 · 当前头像 %1 · %2 · 路径 %3")
-                  .arg(avatarInfo.fileName(),
-                       LocalFileManager::humanFileSize(avatarInfo.size()),
-                       avatarInfo.absoluteFilePath())
-            : QStringLiteral("头像工作区 · 当前使用默认头像，可立即选择并保存新头像");
-    };
-    auto buildRows = [this]() {
-        QList<AvatarWorkspaceRow> rows;
-        const QFileInfo avatarInfo(getAvatarFilePath());
-        const bool hasAvatarFile = avatarInfo.exists();
-
-        rows << AvatarWorkspaceRow{
-            QStringLiteral("avatar-overview"),
-            QStringLiteral("当前头像"),
-            hasAvatarFile
-                ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
-                : QStringLiteral("当前使用默认头像"),
-            hasAvatarFile
-                ? QStringLiteral("头像总览\n头像：%1\n路径：%2\n可继续：更换头像、复制路径、打开目录")
-                      .arg(avatarInfo.fileName(), avatarInfo.absoluteFilePath())
-                : QStringLiteral("头像总览\n当前使用默认头像\n可继续：选择并保存新头像，然后再复制路径或打开目录。"),
-            QStringLiteral("头像 总览 路径 目录"),
-            true,
-            false};
-        rows << AvatarWorkspaceRow{
-            QStringLiteral("avatar-replace"),
-            QStringLiteral("更换头像"),
-            QStringLiteral("打开头像选择器，更新当前账号头像"),
-            QStringLiteral("更换头像\n会把新头像裁成统一方形并保存到本机资料目录。"),
-            QStringLiteral("更换 头像 上传 保存"),
-            false,
-            false};
-        rows << AvatarWorkspaceRow{
-            QStringLiteral("avatar-copy-card"),
-            QStringLiteral("复制头像卡片"),
-            QStringLiteral("复制当前头像、昵称和账号摘要"),
-            QStringLiteral("复制头像卡片\n便于留档、反馈或发给其他人核对当前头像状态。"),
-            QStringLiteral("复制 头像 卡片"),
-            false,
-            false};
-        rows << AvatarWorkspaceRow{
-            QStringLiteral("avatar-copy-path"),
-            QStringLiteral("复制头像路径"),
-            hasAvatarFile ? QStringLiteral("复制当前头像在本机的路径") : QStringLiteral("当前还没有保存过自定义头像"),
-            hasAvatarFile
-                ? QStringLiteral("复制头像路径\n当前头像文件位于：%1").arg(avatarInfo.absoluteFilePath())
-                : QStringLiteral("复制头像路径\n当前没有可复制的头像文件路径。"),
-            QStringLiteral("复制 路径 头像"),
-            false,
-            !hasAvatarFile};
-        rows << AvatarWorkspaceRow{
-            QStringLiteral("avatar-open-folder"),
-            QStringLiteral("打开头像目录"),
-            hasAvatarFile ? QStringLiteral("直接打开当前头像所在目录") : QStringLiteral("当前还没有保存过自定义头像"),
-            hasAvatarFile
-                ? QStringLiteral("打开头像目录\n会定位到当前头像所在目录，便于继续替换、备份或清理。")
-                : QStringLiteral("打开头像目录\n当前没有自定义头像文件，建议先保存一个头像。"),
-            QStringLiteral("打开 目录 头像"),
-            false,
-            !hasAvatarFile};
-        rows << AvatarWorkspaceRow{
-            QStringLiteral("avatar-copy-status"),
-            QStringLiteral("复制头像状态"),
-            QStringLiteral("复制当前头像工作区状态"),
-            QStringLiteral("复制头像状态\n整理当前头像文件、路径和是否已保存，便于反馈和记录。"),
-            QStringLiteral("复制 状态 头像"),
-            false,
-            false};
-
-        return rows;
-    };
-
-    auto rows = buildRows();
+    auto rows = buildAvatarWorkspaceRows();
     auto emptyPreviewText = [searchEdit]() {
         const QString filter = searchEdit->text().trimmed();
         return filter.isEmpty()
@@ -2821,53 +4246,20 @@ void MainWindow::showAvatarWorkspace() {
             : QStringLiteral("当前筛选词“%1”没有匹配到头像动作。\n试试“头像”、“路径”、“目录”或“状态”这些关键词。").arg(filter);
     };
 
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        listWidget->clear();
-        int visibleCount = 0;
-        for (const AvatarWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.id);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (row.accent) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.muted) {
-                item->setForeground(QColor(100, 116, 139));
-            }
-            listWidget->addItem(item);
-            ++visibleCount;
-        }
-        if (visibleCount == 0) {
-            addWorkspaceEmptyStateItem(
-                listWidget,
-                QStringLiteral("没有匹配的头像动作"),
-                QStringLiteral("试试“头像”、“路径”、“目录”或“状态”这些关键词。"),
-                emptyPreviewText());
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
-        selectPreferredListRow(listWidget, 0);
+    auto fillList = [=, &rows, this]() {
+        fillAvatarWorkspaceList(listWidget,
+                                statsLabel,
+                                rows,
+                                searchEdit->text().trimmed(),
+                                emptyPreviewText());
     };
 
-    auto selectedRow = [=, &rows]() -> AvatarWorkspaceRow* {
-        QListWidgetItem* currentItem = listWidget->currentItem();
-        if (!currentItem) {
-            return nullptr;
-        }
-        const QString id = currentItem->data(Qt::UserRole).toString();
-        for (AvatarWorkspaceRow& row : rows) {
-            if (row.id == id) {
-                return &row;
-            }
-        }
-        return nullptr;
+    auto selectedRow = [=, &rows, this]() -> AvatarWorkspaceRow* {
+        return selectedAvatarWorkspaceRow(rows, listWidget);
     };
 
-    auto updatePreview = [=, &rows]() {
-        AvatarWorkspaceRow* row = selectedRow();
+    auto updatePreview = [=, &rows, this]() {
+        AvatarWorkspaceRow* row = selectedAvatarWorkspaceRow(rows, listWidget);
         previewLabel->setText(row ? row->preview
                                   : (firstEnabledListRow(listWidget) >= 0
                                          ? QStringLiteral("这里会解释当前头像动作会如何影响本机头像文件、目录和资料卡。")
@@ -2887,123 +4279,23 @@ void MainWindow::showAvatarWorkspace() {
         {openBtn, copyCardBtn, copyStatusBtn},
         closeBtn);
 
-    auto avatarClipboardText = [=, &rows]() {
-        AvatarWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return avatarStatusText();
-        }
-        if (row->id == QLatin1String("avatar-copy-card")) {
-            return avatarCardText();
-        }
-        if (row->id == QLatin1String("avatar-copy-path")) {
-            return QFileInfo(getAvatarFilePath()).absoluteFilePath();
-        }
-        return avatarStatusText();
+    auto avatarClipboardText = [=, &rows, this]() {
+        return avatarWorkspaceClipboardText(selectedAvatarWorkspaceRow(rows, listWidget));
     };
-    auto updateActionState = [=, &rows]() {
-        AvatarWorkspaceRow* row = selectedRow();
-        const QFileInfo avatarInfo(getAvatarFilePath());
-        const bool hasActionableRow = hasEnabledListRow(listWidget);
-        if (!row) {
-            openBtn->setEnabled(false);
-            openBtn->setText(QStringLiteral("执行当前动作"));
-            openBtn->setToolTip(hasActionableRow
-                                    ? QStringLiteral("先选择一个头像动作后继续更换、复制路径或打开目录")
-                                    : QStringLiteral("当前没有可执行的头像动作"));
-            copyCardBtn->setEnabled(hasActionableRow);
-            copyCardBtn->setToolTip(hasActionableRow
-                                        ? QStringLiteral("复制当前头像工作区总览")
-                                        : QStringLiteral("当前没有可复制的头像摘要"));
-            copyStatusBtn->setEnabled(true);
-            copyStatusBtn->setToolTip(QStringLiteral("复制头像工作区当前状态"));
-            return;
-        }
-
-        copyCardBtn->setEnabled(true);
-        copyStatusBtn->setEnabled(true);
-        copyStatusBtn->setToolTip(QStringLiteral("复制头像工作区当前状态"));
-        openBtn->setEnabled(true);
-        if (row->id == QLatin1String("avatar-replace")) {
-            openBtn->setText(QStringLiteral("更换头像"));
-            openBtn->setToolTip(QStringLiteral("打开头像选择器并保存新头像"));
-            copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片与状态摘要"));
-        } else if (row->id == QLatin1String("avatar-copy-card")) {
-            openBtn->setText(QStringLiteral("复制头像卡"));
-            openBtn->setToolTip(QStringLiteral("复制当前头像卡片"));
-            copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片"));
-        } else if (row->id == QLatin1String("avatar-copy-path")) {
-            openBtn->setText(QStringLiteral("复制头像路径"));
-            openBtn->setEnabled(avatarInfo.exists());
-            openBtn->setToolTip(avatarInfo.exists()
-                                    ? QStringLiteral("复制当前头像在本机的路径")
-                                    : QStringLiteral("当前还没有保存过自定义头像"));
-            copyCardBtn->setToolTip(avatarInfo.exists()
-                                        ? QStringLiteral("复制当前头像路径")
-                                        : QStringLiteral("当前还没有保存过自定义头像"));
-        } else if (row->id == QLatin1String("avatar-open-folder")) {
-            openBtn->setText(QStringLiteral("打开头像目录"));
-            openBtn->setEnabled(avatarInfo.exists());
-            openBtn->setToolTip(avatarInfo.exists()
-                                    ? QStringLiteral("定位到当前头像所在目录")
-                                    : QStringLiteral("当前还没有保存过自定义头像"));
-            copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片与目录状态摘要"));
-        } else if (row->id == QLatin1String("avatar-overview")) {
-            openBtn->setText(QStringLiteral("复制头像状态"));
-            openBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
-            copyCardBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
-        } else {
-            openBtn->setText(QStringLiteral("复制头像状态"));
-            openBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
-            copyCardBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
-        }
+    auto updateActionState = [=, &rows, this]() {
+        updateAvatarWorkspaceActionState(openBtn,
+                                         copyCardBtn,
+                                         copyStatusBtn,
+                                         listWidget,
+                                         rows);
     };
 
     auto runSelectedCommand = [=, &rows, this, &dialog]() {
-        AvatarWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return;
-        }
-        const QFileInfo avatarInfo(getAvatarFilePath());
-        if (row->id == QLatin1String("avatar-replace")) {
-            dialog.accept();
-            onUploadAvatar();
-            return;
-        }
-        if (row->id == QLatin1String("avatar-overview")) {
-            copyTextWithStatus(avatarStatusText(), QStringLiteral("头像状态已复制"), 2200);
-            return;
-        }
-        if (row->id == QLatin1String("avatar-copy-card")) {
-            copyTextWithStatus(avatarCardText(), QStringLiteral("头像卡片已复制"), 2200);
-            return;
-        }
-        if (row->id == QLatin1String("avatar-copy-path")) {
-            if (!avatarInfo.exists()) {
-                ui->statusbar->showMessage(QStringLiteral("当前还没有保存过自定义头像"), 2200);
-                return;
-            }
-            copyTextWithStatus(avatarInfo.absoluteFilePath(), QStringLiteral("头像路径已复制"), 2200);
-            return;
-        }
-        if (row->id == QLatin1String("avatar-open-folder")) {
-            if (!avatarInfo.exists()) {
-                ui->statusbar->showMessage(QStringLiteral("当前还没有保存过自定义头像"), 2200);
-                return;
-            }
-            if (!QDesktopServices::openUrl(QUrl::fromLocalFile(avatarInfo.absolutePath()))) {
-                ui->statusbar->showMessage(QStringLiteral("头像目录无法打开"), 2200);
-            } else {
-                ui->statusbar->showMessage(QStringLiteral("已打开头像目录"), 2200);
-            }
-            return;
-        }
-        if (row->id == QLatin1String("avatar-copy-status")) {
-            copyTextWithStatus(avatarStatusText(), QStringLiteral("头像状态已复制"), 2200);
-        }
+        runAvatarWorkspaceCommand(selectedAvatarWorkspaceRow(rows, listWidget), &dialog);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
+        rows = buildAvatarWorkspaceRows();
         fillList();
         updatePreview();
         updateActionState();
@@ -3013,7 +4305,7 @@ void MainWindow::showAvatarWorkspace() {
     });
     connect(openBtn, &QPushButton::clicked, &dialog, runSelectedCommand);
     connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
-        AvatarWorkspaceRow* row = selectedRow();
+        AvatarWorkspaceRow* row = selectedAvatarWorkspaceRow(rows, listWidget);
         QString statusText = QStringLiteral("头像工作区总览已复制");
         if (row) {
             if (row->id == QLatin1String("avatar-copy-path")) {
@@ -3028,11 +4320,11 @@ void MainWindow::showAvatarWorkspace() {
         copyTextWithStatus(avatarClipboardText(), statusText, 2200);
     });
     connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
-        copyTextWithStatus(avatarStatusText(), QStringLiteral("头像工作区状态已复制"), 2200);
+        copyTextWithStatus(avatarWorkspaceStatusText(), QStringLiteral("头像工作区状态已复制"), 2200);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    rows = buildRows();
+    rows = buildAvatarWorkspaceRows();
     fillList();
     updatePreview();
     updateActionState();
@@ -5314,236 +6606,21 @@ void MainWindow::onShowTransferWorkspace() {
     QLabel* previewLabel = shell.previewLabel;
     QLabel* subTitleLabel = shell.subTitleLabel;
 
-    struct TransferWorkspaceRow {
-        QString id;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool enabled = true;
-        QString statusTone;
-    };
-
     auto buildRows = [this]() {
-        QList<TransferWorkspaceRow> rows;
-        const bool activeSendUsesSavedFileActions =
-            m_hasTransferWorkspaceSendState
-            && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
-        const QJsonObject governanceDashboard = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-dashboard.json"));
-        const QJsonObject performanceSummary = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-performance-summary.json"));
-        {
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("send-file");
-            row.title = QStringLiteral("发送文件");
-            row.detail = QStringLiteral("选择文档、压缩包或其他文件，进入当前会话发送流程。");
-            row.preview = QStringLiteral("发送文件入口\n会先检查当前会话是否可发送，再生成分片和校验清单，随后在这里持续显示发送、失败或恢复状态。");
-            row.keywords = row.title + row.detail + row.preview + QStringLiteral("发送 文件 选择 上传");
-            row.statusTone = QStringLiteral("accent");
-            rows << row;
-        }
-        {
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("send-media");
-            row.title = QStringLiteral("发送图片/视频");
-            row.detail = QStringLiteral("选择图片或视频，统一走媒体发送和回执链路。");
-            row.preview = QStringLiteral("发送图片/视频入口\n会自动识别图片或视频，并把后续进度、失败、恢复和已保存文件反馈都收进同一个文件工作区。");
-            row.keywords = row.title + row.detail + row.preview + QStringLiteral("发送 图片 视频 媒体");
-            row.statusTone = QStringLiteral("accent");
-            rows << row;
-        }
-        if (m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer) {
-            const TransferWorkspaceSummaryState summary =
-                m_transferManager.recoveryWorkspaceSummary(m_lastTransferRecoveryUiState,
-                                                           m_hasLastTransferStatusEvent ? &m_lastTransferStatusEvent : nullptr,
-                                                           !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("recovery");
-            row.title = summary.title;
-            row.detail = QStringLiteral("%1\n%2")
-                             .arg(m_lastTransferRecoveryUiState.fileName.isEmpty()
-                                      ? QStringLiteral("未命名文件")
-                                      : m_lastTransferRecoveryUiState.fileName,
-                                  summary.detail);
-            row.preview = QStringLiteral("%1\n诊断：%2")
-                              .arg(summary.previewText,
-                                   summary.diagnosticHint);
-            row.keywords = row.title + row.detail + row.preview;
-            row.statusTone = summary.statusTone;
-            rows << row;
-        }
-        if (m_hasLastTransferStatusEvent && !m_lastTransferStatusEvent.message.isEmpty()) {
-            const TransferWorkspaceSummaryState summary =
-                m_transferManager.statusWorkspaceSummary(m_lastTransferStatusEvent,
-                                                         m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer,
-                                                         !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("diagnostic");
-            row.title = summary.title;
-            row.detail = QStringLiteral("%1\n%2")
-                             .arg(m_lastTransferStatusEvent.title.isEmpty()
-                                      ? QStringLiteral("文件事件")
-                                      : m_lastTransferStatusEvent.title,
-                                  summary.detail);
-            row.preview = QStringLiteral("%1\n诊断：%2")
-                              .arg(summary.previewText,
-                                   m_lastTransferStatusDiagnostic.trimmed().isEmpty()
-                                       ? summary.diagnosticHint
-                                       : m_lastTransferStatusDiagnostic);
-            row.keywords = row.title + row.detail + row.preview;
-            row.statusTone = summary.statusTone;
-            rows << row;
-        }
-        if (m_hasTransferWorkspaceSendState
-            && (!m_transferWorkspaceSendState.workspaceTitle.trimmed().isEmpty()
-                || !m_transferWorkspaceSendState.workspaceDetail.trimmed().isEmpty())) {
-            const TransferWorkspaceSummaryState summary =
-                m_transferManager.sendWorkspaceSummary(m_transferWorkspaceSendState,
-                                                       !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("active-send");
-            row.title = summary.title;
-            row.detail = summary.detail;
-            row.preview = QStringLiteral("%1\n诊断：%2")
-                              .arg(summary.previewText,
-                                   summary.diagnosticHint);
-            row.keywords = row.title + row.detail + row.preview;
-            row.statusTone = summary.statusTone;
-            rows << row;
-        }
-        if (m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath) {
-            const QString fileName = m_transferWorkspaceSavedFileState.fileInfo.fileName().trimmed().isEmpty()
-                ? QStringLiteral("已保存文件")
-                : m_transferWorkspaceSavedFileState.fileInfo.fileName();
-            const QString fileSize = m_transferWorkspaceSavedFileState.fileInfo.exists()
-                ? LocalFileManager::humanFileSize(m_transferWorkspaceSavedFileState.fileInfo.size())
-                : QString();
-            const TransferWorkspaceSummaryState summary =
-                m_transferManager.savedFileWorkspaceSummary(fileName,
-                                                            fileSize,
-                                                            m_transferWorkspaceSavedFileState.savePath,
-                                                            m_transferWorkspaceSavedFileState.canOpenFile,
-                                                            m_transferWorkspaceSavedFileState.canOpenFolder,
-                                                            ChatContextManager::plainContentText(m_transferWorkspaceSavedChatText));
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("saved-file");
-            row.title = summary.title;
-            row.detail = QStringLiteral("%1\n%2").arg(fileName, summary.detail);
-            row.preview = summary.previewText;
-            row.keywords = row.title + row.detail + row.preview;
-            row.statusTone = summary.statusTone;
-            if (!activeSendUsesSavedFileActions) {
-                rows << row;
-            }
-        }
-        {
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("governance-status");
-            row.title = QStringLiteral("治理状态");
-            if (!governanceDashboard.isEmpty()) {
-                row.detail = QStringLiteral("large-file governance 当前为 %1 · 告警 %2 条")
-                                 .arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
-                                      QString::number(governanceDashboard.value(QStringLiteral("alertCount")).toInt(0)));
-                row.preview = QStringLiteral("治理状态：%1\n当前动作：%2\n关键产物：dashboard=%3, report=%4, diagnostics=%5")
-                                  .arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
-                                       governanceDashboard.value(QStringLiteral("summary")).toObject().value(QStringLiteral("operatorAction")).toString(QStringLiteral("归档治理证据")),
-                                       governanceDashboard.value(QStringLiteral("artifacts")).toArray().isEmpty() ? QStringLiteral("unknown") : QStringLiteral("present"),
-                                       QStringLiteral("see governance report"),
-                                       QStringLiteral("see diagnostics package"));
-                row.statusTone = governanceDashboard.value(QStringLiteral("ok")).toBool(false)
-                    ? QStringLiteral("success")
-                    : QStringLiteral("warning");
-            } else {
-                row.detail = QStringLiteral("当前未找到 large-file governance dashboard 产物");
-                row.preview = QStringLiteral("治理状态产物缺失\n下一步：运行或刷新 large-file governance 任务，再回到文件工作区查看当前健康度。");
-                row.statusTone = QStringLiteral("warning");
-            }
-            row.keywords = row.title + row.detail + row.preview + QStringLiteral("治理 governance dashboard alert status");
-            rows << row;
-        }
-        {
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("performance-status");
-            row.title = QStringLiteral("性能状态");
-            if (!performanceSummary.isEmpty()) {
-                const QJsonArray bottlenecks = performanceSummary.value(QStringLiteral("bottlenecks")).toArray();
-                QStringList bottleneckTexts;
-                for (const QJsonValue& value : bottlenecks) {
-                    const QString text = value.toString().trimmed();
-                    if (!text.isEmpty()) {
-                        bottleneckTexts << text;
-                    }
-                }
-                row.detail = QStringLiteral("performance summary 当前为 %1 · 瓶颈 %2 项")
-                                 .arg(performanceSummary.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
-                                      QString::number(bottleneckTexts.size()));
-                row.preview = QStringLiteral("性能状态：%1\n瓶颈：%2\n建议：%3")
-                                  .arg(performanceSummary.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
-                                       bottleneckTexts.isEmpty() ? QStringLiteral("none") : bottleneckTexts.join(QStringLiteral(", ")),
-                                       performanceSummary.value(QStringLiteral("summary")).toObject().value(QStringLiteral("operatorAction")).toString(QStringLiteral("生成 performance summary 并复核压力点")));
-                row.statusTone = performanceSummary.value(QStringLiteral("ok")).toBool(false)
-                    ? QStringLiteral("success")
-                    : QStringLiteral("warning");
-            } else {
-                row.detail = QStringLiteral("当前未生成 large-file governance performance summary");
-                row.preview = QStringLiteral("性能摘要缺失\n下一步：生成 performance summary，再确认 delivery closure、fallback protection、S3 transient pressure 和 receipt archive pressure。");
-                row.statusTone = QStringLiteral("warning");
-            }
-            row.keywords = row.title + row.detail + row.preview + QStringLiteral("性能 performance bottlenecks pressure");
-            rows << row;
-        }
-        if (rows.isEmpty()) {
-            const TransferWorkspaceSummaryState summary =
-                m_transferManager.emptyWorkspaceSummary(!m_lastTransferStatusDiagnostic.trimmed().isEmpty());
-            TransferWorkspaceRow row;
-            row.id = QStringLiteral("empty");
-            row.title = QStringLiteral("文件工作区当前为空");
-            row.detail = summary.detail;
-            row.preview = summary.previewText;
-            row.keywords = row.title + row.detail + row.preview;
-            row.enabled = false;
-            row.statusTone = summary.statusTone;
-            rows << row;
-        }
-        return rows;
+        return buildTransferWorkspaceRows();
     };
 
     auto rows = buildRows();
 
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        stateList->clear();
-        int visibleCount = 0;
-        for (const TransferWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.id);
-            item->setData(Qt::UserRole + 1, row.preview);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (!row.enabled) {
-                item->setFlags(Qt::NoItemFlags);
-                item->setForeground(QColor(135, 150, 165));
-            } else if (row.statusTone == QLatin1String("accent")) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.statusTone == QLatin1String("success")) {
-                item->setForeground(QColor(0, 121, 107));
-            } else if (row.statusTone == QLatin1String("warning")) {
-                item->setForeground(QColor(180, 83, 9));
-            } else if (row.statusTone == QLatin1String("danger")) {
-                item->setForeground(QColor(185, 28, 28));
-            }
-            stateList->addItem(item);
-            ++visibleCount;
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 项").arg(visibleCount));
-        selectPreferredListRow(stateList, 0);
+    auto fillList = [=, &rows, this]() {
+        fillTransferWorkspaceList(stateList,
+                                  statsLabel,
+                                  rows,
+                                  searchEdit->text().trimmed());
     };
 
-    auto selectedRowId = [stateList]() {
-        QListWidgetItem* item = stateList->currentItem();
-        return item ? item->data(Qt::UserRole).toString() : QString();
+    auto selectedRowId = [=, &rows, this]() {
+        return transferWorkspaceSelectedRowId(rows, stateList);
     };
 
     auto updatePreview = [=]() {
@@ -5565,20 +6642,6 @@ void MainWindow::onShowTransferWorkspace() {
     QPushButton* copyPathBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制路径"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前已保存文件路径"), QStyle::SP_FileDialogDetailedView);
     QPushButton* copySnapshotBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区摘要"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前文件工作区状态摘要"), QStyle::SP_FileDialogListView);
     QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭文件工作区"), QStyle::SP_DialogCloseButton);
-    auto governanceArtifactPath = [](const QString& fileName) {
-        const QStringList candidateDirs{
-            QDir::current().filePath(QStringLiteral("build-qt6-mingw/automation-tasks/large-file-governance")),
-            QDir::current().filePath(QStringLiteral("build-qt6-mingw/large_file_governance_runner_sample/governance"))
-        };
-        for (const QString& artifactDir : candidateDirs) {
-            const QString candidate = QDir(artifactDir).filePath(fileName);
-            if (QFileInfo::exists(candidate)) {
-                return candidate;
-            }
-        }
-        return QString();
-    };
-
     addWorkspaceSectionCard(
         shell.bodyLayout,
         shell.bodyFrame,
@@ -5601,39 +6664,18 @@ void MainWindow::onShowTransferWorkspace() {
         QStringLiteral("从聊天记录或接收结果切进来后，可在这里打开文件、打开目录或复制路径。"),
         {openFileBtn, openFolderBtn, copyPathBtn});
 
-    auto updateActionState = [=]() {
-        const QString rowId = selectedRowId();
-        const bool sendFileSelected = rowId == QLatin1String("send-file");
-        const bool sendMediaSelected = rowId == QLatin1String("send-media");
-        const bool recoverySelected = rowId == QLatin1String("recovery");
-        const bool activeSendSelected = rowId == QLatin1String("active-send");
-        const bool governanceSelected = rowId == QLatin1String("governance-status");
-        const bool performanceSelected = rowId == QLatin1String("performance-status");
-        const bool activeSendUsesSavedFileActions =
-            activeSendSelected
-            && m_hasTransferWorkspaceSendState
-            && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
-        const bool diagnosticSelected = rowId == QLatin1String("diagnostic")
-            || (activeSendSelected && !activeSendUsesSavedFileActions)
-            || governanceSelected
-            || performanceSelected;
-        const bool savedFileSelected = rowId == QLatin1String("saved-file");
-        const bool savedFileCapableSelected = savedFileSelected || activeSendUsesSavedFileActions;
-        sendFileBtn->setEnabled(sendFileSelected || rowId.isEmpty() || rowId == QLatin1String("empty"));
-        sendMediaBtn->setEnabled(sendMediaSelected || rowId.isEmpty() || rowId == QLatin1String("empty"));
-        resumeBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.resumeAction.enabled);
-        clearBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.clearAction.enabled);
-        copyDiagBtn->setEnabled((diagnosticSelected || recoverySelected) && !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
-        openFileBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFile)
-                                || (governanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json")).isEmpty())
-                                || (performanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json")).isEmpty()));
-        openFolderBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFolder)
-                                  || governanceSelected
-                                  || performanceSelected);
-        copyPathBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath)
-                                || (governanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json")).isEmpty())
-                                || (performanceSelected && !governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json")).isEmpty()));
-        copySnapshotBtn->setEnabled(true);
+    auto updateActionState = [=, &rows, this]() {
+        updateTransferWorkspaceActionState(sendFileBtn,
+                                           sendMediaBtn,
+                                           resumeBtn,
+                                           clearBtn,
+                                           copyDiagBtn,
+                                           openFileBtn,
+                                           openFolderBtn,
+                                           copyPathBtn,
+                                           copySnapshotBtn,
+                                           stateList,
+                                           rows);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
@@ -5646,7 +6688,7 @@ void MainWindow::onShowTransferWorkspace() {
         updatePreview();
         updateActionState();
     });
-    connect(stateList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog, governanceArtifactPath](QListWidgetItem* item) {
+    connect(stateList, &QListWidget::itemDoubleClicked, &dialog, [this, &dialog](QListWidgetItem* item) {
         if (!item) {
             return;
         }
@@ -5668,8 +6710,8 @@ void MainWindow::onShowTransferWorkspace() {
         }
         if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
             const QString artifactPath = rowId == QLatin1String("governance-status")
-                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
-                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+                ? transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
             if (!artifactPath.isEmpty()) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(artifactPath));
             } else {
@@ -5716,12 +6758,12 @@ void MainWindow::onShowTransferWorkspace() {
         QApplication::clipboard()->setText(copyState.clipboardText);
         ui->statusbar->showMessage(copyState.copiedStatusMessage, 2200);
     });
-    connect(openFileBtn, &QPushButton::clicked, &dialog, [this, governanceArtifactPath, selectedRowId]() {
+    connect(openFileBtn, &QPushButton::clicked, &dialog, [this, selectedRowId]() {
         const QString rowId = selectedRowId();
         if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
             const QString artifactPath = rowId == QLatin1String("governance-status")
-                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
-                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+                ? transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
             if (!artifactPath.isEmpty()) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(artifactPath));
             } else {
@@ -5739,12 +6781,12 @@ void MainWindow::onShowTransferWorkspace() {
         command.failureStatusMessage = QStringLiteral("保存文件不存在或无法打开");
         openSavedFileFromState(m_transferWorkspaceSavedFileState, command);
     });
-    connect(openFolderBtn, &QPushButton::clicked, &dialog, [this, governanceArtifactPath, selectedRowId]() {
+    connect(openFolderBtn, &QPushButton::clicked, &dialog, [this, selectedRowId]() {
         const QString rowId = selectedRowId();
         if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
             const QString artifactPath = rowId == QLatin1String("governance-status")
-                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
-                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+                ? transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
             if (!artifactPath.isEmpty()) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(artifactPath).absolutePath()));
             } else {
@@ -5761,12 +6803,12 @@ void MainWindow::onShowTransferWorkspace() {
                                                                                          m_transferWorkspaceSavedFileState.savePath);
         openSavedFolderFromState(m_transferWorkspaceSavedFileState, command);
     });
-    connect(copyPathBtn, &QPushButton::clicked, &dialog, [this, governanceArtifactPath, selectedRowId]() {
+    connect(copyPathBtn, &QPushButton::clicked, &dialog, [this, selectedRowId]() {
         const QString rowId = selectedRowId();
         if (rowId == QLatin1String("governance-status") || rowId == QLatin1String("performance-status")) {
             const QString artifactPath = rowId == QLatin1String("governance-status")
-                ? governanceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
-                : governanceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
+                ? transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-dashboard.json"))
+                : transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json"));
             if (!artifactPath.isEmpty()) {
                 copyTextWithStatus(artifactPath, QStringLiteral("治理产物路径已复制"), 2200);
             } else {
@@ -5839,173 +6881,19 @@ void MainWindow::onShowComposerWorkspace() {
     const bool canReachTarget = isLocalGroup || (m_client && m_client->isConnected());
     const QString clipboardText = QApplication::clipboard()->text().trimmed();
     const bool hasClipboardText = !clipboardText.isEmpty();
+    auto rows = buildComposerWorkspaceRows(composerState, draftText, clipboardText);
 
-    struct ComposerWorkspaceRow {
-        QString id;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool enabled = true;
-        bool phrase = false;
-        QString phraseText;
-        bool insertMode = false;
+    auto fillList = [=, &rows, this]() {
+        fillComposerWorkspaceList(actionList,
+                                  statsLabel,
+                                  rows,
+                                  searchEdit->text().trimmed(),
+                                  draftText.size());
     };
 
-    auto buildRows = [=, this]() {
-        QList<ComposerWorkspaceRow> rows;
-
-        ComposerWorkspaceRow draftSummary;
-        draftSummary.id = QStringLiteral("draft-summary");
-        draftSummary.title = hasDraft ? QStringLiteral("当前草稿 · 已就绪") : QStringLiteral("当前草稿 · 仍为空");
-        draftSummary.detail = hasDraft
-            ? QStringLiteral("当前草稿 %1 字\n可直接发送、清空、补充快捷短语，或复制成工作区摘要。").arg(draftText.size())
-            : QStringLiteral("当前还没有输入消息\n可以先选快捷短语、@提及、会话提示，再继续补正文。");
-        draftSummary.preview = hasDraft ? draftText : QStringLiteral("当前会话还没有输入中的消息内容。");
-        draftSummary.keywords = draftSummary.title + draftSummary.detail + draftSummary.preview;
-        rows << draftSummary;
-
-        const QList<ChatContextComposerMenuAction> composerActions = ChatContextManager::composerMenuActions();
-        for (const ChatContextComposerMenuAction& action : composerActions) {
-            ComposerWorkspaceRow row;
-            row.id = action.commandId;
-            row.title = action.title;
-            row.detail = action.toolTip;
-            row.preview = QStringLiteral("当前会话：%1\n草稿长度：%2 字").arg(targetName).arg(draftText.size());
-            row.keywords = row.title + row.detail + row.preview;
-            rows << row;
-        }
-
-        const QList<ChatContextPhraseMenuPlan> phrasePlans = ChatContextManager::composerPhraseMenuPlans();
-        for (const ChatContextPhraseMenuPlan& plan : phrasePlans) {
-            for (const QString& phrase : plan.phrases) {
-                ComposerWorkspaceRow row;
-                row.id = QStringLiteral("phrase:") + phrase;
-                row.title = QStringLiteral("%1 · %2").arg(plan.title, phrase.left(18));
-                row.detail = plan.insertedStatusMessage;
-                row.preview = phrase;
-                row.keywords = row.title + row.detail + row.preview;
-                row.phrase = true;
-                row.phraseText = phrase;
-                row.insertMode = plan.title.contains(QStringLiteral("追加"));
-                rows << row;
-            }
-        }
-
-        ComposerMentionMenuPlan mentionPlan;
-        QStringList mentionIds;
-        QMap<QString, QString> mentionNames;
-        if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
-            mentionIds = m_localGroupMembers.value(m_privateChatTarget);
-        } else {
-            for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
-                mentionIds << it.key();
-                mentionNames[it.key()] = it.value().name;
-            }
-        }
-        for (const QString& memberId : mentionIds) {
-            if (!mentionNames.contains(memberId)) {
-                mentionNames[memberId] = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
-            }
-        }
-        mentionPlan = ComposerManager::mentionMenuPlan(mentionIds, m_currentUserId, mentionNames);
-        for (const ComposerMentionAction& mentionAction : mentionPlan.actions) {
-            ComposerWorkspaceRow row;
-            row.id = QStringLiteral("mention:") + mentionAction.insertText;
-            row.title = QStringLiteral("@ 提及 · %1").arg(mentionAction.title);
-            row.detail = mentionAction.statusMessage;
-            row.preview = mentionAction.insertText;
-            row.keywords = row.title + row.detail + row.preview;
-            row.phrase = true;
-            row.phraseText = mentionAction.insertText;
-            row.insertMode = true;
-            rows << row;
-        }
-
-        ComposerWorkspaceRow imageRow;
-        imageRow.id = QStringLiteral("open-image");
-        imageRow.title = QStringLiteral("图片/视频入口");
-        imageRow.detail = ui->imageBtn->toolTip();
-        imageRow.preview = QStringLiteral("打开图片/视频选择器，沿用当前会话上下文。");
-        imageRow.keywords = imageRow.title + imageRow.detail + imageRow.preview;
-        imageRow.enabled = ui->imageBtn->isEnabled();
-        rows << imageRow;
-
-        ComposerWorkspaceRow fileRow;
-        fileRow.id = QStringLiteral("open-file");
-        fileRow.title = QStringLiteral("闪传文件入口");
-        fileRow.detail = ui->fileBtn->toolTip();
-        fileRow.preview = QStringLiteral("打开文件选择器，沿用当前会话上下文。");
-        fileRow.keywords = fileRow.title + fileRow.detail + fileRow.preview;
-        fileRow.enabled = ui->fileBtn->isEnabled();
-        rows << fileRow;
-
-        ComposerWorkspaceRow sendRow;
-        sendRow.id = QStringLiteral("send-now");
-        sendRow.title = QStringLiteral("立即发送");
-        sendRow.detail = ui->sendBtn->toolTip();
-        sendRow.preview = hasDraft ? draftText : QStringLiteral("当前没有可发送草稿。");
-        sendRow.keywords = sendRow.title + sendRow.detail + sendRow.preview;
-        sendRow.enabled = ui->sendBtn->isEnabled();
-        rows << sendRow;
-
-        ComposerWorkspaceRow copySummaryRow;
-        copySummaryRow.id = QStringLiteral("copy-composer-summary");
-        copySummaryRow.title = QStringLiteral("复制消息工作区摘要");
-        copySummaryRow.detail = QStringLiteral("复制当前会话、草稿和输入入口摘要，便于调试或向外同步上下文。");
-        copySummaryRow.preview = QStringLiteral("会话：%1\n草稿：%2 字\n好友：%3 · 群聊：%4")
-                                     .arg(targetName)
-                                     .arg(draftText.size())
-                                     .arg(m_friendIds.size())
-                                     .arg(m_localGroupIds.size());
-        copySummaryRow.keywords = copySummaryRow.title + copySummaryRow.detail + copySummaryRow.preview;
-        rows << copySummaryRow;
-
-        ComposerWorkspaceRow clipboardRow;
-        clipboardRow.id = QStringLiteral("paste-clipboard");
-        clipboardRow.title = QStringLiteral("贴入剪贴板");
-        clipboardRow.detail = hasClipboardText
-            ? QStringLiteral("把剪贴板内容带入当前输入区，继续编辑或发送。")
-            : QStringLiteral("当前剪贴板为空，暂时没有可带入的内容。");
-        clipboardRow.preview = hasClipboardText ? clipboardText.left(120) : QStringLiteral("剪贴板为空");
-        clipboardRow.keywords = clipboardRow.title + clipboardRow.detail + clipboardRow.preview;
-        clipboardRow.enabled = hasClipboardText;
-        rows << clipboardRow;
-
-        return rows;
-    };
-
-    auto rows = buildRows();
-
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        actionList->clear();
-        int visibleCount = 0;
-        for (const ComposerWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.id);
-            item->setData(Qt::UserRole + 1, row.preview);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (!row.enabled) {
-                item->setFlags(Qt::NoItemFlags);
-                item->setForeground(QColor(135, 150, 165));
-            } else if (row.phrase) {
-                item->setForeground(QColor(29, 78, 216));
-            }
-            actionList->addItem(item);
-            ++visibleCount;
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 项 · 草稿 %2 字").arg(visibleCount).arg(draftText.size()));
-        selectPreferredListRow(actionList, 0);
-    };
-
-    auto selectedActionId = [actionList]() {
-        QListWidgetItem* item = actionList->currentItem();
-        return item ? item->data(Qt::UserRole).toString() : QString();
+    auto selectedActionId = [=, &rows, this]() {
+        ComposerWorkspaceRow* row = selectedComposerWorkspaceRow(rows, actionList);
+        return row ? row->id : QString();
     };
 
     auto updatePreview = [=]() {
@@ -6041,22 +6929,22 @@ void MainWindow::onShowComposerWorkspace() {
         QStringLiteral("当前会话允许时，可以直接发送文本，或者继续进入图片/视频、文件发送入口。"),
         {sendBtn, openImageBtn, openFileBtn});
 
-    auto updateActionState = [=]() {
-        const QString id = selectedActionId();
-        const bool hasSelected = !id.isEmpty();
-        const bool actionIsPhrase = id.startsWith(QStringLiteral("phrase:")) || id.startsWith(QStringLiteral("mention:"));
-        const bool canReplace = hasSelected && id != QLatin1String("send-now") && id != QLatin1String("open-image") && id != QLatin1String("open-file") && id != QLatin1String("copy-composer-summary");
-        replaceDraftBtn->setEnabled(canReplace);
-        appendDraftBtn->setEnabled(actionIsPhrase || id == QLatin1String("paste-clipboard"));
-        clearDraftBtn->setEnabled(hasDraft);
-        sendBtn->setEnabled(ui->sendBtn->isEnabled());
-        openImageBtn->setEnabled(ui->imageBtn->isEnabled());
-        openFileBtn->setEnabled(ui->fileBtn->isEnabled());
-        copySummaryBtn->setEnabled(true);
+    auto updateActionState = [=, &rows, this]() {
+        updateComposerWorkspaceActionState(replaceDraftBtn,
+                                           appendDraftBtn,
+                                           clearDraftBtn,
+                                           sendBtn,
+                                           openImageBtn,
+                                           openFileBtn,
+                                           copySummaryBtn,
+                                           actionList,
+                                           rows);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
+        rows = buildComposerWorkspaceRows(composerState,
+                                          ui->messageEdit->toPlainText().trimmed(),
+                                          QApplication::clipboard()->text().trimmed());
         fillList();
         updatePreview();
         updateActionState();
@@ -6117,25 +7005,11 @@ void MainWindow::onShowComposerWorkspace() {
         refreshComposerState();
     });
     connect(copySummaryBtn, &QPushButton::clicked, &dialog, [=, this]() {
-        QStringList rowsText;
-        rowsText << QStringLiteral("消息工作区摘要");
-        rowsText << QStringLiteral("当前会话:%1").arg(targetName);
-        rowsText << QStringLiteral("草稿长度:%1").arg(ui->messageEdit->toPlainText().trimmed().size());
-        rowsText << QStringLiteral("可发送:%1").arg(ui->sendBtn->isEnabled() ? QStringLiteral("是") : QStringLiteral("否"));
-        rowsText << QStringLiteral("图片入口:%1").arg(ui->imageBtn->isEnabled() ? QStringLiteral("可用") : QStringLiteral("不可用"));
-        rowsText << QStringLiteral("文件入口:%1").arg(ui->fileBtn->isEnabled() ? QStringLiteral("可用") : QStringLiteral("不可用"));
-        rowsText << QStringLiteral("好友:%1 · 群聊:%2 · 在线成员:%3")
-                        .arg(m_friendIds.size())
-                        .arg(m_localGroupIds.size())
-                        .arg(m_knownUsers.size());
-        if (!ui->messageEdit->toPlainText().trimmed().isEmpty()) {
-            rowsText << QStringLiteral("当前草稿:%1").arg(ui->messageEdit->toPlainText().trimmed());
-        }
-        copyTextWithStatus(rowsText.join(QLatin1Char('\n')), QStringLiteral("消息工作区摘要已复制"), 2200);
+        copyTextWithStatus(composerWorkspaceSummaryText(targetName), QStringLiteral("消息工作区摘要已复制"), 2200);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    rows = buildRows();
+    rows = buildComposerWorkspaceRows(composerState, draftText, clipboardText);
     fillList();
     updatePreview();
     updateActionState();
@@ -6177,128 +7051,23 @@ void MainWindow::showChatHistoryWorkspaceForRow(int preferredRow) {
     QLabel* statsLabel = shell.statsLabel;
     QLabel* previewLabel = shell.previewLabel;
     QLabel* subTitleLabel = shell.subTitleLabel;
+    auto rows = buildChatHistoryWorkspaceRows();
 
-    struct ChatHistoryWorkspaceRow {
-        QModelIndex index;
-        QString chatText;
-        LocalSavedFileState savedFileState;
-        bool isMediaMessage = false;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
+    auto fillList = [=, &rows, this]() {
+        rows = buildChatHistoryWorkspaceRows();
+        fillChatHistoryWorkspaceList(messageList,
+                                     statsLabel,
+                                     rows,
+                                     searchEdit->text().trimmed(),
+                                     preferredRow);
     };
 
-    auto buildRows = [this]() {
-        QList<ChatHistoryWorkspaceRow> rows;
-        if (!m_chatModel) {
-            return rows;
-        }
-        for (int row = 0; row < m_chatModel->rowCount(); ++row) {
-            QModelIndex index = m_chatModel->index(row, 0);
-            if (!index.isValid()) {
-                continue;
-            }
-            const QString chatText = index.data().toString();
-            if (chatText.trimmed().isEmpty()) {
-                continue;
-            }
-            ChatHistoryWorkspaceRow item;
-            item.index = index;
-            item.chatText = chatText;
-            item.savedFileState = savedFileActionState(index);
-            const ChatContextSavedFileState savedContextState = chatContextSavedFileState(item.savedFileState);
-            item.isMediaMessage = ChatContextManager::isMediaMessage(chatText, savedContextState);
-            const QString sender = ChatContextManager::senderText(chatText).trimmed().isEmpty()
-                ? QStringLiteral("系统/会话")
-                : ChatContextManager::senderText(chatText);
-            const QString timeText = ChatContextManager::timeText(chatText).trimmed().isEmpty()
-                ? QStringLiteral("未知时间")
-                : ChatContextManager::timeText(chatText);
-            const QString plainText = ChatContextManager::plainContentText(chatText).trimmed();
-            item.title = QStringLiteral("%1 · %2").arg(sender, timeText);
-            item.detail = plainText.isEmpty()
-                ? QStringLiteral("消息内容较短或为结构化卡片，请查看下方预览。")
-                : plainText.left(96);
-            if (item.savedFileState.hasSavePath) {
-                item.detail += QStringLiteral("\n已保存文件：%1").arg(item.savedFileState.fileInfo.fileName());
-            } else if (item.isMediaMessage) {
-                item.detail += QStringLiteral("\n媒体消息：%1").arg(ChatContextManager::mediaTypeFromChatText(chatText));
-            }
-            item.preview = QStringLiteral("发送人：%1\n时间：%2\n正文：%3")
-                               .arg(sender,
-                                    timeText,
-                                    plainText.isEmpty() ? chatText.left(180) : plainText);
-            if (item.savedFileState.hasSavePath) {
-                item.preview += QStringLiteral("\n保存路径：%1").arg(item.savedFileState.savePath);
-            }
-            item.keywords = item.title + item.detail + item.preview + chatText;
-            rows << item;
-        }
-        return rows;
+    auto findSelectedRow = [=, &rows, this]() -> ChatHistoryWorkspaceRow* {
+        return selectedChatHistoryWorkspaceRow(rows, messageList);
     };
 
-    auto rows = buildRows();
-
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        messageList->clear();
-        int visibleCount = 0;
-        for (const ChatHistoryWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.index.row());
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, row.savedFileState.hasSavePath || row.isMediaMessage ? 84 : 74));
-            if (row.savedFileState.hasSavePath) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.isMediaMessage) {
-                item->setForeground(QColor(13, 148, 136));
-            }
-            messageList->addItem(item);
-            ++visibleCount;
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 / %2 条").arg(visibleCount).arg(rows.size()));
-        if (messageList->count() <= 0) {
-            return;
-        }
-
-        int preferredVisibleRow = -1;
-        if (preferredRow >= 0) {
-            for (int i = 0; i < messageList->count(); ++i) {
-                QListWidgetItem* item = messageList->item(i);
-                if (item && item->data(Qt::UserRole).toInt() == preferredRow) {
-                    preferredVisibleRow = i;
-                    break;
-                }
-            }
-        }
-        if (preferredVisibleRow >= 0) {
-            messageList->setCurrentRow(preferredVisibleRow);
-        } else {
-            messageList->setCurrentRow(messageList->count() - 1);
-        }
-    };
-
-    auto selectedRowIndex = [messageList]() {
-        QListWidgetItem* item = messageList->currentItem();
-        return item ? item->data(Qt::UserRole).toInt() : -1;
-    };
-
-    auto findSelectedRow = [=, &rows]() -> ChatHistoryWorkspaceRow* {
-        const int rowIndex = selectedRowIndex();
-        for (ChatHistoryWorkspaceRow& row : rows) {
-            if (row.index.row() == rowIndex) {
-                return &row;
-            }
-        }
-        return nullptr;
-    };
-
-    auto updatePreview = [=, &rows]() {
-        ChatHistoryWorkspaceRow* row = findSelectedRow();
+    auto updatePreview = [=, &rows, this]() {
+        ChatHistoryWorkspaceRow* row = selectedChatHistoryWorkspaceRow(rows, messageList);
         if (!row) {
             previewLabel->setText(QStringLiteral("这里会解释选中消息的上下文、可用动作，以及它会如何影响当前输入区或文件工作区。"));
             return;
@@ -6332,24 +7101,21 @@ void MainWindow::showChatHistoryWorkspaceForRow(int preferredRow) {
         QStringLiteral("带保存路径或媒体结构的消息，会在这里补充文件工作区和本地文件动作。"),
         {copyMediaBtn, openFileWorkspaceBtn, openSavedFileBtn, openFolderBtn, copyPathBtn});
 
-    auto updateActionState = [=, &rows]() {
-        ChatHistoryWorkspaceRow* row = findSelectedRow();
-        const bool hasSelection = row != nullptr;
-        const bool hasSavedFile = hasSelection && row->savedFileState.hasSavePath;
-        const bool hasMedia = hasSelection && row->isMediaMessage;
-        copySummaryBtn->setEnabled(hasSelection);
-        quoteBtn->setEnabled(hasSelection);
-        forwardBtn->setEnabled(hasSelection);
-        resendBtn->setEnabled(hasSelection);
-        copyMediaBtn->setEnabled(hasSelection && (hasMedia || hasSavedFile));
-        openFileWorkspaceBtn->setEnabled(hasSavedFile);
-        openSavedFileBtn->setEnabled(hasSavedFile && row->savedFileState.canOpenFile);
-        openFolderBtn->setEnabled(hasSavedFile && row->savedFileState.canOpenFolder);
-        copyPathBtn->setEnabled(hasSavedFile);
+    auto updateActionState = [=, &rows, this]() {
+        updateChatHistoryWorkspaceActionState(copySummaryBtn,
+                                              quoteBtn,
+                                              forwardBtn,
+                                              resendBtn,
+                                              copyMediaBtn,
+                                              openFileWorkspaceBtn,
+                                              openSavedFileBtn,
+                                              openFolderBtn,
+                                              copyPathBtn,
+                                              messageList,
+                                              rows);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
         fillList();
         updatePreview();
         updateActionState();
@@ -6363,12 +7129,7 @@ void MainWindow::showChatHistoryWorkspaceForRow(int preferredRow) {
         if (!row) {
             return;
         }
-        const QString summary = QStringLiteral("消息摘要\n%1\n%2")
-                                    .arg(row->title,
-                                         ChatContextManager::plainContentText(row->chatText).trimmed().isEmpty()
-                                             ? row->chatText
-                                             : ChatContextManager::plainContentText(row->chatText));
-        copyTextWithStatus(summary, QStringLiteral("消息摘要已复制"), 2200);
+        copyTextWithStatus(chatHistoryWorkspaceSummaryText(row), QStringLiteral("消息摘要已复制"), 2200);
     });
     connect(quoteBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
         ChatHistoryWorkspaceRow* row = findSelectedRow();
@@ -6443,7 +7204,7 @@ void MainWindow::showChatHistoryWorkspaceForRow(int preferredRow) {
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    rows = buildRows();
+    rows = buildChatHistoryWorkspaceRows();
     fillList();
     updatePreview();
     updateActionState();
@@ -6467,6 +7228,13 @@ void MainWindow::setupUi() {
     ui->chatListView->setModel(m_chatModel);
     ui->chatListView->setContextMenuPolicy(Qt::CustomContextMenu);
     ui->chatListView->setToolTip("双击消息可进入消息记录工作区；带保存路径的文件消息会继续打开本地文件");
+    ui->chatListView->setSelectionMode(QAbstractItemView::SingleSelection);
+    ui->chatListView->setWordWrap(true);
+    ui->chatListView->setUniformItemSizes(false);
+    ui->chatListView->setSpacing(8);
+    ui->chatListView->setIconSize(QSize(226, 144));
+    ui->chatListView->setTextElideMode(Qt::ElideNone);
+    ui->chatListView->setItemDelegate(new ChatBubbleItemDelegate(ui->chatListView));
 
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
     ui->groupMemberListView->setModel(m_groupMemberModel);
@@ -7281,6 +8049,8 @@ void MainWindow::refreshComposerState() {
 void MainWindow::refreshMainWorkbenchChrome() {
     if (!ui->chatSessionMetaLabel
         || !ui->chatSessionStatusLabel
+        || !ui->chatActionSummaryTitleLabel
+        || !ui->chatActionSummaryDetailLabel
         || !ui->composerStatusTitleLabel
         || !ui->composerStatusDetailLabel
         || !ui->groupSummaryTitleLabel
@@ -7349,6 +8119,34 @@ void MainWindow::refreshMainWorkbenchChrome() {
     ui->chatSessionMetaLabel->setText(chatMeta);
     ui->chatSessionStatusLabel->setText(chatStatus);
     applyToneProperty(ui->chatSessionCard, sessionTone);
+
+    QString actionTitle = QStringLiteral("当前会话动作");
+    QString actionDetail;
+    QString actionTone = QStringLiteral("muted");
+    if (inPublicRoom) {
+        actionDetail = removedFromPublicGroup
+            ? QStringLiteral("当前以历史只读和等待重新邀请为主；可继续查看消息记录、复制摘要，并从通知或成员工作区确认恢复入口。")
+            : QStringLiteral("当前最适合继续群消息、群公告、成员协作或文件发送；右侧成员区和通知控制台会同步给出下一步。");
+        actionTone = removedFromPublicGroup ? QStringLiteral("warning") : QStringLiteral("accent");
+    } else if (isLocalGroup) {
+        actionDetail = isCurrentUserGroupOwner(targetId)
+            ? QStringLiteral("当前可继续发送消息、邀请成员、调整群公告，并从右侧成员区处理备注或移出成员。")
+            : QStringLiteral("当前可继续群消息、查看公告、复制成员信息，并从成员工作区进入私聊或继续协作。");
+        actionTone = QStringLiteral("accent");
+    } else {
+        const QString peerName = contactDisplayName(targetId);
+        const bool hasReadyE2E = m_client
+            && m_client->hasE2ESession(targetId)
+            && m_client->e2ePeerIdentityTrusted(targetId)
+            && !m_client->e2eSessionNeedsRotation(targetId);
+        actionDetail = hasReadyE2E
+            ? QStringLiteral("当前最适合继续私聊、发送图片/视频或文件；端到端状态已就绪，可直接进入稳定沟通。")
+            : QStringLiteral("当前与 %1 的会话可继续聊天、发起好友/文件动作，并关注加密就绪与轮换提示。").arg(peerName);
+        actionTone = hasReadyE2E ? QStringLiteral("success") : QStringLiteral("muted");
+    }
+    ui->chatActionSummaryTitleLabel->setText(actionTitle);
+    ui->chatActionSummaryDetailLabel->setText(actionDetail);
+    applyToneProperty(ui->chatActionSummaryCard, actionTone);
 
     ComposerContext composerContext;
     composerContext.draftText = ui->messageEdit ? ui->messageEdit->toPlainText().trimmed() : QString();
@@ -8551,6 +9349,7 @@ void MainWindow::onShowGlobalSearch(const QString& initialFilter) {
                 && !name.contains(filter, Qt::CaseInsensitive)) continue;
             QListWidgetItem* item = new QListWidgetItem(QString("好友  QQ:%1\n%2 · %3").arg(id, name, isContactOnline(id) ? "在线" : "离线"));
             item->setData(Qt::UserRole, id);
+            item->setIcon(QIcon(chatAvatarPixmap(id, name, 32)));
             item->setSizeHint(QSize(0, 66));
             resultList->addItem(item);
             ++friendCount;
@@ -8564,6 +9363,7 @@ void MainWindow::onShowGlobalSearch(const QString& initialFilter) {
             const bool isPending = m_pendingOutgoingFriendRequests.contains(user.id);
             QListWidgetItem* item = new QListWidgetItem(QString("用户  QQ:%1\n%2 · 在线 · %3").arg(user.id, user.name, isPending ? "申请中" : "双击发送申请"));
             item->setData(Qt::UserRole, user.id);
+            item->setIcon(QIcon(chatAvatarPixmap(user.id, user.name, 32)));
             item->setSizeHint(QSize(0, 66));
             if (isPending) {
                 item->setForeground(QColor(170, 110, 20));
@@ -8579,6 +9379,7 @@ void MainWindow::onShowGlobalSearch(const QString& initialFilter) {
                 && !groupName.contains(filter, Qt::CaseInsensitive)) continue;
             QListWidgetItem* item = new QListWidgetItem(QString("群聊  QQ:%1\n%2 · 本地群聊 · 双击进入").arg(groupId.mid(QString("local_group_").size()), groupName));
             item->setData(Qt::UserRole, groupId);
+            item->setIcon(QIcon(groupAvatarPixmap(groupId, groupName, 32)));
             item->setSizeHint(QSize(0, 66));
             resultList->addItem(item);
             ++groupCount;
@@ -9478,7 +10279,6 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
     QDialog dialog(this);
     const bool localGroupContext = !m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"));
     const bool removedFromPublicGroup = isCurrentUserRemovedFromPublicGroup();
-    const bool serverGroupContext = !localGroupContext && !removedFromPublicGroup;
     const QString currentGroupId = localGroupContext ? m_privateChatTarget : QStringLiteral("public");
     const QString currentGroupName = localGroupContext
         ? m_localGroupNames.value(m_privateChatTarget, QStringLiteral("群聊"))
@@ -9520,204 +10320,19 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
     QLabel* subTitleLabel = shell.subTitleLabel;
     QLabel* statsLabel = shell.statsLabel;
     QLabel* previewLabel = shell.previewLabel;
-    QLabel* operationGuideLabel = shell.hintLabel;
+    auto rows = buildGroupMemberWorkspaceRows(localGroupContext,
+                                              removedFromPublicGroup,
+                                              ownerId,
+                                              searchEdit->text().trimmed());
 
-    auto isManagementEnabledForCurrentContext = [=]() {
-        return localGroupContext ? isCurrentUserGroupOwner(m_privateChatTarget) : canCurrentUserManageServerGroup(QStringLiteral("public"));
-    };
-
-    auto memberGroupRoleText = [=](const QString& memberId) {
-        if (memberId.isEmpty()) {
-            return QString();
-        }
-        if (localGroupContext) {
-            if (memberId == ownerId) {
-                return QStringLiteral("群主");
-            }
-            if (memberId == m_currentUserId) {
-                return QStringLiteral("我");
-            }
-            return QStringLiteral("成员");
-        }
-        const QString serverRole = m_serverGroupMemberRoles.value(QStringLiteral("public|") + memberId, QStringLiteral("member")).toLower();
-        if (serverRole == QLatin1String("owner")) {
-            return QStringLiteral("群主");
-        }
-        if (serverRole == QLatin1String("admin")) {
-            return QStringLiteral("管理员");
-        }
-        if (memberId == m_currentUserId) {
-            return QStringLiteral("我");
-        }
-        return QStringLiteral("成员");
-    };
-
-    struct GroupMemberWorkspaceRow {
-        QString memberId;
-        QString displayName;
-        QString role;
-        QString status;
-        QString relation;
-        QString preview;
-        bool enabled = true;
-        bool self = false;
-        bool online = false;
-        bool friendRelation = false;
-        bool pendingRelation = false;
-        bool inviteCandidate = false;
-        bool searchAddCandidate = false;
-        bool removable = false;
-        bool localGroup = false;
-    };
-
-    auto fillMemberList = [&, this]() {
-        const QString filter = searchEdit->text().trimmed();
+    auto fillMemberList = [=, &rows, this]() {
+        rows = buildGroupMemberWorkspaceRows(localGroupContext,
+                                             removedFromPublicGroup,
+                                             ownerId,
+                                             searchEdit->text().trimmed());
         memberList->clear();
-        QList<GroupMemberWorkspaceRow> rows;
-
-        auto appendRowIfMatches = [&](const GroupMemberWorkspaceRow& row) {
-            if (!filter.isEmpty()
-                && !row.memberId.contains(filter, Qt::CaseInsensitive)
-                && !row.displayName.contains(filter, Qt::CaseInsensitive)
-                && !row.role.contains(filter, Qt::CaseInsensitive)
-                && !row.relation.contains(filter, Qt::CaseInsensitive)) {
-                return;
-            }
-            rows << row;
-        };
-
-        if (removedFromPublicGroup) {
-            GroupMemberWorkspaceRow row;
-            row.memberId = m_currentUserId;
-            row.displayName = m_currentUserName;
-            row.role = QStringLiteral("历史只读");
-            row.status = QStringLiteral("已移出");
-            row.relation = QStringLiteral("等待重新邀请");
-            row.preview = QStringLiteral("公共群历史仍可查看，但当前账号已移出，成员管理不可用。");
-            row.enabled = false;
-            row.self = true;
-            appendRowIfMatches(row);
-        } else if (localGroupContext) {
-            QStringList members = m_localGroupMembers.value(m_privateChatTarget);
-            if (members.isEmpty()) {
-                members << m_currentUserId;
-            }
-            for (const QString& memberId : members) {
-                GroupMemberWorkspaceRow row;
-                row.memberId = memberId;
-                row.displayName = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
-                row.self = memberId == m_currentUserId;
-                row.online = row.self || isContactOnline(memberId);
-                row.friendRelation = m_friendIds.contains(memberId);
-                row.pendingRelation = !row.friendRelation && m_pendingOutgoingFriendRequests.contains(memberId);
-                row.role = memberId == ownerId ? QStringLiteral("群主") : (row.self ? QStringLiteral("我") : QStringLiteral("成员"));
-                row.status = row.online ? QStringLiteral("在线") : QStringLiteral("离线");
-                row.relation = row.self ? QStringLiteral("本人")
-                                        : (row.friendRelation ? QStringLiteral("好友")
-                                                              : (row.pendingRelation ? QStringLiteral("申请中") : QStringLiteral("可邀请/可申请")));
-                row.preview = QStringLiteral("%1 · QQ:%2 · %3 · %4").arg(row.displayName, row.memberId, row.role, row.relation);
-                row.removable = isCurrentUserGroupOwner(m_privateChatTarget) && memberId != ownerId;
-                row.localGroup = true;
-                appendRowIfMatches(row);
-            }
-            if (rows.isEmpty() && !filter.isEmpty()) {
-                GroupMemberWorkspaceRow inviteRow;
-                inviteRow.memberId = filter;
-                inviteRow.displayName = filter;
-                inviteRow.role = QStringLiteral("待邀请");
-                inviteRow.status = QStringLiteral("未入群");
-                inviteRow.relation = QStringLiteral("按 QQ 号邀请");
-                inviteRow.preview = isCurrentUserGroupOwner(m_privateChatTarget)
-                    ? QStringLiteral("双击或点击邀请即可把 QQ:%1 加入当前本地群。").arg(filter)
-                    : QStringLiteral("只有群主可以按 QQ 号邀请新成员入群。");
-                inviteRow.enabled = isCurrentUserGroupOwner(m_privateChatTarget);
-                inviteRow.inviteCandidate = true;
-                inviteRow.localGroup = true;
-                appendRowIfMatches(inviteRow);
-            }
-        } else {
-            QStringList members = m_serverGroupMembers.value(QStringLiteral("public"));
-            if (members.isEmpty()) {
-                members << m_currentUserId;
-            }
-            for (const QString& memberId : members) {
-                GroupMemberWorkspaceRow row;
-                row.memberId = memberId;
-                row.displayName = memberId == m_currentUserId
-                    ? m_currentUserName
-                    : m_serverGroupMemberNames.value(QStringLiteral("public|") + memberId, contactDisplayName(memberId));
-                row.self = memberId == m_currentUserId;
-                row.online = row.self || isContactOnline(memberId);
-                row.friendRelation = m_friendIds.contains(memberId);
-                row.pendingRelation = !row.friendRelation && !row.self && m_pendingOutgoingFriendRequests.contains(memberId);
-                row.role = memberGroupRoleText(memberId);
-                row.status = row.online ? QStringLiteral("在线") : QStringLiteral("离线");
-                row.relation = row.self ? QStringLiteral("本人")
-                                        : (row.friendRelation ? QStringLiteral("好友")
-                                                              : (row.pendingRelation ? QStringLiteral("申请中") : QStringLiteral("可申请")));
-                row.preview = QStringLiteral("%1 · QQ:%2 · %3 · %4").arg(row.displayName, row.memberId, row.role, row.relation);
-                row.removable = canCurrentUserManageServerGroup(QStringLiteral("public")) && memberId != ownerId && memberId != m_currentUserId;
-                appendRowIfMatches(row);
-            }
-            if (rows.isEmpty() && !filter.isEmpty()) {
-                GroupMemberWorkspaceRow searchRow;
-                searchRow.memberId = filter;
-                searchRow.displayName = filter;
-                searchRow.role = isManagementEnabledForCurrentContext() ? QStringLiteral("待邀请") : QStringLiteral("待搜索");
-                searchRow.status = QStringLiteral("未加入");
-                searchRow.relation = isManagementEnabledForCurrentContext() ? QStringLiteral("公共群邀请") : QStringLiteral("好友申请");
-                searchRow.preview = isManagementEnabledForCurrentContext()
-                    ? QStringLiteral("当前账号可管理公共群，双击可提交 QQ:%1 的成员变更。").arg(filter)
-                    : QStringLiteral("当前账号不可直接管理公共群，双击会搜索并申请 QQ:%1。").arg(filter);
-                searchRow.enabled = true;
-                searchRow.searchAddCandidate = true;
-                appendRowIfMatches(searchRow);
-            }
-        }
-
-        int onlineCount = 0;
-        int friendCount = 0;
-        int pendingCount = 0;
-        for (const GroupMemberWorkspaceRow& row : rows) {
-            QListWidgetItem* item = new QListWidgetItem(
-                QStringLiteral("%1  QQ:%2\n%3 · %4 · %5").arg(row.role, row.memberId, row.displayName, row.status, row.relation));
-            item->setData(Qt::UserRole, row.memberId);
-            item->setData(Qt::UserRole + 1, row.displayName);
-            item->setData(Qt::UserRole + 2, row.role);
-            item->setData(Qt::UserRole + 3, row.status);
-            item->setData(Qt::UserRole + 4, row.relation);
-            item->setData(Qt::UserRole + 5, row.preview);
-            item->setData(Qt::UserRole + 6, row.enabled);
-            item->setData(Qt::UserRole + 7, row.self);
-            item->setData(Qt::UserRole + 8, row.online);
-            item->setData(Qt::UserRole + 9, row.friendRelation);
-            item->setData(Qt::UserRole + 10, row.pendingRelation);
-            item->setData(Qt::UserRole + 11, row.inviteCandidate);
-            item->setData(Qt::UserRole + 12, row.searchAddCandidate);
-            item->setData(Qt::UserRole + 13, row.removable);
-            item->setData(Qt::UserRole + 14, row.localGroup);
-            item->setSizeHint(QSize(0, row.inviteCandidate || row.searchAddCandidate ? 72 : 78));
-            item->setToolTip(row.preview);
-            if (!row.enabled) {
-                item->setFlags(Qt::NoItemFlags);
-                item->setForeground(QColor(135, 150, 165));
-            } else if (row.self) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.friendRelation) {
-                item->setForeground(QColor(20, 92, 160));
-            } else if (row.pendingRelation) {
-                item->setForeground(QColor(170, 110, 20));
-            } else if (row.inviteCandidate || row.searchAddCandidate) {
-                item->setForeground(QColor(13, 148, 136));
-            }
-            memberList->addItem(item);
-            if (row.online) ++onlineCount;
-            if (row.friendRelation) ++friendCount;
-            if (row.pendingRelation) ++pendingCount;
-        }
-
-        const int visibleCount = rows.size();
-        if (visibleCount == 0) {
+        if (rows.isEmpty()) {
+            const QString filter = searchEdit->text().trimmed();
             addWorkspaceEmptyStateItem(
                 memberList,
                 QStringLiteral("没有匹配的成员入口"),
@@ -9726,34 +10341,24 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
                     ? QStringLiteral("当前没有可见的成员入口。可刷新成员列表、切换会话，或在这里输入 QQ / 昵称继续筛选。")
                     : QStringLiteral("当前筛选词“%1”没有匹配到成员入口。\n试试 QQ、昵称、角色或关系关键词。").arg(filter));
         }
-        statsLabel->setText(QStringLiteral("可见 %1 · 在线 %2 · 好友 %3%4")
-                                .arg(visibleCount)
-                                .arg(onlineCount)
-                                .arg(friendCount)
-                                .arg(pendingCount > 0 ? QStringLiteral(" · 申请中 %1").arg(pendingCount) : QString()));
-        subTitleLabel->setText(localGroupContext
-                                   ? QStringLiteral("当前群：%1 · 群主 %2 · 可管理 %3")
-                                         .arg(currentGroupName)
-                                         .arg(ownerName)
-                                         .arg(isCurrentUserGroupOwner(m_privateChatTarget) ? QStringLiteral("是") : QStringLiteral("否"))
-                                   : (removedFromPublicGroup
-                                          ? QStringLiteral("公共群历史只读 · 当前账号已移出")
-                                          : QStringLiteral("公共聊天室 · 群主 %1 · 可管理 %2")
-                                                .arg(ownerName)
-                                                .arg(isManagementEnabledForCurrentContext() ? QStringLiteral("是") : QStringLiteral("否"))));
-        if (memberList->count() > 0) {
-            selectPreferredListRow(memberList, 0);
-        }
+        fillGroupMemberWorkspaceList(memberList,
+                                     statsLabel,
+                                     subTitleLabel,
+                                     rows,
+                                     localGroupContext,
+                                     removedFromPublicGroup,
+                                     currentGroupName,
+                                     ownerName);
     };
 
-    auto selectedMemberId = [memberList]() {
-        QListWidgetItem* item = memberList->currentItem();
-        return item ? item->data(Qt::UserRole).toString() : QString();
+    auto selectedMemberId = [=, &rows, this]() {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        return row ? row->memberId : QString();
     };
 
-    auto updatePreview = [=]() {
-        QListWidgetItem* item = memberList->currentItem();
-        if (!item) {
+    auto updatePreview = [=, &rows, this]() {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (!row) {
             previewLabel->setText(firstEnabledListRow(memberList) >= 0
                                       ? QStringLiteral("选择成员后，这里会说明当前关系、角色、下一步可做什么。")
                                       : (searchEdit->text().trimmed().isEmpty()
@@ -9761,7 +10366,7 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
                                              : QStringLiteral("当前筛选词“%1”没有匹配到成员入口。\n试试 QQ、昵称、角色或关系关键词。").arg(searchEdit->text().trimmed())));
             return;
         }
-        previewLabel->setText(item->data(Qt::UserRole + 5).toString());
+        previewLabel->setText(row->preview);
     };
 
     QPushButton* chatBtn = createWorkspaceButton(shell.headerFrame, &dialog, QStringLiteral("打开私聊"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("打开当前选中成员的私聊会话"), QStyle::SP_ArrowForward);
@@ -9797,46 +10402,30 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
         {copyMemberBtn, copyVisibleBtn, copyOnlineBtn, copyInviteTextBtn});
 
     auto copyVisibleMembers = [&, this](bool onlineOnly) {
-        QStringList rows;
-        for (int i = 0; i < memberList->count(); ++i) {
-            QListWidgetItem* item = memberList->item(i);
-            if (!item || item->data(Qt::UserRole).toString().isEmpty()) {
-                continue;
-            }
-            const bool online = item->data(Qt::UserRole + 8).toBool();
-            if (onlineOnly && !online) {
-                continue;
-            }
-            rows << QStringLiteral("QQ:%1 昵称:%2 角色:%3 状态:%4 关系:%5")
-                        .arg(item->data(Qt::UserRole).toString(),
-                             item->data(Qt::UserRole + 1).toString(),
-                             item->data(Qt::UserRole + 2).toString(),
-                             item->data(Qt::UserRole + 3).toString(),
-                             item->data(Qt::UserRole + 4).toString());
-        }
-        if (rows.isEmpty()) {
+        const QString text = groupMemberWorkspaceVisibleMembersText(memberList, onlineOnly);
+        if (text.trimmed().isEmpty()) {
             ui->statusbar->showMessage(onlineOnly ? QStringLiteral("当前没有可复制的在线成员") : QStringLiteral("当前没有可复制的成员"), 2200);
             return;
         }
-        copyTextWithStatus(rows.join(QLatin1Char('\n')),
+        copyTextWithStatus(text,
                            onlineOnly ? QStringLiteral("在线成员已复制") : QStringLiteral("可见成员已复制"),
                            2200);
     };
 
     auto runInviteAction = [&, this]() {
-        QListWidgetItem* item = memberList->currentItem();
-        if (!item) {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (!row) {
             ui->statusbar->showMessage(QStringLiteral("请先选择一个成员或邀请条目"), 1800);
             return;
         }
-        const QString memberId = item->data(Qt::UserRole).toString();
+        const QString memberId = row->memberId;
         if (memberId.isEmpty()) {
             ui->statusbar->showMessage(QStringLiteral("当前没有可邀请的目标"), 1800);
             return;
         }
-        handleGroupMemberEntryActivated(item->data(Qt::UserRole + 11).toBool()
+        handleGroupMemberEntryActivated(row->inviteCandidate
                                             ? QStringLiteral("group_invite:%1").arg(memberId)
-                                            : (item->data(Qt::UserRole + 12).toBool()
+                                            : (row->searchAddCandidate
                                                    ? QStringLiteral("group_search_add:%1").arg(memberId)
                                                    : memberId),
                                         &dialog);
@@ -9862,12 +10451,12 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
     };
 
     auto runAddFriendAction = [&, this]() {
-        QListWidgetItem* item = memberList->currentItem();
-        if (!item) {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (!row) {
             ui->statusbar->showMessage(QStringLiteral("请先选择一个成员"), 1800);
             return;
         }
-        const QString memberId = item->data(Qt::UserRole).toString();
+        const QString memberId = row->memberId;
         if (memberId.isEmpty() || memberId == m_currentUserId) {
             ui->statusbar->showMessage(QStringLiteral("当前目标不需要发起好友申请"), 1800);
             return;
@@ -9885,57 +10474,29 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
         updatePreview();
     };
 
-    auto updateActionState = [=]() {
-        QListWidgetItem* item = memberList->currentItem();
-        const bool hasItem = item != nullptr;
-        const bool enabled = hasItem && item->data(Qt::UserRole + 6).toBool();
-        const bool self = hasItem && item->data(Qt::UserRole + 7).toBool();
-        const bool friendRelation = hasItem && item->data(Qt::UserRole + 9).toBool();
-        const bool pendingRelation = hasItem && item->data(Qt::UserRole + 10).toBool();
-        const bool inviteCandidate = hasItem && item->data(Qt::UserRole + 11).toBool();
-        const bool searchAddCandidate = hasItem && item->data(Qt::UserRole + 12).toBool();
-        const bool removable = hasItem && item->data(Qt::UserRole + 13).toBool();
-        const QString memberId = hasItem ? item->data(Qt::UserRole).toString() : QString();
-        const QString memberName = hasItem ? item->data(Qt::UserRole + 1).toString() : QString();
-
-        chatBtn->setText(QStringLiteral("打开私聊"));
-        chatBtn->setEnabled(enabled && !self && !inviteCandidate && !searchAddCandidate);
-        chatBtn->setToolTip(chatBtn->isEnabled()
-                                ? QStringLiteral("打开 %1 的私聊会话").arg(memberName)
-                                : QStringLiteral("选择真实成员后可打开私聊"));
-        inviteBtn->setText(inviteCandidate || searchAddCandidate ? QStringLiteral("处理当前条目") : QStringLiteral("邀请/加成员"));
-        inviteBtn->setEnabled(enabled && !self);
-        inviteBtn->setToolTip(localGroupContext
-                                  ? (isCurrentUserGroupOwner(m_privateChatTarget)
-                                         ? QStringLiteral("邀请成员加入当前本地群聊")
-                                         : QStringLiteral("只有群主可以邀请新成员入群"))
-                                  : (removedFromPublicGroup
-                                         ? QStringLiteral("公共群历史只读，无法邀请成员")
-                                         : (canCurrentUserManageServerGroup(QStringLiteral("public"))
-                                                ? QStringLiteral("提交公共群成员变更")
-                                                : QStringLiteral("搜索成员或发起好友申请"))));
-        addFriendBtn->setText(QStringLiteral("发起好友申请"));
-        addFriendBtn->setEnabled(enabled && !self && !friendRelation && !pendingRelation && !inviteCandidate);
-        addFriendBtn->setToolTip(addFriendBtn->isEnabled()
-                                     ? QStringLiteral("向 %1 发起好友申请").arg(memberId)
-                                     : QStringLiteral("当前成员不需要重复发起好友申请"));
-        remarkBtn->setText(QStringLiteral("设置备注"));
-        remarkBtn->setEnabled(enabled && !inviteCandidate && !searchAddCandidate);
-        removeBtn->setText(QStringLiteral("移出群聊"));
-        removeBtn->setEnabled(removable);
-        copyMemberBtn->setEnabled(enabled);
-        copyInviteTextBtn->setEnabled(enabled);
-        copyVisibleBtn->setEnabled(memberList->count() > 0 && firstEnabledListRow(memberList) >= 0);
-        copyOnlineBtn->setEnabled(memberList->count() > 0 && firstEnabledListRow(memberList) >= 0);
+    auto updateActionState = [&, this]() {
+        updateGroupMemberWorkspaceActionState(chatBtn,
+                                              inviteBtn,
+                                              addFriendBtn,
+                                              remarkBtn,
+                                              removeBtn,
+                                              copyMemberBtn,
+                                              copyVisibleBtn,
+                                              copyOnlineBtn,
+                                              copyInviteTextBtn,
+                                              memberList,
+                                              rows,
+                                              localGroupContext,
+                                              removedFromPublicGroup);
     };
 
     auto runRemarkAction = [&, this]() {
-        QListWidgetItem* item = memberList->currentItem();
-        if (!item) {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (!row) {
             ui->statusbar->showMessage(QStringLiteral("请先选择一个成员"), 1800);
             return;
         }
-        if (promptAndSetGroupMemberRemark(item->data(Qt::UserRole).toString(), &dialog)) {
+        if (promptAndSetGroupMemberRemark(row->memberId, &dialog)) {
             fillMemberList();
             updatePreview();
             updateActionState();
@@ -9943,59 +10504,59 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
     };
 
     auto runRemoveAction = [&, this]() {
-        QListWidgetItem* item = memberList->currentItem();
-        if (!item) {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (!row) {
             ui->statusbar->showMessage(QStringLiteral("请先选择要移出的成员"), 1800);
             return;
         }
-        if (!item->data(Qt::UserRole + 13).toBool()) {
+        if (!row->removable) {
             ui->statusbar->showMessage(QStringLiteral("当前成员不可从群聊移除"), 2200);
             return;
         }
-        if (removeGroupMemberWithConfirmation(item->data(Qt::UserRole).toString(), &dialog)) {
+        if (removeGroupMemberWithConfirmation(row->memberId, &dialog)) {
             fillMemberList();
             updatePreview();
             updateActionState();
         }
     };
 
-    connect(searchEdit, &QLineEdit::textChanged, &dialog, [=]() {
+    connect(searchEdit, &QLineEdit::textChanged, &dialog, [&, this]() {
         fillMemberList();
         updatePreview();
         updateActionState();
     });
-    connect(memberList, &QListWidget::currentItemChanged, &dialog, [=](QListWidgetItem*, QListWidgetItem*) {
+    connect(memberList, &QListWidget::currentItemChanged, &dialog, [&, this](QListWidgetItem*, QListWidgetItem*) {
         updatePreview();
         updateActionState();
     });
-    connect(memberList, &QListWidget::itemDoubleClicked, &dialog, [=](QListWidgetItem*) {
-        QListWidgetItem* item = memberList->currentItem();
-        if (!item) {
+    connect(memberList, &QListWidget::itemDoubleClicked, &dialog, [&, this](QListWidgetItem*) {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (!row) {
             return;
         }
-        if (item->data(Qt::UserRole + 11).toBool() || item->data(Qt::UserRole + 12).toBool()) {
+        if (groupMemberWorkspacePrimaryCommand(row) != QLatin1String("chat")) {
             runInviteAction();
         } else {
             runChatAction();
         }
     });
-    connect(searchEdit, &QLineEdit::returnPressed, &dialog, [=]() {
-        QListWidgetItem* item = memberList->currentItem();
-        if (item && (item->data(Qt::UserRole + 11).toBool() || item->data(Qt::UserRole + 12).toBool())) {
+    connect(searchEdit, &QLineEdit::returnPressed, &dialog, [&, this]() {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (row && groupMemberWorkspacePrimaryCommand(row) != QLatin1String("chat")) {
             runInviteAction();
         } else {
             runChatAction();
         }
     });
     connect(chatBtn, &QPushButton::clicked, &dialog, runChatAction);
-    connect(refreshBtn, &QPushButton::clicked, &dialog, [=]() {
+    connect(refreshBtn, &QPushButton::clicked, &dialog, [&, this]() {
         refreshGroupMemberPanel();
         fillMemberList();
         updatePreview();
         updateActionState();
         ui->statusbar->showMessage(QStringLiteral("群成员工作区已刷新"), 1800);
     });
-    connect(clearFilterBtn, &QPushButton::clicked, &dialog, [=]() {
+    connect(clearFilterBtn, &QPushButton::clicked, &dialog, [&, this]() {
         searchEdit->clear();
         searchEdit->setFocus();
     });
@@ -10003,36 +10564,21 @@ void MainWindow::onShowGroupMemberWorkspace(const QString& initialFilter) {
     connect(addFriendBtn, &QPushButton::clicked, &dialog, runAddFriendAction);
     connect(remarkBtn, &QPushButton::clicked, &dialog, runRemarkAction);
     connect(removeBtn, &QPushButton::clicked, &dialog, runRemoveAction);
-    connect(copyMemberBtn, &QPushButton::clicked, &dialog, [=, this]() {
-        QListWidgetItem* item = memberList->currentItem();
-        if (!item) {
+    connect(copyMemberBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        if (!row) {
             ui->statusbar->showMessage(QStringLiteral("请先选择一个成员"), 1800);
             return;
         }
-        const QString text = QStringLiteral("QQ:%1\n昵称:%2\n角色:%3\n状态:%4\n关系:%5")
-            .arg(item->data(Qt::UserRole).toString(),
-                 item->data(Qt::UserRole + 1).toString(),
-                 item->data(Qt::UserRole + 2).toString(),
-                 item->data(Qt::UserRole + 3).toString(),
-                 item->data(Qt::UserRole + 4).toString());
-        copyTextWithStatus(text, QStringLiteral("成员卡片已复制"), 2200);
+        copyTextWithStatus(groupMemberWorkspaceCardText(row), QStringLiteral("成员卡片已复制"), 2200);
     });
-    connect(copyVisibleBtn, &QPushButton::clicked, &dialog, [=]() { copyVisibleMembers(false); });
-    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [=]() { copyVisibleMembers(true); });
-    connect(copyInviteTextBtn, &QPushButton::clicked, &dialog, [=, this]() {
-        QListWidgetItem* item = memberList->currentItem();
-        QString memberId = item ? item->data(Qt::UserRole).toString() : QString();
-        QString memberName = item ? item->data(Qt::UserRole + 1).toString() : QStringLiteral("朋友");
-        QString inviteText = localGroupContext
-            ? QStringLiteral("我邀请你加入群聊“%1”。我是 %2（QQ:%3），进群后我们可以继续沟通。")
-                  .arg(currentGroupName, m_currentUserName, m_currentUserId)
-            : QStringLiteral("%1，你好。我是 %2（QQ:%3），欢迎加入公共聊天室，也可以先加我好友继续沟通。")
-                  .arg(memberName, m_currentUserName, m_currentUserId);
-        if (!memberId.isEmpty() && !memberName.isEmpty() && !localGroupContext) {
-            inviteText = QStringLiteral("%1，你好。我是 %2（QQ:%3），方便的话可以先通过好友申请，我们再继续沟通。")
-                .arg(memberName, m_currentUserName, m_currentUserId);
-        }
-        copyTextWithStatus(inviteText, QStringLiteral("成员邀请语已复制"), 2200);
+    connect(copyVisibleBtn, &QPushButton::clicked, &dialog, [&, this]() { copyVisibleMembers(false); });
+    connect(copyOnlineBtn, &QPushButton::clicked, &dialog, [&, this]() { copyVisibleMembers(true); });
+    connect(copyInviteTextBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
+        GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+        copyTextWithStatus(groupMemberWorkspaceInviteText(row, localGroupContext, currentGroupName),
+                           QStringLiteral("成员邀请语已复制"),
+                           2200);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
@@ -10240,82 +10786,7 @@ void MainWindow::showProfileWorkspace() {
     QLabel* previewLabel = shell.previewLabel;
     QLabel* subTitleLabel = shell.subTitleLabel;
 
-    struct ProfileWorkspaceRow {
-        QString id;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool accent = false;
-    };
-
-    auto buildRows = [this]() {
-        QList<ProfileWorkspaceRow> rows;
-        const QFileInfo avatarInfo(getAvatarFilePath());
-
-        ProfileWorkspaceRow overview;
-        overview.id = QStringLiteral("profile-overview");
-        overview.title = QStringLiteral("当前账号 · %1").arg(m_currentUserName);
-        overview.detail = QStringLiteral("QQ:%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size());
-        overview.preview = QStringLiteral("账号总览\nQQ：%1\n昵称：%2\n好友：%3\n群聊：%4\n当前会话：%5")
-                               .arg(m_currentUserId,
-                                    m_currentUserName,
-                                    QString::number(m_friendIds.size()),
-                                    QString::number(m_localGroupIds.size()),
-                                    m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
-        overview.keywords = overview.title + overview.detail + overview.preview + QStringLiteral("账号 总览");
-        overview.accent = true;
-        rows << overview;
-
-        ProfileWorkspaceRow avatar;
-        avatar.id = QStringLiteral("profile-avatar");
-        avatar.title = QStringLiteral("头像工作区");
-        avatar.detail = avatarInfo.exists()
-            ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
-            : QStringLiteral("当前使用默认头像");
-        avatar.preview = avatarInfo.exists()
-            ? QStringLiteral("头像工作区\n当前头像：%1\n路径：%2\n可继续：更换头像、复制路径、打开目录")
-                  .arg(avatarInfo.fileName(), avatarInfo.absoluteFilePath())
-            : QStringLiteral("头像工作区\n当前使用默认头像\n可继续：更换头像、保存本地头像后再复制路径或打开目录");
-        avatar.keywords = avatar.title + avatar.detail + avatar.preview + QStringLiteral("头像 路径 目录");
-        rows << avatar;
-
-        ProfileWorkspaceRow search;
-        search.id = QStringLiteral("profile-search");
-        search.title = QStringLiteral("综合搜索");
-        search.detail = QStringLiteral("统一搜索 QQ、好友和群聊");
-        search.preview = QStringLiteral("综合搜索工作区\n可从账号侧直接跳去查找 QQ、好友与群聊，并整理搜索摘要。");
-        search.keywords = search.title + search.detail + search.preview + QStringLiteral("搜索 QQ 好友 群聊");
-        rows << search;
-
-        ProfileWorkspaceRow contacts;
-        contacts.id = QStringLiteral("profile-contacts");
-        contacts.title = QStringLiteral("联系人工作区");
-        contacts.detail = QStringLiteral("整理联系人、搜索结果和群聊入口");
-        contacts.preview = QStringLiteral("联系人工作区\n可查看联系人、群聊、搜索结果，并继续进入会话或发起好友申请。");
-        contacts.keywords = contacts.title + contacts.detail + contacts.preview + QStringLiteral("联系人 群聊");
-        rows << contacts;
-
-        ProfileWorkspaceRow friendManager;
-        friendManager.id = QStringLiteral("profile-friend-manager");
-        friendManager.title = QStringLiteral("好友管理器");
-        friendManager.detail = QStringLiteral("备注、邀请、删除和批量复制");
-        friendManager.preview = QStringLiteral("好友管理器\n统一处理好友搜索、备注、入群邀请、删除和媒体准备。");
-        friendManager.keywords = friendManager.title + friendManager.detail + friendManager.preview + QStringLiteral("好友 管理");
-        rows << friendManager;
-
-        ProfileWorkspaceRow quickAdd;
-        quickAdd.id = QStringLiteral("profile-quick-add");
-        quickAdd.title = QStringLiteral("好友申请工作区");
-        quickAdd.detail = QStringLiteral("搜索 QQ、发送申请和整理申请话术");
-        quickAdd.preview = QStringLiteral("好友申请工作区\n可搜索 QQ、批量处理推荐对象，并复制申请话术、媒体包和清单。");
-        quickAdd.keywords = quickAdd.title + quickAdd.detail + quickAdd.preview + QStringLiteral("好友 申请 搜索 QQ");
-        rows << quickAdd;
-
-        return rows;
-    };
-
-    auto rows = buildRows();
+    auto rows = buildProfileWorkspaceRows();
     auto emptyPreviewText = [searchEdit]() {
         const QString filter = searchEdit->text().trimmed();
         return filter.isEmpty()
@@ -10323,51 +10794,16 @@ void MainWindow::showProfileWorkspace() {
             : QStringLiteral("当前筛选词“%1”没有匹配到账号动作。\n试试“头像”、“搜索”、“联系人”或“好友”这些关键词。").arg(filter);
     };
 
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        listWidget->clear();
-        int visibleCount = 0;
-        for (const ProfileWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.id);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (row.accent) {
-                item->setForeground(QColor(29, 78, 216));
-            }
-            listWidget->addItem(item);
-            ++visibleCount;
-        }
-        if (visibleCount == 0) {
-            addWorkspaceEmptyStateItem(
-                listWidget,
-                QStringLiteral("没有匹配的账号动作"),
-                QStringLiteral("试试“头像”、“搜索”、“联系人”或“好友”这些关键词。"),
-                emptyPreviewText());
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
-        selectPreferredListRow(listWidget, 0);
+    auto fillList = [=, &rows, this]() {
+        fillProfileWorkspaceList(listWidget,
+                                 statsLabel,
+                                 rows,
+                                 searchEdit->text().trimmed(),
+                                 emptyPreviewText());
     };
 
-    auto selectedRow = [=, &rows]() -> ProfileWorkspaceRow* {
-        QListWidgetItem* currentItem = listWidget->currentItem();
-        if (!currentItem) {
-            return nullptr;
-        }
-        const QString id = currentItem->data(Qt::UserRole).toString();
-        for (ProfileWorkspaceRow& row : rows) {
-            if (row.id == id) {
-                return &row;
-            }
-        }
-        return nullptr;
-    };
-
-    auto updatePreview = [=, &rows]() {
-        ProfileWorkspaceRow* row = selectedRow();
+    auto updatePreview = [=, &rows, this]() {
+        ProfileWorkspaceRow* row = selectedProfileWorkspaceRow(rows, listWidget);
         previewLabel->setText(row ? row->preview
                                   : (firstEnabledListRow(listWidget) >= 0
                                          ? QStringLiteral("这里会解释当前账号动作会如何影响头像、联系人搜索和会话入口。")
@@ -10387,108 +10823,24 @@ void MainWindow::showProfileWorkspace() {
         {openBtn, copyCardBtn, copyStatusBtn},
         closeBtn);
 
-    auto profileCardText = [this]() {
-        return QStringLiteral("账号资料卡\nQQ:%1\n昵称:%2\n好友:%3\n群聊:%4\n当前会话:%5")
-            .arg(m_currentUserId,
-                 m_currentUserName,
-                 QString::number(m_friendIds.size()),
-                 QString::number(m_localGroupIds.size()),
-                 m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
-    };
-    auto profileStatusText = [this]() {
-        const QStringList lines = {
-            QStringLiteral("账号工作区状态"),
-            QStringLiteral("QQ:%1").arg(m_currentUserId),
-            QStringLiteral("昵称:%1").arg(m_currentUserName),
-            QStringLiteral("好友:%1").arg(m_friendIds.size()),
-            QStringLiteral("群聊:%1").arg(m_localGroupIds.size()),
-            QStringLiteral("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget))
-        };
-        return lines.join(QLatin1Char('\n'));
-    };
-    auto profileClipboardText = [=, &rows]() {
-        ProfileWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return profileStatusText();
-        }
-        if (row->id == QLatin1String("profile-overview")) {
-            return profileCardText();
-        }
-        return row->preview.trimmed().isEmpty() ? profileStatusText() : row->preview;
+    auto profileClipboardText = [=, &rows, this]() {
+        return profileWorkspaceClipboardText(selectedProfileWorkspaceRow(rows, listWidget));
     };
 
-    auto updateActionState = [=, &rows]() {
-        ProfileWorkspaceRow* row = selectedRow();
-        const bool hasActionableRow = hasEnabledListRow(listWidget);
-        if (!row) {
-            openBtn->setEnabled(false);
-            openBtn->setText(QStringLiteral("执行当前动作"));
-            openBtn->setToolTip(hasActionableRow
-                                    ? QStringLiteral("先选择一个账号动作后继续进入头像、搜索、联系人或好友整理入口")
-                                    : QStringLiteral("当前没有可执行的账号动作"));
-            copyCardBtn->setEnabled(hasActionableRow);
-            copyCardBtn->setToolTip(hasActionableRow
-                                        ? QStringLiteral("复制当前账号工作区总览")
-                                        : QStringLiteral("当前没有可复制的账号摘要"));
-            copyStatusBtn->setEnabled(true);
-            copyStatusBtn->setToolTip(QStringLiteral("复制账号工作区当前状态"));
-            return;
-        }
-
-        openBtn->setEnabled(true);
-        if (row->id == QLatin1String("profile-overview") || row->id == QLatin1String("profile-avatar")) {
-            openBtn->setText(QStringLiteral("打开头像工作区"));
-            openBtn->setToolTip(row->id == QLatin1String("profile-overview")
-                                    ? QStringLiteral("从当前账号总览继续进入头像工作区")
-                                    : QStringLiteral("打开头像工作区并继续整理头像相关动作"));
-        } else if (row->id == QLatin1String("profile-search")) {
-            openBtn->setText(QStringLiteral("打开综合搜索"));
-            openBtn->setToolTip(QStringLiteral("进入综合搜索工作区"));
-        } else if (row->id == QLatin1String("profile-contacts")) {
-            openBtn->setText(QStringLiteral("打开联系人工作区"));
-            openBtn->setToolTip(QStringLiteral("进入联系人工作区"));
-        } else if (row->id == QLatin1String("profile-friend-manager")) {
-            openBtn->setText(QStringLiteral("打开好友管理"));
-            openBtn->setToolTip(QStringLiteral("进入好友管理器"));
-        } else {
-            openBtn->setText(QStringLiteral("好友申请工作区"));
-            openBtn->setToolTip(QStringLiteral("进入好友申请工作区"));
-        }
-        copyCardBtn->setEnabled(true);
-        copyCardBtn->setToolTip(row->id == QLatin1String("profile-overview")
-                                    ? QStringLiteral("复制当前账号资料卡")
-                                    : QStringLiteral("复制当前选中账号动作卡"));
-        copyStatusBtn->setEnabled(true);
-        copyStatusBtn->setToolTip(QStringLiteral("复制账号工作区当前状态"));
+    auto updateActionState = [=, &rows, this]() {
+        updateProfileWorkspaceActionState(openBtn,
+                                          copyCardBtn,
+                                          copyStatusBtn,
+                                          listWidget,
+                                          rows);
     };
 
     auto runOpenSelected = [=, &rows, this, &dialog]() {
-        ProfileWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return;
-        }
-        if (row->id == QStringLiteral("profile-overview") || row->id == QStringLiteral("profile-avatar")) {
-            dialog.accept();
-            showAvatarWorkspace();
-            return;
-        }
-        if (row->id == QStringLiteral("profile-quick-add")) {
-            dialog.accept();
-            onShowQuickAddFriend();
-            return;
-        }
-        dialog.accept();
-        if (row->id == QStringLiteral("profile-search")) {
-            onShowGlobalSearch();
-        } else if (row->id == QStringLiteral("profile-contacts")) {
-            onShowContactWorkspace();
-        } else if (row->id == QStringLiteral("profile-friend-manager")) {
-            onShowFriendManager();
-        }
+        runProfileWorkspaceOpenAction(selectedProfileWorkspaceRow(rows, listWidget), &dialog);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
+        rows = buildProfileWorkspaceRows();
         fillList();
         updatePreview();
         updateActionState();
@@ -10502,7 +10854,7 @@ void MainWindow::showProfileWorkspace() {
     });
     connect(openBtn, &QPushButton::clicked, &dialog, runOpenSelected);
     connect(copyCardBtn, &QPushButton::clicked, &dialog, [=, &rows, this]() {
-        ProfileWorkspaceRow* row = selectedRow();
+        ProfileWorkspaceRow* row = selectedProfileWorkspaceRow(rows, listWidget);
         copyTextWithStatus(profileClipboardText(),
                            row && row->id == QLatin1String("profile-overview")
                                ? QStringLiteral("账号资料卡已复制")
@@ -10510,11 +10862,11 @@ void MainWindow::showProfileWorkspace() {
                            2200);
     });
     connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
-        copyTextWithStatus(profileStatusText(), QStringLiteral("账号工作区状态已复制"), 2200);
+        copyTextWithStatus(profileWorkspaceStatusText(), QStringLiteral("账号工作区状态已复制"), 2200);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    rows = buildRows();
+    rows = buildProfileWorkspaceRows();
     fillList();
     updatePreview();
     updateActionState();
@@ -10562,111 +10914,7 @@ void MainWindow::showUserEntryWorkspace(const QString& targetId, const QString& 
     const bool isLocalGroup = m_localGroupIds.contains(targetId);
     const QString displayName = fallbackLabel.isEmpty() ? contactDisplayName(targetId) : fallbackLabel;
 
-    struct UserEntryActionRow {
-        QString commandId;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool accent = false;
-        bool dangerous = false;
-    };
-
-    auto buildRows = [=, this]() {
-        QList<UserEntryActionRow> rows;
-        if (isLocalGroup) {
-            const QString groupName = m_localGroupNames.value(targetId, displayName);
-            const int memberCount = m_localGroupMembers.value(targetId).size();
-            const QString groupNumber = targetId.mid(QStringLiteral("local_group_").size());
-            rows << UserEntryActionRow{
-                QStringLiteral("open-group"),
-                QStringLiteral("进入群聊"),
-                QStringLiteral("打开 %1").arg(groupName),
-                QStringLiteral("群聊\n群名：%1\n群号：%2\n成员：%3\n公告：%4")
-                    .arg(groupName,
-                         groupNumber,
-                         QString::number(memberCount),
-                         m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告"))),
-                QStringLiteral("进入 群聊 打开"),
-                true,
-                false};
-            rows << UserEntryActionRow{QStringLiteral("copy-group-card"), QStringLiteral("复制群名片"), QStringLiteral("复制群号、群名、成员和公告摘要"),
-                                       QStringLiteral("复制群名片\n群名：%1\n群号：%2").arg(groupName, groupNumber),
-                                       QStringLiteral("复制 群 名片 公告")};
-            rows << UserEntryActionRow{QStringLiteral("copy-group-members"), QStringLiteral("复制成员列表"), QStringLiteral("复制当前群聊全部成员"),
-                                       QStringLiteral("复制成员列表\n可用于协作同步、入群校对和状态留档。"),
-                                       QStringLiteral("复制 成员 列表")};
-            rows << UserEntryActionRow{QStringLiteral("invite-friend"), QStringLiteral("邀请好友"), QStringLiteral("从好友里选择成员加入当前群聊"),
-                                       QStringLiteral("邀请好友\n从现有好友列表选择对象加入当前群聊。"),
-                                       QStringLiteral("邀请 好友 入群")};
-            rows << UserEntryActionRow{QStringLiteral("invite-by-account"), QStringLiteral("按QQ号邀请"), QStringLiteral("输入 QQ 号邀请成员入群"),
-                                       QStringLiteral("按 QQ 号邀请\n可直接输入 QQ，并按需补发好友申请。"),
-                                       QStringLiteral("QQ 邀请 入群")};
-            rows << UserEntryActionRow{QStringLiteral("rename-group"), QStringLiteral("重命名群聊"), QStringLiteral("修改当前本地群聊名称"),
-                                       QStringLiteral("重命名群聊\n会同步更新左侧群聊显示和后续会话标题。"),
-                                       QStringLiteral("重命名 群聊")};
-            rows << UserEntryActionRow{QStringLiteral("delete-group"), QStringLiteral("删除群聊"), QStringLiteral("删除本地群聊配置，聊天记录不会在此步骤删除"),
-                                       QStringLiteral("删除群聊\n会移除本地群聊配置；历史聊天不会在此步骤删除。"),
-                                       QStringLiteral("删除 群聊"), false, true};
-            return rows;
-        }
-
-        const bool online = isContactOnline(targetId);
-        const bool isFriend = m_friendIds.contains(targetId);
-        const bool pending = m_pendingOutgoingFriendRequests.contains(targetId);
-        const QString relation = isFriend ? QStringLiteral("好友") : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人"));
-        rows << UserEntryActionRow{
-            QStringLiteral("chat"),
-            QStringLiteral("打开私聊"),
-            QStringLiteral("进入与 %1 的会话").arg(displayName),
-            QStringLiteral("联系人\nQQ：%1\n昵称：%2\n状态：%3\n关系：%4")
-                .arg(targetId,
-                     displayName,
-                     online ? QStringLiteral("在线") : QStringLiteral("离线"),
-                     relation),
-            QStringLiteral("私聊 打开 会话"),
-            true,
-            false};
-        rows << UserEntryActionRow{QStringLiteral("copy-profile-card"), QStringLiteral("复制名片"), QStringLiteral("复制当前联系人资料卡"),
-                                   QStringLiteral("复制名片\nQQ：%1\n昵称：%2\n状态：%3").arg(targetId, displayName, online ? QStringLiteral("在线") : QStringLiteral("离线")),
-                                   QStringLiteral("复制 名片 资料")};
-        rows << UserEntryActionRow{QStringLiteral("copy-chat-starter"), QStringLiteral("复制开聊话术"), QStringLiteral("复制适合当前关系状态的话术"),
-                                   QStringLiteral("开聊话术\n会根据当前是好友、申请中还是陌生联系人生成不同的话术。"),
-                                   QStringLiteral("复制 话术 开聊")};
-        rows << UserEntryActionRow{QStringLiteral("copy-e2e-status"), QStringLiteral("复制加密状态"), QStringLiteral("复制当前联系人端到端加密状态"),
-                                   QStringLiteral("端到端加密状态\n可复制当前会话 readiness、轮换状态和信任概览。"),
-                                   QStringLiteral("加密 状态 e2e")};
-        rows << UserEntryActionRow{QStringLiteral("copy-e2e-identity"), QStringLiteral("复制加密身份"), QStringLiteral("复制身份指纹与验证信息"),
-                                   QStringLiteral("端到端加密身份\n可复制指纹、验证短码、首次/最近看到时间。"),
-                                   QStringLiteral("加密 身份 指纹")};
-        rows << UserEntryActionRow{QStringLiteral("verify-e2e-identity"), QStringLiteral("验证并信任加密身份"), QStringLiteral("输入验证短码并固定信任"),
-                                   QStringLiteral("验证加密身份\n需要通过可信渠道核对短码，再将该身份固定为已验证。"),
-                                   QStringLiteral("验证 信任 加密 短码")};
-        if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
-            rows << UserEntryActionRow{QStringLiteral("invite-current-group"), QStringLiteral("邀入当前群"), QStringLiteral("把当前联系人加入正在查看的群聊"),
-                                       QStringLiteral("邀入当前群\n会补齐好友申请状态并把该联系人加入当前本地群聊。"),
-                                       QStringLiteral("邀请 当前群 入群")};
-        }
-        if (isFriend) {
-            rows << UserEntryActionRow{QStringLiteral("rename-friend"), QStringLiteral("设置备注"), QStringLiteral("修改当前好友本地备注"),
-                                       QStringLiteral("设置备注\n会影响左侧联系人显示、工作区摘要和后续会话标题。"),
-                                       QStringLiteral("备注 好友")};
-            rows << UserEntryActionRow{QStringLiteral("remove-friend"), QStringLiteral("删除好友"), QStringLiteral("从本地好友列表删除当前好友"),
-                                       QStringLiteral("删除好友\n删除后仍可重新搜索并申请。"),
-                                       QStringLiteral("删除 好友"), false, true};
-        } else {
-            rows << UserEntryActionRow{QStringLiteral("add-friend"),
-                                       pending ? QStringLiteral("好友申请待确认") : QStringLiteral("加为好友"),
-                                       pending ? QStringLiteral("当前好友申请已发送，等待处理")
-                                               : QStringLiteral("向当前联系人发起好友申请"),
-                                       pending ? QStringLiteral("好友申请已发送\n等待对方确认后可继续私聊。")
-                                               : QStringLiteral("发起好友申请\n当前联系人在线时会发起好友申请，后续可继续私聊或邀入群。"),
-                                       QStringLiteral("好友 申请 添加")};
-        }
-        return rows;
-    };
-
-    auto rows = buildRows();
+    auto rows = buildUserEntryWorkspaceRows(targetId, displayName, isLocalGroup);
     auto emptyPreviewText = [searchEdit, isLocalGroup]() {
         const QString filter = searchEdit->text().trimmed();
         const QString scope = isLocalGroup ? QStringLiteral("群对象") : QStringLiteral("联系人对象");
@@ -10676,53 +10924,16 @@ void MainWindow::showUserEntryWorkspace(const QString& targetId, const QString& 
                   .arg(filter, scope);
     };
 
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        listWidget->clear();
-        int visibleCount = 0;
-        for (const UserEntryActionRow& row : rows) {
-            if (!filter.isEmpty() && !(row.title + row.detail + row.preview + row.keywords).contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.commandId);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (row.accent) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.dangerous) {
-                item->setForeground(QColor(180, 35, 24));
-            }
-            listWidget->addItem(item);
-            ++visibleCount;
-        }
-        if (visibleCount == 0) {
-            addWorkspaceEmptyStateItem(
-                listWidget,
-                QStringLiteral("没有匹配的对象动作"),
-                QStringLiteral("试试“复制”、“加密”、“邀请”或“管理”这些关键词。"),
-                emptyPreviewText());
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
-        selectPreferredListRow(listWidget, 0);
+    auto fillList = [=, &rows, this]() {
+        fillUserEntryWorkspaceList(listWidget,
+                                   statsLabel,
+                                   rows,
+                                   searchEdit->text().trimmed(),
+                                   emptyPreviewText());
     };
 
-    auto selectedRow = [=, &rows]() -> UserEntryActionRow* {
-        QListWidgetItem* currentItem = listWidget->currentItem();
-        if (!currentItem) {
-            return nullptr;
-        }
-        const QString id = currentItem->data(Qt::UserRole).toString();
-        for (UserEntryActionRow& row : rows) {
-            if (row.commandId == id) {
-                return &row;
-            }
-        }
-        return nullptr;
-    };
-
-    auto updatePreview = [=, &rows]() {
-        UserEntryActionRow* row = selectedRow();
+    auto updatePreview = [=, &rows, this]() {
+        UserEntryActionRow* row = selectedUserEntryWorkspaceRow(rows, listWidget);
         previewLabel->setText(row ? row->preview
                                   : (firstEnabledListRow(listWidget) >= 0
                                          ? QStringLiteral("这里会解释当前对象动作会如何影响会话、联系人关系或群聊成员。")
@@ -10742,94 +10953,31 @@ void MainWindow::showUserEntryWorkspace(const QString& targetId, const QString& 
         {openBtn, copyCardBtn, copyStatusBtn},
         closeBtn);
 
-    auto userEntryCardText = [=]() {
-        if (isLocalGroup) {
-            const QString groupNumber = targetId.mid(QStringLiteral("local_group_").size());
-            return QStringLiteral("群对象卡\n群名:%1\n群号:%2\n成员:%3\n公告:%4")
-                .arg(m_localGroupNames.value(targetId, displayName),
-                     groupNumber,
-                     QString::number(m_localGroupMembers.value(targetId).size()),
-                     m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告")));
-        }
-        return QStringLiteral("联系人对象卡\nQQ:%1\n昵称:%2\n状态:%3\n关系:%4")
-            .arg(targetId,
-                 displayName,
-                 isContactOnline(targetId) ? QStringLiteral("在线") : QStringLiteral("离线"),
-                 m_friendIds.contains(targetId) ? QStringLiteral("好友")
-                                                : (m_pendingOutgoingFriendRequests.contains(targetId) ? QStringLiteral("申请中")
-                                                                                                      : QStringLiteral("联系人")));
-    };
-    auto userEntryStatusText = [=]() {
-        QStringList lines;
-        lines << QStringLiteral("对象工作区状态");
-        lines << QStringLiteral("对象:%1").arg(displayName);
-        lines << QStringLiteral("标识:%1").arg(targetId);
-        lines << QStringLiteral("类型:%1").arg(isLocalGroup ? QStringLiteral("群聊") : QStringLiteral("联系人"));
-        if (isLocalGroup) {
-            lines << QStringLiteral("成员:%1").arg(m_localGroupMembers.value(targetId).size());
-        } else {
-            lines << QStringLiteral("状态:%1").arg(isContactOnline(targetId) ? QStringLiteral("在线") : QStringLiteral("离线"));
-            lines << QStringLiteral("关系:%1").arg(m_friendIds.contains(targetId) ? QStringLiteral("好友")
-                                                                                   : (m_pendingOutgoingFriendRequests.contains(targetId) ? QStringLiteral("申请中")
-                                                                                                                                         : QStringLiteral("联系人")));
-        }
-        return lines.join(QLatin1Char('\n'));
-    };
-    auto userEntryClipboardText = [=, &rows]() {
-        UserEntryActionRow* row = selectedRow();
-        if (!row) {
-            return userEntryStatusText();
-        }
-        if (row->commandId == QLatin1String("open-chat")
-            || row->commandId == QLatin1String("open-group")
-            || row->commandId == QLatin1String("copy-card")) {
-            return userEntryCardText();
-        }
-        return row->preview.trimmed().isEmpty() ? userEntryStatusText() : row->preview;
+    auto userEntryClipboardText = [=, &rows, this]() {
+        return userEntryWorkspaceClipboardText(selectedUserEntryWorkspaceRow(rows, listWidget),
+                                              targetId,
+                                              displayName,
+                                              isLocalGroup);
     };
 
-    auto updateActionState = [=, &rows]() {
-        UserEntryActionRow* row = selectedRow();
-        const bool hasActionableRow = hasEnabledListRow(listWidget);
-        if (!row) {
-            openBtn->setEnabled(false);
-            openBtn->setText(QStringLiteral("执行当前动作"));
-            openBtn->setToolTip(hasActionableRow
-                                    ? QStringLiteral("先选择一个对象动作后继续进入会话、复制资料或处理管理动作")
-                                    : QStringLiteral("当前没有可执行的对象动作"));
-            copyCardBtn->setEnabled(hasActionableRow);
-            copyCardBtn->setToolTip(hasActionableRow
-                                        ? QStringLiteral("复制当前对象工作区总览")
-                                        : QStringLiteral("当前没有可复制的对象概览"));
-            copyStatusBtn->setEnabled(true);
-            copyStatusBtn->setToolTip(QStringLiteral("复制对象工作区当前状态"));
-            return;
-        }
-
-        openBtn->setEnabled(true);
-        openBtn->setText(row->title);
-        openBtn->setToolTip(row->detail);
-        copyCardBtn->setEnabled(true);
-        copyCardBtn->setToolTip(QStringLiteral("复制当前选中对象卡"));
-        copyStatusBtn->setEnabled(true);
-        copyStatusBtn->setToolTip(QStringLiteral("复制对象工作区当前状态"));
+    auto updateActionState = [=, &rows, this]() {
+        updateUserEntryWorkspaceActionState(openBtn,
+                                            copyCardBtn,
+                                            copyStatusBtn,
+                                            listWidget,
+                                            rows);
     };
 
     auto runSelectedCommand = [=, &rows, this, &dialog]() {
-        UserEntryActionRow* row = selectedRow();
-        if (!row) {
-            return;
-        }
-        dialog.accept();
-        if (isLocalGroup) {
-            handleLocalGroupContextCommand(targetId, displayName, row->commandId);
-        } else {
-            handleContactContextCommand(targetId, row->commandId);
-        }
+        runUserEntryWorkspaceCommand(selectedUserEntryWorkspaceRow(rows, listWidget),
+                                     targetId,
+                                     displayName,
+                                     isLocalGroup,
+                                     &dialog);
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
+        rows = buildUserEntryWorkspaceRows(targetId, displayName, isLocalGroup);
         fillList();
         updatePreview();
         updateActionState();
@@ -10848,11 +10996,13 @@ void MainWindow::showUserEntryWorkspace(const QString& targetId, const QString& 
                            2200);
     });
     connect(copyStatusBtn, &QPushButton::clicked, &dialog, [=, this]() {
-        copyTextWithStatus(userEntryStatusText(), QStringLiteral("对象工作区状态已复制"), 2200);
+        copyTextWithStatus(userEntryWorkspaceStatusText(targetId, displayName, isLocalGroup),
+                           QStringLiteral("对象工作区状态已复制"),
+                           2200);
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    rows = buildRows();
+    rows = buildUserEntryWorkspaceRows(targetId, displayName, isLocalGroup);
     fillList();
     updatePreview();
     updateActionState();
@@ -11221,10 +11371,6 @@ void MainWindow::showGroupInfoWorkspace() {
                                    rows,
                                    searchEdit->text().trimmed(),
                                    emptyPreviewText());
-    };
-
-    auto selectedRow = [=, &rows, this]() -> GroupInfoWorkspaceRow* {
-        return selectedGroupInfoWorkspaceRow(rows, listWidget);
     };
 
     auto updatePreview = [=, &rows, this]() {
@@ -12012,6 +12158,2046 @@ void MainWindow::runContactWorkspaceOpenAction(ContactWorkspaceRow* row,
     openUserTargetById(row->rowId);
 }
 
+QList<NotificationWorkspaceRow> MainWindow::buildNotificationWorkspaceRows(const QString& summaryText,
+                                                                           const QString& friendPlanText,
+                                                                           const QString& groupPlanText) const {
+    QList<NotificationWorkspaceRow> rows;
+    const FriendNoticeUiState friendState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
+    const GroupNoticeUiState groupState = m_groupManager.noticeUiState(m_localGroupIds.size());
+
+    rows << NotificationWorkspaceRow{
+        QStringLiteral("notice-overview"),
+        QStringLiteral("通知总览"),
+        QStringLiteral("好友申请 %1 · 群通知入口 %2").arg(m_pendingFriendRequests.size()).arg(m_localGroupIds.size() + 1),
+        summaryText,
+        QStringLiteral("通知 总览 控制台 好友 群聊"),
+        true,
+        false};
+    rows << NotificationWorkspaceRow{
+        QStringLiteral("notice-friend"),
+        QStringLiteral("好友通知"),
+        friendState.toolTip,
+        QStringLiteral("好友通知工作区\n集中处理待通过好友申请、批量回复、申请话术和媒体准备。\n\n%1").arg(friendPlanText),
+        QStringLiteral("好友通知 好友申请 批量回复"),
+        m_pendingFriendRequests.size() > 0,
+        false};
+    rows << NotificationWorkspaceRow{
+        QStringLiteral("notice-group"),
+        QStringLiteral("群通知"),
+        groupState.toolTip,
+        QStringLiteral("群通知工作区\n集中处理群入口、群公告、成员复制、媒体包和批量计划。\n\n%1").arg(groupPlanText),
+        QStringLiteral("群通知 群聊 公告 成员"),
+        false,
+        false};
+    rows << NotificationWorkspaceRow{
+        QStringLiteral("notice-copy-summary"),
+        QStringLiteral("复制通知摘要"),
+        QStringLiteral("复制好友申请、群聊入口和当前通知按钮状态"),
+        QStringLiteral("复制通知摘要\n适合留档、反馈当前待处理量和入口状态。"),
+        QStringLiteral("复制 通知 摘要"),
+        false,
+        false};
+    rows << NotificationWorkspaceRow{
+        QStringLiteral("notice-copy-friend-plan"),
+        QStringLiteral("复制好友处理计划"),
+        QStringLiteral("汇总当前好友申请和通过后的媒体准备"),
+        QStringLiteral("好友处理计划\n把当前待处理好友申请、回复流程和媒体发送准备整理成一份摘要。"),
+        QStringLiteral("好友 处理 计划 媒体"),
+        false,
+        false};
+    rows << NotificationWorkspaceRow{
+        QStringLiteral("notice-copy-group-plan"),
+        QStringLiteral("复制群处理计划"),
+        QStringLiteral("汇总当前群入口、成员复制和群内媒体计划"),
+        QStringLiteral("群处理计划\n把当前群入口、成员同步和群内媒体发送准备整理成一份摘要。"),
+        QStringLiteral("群 处理 计划 成员 媒体"),
+        false,
+        false};
+    return rows;
+}
+
+void MainWindow::fillNotificationWorkspaceList(QListWidget* listWidget,
+                                               QLabel* statsLabel,
+                                               const QList<NotificationWorkspaceRow>& rows,
+                                               const QString& filter,
+                                               const QString& emptyPreviewText) const {
+    if (!listWidget || !statsLabel) {
+        return;
+    }
+    listWidget->clear();
+    int visibleCount = 0;
+    for (const NotificationWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.id);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (row.accent) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.dangerous) {
+            item->setForeground(QColor(180, 35, 24));
+        }
+        listWidget->addItem(item);
+        ++visibleCount;
+    }
+    if (visibleCount == 0) {
+        addWorkspaceEmptyStateItem(
+            listWidget,
+            QStringLiteral("没有匹配的通知动作"),
+            QStringLiteral("试试“好友通知”、“群通知”、“计划”或“摘要”这些关键词。"),
+            emptyPreviewText);
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+    selectPreferredListRow(listWidget, 0);
+}
+
+NotificationWorkspaceRow* MainWindow::selectedNotificationWorkspaceRow(QList<NotificationWorkspaceRow>& rows,
+                                                                       QListWidget* listWidget) const {
+    if (!listWidget) {
+        return nullptr;
+    }
+    QListWidgetItem* currentItem = listWidget->currentItem();
+    if (!currentItem) {
+        return nullptr;
+    }
+    const QString id = currentItem->data(Qt::UserRole).toString();
+    for (NotificationWorkspaceRow& row : rows) {
+        if (row.id == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::notificationWorkspaceRowClipboardText(NotificationWorkspaceRow* row,
+                                                          const QString& summaryText,
+                                                          const QString& friendPlanText,
+                                                          const QString& groupPlanText) const {
+    if (!row) {
+        return summaryText;
+    }
+    if (row->id == QLatin1String("notice-copy-friend-plan")) {
+        return friendPlanText;
+    }
+    if (row->id == QLatin1String("notice-copy-group-plan")) {
+        return groupPlanText;
+    }
+    if (row->id == QLatin1String("notice-friend")) {
+        return QStringLiteral("%1\n\n%2").arg(summaryText, friendPlanText);
+    }
+    if (row->id == QLatin1String("notice-group")) {
+        return QStringLiteral("%1\n\n%2").arg(summaryText, groupPlanText);
+    }
+    return row->preview.trimmed().isEmpty() ? summaryText : row->preview;
+}
+
+void MainWindow::updateNotificationWorkspaceActionState(QPushButton* openBtn,
+                                                        QPushButton* copyCardBtn,
+                                                        QPushButton* copyStatusBtn,
+                                                        QListWidget* listWidget,
+                                                        QList<NotificationWorkspaceRow>& rows) const {
+    NotificationWorkspaceRow* row = selectedNotificationWorkspaceRow(rows, listWidget);
+    const bool hasActionableRow = hasEnabledListRow(listWidget);
+    if (!openBtn || !copyCardBtn || !copyStatusBtn) {
+        return;
+    }
+    if (!row) {
+        openBtn->setEnabled(false);
+        openBtn->setText(QStringLiteral("执行当前动作"));
+        openBtn->setToolTip(hasActionableRow
+                                ? QStringLiteral("先选择一个通知动作后继续进入好友通知、群通知或复制处理计划")
+                                : QStringLiteral("当前没有可执行的通知动作"));
+        copyCardBtn->setEnabled(hasActionableRow);
+        copyCardBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("复制当前通知控制台总览")
+                                    : QStringLiteral("当前没有可复制的通知摘要"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制通知控制台当前状态"));
+        return;
+    }
+
+    openBtn->setEnabled(true);
+    if (row->id == QLatin1String("notice-friend")) {
+        openBtn->setText(QStringLiteral("打开好友通知"));
+        openBtn->setToolTip(QStringLiteral("进入好友通知工作区，继续处理待通过申请和批量回复"));
+    } else if (row->id == QLatin1String("notice-group")) {
+        openBtn->setText(QStringLiteral("打开群通知"));
+        openBtn->setToolTip(QStringLiteral("进入群通知工作区，继续处理群入口、群公告和批量计划"));
+    } else if (row->id == QLatin1String("notice-copy-friend-plan")) {
+        openBtn->setText(QStringLiteral("复制好友计划"));
+        openBtn->setToolTip(QStringLiteral("复制好友申请处理计划和媒体准备摘要"));
+    } else if (row->id == QLatin1String("notice-copy-group-plan")) {
+        openBtn->setText(QStringLiteral("复制群计划"));
+        openBtn->setToolTip(QStringLiteral("复制群通知处理计划和成员同步摘要"));
+    } else {
+        openBtn->setText(QStringLiteral("复制通知摘要"));
+        openBtn->setToolTip(QStringLiteral("复制当前通知总览或摘要卡，便于留档和反馈"));
+    }
+
+    copyCardBtn->setEnabled(true);
+    copyCardBtn->setToolTip(row->id == QLatin1String("notice-overview")
+                                ? QStringLiteral("复制当前通知总览卡")
+                                : QStringLiteral("复制当前选中通知卡"));
+    copyStatusBtn->setEnabled(true);
+    copyStatusBtn->setToolTip(QStringLiteral("复制通知控制台当前状态"));
+}
+
+void MainWindow::runNotificationWorkspaceCommand(NotificationWorkspaceRow* row,
+                                                 QDialog* dialog,
+                                                 const QString& summaryText,
+                                                 const QString& friendPlanText,
+                                                 const QString& groupPlanText) {
+    if (!row) {
+        ui->statusbar->showMessage(QStringLiteral("请先选择通知动作"), 1800);
+        return;
+    }
+
+    if (row->id == QLatin1String("notice-friend")) {
+        if (dialog) dialog->accept();
+        onShowFriendNotifications();
+        return;
+    }
+    if (row->id == QLatin1String("notice-group")) {
+        if (dialog) dialog->accept();
+        onShowGroupNotifications();
+        return;
+    }
+
+    const QString text = notificationWorkspaceRowClipboardText(row,
+                                                               summaryText,
+                                                               friendPlanText,
+                                                               groupPlanText);
+    if (text.trimmed().isEmpty()) {
+        ui->statusbar->showMessage(QStringLiteral("当前没有可复制的通知内容"), 1800);
+        return;
+    }
+
+    QString successMessage = QStringLiteral("通知摘要已复制");
+    if (row->id == QLatin1String("notice-copy-friend-plan")) {
+        successMessage = QStringLiteral("好友处理计划已复制");
+    } else if (row->id == QLatin1String("notice-copy-group-plan")) {
+        successMessage = QStringLiteral("群处理计划已复制");
+    } else if (row->id == QLatin1String("notice-overview")
+               || row->id == QLatin1String("notice-copy-summary")) {
+        successMessage = QStringLiteral("通知摘要已复制");
+    }
+    copyTextWithStatus(text, successMessage, 2200);
+}
+
+QList<ProfileWorkspaceRow> MainWindow::buildProfileWorkspaceRows() const {
+    QList<ProfileWorkspaceRow> rows;
+    const QFileInfo avatarInfo(getAvatarFilePath());
+
+    ProfileWorkspaceRow overview;
+    overview.id = QStringLiteral("profile-overview");
+    overview.title = QStringLiteral("当前账号 · %1").arg(m_currentUserName);
+    overview.detail = QStringLiteral("QQ:%1 · 好友 %2 · 群聊 %3").arg(m_currentUserId).arg(m_friendIds.size()).arg(m_localGroupIds.size());
+    overview.preview = QStringLiteral("账号总览\nQQ：%1\n昵称：%2\n好友：%3\n群聊：%4\n当前会话：%5")
+                           .arg(m_currentUserId,
+                                m_currentUserName,
+                                QString::number(m_friendIds.size()),
+                                QString::number(m_localGroupIds.size()),
+                                m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+    overview.keywords = overview.title + overview.detail + overview.preview + QStringLiteral("账号 总览");
+    overview.accent = true;
+    rows << overview;
+
+    ProfileWorkspaceRow avatar;
+    avatar.id = QStringLiteral("profile-avatar");
+    avatar.title = QStringLiteral("头像工作区");
+    avatar.detail = avatarInfo.exists()
+        ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
+        : QStringLiteral("当前使用默认头像");
+    avatar.preview = avatarInfo.exists()
+        ? QStringLiteral("头像工作区\n当前头像：%1\n路径：%2\n可继续：更换头像、复制路径、打开目录")
+              .arg(avatarInfo.fileName(), avatarInfo.absoluteFilePath())
+        : QStringLiteral("头像工作区\n当前使用默认头像\n可继续：更换头像、保存本地头像后再复制路径或打开目录");
+    avatar.keywords = avatar.title + avatar.detail + avatar.preview + QStringLiteral("头像 路径 目录");
+    rows << avatar;
+
+    ProfileWorkspaceRow search;
+    search.id = QStringLiteral("profile-search");
+    search.title = QStringLiteral("综合搜索");
+    search.detail = QStringLiteral("统一搜索 QQ、好友和群聊");
+    search.preview = QStringLiteral("综合搜索工作区\n可从账号侧直接跳去查找 QQ、好友与群聊，并整理搜索摘要。");
+    search.keywords = search.title + search.detail + search.preview + QStringLiteral("搜索 QQ 好友 群聊");
+    rows << search;
+
+    ProfileWorkspaceRow contacts;
+    contacts.id = QStringLiteral("profile-contacts");
+    contacts.title = QStringLiteral("联系人工作区");
+    contacts.detail = QStringLiteral("整理联系人、搜索结果和群聊入口");
+    contacts.preview = QStringLiteral("联系人工作区\n可查看联系人、群聊、搜索结果，并继续进入会话或发起好友申请。");
+    contacts.keywords = contacts.title + contacts.detail + contacts.preview + QStringLiteral("联系人 群聊");
+    rows << contacts;
+
+    ProfileWorkspaceRow friendManager;
+    friendManager.id = QStringLiteral("profile-friend-manager");
+    friendManager.title = QStringLiteral("好友管理器");
+    friendManager.detail = QStringLiteral("备注、邀请、删除和批量复制");
+    friendManager.preview = QStringLiteral("好友管理器\n统一处理好友搜索、备注、入群邀请、删除和媒体准备。");
+    friendManager.keywords = friendManager.title + friendManager.detail + friendManager.preview + QStringLiteral("好友 管理");
+    rows << friendManager;
+
+    ProfileWorkspaceRow quickAdd;
+    quickAdd.id = QStringLiteral("profile-quick-add");
+    quickAdd.title = QStringLiteral("好友申请工作区");
+    quickAdd.detail = QStringLiteral("搜索 QQ、发送申请和整理申请话术");
+    quickAdd.preview = QStringLiteral("好友申请工作区\n可搜索 QQ、批量处理推荐对象，并复制申请话术、媒体包和清单。");
+    quickAdd.keywords = quickAdd.title + quickAdd.detail + quickAdd.preview + QStringLiteral("好友 申请 搜索 QQ");
+    rows << quickAdd;
+
+    return rows;
+}
+
+void MainWindow::fillProfileWorkspaceList(QListWidget* listWidget,
+                                          QLabel* statsLabel,
+                                          const QList<ProfileWorkspaceRow>& rows,
+                                          const QString& filter,
+                                          const QString& emptyPreviewText) const {
+    if (!listWidget || !statsLabel) {
+        return;
+    }
+    listWidget->clear();
+    int visibleCount = 0;
+    for (const ProfileWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.id);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (row.accent) {
+            item->setForeground(QColor(29, 78, 216));
+        }
+        listWidget->addItem(item);
+        ++visibleCount;
+    }
+    if (visibleCount == 0) {
+        addWorkspaceEmptyStateItem(
+            listWidget,
+            QStringLiteral("没有匹配的账号动作"),
+            QStringLiteral("试试“头像”、“搜索”、“联系人”或“好友”这些关键词。"),
+            emptyPreviewText);
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+    selectPreferredListRow(listWidget, 0);
+}
+
+ProfileWorkspaceRow* MainWindow::selectedProfileWorkspaceRow(QList<ProfileWorkspaceRow>& rows,
+                                                             QListWidget* listWidget) const {
+    if (!listWidget) {
+        return nullptr;
+    }
+    QListWidgetItem* currentItem = listWidget->currentItem();
+    if (!currentItem) {
+        return nullptr;
+    }
+    const QString id = currentItem->data(Qt::UserRole).toString();
+    for (ProfileWorkspaceRow& row : rows) {
+        if (row.id == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::profileWorkspaceCardText() const {
+    return QStringLiteral("账号资料卡\nQQ:%1\n昵称:%2\n好友:%3\n群聊:%4\n当前会话:%5")
+        .arg(m_currentUserId,
+             m_currentUserName,
+             QString::number(m_friendIds.size()),
+             QString::number(m_localGroupIds.size()),
+             m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget));
+}
+
+QString MainWindow::profileWorkspaceStatusText() const {
+    const QStringList lines = {
+        QStringLiteral("账号工作区状态"),
+        QStringLiteral("QQ:%1").arg(m_currentUserId),
+        QStringLiteral("昵称:%1").arg(m_currentUserName),
+        QStringLiteral("好友:%1").arg(m_friendIds.size()),
+        QStringLiteral("群聊:%1").arg(m_localGroupIds.size()),
+        QStringLiteral("当前会话:%1").arg(m_privateChatTarget.isEmpty() ? QStringLiteral("公共聊天室") : contactDisplayName(m_privateChatTarget))
+    };
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString MainWindow::profileWorkspaceClipboardText(ProfileWorkspaceRow* row) const {
+    if (!row) {
+        return profileWorkspaceStatusText();
+    }
+    if (row->id == QLatin1String("profile-overview")) {
+        return profileWorkspaceCardText();
+    }
+    return row->preview.trimmed().isEmpty() ? profileWorkspaceStatusText() : row->preview;
+}
+
+void MainWindow::updateProfileWorkspaceActionState(QPushButton* openBtn,
+                                                   QPushButton* copyCardBtn,
+                                                   QPushButton* copyStatusBtn,
+                                                   QListWidget* listWidget,
+                                                   QList<ProfileWorkspaceRow>& rows) const {
+    ProfileWorkspaceRow* row = selectedProfileWorkspaceRow(rows, listWidget);
+    const bool hasActionableRow = hasEnabledListRow(listWidget);
+    if (!openBtn || !copyCardBtn || !copyStatusBtn) {
+        return;
+    }
+    if (!row) {
+        openBtn->setEnabled(false);
+        openBtn->setText(QStringLiteral("执行当前动作"));
+        openBtn->setToolTip(hasActionableRow
+                                ? QStringLiteral("先选择一个账号动作后继续进入头像、搜索、联系人或好友整理入口")
+                                : QStringLiteral("当前没有可执行的账号动作"));
+        copyCardBtn->setEnabled(hasActionableRow);
+        copyCardBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("复制当前账号工作区总览")
+                                    : QStringLiteral("当前没有可复制的账号摘要"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制账号工作区当前状态"));
+        return;
+    }
+
+    openBtn->setEnabled(true);
+    if (row->id == QLatin1String("profile-overview") || row->id == QLatin1String("profile-avatar")) {
+        openBtn->setText(QStringLiteral("打开头像工作区"));
+        openBtn->setToolTip(row->id == QLatin1String("profile-overview")
+                                ? QStringLiteral("从当前账号总览继续进入头像工作区")
+                                : QStringLiteral("打开头像工作区并继续整理头像相关动作"));
+    } else if (row->id == QLatin1String("profile-search")) {
+        openBtn->setText(QStringLiteral("打开综合搜索"));
+        openBtn->setToolTip(QStringLiteral("进入综合搜索工作区"));
+    } else if (row->id == QLatin1String("profile-contacts")) {
+        openBtn->setText(QStringLiteral("打开联系人工作区"));
+        openBtn->setToolTip(QStringLiteral("进入联系人工作区"));
+    } else if (row->id == QLatin1String("profile-friend-manager")) {
+        openBtn->setText(QStringLiteral("打开好友管理"));
+        openBtn->setToolTip(QStringLiteral("进入好友管理器"));
+    } else {
+        openBtn->setText(QStringLiteral("好友申请工作区"));
+        openBtn->setToolTip(QStringLiteral("进入好友申请工作区"));
+    }
+    copyCardBtn->setEnabled(true);
+    copyCardBtn->setToolTip(row->id == QLatin1String("profile-overview")
+                                ? QStringLiteral("复制当前账号资料卡")
+                                : QStringLiteral("复制当前选中账号动作卡"));
+    copyStatusBtn->setEnabled(true);
+    copyStatusBtn->setToolTip(QStringLiteral("复制账号工作区当前状态"));
+}
+
+void MainWindow::runProfileWorkspaceOpenAction(ProfileWorkspaceRow* row,
+                                               QDialog* dialog) {
+    if (!row) {
+        ui->statusbar->showMessage(QStringLiteral("请先选择账号动作"), 1800);
+        return;
+    }
+    if (row->id == QStringLiteral("profile-overview") || row->id == QStringLiteral("profile-avatar")) {
+        if (dialog) dialog->accept();
+        showAvatarWorkspace();
+        return;
+    }
+    if (row->id == QStringLiteral("profile-quick-add")) {
+        if (dialog) dialog->accept();
+        onShowQuickAddFriend();
+        return;
+    }
+    if (dialog) dialog->accept();
+    if (row->id == QStringLiteral("profile-search")) {
+        onShowGlobalSearch();
+    } else if (row->id == QStringLiteral("profile-contacts")) {
+        onShowContactWorkspace();
+    } else if (row->id == QStringLiteral("profile-friend-manager")) {
+        onShowFriendManager();
+    }
+}
+
+QList<UserEntryActionRow> MainWindow::buildUserEntryWorkspaceRows(const QString& targetId,
+                                                                  const QString& displayName,
+                                                                  bool isLocalGroup) const {
+    QList<UserEntryActionRow> rows;
+    if (isLocalGroup) {
+        const QString groupName = m_localGroupNames.value(targetId, displayName);
+        const int memberCount = m_localGroupMembers.value(targetId).size();
+        const QString groupNumber = targetId.mid(QStringLiteral("local_group_").size());
+        rows << UserEntryActionRow{
+            QStringLiteral("open-group"),
+            QStringLiteral("进入群聊"),
+            QStringLiteral("打开 %1").arg(groupName),
+            QStringLiteral("群聊\n群名：%1\n群号：%2\n成员：%3\n公告：%4")
+                .arg(groupName,
+                     groupNumber,
+                     QString::number(memberCount),
+                     m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告"))),
+            QStringLiteral("进入 群聊 打开"),
+            true,
+            false};
+        rows << UserEntryActionRow{QStringLiteral("copy-group-card"), QStringLiteral("复制群名片"), QStringLiteral("复制群号、群名、成员和公告摘要"),
+                                   QStringLiteral("复制群名片\n群名：%1\n群号：%2").arg(groupName, groupNumber),
+                                   QStringLiteral("复制 群 名片 公告")};
+        rows << UserEntryActionRow{QStringLiteral("copy-group-members"), QStringLiteral("复制成员列表"), QStringLiteral("复制当前群聊全部成员"),
+                                   QStringLiteral("复制成员列表\n可用于协作同步、入群校对和状态留档。"),
+                                   QStringLiteral("复制 成员 列表")};
+        rows << UserEntryActionRow{QStringLiteral("invite-friend"), QStringLiteral("邀请好友"), QStringLiteral("从好友里选择成员加入当前群聊"),
+                                   QStringLiteral("邀请好友\n从现有好友列表选择对象加入当前群聊。"),
+                                   QStringLiteral("邀请 好友 入群")};
+        rows << UserEntryActionRow{QStringLiteral("invite-by-account"), QStringLiteral("按QQ号邀请"), QStringLiteral("输入 QQ 号邀请成员入群"),
+                                   QStringLiteral("按 QQ 号邀请\n可直接输入 QQ，并按需补发好友申请。"),
+                                   QStringLiteral("QQ 邀请 入群")};
+        rows << UserEntryActionRow{QStringLiteral("rename-group"), QStringLiteral("重命名群聊"), QStringLiteral("修改当前本地群聊名称"),
+                                   QStringLiteral("重命名群聊\n会同步更新左侧群聊显示和后续会话标题。"),
+                                   QStringLiteral("重命名 群聊")};
+        rows << UserEntryActionRow{QStringLiteral("delete-group"), QStringLiteral("删除群聊"), QStringLiteral("删除本地群聊配置，聊天记录不会在此步骤删除"),
+                                   QStringLiteral("删除群聊\n会移除本地群聊配置；历史聊天不会在此步骤删除。"),
+                                   QStringLiteral("删除 群聊"), false, true};
+        return rows;
+    }
+
+    const bool online = isContactOnline(targetId);
+    const bool isFriend = m_friendIds.contains(targetId);
+    const bool pending = m_pendingOutgoingFriendRequests.contains(targetId);
+    const QString relation = isFriend ? QStringLiteral("好友") : (pending ? QStringLiteral("申请中") : QStringLiteral("联系人"));
+    rows << UserEntryActionRow{
+        QStringLiteral("chat"),
+        QStringLiteral("打开私聊"),
+        QStringLiteral("进入与 %1 的会话").arg(displayName),
+        QStringLiteral("联系人\nQQ：%1\n昵称：%2\n状态：%3\n关系：%4")
+            .arg(targetId,
+                 displayName,
+                 online ? QStringLiteral("在线") : QStringLiteral("离线"),
+                 relation),
+        QStringLiteral("私聊 打开 会话"),
+        true,
+        false};
+    rows << UserEntryActionRow{QStringLiteral("copy-profile-card"), QStringLiteral("复制名片"), QStringLiteral("复制当前联系人资料卡"),
+                               QStringLiteral("复制名片\nQQ：%1\n昵称：%2\n状态：%3").arg(targetId, displayName, online ? QStringLiteral("在线") : QStringLiteral("离线")),
+                               QStringLiteral("复制 名片 资料")};
+    rows << UserEntryActionRow{QStringLiteral("copy-chat-starter"), QStringLiteral("复制开聊话术"), QStringLiteral("复制适合当前关系状态的话术"),
+                               QStringLiteral("开聊话术\n会根据当前是好友、申请中还是陌生联系人生成不同的话术。"),
+                               QStringLiteral("复制 话术 开聊")};
+    rows << UserEntryActionRow{QStringLiteral("copy-e2e-status"), QStringLiteral("复制加密状态"), QStringLiteral("复制当前联系人端到端加密状态"),
+                               QStringLiteral("端到端加密状态\n可复制当前会话 readiness、轮换状态和信任概览。"),
+                               QStringLiteral("加密 状态 e2e")};
+    rows << UserEntryActionRow{QStringLiteral("copy-e2e-identity"), QStringLiteral("复制加密身份"), QStringLiteral("复制身份指纹与验证信息"),
+                               QStringLiteral("端到端加密身份\n可复制指纹、验证短码、首次/最近看到时间。"),
+                               QStringLiteral("加密 身份 指纹")};
+    rows << UserEntryActionRow{QStringLiteral("verify-e2e-identity"), QStringLiteral("验证并信任加密身份"), QStringLiteral("输入验证短码并固定信任"),
+                               QStringLiteral("验证加密身份\n需要通过可信渠道核对短码，再将该身份固定为已验证。"),
+                               QStringLiteral("验证 信任 加密 短码")};
+    if (m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+        rows << UserEntryActionRow{QStringLiteral("invite-current-group"), QStringLiteral("邀入当前群"), QStringLiteral("把当前联系人加入正在查看的群聊"),
+                                   QStringLiteral("邀入当前群\n会补齐好友申请状态并把该联系人加入当前本地群聊。"),
+                                   QStringLiteral("邀请 当前群 入群")};
+    }
+    if (isFriend) {
+        rows << UserEntryActionRow{QStringLiteral("rename-friend"), QStringLiteral("设置备注"), QStringLiteral("修改当前好友本地备注"),
+                                   QStringLiteral("设置备注\n会影响左侧联系人显示、工作区摘要和后续会话标题。"),
+                                   QStringLiteral("备注 好友")};
+        rows << UserEntryActionRow{QStringLiteral("remove-friend"), QStringLiteral("删除好友"), QStringLiteral("从本地好友列表删除当前好友"),
+                                   QStringLiteral("删除好友\n删除后仍可重新搜索并申请。"),
+                                   QStringLiteral("删除 好友"), false, true};
+    } else {
+        rows << UserEntryActionRow{QStringLiteral("add-friend"),
+                                   pending ? QStringLiteral("好友申请待确认") : QStringLiteral("加为好友"),
+                                   pending ? QStringLiteral("当前好友申请已发送，等待处理")
+                                           : QStringLiteral("向当前联系人发起好友申请"),
+                                   pending ? QStringLiteral("好友申请已发送\n等待对方确认后可继续私聊。")
+                                           : QStringLiteral("发起好友申请\n当前联系人在线时会发起好友申请，后续可继续私聊或邀入群。"),
+                                   QStringLiteral("好友 申请 添加")};
+    }
+    return rows;
+}
+
+void MainWindow::fillUserEntryWorkspaceList(QListWidget* listWidget,
+                                            QLabel* statsLabel,
+                                            const QList<UserEntryActionRow>& rows,
+                                            const QString& filter,
+                                            const QString& emptyPreviewText) const {
+    if (!listWidget || !statsLabel) {
+        return;
+    }
+    listWidget->clear();
+    int visibleCount = 0;
+    for (const UserEntryActionRow& row : rows) {
+        if (!filter.isEmpty() && !(row.title + row.detail + row.preview + row.keywords).contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.commandId);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (row.accent) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.dangerous) {
+            item->setForeground(QColor(180, 35, 24));
+        }
+        listWidget->addItem(item);
+        ++visibleCount;
+    }
+    if (visibleCount == 0) {
+        addWorkspaceEmptyStateItem(
+            listWidget,
+            QStringLiteral("没有匹配的对象动作"),
+            QStringLiteral("试试“复制”、“加密”、“邀请”或“管理”这些关键词。"),
+            emptyPreviewText);
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+    selectPreferredListRow(listWidget, 0);
+}
+
+UserEntryActionRow* MainWindow::selectedUserEntryWorkspaceRow(QList<UserEntryActionRow>& rows,
+                                                              QListWidget* listWidget) const {
+    if (!listWidget) {
+        return nullptr;
+    }
+    QListWidgetItem* currentItem = listWidget->currentItem();
+    if (!currentItem) {
+        return nullptr;
+    }
+    const QString id = currentItem->data(Qt::UserRole).toString();
+    for (UserEntryActionRow& row : rows) {
+        if (row.commandId == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::userEntryWorkspaceCardText(const QString& targetId,
+                                               const QString& displayName,
+                                               bool isLocalGroup) const {
+    if (isLocalGroup) {
+        const QString groupNumber = targetId.mid(QStringLiteral("local_group_").size());
+        return QStringLiteral("群对象卡\n群名:%1\n群号:%2\n成员:%3\n公告:%4")
+            .arg(m_localGroupNames.value(targetId, displayName),
+                 groupNumber,
+                 QString::number(m_localGroupMembers.value(targetId).size()),
+                 m_localGroupAnnouncements.value(targetId, QStringLiteral("暂无公告")));
+    }
+    return QStringLiteral("联系人对象卡\nQQ:%1\n昵称:%2\n状态:%3\n关系:%4")
+        .arg(targetId,
+             displayName,
+             isContactOnline(targetId) ? QStringLiteral("在线") : QStringLiteral("离线"),
+             m_friendIds.contains(targetId) ? QStringLiteral("好友")
+                                            : (m_pendingOutgoingFriendRequests.contains(targetId) ? QStringLiteral("申请中")
+                                                                                                  : QStringLiteral("联系人")));
+}
+
+QString MainWindow::userEntryWorkspaceStatusText(const QString& targetId,
+                                                 const QString& displayName,
+                                                 bool isLocalGroup) const {
+    QStringList lines;
+    lines << QStringLiteral("对象工作区状态");
+    lines << QStringLiteral("对象:%1").arg(displayName);
+    lines << QStringLiteral("标识:%1").arg(targetId);
+    lines << QStringLiteral("类型:%1").arg(isLocalGroup ? QStringLiteral("群聊") : QStringLiteral("联系人"));
+    if (isLocalGroup) {
+        lines << QStringLiteral("成员:%1").arg(m_localGroupMembers.value(targetId).size());
+    } else {
+        lines << QStringLiteral("状态:%1").arg(isContactOnline(targetId) ? QStringLiteral("在线") : QStringLiteral("离线"));
+        lines << QStringLiteral("关系:%1").arg(m_friendIds.contains(targetId) ? QStringLiteral("好友")
+                                                                               : (m_pendingOutgoingFriendRequests.contains(targetId) ? QStringLiteral("申请中")
+                                                                                                                                     : QStringLiteral("联系人")));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString MainWindow::userEntryWorkspaceClipboardText(UserEntryActionRow* row,
+                                                    const QString& targetId,
+                                                    const QString& displayName,
+                                                    bool isLocalGroup) const {
+    if (!row) {
+        return userEntryWorkspaceStatusText(targetId, displayName, isLocalGroup);
+    }
+    if (row->commandId == QLatin1String("chat")
+        || row->commandId == QLatin1String("open-group")
+        || row->commandId == QLatin1String("copy-profile-card")
+        || row->commandId == QLatin1String("copy-group-card")) {
+        return userEntryWorkspaceCardText(targetId, displayName, isLocalGroup);
+    }
+    return row->preview.trimmed().isEmpty()
+        ? userEntryWorkspaceStatusText(targetId, displayName, isLocalGroup)
+        : row->preview;
+}
+
+void MainWindow::updateUserEntryWorkspaceActionState(QPushButton* openBtn,
+                                                     QPushButton* copyCardBtn,
+                                                     QPushButton* copyStatusBtn,
+                                                     QListWidget* listWidget,
+                                                     QList<UserEntryActionRow>& rows) const {
+    UserEntryActionRow* row = selectedUserEntryWorkspaceRow(rows, listWidget);
+    const bool hasActionableRow = hasEnabledListRow(listWidget);
+    if (!openBtn || !copyCardBtn || !copyStatusBtn) {
+        return;
+    }
+    if (!row) {
+        openBtn->setEnabled(false);
+        openBtn->setText(QStringLiteral("执行当前动作"));
+        openBtn->setToolTip(hasActionableRow
+                                ? QStringLiteral("先选择一个对象动作后继续进入会话、复制资料或处理管理动作")
+                                : QStringLiteral("当前没有可执行的对象动作"));
+        copyCardBtn->setEnabled(hasActionableRow);
+        copyCardBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("复制当前对象工作区总览")
+                                    : QStringLiteral("当前没有可复制的对象概览"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制对象工作区当前状态"));
+        return;
+    }
+
+    openBtn->setEnabled(true);
+    openBtn->setText(row->title);
+    openBtn->setToolTip(row->detail);
+    copyCardBtn->setEnabled(true);
+    copyCardBtn->setToolTip(QStringLiteral("复制当前选中对象卡"));
+    copyStatusBtn->setEnabled(true);
+    copyStatusBtn->setToolTip(QStringLiteral("复制对象工作区当前状态"));
+}
+
+void MainWindow::runUserEntryWorkspaceCommand(UserEntryActionRow* row,
+                                              const QString& targetId,
+                                              const QString& displayName,
+                                              bool isLocalGroup,
+                                              QDialog* dialog) {
+    if (!row) {
+        ui->statusbar->showMessage(QStringLiteral("请先选择对象动作"), 1800);
+        return;
+    }
+    if (dialog) dialog->accept();
+    if (isLocalGroup) {
+        handleLocalGroupContextCommand(targetId, displayName, row->commandId);
+    } else {
+        handleContactContextCommand(targetId, row->commandId);
+    }
+}
+
+QString MainWindow::groupMemberWorkspaceRoleText(bool localGroupContext,
+                                                 const QString& ownerId,
+                                                 const QString& memberId) const {
+    if (memberId.isEmpty()) {
+        return QString();
+    }
+    if (localGroupContext) {
+        if (memberId == ownerId) {
+            return QStringLiteral("群主");
+        }
+        if (memberId == m_currentUserId) {
+            return QStringLiteral("我");
+        }
+        return QStringLiteral("成员");
+    }
+    const QString serverRole = m_serverGroupMemberRoles.value(QStringLiteral("public|") + memberId, QStringLiteral("member")).toLower();
+    if (serverRole == QLatin1String("owner")) {
+        return QStringLiteral("群主");
+    }
+    if (serverRole == QLatin1String("admin")) {
+        return QStringLiteral("管理员");
+    }
+    if (memberId == m_currentUserId) {
+        return QStringLiteral("我");
+    }
+    return QStringLiteral("成员");
+}
+
+QList<GroupMemberWorkspaceRow> MainWindow::buildGroupMemberWorkspaceRows(bool localGroupContext,
+                                                                         bool removedFromPublicGroup,
+                                                                         const QString& ownerId,
+                                                                         const QString& filter) const {
+    QList<GroupMemberWorkspaceRow> rows;
+
+    auto appendRowIfMatches = [&](const GroupMemberWorkspaceRow& row) {
+        if (!filter.isEmpty()
+            && !row.memberId.contains(filter, Qt::CaseInsensitive)
+            && !row.displayName.contains(filter, Qt::CaseInsensitive)
+            && !row.role.contains(filter, Qt::CaseInsensitive)
+            && !row.relation.contains(filter, Qt::CaseInsensitive)) {
+            return;
+        }
+        rows << row;
+    };
+
+    if (removedFromPublicGroup) {
+        GroupMemberWorkspaceRow row;
+        row.memberId = m_currentUserId;
+        row.displayName = m_currentUserName;
+        row.role = QStringLiteral("历史只读");
+        row.status = QStringLiteral("已移出");
+        row.relation = QStringLiteral("等待重新邀请");
+        row.preview = QStringLiteral("公共群历史仍可查看，但当前账号已移出，成员管理不可用。");
+        row.enabled = false;
+        row.self = true;
+        appendRowIfMatches(row);
+        return rows;
+    }
+
+    if (localGroupContext) {
+        QStringList members = m_localGroupMembers.value(m_privateChatTarget);
+        if (members.isEmpty()) {
+            members << m_currentUserId;
+        }
+        for (const QString& memberId : members) {
+            GroupMemberWorkspaceRow row;
+            row.memberId = memberId;
+            row.displayName = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
+            row.self = memberId == m_currentUserId;
+            row.online = row.self || isContactOnline(memberId);
+            row.friendRelation = m_friendIds.contains(memberId);
+            row.pendingRelation = !row.friendRelation && m_pendingOutgoingFriendRequests.contains(memberId);
+            row.role = groupMemberWorkspaceRoleText(true, ownerId, memberId);
+            row.status = row.online ? QStringLiteral("在线") : QStringLiteral("离线");
+            row.relation = row.self ? QStringLiteral("本人")
+                                    : (row.friendRelation ? QStringLiteral("好友")
+                                                          : (row.pendingRelation ? QStringLiteral("申请中") : QStringLiteral("可邀请/可申请")));
+            row.preview = QStringLiteral("%1 · QQ:%2 · %3 · %4").arg(row.displayName, row.memberId, row.role, row.relation);
+            row.removable = isCurrentUserGroupOwner(m_privateChatTarget) && memberId != ownerId;
+            row.localGroup = true;
+            appendRowIfMatches(row);
+        }
+        if (rows.isEmpty() && !filter.isEmpty()) {
+            GroupMemberWorkspaceRow inviteRow;
+            inviteRow.memberId = filter;
+            inviteRow.displayName = filter;
+            inviteRow.role = QStringLiteral("待邀请");
+            inviteRow.status = QStringLiteral("未入群");
+            inviteRow.relation = QStringLiteral("按 QQ 号邀请");
+            inviteRow.preview = isCurrentUserGroupOwner(m_privateChatTarget)
+                ? QStringLiteral("双击或点击邀请即可把 QQ:%1 加入当前本地群。").arg(filter)
+                : QStringLiteral("只有群主可以按 QQ 号邀请新成员入群。");
+            inviteRow.enabled = isCurrentUserGroupOwner(m_privateChatTarget);
+            inviteRow.inviteCandidate = true;
+            inviteRow.localGroup = true;
+            appendRowIfMatches(inviteRow);
+        }
+        return rows;
+    }
+
+    QStringList members = m_serverGroupMembers.value(QStringLiteral("public"));
+    if (members.isEmpty()) {
+        members << m_currentUserId;
+    }
+    for (const QString& memberId : members) {
+        GroupMemberWorkspaceRow row;
+        row.memberId = memberId;
+        row.displayName = memberId == m_currentUserId
+            ? m_currentUserName
+            : m_serverGroupMemberNames.value(QStringLiteral("public|") + memberId, contactDisplayName(memberId));
+        row.self = memberId == m_currentUserId;
+        row.online = row.self || isContactOnline(memberId);
+        row.friendRelation = m_friendIds.contains(memberId);
+        row.pendingRelation = !row.friendRelation && !row.self && m_pendingOutgoingFriendRequests.contains(memberId);
+        row.role = groupMemberWorkspaceRoleText(false, ownerId, memberId);
+        row.status = row.online ? QStringLiteral("在线") : QStringLiteral("离线");
+        row.relation = row.self ? QStringLiteral("本人")
+                                : (row.friendRelation ? QStringLiteral("好友")
+                                                      : (row.pendingRelation ? QStringLiteral("申请中") : QStringLiteral("可申请")));
+        row.preview = QStringLiteral("%1 · QQ:%2 · %3 · %4").arg(row.displayName, row.memberId, row.role, row.relation);
+        row.removable = canCurrentUserManageServerGroup(QStringLiteral("public")) && memberId != ownerId && memberId != m_currentUserId;
+        appendRowIfMatches(row);
+    }
+    if (rows.isEmpty() && !filter.isEmpty()) {
+        GroupMemberWorkspaceRow searchRow;
+        searchRow.memberId = filter;
+        searchRow.displayName = filter;
+        searchRow.role = canCurrentUserManageServerGroup(QStringLiteral("public")) ? QStringLiteral("待邀请") : QStringLiteral("待搜索");
+        searchRow.status = QStringLiteral("未加入");
+        searchRow.relation = canCurrentUserManageServerGroup(QStringLiteral("public")) ? QStringLiteral("公共群邀请") : QStringLiteral("好友申请");
+        searchRow.preview = canCurrentUserManageServerGroup(QStringLiteral("public"))
+            ? QStringLiteral("当前账号可管理公共群，双击可提交 QQ:%1 的成员变更。").arg(filter)
+            : QStringLiteral("当前账号不可直接管理公共群，双击会搜索并申请 QQ:%1。").arg(filter);
+        searchRow.enabled = true;
+        searchRow.searchAddCandidate = true;
+        appendRowIfMatches(searchRow);
+    }
+
+    return rows;
+}
+
+void MainWindow::fillGroupMemberWorkspaceList(QListWidget* memberList,
+                                              QLabel* statsLabel,
+                                              QLabel* subTitleLabel,
+                                              const QList<GroupMemberWorkspaceRow>& rows,
+                                              bool localGroupContext,
+                                              bool removedFromPublicGroup,
+                                              const QString& currentGroupName,
+                                              const QString& ownerName) const {
+    if (!memberList || !statsLabel || !subTitleLabel) {
+        return;
+    }
+    memberList->clear();
+    int onlineCount = 0;
+    int friendCount = 0;
+    int pendingCount = 0;
+    for (const GroupMemberWorkspaceRow& row : rows) {
+        QListWidgetItem* item = new QListWidgetItem(
+            QStringLiteral("%1  QQ:%2\n%3 · %4 · %5").arg(row.role, row.memberId, row.displayName, row.status, row.relation));
+        item->setData(Qt::UserRole, row.memberId);
+        item->setData(Qt::UserRole + 1, row.displayName);
+        item->setData(Qt::UserRole + 2, row.role);
+        item->setData(Qt::UserRole + 3, row.status);
+        item->setData(Qt::UserRole + 4, row.relation);
+        item->setData(Qt::UserRole + 5, row.preview);
+        item->setData(Qt::UserRole + 6, row.enabled);
+        item->setData(Qt::UserRole + 7, row.self);
+        item->setData(Qt::UserRole + 8, row.online);
+        item->setData(Qt::UserRole + 9, row.friendRelation);
+        item->setData(Qt::UserRole + 10, row.pendingRelation);
+        item->setData(Qt::UserRole + 11, row.inviteCandidate);
+        item->setData(Qt::UserRole + 12, row.searchAddCandidate);
+        item->setData(Qt::UserRole + 13, row.removable);
+        item->setData(Qt::UserRole + 14, row.localGroup);
+        item->setSizeHint(QSize(0, row.inviteCandidate || row.searchAddCandidate ? 72 : 78));
+        item->setToolTip(row.preview);
+        if (!row.enabled) {
+            item->setFlags(Qt::NoItemFlags);
+            item->setForeground(QColor(135, 150, 165));
+        } else if (row.self) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.friendRelation) {
+            item->setForeground(QColor(20, 92, 160));
+        } else if (row.pendingRelation) {
+            item->setForeground(QColor(170, 110, 20));
+        } else if (row.inviteCandidate || row.searchAddCandidate) {
+            item->setForeground(QColor(13, 148, 136));
+        }
+        memberList->addItem(item);
+        if (row.online) ++onlineCount;
+        if (row.friendRelation) ++friendCount;
+        if (row.pendingRelation) ++pendingCount;
+    }
+
+    const int visibleCount = rows.size();
+    statsLabel->setText(QStringLiteral("可见 %1 · 在线 %2 · 好友 %3%4")
+                            .arg(visibleCount)
+                            .arg(onlineCount)
+                            .arg(friendCount)
+                            .arg(pendingCount > 0 ? QStringLiteral(" · 申请中 %1").arg(pendingCount) : QString()));
+    subTitleLabel->setText(localGroupContext
+                               ? QStringLiteral("当前群：%1 · 群主 %2 · 可管理 %3")
+                                     .arg(currentGroupName)
+                                     .arg(ownerName)
+                                     .arg(isCurrentUserGroupOwner(m_privateChatTarget) ? QStringLiteral("是") : QStringLiteral("否"))
+                               : (removedFromPublicGroup
+                                      ? QStringLiteral("公共群历史只读 · 当前账号已移出")
+                                      : QStringLiteral("公共聊天室 · 群主 %1 · 可管理 %2")
+                                            .arg(ownerName)
+                                            .arg(canCurrentUserManageServerGroup(QStringLiteral("public")) ? QStringLiteral("是") : QStringLiteral("否"))));
+    if (memberList->count() > 0) {
+        selectPreferredListRow(memberList, 0);
+    }
+}
+
+GroupMemberWorkspaceRow* MainWindow::selectedGroupMemberWorkspaceRow(QList<GroupMemberWorkspaceRow>& rows,
+                                                                     QListWidget* memberList) const {
+    if (!memberList) {
+        return nullptr;
+    }
+    QListWidgetItem* currentItem = memberList->currentItem();
+    if (!currentItem) {
+        return nullptr;
+    }
+    const QString id = currentItem->data(Qt::UserRole).toString();
+    const bool inviteCandidate = currentItem->data(Qt::UserRole + 11).toBool();
+    const bool searchAddCandidate = currentItem->data(Qt::UserRole + 12).toBool();
+    for (GroupMemberWorkspaceRow& row : rows) {
+        if (row.memberId == id
+            && row.inviteCandidate == inviteCandidate
+            && row.searchAddCandidate == searchAddCandidate) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::groupMemberWorkspaceCardText(GroupMemberWorkspaceRow* row) const {
+    if (!row) {
+        return QString();
+    }
+    return QStringLiteral("QQ:%1\n昵称:%2\n角色:%3\n状态:%4\n关系:%5")
+        .arg(row->memberId,
+             row->displayName,
+             row->role,
+             row->status,
+             row->relation);
+}
+
+QString MainWindow::groupMemberWorkspaceInviteText(GroupMemberWorkspaceRow* row,
+                                                   bool localGroupContext,
+                                                   const QString& currentGroupName) const {
+    const QString memberName = row && !row->displayName.isEmpty() ? row->displayName : QStringLiteral("朋友");
+    if (localGroupContext) {
+        return QStringLiteral("我邀请你加入群聊“%1”。我是 %2（QQ:%3），进群后我们可以继续沟通。")
+            .arg(currentGroupName, m_currentUserName, m_currentUserId);
+    }
+    if (row && !row->memberId.isEmpty() && !memberName.isEmpty()) {
+        return QStringLiteral("%1，你好。我是 %2（QQ:%3），方便的话可以先通过好友申请，我们再继续沟通。")
+            .arg(memberName, m_currentUserName, m_currentUserId);
+    }
+    return QStringLiteral("%1，你好。我是 %2（QQ:%3），欢迎加入公共聊天室，也可以先加我好友继续沟通。")
+        .arg(memberName, m_currentUserName, m_currentUserId);
+}
+
+QString MainWindow::groupMemberWorkspaceVisibleMembersText(QListWidget* memberList,
+                                                           bool onlineOnly) const {
+    if (!memberList) {
+        return QString();
+    }
+    QStringList lines;
+    for (int i = 0; i < memberList->count(); ++i) {
+        QListWidgetItem* item = memberList->item(i);
+        if (!item || item->data(Qt::UserRole).toString().isEmpty()) {
+            continue;
+        }
+        const bool online = item->data(Qt::UserRole + 8).toBool();
+        if (onlineOnly && !online) {
+            continue;
+        }
+        lines << QStringLiteral("QQ:%1 昵称:%2 角色:%3 状态:%4 关系:%5")
+                    .arg(item->data(Qt::UserRole).toString(),
+                         item->data(Qt::UserRole + 1).toString(),
+                         item->data(Qt::UserRole + 2).toString(),
+                         item->data(Qt::UserRole + 3).toString(),
+                         item->data(Qt::UserRole + 4).toString());
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString MainWindow::groupMemberWorkspacePrimaryCommand(GroupMemberWorkspaceRow* row) const {
+    if (!row) {
+        return QString();
+    }
+    if (row->inviteCandidate) {
+        return QStringLiteral("invite");
+    }
+    if (row->searchAddCandidate) {
+        return QStringLiteral("search-add");
+    }
+    return QStringLiteral("chat");
+}
+
+void MainWindow::updateGroupMemberWorkspaceActionState(QPushButton* chatBtn,
+                                                       QPushButton* inviteBtn,
+                                                       QPushButton* addFriendBtn,
+                                                       QPushButton* remarkBtn,
+                                                       QPushButton* removeBtn,
+                                                       QPushButton* copyMemberBtn,
+                                                       QPushButton* copyVisibleBtn,
+                                                       QPushButton* copyOnlineBtn,
+                                                       QPushButton* copyInviteTextBtn,
+                                                       QListWidget* memberList,
+                                                       QList<GroupMemberWorkspaceRow>& rows,
+                                                       bool localGroupContext,
+                                                       bool removedFromPublicGroup) const {
+    GroupMemberWorkspaceRow* row = selectedGroupMemberWorkspaceRow(rows, memberList);
+    const bool hasEnabled = memberList && firstEnabledListRow(memberList) >= 0;
+    if (!chatBtn || !inviteBtn || !addFriendBtn || !remarkBtn || !removeBtn
+        || !copyMemberBtn || !copyVisibleBtn || !copyOnlineBtn || !copyInviteTextBtn) {
+        return;
+    }
+
+    if (!row) {
+        chatBtn->setText(QStringLiteral("打开私聊"));
+        chatBtn->setEnabled(false);
+        chatBtn->setToolTip(QStringLiteral("选择真实成员后可打开私聊"));
+        inviteBtn->setText(QStringLiteral("邀请/加成员"));
+        inviteBtn->setEnabled(false);
+        inviteBtn->setToolTip(QStringLiteral("先选择一个成员或邀请条目"));
+        addFriendBtn->setText(QStringLiteral("发起好友申请"));
+        addFriendBtn->setEnabled(false);
+        addFriendBtn->setToolTip(QStringLiteral("先选择一个成员"));
+        remarkBtn->setText(QStringLiteral("设置备注"));
+        remarkBtn->setEnabled(false);
+        removeBtn->setText(QStringLiteral("移出群聊"));
+        removeBtn->setEnabled(false);
+        copyMemberBtn->setEnabled(false);
+        copyInviteTextBtn->setEnabled(false);
+        copyVisibleBtn->setEnabled(hasEnabled);
+        copyOnlineBtn->setEnabled(hasEnabled);
+        return;
+    }
+
+    chatBtn->setText(QStringLiteral("打开私聊"));
+    chatBtn->setEnabled(row->enabled && !row->self && !row->inviteCandidate && !row->searchAddCandidate);
+    chatBtn->setToolTip(chatBtn->isEnabled()
+                            ? QStringLiteral("打开 %1 的私聊会话").arg(row->displayName)
+                            : QStringLiteral("选择真实成员后可打开私聊"));
+    inviteBtn->setText(row->inviteCandidate || row->searchAddCandidate ? QStringLiteral("处理当前条目") : QStringLiteral("邀请/加成员"));
+    inviteBtn->setEnabled(row->enabled && !row->self);
+    inviteBtn->setToolTip(localGroupContext
+                              ? (isCurrentUserGroupOwner(m_privateChatTarget)
+                                     ? QStringLiteral("邀请成员加入当前本地群聊")
+                                     : QStringLiteral("只有群主可以邀请新成员入群"))
+                              : (removedFromPublicGroup
+                                     ? QStringLiteral("公共群历史只读，无法邀请成员")
+                                     : (canCurrentUserManageServerGroup(QStringLiteral("public"))
+                                            ? QStringLiteral("提交公共群成员变更")
+                                            : QStringLiteral("搜索成员或发起好友申请"))));
+    addFriendBtn->setText(QStringLiteral("发起好友申请"));
+    addFriendBtn->setEnabled(row->enabled && !row->self && !row->friendRelation && !row->pendingRelation && !row->inviteCandidate);
+    addFriendBtn->setToolTip(addFriendBtn->isEnabled()
+                                 ? QStringLiteral("向 %1 发起好友申请").arg(row->memberId)
+                                 : QStringLiteral("当前成员不需要重复发起好友申请"));
+    remarkBtn->setText(QStringLiteral("设置备注"));
+    remarkBtn->setEnabled(row->enabled && !row->inviteCandidate && !row->searchAddCandidate);
+    removeBtn->setText(QStringLiteral("移出群聊"));
+    removeBtn->setEnabled(row->removable);
+    copyMemberBtn->setEnabled(row->enabled);
+    copyInviteTextBtn->setEnabled(row->enabled);
+    copyVisibleBtn->setEnabled(hasEnabled);
+    copyOnlineBtn->setEnabled(hasEnabled);
+}
+
+QList<ChatHistoryWorkspaceRow> MainWindow::buildChatHistoryWorkspaceRows() const {
+    QList<ChatHistoryWorkspaceRow> rows;
+    if (!m_chatModel) {
+        return rows;
+    }
+    for (int row = 0; row < m_chatModel->rowCount(); ++row) {
+        QModelIndex index = m_chatModel->index(row, 0);
+        if (!index.isValid()) {
+            continue;
+        }
+        const QString chatText = index.data().toString();
+        if (chatText.trimmed().isEmpty()) {
+            continue;
+        }
+        ChatHistoryWorkspaceRow item;
+        item.index = index;
+        item.chatText = chatText;
+        item.savedFileState = savedFileActionState(index);
+        const ChatContextSavedFileState savedContextState = chatContextSavedFileState(item.savedFileState);
+        item.isMediaMessage = ChatContextManager::isMediaMessage(chatText, savedContextState);
+        const QString sender = ChatContextManager::senderText(chatText).trimmed().isEmpty()
+            ? QStringLiteral("系统/会话")
+            : ChatContextManager::senderText(chatText);
+        const QString timeText = ChatContextManager::timeText(chatText).trimmed().isEmpty()
+            ? QStringLiteral("未知时间")
+            : ChatContextManager::timeText(chatText);
+        const QString plainText = ChatContextManager::plainContentText(chatText).trimmed();
+        item.title = QStringLiteral("%1 · %2").arg(sender, timeText);
+        item.detail = plainText.isEmpty()
+            ? QStringLiteral("消息内容较短或为结构化卡片，请查看下方预览。")
+            : plainText.left(96);
+        if (item.savedFileState.hasSavePath) {
+            item.detail += QStringLiteral("\n已保存文件：%1").arg(item.savedFileState.fileInfo.fileName());
+        } else if (item.isMediaMessage) {
+            item.detail += QStringLiteral("\n媒体消息：%1").arg(ChatContextManager::mediaTypeFromChatText(chatText));
+        }
+        item.preview = QStringLiteral("发送人：%1\n时间：%2\n正文：%3")
+                           .arg(sender,
+                                timeText,
+                                plainText.isEmpty() ? chatText.left(180) : plainText);
+        if (item.savedFileState.hasSavePath) {
+            item.preview += QStringLiteral("\n保存路径：%1").arg(item.savedFileState.savePath);
+        }
+        item.keywords = item.title + item.detail + item.preview + chatText;
+        rows << item;
+    }
+    return rows;
+}
+
+void MainWindow::fillChatHistoryWorkspaceList(QListWidget* messageList,
+                                              QLabel* statsLabel,
+                                              const QList<ChatHistoryWorkspaceRow>& rows,
+                                              const QString& filter,
+                                              int preferredRow) const {
+    if (!messageList || !statsLabel) {
+        return;
+    }
+    messageList->clear();
+    int visibleCount = 0;
+    for (const ChatHistoryWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.index.row());
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, row.savedFileState.hasSavePath || row.isMediaMessage ? 84 : 74));
+        if (row.savedFileState.hasSavePath) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.isMediaMessage) {
+            item->setForeground(QColor(13, 148, 136));
+        }
+        messageList->addItem(item);
+        ++visibleCount;
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 / %2 条").arg(visibleCount).arg(rows.size()));
+    if (messageList->count() <= 0) {
+        return;
+    }
+
+    int preferredVisibleRow = -1;
+    if (preferredRow >= 0) {
+        for (int i = 0; i < messageList->count(); ++i) {
+            QListWidgetItem* item = messageList->item(i);
+            if (item && item->data(Qt::UserRole).toInt() == preferredRow) {
+                preferredVisibleRow = i;
+                break;
+            }
+        }
+    }
+    if (preferredVisibleRow >= 0) {
+        messageList->setCurrentRow(preferredVisibleRow);
+    } else {
+        messageList->setCurrentRow(messageList->count() - 1);
+    }
+}
+
+ChatHistoryWorkspaceRow* MainWindow::selectedChatHistoryWorkspaceRow(QList<ChatHistoryWorkspaceRow>& rows,
+                                                                     QListWidget* messageList) const {
+    if (!messageList) {
+        return nullptr;
+    }
+    QListWidgetItem* item = messageList->currentItem();
+    const int rowIndex = item ? item->data(Qt::UserRole).toInt() : -1;
+    for (ChatHistoryWorkspaceRow& row : rows) {
+        if (row.index.row() == rowIndex) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::chatHistoryWorkspaceSummaryText(ChatHistoryWorkspaceRow* row) const {
+    if (!row) {
+        return QString();
+    }
+    return QStringLiteral("消息摘要\n%1\n%2")
+        .arg(row->title,
+             ChatContextManager::plainContentText(row->chatText).trimmed().isEmpty()
+                 ? row->chatText
+                 : ChatContextManager::plainContentText(row->chatText));
+}
+
+void MainWindow::updateChatHistoryWorkspaceActionState(QPushButton* copySummaryBtn,
+                                                       QPushButton* quoteBtn,
+                                                       QPushButton* forwardBtn,
+                                                       QPushButton* resendBtn,
+                                                       QPushButton* copyMediaBtn,
+                                                       QPushButton* openFileWorkspaceBtn,
+                                                       QPushButton* openSavedFileBtn,
+                                                       QPushButton* openFolderBtn,
+                                                       QPushButton* copyPathBtn,
+                                                       QListWidget* messageList,
+                                                       QList<ChatHistoryWorkspaceRow>& rows) const {
+    ChatHistoryWorkspaceRow* row = selectedChatHistoryWorkspaceRow(rows, messageList);
+    const bool hasSelection = row != nullptr;
+    const bool hasSavedFile = hasSelection && row->savedFileState.hasSavePath;
+    const bool hasMedia = hasSelection && row->isMediaMessage;
+    if (!copySummaryBtn || !quoteBtn || !forwardBtn || !resendBtn || !copyMediaBtn
+        || !openFileWorkspaceBtn || !openSavedFileBtn || !openFolderBtn || !copyPathBtn) {
+        return;
+    }
+    copySummaryBtn->setEnabled(hasSelection);
+    quoteBtn->setEnabled(hasSelection);
+    forwardBtn->setEnabled(hasSelection);
+    resendBtn->setEnabled(hasSelection);
+    copyMediaBtn->setEnabled(hasSelection && (hasMedia || hasSavedFile));
+    openFileWorkspaceBtn->setEnabled(hasSavedFile);
+    openSavedFileBtn->setEnabled(hasSavedFile && row->savedFileState.canOpenFile);
+    openFolderBtn->setEnabled(hasSavedFile && row->savedFileState.canOpenFolder);
+    copyPathBtn->setEnabled(hasSavedFile);
+}
+
+QString MainWindow::avatarWorkspaceCardText() const {
+    const QFileInfo avatarInfo(getAvatarFilePath());
+    return QStringLiteral("我的头像卡片\nQQ:%1\n昵称:%2\n头像:%3")
+        .arg(m_currentUserId,
+             m_currentUserName,
+             avatarInfo.exists()
+                 ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
+                 : QStringLiteral("当前使用默认头像"));
+}
+
+QString MainWindow::avatarWorkspaceStatusText() const {
+    const QFileInfo avatarInfo(getAvatarFilePath());
+    return avatarInfo.exists()
+        ? QStringLiteral("头像工作区 · 当前头像 %1 · %2 · 路径 %3")
+              .arg(avatarInfo.fileName(),
+                   LocalFileManager::humanFileSize(avatarInfo.size()),
+                   avatarInfo.absoluteFilePath())
+        : QStringLiteral("头像工作区 · 当前使用默认头像，可立即选择并保存新头像");
+}
+
+QList<AvatarWorkspaceRow> MainWindow::buildAvatarWorkspaceRows() const {
+    QList<AvatarWorkspaceRow> rows;
+    const QFileInfo avatarInfo(getAvatarFilePath());
+    const bool hasAvatarFile = avatarInfo.exists();
+
+    rows << AvatarWorkspaceRow{
+        QStringLiteral("avatar-overview"),
+        QStringLiteral("当前头像"),
+        hasAvatarFile
+            ? QStringLiteral("%1 · %2").arg(avatarInfo.fileName(), LocalFileManager::humanFileSize(avatarInfo.size()))
+            : QStringLiteral("当前使用默认头像"),
+        hasAvatarFile
+            ? QStringLiteral("头像总览\n头像：%1\n路径：%2\n可继续：更换头像、复制路径、打开目录")
+                  .arg(avatarInfo.fileName(), avatarInfo.absoluteFilePath())
+            : QStringLiteral("头像总览\n当前使用默认头像\n可继续：选择并保存新头像，然后再复制路径或打开目录。"),
+        QStringLiteral("头像 总览 路径 目录"),
+        true,
+        false};
+    rows << AvatarWorkspaceRow{
+        QStringLiteral("avatar-replace"),
+        QStringLiteral("更换头像"),
+        QStringLiteral("打开头像选择器，更新当前账号头像"),
+        QStringLiteral("更换头像\n会把新头像裁成统一方形并保存到本机资料目录。"),
+        QStringLiteral("更换 头像 上传 保存"),
+        false,
+        false};
+    rows << AvatarWorkspaceRow{
+        QStringLiteral("avatar-copy-card"),
+        QStringLiteral("复制头像卡片"),
+        QStringLiteral("复制当前头像、昵称和账号摘要"),
+        QStringLiteral("复制头像卡片\n便于留档、反馈或发给其他人核对当前头像状态。"),
+        QStringLiteral("复制 头像 卡片"),
+        false,
+        false};
+    rows << AvatarWorkspaceRow{
+        QStringLiteral("avatar-copy-path"),
+        QStringLiteral("复制头像路径"),
+        hasAvatarFile ? QStringLiteral("复制当前头像在本机的路径") : QStringLiteral("当前还没有保存过自定义头像"),
+        hasAvatarFile
+            ? QStringLiteral("复制头像路径\n当前头像文件位于：%1").arg(avatarInfo.absoluteFilePath())
+            : QStringLiteral("复制头像路径\n当前没有可复制的头像文件路径。"),
+        QStringLiteral("复制 路径 头像"),
+        false,
+        !hasAvatarFile};
+    rows << AvatarWorkspaceRow{
+        QStringLiteral("avatar-open-folder"),
+        QStringLiteral("打开头像目录"),
+        hasAvatarFile ? QStringLiteral("直接打开当前头像所在目录") : QStringLiteral("当前还没有保存过自定义头像"),
+        hasAvatarFile
+            ? QStringLiteral("打开头像目录\n会定位到当前头像所在目录，便于继续替换、备份或清理。")
+            : QStringLiteral("打开头像目录\n当前没有自定义头像文件，建议先保存一个头像。"),
+        QStringLiteral("打开 目录 头像"),
+        false,
+        !hasAvatarFile};
+    rows << AvatarWorkspaceRow{
+        QStringLiteral("avatar-copy-status"),
+        QStringLiteral("复制头像状态"),
+        QStringLiteral("复制当前头像工作区状态"),
+        QStringLiteral("复制头像状态\n整理当前头像文件、路径和是否已保存，便于反馈和记录。"),
+        QStringLiteral("复制 状态 头像"),
+        false,
+        false};
+
+    return rows;
+}
+
+void MainWindow::fillAvatarWorkspaceList(QListWidget* listWidget,
+                                         QLabel* statsLabel,
+                                         const QList<AvatarWorkspaceRow>& rows,
+                                         const QString& filter,
+                                         const QString& emptyPreviewText) const {
+    if (!listWidget || !statsLabel) {
+        return;
+    }
+    listWidget->clear();
+    int visibleCount = 0;
+    for (const AvatarWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.id);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (row.accent) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.muted) {
+            item->setForeground(QColor(100, 116, 139));
+        }
+        listWidget->addItem(item);
+        ++visibleCount;
+    }
+    if (visibleCount == 0) {
+        addWorkspaceEmptyStateItem(
+            listWidget,
+            QStringLiteral("没有匹配的头像动作"),
+            QStringLiteral("试试“头像”、“路径”、“目录”或“状态”这些关键词。"),
+            emptyPreviewText);
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
+    selectPreferredListRow(listWidget, 0);
+}
+
+AvatarWorkspaceRow* MainWindow::selectedAvatarWorkspaceRow(QList<AvatarWorkspaceRow>& rows,
+                                                           QListWidget* listWidget) const {
+    if (!listWidget) {
+        return nullptr;
+    }
+    QListWidgetItem* currentItem = listWidget->currentItem();
+    if (!currentItem) {
+        return nullptr;
+    }
+    const QString id = currentItem->data(Qt::UserRole).toString();
+    for (AvatarWorkspaceRow& row : rows) {
+        if (row.id == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::avatarWorkspaceClipboardText(AvatarWorkspaceRow* row) const {
+    if (!row) {
+        return avatarWorkspaceStatusText();
+    }
+    if (row->id == QLatin1String("avatar-copy-card")) {
+        return avatarWorkspaceCardText();
+    }
+    if (row->id == QLatin1String("avatar-copy-path")) {
+        return QFileInfo(getAvatarFilePath()).absoluteFilePath();
+    }
+    return avatarWorkspaceStatusText();
+}
+
+void MainWindow::updateAvatarWorkspaceActionState(QPushButton* openBtn,
+                                                  QPushButton* copyCardBtn,
+                                                  QPushButton* copyStatusBtn,
+                                                  QListWidget* listWidget,
+                                                  QList<AvatarWorkspaceRow>& rows) const {
+    AvatarWorkspaceRow* row = selectedAvatarWorkspaceRow(rows, listWidget);
+    const QFileInfo avatarInfo(getAvatarFilePath());
+    const bool hasActionableRow = hasEnabledListRow(listWidget);
+    if (!openBtn || !copyCardBtn || !copyStatusBtn) {
+        return;
+    }
+    if (!row) {
+        openBtn->setEnabled(false);
+        openBtn->setText(QStringLiteral("执行当前动作"));
+        openBtn->setToolTip(hasActionableRow
+                                ? QStringLiteral("先选择一个头像动作后继续更换、复制路径或打开目录")
+                                : QStringLiteral("当前没有可执行的头像动作"));
+        copyCardBtn->setEnabled(hasActionableRow);
+        copyCardBtn->setToolTip(hasActionableRow
+                                    ? QStringLiteral("复制当前头像工作区总览")
+                                    : QStringLiteral("当前没有可复制的头像摘要"));
+        copyStatusBtn->setEnabled(true);
+        copyStatusBtn->setToolTip(QStringLiteral("复制头像工作区当前状态"));
+        return;
+    }
+
+    copyCardBtn->setEnabled(true);
+    copyStatusBtn->setEnabled(true);
+    copyStatusBtn->setToolTip(QStringLiteral("复制头像工作区当前状态"));
+    openBtn->setEnabled(true);
+    if (row->id == QLatin1String("avatar-replace")) {
+        openBtn->setText(QStringLiteral("更换头像"));
+        openBtn->setToolTip(QStringLiteral("打开头像选择器并保存新头像"));
+        copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片与状态摘要"));
+    } else if (row->id == QLatin1String("avatar-copy-card")) {
+        openBtn->setText(QStringLiteral("复制头像卡"));
+        openBtn->setToolTip(QStringLiteral("复制当前头像卡片"));
+        copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片"));
+    } else if (row->id == QLatin1String("avatar-copy-path")) {
+        openBtn->setText(QStringLiteral("复制头像路径"));
+        openBtn->setEnabled(avatarInfo.exists());
+        openBtn->setToolTip(avatarInfo.exists()
+                                ? QStringLiteral("复制当前头像在本机的路径")
+                                : QStringLiteral("当前还没有保存过自定义头像"));
+        copyCardBtn->setToolTip(avatarInfo.exists()
+                                    ? QStringLiteral("复制当前头像路径")
+                                    : QStringLiteral("当前还没有保存过自定义头像"));
+    } else if (row->id == QLatin1String("avatar-open-folder")) {
+        openBtn->setText(QStringLiteral("打开头像目录"));
+        openBtn->setEnabled(avatarInfo.exists());
+        openBtn->setToolTip(avatarInfo.exists()
+                                ? QStringLiteral("定位到当前头像所在目录")
+                                : QStringLiteral("当前还没有保存过自定义头像"));
+        copyCardBtn->setToolTip(QStringLiteral("复制当前头像卡片与目录状态摘要"));
+    } else if (row->id == QLatin1String("avatar-overview")) {
+        openBtn->setText(QStringLiteral("复制头像状态"));
+        openBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+        copyCardBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+    } else {
+        openBtn->setText(QStringLiteral("复制头像状态"));
+        openBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+        copyCardBtn->setToolTip(QStringLiteral("复制当前头像工作区状态"));
+    }
+}
+
+void MainWindow::runAvatarWorkspaceCommand(AvatarWorkspaceRow* row,
+                                           QDialog* dialog) {
+    if (!row) {
+        return;
+    }
+    const QFileInfo avatarInfo(getAvatarFilePath());
+    if (row->id == QLatin1String("avatar-replace")) {
+        if (dialog) dialog->accept();
+        onUploadAvatar();
+        return;
+    }
+    if (row->id == QLatin1String("avatar-overview")) {
+        copyTextWithStatus(avatarWorkspaceStatusText(), QStringLiteral("头像状态已复制"), 2200);
+        return;
+    }
+    if (row->id == QLatin1String("avatar-copy-card")) {
+        copyTextWithStatus(avatarWorkspaceCardText(), QStringLiteral("头像卡片已复制"), 2200);
+        return;
+    }
+    if (row->id == QLatin1String("avatar-copy-path")) {
+        if (!avatarInfo.exists()) {
+            ui->statusbar->showMessage(QStringLiteral("当前还没有保存过自定义头像"), 2200);
+            return;
+        }
+        copyTextWithStatus(avatarInfo.absoluteFilePath(), QStringLiteral("头像路径已复制"), 2200);
+        return;
+    }
+    if (row->id == QLatin1String("avatar-open-folder")) {
+        if (!avatarInfo.exists()) {
+            ui->statusbar->showMessage(QStringLiteral("当前还没有保存过自定义头像"), 2200);
+            return;
+        }
+        if (!QDesktopServices::openUrl(QUrl::fromLocalFile(avatarInfo.absolutePath()))) {
+            ui->statusbar->showMessage(QStringLiteral("头像目录无法打开"), 2200);
+        } else {
+            ui->statusbar->showMessage(QStringLiteral("已打开头像目录"), 2200);
+        }
+        return;
+    }
+    if (row->id == QLatin1String("avatar-copy-status")) {
+        copyTextWithStatus(avatarWorkspaceStatusText(), QStringLiteral("头像状态已复制"), 2200);
+    }
+}
+
+QList<ComposerWorkspaceRow> MainWindow::buildComposerWorkspaceRows(const ChatContextComposerState& composerState,
+                                                                   const QString& draftText,
+                                                                   const QString& clipboardText) const {
+    QList<ComposerWorkspaceRow> rows;
+    const QString targetName = composerState.targetDisplayName;
+    const bool hasDraft = !draftText.isEmpty();
+    const bool hasClipboardText = !clipboardText.isEmpty();
+
+    ComposerWorkspaceRow draftSummary;
+    draftSummary.id = QStringLiteral("draft-summary");
+    draftSummary.title = hasDraft ? QStringLiteral("当前草稿 · 已就绪") : QStringLiteral("当前草稿 · 仍为空");
+    draftSummary.detail = hasDraft
+        ? QStringLiteral("当前草稿 %1 字\n可直接发送、清空、补充快捷短语，或复制成工作区摘要。").arg(draftText.size())
+        : QStringLiteral("当前还没有输入消息\n可以先选快捷短语、@提及、会话提示，再继续补正文。");
+    draftSummary.preview = hasDraft ? draftText : QStringLiteral("当前会话还没有输入中的消息内容。");
+    draftSummary.keywords = draftSummary.title + draftSummary.detail + draftSummary.preview;
+    rows << draftSummary;
+
+    const QList<ChatContextComposerMenuAction> composerActions = ChatContextManager::composerMenuActions();
+    for (const ChatContextComposerMenuAction& action : composerActions) {
+        ComposerWorkspaceRow row;
+        row.id = action.commandId;
+        row.title = action.title;
+        row.detail = action.toolTip;
+        row.preview = QStringLiteral("当前会话：%1\n草稿长度：%2 字").arg(targetName).arg(draftText.size());
+        row.keywords = row.title + row.detail + row.preview;
+        rows << row;
+    }
+
+    const QList<ChatContextPhraseMenuPlan> phrasePlans = ChatContextManager::composerPhraseMenuPlans();
+    for (const ChatContextPhraseMenuPlan& plan : phrasePlans) {
+        for (const QString& phrase : plan.phrases) {
+            ComposerWorkspaceRow row;
+            row.id = QStringLiteral("phrase:") + phrase;
+            row.title = QStringLiteral("%1 · %2").arg(plan.title, phrase.left(18));
+            row.detail = plan.insertedStatusMessage;
+            row.preview = phrase;
+            row.keywords = row.title + row.detail + row.preview;
+            row.phrase = true;
+            row.phraseText = phrase;
+            row.insertMode = plan.title.contains(QStringLiteral("追加"));
+            rows << row;
+        }
+    }
+
+    ComposerMentionMenuPlan mentionPlan;
+    QStringList mentionIds;
+    QMap<QString, QString> mentionNames;
+    if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith(QStringLiteral("local_group_"))) {
+        mentionIds = m_localGroupMembers.value(m_privateChatTarget);
+    } else {
+        for (auto it = m_knownUsers.begin(); it != m_knownUsers.end(); ++it) {
+            mentionIds << it.key();
+            mentionNames[it.key()] = it.value().name;
+        }
+    }
+    for (const QString& memberId : mentionIds) {
+        if (!mentionNames.contains(memberId)) {
+            mentionNames[memberId] = memberId == m_currentUserId ? m_currentUserName : contactDisplayName(memberId);
+        }
+    }
+    mentionPlan = ComposerManager::mentionMenuPlan(mentionIds, m_currentUserId, mentionNames);
+    for (const ComposerMentionAction& mentionAction : mentionPlan.actions) {
+        ComposerWorkspaceRow row;
+        row.id = QStringLiteral("mention:") + mentionAction.insertText;
+        row.title = QStringLiteral("@ 提及 · %1").arg(mentionAction.title);
+        row.detail = mentionAction.statusMessage;
+        row.preview = mentionAction.insertText;
+        row.keywords = row.title + row.detail + row.preview;
+        row.phrase = true;
+        row.phraseText = mentionAction.insertText;
+        row.insertMode = true;
+        rows << row;
+    }
+
+    ComposerWorkspaceRow imageRow;
+    imageRow.id = QStringLiteral("open-image");
+    imageRow.title = QStringLiteral("图片/视频入口");
+    imageRow.detail = ui->imageBtn->toolTip();
+    imageRow.preview = QStringLiteral("打开图片/视频选择器，沿用当前会话上下文。");
+    imageRow.keywords = imageRow.title + imageRow.detail + imageRow.preview;
+    imageRow.enabled = ui->imageBtn->isEnabled();
+    rows << imageRow;
+
+    ComposerWorkspaceRow fileRow;
+    fileRow.id = QStringLiteral("open-file");
+    fileRow.title = QStringLiteral("闪传文件入口");
+    fileRow.detail = ui->fileBtn->toolTip();
+    fileRow.preview = QStringLiteral("打开文件选择器，沿用当前会话上下文。");
+    fileRow.keywords = fileRow.title + fileRow.detail + fileRow.preview;
+    fileRow.enabled = ui->fileBtn->isEnabled();
+    rows << fileRow;
+
+    ComposerWorkspaceRow sendRow;
+    sendRow.id = QStringLiteral("send-now");
+    sendRow.title = QStringLiteral("立即发送");
+    sendRow.detail = ui->sendBtn->toolTip();
+    sendRow.preview = hasDraft ? draftText : QStringLiteral("当前没有可发送草稿。");
+    sendRow.keywords = sendRow.title + sendRow.detail + sendRow.preview;
+    sendRow.enabled = ui->sendBtn->isEnabled();
+    rows << sendRow;
+
+    ComposerWorkspaceRow copySummaryRow;
+    copySummaryRow.id = QStringLiteral("copy-composer-summary");
+    copySummaryRow.title = QStringLiteral("复制消息工作区摘要");
+    copySummaryRow.detail = QStringLiteral("复制当前会话、草稿和输入入口摘要，便于调试或向外同步上下文。");
+    copySummaryRow.preview = QStringLiteral("会话：%1\n草稿：%2 字\n好友：%3 · 群聊：%4")
+                                 .arg(targetName)
+                                 .arg(draftText.size())
+                                 .arg(m_friendIds.size())
+                                 .arg(m_localGroupIds.size());
+    copySummaryRow.keywords = copySummaryRow.title + copySummaryRow.detail + copySummaryRow.preview;
+    rows << copySummaryRow;
+
+    ComposerWorkspaceRow clipboardRow;
+    clipboardRow.id = QStringLiteral("paste-clipboard");
+    clipboardRow.title = QStringLiteral("贴入剪贴板");
+    clipboardRow.detail = hasClipboardText
+        ? QStringLiteral("把剪贴板内容带入当前输入区，继续编辑或发送。")
+        : QStringLiteral("当前剪贴板为空，暂时没有可带入的内容。");
+    clipboardRow.preview = hasClipboardText ? clipboardText.left(120) : QStringLiteral("剪贴板为空");
+    clipboardRow.keywords = clipboardRow.title + clipboardRow.detail + clipboardRow.preview;
+    clipboardRow.enabled = hasClipboardText;
+    rows << clipboardRow;
+
+    return rows;
+}
+
+void MainWindow::fillComposerWorkspaceList(QListWidget* actionList,
+                                           QLabel* statsLabel,
+                                           const QList<ComposerWorkspaceRow>& rows,
+                                           const QString& filter,
+                                           int draftLength) const {
+    if (!actionList || !statsLabel) {
+        return;
+    }
+    actionList->clear();
+    int visibleCount = 0;
+    for (const ComposerWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.id);
+        item->setData(Qt::UserRole + 1, row.preview);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (!row.enabled) {
+            item->setFlags(Qt::NoItemFlags);
+            item->setForeground(QColor(135, 150, 165));
+        } else if (row.phrase) {
+            item->setForeground(QColor(29, 78, 216));
+        }
+        actionList->addItem(item);
+        ++visibleCount;
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 项 · 草稿 %2 字").arg(visibleCount).arg(draftLength));
+    selectPreferredListRow(actionList, 0);
+}
+
+ComposerWorkspaceRow* MainWindow::selectedComposerWorkspaceRow(QList<ComposerWorkspaceRow>& rows,
+                                                               QListWidget* actionList) const {
+    if (!actionList) {
+        return nullptr;
+    }
+    QListWidgetItem* item = actionList->currentItem();
+    if (!item) {
+        return nullptr;
+    }
+    const QString id = item->data(Qt::UserRole).toString();
+    for (ComposerWorkspaceRow& row : rows) {
+        if (row.id == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::composerWorkspaceSummaryText(const QString& targetName) const {
+    QStringList rowsText;
+    rowsText << QStringLiteral("消息工作区摘要");
+    rowsText << QStringLiteral("当前会话:%1").arg(targetName);
+    rowsText << QStringLiteral("草稿长度:%1").arg(ui->messageEdit->toPlainText().trimmed().size());
+    rowsText << QStringLiteral("可发送:%1").arg(ui->sendBtn->isEnabled() ? QStringLiteral("是") : QStringLiteral("否"));
+    rowsText << QStringLiteral("图片入口:%1").arg(ui->imageBtn->isEnabled() ? QStringLiteral("可用") : QStringLiteral("不可用"));
+    rowsText << QStringLiteral("文件入口:%1").arg(ui->fileBtn->isEnabled() ? QStringLiteral("可用") : QStringLiteral("不可用"));
+    rowsText << QStringLiteral("好友:%1 · 群聊:%2 · 在线成员:%3")
+                    .arg(m_friendIds.size())
+                    .arg(m_localGroupIds.size())
+                    .arg(m_knownUsers.size());
+    if (!ui->messageEdit->toPlainText().trimmed().isEmpty()) {
+        rowsText << QStringLiteral("当前草稿:%1").arg(ui->messageEdit->toPlainText().trimmed());
+    }
+    return rowsText.join(QLatin1Char('\n'));
+}
+
+void MainWindow::updateComposerWorkspaceActionState(QPushButton* replaceDraftBtn,
+                                                    QPushButton* appendDraftBtn,
+                                                    QPushButton* clearDraftBtn,
+                                                    QPushButton* sendBtn,
+                                                    QPushButton* openImageBtn,
+                                                    QPushButton* openFileBtn,
+                                                    QPushButton* copySummaryBtn,
+                                                    QListWidget* actionList,
+                                                    QList<ComposerWorkspaceRow>& rows) const {
+    ComposerWorkspaceRow* row = selectedComposerWorkspaceRow(rows, actionList);
+    const QString id = row ? row->id : QString();
+    const bool hasSelected = !id.isEmpty();
+    const bool actionIsPhrase = id.startsWith(QStringLiteral("phrase:")) || id.startsWith(QStringLiteral("mention:"));
+    const bool canReplace = hasSelected
+        && id != QLatin1String("send-now")
+        && id != QLatin1String("open-image")
+        && id != QLatin1String("open-file")
+        && id != QLatin1String("copy-composer-summary");
+    if (!replaceDraftBtn || !appendDraftBtn || !clearDraftBtn || !sendBtn
+        || !openImageBtn || !openFileBtn || !copySummaryBtn) {
+        return;
+    }
+    replaceDraftBtn->setEnabled(canReplace);
+    appendDraftBtn->setEnabled(actionIsPhrase || id == QLatin1String("paste-clipboard"));
+    clearDraftBtn->setEnabled(!ui->messageEdit->toPlainText().trimmed().isEmpty());
+    sendBtn->setEnabled(ui->sendBtn->isEnabled());
+    openImageBtn->setEnabled(ui->imageBtn->isEnabled());
+    openFileBtn->setEnabled(ui->fileBtn->isEnabled());
+    copySummaryBtn->setEnabled(true);
+}
+
+QString MainWindow::transferWorkspaceArtifactPath(const QString& fileName) const {
+    const QStringList candidateDirs{
+        QDir::current().filePath(QStringLiteral("build-qt6-mingw/automation-tasks/large-file-governance")),
+        QDir::current().filePath(QStringLiteral("build-qt6-mingw/large_file_governance_runner_sample/governance"))
+    };
+    for (const QString& artifactDir : candidateDirs) {
+        const QString candidate = QDir(artifactDir).filePath(fileName);
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+
+QList<TransferWorkspaceRow> MainWindow::buildTransferWorkspaceRows() const {
+    QList<TransferWorkspaceRow> rows;
+    const bool activeSendUsesSavedFileActions =
+        m_hasTransferWorkspaceSendState
+        && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
+    const QJsonObject governanceDashboard = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-dashboard.json"));
+    const QJsonObject performanceSummary = readLocalGovernanceArtifact(QStringLiteral("large-file-governance-performance-summary.json"));
+    {
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("send-file");
+        row.title = QStringLiteral("发送文件");
+        row.detail = QStringLiteral("选择文档、压缩包或其他文件，进入当前会话发送流程。");
+        row.preview = QStringLiteral("发送文件入口\n会先检查当前会话是否可发送，再生成分片和校验清单，随后在这里持续显示发送、失败或恢复状态。");
+        row.keywords = row.title + row.detail + row.preview + QStringLiteral("发送 文件 选择 上传");
+        row.statusTone = QStringLiteral("accent");
+        rows << row;
+    }
+    {
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("send-media");
+        row.title = QStringLiteral("发送图片/视频");
+        row.detail = QStringLiteral("选择图片或视频，统一走媒体发送和回执链路。");
+        row.preview = QStringLiteral("发送图片/视频入口\n会自动识别图片或视频，并把后续进度、失败、恢复和已保存文件反馈都收进同一个文件工作区。");
+        row.keywords = row.title + row.detail + row.preview + QStringLiteral("发送 图片 视频 媒体");
+        row.statusTone = QStringLiteral("accent");
+        rows << row;
+    }
+    if (m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer) {
+        const TransferWorkspaceSummaryState summary =
+            m_transferManager.recoveryWorkspaceSummary(m_lastTransferRecoveryUiState,
+                                                       m_hasLastTransferStatusEvent ? &m_lastTransferStatusEvent : nullptr,
+                                                       !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("recovery");
+        row.title = summary.title;
+        row.detail = QStringLiteral("%1\n%2")
+                         .arg(m_lastTransferRecoveryUiState.fileName.isEmpty()
+                                  ? QStringLiteral("未命名文件")
+                                  : m_lastTransferRecoveryUiState.fileName,
+                              summary.detail);
+        row.preview = QStringLiteral("%1\n诊断：%2")
+                          .arg(summary.previewText,
+                               summary.diagnosticHint);
+        row.keywords = row.title + row.detail + row.preview;
+        row.statusTone = summary.statusTone;
+        rows << row;
+    }
+    if (m_hasLastTransferStatusEvent && !m_lastTransferStatusEvent.message.isEmpty()) {
+        const TransferWorkspaceSummaryState summary =
+            m_transferManager.statusWorkspaceSummary(m_lastTransferStatusEvent,
+                                                     m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.hasSavedTransfer,
+                                                     !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("diagnostic");
+        row.title = summary.title;
+        row.detail = QStringLiteral("%1\n%2")
+                         .arg(m_lastTransferStatusEvent.title.isEmpty()
+                                  ? QStringLiteral("文件事件")
+                                  : m_lastTransferStatusEvent.title,
+                              summary.detail);
+        row.preview = QStringLiteral("%1\n诊断：%2")
+                          .arg(summary.previewText,
+                               m_lastTransferStatusDiagnostic.trimmed().isEmpty()
+                                   ? summary.diagnosticHint
+                                   : m_lastTransferStatusDiagnostic);
+        row.keywords = row.title + row.detail + row.preview;
+        row.statusTone = summary.statusTone;
+        rows << row;
+    }
+    if (m_hasTransferWorkspaceSendState
+        && (!m_transferWorkspaceSendState.workspaceTitle.trimmed().isEmpty()
+            || !m_transferWorkspaceSendState.workspaceDetail.trimmed().isEmpty())) {
+        const TransferWorkspaceSummaryState summary =
+            m_transferManager.sendWorkspaceSummary(m_transferWorkspaceSendState,
+                                                   !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("active-send");
+        row.title = summary.title;
+        row.detail = summary.detail;
+        row.preview = QStringLiteral("%1\n诊断：%2")
+                          .arg(summary.previewText,
+                               summary.diagnosticHint);
+        row.keywords = row.title + row.detail + row.preview;
+        row.statusTone = summary.statusTone;
+        rows << row;
+    }
+    if (m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath) {
+        const QString fileName = m_transferWorkspaceSavedFileState.fileInfo.fileName().trimmed().isEmpty()
+            ? QStringLiteral("已保存文件")
+            : m_transferWorkspaceSavedFileState.fileInfo.fileName();
+        const QString fileSize = m_transferWorkspaceSavedFileState.fileInfo.exists()
+            ? LocalFileManager::humanFileSize(m_transferWorkspaceSavedFileState.fileInfo.size())
+            : QString();
+        const TransferWorkspaceSummaryState summary =
+            m_transferManager.savedFileWorkspaceSummary(fileName,
+                                                        fileSize,
+                                                        m_transferWorkspaceSavedFileState.savePath,
+                                                        m_transferWorkspaceSavedFileState.canOpenFile,
+                                                        m_transferWorkspaceSavedFileState.canOpenFolder,
+                                                        ChatContextManager::plainContentText(m_transferWorkspaceSavedChatText));
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("saved-file");
+        row.title = summary.title;
+        row.detail = QStringLiteral("%1\n%2").arg(fileName, summary.detail);
+        row.preview = summary.previewText;
+        row.keywords = row.title + row.detail + row.preview;
+        row.statusTone = summary.statusTone;
+        if (!activeSendUsesSavedFileActions) {
+            rows << row;
+        }
+    }
+    {
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("governance-status");
+        row.title = QStringLiteral("治理状态");
+        if (!governanceDashboard.isEmpty()) {
+            row.detail = QStringLiteral("large-file governance 当前为 %1 · 告警 %2 条")
+                             .arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                  QString::number(governanceDashboard.value(QStringLiteral("alertCount")).toInt(0)));
+            row.preview = QStringLiteral("治理状态：%1\n当前动作：%2\n关键产物：dashboard=%3, report=%4, diagnostics=%5")
+                              .arg(governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                   governanceDashboard.value(QStringLiteral("summary")).toObject().value(QStringLiteral("operatorAction")).toString(QStringLiteral("归档治理证据")),
+                                   governanceDashboard.value(QStringLiteral("artifacts")).toArray().isEmpty() ? QStringLiteral("unknown") : QStringLiteral("present"),
+                                   QStringLiteral("see governance report"),
+                                   QStringLiteral("see diagnostics package"));
+            row.statusTone = governanceDashboard.value(QStringLiteral("ok")).toBool(false)
+                ? QStringLiteral("success")
+                : QStringLiteral("warning");
+        } else {
+            row.detail = QStringLiteral("当前未找到 large-file governance dashboard 产物");
+            row.preview = QStringLiteral("治理状态产物缺失\n下一步：运行或刷新 large-file governance 任务，再回到文件工作区查看当前健康度。");
+            row.statusTone = QStringLiteral("warning");
+        }
+        row.keywords = row.title + row.detail + row.preview + QStringLiteral("治理 governance dashboard alert status");
+        rows << row;
+    }
+    {
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("performance-status");
+        row.title = QStringLiteral("性能状态");
+        if (!performanceSummary.isEmpty()) {
+            const QJsonArray bottlenecks = performanceSummary.value(QStringLiteral("bottlenecks")).toArray();
+            QStringList bottleneckTexts;
+            for (const QJsonValue& value : bottlenecks) {
+                const QString text = value.toString().trimmed();
+                if (!text.isEmpty()) {
+                    bottleneckTexts << text;
+                }
+            }
+            row.detail = QStringLiteral("performance summary 当前为 %1 · 瓶颈 %2 项")
+                             .arg(performanceSummary.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                  QString::number(bottleneckTexts.size()));
+            row.preview = QStringLiteral("性能状态：%1\n瓶颈：%2\n建议：%3")
+                              .arg(performanceSummary.value(QStringLiteral("status")).toString(QStringLiteral("unknown")),
+                                   bottleneckTexts.isEmpty() ? QStringLiteral("none") : bottleneckTexts.join(QStringLiteral(", ")),
+                                   performanceSummary.value(QStringLiteral("summary")).toObject().value(QStringLiteral("operatorAction")).toString(QStringLiteral("生成 performance summary 并复核压力点")));
+            row.statusTone = performanceSummary.value(QStringLiteral("ok")).toBool(false)
+                ? QStringLiteral("success")
+                : QStringLiteral("warning");
+        } else {
+            row.detail = QStringLiteral("当前未生成 large-file governance performance summary");
+            row.preview = QStringLiteral("性能摘要缺失\n下一步：生成 performance summary，再确认 delivery closure、fallback protection、S3 transient pressure 和 receipt archive pressure。");
+            row.statusTone = QStringLiteral("warning");
+        }
+        row.keywords = row.title + row.detail + row.preview + QStringLiteral("性能 performance bottlenecks pressure");
+        rows << row;
+    }
+    if (rows.isEmpty()) {
+        const TransferWorkspaceSummaryState summary =
+            m_transferManager.emptyWorkspaceSummary(!m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+        TransferWorkspaceRow row;
+        row.id = QStringLiteral("empty");
+        row.title = QStringLiteral("文件工作区当前为空");
+        row.detail = summary.detail;
+        row.preview = summary.previewText;
+        row.keywords = row.title + row.detail + row.preview;
+        row.enabled = false;
+        row.statusTone = summary.statusTone;
+        rows << row;
+    }
+    return rows;
+}
+
+void MainWindow::fillTransferWorkspaceList(QListWidget* stateList,
+                                           QLabel* statsLabel,
+                                           const QList<TransferWorkspaceRow>& rows,
+                                           const QString& filter) const {
+    if (!stateList || !statsLabel) {
+        return;
+    }
+    stateList->clear();
+    int visibleCount = 0;
+    for (const TransferWorkspaceRow& row : rows) {
+        if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
+        item->setData(Qt::UserRole, row.id);
+        item->setData(Qt::UserRole + 1, row.preview);
+        item->setToolTip(row.preview);
+        item->setSizeHint(QSize(0, 78));
+        if (!row.enabled) {
+            item->setFlags(Qt::NoItemFlags);
+            item->setForeground(QColor(135, 150, 165));
+        } else if (row.statusTone == QLatin1String("accent")) {
+            item->setForeground(QColor(29, 78, 216));
+        } else if (row.statusTone == QLatin1String("success")) {
+            item->setForeground(QColor(0, 121, 107));
+        } else if (row.statusTone == QLatin1String("warning")) {
+            item->setForeground(QColor(180, 83, 9));
+        } else if (row.statusTone == QLatin1String("danger")) {
+            item->setForeground(QColor(185, 28, 28));
+        }
+        stateList->addItem(item);
+        ++visibleCount;
+    }
+    statsLabel->setText(QStringLiteral("可见 %1 项").arg(visibleCount));
+    selectPreferredListRow(stateList, 0);
+}
+
+TransferWorkspaceRow* MainWindow::selectedTransferWorkspaceRow(QList<TransferWorkspaceRow>& rows,
+                                                               QListWidget* stateList) const {
+    if (!stateList) {
+        return nullptr;
+    }
+    QListWidgetItem* item = stateList->currentItem();
+    if (!item) {
+        return nullptr;
+    }
+    const QString id = item->data(Qt::UserRole).toString();
+    for (TransferWorkspaceRow& row : rows) {
+        if (row.id == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+QString MainWindow::transferWorkspaceSelectedRowId(QList<TransferWorkspaceRow>& rows,
+                                                   QListWidget* stateList) const {
+    TransferWorkspaceRow* row = selectedTransferWorkspaceRow(rows, stateList);
+    return row ? row->id : QString();
+}
+
+void MainWindow::updateTransferWorkspaceActionState(QPushButton* sendFileBtn,
+                                                    QPushButton* sendMediaBtn,
+                                                    QPushButton* resumeBtn,
+                                                    QPushButton* clearBtn,
+                                                    QPushButton* copyDiagBtn,
+                                                    QPushButton* openFileBtn,
+                                                    QPushButton* openFolderBtn,
+                                                    QPushButton* copyPathBtn,
+                                                    QPushButton* copySnapshotBtn,
+                                                    QListWidget* stateList,
+                                                    QList<TransferWorkspaceRow>& rows) const {
+    const QString rowId = transferWorkspaceSelectedRowId(rows, stateList);
+    const bool sendFileSelected = rowId == QLatin1String("send-file");
+    const bool sendMediaSelected = rowId == QLatin1String("send-media");
+    const bool recoverySelected = rowId == QLatin1String("recovery");
+    const bool activeSendSelected = rowId == QLatin1String("active-send");
+    const bool governanceSelected = rowId == QLatin1String("governance-status");
+    const bool performanceSelected = rowId == QLatin1String("performance-status");
+    const bool activeSendUsesSavedFileActions =
+        activeSendSelected
+        && m_hasTransferWorkspaceSendState
+        && transferWorkspaceStateUsesSavedFileActions(m_transferWorkspaceSendState);
+    const bool diagnosticSelected = rowId == QLatin1String("diagnostic")
+        || (activeSendSelected && !activeSendUsesSavedFileActions)
+        || governanceSelected
+        || performanceSelected;
+    const bool savedFileSelected = rowId == QLatin1String("saved-file");
+    const bool savedFileCapableSelected = savedFileSelected || activeSendUsesSavedFileActions;
+    if (!sendFileBtn || !sendMediaBtn || !resumeBtn || !clearBtn || !copyDiagBtn
+        || !openFileBtn || !openFolderBtn || !copyPathBtn || !copySnapshotBtn) {
+        return;
+    }
+    sendFileBtn->setEnabled(sendFileSelected || rowId.isEmpty() || rowId == QLatin1String("empty"));
+    sendMediaBtn->setEnabled(sendMediaSelected || rowId.isEmpty() || rowId == QLatin1String("empty"));
+    resumeBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.resumeAction.enabled);
+    clearBtn->setEnabled(recoverySelected && m_hasLastTransferRecoveryUiState && m_lastTransferRecoveryUiState.clearAction.enabled);
+    copyDiagBtn->setEnabled((diagnosticSelected || recoverySelected) && !m_lastTransferStatusDiagnostic.trimmed().isEmpty());
+    openFileBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFile)
+                            || (governanceSelected && !transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-dashboard.json")).isEmpty())
+                            || (performanceSelected && !transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json")).isEmpty()));
+    openFolderBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.canOpenFolder)
+                              || governanceSelected
+                              || performanceSelected);
+    copyPathBtn->setEnabled((savedFileCapableSelected && m_hasTransferWorkspaceSavedFileState && m_transferWorkspaceSavedFileState.hasSavePath)
+                            || (governanceSelected && !transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-dashboard.json")).isEmpty())
+                            || (performanceSelected && !transferWorkspaceArtifactPath(QStringLiteral("large-file-governance-performance-summary.json")).isEmpty()));
+    copySnapshotBtn->setEnabled(true);
+}
+
 void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
     QDialog dialog(this);
     WorkspaceDialogShell shell = createWorkspaceDialogShell(
@@ -12057,10 +14243,6 @@ void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
                                  rows,
                                  searchEdit->text().trimmed(),
                                  emptyPreviewText());
-    };
-
-    auto selectedRow = [=, &rows, this]() -> ContactWorkspaceRow* {
-        return selectedContactWorkspaceRow(rows, listWidget);
     };
 
     auto updatePreview = [=, &rows, this]() {
@@ -12132,8 +14314,8 @@ void MainWindow::onShowContactWorkspace(const QString& initialFilter) {
         dialog.accept();
         onShowFriendManager();
     });
-    connect(searchBtn, &QPushButton::clicked, &dialog, [this, &rows, &dialog, selectedRow]() {
-        ContactWorkspaceRow* row = selectedRow();
+    connect(searchBtn, &QPushButton::clicked, &dialog, [this, &rows, listWidget, &dialog]() {
+        ContactWorkspaceRow* row = selectedContactWorkspaceRow(rows, listWidget);
         const QString account = selectedContactWorkspaceSearchAccount(row);
         if (account.isEmpty()) {
             ui->statusbar->showMessage(QStringLiteral("当前项不支持直接搜索 QQ"), 1800);
@@ -12197,16 +14379,6 @@ void MainWindow::onShowNotificationWorkspace() {
     QLabel* statsLabel = shell.statsLabel;
     QLabel* previewLabel = shell.previewLabel;
     QLabel* subTitleLabel = shell.subTitleLabel;
-
-    struct NotificationWorkspaceRow {
-        QString id;
-        QString title;
-        QString detail;
-        QString preview;
-        QString keywords;
-        bool accent = false;
-        bool dangerous = false;
-    };
 
     auto notificationSummaryText = [this]() {
         const FriendNoticeUiState friendState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
@@ -12284,66 +14456,9 @@ void MainWindow::onShowNotificationWorkspace() {
         return state.text;
     };
 
-    auto buildRows = [this, notificationSummaryText, notificationFriendPlanText, notificationGroupPlanText]() {
-        QList<NotificationWorkspaceRow> rows;
-        const FriendNoticeUiState friendState = m_friendManager.noticeUiState(m_pendingFriendRequests.size());
-        const GroupNoticeUiState groupState = m_groupManager.noticeUiState(m_localGroupIds.size());
-
-        rows << NotificationWorkspaceRow{
-            QStringLiteral("notice-overview"),
-            QStringLiteral("通知总览"),
-            QStringLiteral("好友申请 %1 · 群通知入口 %2").arg(m_pendingFriendRequests.size()).arg(m_localGroupIds.size() + 1),
-            notificationSummaryText(),
-            QStringLiteral("通知 总览 控制台 好友 群聊"),
-            true,
-            false};
-        rows << NotificationWorkspaceRow{
-            QStringLiteral("notice-friend"),
-            QStringLiteral("好友通知"),
-            friendState.toolTip,
-            QStringLiteral("好友通知工作区\n集中处理待通过好友申请、批量回复、申请话术和媒体准备。\n\n%1")
-                .arg(notificationFriendPlanText()),
-            QStringLiteral("好友通知 好友申请 批量回复"),
-            m_pendingFriendRequests.size() > 0,
-            false};
-        rows << NotificationWorkspaceRow{
-            QStringLiteral("notice-group"),
-            QStringLiteral("群通知"),
-            groupState.toolTip,
-            QStringLiteral("群通知工作区\n集中处理群入口、群公告、成员复制、媒体包和批量计划。\n\n%1")
-                .arg(notificationGroupPlanText()),
-            QStringLiteral("群通知 群聊 公告 成员"),
-            false,
-            false};
-        rows << NotificationWorkspaceRow{
-            QStringLiteral("notice-copy-summary"),
-            QStringLiteral("复制通知摘要"),
-            QStringLiteral("复制好友申请、群聊入口和当前通知按钮状态"),
-            QStringLiteral("复制通知摘要\n适合留档、反馈当前待处理量和入口状态。"),
-            QStringLiteral("复制 通知 摘要"),
-            false,
-            false};
-        rows << NotificationWorkspaceRow{
-            QStringLiteral("notice-copy-friend-plan"),
-            QStringLiteral("复制好友处理计划"),
-            QStringLiteral("汇总当前好友申请和通过后的媒体准备"),
-            QStringLiteral("好友处理计划\n把当前待处理好友申请、回复流程和媒体发送准备整理成一份摘要。"),
-            QStringLiteral("好友 处理 计划 媒体"),
-            false,
-            false};
-        rows << NotificationWorkspaceRow{
-            QStringLiteral("notice-copy-group-plan"),
-            QStringLiteral("复制群处理计划"),
-            QStringLiteral("汇总当前群入口、成员复制和群内媒体计划"),
-            QStringLiteral("群处理计划\n把当前群入口、成员同步和群内媒体发送准备整理成一份摘要。"),
-            QStringLiteral("群 处理 计划 成员 媒体"),
-            false,
-            false};
-
-        return rows;
-    };
-
-    auto rows = buildRows();
+    auto rows = buildNotificationWorkspaceRows(notificationSummaryText(),
+                                               notificationFriendPlanText(),
+                                               notificationGroupPlanText());
     auto emptyPreviewText = [searchEdit]() {
         const QString filter = searchEdit->text().trimmed();
         return filter.isEmpty()
@@ -12351,120 +14466,38 @@ void MainWindow::onShowNotificationWorkspace() {
             : QStringLiteral("当前筛选词“%1”没有匹配到通知动作。\n试试“好友通知”、“群通知”、“计划”或“摘要”这些关键词。").arg(filter);
     };
 
-    auto fillList = [=, &rows]() {
-        const QString filter = searchEdit->text().trimmed();
-        listWidget->clear();
-        int visibleCount = 0;
-        for (const NotificationWorkspaceRow& row : rows) {
-            if (!filter.isEmpty() && !row.keywords.contains(filter, Qt::CaseInsensitive)) {
-                continue;
-            }
-            QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(row.title, row.detail));
-            item->setData(Qt::UserRole, row.id);
-            item->setToolTip(row.preview);
-            item->setSizeHint(QSize(0, 78));
-            if (row.accent) {
-                item->setForeground(QColor(29, 78, 216));
-            } else if (row.dangerous) {
-                item->setForeground(QColor(180, 35, 24));
-            }
-            listWidget->addItem(item);
-            ++visibleCount;
-        }
-        if (visibleCount == 0) {
-            addWorkspaceEmptyStateItem(
-                listWidget,
-                QStringLiteral("没有匹配的通知动作"),
-                QStringLiteral("试试“好友通知”、“群通知”、“计划”或“摘要”这些关键词。"),
-                emptyPreviewText());
-        }
-        statsLabel->setText(QStringLiteral("可见 %1 / %2 项").arg(visibleCount).arg(rows.size()));
-        selectPreferredListRow(listWidget, 0);
+    auto fillList = [=, &rows, this]() {
+        fillNotificationWorkspaceList(listWidget,
+                                      statsLabel,
+                                      rows,
+                                      searchEdit->text().trimmed(),
+                                      emptyPreviewText());
     };
 
-    auto selectedRow = [=, &rows]() -> NotificationWorkspaceRow* {
-        QListWidgetItem* currentItem = listWidget->currentItem();
-        if (!currentItem) {
-            return nullptr;
-        }
-        const QString id = currentItem->data(Qt::UserRole).toString();
-        for (NotificationWorkspaceRow& row : rows) {
-            if (row.id == id) {
-                return &row;
-            }
-        }
-        return nullptr;
-    };
-
-    auto updatePreview = [=, &rows]() {
-        NotificationWorkspaceRow* row = selectedRow();
+    auto updatePreview = [=, &rows, this]() {
+        NotificationWorkspaceRow* row = selectedNotificationWorkspaceRow(rows, listWidget);
         previewLabel->setText(row ? row->preview
                                   : (firstEnabledListRow(listWidget) >= 0
                                          ? QStringLiteral("这里会解释当前通知动作会如何影响好友申请、群聊通知和批量处理流程。")
                                          : emptyPreviewText()));
     };
-    auto rowClipboardText = [=, &rows]() {
-        NotificationWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return notificationSummaryText();
-        }
-        if (row->id == QLatin1String("notice-copy-friend-plan")) {
-            return notificationFriendPlanText();
-        }
-        if (row->id == QLatin1String("notice-copy-group-plan")) {
-            return notificationGroupPlanText();
-        }
-        if (row->id == QLatin1String("notice-friend")) {
-            return QStringLiteral("%1\n\n%2").arg(notificationSummaryText(), notificationFriendPlanText());
-        }
-        if (row->id == QLatin1String("notice-group")) {
-            return QStringLiteral("%1\n\n%2").arg(notificationSummaryText(), notificationGroupPlanText());
-        }
-        return row->preview.trimmed().isEmpty() ? notificationSummaryText() : row->preview;
+    auto rowClipboardText = [=, &rows, this]() {
+        return notificationWorkspaceRowClipboardText(selectedNotificationWorkspaceRow(rows, listWidget),
+                                                     notificationSummaryText(),
+                                                     notificationFriendPlanText(),
+                                                     notificationGroupPlanText());
     };
     QPushButton* openBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("执行当前动作"), QStringLiteral("managerPrimaryBtn"), QStringLiteral("执行当前通知动作"), QStyle::SP_ArrowForward);
     QPushButton* copyCardBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制通知卡"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制当前通知摘要"), QStyle::SP_DialogSaveButton);
     QPushButton* copyStatusBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("复制工作区状态"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("复制通知控制台当前状态"), QStyle::SP_MessageBoxInformation);
     QPushButton* closeBtn = createWorkspaceButton(shell.bodyFrame, &dialog, QStringLiteral("关闭"), QStringLiteral("managerSecondaryBtn"), QStringLiteral("关闭通知控制台"), QStyle::SP_DialogCloseButton);
 
-    auto updateActionState = [=, &rows]() {
-        NotificationWorkspaceRow* row = selectedRow();
-        const bool hasActionableRow = hasEnabledListRow(listWidget);
-        if (!row) {
-            openBtn->setEnabled(false);
-            openBtn->setText(QStringLiteral("执行当前动作"));
-            openBtn->setToolTip(hasActionableRow
-                                    ? QStringLiteral("先选择一个通知动作后继续进入好友通知、群通知或复制处理计划")
-                                    : QStringLiteral("当前没有可执行的通知动作"));
-            copyCardBtn->setEnabled(hasActionableRow);
-            copyCardBtn->setToolTip(hasActionableRow
-                                        ? QStringLiteral("复制当前通知控制台总览")
-                                        : QStringLiteral("当前没有可复制的通知卡"));
-            copyStatusBtn->setEnabled(true);
-            copyStatusBtn->setToolTip(QStringLiteral("复制通知控制台当前状态"));
-            return;
-        }
-        openBtn->setEnabled(true);
-        if (row->id == QLatin1String("notice-friend")) {
-            openBtn->setText(QStringLiteral("进入好友通知"));
-            openBtn->setToolTip(QStringLiteral("打开好友通知工作区"));
-        } else if (row->id == QLatin1String("notice-group")) {
-            openBtn->setText(QStringLiteral("进入群通知"));
-            openBtn->setToolTip(QStringLiteral("打开群通知工作区"));
-        } else if (row->id == QLatin1String("notice-copy-friend-plan")) {
-            openBtn->setText(QStringLiteral("复制好友计划"));
-            openBtn->setToolTip(QStringLiteral("复制好友通知处理计划"));
-        } else if (row->id == QLatin1String("notice-copy-group-plan")) {
-            openBtn->setText(QStringLiteral("复制群计划"));
-            openBtn->setToolTip(QStringLiteral("复制群通知处理计划"));
-        } else {
-            openBtn->setText(QStringLiteral("复制通知摘要"));
-            openBtn->setToolTip(QStringLiteral("复制通知控制台摘要"));
-        }
-        copyCardBtn->setEnabled(true);
-        copyCardBtn->setToolTip(QStringLiteral("复制当前选中通知卡"));
-        copyStatusBtn->setEnabled(true);
-        copyStatusBtn->setToolTip(QStringLiteral("复制通知控制台当前状态"));
+    auto updateActionState = [=, &rows, this]() {
+        updateNotificationWorkspaceActionState(openBtn,
+                                               copyCardBtn,
+                                               copyStatusBtn,
+                                               listWidget,
+                                               rows);
     };
 
     addWorkspaceSectionCard(
@@ -12476,38 +14509,17 @@ void MainWindow::onShowNotificationWorkspace() {
         closeBtn);
 
     auto runSelectedCommand = [=, &rows, this, &dialog]() {
-        NotificationWorkspaceRow* row = selectedRow();
-        if (!row) {
-            return;
-        }
-        const QString commandId = row->id;
-        if (commandId == QLatin1String("notice-friend")) {
-            dialog.accept();
-            onShowFriendNotifications();
-            return;
-        }
-        if (commandId == QLatin1String("notice-group")) {
-            dialog.accept();
-            onShowGroupNotifications();
-            return;
-        }
-        if (commandId == QLatin1String("notice-overview")
-            || commandId == QLatin1String("notice-copy-summary")) {
-            copyTextWithStatus(notificationSummaryText(), QStringLiteral("通知摘要已复制"), 2200);
-            return;
-        }
-        if (commandId == QLatin1String("notice-copy-friend-plan")) {
-            copyTextWithStatus(notificationFriendPlanText(), QStringLiteral("好友通知处理计划已复制"), 2200);
-            return;
-        }
-        if (commandId == QLatin1String("notice-copy-group-plan")) {
-            copyTextWithStatus(notificationGroupPlanText(), QStringLiteral("群通知处理计划已复制"), 2200);
-            return;
-        }
+        runNotificationWorkspaceCommand(selectedNotificationWorkspaceRow(rows, listWidget),
+                                        &dialog,
+                                        notificationSummaryText(),
+                                        notificationFriendPlanText(),
+                                        notificationGroupPlanText());
     };
 
     connect(searchEdit, &QLineEdit::textChanged, &dialog, [=, &rows](const QString&) {
-        rows = buildRows();
+        rows = buildNotificationWorkspaceRows(notificationSummaryText(),
+                                              notificationFriendPlanText(),
+                                              notificationGroupPlanText());
         fillList();
         updatePreview();
         updateActionState();
@@ -12534,7 +14546,9 @@ void MainWindow::onShowNotificationWorkspace() {
     });
     connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
-    rows = buildRows();
+    rows = buildNotificationWorkspaceRows(notificationSummaryText(),
+                                          notificationFriendPlanText(),
+                                          notificationGroupPlanText());
     fillList();
     updatePreview();
     updateActionState();
@@ -13207,6 +15221,10 @@ void MainWindow::onFriendSearchResult(const QString& account, const QString& use
     }
 
     const QString displayName = userName.isEmpty() ? userId : userName;
+    const QString knownAvatar = m_knownUsers.value(userId).avatar.trimmed();
+    if (!knownAvatar.isEmpty()) {
+        persistPeerAvatarIndexEntry(userId, knownAvatar);
+    }
     const QString relation = m_friendIds.contains(userId)
         ? "好友"
         : (m_pendingOutgoingFriendRequests.contains(userId) ? "申请中" : "陌生人");
@@ -14547,6 +16565,48 @@ void MainWindow::appendTransferCompletionState(const TransferSendUiState& state,
     ui->chatListView->scrollToBottom();
 }
 
+void MainWindow::appendTransferHistoryCard(const QString& senderId,
+                                           const QString& senderName,
+                                           const QString& mediaKind,
+                                           const QString& fileName,
+                                           const QString& openPath,
+                                           bool alignRight) {
+    const QString trimmedKind = mediaKind.trimmed();
+    const QString trimmedFileName = fileName.trimmed();
+    if (trimmedKind.isEmpty() || trimmedFileName.isEmpty()) {
+        return;
+    }
+
+    QString previewText;
+    if (trimmedKind == QLatin1String("image")) {
+        previewText = QStringLiteral("%1 · 历史图片消息").arg(trimmedFileName);
+    } else if (trimmedKind == QLatin1String("video")) {
+        previewText = QStringLiteral("视频文件 · %1 · 双击打开").arg(trimmedFileName);
+    } else {
+        previewText = QStringLiteral("文件附件 · %1 · 双击打开").arg(trimmedFileName);
+    }
+
+    QPixmap preview;
+    if (trimmedKind == QLatin1String("image") && QFileInfo::exists(openPath)) {
+        preview.load(openPath);
+    } else if (trimmedKind == QLatin1String("video") && QFileInfo::exists(openPath)) {
+        preview = videoPreviewFrame(openPath);
+    }
+
+    QStandardItem* item = createChatMessageItem(previewText,
+                                                senderId,
+                                                senderName,
+                                                alignRight,
+                                                trimmedKind == QLatin1String("video") ? QColor(126, 87, 194)
+                                                                                      : QColor(38, 50, 56),
+                                                trimmedKind == QLatin1String("video") ? QColor(245, 240, 255)
+                                                                                      : QColor(246, 250, 253),
+                                                trimmedKind,
+                                                openPath,
+                                                preview);
+    m_chatModel->appendRow(item);
+}
+
 void MainWindow::appendLocalGroupFileTransferCompletion(const TransferSelectionPlan& selectionPlan,
                                                         const QFileInfo& info,
                                                         const QString& fileSize,
@@ -14609,6 +16669,8 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
     QPixmap pixmap;
     if (!isVideo) {
         pixmap.load(filePath);
+    } else {
+        pixmap = videoPreviewFrame(filePath);
     }
     if ((!isVideo && !pixmap.isNull()) || isVideo) {
         const TransferMediaPreviewPlan previewPlan = m_transferManager.localMediaPreviewPlan(
@@ -14643,8 +16705,9 @@ void MainWindow::appendRemoteMediaTransferCompletion(const QString& filePath,
                                    m_currentUserName);
         }
     } else {
+        const QPixmap preview = videoPreviewFrame(filePath);
         appendMediaPreviewItem(previewPlan.text,
-                               QPixmap(),
+                               preview,
                                previewPlan.isVideo,
                                previewPlan.alignRight,
                                filePath,
@@ -14796,27 +16859,45 @@ bool MainWindow::handleReceivedTransferMessage(const Message& msg,
     }
 
     const bool image = msg.type == MessageType::Image;
+    const bool video = !image
+        && QStringList{QStringLiteral("mp4"),
+                       QStringLiteral("mov"),
+                       QStringLiteral("avi"),
+                       QStringLiteral("mkv"),
+                       QStringLiteral("wmv"),
+                       QStringLiteral("flv"),
+                       QStringLiteral("webm")}.contains(QFileInfo(msg.fileName).suffix().toLower());
     const ReceivedTransferContext context = receivedTransferContext(
         msg,
-        image ? QStringLiteral("图片") : QStringLiteral("文件"),
-        image ? QStringLiteral("received_image") : QStringLiteral("received_file"),
-        image ? QStringLiteral("Images") : QStringLiteral("Files"),
+        image ? QStringLiteral("图片") : (video ? QStringLiteral("视频") : QStringLiteral("文件")),
+        image ? QStringLiteral("received_image") : (video ? QStringLiteral("received_video") : QStringLiteral("received_file")),
+        image ? QStringLiteral("Images") : (video ? QStringLiteral("Videos") : QStringLiteral("Files")),
         displayName);
-    if (image) {
+    if (image || video) {
         QPixmap pixmap;
-        if (pixmap.loadFromData(msg.fileData)) {
-            const TransferMediaPreviewPlan previewPlan = m_transferManager.receivedMediaPreviewPlan(
-                context.receivedName,
-                context.receivedSize,
-                context.manifestSuffix);
-            appendMediaPreviewItem(previewPlan.text,
-                                   pixmap,
-                                   previewPlan.isVideo,
-                                   previewPlan.alignRight,
-                                   context.savePath,
-                                   msg.senderId,
-                                   displayName);
+        if (image) {
+            pixmap.loadFromData(msg.fileData);
+        } else {
+            pixmap = videoPreviewFrame(context.savePath);
         }
+        const TransferMediaPreviewPlan previewPlan = m_transferManager.receivedMediaPreviewPlan(
+            context.receivedName,
+            context.receivedSize,
+            context.manifestSuffix);
+        appendMediaPreviewItem(previewPlan.text,
+                               pixmap,
+                               video,
+                               previewPlan.alignRight,
+                               context.savePath,
+                               msg.senderId,
+                               displayName);
+    } else {
+        appendTransferHistoryCard(msg.senderId,
+                                  displayName,
+                                  QStringLiteral("file"),
+                                  context.receivedName,
+                                  context.savePath,
+                                  false);
     }
     return persistReceivedTransferPayload(context,
                                           displayName,
@@ -14845,6 +16926,17 @@ void MainWindow::appendTransferChatListItem(const TransferChatListItemUiState& i
     }
 
     QStandardItem* item = TransferChatItemRenderer::createItem(itemState);
+    QString attachmentName;
+    const QString mediaKind = detectHistoryMediaKind(itemState.text, &attachmentName);
+    const QString attachmentPath = extractHistoryAttachmentPath(itemState.text, itemState.toolTip);
+    if (!mediaKind.isEmpty()) {
+        applyChatItemVisualMetadata(item,
+                                    QString(),
+                                    QStringLiteral("文件链路"),
+                                    mediaKind,
+                                    attachmentPath,
+                                    QPixmap());
+    }
     m_chatModel->appendRow(item);
 }
 
@@ -14881,18 +16973,84 @@ void MainWindow::loadHistory(const QString& peerId) {
     if (peerId.isEmpty()) return;
 
     const QStringList rows = m_historyService.recentRows(peerId, MAX_HISTORY_LINES);
-    const QRegularExpression senderPattern(QStringLiteral("<([^>]+)>"));
     for (const QString& line : rows) {
-        const QRegularExpressionMatch match = senderPattern.match(line);
-        const QString senderName = match.hasMatch() ? match.captured(1) : QStringLiteral("历史");
+        const QString senderName = extractHistorySenderName(line);
+        const QString senderId = extractHistorySenderId(line, peerId, senderName);
+        QString attachmentName;
+        const QString mediaKind = detectHistoryMediaKind(line, &attachmentName);
         QStandardItem* item = createChatMessageItem(line,
-                                                    QString(),
+                                                    senderId,
                                                     senderName,
-                                                    false,
-                                                    Qt::gray,
-                                                    QColor(250, 252, 254));
+                                                    senderId == m_currentUserId,
+                                                    senderId == m_currentUserId ? QColor(20, 92, 160) : Qt::gray,
+                                                    senderId == m_currentUserId ? QColor(218, 241, 255) : QColor(250, 252, 254));
         m_chatModel->appendRow(item);
+
+        const QString attachmentPath = extractHistoryAttachmentPath(line, item->data(Qt::ToolTipRole).toString());
+        const LocalSavedFileState savedState = !attachmentPath.isEmpty()
+            ? LocalFileManager::savedFileStateFromChatText(QStringLiteral("保存路径：") + attachmentPath,
+                                                           item->data(Qt::ToolTipRole).toString())
+            : LocalFileManager::savedFileStateFromChatText(line,
+                                                           item->data(Qt::ToolTipRole).toString());
+        if (!mediaKind.isEmpty() && savedState.hasSavePath) {
+            appendTransferHistoryCard(senderId,
+                                      senderName,
+                                      mediaKind,
+                                      attachmentName.isEmpty() ? QFileInfo(savedState.savePath).fileName() : attachmentName,
+                                      savedState.savePath,
+                                      senderId == m_currentUserId);
+        }
     }
+}
+
+QString MainWindow::extractHistorySenderName(const QString& line) const {
+    const QRegularExpression senderPattern(QStringLiteral("<([^>]+)>"));
+    const QRegularExpressionMatch match = senderPattern.match(line);
+    if (match.hasMatch()) {
+        return match.captured(1).trimmed();
+    }
+    if (line.contains(QStringLiteral("[系统]"))) {
+        return QStringLiteral("系统");
+    }
+    return QStringLiteral("历史");
+}
+
+QString MainWindow::extractHistorySenderId(const QString& line,
+                                           const QString& peerId,
+                                           const QString& senderName) const {
+    Q_UNUSED(line)
+    if (senderName == m_currentUserName) {
+        return m_currentUserId;
+    }
+    if (!peerId.isEmpty() && peerId != QLatin1String("group") && !peerId.startsWith(QStringLiteral("local_group_"))) {
+        return peerId;
+    }
+
+    for (auto it = m_friendNames.constBegin(); it != m_friendNames.constEnd(); ++it) {
+        if (it.value().trimmed() == senderName.trimmed()) {
+            return it.key();
+        }
+    }
+    for (auto it = m_knownUsers.constBegin(); it != m_knownUsers.constEnd(); ++it) {
+        if (it.value().name.trimmed() == senderName.trimmed()) {
+            return it.key();
+        }
+    }
+    return QString();
+}
+
+QString MainWindow::extractHistoryAttachmentName(const QString& line) const {
+    return HistoryAttachmentParser::extractAttachmentName(line);
+}
+
+QString MainWindow::extractHistoryAttachmentPath(const QString& line,
+                                                 const QString& toolTipText) const {
+    return HistoryAttachmentParser::extractAttachmentPath(line, toolTipText);
+}
+
+QString MainWindow::detectHistoryMediaKind(const QString& line,
+                                           QString* fileName) const {
+    return HistoryAttachmentParser::detectMediaKind(line, fileName);
 }
 
 void MainWindow::saveHistory(const QString& peerId, const QString& content) {
@@ -14935,6 +17093,12 @@ bool MainWindow::ensureClientDatabase() const {
                                 "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
             }
             if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS peer_avatars ("
+                                "user_id TEXT PRIMARY KEY, "
+                                "avatar_path TEXT NOT NULL, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            }
+            if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS friend_requests ("
                                 "request_id TEXT NOT NULL, "
                                 "display_name TEXT NOT NULL, "
@@ -14960,6 +17124,23 @@ bool MainWindow::saveProfileToSqlite() const {
     return m_clientStorage.saveProfileToSqlite(clientDbPath(), m_currentUserId, m_currentUserName, avatarPath);
 }
 
+void MainWindow::persistPeerAvatarIndexEntry(const QString& userId, const QString& avatarBase64) {
+    const QString normalizedUserId = userId.trimmed();
+    const QString normalizedAvatar = avatarBase64.trimmed();
+    if (normalizedUserId.isEmpty() || normalizedAvatar.isEmpty()) {
+        return;
+    }
+    const QByteArray pngData = QByteArray::fromBase64(normalizedAvatar.toLatin1());
+    if (!m_clientStorage.savePeerAvatar(normalizedUserId, pngData)) {
+        return;
+    }
+    const QString filePath = m_clientStorage.peerAvatarFilePath(normalizedUserId);
+    if (!clientDbPath().trimmed().isEmpty()) {
+        m_clientStorage.savePeerAvatarToSqlite(clientDbPath(), normalizedUserId, filePath);
+    }
+    m_peerAvatarIndex.insert(normalizedUserId, filePath);
+}
+
 QStandardItem* MainWindow::findUserItem(const QString& userId) {
     for (int i = 0; i < m_userListModel->rowCount(); ++i) {
         QStandardItem* item = m_userListModel->item(i);
@@ -14971,8 +17152,15 @@ QStandardItem* MainWindow::findUserItem(const QString& userId) {
 }
 
 void MainWindow::refreshFriendList() {
+    if (m_peerAvatarIndex.isEmpty()) {
+        loadPeerAvatarIndexFromStorage();
+    }
     m_userListModel->clear();
     m_userListModel->setHorizontalHeaderLabels({"好友 / 在线"});
+    if (ui->userListView) {
+        ui->userListView->setIconSize(QSize(32, 32));
+        ui->userListView->setUniformItemSizes(false);
+    }
 
     bool loadedFriendsFromSqlite = false;
     if (m_friendIds.isEmpty() && ensureClientDatabase()) {
@@ -15129,6 +17317,7 @@ void MainWindow::refreshFriendList() {
         QStandardItem* item = new QStandardItem(QString("群聊 QQ:%1\n   %2 [本地]").arg(groupId.mid(QString("local_group_").size()), groupName));
         item->setData(groupId, Qt::UserRole + 1);
         item->setForeground(QColor(29, 78, 216));
+        item->setData(groupAvatarPixmap(groupId, groupName, 32), Qt::DecorationRole);
         m_userListModel->appendRow(item);
         ++visibleCount;
         ++visibleGroups;
@@ -15188,6 +17377,29 @@ void MainWindow::refreshFriendList() {
         m_userListModel->appendRow(groupItem);
         ui->onlineTitleLabel->setText(QString("联系人工作区 · 未匹配结果 · 可搜索 QQ 或创建群聊：%1").arg(m_contactFilter));
     }
+
+    if (ui->contactSummaryTitleLabel && ui->contactSummaryDetailLabel && ui->contactSummaryCard) {
+        const bool hasFilter = !m_contactFilter.isEmpty();
+        QString detail = hasFilter
+            ? QStringLiteral("当前筛选词“%1”下可见 %2 项：好友 %3、群聊 %4、在线成员 %5、待确认 %6。")
+                  .arg(m_contactFilter)
+                  .arg(visibleCount)
+                  .arg(visibleFriends + onlineFriendCount)
+                  .arg(visibleGroups)
+                  .arg(visibleOnlineUsers)
+                  .arg(visiblePendingOutgoing)
+            : QStringLiteral("左侧会持续汇总好友、群聊、在线成员和可发现对象 %1 个，方便直接进入会话或继续发起动作。")
+                  .arg(visibleStrangers);
+        QString tone = visiblePendingOutgoing > 0 ? QStringLiteral("accent") : QStringLiteral("muted");
+        QString title = hasFilter ? QStringLiteral("联系人筛选结果") : QStringLiteral("联系人工作区");
+        if (visibleCount == 0 && hasFilter) {
+            detail = QStringLiteral("当前没有匹配结果，可直接搜索 QQ:%1，或把它作为群名继续创建本地群聊。").arg(m_contactFilter);
+            tone = QStringLiteral("warning");
+        }
+        ui->contactSummaryTitleLabel->setText(title);
+        ui->contactSummaryDetailLabel->setText(detail);
+        applyToneProperty(ui->contactSummaryCard, tone);
+    }
 }
 
 void MainWindow::onContactSearchChanged(const QString& text) {
@@ -15205,6 +17417,8 @@ void MainWindow::refreshGroupMemberPanel() {
     QString filter = ui->memberSearchEdit ? ui->memberSearchEdit->text().trimmed() : QString();
     m_groupMemberModel->clear();
     m_groupMemberModel->setHorizontalHeaderLabels({"群成员"});
+    ui->groupMemberListView->setIconSize(QSize(32, 32));
+    ui->groupMemberListView->setUniformItemSizes(false);
 
     if (!m_privateChatTarget.isEmpty() && m_privateChatTarget.startsWith("local_group_")) {
         QStringList members = m_localGroupMembers.value(m_privateChatTarget);
@@ -15263,6 +17477,13 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(isCurrentUserGroupOwner(m_privateChatTarget) ? "可邀请" : "无权限邀请")
                 .arg(filter));
+            if (ui->memberSummaryTitleLabel && ui->memberSummaryDetailLabel && ui->memberSummaryCard) {
+                ui->memberSummaryTitleLabel->setText(QStringLiteral("成员与权限"));
+                ui->memberSummaryDetailLabel->setText(isCurrentUserGroupOwner(m_privateChatTarget)
+                    ? QStringLiteral("当前筛选未命中成员，但你仍可按 QQ:%1 直接邀请新成员加入当前本地群。").arg(filter)
+                    : QStringLiteral("当前筛选未命中成员，且只有群主可以邀请 QQ:%1 入群。").arg(filter));
+                applyToneProperty(ui->memberSummaryCard, QStringLiteral("warning"));
+            }
             refreshMainWorkbenchChrome();
         } else if (!filter.isEmpty()) {
             ui->memberTitleLabel->setText(QString("群成员工作区 · 共 %1 人 · 群主 %2 · 在线 %3 · 好友 %4%5 · 匹配 %6")
@@ -15272,6 +17493,17 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(friendMembers)
                 .arg(pendingPart)
                 .arg(visibleMembers));
+        }
+        if (ui->memberSummaryTitleLabel && ui->memberSummaryDetailLabel && ui->memberSummaryCard) {
+            ui->memberSummaryTitleLabel->setText(QStringLiteral("成员与权限"));
+            ui->memberSummaryDetailLabel->setText(isCurrentUserGroupOwner(m_privateChatTarget)
+                ? QStringLiteral("当前本地群共 %1 人，群主为 %2。你可以继续邀请成员、设置备注，并从成员工作区处理移出边界。")
+                      .arg(members.size())
+                      .arg(ownerName)
+                : QStringLiteral("当前本地群共 %1 人，群主为 %2。你可以查看成员状态、复制成员信息并继续发起私聊。")
+                      .arg(members.size())
+                      .arg(ownerName));
+            applyToneProperty(ui->memberSummaryCard, QStringLiteral("accent"));
         }
         refreshMainWorkbenchChrome();
         return;
@@ -15300,6 +17532,11 @@ void MainWindow::refreshGroupMemberPanel() {
             delete removedItem;
         }
         ui->memberTitleLabel->setText("公共群工作区 · 当前账号已移出 · 历史只读");
+        if (ui->memberSummaryTitleLabel && ui->memberSummaryDetailLabel && ui->memberSummaryCard) {
+            ui->memberSummaryTitleLabel->setText(QStringLiteral("公共群只读边界"));
+            ui->memberSummaryDetailLabel->setText(QStringLiteral("当前账号已被移出公共群，仅保留历史记录查看；重新邀请后会恢复群成员、公告和协作入口。"));
+            applyToneProperty(ui->memberSummaryCard, QStringLiteral("warning"));
+        }
         refreshMainWorkbenchChrome();
         return;
     }
@@ -15345,6 +17582,7 @@ void MainWindow::refreshGroupMemberPanel() {
                                                 : (memberId == m_currentUserId ? QColor(29, 78, 216)
                                                                                : (isFriend ? QColor(20, 92, 160)
                                                                                            : (isPending ? QColor(170, 110, 20) : QColor(60, 78, 96)))));
+            item->setData(chatAvatarPixmap(memberId, name, 32), Qt::DecorationRole);
             m_groupMemberModel->appendRow(item);
             ++visibleMembers;
         }
@@ -15364,6 +17602,13 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(onlineMembers)
                 .arg(canManagePublicGroup ? "可邀请" : "可搜索")
                 .arg(filter));
+            if (ui->memberSummaryTitleLabel && ui->memberSummaryDetailLabel && ui->memberSummaryCard) {
+                ui->memberSummaryTitleLabel->setText(QStringLiteral("公共群成员搜索"));
+                ui->memberSummaryDetailLabel->setText(canManagePublicGroup
+                    ? QStringLiteral("当前没有匹配成员，但你可直接按 QQ:%1 提交公共群成员变更。").arg(filter)
+                    : QStringLiteral("当前没有匹配成员，可直接搜索 QQ:%1 并发起好友申请。").arg(filter));
+                applyToneProperty(ui->memberSummaryCard, QStringLiteral("warning"));
+            }
             refreshMainWorkbenchChrome();
             return;
         }
@@ -15405,6 +17650,13 @@ void MainWindow::refreshGroupMemberPanel() {
                 .arg(pendingPart)
                 .arg(visibleMembers)
                 .arg(auditVisibleCount > 0 ? QString(" · 审计%1").arg(auditVisibleCount) : QString()));
+        if (ui->memberSummaryTitleLabel && ui->memberSummaryDetailLabel && ui->memberSummaryCard) {
+            ui->memberSummaryTitleLabel->setText(QStringLiteral("公共群成员与审计"));
+            ui->memberSummaryDetailLabel->setText(canManagePublicGroup
+                ? QStringLiteral("右侧持续展示公共群成员、在线/好友占比和最近审计；当前账号可继续处理公告与成员管理。")
+                : QStringLiteral("右侧持续展示公共群成员、在线/好友占比和最近审计；当前账号以查看、搜索和好友申请为主。"));
+            applyToneProperty(ui->memberSummaryCard, canManagePublicGroup ? QStringLiteral("accent") : QStringLiteral("muted"));
+        }
         refreshMainWorkbenchChrome();
         return;
     }
@@ -15454,6 +17706,11 @@ void MainWindow::refreshGroupMemberPanel() {
         addItem->setForeground(QColor(29, 78, 216));
         m_groupMemberModel->appendRow(addItem);
         ui->memberTitleLabel->setText(QString("群成员工作区 · 共 %1 人 · 在线 %2 · 可搜索 QQ:%3").arg(memberCount).arg(onlineMembers).arg(filter));
+        if (ui->memberSummaryTitleLabel && ui->memberSummaryDetailLabel && ui->memberSummaryCard) {
+            ui->memberSummaryTitleLabel->setText(QStringLiteral("当前会话成员搜索"));
+            ui->memberSummaryDetailLabel->setText(QStringLiteral("当前没有匹配成员，可继续搜索 QQ:%1 并发起好友申请，或等待成员上线后再处理。").arg(filter));
+            applyToneProperty(ui->memberSummaryCard, QStringLiteral("warning"));
+        }
         refreshMainWorkbenchChrome();
         return;
     }
@@ -15461,6 +17718,14 @@ void MainWindow::refreshGroupMemberPanel() {
     ui->memberTitleLabel->setText(filter.isEmpty()
         ? QString("群成员工作区 · 共 %1 人 · 在线 %2 · 好友 %3%4").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart)
         : QString("群成员工作区 · 共 %1 人 · 在线 %2 · 好友 %3%4 · 匹配 %5").arg(memberCount).arg(onlineMembers).arg(friendMembers).arg(pendingPart).arg(visibleMembers));
+    if (ui->memberSummaryTitleLabel && ui->memberSummaryDetailLabel && ui->memberSummaryCard) {
+        ui->memberSummaryTitleLabel->setText(QStringLiteral("当前会话成员"));
+        ui->memberSummaryDetailLabel->setText(QStringLiteral("当前会话在线成员 %1 人、好友 %2 人%3；可继续从右侧成员区复制信息、搜索对象或发起好友申请。")
+                                                  .arg(onlineMembers)
+                                                  .arg(friendMembers)
+                                                  .arg(pendingMembers > 0 ? QStringLiteral("，申请中 %1 人").arg(pendingMembers) : QString()));
+        applyToneProperty(ui->memberSummaryCard, pendingMembers > 0 ? QStringLiteral("accent") : QStringLiteral("muted"));
+    }
     refreshMainWorkbenchChrome();
 }
 

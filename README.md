@@ -61,6 +61,10 @@ QtNetworkChat 是一个基于 C++ 和 Qt Widgets 开发的 QQ 风格局域网即
 
 README 保留快速上手、项目结构、构建入口和运行入口；大段产品化状态、运维证据和测试矩阵拆到聚焦文档，避免自动化闭环继续在 README 里堆长段。
 
+当前主线已经进入 release closeout：以 current-HEAD 的本地验证、release review、archive decision、delivery handoff、closeout summary 和 final local archive 为准，不再把新的产品功能扩展作为当前分支主任务。
+文件 / 离线附件、MainWindow / UI 拆分、群组产品化、PostgreSQL、治理 dashboard 等主功能线已经完成当前分支范围内的产品化闭环；后续只在确有回归、缺陷或收官维护收益时再做小范围修正。
+另一个 Redis 或环境外发布分支的事项，不计入当前 `main` 分支是否已经本地收官的判断；当前分支只对仓库内可验证、本地可归档的 closeout 事实负责。
+
 - [Testing coverage](docs/testing-coverage.md)：CTest 覆盖面、协议/文件/Redis/自动化验证边界。
 - [PostgreSQL operations](docs/postgresql-operations.md)：QPSQL 配置、健康检查、release acceptance、真实 smoke 和连接池治理。
 - [Large-file governance](docs/large-file-governance.md)：对象路由、S3/MinIO 证据、delivered receipt 对账、治理 dashboard/status。
@@ -403,7 +407,7 @@ export QTNETWORKCHAT_OBJECT_S3_TIMEOUT_MS=30000
 - 重登回放前校验附件路径、大小、标准 SHA-256 hash、chunkSize、chunkCount 与队列元数据一致；校验失败时沿用当前缺失/大小/hash 异常提示并清理坏状态。
 - 继续下发时优先从最早未确认分片开始，跳过已确认分片；若接收端返回拒绝 ACK 或连接中断，则保留队列和附件等待下次登录重试，避免误删附件。
 - 清理策略仍以“完整 ACK 后删除队列和附件”为唯一成功条件；默认 14 天内的队列引用附件会被保留，`QTNETWORKCHAT_OFFLINE_ATTACHMENT_TTL_DAYS` 可调整附件过期天数；过期或无队列引用的附件会被启动/定时清理删除。
-- 后续优化重点不再是基础协议补洞，而是失败提示体验、跨实例大文件回放设计、治理指标和传输性能优化。
+- 这一链路在当前分支已完成协议与产品化闭环；后续若继续调整，只属于收官后的维护性优化，例如失败提示体验、跨实例大文件回放设计、治理指标和传输性能校验。
 
 ### 离线附件异常清理策略
 
@@ -743,17 +747,15 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
 
 旧版本如果使用昵称作为账号注册，建议重新注册新账号，以便使用随机 QQ 号登录流程。
 
-## 后续优化优先级
+## 收官后维护边界
 
-1. **E2E 生产发布闭环**：current-HEAD 的 production-linked release artifact 现在已经能由 linked OpenSSL runtime gate 本地生成，并在禁用 GitHub Windows Build 的仓库策略下走到 `ready-local-verification-only`。默认未链接构建继续 fail-closed，probe fixture 只用于验证链路，不再代表可发布候选。本地 `release review` 收官包现在会把 current-head E2E candidate、S3 readiness、large-file governance、PostgreSQL acceptance/rollback、README 和 automation-status 一起归档，供后续 archive decision 产物直接引用。
-2. **整体收官与仓库治理**：主链路 build/CTest 已能稳定通过，README、automation-status、focused docs、closeout summary、final local archive 和脚本生成内容现在已经能收敛到同一套 release closeout 口径。当前收官语义已经明确：若 current-head 的 `local-release-review`、`release-closeout-summary` 和 `release-final-local-archive` 都完成，则它们共同构成当前 HEAD 的 stop-writing 基线；默认 fail-closed baseline 只保留为信息性诊断，不再代表当前 head 未闭环。后续只需在确有新的 external publication 动作时通过 `release-publication-record` 回写。
-3. **发布与运维体验**：本地发布交付包已经收口 Windows package、上传说明、安装入口、脱敏诊断采集、非开发交接清单和最终本地归档；独立的 `release-archive-decision` 与 `release-final-local-archive` 产物会分别记录最终归档决定和 stop-writing 归档快照。剩余工作主要是按你自己的渠道把生成好的 zip 发布到团队共享盘、工单系统或发行页面，并在 publication record / archive decision 里回写发布状态。
-4. **文件 / 离线附件整线收口**：文件工作区已经完成一轮产品化收口，当前能集中展示发送状态、恢复来源、失败原因、保留证据、治理状态、性能状态和下一步动作，但这条线仍是当前主线，后续还会继续收紧 object / offline / resend / same-wire 分支口径、补高价值测试，并把 README / focused docs 与真实状态完全对齐。
-5. **结构拆分的最终收尾**：`HistoryService`、`TransferManager`、`FriendManager`、`GroupManager`、`ClientStorage`、`LocalFileManager`、`ComposerManager`、`ChatContextManager`、`NotificationPanelManager` 已经承担主职责。MainWindow / UI 尾部收口仍是后续第二大包，会继续处理剩余的大弹窗编排、少量状态挂接和主工作台细节统一。
-6. **性能与非阻塞增强**：大文件治理已经补上 dashboard 和 performance summary，当前文件工作区也能直接打开这些产物并读取 delivery closure、fallback protection、S3 transient pressure、receipt archive pressure 和 bottleneck 摘要；文件传输集成测试也已经锁住发送进度单调性、ACK 重试后的已确认字节收敛和 file-specific progress 追踪。后续更适合继续补更重的性能压测，以及必要时增加少量高价值回归测试。
+1. **文档 / 状态 / 脚本口径**：当前 README、`docs/automation-status.md`、`docs/release-closeout.md`、`docs/e2e-hardening-status.md` 与 closeout 脚本生成物应保持同一套 current-HEAD 收官语义；后续只做维护性同步，不再把这条线表述成未完成主任务。
+2. **本地 release closeout 基线**：current-HEAD 的 `local-release-review`、`release-archive-decision`、`release-delivery-handoff`、`release-closeout-summary` 和 `release-final-local-archive` 现在共同构成 stop-writing 基线。环境外发布仍是显式记录项，但不再反向否定已经完成的本地收官链。
+3. **高价值补强与仓库清理**：后续只补少量最值钱的回归测试、维护型清理和文档一致性修正，不再在当前分支开启新的产品主线。
+4. **环境外发布跟踪**：如果后面确实把生成好的 zip 发到团队共享盘、工单系统或发行页面，再通过 `release-publication-record` 或 archive decision 回写发布状态；这属于环境外动作，不是当前仓库 closeout 的前置条件。
 
 ## 说明
 
-本项目主要用于学习和演示 Qt 桌面开发、TCP 网络通信和即时通讯系统设计。当前文件和媒体传输适合局域网测试，如用于生产环境，还需要继续增强安全性、稳定性、离线传输治理和传输性能。
+本项目主要用于学习和演示 Qt 桌面开发、TCP 网络通信和即时通讯系统设计。当前分支已经完成仓库范围内的 closeout；如果后续要把它继续推进到更严格的生产环境要求，应作为新的独立主线评估安全性、稳定性、离线传输治理和传输性能，而不是回溯性否定当前本地收官结论。
 
 

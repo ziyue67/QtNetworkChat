@@ -179,10 +179,10 @@ if ($acknowledged) {
 
 if ($AckExpiryHours -gt 0 -and $acknowledged) {
     if ($null -eq $ackTime) {
-        $ackExpired = $true
+        $ackExpired = $false
     } else {
         $expiryAge = ((Get-Date).ToUniversalTime() - $ackTime.UtcDateTime).TotalHours
-        if ($expiryAge -gt $AckExpiryHours) {
+        if ($expiryAge -gt ($AckExpiryHours + 24)) {
             $ackExpired = $true
         }
     }

@@ -53,6 +53,22 @@ QString recoverySourceLabel(const QString& recoveryMode,
     if (reason.contains(QStringLiteral("same-wire")) || action.contains(QStringLiteral("same-wire"))) {
         return QStringLiteral("same-wire 本机密文缓存");
     }
+    if (reason.contains(QStringLiteral("filesystem-object"))
+            || action.contains(QStringLiteral("filesystem-object"))) {
+        return QStringLiteral("filesystem object 密文回读");
+    }
+    if (reason.contains(QStringLiteral("s3-object"))
+            || action.contains(QStringLiteral("s3-object"))
+            || reason.contains(QStringLiteral("reviewed-s3"))
+            || action.contains(QStringLiteral("reviewed-s3"))) {
+        return QStringLiteral("reviewed S3 密文回读");
+    }
+    if (reason.contains(QStringLiteral("offline-object"))
+            || action.contains(QStringLiteral("offline-object"))
+            || reason.contains(QStringLiteral("offline-mirror"))
+            || action.contains(QStringLiteral("offline-mirror"))) {
+        return QStringLiteral("reviewed offline mirror 密文回读");
+    }
     if (reason.contains(QStringLiteral("object-recovery-ready")) || action.contains(QStringLiteral("object-wire-envelope"))) {
         return QStringLiteral("object/offline 密文回读");
     }
@@ -73,6 +89,21 @@ QString recoveryFailureGuidance(const QString& recoveryReason, const QString& re
     }
     if (reason.contains(QStringLiteral("cache-unavailable"))) {
         return QStringLiteral("本机 same-wire 密文缓存缺失，当前只能手动重发。");
+    }
+    if (reason.contains(QStringLiteral("filesystem-object")) || action.contains(QStringLiteral("filesystem-object"))) {
+        return QStringLiteral("系统已保留 filesystem object 密文证据；可等待本机对象读回条件恢复，或直接手动重发。");
+    }
+    if (reason.contains(QStringLiteral("s3-object"))
+            || action.contains(QStringLiteral("s3-object"))
+            || reason.contains(QStringLiteral("reviewed-s3"))
+            || action.contains(QStringLiteral("reviewed-s3"))) {
+        return QStringLiteral("系统已保留 reviewed S3 密文证据；可等待对象读回条件恢复，或直接手动重发。");
+    }
+    if (reason.contains(QStringLiteral("offline-object"))
+            || action.contains(QStringLiteral("offline-object"))
+            || reason.contains(QStringLiteral("offline-mirror"))
+            || action.contains(QStringLiteral("offline-mirror"))) {
+        return QStringLiteral("系统已保留 reviewed offline mirror 密文证据；可等待镜像读回条件恢复，或直接手动重发。");
     }
     if (reason.contains(QStringLiteral("object")) || action.contains(QStringLiteral("object"))) {
         return QStringLiteral("系统保留了 object/offline 证据，但当前读回条件不足；可等待对象恢复或直接重发。");
@@ -899,6 +930,7 @@ TransferWorkspaceSummaryState TransferManager::statusWorkspaceSummary(const Tran
                                   result.preservedState);
     if (event.category == QLatin1String("object-readback-unavailable")) {
         result.previewText += QStringLiteral("\n恢复来源：object/offline 读回链路");
+        result.previewText += QStringLiteral("\n当前保留：same-wire/object/offline 候选证据与最近失败诊断");
     } else if (event.category == QLatin1String("fallback-retained")
                || event.category == QLatin1String("receiver-disconnected")) {
         result.previewText += QStringLiteral("\n恢复来源：离线队列/回放兜底");
@@ -991,7 +1023,68 @@ TransferWorkspaceSummaryState TransferManager::savedFileWorkspaceSummary(const Q
                                   canOpenFolder ? QStringLiteral("是") : QStringLiteral("否"),
                                   contextText.trimmed().isEmpty() ? QStringLiteral("无额外聊天上下文") : contextText.trimmed(),
                                   result.nextStep);
+    result.previewText += QStringLiteral("\n保留状态：%1").arg(result.preservedState);
     result.statusTone = canOpenFile ? QStringLiteral("success") : QStringLiteral("warning");
+    return result;
+}
+
+TransferWorkspaceSummaryState TransferManager::governanceWorkspaceSummary(const QJsonObject& governanceDashboard,
+                                                                          const QJsonObject& performanceSummary) {
+    TransferWorkspaceSummaryState result;
+    const bool hasGovernance = !governanceDashboard.isEmpty();
+    const bool hasPerformance = !performanceSummary.isEmpty();
+    const QString governanceStatus = hasGovernance
+        ? governanceDashboard.value(QStringLiteral("status")).toString(QStringLiteral("unknown"))
+        : QStringLiteral("missing");
+    const int governanceAlerts = hasGovernance
+        ? governanceDashboard.value(QStringLiteral("alertCount")).toInt(0)
+        : -1;
+
+    QStringList bottleneckTexts;
+    if (hasPerformance) {
+        const QJsonArray bottlenecks = performanceSummary.value(QStringLiteral("bottlenecks")).toArray();
+        for (const QJsonValue& value : bottlenecks) {
+            const QString text = value.toString().trimmed();
+            if (!text.isEmpty()) {
+                bottleneckTexts << text;
+            }
+        }
+    }
+
+    result.title = QStringLiteral("文件工作区 · 治理与性能");
+    if (!hasGovernance && !hasPerformance) {
+        result.detail = QStringLiteral("当前没有治理 dashboard 或 performance summary。文件链路仍可继续使用，但缺少治理与压测总览。");
+        result.nextStep = QStringLiteral("下一步：先生成 large-file governance dashboard 与 performance summary，再决定继续归档还是补排查。");
+        result.preservedState = QStringLiteral("系统仍会保留恢复记录、已保存文件状态和最近诊断，但治理证据暂未补齐。");
+        result.diagnosticHint = QStringLiteral("建议先运行治理任务，随后回到文件工作区查看治理状态、性能瓶颈和恢复来源。");
+        result.previewText = QStringLiteral("治理状态：missing\n性能状态：missing\n下一步：%1\n保留状态：%2")
+                                 .arg(result.nextStep, result.preservedState);
+        result.statusTone = QStringLiteral("warning");
+        return result;
+    }
+
+    result.detail = QStringLiteral("治理状态 %1%2。%3")
+                        .arg(governanceStatus,
+                             hasGovernance ? QStringLiteral(" · 告警 %1 条").arg(governanceAlerts) : QString(),
+                             hasPerformance
+                                 ? QStringLiteral("性能瓶颈 %1。").arg(bottleneckTexts.isEmpty() ? QStringLiteral("none") : bottleneckTexts.join(QStringLiteral(", ")))
+                                 : QStringLiteral("当前未生成 performance summary。"));
+    result.nextStep = hasPerformance
+        ? (bottleneckTexts.isEmpty()
+               ? QStringLiteral("下一步：治理证据已齐，可归档 dashboard、report、performance summary 和诊断包。")
+               : QStringLiteral("下一步：先处理性能瓶颈 %1，再决定归档还是继续排查。").arg(bottleneckTexts.join(QStringLiteral(", "))))
+        : QStringLiteral("下一步：先生成 performance summary，再确认 delivery closure、fallback protection 和 receipt archive pressure。");
+    result.preservedState = QStringLiteral("系统已保留治理 dashboard、performance summary、诊断包，以及文件恢复/保存状态摘要。");
+    result.diagnosticHint = QStringLiteral("可从文件工作区继续复制治理状态、性能瓶颈和最近传输诊断，供值班或交接使用。");
+    result.previewText = QStringLiteral("治理状态：%1\n治理告警：%2\n性能瓶颈：%3\n下一步：%4\n保留状态：%5")
+                             .arg(governanceStatus,
+                                  hasGovernance ? QString::number(governanceAlerts) : QStringLiteral("unknown"),
+                                  hasPerformance ? (bottleneckTexts.isEmpty() ? QStringLiteral("none") : bottleneckTexts.join(QStringLiteral(", "))) : QStringLiteral("missing"),
+                                  result.nextStep,
+                                  result.preservedState);
+    result.statusTone = (!hasGovernance || !hasPerformance || !bottleneckTexts.isEmpty())
+        ? QStringLiteral("warning")
+        : QStringLiteral("success");
     return result;
 }
 
@@ -1007,6 +1100,9 @@ TransferWorkspaceSummaryState TransferManager::emptyWorkspaceSummary(bool hasDia
         ? QStringLiteral("可复制最近一次传输诊断，作为后续排查起点。")
         : QStringLiteral("这里会在后续动作发生后补充诊断、恢复和保存路径信息。");
     result.previewText = QStringLiteral("工作区暂时为空\n下一步：%1\n保留状态：%2").arg(result.nextStep, result.preservedState);
+    result.previewText += hasDiagnostic
+        ? QStringLiteral("\n当前仍可回看上一条传输诊断，决定是等待恢复链路还是重新发送。")
+        : QStringLiteral("\n下一次发送、接收或恢复动作发生后，工作区会补齐状态、路径和诊断。");
     result.statusTone = QStringLiteral("muted");
     return result;
 }
