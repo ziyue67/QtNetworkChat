@@ -32,6 +32,9 @@
 #include <QPixmap>
 #include <QImage>
 #include <QPainter>
+#include <QGraphicsDropShadowEffect>
+#include <QPropertyAnimation>
+#include <QPainter>
 #include <QLinearGradient>
 #include <QPolygonF>
 #include <QRegularExpression>
@@ -513,7 +516,31 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_unreadCount(0)
     , m_isQuitting(false)
 {
-    ui->setupUi(this);
+        ui->setupUi(this);
+
+    // Fade-in Window Animation Effect
+    this->setWindowOpacity(0.0);
+    QPropertyAnimation* fadeAnim = new QPropertyAnimation(this, "windowOpacity");
+    fadeAnim->setDuration(400); // 400ms fade
+    fadeAnim->setStartValue(0.0);
+    fadeAnim->setEndValue(1.0);
+    fadeAnim->setEasingCurve(QEasingCurve::InOutQuad);
+    fadeAnim->start(QAbstractAnimation::DeleteWhenStopped);
+
+    // Apply drop shadows to structural cards to create Z-depth
+    auto addShadow = [](QWidget* widget) {
+        if (!widget) return;
+        QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(widget);
+        shadow->setBlurRadius(15);
+        shadow->setColor(QColor(0, 0, 0, 80));
+        shadow->setOffset(0, 4);
+        widget->setGraphicsEffect(shadow);
+    };
+
+    addShadow(ui->profileCard);
+    addShadow(ui->announcementCard);
+    addShadow(ui->groupOverviewCard);
+    addShadow(ui->transferOverviewCard);
 
     // Load modern stylesheet
     QFile styleFile("ui/style.qss");
@@ -8834,4 +8861,5 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     m_client->disconnectFromServer();
     event->accept();
 }
+
 

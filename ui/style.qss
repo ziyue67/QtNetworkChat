@@ -304,3 +304,46 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: none;
 }
+
+/* Micro-Interaction Tweaks */
+
+/* Subtle transition-like behavior via color shifting on inputs */
+QLineEdit {
+    selection-background-color: #4A90E2;
+    selection-color: #FFFFFF;
+}
+
+QTextEdit {
+    selection-background-color: #4A90E2;
+    selection-color: #FFFFFF;
+}
+
+/* Tooltip micro-tuning */
+QToolTip {
+    font-size: 13px;
+    padding: 6px;
+    background-color: #1A1C1F;
+    color: #FFFFFF;
+    border: 1px solid #4A90E2; /* Pop tooltip outline */
+    border-radius: 4px;
+    opacity: 230;
+}
+
+/* Button micro-tuning */
+QPushButton {
+    outline: none; /* remove focus dotted lines */
+}
+QPushButton#sendBtn {
+    /* add an inner fake shadow look using border */
+    border-bottom: 2px solid #2C6399; 
+}
+QPushButton#sendBtn:pressed {
+    border-bottom: 0px; 
+    margin-top: 2px; /* physical depression effect */
+}
+
+/* List view selection styling details */
+QListView::item {
+    margin: 2px 8px; /* Floating items feel */
+    border-radius: 6px;
+}
