@@ -6,6 +6,8 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMap>
 #include <QObject>
 #include <QSet>
@@ -35,6 +37,42 @@ bool waitFor(const std::function<bool()>& predicate, int timeoutMs = 5000) {
     }
     QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
     return predicate();
+}
+
+bool connectSocket(QTcpSocket* socket, quint16 port) {
+    if (!socket) return false;
+    socket->connectToHost(QHostAddress::LocalHost, port);
+    return socket->waitForConnected(3000);
+}
+
+bool writeJsonLine(QTcpSocket* socket, const QJsonObject& object) {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return false;
+    const QByteArray line = QJsonDocument(object).toJson(QJsonDocument::Compact) + '\n';
+    return socket->write(line) == line.size() && socket->waitForBytesWritten(3000);
+}
+
+bool loginSocket(QTcpSocket* socket, const QString& account, const QString& name) {
+    QJsonObject login;
+    login["type"] = "login";
+    login["mode"] = "register";
+    login["account"] = account;
+    login["password"] = "secret";
+    login["userName"] = name;
+    return writeJsonLine(socket, login);
+}
+
+bool socketBufferContains(QTcpSocket* socket, QByteArray* buffer, const QByteArray& needle, int timeoutMs = 3000) {
+    if (!socket || !buffer) return false;
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        buffer->append(socket->readAll());
+        if (buffer->contains(needle)) return true;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        socket->waitForReadyRead(50);
+    }
+    buffer->append(socket->readAll());
+    return buffer->contains(needle);
 }
 
 quint16 freeLocalPort() {
@@ -255,12 +293,32 @@ int main(int argc, char** argv) {
     ok = expect(server.start(chatPort), "server should start when Redis is reachable") && ok;
     ok = expect(server.isServiceReady(), "server should be ready right after a successful Redis-backed startup") && ok;
 
+    QTcpSocket clientSocket;
+    QByteArray clientBuffer;
+    ok = expect(connectSocket(&clientSocket, chatPort), "client should connect to Redis-backed chat server") && ok;
+    ok = expect(loginSocket(&clientSocket, QStringLiteral("readiness-user"), QStringLiteral("Readiness User")),
+                "client should submit login before subscriber recovery probe") && ok;
+    ok = expect(socketBufferContains(&clientSocket, &clientBuffer, QByteArrayLiteral("\"type\":\"login_success\""), 5000),
+                "client should receive login result before subscriber recovery probe") && ok;
+    clientBuffer.clear();
+
     QMetaObject::invokeMethod(fakeRedis, "disconnectSubscribers", Qt::BlockingQueuedConnection);
     ok = expect(waitFor([&] { return !server.isServiceReady(); }, 4000),
                 "server should become not ready after the Redis subscription disconnects") && ok;
 
+    QJsonObject publicMessage;
+    publicMessage["type"] = "message";
+    publicMessage["messageType"] = static_cast<int>(MessageType::Text);
+    publicMessage["senderId"] = "readiness-user";
+    publicMessage["senderName"] = "Readiness User";
+    publicMessage["content"] = "message should trigger redis subscriber recovery";
+    ok = expect(writeJsonLine(&clientSocket, publicMessage),
+                "client should send a message while subscriber readiness is recovering") && ok;
+
     ok = expect(waitFor([&] { return server.isServiceReady(); }, 5000),
-                "server should become ready again after Redis subscriber reconnects") && ok;
+                "server should become ready again when a client request triggers subscriber recovery") && ok;
+    ok = expect(!socketBufferContains(&clientSocket, &clientBuffer, QByteArrayLiteral("Redis"), 500),
+                "client request should not be rejected as Redis not ready after subscriber recovery") && ok;
 
     server.stop();
     qunsetenv("QTNETWORKCHAT_REDIS");

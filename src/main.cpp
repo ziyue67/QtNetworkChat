@@ -43,6 +43,16 @@ bool canConnectToRedisEndpoint(const QString& host, quint16 port, int timeoutMs 
     return connected;
 }
 
+bool canConnectToLocalChatService(quint16 port, int timeoutMs = 250) {
+    QTcpSocket socket;
+    socket.connectToHost(QStringLiteral("127.0.0.1"), port);
+    const bool connected = socket.waitForConnected(timeoutMs);
+    if (connected) {
+        socket.disconnectFromHost();
+    }
+    return connected;
+}
+
 void ensureDesktopRedisEnvironment() {
     if (envEnabled("QTNETWORKCHAT_REDIS")) {
         return;
@@ -737,7 +747,7 @@ int main(int argc, char *argv[])
     if (!server->start(port)) {
         delete server;
         server = nullptr;
-        if (canConnectToRedisEndpoint(QStringLiteral("127.0.0.1"), port, 250)) {
+        if (canConnectToLocalChatService(port, 250)) {
             serviceBadgeLabel->setText("连接已有服务");
             serviceBadgeLabel->setToolTip("本机 8888 端口已有 QtNetworkChat 服务窗口托管，本窗口将作为客户端加入");
             modeStatusLabel->setText("检测到已有本地聊天服务，本窗口可直接登录或注册第二个账号进行双开测试。");

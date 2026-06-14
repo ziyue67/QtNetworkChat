@@ -1581,8 +1581,19 @@ void Server::tryRecoverRedisCommandAvailability() {
     }
 }
 
+void Server::tryRecoverRedisSubscriberAvailability() {
+    if (m_redisSubscriberReady || !m_redisSubscriber || !m_redisSubscriber->isEnabled()) {
+        return;
+    }
+
+    if (m_redisSubscriber->subscribe(QStringLiteral("messages"))) {
+        updateRedisSubscriberAvailability(true);
+    }
+}
+
 bool Server::ensureServiceReady(QTcpSocket* socket, const QString& action) {
     tryRecoverRedisCommandAvailability();
+    tryRecoverRedisSubscriberAvailability();
     if (m_serviceReady) {
         return true;
     }

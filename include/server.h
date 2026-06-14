@@ -75,6 +75,7 @@ private:
     void cleanupExpiredFileTransfers();
     bool ensureRedisReadyForStartup();
     void tryRecoverRedisCommandAvailability();
+    void tryRecoverRedisSubscriberAvailability();
     void updateRedisCommandAvailability(bool available, const QString& reason = QString());
     void updateRedisSubscriberAvailability(bool available, const QString& reason = QString());
     void refreshServiceReadiness();
