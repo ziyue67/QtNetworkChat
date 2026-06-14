@@ -232,6 +232,19 @@ int main(int argc, char** argv) {
                     && receivedTransferPlan.savePath.contains(QStringLiteral("report.zip")),
                 "received transfer plan should centralize local file naming, size text, and save path preparation") && ok;
 
+    const QString customDownloadRoot = QDir(tempRoot).filePath(QStringLiteral("custom-download-root"));
+    LocalFileManager::setReceivedDownloadRootDirectory(customDownloadRoot);
+    const LocalReceivedTransferPlan customReceivedTransferPlan =
+        LocalFileManager::receivedTransferPlan(QStringLiteral("image.png"),
+                                               QStringLiteral("fallback.bin"),
+                                               9,
+                                               QStringLiteral("Images"));
+    ok = expect(customReceivedTransferPlan.savePath.startsWith(QDir::cleanPath(customDownloadRoot))
+                    && customReceivedTransferPlan.savePath.contains(QStringLiteral("Images"))
+                    && customReceivedTransferPlan.savePath.contains(QStringLiteral("image.png")),
+                "custom received download root should drive future received save paths") && ok;
+    LocalFileManager::resetReceivedDownloadRootDirectory();
+
     const QString firstReceivedPath = LocalFileManager::uniqueReceivedSavePath(receiveDir, QStringLiteral("report.zip"));
     ok = expect(!firstReceivedPath.isEmpty() && firstReceivedPath.contains(QStringLiteral("report.zip")),
                 "unique received save path should create a candidate name") && ok;

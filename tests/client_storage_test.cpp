@@ -84,6 +84,13 @@ int main(int argc, char** argv) {
                     && storage.groupFilePath().endsWith(QStringLiteral("groups_Alice.txt"))
                     && storage.avatarFilePath().endsWith(QStringLiteral("avatar_Alice.png")),
                 "storage paths should use current user name") && ok;
+    const QString customAppDataRoot = QDir(appDataDir).filePath(QStringLiteral("custom-client-data"));
+    ClientStorage::setAppDataRootDirectory(customAppDataRoot);
+    ok = expect(storage.friendFilePath().startsWith(QDir::cleanPath(customAppDataRoot))
+                    && storage.groupFilePath().startsWith(QDir::cleanPath(customAppDataRoot))
+                    && storage.avatarFilePath().startsWith(QDir::cleanPath(customAppDataRoot)),
+                "custom app data root should drive client local storage paths") && ok;
+    ClientStorage::resetAppDataRootDirectory();
     storage.setUserName(QString());
     ok = expect(storage.friendFilePath().endsWith(QStringLiteral("friends_guest.txt")),
                 "empty user name should use guest path fallback") && ok;

@@ -14,6 +14,10 @@ public:
     QString userName() const;
     void setUserName(const QString& userName);
 
+    static QString appDataRootDirectory();
+    static void setAppDataRootDirectory(const QString& directoryPath);
+    static void resetAppDataRootDirectory();
+
     QString friendFilePath() const;
     QString groupFilePath() const;
     QString avatarFilePath() const;

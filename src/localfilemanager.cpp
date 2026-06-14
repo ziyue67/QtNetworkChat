@@ -6,6 +6,34 @@
 #include <QSettings>
 #include <QStandardPaths>
 
+QString LocalFileManager::receivedDownloadRootDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QString directory = settings.value("storage/receivedDownloadRoot").toString().trimmed();
+    if (directory.isEmpty()) {
+        const QString downloads = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        directory = downloads.isEmpty()
+            ? QDir::homePath()
+            : QDir(downloads).filePath(QStringLiteral("QtNetworkChat"));
+    }
+    QDir().mkpath(directory);
+    return QDir::cleanPath(directory);
+}
+
+void LocalFileManager::setReceivedDownloadRootDirectory(const QString& directoryPath) {
+    const QString cleaned = QDir::cleanPath(directoryPath.trimmed());
+    if (cleaned.isEmpty()) {
+        return;
+    }
+    QDir().mkpath(cleaned);
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.setValue("storage/receivedDownloadRoot", cleaned);
+}
+
+void LocalFileManager::resetReceivedDownloadRootDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.remove("storage/receivedDownloadRoot");
+}
+
 QString LocalFileManager::lastTransferDirectory() {
     QSettings settings("QtNetworkChat", "QtNetworkChat");
     QString directory = settings.value("transfer/lastDirectory").toString();
@@ -247,9 +275,7 @@ LocalReceivedTransferPlan LocalFileManager::receivedTransferPlan(const QString& 
 }
 
 QString LocalFileManager::ensureReceivedDownloadDirectory(const QString& downloadSubdir) {
-    const QString saveDirPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)
-        + QStringLiteral("/QtNetworkChat/")
-        + downloadSubdir;
+    const QString saveDirPath = QDir(receivedDownloadRootDirectory()).filePath(downloadSubdir);
     QDir().mkpath(saveDirPath);
     return saveDirPath;
 }

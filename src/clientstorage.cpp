@@ -5,6 +5,7 @@
 #include <QPixmap>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTextStream>
 
@@ -18,6 +19,34 @@ QString ClientStorage::userName() const {
 
 void ClientStorage::setUserName(const QString& userName) {
     m_userName = userName;
+}
+
+QString ClientStorage::appDataRootDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    QString dir = settings.value("storage/appDataRoot").toString().trimmed();
+    if (dir.isEmpty()) {
+        dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    }
+    if (dir.isEmpty()) {
+        dir = QStringLiteral(".");
+    }
+    QDir().mkpath(dir);
+    return QDir::cleanPath(dir);
+}
+
+void ClientStorage::setAppDataRootDirectory(const QString& directoryPath) {
+    const QString cleaned = QDir::cleanPath(directoryPath.trimmed());
+    if (cleaned.isEmpty()) {
+        return;
+    }
+    QDir().mkpath(cleaned);
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.setValue("storage/appDataRoot", cleaned);
+}
+
+void ClientStorage::resetAppDataRootDirectory() {
+    QSettings settings("QtNetworkChat", "QtNetworkChat");
+    settings.remove("storage/appDataRoot");
 }
 
 QString ClientStorage::friendFilePath() const {
@@ -360,10 +389,7 @@ bool ClientStorage::saveLocalGroupsToSqlite(const QString& databasePath,
 }
 
 QString ClientStorage::appDataDirectory() const {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (dir.isEmpty()) {
-        dir = QStringLiteral(".");
-    }
+    const QString dir = appDataRootDirectory();
     QDir().mkpath(dir);
     return dir;
 }

@@ -76,6 +76,7 @@ private slots:
     void onShowQuickAddFriend();
     void onShowFriendManager();
     void onShowGlobalSearch();
+    void onShowStorageManager();
     void onShowCreateMenu();
     void onShowFriendNotifications();
     void onShowGroupNotifications();

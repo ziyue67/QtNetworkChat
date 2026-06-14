@@ -93,6 +93,9 @@ struct LocalAvatarAppliedState {
 
 class LocalFileManager {
 public:
+    static QString receivedDownloadRootDirectory();
+    static void setReceivedDownloadRootDirectory(const QString& directoryPath);
+    static void resetReceivedDownloadRootDirectory();
     static QString lastTransferDirectory();
     static void rememberTransferDirectory(const QString& filePath);
     static QString lastAvatarDirectory();

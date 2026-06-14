@@ -59,6 +59,7 @@
 #include <QStyledItemDelegate>
 #include <QBuffer>
 #include <QScrollArea>
+#include <functional>
 
 namespace {
 enum ChatVisualRole {
@@ -2426,6 +2427,7 @@ void MainWindow::setupUi() {
     )");
 
     QAction* friendManagerAction = new QAction("好友管理器", this);
+    QAction* storageManagerAction = new QAction("存储管理", this);
     QAction* backGroupAction = new QAction("返回群聊", this);
     QAction* avatarAction = new QAction("上传头像", this);
     QAction* sendImageAction = new QAction("发送图片/视频", this);
@@ -2445,6 +2447,7 @@ void MainWindow::setupUi() {
     QAction* copySummaryAction = new QAction("复制账号摘要", this);
     QAction* logoutAction = new QAction("退出登录", this);
     ui->menubar->addAction(friendManagerAction);
+    ui->menubar->addAction(storageManagerAction);
     ui->menubar->addAction(backGroupAction);
     ui->menubar->addAction(avatarAction);
     ui->menubar->addAction(sendImageAction);
@@ -2459,6 +2462,7 @@ void MainWindow::setupUi() {
     ui->menubar->addAction(logoutAction);
 
     connect(friendManagerAction, &QAction::triggered, this, &MainWindow::onShowFriendManager);
+    connect(storageManagerAction, &QAction::triggered, this, &MainWindow::onShowStorageManager);
     connect(backGroupAction, &QAction::triggered, this, &MainWindow::onBackToGroupChat);
     connect(avatarAction, &QAction::triggered, this, &MainWindow::onUploadAvatar);
     connect(sendImageAction, &QAction::triggered, this, &MainWindow::onSendImage);
@@ -4773,6 +4777,128 @@ void MainWindow::onShowGlobalSearch() {
     connect(resultList, &QListWidget::itemDoubleClicked, &dialog, [openResult](QListWidgetItem*) { openResult(); });
 
     searchEdit->setFocus();
+    dialog.exec();
+}
+
+void MainWindow::onShowStorageManager() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("存储管理"));
+    dialog.resize(660, 300);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    QLabel* titleLabel = new QLabel(QStringLiteral("存储管理"), &dialog);
+    titleLabel->setObjectName(QStringLiteral("storageManagerTitle"));
+    QLabel* hintLabel = new QLabel(QStringLiteral("管理接收文件和聊天本地数据的保存位置。未设置时使用系统默认目录。"), &dialog);
+    hintLabel->setObjectName(QStringLiteral("storageManagerHint"));
+    hintLabel->setWordWrap(true);
+    layout->addWidget(titleLabel);
+    layout->addWidget(hintLabel);
+
+    QWidget* panel = new QWidget(&dialog);
+    panel->setObjectName(QStringLiteral("storageManagerPanel"));
+    QVBoxLayout* panelLayout = new QVBoxLayout(panel);
+    panelLayout->setContentsMargins(16, 14, 16, 14);
+    panelLayout->setSpacing(12);
+
+    auto addStorageRow = [&](const QString& title,
+                             const QString& description,
+                             const std::function<QString()>& pathProvider,
+                             const std::function<void(const QString&)>& pathSetter,
+                             const std::function<void()>& resetter) {
+        QWidget* row = new QWidget(panel);
+        QHBoxLayout* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(12);
+
+        QVBoxLayout* textLayout = new QVBoxLayout();
+        textLayout->setContentsMargins(0, 0, 0, 0);
+        QLabel* rowTitle = new QLabel(title, row);
+        rowTitle->setObjectName(QStringLiteral("storageRowTitle"));
+        QLabel* rowDescription = new QLabel(description, row);
+        rowDescription->setObjectName(QStringLiteral("storageRowDescription"));
+        rowDescription->setWordWrap(true);
+        QLabel* pathLabel = new QLabel(pathProvider(), row);
+        pathLabel->setObjectName(QStringLiteral("storagePathLabel"));
+        pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        pathLabel->setWordWrap(true);
+        textLayout->addWidget(rowTitle);
+        textLayout->addWidget(rowDescription);
+        textLayout->addWidget(pathLabel);
+
+        QPushButton* changeButton = new QPushButton(QStringLiteral("更改存储路径"), row);
+        QPushButton* resetButton = new QPushButton(QStringLiteral("恢复默认"), row);
+        QVBoxLayout* buttonLayout = new QVBoxLayout();
+        buttonLayout->setContentsMargins(0, 0, 0, 0);
+        buttonLayout->addWidget(changeButton);
+        buttonLayout->addWidget(resetButton);
+        buttonLayout->addStretch();
+
+        rowLayout->addLayout(textLayout, 1);
+        rowLayout->addLayout(buttonLayout);
+        panelLayout->addWidget(row);
+
+        connect(changeButton, &QPushButton::clicked, this, [this, pathProvider, pathSetter, pathLabel, title]() {
+            const QString selected = QFileDialog::getExistingDirectory(this,
+                                                                       QStringLiteral("选择%1").arg(title),
+                                                                       pathProvider());
+            if (selected.isEmpty()) {
+                ui->statusbar->showMessage(QStringLiteral("已取消更改存储路径"), 1600);
+                return;
+            }
+            pathSetter(selected);
+            pathLabel->setText(pathProvider());
+            ui->statusbar->showMessage(QStringLiteral("%1已更新").arg(title), 2200);
+        });
+        connect(resetButton, &QPushButton::clicked, this, [this, resetter, pathProvider, pathLabel, title]() {
+            resetter();
+            pathLabel->setText(pathProvider());
+            ui->statusbar->showMessage(QStringLiteral("%1已恢复默认").arg(title), 2200);
+        });
+    };
+
+    addStorageRow(QStringLiteral("接收/下载文件保存到"),
+                  QStringLiteral("图片、文件、视频接收后会保存到这里的分类子目录。"),
+                  []() { return LocalFileManager::receivedDownloadRootDirectory(); },
+                  [](const QString& path) { LocalFileManager::setReceivedDownloadRootDirectory(path); },
+                  []() { LocalFileManager::resetReceivedDownloadRootDirectory(); });
+    addStorageRow(QStringLiteral("聊天本地数据保存到"),
+                  QStringLiteral("好友、群聊、头像缓存和本地资料文件会保存到这里。"),
+                  []() { return ClientStorage::appDataRootDirectory(); },
+                  [](const QString& path) { ClientStorage::setAppDataRootDirectory(path); },
+                  []() { ClientStorage::resetAppDataRootDirectory(); });
+
+    layout->addWidget(panel);
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    dialog.setStyleSheet(QStringLiteral(R"(
+        QLabel#storageManagerTitle {
+            font-size: 20px;
+            font-weight: 800;
+            color: #17324D;
+        }
+        QLabel#storageManagerHint {
+            color: #607D8B;
+        }
+        QWidget#storageManagerPanel {
+            background: #FFFFFF;
+            border: 1px solid #D5E1E9;
+            border-radius: 8px;
+        }
+        QLabel#storageRowTitle {
+            font-weight: 800;
+            color: #203243;
+        }
+        QLabel#storageRowDescription {
+            color: #607D8B;
+        }
+        QLabel#storagePathLabel {
+            color: #405467;
+            font-family: Consolas, "Microsoft YaHei";
+        }
+    )"));
+
     dialog.exec();
 }
 
