@@ -1,349 +1,621 @@
-/* Modern UI Redesign - QtNetworkChat Pro Max */
-/* Global Reset and Base */
+/* ==========================================================================
+   QtNetworkChat - Premium Design System
+   Inspired by Awwwards-tier / Linear-tier UI with high-end visual design
+   ========================================================================== */
+
+/* ==========================================================================
+   1. CSS CUSTOM PROPERTIES (Design Tokens)
+   ========================================================================== */
+:root {
+    /* Core Palette - Deep Dark with Vibrant Accents */
+    --bg-primary: #0D0D0F;          /* Deepest black - main background */
+    --bg-secondary: #151519;        /* Card backgrounds */
+    --bg-tertiary: #1C1C22;          /* Elevated surfaces */
+    --bg-hover: #242429;            /* Hover states */
+    --bg-active: #2A2A32;           /* Active/pressed states */
+    
+    /* Borders & Dividers */
+    --border-subtle: #2D2D35;      /* Subtle separators */
+    --border-default: #3D3D48;      /* Default borders */
+    --border-strong: #4D4D5A;       /* Strong borders */
+    
+    /* Text Hierarchy */
+    --text-primary: #F5F5F7;       /* Primary text - high contrast */
+    --text-secondary: #A1A1A6;      /* Secondary text */
+    --text-tertiary: #6E6E73;       /* Tertiary/disabled text */
+    --text-inverse: #0D0D0F;        /* Text on accent backgrounds */
+    
+    /* Brand Accent Colors */
+    --accent-primary: #5E5CE6;       /* Primary brand - vibrant purple */
+    --accent-primary-hover: #7B79F0; /* Primary hover */
+    --accent-secondary: #30D158;     /* Success/online status - green */
+    --accent-warning: #FF9F0A;       /* Warning states - orange */
+    --accent-danger: #FF453A;        /* Error/danger states - red */
+    --accent-info: #64D2FF;          /* Info states - cyan */
+    
+    /* Shadows for Depth */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+    --shadow-glow: 0 0 20px rgba(94, 92, 230, 0.3);
+    
+    /* Typography Scale */
+    --font-family: 'Segoe UI', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-size-display: 32px;
+    --font-size-h1: 24px;
+    --font-size-h2: 20px;
+    --font-size-h3: 16px;
+    --font-size-body: 14px;
+    --font-size-small: 12px;
+    --font-size-tiny: 10px;
+    
+    /* Spacing Scale (8px grid) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    
+    /* Border Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+    
+    /* Transitions */
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ==========================================================================
+   2. GLOBAL RESET & BASE STYLES
+   ========================================================================== */
 * {
     margin: 0;
     padding: 0;
-    font-family: 'Segoe UI', 'Helvetica Neue', 'PingFang SC', sans-serif;
-    font-size: 14px;
-    color: #E0E6ED; /* General text color for dark theme */
+    box-sizing: border-box;
+    font-family: var(--font-family);
+    font-size: var(--font-size-body);
+    color: var(--text-primary);
+    outline: none;
 }
 
-/* Main Window */
+/* ==========================================================================
+   3. MAIN WINDOW & LAYOUT
+   ========================================================================== */
 QMainWindow {
-    background-color: #1E2124; /* Deep dark background */
+    background-color: var(--bg-primary);
 }
 
 QWidget#centralwidget {
-    background-color: #1E2124;
+    background-color: var(--bg-primary);
 }
 
-/* Sidebar and Panels */
-QFrame#sidePanel, QFrame#groupInfoPanel {
-    background-color: #26292E; /* Slightly lighter dark panel */
-    border: none;
-}
+/* ==========================================================================
+   4. PANELS - Left Sidebar & Right Info Panel
+   ========================================================================== */
 QFrame#sidePanel {
-    border-right: 1px solid #363A40;
+    background-color: var(--bg-secondary);
+    border-right: 1px solid var(--border-subtle);
 }
+
 QFrame#groupInfoPanel {
-    border-left: 1px solid #363A40;
+    background-color: var(--bg-secondary);
+    border-left: 1px solid var(--border-subtle);
 }
 
-/* Labels and Typographical Weights */
-QLabel {
-    color: #D3D8E0;
-}
-QLabel#appTitleLabel {
-    font-size: 22px;
-    font-weight: 800;
-    color: #FFFFFF;
-    letter-spacing: 1px;
-}
-QLabel#chatTitleLabel {
-    font-size: 18px;
-    font-weight: 700;
-    color: #FFFFFF;
-}
-QLabel#chatHintLabel {
-    font-size: 13px;
-    color: #8C95A1;
+QFrame#chatPanel {
+    background-color: var(--bg-primary);
 }
 
-QLabel#profileNameLabel {
-    font-size: 16px;
-    font-weight: 600;
-    color: #FFFFFF;
-}
-QLabel#profileIdLabel {
-    font-size: 13px;
-    color: #8C95A1;
-}
-
-/* Avatars */
-QLabel#avatarLabel {
-    background-color: #4A90E2; /* Bright accent color */
-    color: #FFFFFF;
-    border-radius: 24px;
-    font-size: 20px;
-    font-weight: bold;
-}
-
-/* General Layout Cards */
-QFrame#profileCard, QFrame#announcementCard, QFrame#groupOverviewCard, QFrame#transferOverviewCard {
-    background-color: #2C3035; /* Card background */
-    border-radius: 8px;
-    padding: 12px;
-    border: 1px solid #363A40;
-}
-
-/* Headers within Cards */
-QLabel#announcementTitleLabel, QLabel#groupOverviewTitleLabel, QLabel#transferOverviewTitleLabel, QLabel#sideSummaryTitleLabel, QLabel#onlineTitleLabel, QLabel#memberTitleLabel {
-    font-size: 12px;
-    font-weight: 700;
-    color: #8C95A1;
-    text-transform: uppercase;
-    padding-bottom: 4px;
-}
-
-/* Input Fields */
-QLineEdit {
-    background-color: #1A1C1F; /* Deep dark input background */
-    border: 1px solid #363A40;
-    border-radius: 6px; /* Soft square input */
-    padding: 8px 12px;
-    color: #FFFFFF;
-}
-QLineEdit:focus {
-    border: 1px solid #4A90E2;
-    background-color: #22252A;
-}
-
-/* Text Areas (Chat Display and Input) */
-QTextEdit#chatDisplay {
-    background-color: #1E2124;
-    border: none;
-    padding: 16px;
-    font-size: 15px;
-    line-height: 1.5;
-}
-QTextEdit#messageInput {
-    background-color: #26292E;
-    border: 1px solid #363A40;
-    border-radius: 8px;
-    padding: 12px;
-    color: #FFFFFF;
-}
-QTextEdit#messageInput:focus {
-    border: 1px solid #4A90E2;
-}
-
-/* QFrame Chat Header */
 QFrame#chatHeader {
-    background-color: #26292E;
-    border-bottom: 1px solid #363A40;
-}
-QFrame#chatInputArea {
-    background-color: #1E2124;
-    border-top: 1px solid #363A40;
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
-/* List Views */
+QFrame#chatInputArea {
+    background-color: var(--bg-secondary);
+    border-top: 1px solid var(--border-subtle);
+}
+
+/* ==========================================================================
+   5. TYPOGRAPHY - Hierarchical Text Styles
+   ========================================================================== */
+
+/* Display / App Title */
+QLabel#appTitleLabel {
+    font-size: var(--font-size-h1);
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.5px;
+}
+
+/* Chat Titles */
+QLabel#chatTitleLabel {
+    font-size: var(--font-size-h2);
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.3px;
+}
+
+/* Secondary/Subtitle Labels */
+QLabel#chatHintLabel,
+QLabel#profileIdLabel,
+QLabel#profileNameLabel {
+    font-size: var(--font-size-body);
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+/* Tertiary / Metadata Labels */
+QLabel#sideSummaryTitleLabel,
+QLabel#onlineTitleLabel,
+QLabel#memberTitleLabel,
+QLabel#announcementTitleLabel,
+QLabel#groupOverviewTitleLabel,
+QLabel#transferOverviewTitleLabel {
+    font-size: var(--font-size-tiny);
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+/* Body Labels */
+QLabel {
+    font-size: var(--font-size-body);
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   6. AVATARS
+   ========================================================================== */
+QLabel#avatarLabel {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+                                stop:0 var(--accent-primary), 
+                                stop:1 #8B5CF6);
+    color: var(--text-primary);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-h3);
+    font-weight: 700;
+}
+
+/* ==========================================================================
+   7. CARDS - Elevated Surface Components
+   ========================================================================== */
+QFrame#profileCard,
+QFrame#announcementCard,
+QFrame#groupOverviewCard,
+QFrame#transferOverviewCard,
+QFrame#sideSummaryCard {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+}
+
+/* ==========================================================================
+   8. INPUT FIELDS
+   ========================================================================== */
+QLineEdit {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    color: var(--text-primary);
+    selection-background-color: var(--accent-primary);
+    selection-color: var(--text-primary);
+}
+
+QLineEdit:focus {
+    border: 1px solid var(--accent-primary);
+    background-color: var(--bg-hover);
+}
+
+QLineEdit::placeholder {
+    color: var(--text-tertiary);
+}
+
+/* ==========================================================================
+   9. TEXT EDITS (Chat Display & Input)
+   ========================================================================== */
+QTextEdit#chatDisplay {
+    background-color: var(--bg-primary);
+    border: none;
+    padding: var(--space-4);
+    color: var(--text-primary);
+    selection-background-color: var(--accent-primary);
+}
+
+QTextEdit#messageInput {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    color: var(--text-primary);
+}
+
+QTextEdit#messageInput:focus {
+    border: 1px solid var(--accent-primary);
+}
+
+/* ==========================================================================
+   10. LIST VIEWS
+   ========================================================================== */
 QListView {
     background-color: transparent;
     border: none;
     outline: none;
 }
+
 QListView::item {
-    padding: 12px 14px;
-    border-radius: 6px;
-    margin-bottom: 2px;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    margin: var(--space-1) var(--space-2);
+    color: var(--text-primary);
 }
+
 QListView::item:hover {
-    background-color: #363A40; /* Hover state */
+    background-color: var(--bg-hover);
 }
+
 QListView::item:selected {
-    background-color: #4A90E2; /* Primary selected accent */
-    color: #FFFFFF;
+    background-color: var(--accent-primary);
+    color: var(--text-primary);
 }
 
-/* Buttons */
+/* ==========================================================================
+   11. BUTTONS - Primary, Secondary & Icon Buttons
+   ========================================================================== */
+
+/* Default Buttons */
 QPushButton {
-    background-color: #363A40;
-    border: none;
-    border-radius: 6px;
-    color: #E0E6ED;
-    padding: 8px 14px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--text-primary);
     font-weight: 500;
+    transition: all var(--transition-fast);
 }
+
 QPushButton:hover {
-    background-color: #444950;
-    color: #FFFFFF;
+    background-color: var(--bg-hover);
+    border-color: var(--border-strong);
 }
+
 QPushButton:pressed {
-    background-color: #2C3035;
+    background-color: var(--bg-active);
+    border-color: var(--border-default);
 }
 
-/* Primary Send Button */
+/* Primary CTA Button */
 QPushButton#sendBtn {
-    background-color: #4A90E2;
-    color: #FFFFFF;
-    font-weight: bold;
-    border-radius: 6px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 var(--accent-primary),
+                                stop:1 #7B79F0);
+    border: none;
+    color: var(--text-primary);
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    border-bottom: 2px solid rgba(0, 0, 0, 0.3);
 }
+
 QPushButton#sendBtn:hover {
-    background-color: #357ABD;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                 stop:0 var(--accent-primary-hover),
+                                 stop:1 #9D9BF5);
 }
+
 QPushButton#sendBtn:pressed {
-    background-color: #2C6399;
+    border-bottom: 0px;
+    margin-top: 2px;
+    background: var(--accent-primary);
 }
 
-/* Flat Icon Buttons in Toolbars (emojiBtn, imageBtn, fileBtn, clearBtn) */
-QPushButton#emojiBtn, QPushButton#imageBtn, QPushButton#fileBtn, QPushButton#clearBtn {
+/* Icon/Flat Buttons (toolbar) */
+QPushButton#emojiBtn,
+QPushButton#imageBtn,
+QPushButton#fileBtn,
+QPushButton#clearBtn,
+QPushButton#groupPanelToggleBtn {
     background-color: transparent;
-    color: #8C95A1;
-}
-QPushButton#emojiBtn:hover, QPushButton#imageBtn:hover, QPushButton#fileBtn:hover, QPushButton#clearBtn:hover {
-    background-color: #363A40;
-    color: #E0E6ED;
+    border: none;
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
 }
 
-/* Menus and Toolbars */
+QPushButton#emojiBtn:hover,
+QPushButton#imageBtn:hover,
+QPushButton#fileBtn:hover,
+QPushButton#clearBtn:hover,
+QPushButton#groupPanelToggleBtn:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* ==========================================================================
+   12. MENU BAR
+   ========================================================================== */
 QMenuBar {
-    background-color: #1E2124;
-    border-bottom: 1px solid #363A40;
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-1) 0;
 }
+
+QMenuBar::item {
+    padding: var(--space-2) var(--space-4);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+}
+
 QMenuBar::item:selected {
-    background-color: #363A40;
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
 }
+
 QMenu {
-    background-color: #26292E;
-    border: 1px solid #363A40;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
 }
+
+QMenu::item {
+    padding: var(--space-2) var(--space-4);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+}
+
 QMenu::item:selected {
-    background-color: #4A90E2;
-    color: #FFFFFF;
+    background-color: var(--accent-primary);
+    color: var(--text-primary);
 }
 
-/* Status Bar */
+/* ==========================================================================
+   13. STATUS BAR
+   ========================================================================== */
 QStatusBar {
-    background-color: #26292E;
-    border-top: 1px solid #363A40;
-    color: #8C95A1;
+    background-color: var(--bg-secondary);
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-tertiary);
+    font-size: var(--font-size-small);
 }
 
-/* Dialogs and Popups */
+/* ==========================================================================
+   14. DIALOGS - Global Dialog Styling
+   ========================================================================== */
 QDialog {
-    background-color: #1E2124;
+    background-color: var(--bg-primary);
 }
 
 QMessageBox {
-    background-color: #1E2124;
+    background-color: var(--bg-primary);
 }
+
 QMessageBox QLabel {
-    color: #E0E6ED;
+    color: var(--text-primary);
+    padding: var(--space-2);
 }
 
 QInputDialog {
-    background-color: #1E2124;
+    background-color: var(--bg-primary);
 }
+
 QInputDialog QLabel {
-    color: #E0E6ED;
+    color: var(--text-primary);
 }
 
 QFileDialog {
-    background-color: #1E2124;
+    background-color: var(--bg-primary);
 }
 
-/* Common Dialog Buttons */
+/* Dialog Buttons */
 QDialogButtonBox QPushButton {
-    background-color: #363A40;
-    border: none;
-    border-radius: 6px;
-    color: #E0E6ED;
-    padding: 6px 16px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--text-primary);
     font-weight: 500;
 }
+
 QDialogButtonBox QPushButton:hover {
-    background-color: #444950;
-    color: #FFFFFF;
+    background-color: var(--bg-hover);
+    border-color: var(--border-strong);
 }
+
 QDialogButtonBox QPushButton:pressed {
-    background-color: #2C3035;
+    background-color: var(--bg-active);
 }
 
-/* Tooltips */
-QToolTip {
-    background-color: #26292E;
-    color: #E0E6ED;
-    border: 1px solid #363A40;
-    border-radius: 4px;
-    padding: 4px;
-}
-
-/* Scrollbars */
+/* ==========================================================================
+   15. SCROLLBARS - Modern Minimal Scrollbars
+   ========================================================================== */
 QScrollBar:vertical {
     border: none;
-    background: #1E2124;
-    width: 10px;
-    margin: 0px 0px 0px 0px;
+    background: transparent;
+    width: 8px;
+    margin: var(--space-2) 0;
 }
+
 QScrollBar::handle:vertical {
-    background: #363A40;
-    min-height: 20px;
-    border-radius: 4px;
-    margin: 2px;
+    background: var(--border-default);
+    border-radius: var(--radius-sm);
+    min-height: 40px;
 }
+
 QScrollBar::handle:vertical:hover {
-    background: #444950;
+    background: var(--border-strong);
 }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
     height: 0px;
-}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: none;
 }
 
 QScrollBar:horizontal {
     border: none;
-    background: #1E2124;
-    height: 10px;
-    margin: 0px 0px 0px 0px;
+    background: transparent;
+    height: 8px;
+    margin: 0 var(--space-2);
 }
+
 QScrollBar::handle:horizontal {
-    background: #363A40;
-    min-width: 20px;
-    border-radius: 4px;
-    margin: 2px;
+    background: var(--border-default);
+    border-radius: var(--radius-sm);
+    min-width: 40px;
 }
+
 QScrollBar::handle:horizontal:hover {
-    background: #444950;
+    background: var(--border-strong);
 }
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
     width: 0px;
 }
-QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-    background: none;
-}
 
-/* Micro-Interaction Tweaks */
-
-/* Subtle transition-like behavior via color shifting on inputs */
-QLineEdit {
-    selection-background-color: #4A90E2;
-    selection-color: #FFFFFF;
-}
-
-QTextEdit {
-    selection-background-color: #4A90E2;
-    selection-color: #FFFFFF;
-}
-
-/* Tooltip micro-tuning */
+/* ==========================================================================
+   16. TOOLTIPS - Floating Hints
+   ========================================================================== */
 QToolTip {
-    font-size: 13px;
-    padding: 6px;
-    background-color: #1A1C1F;
-    color: #FFFFFF;
-    border: 1px solid #4A90E2; /* Pop tooltip outline */
-    border-radius: 4px;
-    opacity: 230;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-small);
+    opacity: 240;
 }
 
-/* Button micro-tuning */
-QPushButton {
-    outline: none; /* remove focus dotted lines */
-}
-QPushButton#sendBtn {
-    /* add an inner fake shadow look using border */
-    border-bottom: 2px solid #2C6399; 
-}
-QPushButton#sendBtn:pressed {
-    border-bottom: 0px; 
-    margin-top: 2px; /* physical depression effect */
+/* ==========================================================================
+   17. SPIN BOXES & COMBO BOXES
+   ========================================================================== */
+QSpinBox,
+QComboBox {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-primary);
 }
 
-/* List view selection styling details */
-QListView::item {
-    margin: 2px 8px; /* Floating items feel */
-    border-radius: 6px;
+QSpinBox:focus,
+QComboBox:focus {
+    border: 1px solid var(--accent-primary);
+}
+
+QComboBox::drop-down {
+    border: none;
+    background: transparent;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid var(--text-secondary);
+    margin-right: var(--space-2);
+}
+
+/* ==========================================================================
+   18. PROGRESS BARS
+   ========================================================================== */
+QProgressBar {
+    background-color: var(--bg-tertiary);
+    border: none;
+    border-radius: var(--radius-full);
+    height: 6px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                 stop:0 var(--accent-primary),
+                                 stop:1 #7B79F0);
+    border-radius: var(--radius-full);
+}
+
+/* ==========================================================================
+   19. SLIDERS
+   ========================================================================== */
+QSlider::groove:horizontal {
+    border: none;
+    height: 4px;
+    background: var(--border-default);
+    border-radius: var(--radius-full);
+}
+
+QSlider::handle:horizontal {
+    background: var(--accent-primary);
+    border: 2px solid var(--text-primary);
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: var(--radius-full);
+}
+
+QSlider::sub-page:horizontal {
+    background: var(--accent-primary);
+    border-radius: var(--radius-full);
+}
+
+/* ==========================================================================
+   20. TAB WIDGETS
+   ========================================================================== */
+QTabWidget::pane {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+QTabBar::tab {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-2) var(--space-4);
+    color: var(--text-secondary);
+    border-top-left-radius: var(--radius-md);
+    border-top-right-radius: var(--radius-md);
+}
+
+QTabBar::tab:selected {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border-bottom-color: var(--bg-primary);
+}
+
+/* ==========================================================================
+   21. SPLITTERS
+   ========================================================================== */
+QSplitter::handle {
+    background-color: var(--border-subtle);
+}
+
+QSplitter::handle:horizontal {
+    width: 1px;
+}
+
+QSplitter::handle:vertical {
+    height: 1px;
+}
+
+/* ==========================================================================
+   22. ANIMATION CLASSES (for future QPropertyAnimation use)
+   ========================================================================== */
+/* These classes can be applied via setProperty for state transitions */
+.pressed-effect {
+    background-color: var(--bg-active);
+}
+
+.glow-effect {
+    border: 1px solid var(--accent-primary);
+    box-shadow: var(--shadow-glow);
 }

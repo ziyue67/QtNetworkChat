@@ -531,8 +531,8 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     auto addShadow = [](QWidget* widget) {
         if (!widget) return;
         QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(widget);
-        shadow->setBlurRadius(15);
-        shadow->setColor(QColor(0, 0, 0, 80));
+        shadow->setBlurRadius(20);
+        shadow->setColor(QColor(94, 92, 230, 60));
         shadow->setOffset(0, 4);
         widget->setGraphicsEffect(shadow);
     };
@@ -8861,5 +8861,6 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     m_client->disconnectFromServer();
     event->accept();
 }
+
 
 

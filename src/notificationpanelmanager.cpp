@@ -147,24 +147,24 @@ GroupNoticeDialogChrome NotificationPanelManager::groupNoticeDialogChrome() {
 QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
     return QStringLiteral(R"(
         QDialog#noticeDialog {
-            background: #F3F6FB;
+            background: #0D0D0F;
             font-family: "Microsoft YaHei", "Segoe UI";
         }
         QLabel#noticeTitle {
-            color: #0F172A;
+            color: #F5F5F7;
             font-size: 20px;
             font-weight: 800;
         }
         QLabel#noticeSubTitle {
-            color: #5F7285;
+            color: #A1A1A6;
             font-size: 12px;
             font-weight: 800;
             padding-left: 2px;
         }
         QLabel#noticePreviewLabel {
-            color: #223548;
-            background: #FFFFFF;
-            border: 1px solid #D8E4EE;
+            color: #F5F5F7;
+            background: #151519;
+            border: 1px solid #3D3D48;
             border-radius: 14px;
             padding: 10px 12px;
             font-size: 12px;
@@ -172,33 +172,33 @@ QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
         }
         QLineEdit#noticeSearch {
             min-height: 40px;
-            background: #F8FBFD;
-            border: 1px solid #D7E2EC;
+            background: #1C1C22;
+            border: 1px solid #3D3D48;
             border-radius: 16px;
             padding: 4px 14px;
-            color: #162334;
+            color: #F5F5F7;
         }
         QLineEdit#noticeSearch:focus {
-            background: #FFFFFF;
-            border: 1px solid #3B82F6;
+            background: #151519;
+            border: 1px solid #5E5CE6;
         }
         QListWidget#noticeList {
-            background: #FFFFFF;
-            border: 1px solid #DCE8F2;
+            background: #151519;
+            border: 1px solid #3D3D48;
             border-radius: 16px;
             padding: 8px;
             outline: none;
         }
         QListWidget#noticeList::item {
-            background: #F8FBFD;
+            background: #1C1C22;
             border-radius: 12px;
             margin: 4px 0;
             padding: 12px 14px;
-            color: #223548;
+            color: #F5F5F7;
         }
         QListWidget#noticeList::item:selected, QListWidget#noticeList::item:hover {
-            background: #EAF2FF;
-            color: #174EA6;
+            background: #5E5CE6;
+            color: #F5F5F7;
         }
         QPushButton {
             min-height: 36px;
@@ -207,38 +207,38 @@ QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
             font-weight: 700;
         }
         QPushButton#noticePrimaryBtn {
-            background: #2563EB;
+            background: #5E5CE6;
             color: #FFFFFF;
-            border: 1px solid #2563EB;
+            border: 1px solid #5E5CE6;
         }
         QPushButton#noticeDangerBtn {
-            background: #FFF6F5;
-            color: #D35454;
-            border: 1px solid #F0D0CB;
+            background: #2A1515;
+            color: #FF453A;
+            border: 1px solid #FF453A;
         }
         QPushButton#noticeGhostBtn {
-            background: #FFFFFF;
-            color: #324659;
-            border: 1px solid #D7E2EC;
+            background: #151519;
+            color: #F5F5F7;
+            border: 1px solid #3D3D48;
         }
         QPushButton#noticePrimaryBtn:hover {
-            background: #1D4ED8;
-            border-color: #1D4ED8;
+            background: #7B79F0;
+            border-color: #7B79F0;
         }
         QPushButton#noticeDangerBtn:hover {
-            background: #FEEDEC;
-            border-color: #EAB8B0;
+            background: #3D2020;
+            border-color: #FF453A;
         }
         QPushButton#noticeGhostBtn:hover {
-            background: #F7FAFE;
+            background: #242429;
             border-color: #BFD0E2;
         }
         QPushButton#noticePrimaryBtn:disabled,
         QPushButton#noticeDangerBtn:disabled,
         QPushButton#noticeGhostBtn:disabled {
-            background: #F8FAFC;
-            color: #9AA8B6;
-            border: 1px solid #E2E8F0;
+            background: #1C1C22;
+            color: #6E6E73;
+            border: 1px solid #3D3D48;
         }
     )");
 }
@@ -246,23 +246,23 @@ QString NotificationPanelManager::friendNoticeDialogStyleSheet() {
 QString NotificationPanelManager::groupNoticeDialogStyleSheet() {
     return QStringLiteral(R"(
         QDialog#noticeDialog {
-            background: #F3F6FB;
+            background: #0D0D0F;
             font-family: "Microsoft YaHei", "Segoe UI";
         }
         QLabel#noticeTitle {
-            color: #0F172A;
+            color: #F5F5F7;
             font-size: 20px;
             font-weight: 800;
         }
         QLabel#noticeSubTitle, QLabel#noticeHint {
-            color: #5F7285;
+            color: #A1A1A6;
             font-size: 12px;
             font-weight: 700;
         }
         QLabel#noticePreviewLabel {
-            color: #223548;
-            background: #FFFFFF;
-            border: 1px solid #D8E4EE;
+            color: #F5F5F7;
+            background: #151519;
+            border: 1px solid #3D3D48;
             border-radius: 14px;
             padding: 10px 12px;
             font-size: 12px;
@@ -270,65 +270,65 @@ QString NotificationPanelManager::groupNoticeDialogStyleSheet() {
         }
         QLineEdit#noticeSearch {
             min-height: 40px;
-            background: #F8FBFD;
-            border: 1px solid #D7E2EC;
+            background: #1C1C22;
+            border: 1px solid #3D3D48;
             border-radius: 16px;
             padding: 4px 14px;
-            color: #162334;
+            color: #F5F5F7;
         }
         QLineEdit#noticeSearch:focus {
-            background: #FFFFFF;
-            border: 1px solid #3B82F6;
+            background: #151519;
+            border: 1px solid #5E5CE6;
         }
         QListWidget#noticeList {
-            background: #FFFFFF;
-            border: 1px solid #DCE8F2;
+            background: #151519;
+            border: 1px solid #3D3D48;
             border-radius: 16px;
             padding: 8px;
             outline: none;
         }
         QListWidget#noticeList::item {
-            background: #F8FBFD;
+            background: #1C1C22;
             border-radius: 12px;
             margin: 4px 0;
             padding: 12px 14px;
-            color: #223548;
+            color: #F5F5F7;
         }
         QListWidget#noticeList::item:selected, QListWidget#noticeList::item:hover {
-            background: #EAF2FF;
-            color: #174EA6;
+            background: #5E5CE6;
+            color: #F5F5F7;
         }
         QPushButton#noticePrimaryBtn {
             min-height: 36px;
             border-radius: 14px;
             padding: 6px 16px;
             font-weight: 800;
-            background: #2563EB;
+            background: #5E5CE6;
             color: #FFFFFF;
-            border: 1px solid #2563EB;
+            border: 1px solid #5E5CE6;
         }
         QPushButton#noticePrimaryBtn:hover {
-            background: #1D4ED8;
-            border-color: #1D4ED8;
+            background: #7B79F0;
+            border-color: #7B79F0;
         }
         QPushButton#noticePrimaryBtn:disabled,
         QPushButton#noticeDangerBtn:disabled,
         QPushButton#noticeGhostBtn:disabled {
-            background: #F8FAFC;
-            color: #9AA8B6;
-            border: 1px solid #E2E8F0;
+            background: #1C1C22;
+            color: #6E6E73;
+            border: 1px solid #3D3D48;
         }
         QPushButton#noticeGhostBtn {
             min-height: 36px;
             border-radius: 14px;
             padding: 6px 16px;
             font-weight: 700;
-            background: #FFFFFF;
-            color: #324659;
-            border: 1px solid #D7E2EC;
+            background: #151519;
+            color: #F5F5F7;
+            border: 1px solid #3D3D48;
         }
         QPushButton#noticeGhostBtn:hover {
-            background: #F7FAFE;
+            background: #242429;
             border-color: #BFD0E2;
         }
     )");
@@ -965,3 +965,4 @@ QString NotificationPanelManager::groupCreateEntryName(const QString& entryId) {
         ? entryId.mid(kGroupCreatePrefix.size()).trimmed()
         : QString();
 }
+
