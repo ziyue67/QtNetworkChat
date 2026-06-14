@@ -115,8 +115,16 @@
 
        <!-- CHAT LIST -->
        <item>
+        <widget class="QLabel" name="emptyContactLabel">
+         <property name="text"><string>No contacts yet
+Add friends to get started!</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
         <widget class="QListView" name="userListView">
-         <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
+            <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
         </widget>
        </item>
 
@@ -154,6 +162,10 @@
           <item>
            <layout class="QVBoxLayout" name="chatTitleLayout">
             <item><widget class="QLabel" name="chatTitleLabel"><property name="text"><string>Public Chat</string></property></widget></item>
+            <item><layout class="QHBoxLayout" name="chatSubtitleLayout">
+             <item><widget class="QLabel" name="chatSubtitleLabel"><property name="text"><string>Subtitles</string></property></widget></item>
+             <item><widget class="QLabel" name="chatStatusBadgeLabel"><property name="text"><string>Status</string></property></widget></item>
+            </layout></item>
             <item><widget class="QLabel" name="chatHintLabel"><property name="text"><string>System connected</string></property></widget></item>
            </layout>
           </item>
@@ -167,16 +179,38 @@
         </widget>
        </item>
 
-       <!-- CHAT DISPLAY -->
+       <!-- CHAT LIST -->
+       <item>
+        <widget class="QLabel" name="loadingLabel">
+         <property name="text"><string>Loading messages...</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="emptyChatLabel">
+         <property name="text"><string>No messages yet
+Start a conversation!</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListView" name="chatListView">
+         <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
+        </widget>
+       </item>
+
+       <!-- CHAT TEXT DISPLAY -->
        <item>
         <widget class="QTextEdit" name="chatDisplay">
          <property name="readOnly"><bool>true</bool></property>
         </widget>
        </item>
-       
+
        <!-- CHAT INPUT AREA -->
        <item>
-        <widget class="QFrame" name="chatInputArea">
+        <widget class="QFrame" name="inputPanel">
          <property name="minimumSize"><size><width>0</width><height>140</height></size></property>
          <property name="maximumSize"><size><width>16777215</width><height>200</height></size></property>
          <layout class="QVBoxLayout" name="chatInputLayout">
@@ -201,11 +235,28 @@
           </item>
 
           <item>
-           <widget class="QTextEdit" name="messageInput">
+           <widget class="QTextEdit" name="messageEdit">
             <property name="placeholderText"><string>Type a message...</string></property>
            </widget>
           </item>
-          
+
+          <item>
+           <widget class="QLabel" name="composerStateLabel">
+            <property name="text"><string>Composer state</string></property>
+           </widget>
+          </item>
+
+          <item>
+           <layout class="QHBoxLayout" name="mentionLayout">
+            <item><widget class="QPushButton" name="mentionBtn"><property name="text"><string>@Mention</string></property></widget></item>
+            <item>
+             <spacer name="mentionSpacer">
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+
           <item>
            <layout class="QHBoxLayout" name="sendLayout">
             <item>
