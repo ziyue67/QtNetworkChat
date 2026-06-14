@@ -186,6 +186,7 @@ private:
     QString m_serviceReadinessReason;
     bool m_redisCommandReady = false;
     bool m_redisSubscriberReady = false;
+    bool m_stopping = false;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
     QSet<QString> m_usedNames;

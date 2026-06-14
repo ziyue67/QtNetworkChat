@@ -737,10 +737,16 @@ int main(int argc, char *argv[])
     if (!server->start(port)) {
         delete server;
         server = nullptr;
-        nameLabel->setText("QtNetworkChat · Redis 未就绪");
-        serviceBadgeLabel->setText("服务未启动");
-        serviceBadgeLabel->setToolTip("本地服务端依赖 Redis；启动失败时不会降级到无 Redis 模式");
-        modeStatusLabel->setText("本地服务启动失败，请先确认 Redis 已在 127.0.0.1:6379 可连接，然后重新打开程序。");
+        if (canConnectToRedisEndpoint(QStringLiteral("127.0.0.1"), port, 250)) {
+            serviceBadgeLabel->setText("连接已有服务");
+            serviceBadgeLabel->setToolTip("本机 8888 端口已有 QtNetworkChat 服务窗口托管，本窗口将作为客户端加入");
+            modeStatusLabel->setText("检测到已有本地聊天服务，本窗口可直接登录或注册第二个账号进行双开测试。");
+        } else {
+            nameLabel->setText("QtNetworkChat · Redis 未就绪");
+            serviceBadgeLabel->setText("服务未启动");
+            serviceBadgeLabel->setToolTip("本地服务端依赖 Redis；启动失败时不会降级到无 Redis 模式");
+            modeStatusLabel->setText("本地服务启动失败，请先确认 Redis 已在 127.0.0.1:6379 可连接，然后重新打开程序。");
+        }
     } else {
         serviceBadgeLabel->setText("托管本地服务");
         serviceBadgeLabel->setToolTip("本窗口已启动端口 8888，且 Redis 已通过启动检查");

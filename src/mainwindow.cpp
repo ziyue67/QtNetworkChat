@@ -3044,7 +3044,7 @@ void MainWindow::refreshWorkspaceChrome() {
     ui->sideSummaryStatsLabel->setText(QString("好友 %1 · 群聊 %2 · 在线 %3")
         .arg(m_friendIds.size())
         .arg(m_localGroupIds.size())
-        .arg(m_knownUsers.size()));
+        .arg(knownOnlineUserCount()));
     ui->sideSummaryStateLabel->setText(connected
         ? QString("当前会话：%1 · 服务端在线视图已同步").arg(sessionName)
         : QString("当前会话：%1 · 连接中断时只保留本地视图与草稿").arg(sessionName));
@@ -3063,7 +3063,7 @@ void MainWindow::refreshSessionSummary() {
             : QStringLiteral("公共群在线成员与公告联动刷新中");
         overviewMeta = QString("会话：%1 · 在线 %2 · 好友 %3")
             .arg(sessionName)
-            .arg(m_knownUsers.size())
+            .arg(knownOnlineUserCount())
             .arg(m_friendIds.size());
     } else if (isLocalGroup) {
         const QStringList members = m_localGroupMembers.value(m_privateChatTarget);
@@ -3590,7 +3590,7 @@ void MainWindow::onUserListUpdated(const QVector<ChatUser>& users) {
             .arg(m_privateChatTarget, isContactOnline(m_privateChatTarget) ? "在线" : "离线"));
     }
     ui->statusbar->showMessage(QString("在线: %1 人 | 好友: %2 人 | 当前账号: %3")
-        .arg(users.size())
+        .arg(knownOnlineUserCount())
         .arg(m_friendIds.size())
         .arg(m_currentUserId));
     refreshGroupMemberPanel();
@@ -8034,7 +8034,7 @@ void MainWindow::onContactSearchChanged(const QString& text) {
     if (!m_contactFilter.isEmpty()) {
         ui->statusbar->showMessage(QString("QQ搜索:%1 · 无结果可双击搜索申请或建群").arg(m_contactFilter), 1800);
     } else {
-        ui->statusbar->showMessage(QString("联系人已显示 · 好友%1 · 本地群%2 · 在线%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(m_knownUsers.size()), 1200);
+        ui->statusbar->showMessage(QString("联系人已显示 · 好友%1 · 本地群%2 · 在线%3").arg(m_friendIds.size()).arg(m_localGroupIds.size()).arg(knownOnlineUserCount()), 1200);
     }
 }
 
@@ -8259,6 +8259,7 @@ void MainWindow::refreshGroupMemberPanel() {
         const ChatUser& user = it.value();
         if (user.id == m_currentUserId) continue;
         ++memberCount;
+        const bool online = user.isOnline;
         if (!filter.isEmpty()
             && !user.id.contains(filter, Qt::CaseInsensitive)
             && !user.name.contains(filter, Qt::CaseInsensitive)) {
@@ -8268,8 +8269,8 @@ void MainWindow::refreshGroupMemberPanel() {
         bool isPending = !isFriend && m_pendingOutgoingFriendRequests.contains(user.id);
         if (isFriend) ++friendMembers;
         if (isPending) ++pendingMembers;
-        ++onlineMembers;
-        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · 在线 · %4").arg(isFriend ? "好友" : (isPending ? "申请中" : "成员"), user.id, user.name, isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请")));
+        if (online) ++onlineMembers;
+        QStandardItem* item = new QStandardItem(QString("%1 QQ:%2\n%3 · %4 · %5").arg(isFriend ? "好友" : (isPending ? "申请中" : "成员"), user.id, user.name, online ? "在线" : "离线", isFriend ? "已是好友" : (isPending ? "等待确认" : "双击发送申请")));
         item->setData(user.id, Qt::UserRole + 1);
         item->setEditable(false);
         item->setForeground(isFriend ? QColor(18, 150, 247) : (isPending ? QColor(170, 110, 20) : QColor(38, 50, 56)));
@@ -8320,6 +8321,19 @@ QString MainWindow::contactDisplayName(const QString& userId) const {
 
 bool MainWindow::isContactOnline(const QString& userId) const {
     return m_friendManager.isContactOnline(userId, m_knownUsers);
+}
+
+int MainWindow::knownOnlineUserCount() const {
+    int count = 0;
+    for (auto it = m_knownUsers.constBegin(); it != m_knownUsers.constEnd(); ++it) {
+        if (it.value().isOnline) {
+            ++count;
+        }
+    }
+    if (!m_currentUserId.isEmpty() && !isContactOnline(m_currentUserId)) {
+        ++count;
+    }
+    return count;
 }
 
 bool MainWindow::isCurrentUserRemovedFromPublicGroup() const {

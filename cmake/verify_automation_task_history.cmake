@@ -19,11 +19,12 @@ file(WRITE "${LAST_RUN_A}"
 "2026-06-03T01:02:03.0000000Z healthExitCode=0 statusExitCode=0 dashboardExitCode=0 exitCode=0 healthPath=redacted statusPath=redacted\n"
 "2026-06-03T02:02:03.0000000Z healthExitCode=2 statusExitCode=2 dashboardExitCode=0 exitCode=2 healthPath=redacted statusPath=redacted\n")
 file(WRITE "${LAST_RUN_B}" "2026-06-03T03:02:03.0000000Z exitCode=0\n")
+string(TIMESTAMP CURRENT_ACK_TIME "%Y-%m-%dT%H:%M:%SZ" UTC)
 file(WRITE "${ACK_PATH}"
 "{
   \"acknowledged\": true,
   \"acknowledgedBy\": \"operator-ci\",
-  \"acknowledgedAt\": \"2026-06-03T04:00:00Z\",
+  \"acknowledgedAt\": \"${CURRENT_ACK_TIME}\",
   \"reason\": \"planned maintenance\"
 }
 ")

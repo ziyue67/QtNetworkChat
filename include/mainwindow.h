@@ -281,6 +281,7 @@ private:
     void loadAvatar();
     QString contactDisplayName(const QString& userId) const;
     bool isContactOnline(const QString& userId) const;
+    int knownOnlineUserCount() const;
     QString groupOwnerId(const QString& groupId) const;
     bool isCurrentUserGroupOwner(const QString& groupId) const;
     bool canCurrentUserManageServerGroup(const QString& groupId) const;

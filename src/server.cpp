@@ -1339,6 +1339,10 @@ QJsonObject Server::databaseHealthSnapshot() const {
 }
 
 void Server::stop() {
+    if (m_stopping) {
+        return;
+    }
+    m_stopping = true;
     m_serviceReady = false;
     m_serviceReadinessReason = QStringLiteral("server-stopped");
     m_redisCommandReady = false;
@@ -1349,14 +1353,22 @@ void Server::stop() {
     for (const ChatUser& user : m_clients.values()) {
         clearRedisPresence(user.id);
     }
-    for (QTcpSocket* socket : m_clients.keys()) {
+    const QList<QTcpSocket*> sockets = m_clients.keys();
+    for (QTcpSocket* socket : sockets) {
+        if (!socket) {
+            continue;
+        }
+        disconnect(socket, nullptr, this, nullptr);
         socket->disconnectFromHost();
+        socket->deleteLater();
     }
     m_clients.clear();
     m_userSockets.clear();
+    m_usedNames.clear();
     m_pendingFileTransfers.clear();
     m_tcpServer->close();
     qDebug() << "Server stopped";
+    m_stopping = false;
 }
 
 void Server::onNewConnection() {
@@ -1450,6 +1462,10 @@ void Server::onClientReadyRead() {
 void Server::onClientDisconnected() {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
+    if (m_stopping) {
+        socket->deleteLater();
+        return;
+    }
 
     ChatUser* user = findUserBySocket(socket);
     if (user) {
