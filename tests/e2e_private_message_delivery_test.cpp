@@ -1127,7 +1127,7 @@ int main(int argc, char** argv) {
         QObject::connect(&bob, &Client::newMessage, &app, [&](const Message& msg) {
             if (msg.type == MessageType::Private) {
                 bobMessage = msg;
-            } else if (msg.type == MessageType::File) {
+            } else if (msg.type == MessageType::File || msg.type == MessageType::Image) {
                 bobFileMessage = msg;
             }
         });
@@ -2505,6 +2505,23 @@ int main(int argc, char** argv) {
                     "clearing an e2e session should expose missing-session status") && ok;
         ok = expect(!alice.sendFile(privateFilePath, bobId),
                     "mandatory e2e private file policy should reject private files without a ready session") && ok;
+        const QByteArray privateImagePayload = QByteArray::fromHex(
+            "89504E470D0A1A0A"
+            "0000000D49484452000000010000000108060000001F15C489"
+            "0000000D49444154789C6360606060000000050001A5F64540"
+            "0000000049454E44AE426082");
+        const QString privateImagePath = QDir(appDataDir).filePath(QStringLiteral("alice-private-legacy-image.png"));
+        ok = expect(writeTextFile(privateImagePath, privateImagePayload),
+                    "test should write a private image payload") && ok;
+        bobFileMessage = Message();
+        ok = expect(alice.sendImage(privateImagePath, bobId),
+                    "private image send should preserve legacy preview delivery when no e2e session exists") && ok;
+        ok = expect(waitFor([&] {
+            return bobFileMessage.type == MessageType::Image
+                && bobFileMessage.fileName == QFileInfo(privateImagePath).fileName()
+                && bobFileMessage.fileData == privateImagePayload
+                && !bobFileMessage.e2eFileEncrypted;
+        }, 9000), "bob should receive the legacy private image payload for preview") && ok;
         alice.setE2ESessionKey(bobId, keyId + "-rotated", generateE2ESessionKey());
         ok = expect(alice.hasE2ESession(bobId) && !alice.e2eSessionNeedsRotation(bobId),
                     "setting a new e2e session should clear the rotation gate") && ok;

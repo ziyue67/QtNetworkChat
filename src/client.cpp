@@ -3615,7 +3615,11 @@ bool Client::sendFilePayload(const QString& filePath,
     const bool privateFileTarget = !receiverId.trimmed().isEmpty()
         && (messageType == MessageType::File || messageType == MessageType::Image);
     const bool allowPlaintextPrivateFile = envEnabled("QTNETWORKCHAT_E2E_ALLOW_PLAINTEXT_PRIVATE_FILE");
+    const bool allowLegacyPlaintextPrivateImage = privateFileTarget
+        && messageType == MessageType::Image
+        && !hasE2ESession(receiverId);
     const bool e2eFileRequired = privateFileTarget
+        && !allowLegacyPlaintextPrivateImage
         && (hasE2ESession(receiverId) || !allowPlaintextPrivateFile);
     const E2ESession* e2eFileSession = nullptr;
     QString e2eFileRejectReason;

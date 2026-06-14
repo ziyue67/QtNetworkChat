@@ -154,7 +154,10 @@ private:
     void appendMediaPreviewItem(const QString& text,
                                 const QPixmap& pixmap,
                                 bool isVideo,
-                                bool alignRight);
+                                bool alignRight,
+                                const QString& openPath = QString(),
+                                const QString& senderId = QString(),
+                                const QString& senderName = QString());
     void applyReceivedTransferRenderPlan(const TransferReceiveRenderPlan& plan,
                                          const QString& fileName,
                                          const QString& transferId,
@@ -199,6 +202,7 @@ private:
     ChatContextSavedFileState chatContextSavedFileState(const LocalSavedFileState& savedFileState) const;
     bool copySavedFilePathToClipboard(const ChatContextSavedFileCommand& command);
     bool openSavedFileFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
+    bool openMediaPreviewFromState(const LocalSavedFileState& savedFileState);
     bool openSavedFolderFromState(const LocalSavedFileState& savedFileState, const ChatContextSavedFileCommand& command);
     void cachePeerAvatar(const ChatUser& user);
     QString peerAvatarPath(const QString& userId) const;
