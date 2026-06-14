@@ -490,9 +490,9 @@ int main(int argc, char** argv) {
                     && !localVideoPreview.alignRight,
                 "local video preview plan should expose open-in-folder guidance") && ok;
 
-    TransferMediaPreviewPlan remotePreview = TransferManager::remoteMediaPreviewPlan(QString::fromUtf8("图片卡片 · photo.png · 512 KB · 已发送到 好友A"),
+    TransferMediaPreviewPlan remotePreview = TransferManager::remoteMediaPreviewPlan(QString::fromUtf8("发送图片成功"),
                                                                                      false);
-    ok = expect(remotePreview.text == QString::fromUtf8("图片卡片 · photo.png · 512 KB · 已发送到 好友A")
+    ok = expect(remotePreview.text == QString::fromUtf8("发送图片成功")
                     && !remotePreview.isVideo
                     && remotePreview.alignRight,
                 "remote media preview plan should keep card copy and right alignment") && ok;
@@ -545,7 +545,7 @@ int main(int argc, char** argv) {
                                                                                  QString::fromUtf8("本地群"),
                                                                                  QStringLiteral("12:00:00"));
     ok = expect(localCompleted.systemMessage == QString::fromUtf8("文件发送详情：report.zip · 4.0 KB · 到 本地群")
-                    && localCompleted.cardText == QString::fromUtf8("文件卡片 · report.zip · 4.0 KB · 已发送到 本地群")
+                    && localCompleted.cardText == QString::fromUtf8("发送文件成功")
                     && localCompleted.receiptText == QString::fromUtf8("文件查收话术 · 我已发送文件 report.zip 到 本地群，请注意查收。 · 右键聊天记录可复制")
                     && localCompleted.hintText == QString::fromUtf8("已发送文件到 本地群 · 4.0 KB · 12:00:00")
                     && localCompleted.statusMessage == QString::fromUtf8("已发送文件到 本地群 · 4.0 KB")
@@ -569,7 +569,7 @@ int main(int argc, char** argv) {
                                                                                    QStringLiteral("12:00:01"),
                                                                                    QString::fromUtf8("4片 · 分片128 KB"));
     ok = expect(remoteCompleted.systemMessage == QString::fromUtf8("已发送图片: photo.png · 512 KB · 到 好友A · 4片 · 分片128 KB")
-                    && remoteCompleted.cardText == QString::fromUtf8("图片卡片 · photo.png · 512 KB · 已发送到 好友A · 4片 · 分片128 KB")
+                    && remoteCompleted.cardText == QString::fromUtf8("发送图片成功")
                     && remoteCompleted.receiptText == QString::fromUtf8("图片查收话术 · 我已发送图片 photo.png 到 好友A，请注意查收。 · 右键聊天记录可复制")
                     && remoteCompleted.hintText == QString::fromUtf8("已发送图片到 好友A · 512 KB · 12:00:01 · 4片 · 分片128 KB")
                     && remoteCompleted.statusMessage == QString::fromUtf8("已发送图片到 好友A · 512 KB · 4片 · 分片128 KB")
@@ -598,12 +598,12 @@ int main(int argc, char** argv) {
                                                                                            QStringLiteral("C:/Downloads/report.zip"),
                                                                                            true,
                                                                                            false);
-    ok = expect(savedReceive.savedItemText.contains(QString::fromUtf8("文件已自动保存"))
+    ok = expect(savedReceive.savedItemText == QString::fromUtf8("文件接收成功")
                     && savedReceive.savedItemToolTip.contains(QStringLiteral("C:/Downloads/report.zip"))
                     && savedReceive.saved
                     && !savedReceive.savedIntegrityFailed
-                    && savedReceive.receiptCardText.contains(QString::fromUtf8("来自 好友A"))
-                    && savedReceive.receiptReplyText.contains(QString::fromUtf8("回执话术"))
+                    && savedReceive.receiptCardText == QString::fromUtf8("文件接收成功")
+                    && savedReceive.receiptReplyText == QString::fromUtf8("文件接收成功")
                     && savedReceive.eventReason == QStringLiteral("receive-saved")
                     && savedReceive.hintText.contains(QString::fromUtf8("已接收文件"))
                     && savedReceive.statusMessage.contains(QString::fromUtf8("已保存到下载目录"))
@@ -617,10 +617,8 @@ int main(int argc, char** argv) {
                     && savedReceive.statusTimeoutMs == 3000,
                 "saved receive ui state should centralize saved receipt and status copy") && ok;
     TransferReceiveRenderPlan savedReceivePlan = TransferManager::receivedTransferRenderPlan(savedReceive);
-    ok = expect(savedReceivePlan.chatItems.size() == 3
+    ok = expect(savedReceivePlan.chatItems.size() == 1
                     && savedReceivePlan.chatItems.at(0).text == savedReceive.savedItemText
-                    && savedReceivePlan.chatItems.at(1).text == savedReceive.receiptCardText
-                    && savedReceivePlan.chatItems.at(2).text == savedReceive.receiptReplyText
                     && savedReceivePlan.eventReason == QStringLiteral("receive-saved")
                     && savedReceivePlan.hintText == savedReceive.hintText
                     && savedReceivePlan.statusMessage == savedReceive.statusMessage
@@ -680,7 +678,7 @@ int main(int argc, char** argv) {
                                                               QString::fromUtf8(" · 完整性已验证"),
                                                               QStringLiteral("C:/Downloads/report.zip"),
                                                               true);
-    ok = expect(savedPersistencePlan.chatItems.size() == 3
+    ok = expect(savedPersistencePlan.chatItems.size() == 1
                     && savedPersistencePlan.eventReason == QStringLiteral("receive-saved")
                     && savedPersistencePlan.hintText.contains(QString::fromUtf8("已接收文件"))
                     && savedPersistencePlan.statusMessage.contains(QString::fromUtf8("已保存到下载目录")),

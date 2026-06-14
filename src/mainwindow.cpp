@@ -7562,12 +7562,6 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
     const QString line = QString("[%1] <%2> [%3] %4 · %5")
         .arg(completedAt, m_currentUserName, mediaType, info.fileName(), fileSize);
     saveHistory(m_privateChatTarget, line);
-    QStandardItem* item = new QStandardItem(line);
-    item->setEditable(false);
-    item->setForeground(QColor(20, 92, 160));
-    item->setBackground(QColor(218, 241, 255));
-    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_chatModel->appendRow(item);
 
     QPixmap pixmap;
     if (!isVideo) {
@@ -7578,9 +7572,10 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
             info.fileName(),
             fileSize,
             isVideo);
-        appendMediaPreviewItem(previewPlan.text,
+        Q_UNUSED(previewPlan)
+        appendMediaPreviewItem(completedState.cardText,
                                pixmap,
-                               previewPlan.isVideo,
+                               isVideo,
                                true,
                                filePath,
                                m_currentUserId,
@@ -7591,7 +7586,9 @@ void MainWindow::appendLocalGroupMediaTransferCompletion(const QString& filePath
                                                                                  fileSize,
                                                                                  targetName,
                                                                                  completedAt));
-    appendTransferCompletionState(completedState, true, false, QColor(), QColor());
+    ui->chatHintLabel->setText(completedState.hintText);
+    ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
+    ui->chatListView->scrollToBottom();
 }
 
 void MainWindow::appendRemoteMediaTransferCompletion(const QString& filePath,
@@ -7599,7 +7596,6 @@ void MainWindow::appendRemoteMediaTransferCompletion(const QString& filePath,
                                                      bool isVideo,
                                                      const TransferWorkspaceCardState& workspaceState) {
     setTransferWorkspaceState(workspaceState);
-    appendSystemMessage(completedState.systemMessage);
     const TransferMediaPreviewPlan previewPlan = m_transferManager.remoteMediaPreviewPlan(completedState.cardText, isVideo);
     if (!isVideo) {
         QPixmap pixmap(filePath);
@@ -7621,7 +7617,9 @@ void MainWindow::appendRemoteMediaTransferCompletion(const QString& filePath,
                                m_currentUserId,
                                m_currentUserName);
     }
-    appendTransferCompletionState(completedState, false, false, QColor(), QColor());
+    ui->chatHintLabel->setText(completedState.hintText);
+    ui->statusbar->showMessage(completedState.statusMessage, completedState.statusTimeoutMs);
+    ui->chatListView->scrollToBottom();
 }
 
 void MainWindow::handleRemoteTransferResult(bool ok,
@@ -7740,11 +7738,17 @@ bool MainWindow::persistReceivedTransferPayload(const ReceivedTransferContext& c
                                                                                context.integritySuffix,
                                                                                context.savePath,
                                                                                saved));
-    applyReceivedTransferRenderPlan(receivedTransferPersistencePlan(context, displayName, saved),
-                                    context.receivedName,
-                                    transferId,
-                                    fileData.size(),
-                                    totalBytes);
+    const TransferReceiveRenderPlan plan = receivedTransferPersistencePlan(context, displayName, saved);
+    if (context.kind == QStringLiteral("图片") && saved) {
+        ui->chatHintLabel->setText(plan.hintText);
+        ui->statusbar->showMessage(plan.statusMessage, plan.statusTimeoutMs);
+    } else {
+        applyReceivedTransferRenderPlan(plan,
+                                        context.receivedName,
+                                        transferId,
+                                        fileData.size(),
+                                        totalBytes);
+    }
     return saved;
 }
 

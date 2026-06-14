@@ -761,7 +761,7 @@ TransferSendUiState TransferManager::localSendCompletedState(const QString& kind
                                                              const QString& completedAt) {
     TransferSendUiState result;
     result.systemMessage = QStringLiteral("%1发送详情：%2 · %3 · 到 %4").arg(kind, fileName, fileSize, targetName);
-    result.cardText = QStringLiteral("%1卡片 · %2 · %3 · 已发送到 %4").arg(kind, fileName, fileSize, targetName);
+    result.cardText = QStringLiteral("发送%1成功").arg(kind);
     result.receiptText = QStringLiteral("%1查收话术 · 我已发送%1 %2 到 %3，请注意查收。 · 右键聊天记录可复制")
         .arg(kind, fileName, targetName);
     result.hintText = QStringLiteral("已发送%1到 %2 · %3 · %4").arg(kind, targetName, fileSize, completedAt);
@@ -794,7 +794,7 @@ TransferSendUiState TransferManager::remoteSendCompletedState(const QString& kin
         ? QString()
         : QStringLiteral(" · %1").arg(transferSummary.trimmed());
     result.systemMessage = QStringLiteral("已发送%1: %2 · %3 · 到 %4%5").arg(kind, fileName, fileSize, targetName, transferSuffix);
-    result.cardText = QStringLiteral("%1卡片 · %2 · %3 · 已发送到 %4%5").arg(kind, fileName, fileSize, targetName, transferSuffix);
+    result.cardText = QStringLiteral("发送%1成功").arg(kind);
     result.receiptText = QStringLiteral("%1查收话术 · 我已发送%1 %2 到 %3，请注意查收。 · 右键聊天记录可复制")
         .arg(kind, fileName, targetName);
     result.hintText = QStringLiteral("已发送%1到 %2 · %3 · %4%5").arg(kind, targetName, fileSize, completedAt, transferSuffix);
@@ -830,18 +830,17 @@ TransferReceiveSaveUiState TransferManager::receivedTransferSaveUiState(const QS
                                                                         const QString& savePath,
                                                                         bool saved,
                                                                         bool integrityFailed) {
+    Q_UNUSED(integrityText)
     TransferReceiveSaveUiState result;
     if (saved) {
         result.saved = true;
-        result.savedItemText = QStringLiteral("%1已自动保存: %2 · %3%4%5")
-            .arg(kind, savePath, receivedSize, manifestSuffix, integritySuffix);
-        result.savedItemToolTip = QStringLiteral("双击打开文件；右键可复制保存路径或打开目录\n%1").arg(savePath);
+        result.savedItemText = QStringLiteral("%1接收成功").arg(kind);
+        result.savedItemToolTip = QStringLiteral("双击打开文件；右键可复制保存路径或打开目录\n%1\n%2 · %3%4%5")
+            .arg(savePath, receivedName, receivedSize, manifestSuffix, integritySuffix);
         result.savedIntegrityFailed = integrityFailed;
-        result.receiptCardText = QStringLiteral("%1接收卡片 · %2 · %3 · 来自 %4 · 已保存到下载目录%5%6")
-            .arg(kind, receivedName, receivedSize, displayName, manifestSuffix, integritySuffix);
+        result.receiptCardText = QStringLiteral("%1接收成功").arg(kind);
         result.receiptCardToolTip = QStringLiteral("%1已保存到：%2").arg(kind, savePath);
-        result.receiptReplyText = QStringLiteral("回执话术 · 已收到%1 %2（%3%4），%5，保存路径：%6 · 右键聊天记录可复制或打开保存目录")
-            .arg(kind, receivedName, receivedSize, manifestSuffix, integrityText, savePath);
+        result.receiptReplyText = QStringLiteral("%1接收成功").arg(kind);
         result.receiptReplyToolTip = result.savedItemToolTip;
         result.eventReason = integrityFailed ? QStringLiteral("hash") : QStringLiteral("receive-saved");
         result.hintText = QStringLiteral("已接收%1 · %2 · %3 · 来自 %4%5%6")
@@ -887,8 +886,6 @@ TransferReceiveRenderPlan TransferManager::receivedTransferRenderPlan(const Tran
     result.statusTimeoutMs = uiState.statusTimeoutMs;
     if (uiState.saved) {
         result.chatItems.append(uiState.savedItem);
-        result.chatItems.append(uiState.receiptCardItem);
-        result.chatItems.append(uiState.receiptReplyItem);
     } else {
         result.chatItems.append(uiState.failedItem);
     }
