@@ -80,8 +80,8 @@ UI_DIR = $$PWD/build/ui
 win32 {
     QSQLITE_SOURCE = $$[QT_INSTALL_PLUGINS]/sqldrivers/qsqlite.dll
     QSQLITE_TARGET = $$DESTDIR/sqldrivers/qsqlite.dll
-    QMAKE_POST_LINK += $$QMAKE_MKDIR $$shell_path($$DESTDIR/sqldrivers) $$escape_expand(\\n\\t)
-    QMAKE_POST_LINK += $$QMAKE_COPY $$shell_path($$QSQLITE_SOURCE) $$shell_path($$QSQLITE_TARGET) $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += if not exist \"$$shell_path($$DESTDIR/sqldrivers)\" $$QMAKE_MKDIR \"$$shell_path($$DESTDIR/sqldrivers)\" $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$QMAKE_COPY \"$$shell_path($$QSQLITE_SOURCE)\" \"$$shell_path($$QSQLITE_TARGET)\" $$escape_expand(\\n\\t)
 }
 
 qnx: target.path = /tmp/$${TARGET}/bin
