@@ -270,21 +270,21 @@ private:
 
         setStyleSheet(R"(
             QDialog#qqLoginDialog {
-                background: #EFF6FA;
+                background: #1E2124;
                 font-family: "Microsoft YaHei", "Segoe UI";
-                color: #253342;
+                color: #E0E6ED;
             }
             QFrame#qqHeader {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F6FEFF, stop:0.52 #DDF7F5, stop:1 #DCE8FF);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #26292E, stop:1 #1A1C1F);
             }
             QLabel#brandLabel {
-                color: #168BE8;
+                color: #4A90E2;
                 font-size: 28px;
                 font-weight: 900;
             }
             QPushButton#windowCloseBtn {
                 background: transparent;
-                color: #243447;
+                color: #8C95A1;
                 border: none;
                 font-size: 20px;
                 font-weight: 300;
@@ -295,7 +295,7 @@ private:
             }
             QLabel#qqAvatar {
                 background: white;
-                color: #168BE8;
+                color: #4A90E2;
                 border: 3px solid rgba(255, 255, 255, 220);
                 border-radius: 46px;
                 font-size: 42px;
@@ -316,7 +316,7 @@ private:
                 border-bottom: 1px solid rgba(104, 143, 174, 100);
                 padding: 4px 6px;
                 background: transparent;
-                color: #253342;
+                color: #E0E6ED;
                 font-size: 14px;
             }
             QLineEdit#qqInput:focus {
@@ -658,16 +658,16 @@ int main(int argc, char *argv[])
 
     modeDialog->setStyleSheet(R"(
         QDialog#modeDialog {
-            background: #EFF6FA;
+            background: #1E2124;
             font-family: "Microsoft YaHei", "Segoe UI";
-            color: #253342;
+            color: #E0E6ED;
         }
         QFrame#modeCard {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F6FEFF, stop:0.52 #DDF7F5, stop:1 #DCE8FF);
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #26292E, stop:1 #1A1C1F);
         }
         QPushButton#topIconBtn {
             background: transparent;
-            color: #243447;
+            color: #8C95A1;
             border: none;
             font-size: 17px;
         }
@@ -676,13 +676,13 @@ int main(int argc, char *argv[])
             border-radius: 14px;
         }
         QLabel#logoLabel {
-            color: #168BE8;
+            color: #4A90E2;
             font-size: 30px;
             font-weight: 900;
         }
         QLabel#avatarLabel {
             background: white;
-            color: #168BE8;
+            color: #4A90E2;
             border: 3px solid rgba(255, 255, 255, 220);
             border-radius: 46px;
             font-size: 42px;
@@ -854,4 +854,5 @@ int main(int argc, char *argv[])
     modeDialog->show();
     return a.exec();
 }
+
 
