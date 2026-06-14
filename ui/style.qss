@@ -1,0 +1,306 @@
+/* Modern UI Redesign - QtNetworkChat Pro Max */
+/* Global Reset and Base */
+* {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', 'Helvetica Neue', 'PingFang SC', sans-serif;
+    font-size: 14px;
+    color: #E0E6ED; /* General text color for dark theme */
+}
+
+/* Main Window */
+QMainWindow {
+    background-color: #1E2124; /* Deep dark background */
+}
+
+QWidget#centralwidget {
+    background-color: #1E2124;
+}
+
+/* Sidebar and Panels */
+QFrame#sidePanel, QFrame#groupInfoPanel {
+    background-color: #26292E; /* Slightly lighter dark panel */
+    border: none;
+}
+QFrame#sidePanel {
+    border-right: 1px solid #363A40;
+}
+QFrame#groupInfoPanel {
+    border-left: 1px solid #363A40;
+}
+
+/* Labels and Typographical Weights */
+QLabel {
+    color: #D3D8E0;
+}
+QLabel#appTitleLabel {
+    font-size: 22px;
+    font-weight: 800;
+    color: #FFFFFF;
+    letter-spacing: 1px;
+}
+QLabel#chatTitleLabel {
+    font-size: 18px;
+    font-weight: 700;
+    color: #FFFFFF;
+}
+QLabel#chatHintLabel {
+    font-size: 13px;
+    color: #8C95A1;
+}
+
+QLabel#profileNameLabel {
+    font-size: 16px;
+    font-weight: 600;
+    color: #FFFFFF;
+}
+QLabel#profileIdLabel {
+    font-size: 13px;
+    color: #8C95A1;
+}
+
+/* Avatars */
+QLabel#avatarLabel {
+    background-color: #4A90E2; /* Bright accent color */
+    color: #FFFFFF;
+    border-radius: 24px;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+/* General Layout Cards */
+QFrame#profileCard, QFrame#announcementCard, QFrame#groupOverviewCard, QFrame#transferOverviewCard {
+    background-color: #2C3035; /* Card background */
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #363A40;
+}
+
+/* Headers within Cards */
+QLabel#announcementTitleLabel, QLabel#groupOverviewTitleLabel, QLabel#transferOverviewTitleLabel, QLabel#sideSummaryTitleLabel, QLabel#onlineTitleLabel, QLabel#memberTitleLabel {
+    font-size: 12px;
+    font-weight: 700;
+    color: #8C95A1;
+    text-transform: uppercase;
+    padding-bottom: 4px;
+}
+
+/* Input Fields */
+QLineEdit {
+    background-color: #1A1C1F; /* Deep dark input background */
+    border: 1px solid #363A40;
+    border-radius: 6px; /* Soft square input */
+    padding: 8px 12px;
+    color: #FFFFFF;
+}
+QLineEdit:focus {
+    border: 1px solid #4A90E2;
+    background-color: #22252A;
+}
+
+/* Text Areas (Chat Display and Input) */
+QTextEdit#chatDisplay {
+    background-color: #1E2124;
+    border: none;
+    padding: 16px;
+    font-size: 15px;
+    line-height: 1.5;
+}
+QTextEdit#messageInput {
+    background-color: #26292E;
+    border: 1px solid #363A40;
+    border-radius: 8px;
+    padding: 12px;
+    color: #FFFFFF;
+}
+QTextEdit#messageInput:focus {
+    border: 1px solid #4A90E2;
+}
+
+/* QFrame Chat Header */
+QFrame#chatHeader {
+    background-color: #26292E;
+    border-bottom: 1px solid #363A40;
+}
+QFrame#chatInputArea {
+    background-color: #1E2124;
+    border-top: 1px solid #363A40;
+}
+
+/* List Views */
+QListView {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+QListView::item {
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin-bottom: 2px;
+}
+QListView::item:hover {
+    background-color: #363A40; /* Hover state */
+}
+QListView::item:selected {
+    background-color: #4A90E2; /* Primary selected accent */
+    color: #FFFFFF;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #363A40;
+    border: none;
+    border-radius: 6px;
+    color: #E0E6ED;
+    padding: 8px 14px;
+    font-weight: 500;
+}
+QPushButton:hover {
+    background-color: #444950;
+    color: #FFFFFF;
+}
+QPushButton:pressed {
+    background-color: #2C3035;
+}
+
+/* Primary Send Button */
+QPushButton#sendBtn {
+    background-color: #4A90E2;
+    color: #FFFFFF;
+    font-weight: bold;
+    border-radius: 6px;
+}
+QPushButton#sendBtn:hover {
+    background-color: #357ABD;
+}
+QPushButton#sendBtn:pressed {
+    background-color: #2C6399;
+}
+
+/* Flat Icon Buttons in Toolbars (emojiBtn, imageBtn, fileBtn, clearBtn) */
+QPushButton#emojiBtn, QPushButton#imageBtn, QPushButton#fileBtn, QPushButton#clearBtn {
+    background-color: transparent;
+    color: #8C95A1;
+}
+QPushButton#emojiBtn:hover, QPushButton#imageBtn:hover, QPushButton#fileBtn:hover, QPushButton#clearBtn:hover {
+    background-color: #363A40;
+    color: #E0E6ED;
+}
+
+/* Menus and Toolbars */
+QMenuBar {
+    background-color: #1E2124;
+    border-bottom: 1px solid #363A40;
+}
+QMenuBar::item:selected {
+    background-color: #363A40;
+}
+QMenu {
+    background-color: #26292E;
+    border: 1px solid #363A40;
+}
+QMenu::item:selected {
+    background-color: #4A90E2;
+    color: #FFFFFF;
+}
+
+/* Status Bar */
+QStatusBar {
+    background-color: #26292E;
+    border-top: 1px solid #363A40;
+    color: #8C95A1;
+}
+
+/* Dialogs and Popups */
+QDialog {
+    background-color: #1E2124;
+}
+
+QMessageBox {
+    background-color: #1E2124;
+}
+QMessageBox QLabel {
+    color: #E0E6ED;
+}
+
+QInputDialog {
+    background-color: #1E2124;
+}
+QInputDialog QLabel {
+    color: #E0E6ED;
+}
+
+QFileDialog {
+    background-color: #1E2124;
+}
+
+/* Common Dialog Buttons */
+QDialogButtonBox QPushButton {
+    background-color: #363A40;
+    border: none;
+    border-radius: 6px;
+    color: #E0E6ED;
+    padding: 6px 16px;
+    font-weight: 500;
+}
+QDialogButtonBox QPushButton:hover {
+    background-color: #444950;
+    color: #FFFFFF;
+}
+QDialogButtonBox QPushButton:pressed {
+    background-color: #2C3035;
+}
+
+/* Tooltips */
+QToolTip {
+    background-color: #26292E;
+    color: #E0E6ED;
+    border: 1px solid #363A40;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    border: none;
+    background: #1E2124;
+    width: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #363A40;
+    min-height: 20px;
+    border-radius: 4px;
+    margin: 2px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #444950;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: #1E2124;
+    height: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #363A40;
+    min-width: 20px;
+    border-radius: 4px;
+    margin: 2px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #444950;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}

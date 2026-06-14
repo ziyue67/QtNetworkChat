@@ -854,3 +854,4 @@ int main(int argc, char *argv[])
     modeDialog->show();
     return a.exec();
 }
+

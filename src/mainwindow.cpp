@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <QFile>
+#include <QTextStream>
+#include <QApplication>
 #include "chatsessionmanager.h"
 #include "chatcontextmanager.h"
 #include "composermanager.h"
@@ -511,6 +514,14 @@ MainWindow::MainWindow(Client* client, const QString& userId, const QString& use
     , m_isQuitting(false)
 {
     ui->setupUi(this);
+
+    // Load modern stylesheet
+    QFile styleFile("ui/style.qss");
+    if(styleFile.open(QFile::ReadOnly)) {
+        QTextStream textStream(&styleFile);
+        QString styleSheet = textStream.readAll();
+        this->setStyleSheet(styleSheet);
+    }
     setMinimumSize(980, 680);
     setWindowIcon(createChatIcon(userName));
     setupUi();
@@ -8823,3 +8834,4 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     m_client->disconnectFromServer();
     event->accept();
 }
+
