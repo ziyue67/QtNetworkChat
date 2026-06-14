@@ -1576,7 +1576,7 @@ void Server::tryRecoverRedisCommandAvailability() {
         return;
     }
 
-    if (m_redisClient->ping()) {
+    if (m_redisClient->ping() || m_redisClient->connectToServer()) {
         updateRedisCommandAvailability(true);
     }
 }
