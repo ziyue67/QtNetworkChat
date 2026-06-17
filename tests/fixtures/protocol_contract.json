@@ -82,5 +82,28 @@
     "settings_synced",
     "notification",
     "error"
-  ]
+  ],
+  "eventPayloads": {
+    "ready": "{protocolVersion, version, qtVersion, e2eStatus}",
+    "connection_state": "{connected, host, port}",
+    "login_result": "{success, userId, userName, error?}",
+    "user_list": "{users}",
+    "user_joined": "{userId, userName}",
+    "user_left": "{userId, userName}",
+    "friend_event": "{type, senderId?, senderName?, receiverId?, accepted?, delivered?}",
+    "friend_search_result": "{found, userId, userName, online}",
+    "message": "{sessionId, message}",
+    "group_snapshot": "{groups}",
+    "group_member_updated": "{groupId, memberId, action}",
+    "file_progress": "{transferId, fileName, bytes, total, direction}",
+    "file_done": "{transferId, fileName, filePath, direction}",
+    "file_error": "{transferId, reason}",
+    "e2e_session_state": "{peerId, rotationRequired}",
+    "e2e_identity_state": "{peerId, trusted, fingerprint}",
+    "e2e_rotation_request": "{peerId, agreement}",
+    "e2e_rotation_response": "{peerId, agreement, accepted, reason?}",
+    "settings_synced": "{accepted, revision, settings, appliedDownloadDir?}",
+    "notification": "{title, body}",
+    "error": "{message, source}"
+  }
 }

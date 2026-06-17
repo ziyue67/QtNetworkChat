@@ -685,7 +685,7 @@ npm run tauri build
 | 跨实例私有群消息 | 同上 | 远端在线私有群成员收到群消息，同实例非成员不收到 |
 | 跨实例私有群小文件 | 同上 | 远端在线私有群成员收到 Redis Pub/Sub 可承载的小文件分片，同实例非成员不收到 |
 | 跨实例私有群大文件 | 同上 | 远端在线私有群成员收到 object-store large_file_offer 分片，同实例非成员不收到 |
-| 协议漂移 | `tests/qqnt_protocol_drift_test.cpp` + `tests/fixtures/ready.json` + `tests/fixtures/protocol_contract.json` | 三端能解析同一份 fixture；命令/事件清单和命令 payload 形状与 IPC 文档一致 |
+| 协议漂移 | `tests/qqnt_protocol_drift_test.cpp` + `tests/fixtures/ready.json` + `tests/fixtures/protocol_contract.json` | 三端能解析同一份 fixture；命令/事件清单和命令/事件 payload 形状与 IPC 文档一致 |
 | Rust Bridge mock | `tests/qqnt_bridge_rust_test.rs` | reqId 关联与事件广播 |
 | 前端 store | `src/stores/*.test.ts` | 会话排序、未读、乐观发送 |
 | 前端组件 | `src/components/**/*.test.tsx` | MessageBubble、Composer、SessionList |
