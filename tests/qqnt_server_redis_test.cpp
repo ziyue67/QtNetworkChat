@@ -3,6 +3,7 @@
 #include "test_redis_support.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -99,6 +100,52 @@ QString extractGroupIdFromSnapshot(const QByteArray& buffer, const QString& grou
         }
     }
     return QString();
+}
+
+bool drainGroupFileChunks(QTcpSocket* socket,
+                          QByteArray* buffer,
+                          const QString& expectedGroupId,
+                          const QString& expectedFileName,
+                          QByteArray* receivedPayload) {
+    if (!socket || !buffer || !receivedPayload) return false;
+
+    bool completedExpectedFile = false;
+    buffer->append(socket->readAll());
+    while (buffer->contains('\n')) {
+        const int newlineIndex = buffer->indexOf('\n');
+        const QByteArray line = buffer->left(newlineIndex).trimmed();
+        *buffer = buffer->mid(newlineIndex + 1);
+        if (line.isEmpty()) continue;
+
+        const QJsonDocument document = QJsonDocument::fromJson(line);
+        if (!document.isObject()) continue;
+        const QJsonObject object = document.object();
+        if (object.value("type").toString() != QLatin1String("file_chunk")) continue;
+
+        const QByteArray chunkData = QByteArray::fromBase64(object.value("fileData").toString().toLatin1());
+        const qint64 chunkIndex = object.value("chunkIndex").toVariant().toLongLong();
+        const qint64 chunkSize = object.value("chunkSize").toVariant().toLongLong();
+        const qint64 fileSize = object.value("fileSize").toVariant().toLongLong();
+        const qint64 receivedBytes = qMin(fileSize, chunkIndex * chunkSize + chunkData.size());
+
+        QJsonObject ack;
+        ack["type"] = "file_chunk_ack";
+        ack["transferId"] = object.value("transferId").toString();
+        ack["chunkIndex"] = object.value("chunkIndex").toString();
+        ack["accepted"] = true;
+        ack["reason"] = "";
+        ack["receivedBytes"] = QString::number(receivedBytes);
+        writeJsonLine(socket, ack);
+
+        if (object.value("receiverId").toString() != expectedGroupId
+            || object.value("fileName").toString() != expectedFileName) {
+            continue;
+        }
+
+        receivedPayload->append(chunkData);
+        completedExpectedFile = receivedPayload->size() >= fileSize;
+    }
+    return completedExpectedFile;
 }
 }
 
@@ -219,6 +266,46 @@ int main(int argc, char** argv) {
         bobBuffer.append(bob.readAll());
         return bobBuffer.contains(privateGroupText.toUtf8());
     }, 700), "non-member bob should not receive the private group message") && ok;
+
+    const QString privateGroupFileName = QStringLiteral("redis-private-group-file.txt");
+    const QByteArray privateGroupFilePayload = QByteArrayLiteral("Redis private group file should cross instances");
+    const QString privateGroupFileHash = QString::fromLatin1(
+        QCryptographicHash::hash(privateGroupFilePayload, QCryptographicHash::Sha256).toHex());
+    QByteArray carolGroupFilePayload;
+    QByteArray bobGroupFilePayload;
+    bool carolReceivedGroupFile = false;
+    QMetaObject::Connection carolFileAckConnection = QObject::connect(&carol, &QTcpSocket::readyRead, &app, [&] {
+        if (drainGroupFileChunks(&carol, &carolBuffer, privateGroupId, privateGroupFileName, &carolGroupFilePayload)
+            && carolGroupFilePayload == privateGroupFilePayload) {
+            carolReceivedGroupFile = true;
+        }
+    });
+    aliceBuffer.clear();
+    bobBuffer.clear();
+    carolBuffer.clear();
+    QJsonObject privateGroupFile;
+    privateGroupFile["type"] = "file";
+    privateGroupFile["messageType"] = static_cast<int>(MessageType::File);
+    privateGroupFile["groupId"] = privateGroupId;
+    privateGroupFile["content"] = QStringLiteral("sent file: redis-private-group-file.txt");
+    privateGroupFile["fileName"] = privateGroupFileName;
+    privateGroupFile["fileSize"] = QString::number(privateGroupFilePayload.size());
+    privateGroupFile["fileHash"] = privateGroupFileHash;
+    privateGroupFile["chunkSize"] = QString::number(privateGroupFilePayload.size());
+    privateGroupFile["chunkCount"] = QStringLiteral("1");
+    privateGroupFile["fileData"] = QString::fromLatin1(privateGroupFilePayload.toBase64());
+    ok = expect(writeJsonLine(&alice, privateGroupFile), "alice should send a private group file") && ok;
+    ok = expect(waitFor([&] {
+        if (drainGroupFileChunks(&carol, &carolBuffer, privateGroupId, privateGroupFileName, &carolGroupFilePayload)
+            && carolGroupFilePayload == privateGroupFilePayload) {
+            carolReceivedGroupFile = true;
+        }
+        return carolReceivedGroupFile;
+    }, 8000), "carol should receive the Redis-routed private group file") && ok;
+    QObject::disconnect(carolFileAckConnection);
+    ok = expect(!waitFor([&] {
+        return drainGroupFileChunks(&bob, &bobBuffer, privateGroupId, privateGroupFileName, &bobGroupFilePayload);
+    }, 700), "non-member bob should not receive the private group file") && ok;
 
     alice.disconnectFromHost();
     bob.disconnectFromHost();

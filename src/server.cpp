@@ -2865,6 +2865,9 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         sendSystemNotice(socket, QStringLiteral("文件发送失败：Redis 路由不可用，请等待服务恢复。"));
         return;
     }
+    if (deliveryState == "server-group-file" && m_redisService->isEnabled() && !redisPublished) {
+        sendSystemNotice(socket, QStringLiteral("群文件跨实例路由失败：其他实例成员可能未收到。"));
+    }
 }
 
 void Server::handleFileChunk(const QJsonObject& obj, QTcpSocket* socket) {
@@ -3471,6 +3474,23 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
                 emit newMessage(msg);
                 return;
             }
+        }
+        if (deliveryState == QLatin1String("server-group-file") && isRedisFilePayload) {
+            const QStringList groupMemberIds = serverGroupMemberIds(msg.receiverId);
+            if (groupMemberIds.isEmpty()) return;
+            for (const QString& memberId : groupMemberIds) {
+                if (memberId == msg.senderId) continue;
+                QTcpSocket* memberSocket = m_userSockets.value(memberId);
+                if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+                Message groupMsg = msg;
+                groupMsg.receiverId = msg.receiverId;
+                if (!sendChunkedFileToSocket(groupMsg, memberSocket)) {
+                    qWarning() << "Redis private group file delivery failed"
+                               << msg.receiverId << memberId << msg.fileName;
+                }
+            }
+            emit newMessage(msg);
+            return;
         }
         QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
         if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
