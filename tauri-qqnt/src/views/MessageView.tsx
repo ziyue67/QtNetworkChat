@@ -1,8 +1,11 @@
+import { useState, useEffect, useRef } from 'react'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useMessageStore } from '@/stores/messageStore'
 import { useAuthStore } from '@/stores/authStore'
 import { Avatar } from '@/components/common/Avatar'
 import { cn } from '@/lib/utils'
+import { sendPrivateMessage, sendGroupMessage, newReqId } from '@/api/qqnt'
+import type { Message } from '@/types/qqnt'
 
 function formatTime(ts?: number) {
   if (!ts) return ''
@@ -15,11 +18,60 @@ export function MessageView() {
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
   const setActiveSession = useSessionStore((state) => state.setActiveSession)
   const markRead = useSessionStore((state) => state.markRead)
+  const updateSession = useSessionStore((state) => state.updateSession)
   const messages = useMessageStore((state) => state.messages)
+  const addMessage = useMessageStore((state) => state.addMessage)
+  const updateMessageStatus = useMessageStore((state) => state.updateMessageStatus)
   const currentUser = useAuthStore((state) => state.currentUser)
+
+  const [text, setText] = useState('')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeMessages = activeSessionId ? messages[activeSessionId] || [] : []
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeMessages.length, activeSessionId])
+
+  const handleSend = async () => {
+    const content = text.trim()
+    if (!activeSession || !content || !currentUser) return
+
+    const clientId = `client-${newReqId()}`
+    const optimistic: Message = {
+      id: clientId,
+      sessionId: activeSession.id,
+      senderId: currentUser.id,
+      senderName: currentUser.nickname,
+      type: 'text',
+      content,
+      timestamp: Date.now(),
+      status: 'sending'
+    }
+
+    addMessage(activeSession.id, optimistic)
+    updateSession(activeSession.id, { lastMessage: content, lastTime: optimistic.timestamp })
+    setText('')
+
+    try {
+      const ack =
+        activeSession.type === 'group'
+          ? await sendGroupMessage(activeSession.id, content)
+          : await sendPrivateMessage(activeSession.id, content)
+
+      updateMessageStatus(activeSession.id, clientId, ack.status === 'ok' ? 'sent' : 'failed')
+    } catch {
+      updateMessageStatus(activeSession.id, clientId, 'failed')
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
 
   return (
     <div className="flex h-full w-full bg-[var(--qq-bg)]">
@@ -76,13 +128,40 @@ export function MessageView() {
                 return (
                   <div key={msg.id} className={cn('mb-4 flex', isSelf ? 'justify-end' : 'justify-start')}>
                     {!isSelf && <Avatar fallback={msg.senderName} size={36} className="mr-3" />}
-                    <div className={cn('max-w-[60%] rounded-lg px-3 py-2 text-sm', isSelf ? 'bg-[var(--qq-primary)] text-white' : 'bg-[var(--qq-bg-tertiary)] text-[var(--qq-text)]')}>
+                    <div
+                      className={cn(
+                        'max-w-[60%] rounded-lg px-3 py-2 text-sm',
+                        isSelf ? 'bg-[var(--qq-primary)] text-white' : 'bg-[var(--qq-bg-tertiary)] text-[var(--qq-text)]'
+                      )}
+                    >
                       <p>{msg.content}</p>
-                      <span className="mt-1 block text-[10px] opacity-70">{formatTime(msg.timestamp)}</span>
+                      <span className="mt-1 block text-[10px] opacity-70">
+                        {msg.status === 'sending' ? '发送中...' : msg.status === 'failed' ? '发送失败' : formatTime(msg.timestamp)}
+                      </span>
                     </div>
                   </div>
                 )
               })}
+              <div ref={messagesEndRef} />
+            </div>
+            <div className="border-t border-[var(--qq-border)] bg-[var(--qq-bg-secondary)] p-3">
+              <div className="flex items-end gap-2 rounded-lg bg-[var(--qq-bg)] p-2">
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="输入消息..."
+                  rows={1}
+                  className="max-h-32 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-[var(--qq-text)] outline-none placeholder:text-[var(--qq-text-tertiary)]"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!text.trim() || !currentUser}
+                  className="rounded-md bg-[var(--qq-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  发送
+                </button>
+              </div>
             </div>
           </>
         ) : (
