@@ -23,8 +23,34 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::qqnt_command,
+            commands::engine_ready,
             commands::connect_server,
-            commands::login
+            commands::login,
+            commands::register_account,
+            commands::disconnect_server,
+            commands::logout,
+            commands::set_user_info,
+            commands::get_user_list,
+            commands::get_friend_list,
+            commands::get_group_list,
+            commands::search_friend,
+            commands::send_friend_request,
+            commands::respond_friend_request,
+            commands::send_private_message,
+            commands::send_group_message,
+            commands::create_group,
+            commands::update_group_announcement,
+            commands::update_group_member,
+            commands::send_file,
+            commands::send_image,
+            commands::cancel_transfer,
+            commands::query_resume,
+            commands::e2e_status,
+            commands::e2e_announce_identity,
+            commands::e2e_pin_identity,
+            commands::e2e_request_rotation,
+            commands::profile_update,
+            commands::settings_sync
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

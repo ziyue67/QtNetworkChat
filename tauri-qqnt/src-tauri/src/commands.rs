@@ -33,25 +33,32 @@ pub struct LoginResponse {
 }
 
 #[tauri::command]
+pub async fn engine_ready(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(state.inner(), "ready", req_id, json!({})).await
+}
+
+#[tauri::command]
 pub async fn connect_server(
     state: State<'_, Arc<AppState>>,
     req_id: String,
     host: String,
     port: u16,
 ) -> Result<ConnectServerResponse, QQNTError> {
-    let packet = bridge::call_engine(
+    let payload = call_engine_payload(
         state.inner(),
+        "connect",
+        req_id,
         json!({
-            "op": "connect",
-            "reqId": req_id,
-            "payload": {
-                "host": host,
-                "port": port
-            }
+            "host": host,
+            "port": port
         }),
     )
     .await?;
-    ack_payload(packet, "connect").map(|payload| ConnectServerResponse {
+
+    Ok(ConnectServerResponse {
         connected: payload
             .get("connected")
             .and_then(Value::as_bool)
@@ -76,19 +83,425 @@ pub async fn login(
     account: String,
     password: String,
 ) -> Result<LoginResponse, QQNTError> {
-    let packet = bridge::call_engine(
+    login_like(state.inner(), "login", req_id, account, password, None).await
+}
+
+#[tauri::command]
+pub async fn register_account(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    account: String,
+    password: String,
+    user_name: String,
+) -> Result<LoginResponse, QQNTError> {
+    login_like(
         state.inner(),
+        "register",
+        req_id,
+        account,
+        password,
+        Some(user_name),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn disconnect_server(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(state.inner(), "disconnect", req_id, json!({})).await
+}
+
+#[tauri::command]
+pub async fn logout(state: State<'_, Arc<AppState>>, req_id: String) -> Result<Value, QQNTError> {
+    call_engine_payload(state.inner(), "logout", req_id, json!({})).await
+}
+
+#[tauri::command]
+pub async fn set_user_info(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    user_id: String,
+    user_name: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "set_user_info",
+        req_id,
         json!({
-            "op": "login",
-            "reqId": req_id,
-            "payload": {
-                "account": account,
-                "password": password
-            }
+            "userId": user_id,
+            "userName": user_name
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn get_user_list(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(state.inner(), "get_user_list", req_id, json!({})).await
+}
+
+#[tauri::command]
+pub async fn get_friend_list(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(state.inner(), "get_friend_list", req_id, json!({})).await
+}
+
+#[tauri::command]
+pub async fn get_group_list(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(state.inner(), "get_group_list", req_id, json!({})).await
+}
+
+#[tauri::command]
+pub async fn search_friend(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    account: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "search_friend",
+        req_id,
+        json!({ "account": account }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn send_friend_request(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    receiver_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "send_friend_request",
+        req_id,
+        json!({ "receiverId": receiver_id }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn respond_friend_request(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    sender_id: String,
+    accepted: bool,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "respond_friend_request",
+        req_id,
+        json!({
+            "senderId": sender_id,
+            "accepted": accepted
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn send_private_message(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    receiver_id: String,
+    content: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "send_private_message",
+        req_id,
+        json!({
+            "receiverId": receiver_id,
+            "content": content
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn send_group_message(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    group_id: String,
+    content: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "send_group_message",
+        req_id,
+        json!({
+            "groupId": group_id,
+            "content": content
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn create_group(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    group_name: String,
+    members: Option<Vec<String>>,
+    announcement: Option<String>,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "create_group",
+        req_id,
+        json!({
+            "groupName": group_name,
+            "members": members,
+            "announcement": announcement
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn update_group_announcement(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    group_id: String,
+    announcement: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "update_group_announcement",
+        req_id,
+        json!({
+            "groupId": group_id,
+            "announcement": announcement
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn update_group_member(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    group_id: String,
+    member_id: String,
+    action: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "update_group_member",
+        req_id,
+        json!({
+            "groupId": group_id,
+            "memberId": member_id,
+            "action": action
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn send_file(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    file_path: String,
+    receiver_id: Option<String>,
+    group_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    send_file_like(
+        state.inner(),
+        "send_file",
+        req_id,
+        file_path,
+        receiver_id,
+        group_id,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn send_image(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    file_path: String,
+    receiver_id: Option<String>,
+    group_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    send_file_like(
+        state.inner(),
+        "send_image",
+        req_id,
+        file_path,
+        receiver_id,
+        group_id,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn cancel_transfer(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    transfer_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "cancel_transfer",
+        req_id,
+        json!({ "transferId": transfer_id }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn query_resume(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    transfer_id: String,
+    file_path: Option<String>,
+    receiver_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "query_resume",
+        req_id,
+        json!({
+            "transferId": transfer_id,
+            "filePath": file_path,
+            "receiverId": receiver_id
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn e2e_status(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    peer_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "e2e_status",
+        req_id,
+        json!({ "peerId": peer_id }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn e2e_announce_identity(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    peer_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "e2e_announce_identity",
+        req_id,
+        json!({ "peerId": peer_id }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn e2e_pin_identity(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    peer_id: String,
+    fingerprint: Option<String>,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "e2e_pin_identity",
+        req_id,
+        json!({
+            "peerId": peer_id,
+            "fingerprint": fingerprint
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn e2e_request_rotation(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    peer_id: String,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "e2e_request_rotation",
+        req_id,
+        json!({ "peerId": peer_id }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn profile_update(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    user_name: Option<String>,
+    avatar_base64: Option<String>,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "profile_update",
+        req_id,
+        json!({
+            "userName": user_name,
+            "avatarBase64": avatar_base64
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn settings_sync(
+    state: State<'_, Arc<AppState>>,
+    req_id: String,
+    settings: Value,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state.inner(),
+        "settings_sync",
+        req_id,
+        json!({ "settings": settings }),
+    )
+    .await
+}
+
+async fn login_like(
+    state: &Arc<AppState>,
+    op: &str,
+    req_id: String,
+    account: String,
+    password: String,
+    user_name: Option<String>,
+) -> Result<LoginResponse, QQNTError> {
+    let payload = call_engine_payload(
+        state,
+        op,
+        req_id,
+        json!({
+            "account": account,
+            "password": password,
+            "userName": user_name
         }),
     )
     .await?;
-    ack_payload(packet, "login").map(|payload| LoginResponse {
+
+    Ok(LoginResponse {
         accepted: payload
             .get("accepted")
             .and_then(Value::as_bool)
@@ -100,9 +513,55 @@ pub async fn login(
         mode: payload
             .get("mode")
             .and_then(Value::as_str)
-            .unwrap_or("login")
+            .unwrap_or(op)
             .to_string(),
     })
+}
+
+async fn send_file_like(
+    state: &Arc<AppState>,
+    op: &str,
+    req_id: String,
+    file_path: String,
+    receiver_id: Option<String>,
+    group_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    call_engine_payload(
+        state,
+        op,
+        req_id,
+        json!({
+            "filePath": file_path,
+            "receiverId": receiver_id,
+            "groupId": group_id
+        }),
+    )
+    .await
+}
+
+async fn call_engine_payload(
+    state: &Arc<AppState>,
+    op: &str,
+    req_id: String,
+    payload: Value,
+) -> Result<Value, QQNTError> {
+    let packet = bridge::call_engine(state, command_packet(op, req_id, payload)).await?;
+    ack_payload(packet, op)
+}
+
+fn command_packet(op: &str, req_id: String, payload: Value) -> Value {
+    json!({
+        "op": op,
+        "reqId": req_id,
+        "payload": compact_payload(payload)
+    })
+}
+
+fn compact_payload(mut payload: Value) -> Value {
+    if let Value::Object(map) = &mut payload {
+        map.retain(|_, value| !value.is_null());
+    }
+    payload
 }
 
 fn ack_payload(packet: Value, op: &str) -> Result<Value, QQNTError> {
@@ -141,6 +600,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn command_packet_keeps_protocol_field_names() {
+        let packet = command_packet(
+            "send_private_message",
+            "req-1".to_string(),
+            json!({
+                "receiverId": "10001",
+                "content": "hello"
+            }),
+        );
+
+        assert_eq!(packet["op"], "send_private_message");
+        assert_eq!(packet["reqId"], "req-1");
+        assert_eq!(packet["payload"]["receiverId"], "10001");
+        assert_eq!(packet["payload"]["content"], "hello");
+    }
+
+    #[test]
+    fn command_packet_omits_null_optional_fields() {
+        let packet = command_packet(
+            "send_file",
+            "req-2".to_string(),
+            json!({
+                "filePath": "C:/tmp/a.txt",
+                "receiverId": "10001",
+                "groupId": null
+            }),
+        );
+
+        assert_eq!(packet["payload"]["filePath"], "C:/tmp/a.txt");
+        assert_eq!(packet["payload"]["receiverId"], "10001");
+        assert!(packet["payload"].get("groupId").is_none());
+    }
+
+    #[test]
     fn ack_payload_returns_payload_for_matching_ok_ack() {
         let payload = ack_payload(
             json!({
@@ -174,5 +667,22 @@ mod tests {
 
         assert_eq!(error.code, "login_failed");
         assert_eq!(error.source, "engine");
+    }
+
+    #[test]
+    fn ack_payload_rejects_mismatched_op() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "login",
+                "reqId": "req-3",
+                "status": "ok",
+                "payload": {}
+            }),
+            "connect",
+        )
+        .expect_err("mismatched ack op should fail");
+
+        assert_eq!(error.code, "unexpected_ack");
     }
 }
