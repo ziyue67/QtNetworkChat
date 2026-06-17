@@ -11,6 +11,14 @@ use crate::state::AppState;
 
 const ENGINE_TIMEOUT_SECONDS: u64 = 30;
 
+#[derive(Debug, PartialEq)]
+enum EngineDispatch {
+    Ack { req_id: String, packet: Value },
+    Event { topic: String, payload: Value },
+    Error(Value),
+    Ignore,
+}
+
 pub async fn call_engine(state: &Arc<AppState>, command: Value) -> QQNTResult<Value> {
     let req_id = command
         .get("reqId")
@@ -87,64 +95,151 @@ pub async fn handle_engine_event(app: &AppHandle, state: &Arc<AppState>, event: 
 }
 
 async fn handle_stdout_line(app: &AppHandle, state: &Arc<AppState>, line: Vec<u8>) {
-    let trimmed = String::from_utf8_lossy(&line).trim().to_string();
+    match dispatch_stdout_line(&line) {
+        EngineDispatch::Ack { req_id, packet } => handle_ack(state, &req_id, packet).await,
+        EngineDispatch::Event { topic, payload } => {
+            let _ = app.emit(topic.as_str(), payload);
+        }
+        EngineDispatch::Error(error) => {
+            let _ = app.emit("qqnt://engine/error", error);
+        }
+        EngineDispatch::Ignore => {}
+    }
+}
+
+fn dispatch_stdout_line(line: &[u8]) -> EngineDispatch {
+    let trimmed = String::from_utf8_lossy(line).trim().to_string();
     if trimmed.is_empty() {
-        return;
+        return EngineDispatch::Ignore;
     }
 
     let packet: Value = match serde_json::from_str(&trimmed) {
         Ok(value) => value,
         Err(error) => {
-            let _ = app.emit(
-                "qqnt://engine/error",
-                json!({
-                    "code": "invalid_engine_json",
-                    "message": error.to_string(),
-                    "source": "rust"
-                }),
-            );
-            return;
+            return EngineDispatch::Error(json!({
+                "code": "invalid_engine_json",
+                "message": error.to_string(),
+                "source": "rust"
+            }));
         }
     };
 
     match packet.get("type").and_then(Value::as_str) {
-        Some("ack") => handle_ack(state, packet).await,
-        Some("event") => emit_engine_event(app, packet),
-        _ => {
-            let _ = app.emit(
-                "qqnt://engine/error",
-                json!({
-                    "code": "unknown_engine_packet",
-                    "message": "QQNTEngine emitted an unsupported packet envelope.",
+        Some("ack") => {
+            let Some(req_id) = packet.get("reqId").and_then(Value::as_str) else {
+                return EngineDispatch::Error(json!({
+                    "code": "missing_req_id",
+                    "message": "QQNTEngine ack packet did not include reqId.",
                     "source": "rust"
-                }),
-            );
+                }));
+            };
+            EngineDispatch::Ack {
+                req_id: req_id.to_string(),
+                packet,
+            }
         }
-    }
-}
-
-async fn handle_ack(state: &Arc<AppState>, packet: Value) {
-    if let Some(req_id) = packet.get("reqId").and_then(Value::as_str) {
-        if let Some(sender) = state.engine.pending.lock().await.remove(req_id) {
-            let _ = sender.send(packet);
-        }
-    }
-}
-
-fn emit_engine_event(app: &AppHandle, packet: Value) {
-    let Some(event_name) = packet.get("event").and_then(Value::as_str) else {
-        let _ = app.emit(
-            "qqnt://engine/error",
-            json!({
+        Some("event") => {
+            let Some(event_name) = packet.get("event").and_then(Value::as_str) else {
+                return EngineDispatch::Error(json!({
                 "code": "missing_event_name",
                 "message": "QQNTEngine event packet did not include event.",
                 "source": "rust"
-            }),
-        );
-        return;
-    };
+                }));
+            };
 
-    let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
-    let topic = format!("qqnt://engine/{event_name}");
-    let _ = app.emit(topic.as_str(), payload);
+            EngineDispatch::Event {
+                topic: format!("qqnt://engine/{event_name}"),
+                payload: packet.get("payload").cloned().unwrap_or_else(|| json!({})),
+            }
+        }
+        _ => EngineDispatch::Error(json!({
+            "code": "unknown_engine_packet",
+            "message": "QQNTEngine emitted an unsupported packet envelope.",
+            "source": "rust"
+        })),
+    }
+}
+
+async fn handle_ack(state: &Arc<AppState>, req_id: &str, packet: Value) {
+    if let Some(sender) = state.engine.pending.lock().await.remove(req_id) {
+        let _ = sender.send(packet);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+
+    #[test]
+    fn dispatches_ack_by_req_id() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"ack","op":"ready","reqId":"req-1","status":"ok","payload":{"protocolVersion":1}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Ack { req_id, packet } => {
+                assert_eq!(req_id, "req-1");
+                assert_eq!(packet["payload"]["protocolVersion"], 1);
+            }
+            other => panic!("expected ack dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_event_to_engine_topic() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"message","payload":{"sessionId":"10001"}}"#,
+        );
+
+        assert_eq!(
+            dispatch,
+            EngineDispatch::Event {
+                topic: "qqnt://engine/message".to_string(),
+                payload: json!({ "sessionId": "10001" }),
+            }
+        );
+    }
+
+    #[test]
+    fn dispatches_invalid_json_as_error_event() {
+        let dispatch = dispatch_stdout_line(br#"{"type":"event""#);
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_engine_json");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_ack_resolves_matching_pending_request() {
+        let state = Arc::new(AppState::new());
+        let (sender, receiver) = oneshot::channel();
+        state
+            .engine
+            .pending
+            .lock()
+            .await
+            .insert("req-42".to_string(), sender);
+
+        handle_ack(
+            &state,
+            "req-42",
+            json!({
+                "type": "ack",
+                "op": "login",
+                "reqId": "req-42",
+                "status": "ok",
+                "payload": { "accepted": true }
+            }),
+        )
+        .await;
+
+        let packet = receiver.await.expect("pending receiver should resolve");
+        assert_eq!(packet["reqId"], "req-42");
+        assert!(state.engine.pending.lock().await.is_empty());
+    }
 }

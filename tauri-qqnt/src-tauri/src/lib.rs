@@ -21,7 +21,11 @@ pub fn run() {
             sidecar::start_engine(app.handle().clone(), state);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::qqnt_command])
+        .invoke_handler(tauri::generate_handler![
+            commands::qqnt_command,
+            commands::connect_server,
+            commands::login
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

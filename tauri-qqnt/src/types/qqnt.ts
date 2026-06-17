@@ -14,8 +14,8 @@ export interface QQNTEvent<T = unknown> {
 
 export interface QQNTCommand {
   reqId: string
-  method: string
-  params: Record<string, unknown>
+  op: string
+  payload?: Record<string, unknown>
 }
 
 export interface User {
