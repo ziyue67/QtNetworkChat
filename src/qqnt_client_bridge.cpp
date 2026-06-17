@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QJsonValue>
 #include <QTextStream>
 #include <QVersionNumber>
 #include <QtGlobal>
@@ -184,9 +185,7 @@ void QQNTClientBridge::bindClientSignals() {
 
     connect(&m_client, &Client::newMessage, this, [this](const Message& message) {
         QJsonObject payload;
-        const QString sessionId = message.receiverId.isEmpty()
-            ? QStringLiteral("public")
-            : (message.receiverId == m_client.currentUserId() ? message.senderId : message.receiverId);
+        const QString sessionId = sessionIdForMessage(message);
         payload[QStringLiteral("sessionId")] = sessionId;
         payload[QStringLiteral("message")] = messageToJson(message);
         sendEvent(QStringLiteral("message"), payload);
@@ -324,9 +323,7 @@ void QQNTClientBridge::bindClientSignals() {
 
 QJsonObject QQNTClientBridge::messageToJson(const Message& message) const {
     QJsonObject object = QJsonDocument::fromJson(message.toJson()).object();
-    const QString sessionId = message.receiverId.isEmpty()
-        ? QStringLiteral("public")
-        : (message.receiverId == m_client.currentUserId() ? message.senderId : message.receiverId);
+    const QString sessionId = sessionIdForMessage(message);
     object[QStringLiteral("messageId")] = message.transferId.isEmpty()
         ? QString::number(message.timestamp.toMSecsSinceEpoch())
         : message.transferId;
@@ -337,6 +334,38 @@ QJsonObject QQNTClientBridge::messageToJson(const Message& message) const {
     object[QStringLiteral("contentType")] = messageTypeName(message.type);
     object[QStringLiteral("status")] = QStringLiteral("received");
     return object;
+}
+
+QString QQNTClientBridge::sessionIdForMessage(const Message& message) const {
+    const QString receiverId = message.receiverId.trimmed();
+    if (receiverId.isEmpty()) {
+        return QStringLiteral("group:public");
+    }
+    if (isKnownServerGroupId(receiverId)) {
+        return QStringLiteral("group:%1").arg(receiverId);
+    }
+    return receiverId == m_client.currentUserId() ? message.senderId : receiverId;
+}
+
+bool QQNTClientBridge::isKnownServerGroupId(const QString& groupId) const {
+    const QString trimmedGroupId = groupId.trimmed();
+    if (trimmedGroupId.isEmpty()) {
+        return false;
+    }
+    if (trimmedGroupId == QLatin1String("public")) {
+        return true;
+    }
+
+    const auto groupArrayContains = [&trimmedGroupId](const QJsonArray& groups) {
+        for (const QJsonValue& value : groups) {
+            if (value.toObject().value(QStringLiteral("groupId")).toString() == trimmedGroupId) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    return groupArrayContains(m_client.serverGroups()) || groupArrayContains(m_client.removedServerGroups());
 }
 
 QJsonObject QQNTClientBridge::userToJson(const ChatUser& user) const {

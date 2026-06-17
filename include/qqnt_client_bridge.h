@@ -38,6 +38,8 @@ public:
 private:
     void bindClientSignals();
     QJsonObject messageToJson(const Message& message) const;
+    QString sessionIdForMessage(const Message& message) const;
+    bool isKnownServerGroupId(const QString& groupId) const;
     QJsonObject userToJson(const ChatUser& user) const;
 
     Client m_client;

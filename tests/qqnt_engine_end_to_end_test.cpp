@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMap>
@@ -176,6 +177,43 @@ public:
         return false;
     }
 
+    bool hasGroupSnapshot(const QString& expectedGroupId) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("group_snapshot")) {
+                continue;
+            }
+            const QJsonArray groups = event.value(QStringLiteral("payload")).toObject().value(QStringLiteral("groups")).toArray();
+            for (const QJsonValue& value : groups) {
+                if (value.toObject().value(QStringLiteral("groupId")).toString() == expectedGroupId) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool hasGroupMessage(const QString& expectedContent,
+                         const QString& expectedSenderId,
+                         const QString& expectedGroupId) const {
+        const QString expectedSessionId = QStringLiteral("group:%1").arg(expectedGroupId);
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("message")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            const QJsonObject message = payload.value(QStringLiteral("message")).toObject();
+            if (message.value(QStringLiteral("content")).toString() == expectedContent
+                && message.value(QStringLiteral("senderId")).toString() == expectedSenderId
+                && message.value(QStringLiteral("receiverId")).toString() == expectedGroupId
+                && message.value(QStringLiteral("contentType")).toString() == QLatin1String("text")
+                && payload.value(QStringLiteral("sessionId")).toString() == expectedSessionId
+                && message.value(QStringLiteral("sessionId")).toString() == expectedSessionId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     QString userId() const { return m_userId; }
     QString label() const { return m_label; }
     QString stderrText() const { return QString::fromLocal8Bit(m_stderr); }
@@ -305,6 +343,11 @@ int main(int argc, char* argv[]) {
             && bob.hasLoginSuccess();
     }, {&alice, &bob}), "both QQNTEngine processes should connect and emit login_result") && ok;
 
+    ok = expect(waitFor([&] {
+        return alice.hasGroupSnapshot(QStringLiteral("public"))
+            && bob.hasGroupSnapshot(QStringLiteral("public"));
+    }, {&alice, &bob}), "both QQNTEngine processes should receive the public group snapshot") && ok;
+
     const QString privateContent = QStringLiteral("qqnt engine e2e private message");
     QJsonObject messagePayload;
     messagePayload[QStringLiteral("receiverId")] = bob.userId();
@@ -318,6 +361,20 @@ int main(int argc, char* argv[]) {
         return alice.hasOkAck(QStringLiteral("alice-private-message"))
             && bob.hasPrivateMessage(privateContent, alice.userId(), bob.userId());
     }, {&alice, &bob}), "bob QQNTEngine should emit the private message event") && ok;
+
+    const QString groupId = QStringLiteral("public");
+    const QString groupContent = QStringLiteral("qqnt engine e2e group message");
+    QJsonObject groupPayload;
+    groupPayload[QStringLiteral("groupId")] = groupId;
+    groupPayload[QStringLiteral("content")] = groupContent;
+    ok = expect(alice.writeCommand(makeCommand(QStringLiteral("send_group_message"),
+                                               QStringLiteral("alice-group-message"),
+                                               groupPayload)),
+                "alice group message command should be written") && ok;
+    ok = expect(waitFor([&] {
+        return alice.hasOkAck(QStringLiteral("alice-group-message"))
+            && bob.hasGroupMessage(groupContent, alice.userId(), groupId);
+    }, {&alice, &bob}), "bob QQNTEngine should emit the group message event with a group session id") && ok;
 
     alice.pump();
     bob.pump();
