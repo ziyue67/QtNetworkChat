@@ -2,6 +2,8 @@
 
 #include "qqnt_client_bridge.h"
 
+#include <QByteArray>
+#include <QJsonArray>
 #include <QJsonValue>
 
 QQNTEngineCommandRouter::QQNTEngineCommandRouter(QQNTClientBridge* bridge)
@@ -37,8 +39,46 @@ void QQNTEngineCommandRouter::route(const QJsonObject& command) {
         handleDisconnect(op, reqId);
     } else if (op == QLatin1String("set_user_info")) {
         handleSetUserInfo(op, reqId, payload);
+    } else if (op == QLatin1String("get_user_list") || op == QLatin1String("get_friend_list")) {
+        handleGetUserList(op, reqId);
+    } else if (op == QLatin1String("get_group_list")) {
+        handleGetGroupList(op, reqId);
+    } else if (op == QLatin1String("search_friend")) {
+        handleSearchFriend(op, reqId, payload);
+    } else if (op == QLatin1String("send_friend_request")) {
+        handleSendFriendRequest(op, reqId, payload);
+    } else if (op == QLatin1String("respond_friend_request")) {
+        handleRespondFriendRequest(op, reqId, payload);
     } else if (op == QLatin1String("send_private_message")) {
         handleSendPrivateMessage(op, reqId, payload);
+    } else if (op == QLatin1String("send_group_message")) {
+        handleSendGroupMessage(op, reqId, payload);
+    } else if (op == QLatin1String("create_group")) {
+        handleCreateGroup(op, reqId, payload);
+    } else if (op == QLatin1String("update_group_announcement")) {
+        handleUpdateGroupAnnouncement(op, reqId, payload);
+    } else if (op == QLatin1String("update_group_member")) {
+        handleUpdateGroupMember(op, reqId, payload);
+    } else if (op == QLatin1String("send_file")) {
+        handleSendFileLike(op, reqId, payload, false);
+    } else if (op == QLatin1String("send_image")) {
+        handleSendFileLike(op, reqId, payload, true);
+    } else if (op == QLatin1String("cancel_transfer")) {
+        handleCancelTransfer(op, reqId);
+    } else if (op == QLatin1String("query_resume")) {
+        handleQueryResume(op, reqId, payload);
+    } else if (op == QLatin1String("e2e_status")) {
+        handleE2EStatus(op, reqId, payload);
+    } else if (op == QLatin1String("e2e_announce_identity")) {
+        handleE2EAnnounceIdentity(op, reqId, payload);
+    } else if (op == QLatin1String("e2e_pin_identity")) {
+        handleE2EPinIdentity(op, reqId, payload);
+    } else if (op == QLatin1String("e2e_request_rotation")) {
+        handleE2ERequestRotation(op, reqId, payload);
+    } else if (op == QLatin1String("profile_update")) {
+        handleProfileUpdate(op, reqId, payload);
+    } else if (op == QLatin1String("settings_sync")) {
+        handleSettingsSync(op, reqId, payload);
     } else {
         m_bridge->sendErrorAck(op,
                                reqId,
@@ -127,6 +167,52 @@ void QQNTEngineCommandRouter::handleSetUserInfo(const QString& op, const QString
     m_bridge->sendAck(op, reqId);
 }
 
+void QQNTEngineCommandRouter::handleGetUserList(const QString& op, const QString& reqId) {
+    QJsonObject payload = m_bridge->userListPayload();
+    payload[QStringLiteral("friends")] = payload.value(QStringLiteral("users")).toArray();
+    m_bridge->sendAck(op, reqId, payload);
+}
+
+void QQNTEngineCommandRouter::handleGetGroupList(const QString& op, const QString& reqId) {
+    m_bridge->sendAck(op, reqId, m_bridge->groupListPayload());
+}
+
+void QQNTEngineCommandRouter::handleSearchFriend(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString account;
+    if (!requireString(payload, QStringLiteral("account"), &account, op, reqId)) {
+        return;
+    }
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->searchFriendByAccount(account),
+                QStringLiteral("search_failed"),
+                QStringLiteral("Friend search requires an active server connection."));
+}
+
+void QQNTEngineCommandRouter::handleSendFriendRequest(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString receiverId;
+    if (!requireString(payload, QStringLiteral("receiverId"), &receiverId, op, reqId)) {
+        return;
+    }
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->sendFriendRequest(receiverId),
+                QStringLiteral("friend_request_failed"),
+                QStringLiteral("Friend request requires an active server connection."));
+}
+
+void QQNTEngineCommandRouter::handleRespondFriendRequest(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString senderId;
+    if (!requireString(payload, QStringLiteral("senderId"), &senderId, op, reqId)) {
+        return;
+    }
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->sendFriendResponse(senderId, payload.value(QStringLiteral("accepted")).toBool()),
+                QStringLiteral("friend_response_failed"),
+                QStringLiteral("Friend response requires an active server connection."));
+}
+
 void QQNTEngineCommandRouter::handleSendPrivateMessage(const QString& op, const QString& reqId, const QJsonObject& payload) {
     QString receiverId;
     QString content;
@@ -147,6 +233,226 @@ void QQNTEngineCommandRouter::handleSendPrivateMessage(const QString& op, const 
 
     QJsonObject response;
     response[QStringLiteral("receiverId")] = receiverId;
+    m_bridge->sendAck(op, reqId, response);
+}
+
+void QQNTEngineCommandRouter::handleSendGroupMessage(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString groupId;
+    QString content;
+    if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
+        || !requireString(payload, QStringLiteral("content"), &content, op, reqId)) {
+        return;
+    }
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->sendServerGroupMessage(groupId, content),
+                QStringLiteral("send_group_failed"),
+                QStringLiteral("Group message requires an active server connection and valid group."));
+}
+
+void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString groupName;
+    if (!requireString(payload, QStringLiteral("groupName"), &groupName, op, reqId)) {
+        return;
+    }
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->createPrivateServerGroup(groupName, payload.value(QStringLiteral("announcement")).toString()),
+                QStringLiteral("create_group_failed"),
+                QStringLiteral("Group creation requires an active server connection."));
+}
+
+void QQNTEngineCommandRouter::handleUpdateGroupAnnouncement(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString groupId;
+    if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)) {
+        return;
+    }
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->sendServerGroupAnnouncementUpdate(groupId, payload.value(QStringLiteral("announcement")).toString()),
+                QStringLiteral("group_announcement_failed"),
+                QStringLiteral("Group announcement update requires an active server connection."));
+}
+
+void QQNTEngineCommandRouter::handleUpdateGroupMember(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString groupId;
+    QString memberId;
+    QString action;
+    if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
+        || !requireString(payload, QStringLiteral("memberId"), &memberId, op, reqId)
+        || !requireString(payload, QStringLiteral("action"), &action, op, reqId)) {
+        return;
+    }
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->sendServerGroupMemberUpdate(groupId, memberId, action),
+                QStringLiteral("group_member_failed"),
+                QStringLiteral("Group member update requires an active server connection and valid action."));
+}
+
+void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QString& reqId, const QJsonObject& payload, bool imageMode) {
+    QString filePath;
+    if (!requireString(payload, QStringLiteral("filePath"), &filePath, op, reqId)) {
+        return;
+    }
+
+    const QString groupId = payload.value(QStringLiteral("groupId")).toString().trimmed();
+    const QString receiverId = payload.value(QStringLiteral("receiverId")).toString().trimmed();
+    const bool accepted = groupId.isEmpty()
+        ? (imageMode ? m_bridge->client()->sendImage(filePath, receiverId) : m_bridge->client()->sendFile(filePath, receiverId))
+        : (imageMode ? m_bridge->client()->sendServerGroupImage(groupId, filePath) : m_bridge->client()->sendServerGroupFile(groupId, filePath));
+    sendBoolAck(op,
+                reqId,
+                accepted,
+                QStringLiteral("file_send_failed"),
+                QStringLiteral("File send requires an active server connection and readable file."));
+}
+
+void QQNTEngineCommandRouter::handleCancelTransfer(const QString& op, const QString& reqId) {
+    m_bridge->client()->cancelCurrentOutgoingTransfer();
+    QJsonObject payload;
+    payload[QStringLiteral("cancelled")] = true;
+    m_bridge->sendAck(op, reqId, payload);
+}
+
+void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString transferId;
+    if (!requireString(payload, QStringLiteral("transferId"), &transferId, op, reqId)) {
+        return;
+    }
+
+    qint64 confirmedBytes = 0;
+    qint64 nextChunkIndex = 0;
+    qint64 fileSize = 0;
+    qint64 chunkSize = 0;
+    qint64 chunkCount = 0;
+    QString fileHash;
+    QVector<qint64> receivedChunks;
+    QString rejectReason;
+    if (!m_bridge->client()->queryFileTransferResumeState(transferId,
+                                                          &confirmedBytes,
+                                                          &nextChunkIndex,
+                                                          &receivedChunks,
+                                                          &rejectReason,
+                                                          5000,
+                                                          &fileSize,
+                                                          &chunkSize,
+                                                          &chunkCount,
+                                                          &fileHash)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("resume_query_failed"),
+                               rejectReason.isEmpty() ? QStringLiteral("Resume query failed.") : rejectReason);
+        return;
+    }
+
+    QJsonArray chunks;
+    for (qint64 chunk : receivedChunks) {
+        chunks.append(QString::number(chunk));
+    }
+
+    QJsonObject response;
+    response[QStringLiteral("canResume")] = true;
+    response[QStringLiteral("transferId")] = transferId;
+    response[QStringLiteral("confirmedBytes")] = QString::number(confirmedBytes);
+    response[QStringLiteral("nextChunkIndex")] = QString::number(nextChunkIndex);
+    response[QStringLiteral("fileSize")] = QString::number(fileSize);
+    response[QStringLiteral("chunkSize")] = QString::number(chunkSize);
+    response[QStringLiteral("chunkCount")] = QString::number(chunkCount);
+    response[QStringLiteral("fileHash")] = fileHash;
+    response[QStringLiteral("receivedChunks")] = chunks;
+    m_bridge->sendAck(op, reqId, response);
+}
+
+void QQNTEngineCommandRouter::handleE2EStatus(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    const QString peerId = payload.value(QStringLiteral("peerId")).toString().trimmed();
+    QJsonObject response;
+    response[QStringLiteral("localIdentity")] = m_bridge->client()->e2eLocalIdentityStatus();
+    if (!peerId.isEmpty()) {
+        response[QStringLiteral("peerId")] = peerId;
+        response[QStringLiteral("session")] = m_bridge->client()->e2eSessionStatus(peerId);
+        response[QStringLiteral("identity")] = m_bridge->client()->e2ePeerIdentityStatus(peerId);
+    }
+    m_bridge->sendAck(op, reqId, response);
+}
+
+void QQNTEngineCommandRouter::handleE2EAnnounceIdentity(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString rejectReason;
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->announceE2EIdentity(payload.value(QStringLiteral("peerId")).toString(), &rejectReason),
+                QStringLiteral("e2e_announce_failed"),
+                rejectReason.isEmpty() ? QStringLiteral("E2E identity announce failed.") : rejectReason);
+}
+
+void QQNTEngineCommandRouter::handleE2EPinIdentity(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString peerId;
+    if (!requireString(payload, QStringLiteral("peerId"), &peerId, op, reqId)) {
+        return;
+    }
+    QString rejectReason;
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->pinE2EPeerIdentity(peerId, payload.value(QStringLiteral("fingerprint")).toString(), &rejectReason),
+                QStringLiteral("e2e_pin_failed"),
+                rejectReason.isEmpty() ? QStringLiteral("E2E identity pin failed.") : rejectReason);
+}
+
+void QQNTEngineCommandRouter::handleE2ERequestRotation(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString peerId;
+    if (!requireString(payload, QStringLiteral("peerId"), &peerId, op, reqId)) {
+        return;
+    }
+    QString rejectReason;
+    sendBoolAck(op,
+                reqId,
+                m_bridge->client()->requestE2ESessionRotation(peerId, &rejectReason),
+                QStringLiteral("e2e_rotation_failed"),
+                rejectReason.isEmpty() ? QStringLiteral("E2E session rotation request failed.") : rejectReason);
+}
+
+void QQNTEngineCommandRouter::handleProfileUpdate(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    const QString userName = payload.value(QStringLiteral("userName")).toString().trimmed();
+    const QString avatarBase64 = payload.value(QStringLiteral("avatarBase64")).toString().trimmed();
+    if (!userName.isEmpty()) {
+        m_bridge->client()->setUserInfo(m_bridge->client()->currentUserId(), userName);
+    }
+
+    bool avatarSent = false;
+    if (!avatarBase64.isEmpty()) {
+        avatarSent = m_bridge->client()->sendAvatarUpdate(QByteArray::fromBase64(avatarBase64.toLatin1()));
+        if (!avatarSent && m_bridge->client()->isConnected()) {
+            m_bridge->sendErrorAck(op, reqId, QStringLiteral("profile_update_failed"), QStringLiteral("Avatar profile update failed."));
+            return;
+        }
+    }
+
+    QJsonObject response;
+    response[QStringLiteral("accepted")] = true;
+    response[QStringLiteral("avatarSent")] = avatarSent;
+    response[QStringLiteral("userName")] = m_bridge->client()->currentUserName();
+    m_bridge->sendAck(op, reqId, response);
+}
+
+void QQNTEngineCommandRouter::handleSettingsSync(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QJsonObject response;
+    response[QStringLiteral("accepted")] = true;
+    response[QStringLiteral("settings")] = payload.value(QStringLiteral("settings")).toObject();
+    m_bridge->sendAck(op, reqId, response);
+}
+
+void QQNTEngineCommandRouter::sendBoolAck(const QString& op,
+                                          const QString& reqId,
+                                          bool accepted,
+                                          const QString& failureCode,
+                                          const QString& failureMessage) {
+    if (!accepted) {
+        m_bridge->sendErrorAck(op, reqId, failureCode, failureMessage);
+        return;
+    }
+
+    QJsonObject response;
+    response[QStringLiteral("accepted")] = true;
     m_bridge->sendAck(op, reqId, response);
 }
 

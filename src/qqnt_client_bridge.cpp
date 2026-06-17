@@ -80,6 +80,25 @@ QJsonObject QQNTClientBridge::readyPayload() const {
     return payload;
 }
 
+QJsonObject QQNTClientBridge::userListPayload() const {
+    QJsonArray userArray;
+    for (const ChatUser& user : m_client.onlineUsers()) {
+        userArray.append(userToJson(user));
+    }
+
+    QJsonObject payload;
+    payload[QStringLiteral("users")] = userArray;
+    return payload;
+}
+
+QJsonObject QQNTClientBridge::groupListPayload() const {
+    QJsonObject payload;
+    payload[QStringLiteral("groups")] = m_client.serverGroups();
+    payload[QStringLiteral("removedGroups")] = m_client.removedServerGroups();
+    payload[QStringLiteral("hasSnapshot")] = m_client.hasServerGroupSnapshot();
+    return payload;
+}
+
 void QQNTClientBridge::setConnectionTarget(const QString& host, quint16 port) {
     m_host = host;
     m_port = port;

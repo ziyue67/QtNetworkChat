@@ -24,6 +24,8 @@ public:
     const Client* client() const { return &m_client; }
 
     QJsonObject readyPayload() const;
+    QJsonObject userListPayload() const;
+    QJsonObject groupListPayload() const;
     void setConnectionTarget(const QString& host, quint16 port);
     void sendAck(const QString& op, const QString& reqId, const QJsonObject& payload = QJsonObject());
     void sendErrorAck(const QString& op,
