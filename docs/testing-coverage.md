@@ -15,3 +15,5 @@ This branch validates the QQNT backend through focused CTest targets, Rust bridg
 ## Current Scope
 
 Backend validation should stay scoped to C++ sidecars, Redis/service behavior, Tauri Rust bridge code, protocol fixtures, and packaging scripts. Frontend rendering and mock UI behavior belong to `codex/qqnt-frontend`.
+
+Running `npm test -- --run` in the backend branch is not a BM5/BM6 gate because the current Vitest suite is owned by `codex/qqnt-frontend`; with no `*.test.ts(x)` files present, Vitest exits with `No test files found` and should be interpreted as out of backend scope rather than a backend regression.

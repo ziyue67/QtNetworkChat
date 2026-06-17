@@ -273,7 +273,7 @@ int main(int argc, char* argv[]) {
 | `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
 | `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
 | `query_resume` | `{transferId, filePath?, receiverId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送 |
-| `e2e_status` | `{peerId}` | E2E 状态 |
+| `e2e_status` | `{peerId?}` | E2E 状态；省略时返回本机身份，提供时追加会话与对端身份 |
 | `e2e_announce_identity` | `{peerId}` | 身份公告 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定身份 |
 | `e2e_request_rotation` | `{peerId}` | 请求轮换 |
@@ -790,6 +790,8 @@ npm run tauri build
 | 8.2 | Tauri `npm run tauri build` 出 MSI/NSIS | GPT5.5 | 安装包可安装运行 |
 | 8.3 | 更新 README、IPC 文档 | Kimi | 新构建与运行方式说明 |
 | 8.4 | 清理运行时数据提交；`.gitignore` 检查 | 共同 | 无 accounts.sqlite3、histories、离线附件入仓 |
+
+> 后端 Phase 8 验证已覆盖后端 CTest 子集、`tauri-qqnt/src-tauri` 的 `cargo fmt --check` / `cargo test`、以及 `npm run tauri build` 打包；Vitest 渲染与 `*.test.ts(x)` 用例归 `codex/qqnt-frontend`，后端分支不补前端测试桩。
 
 ### 立即并行启动
 - **Kimi**：Phase 2（前端脚手架 + 无边框窗口 + 11 入口）。
