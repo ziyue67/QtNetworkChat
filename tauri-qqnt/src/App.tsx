@@ -39,6 +39,7 @@ function useResizeForAuth(isAuthenticated: boolean) {
         const minSize = isAuthenticated ? MAIN_MIN_SIZE : LOGIN_MIN_SIZE
 
         if (!mounted) return
+        await win.setResizable(isAuthenticated)
         await win.setMinSize(new LogicalSize(minSize.width, minSize.height))
         await win.setSize(new LogicalSize(size.width, size.height))
         if (isAuthenticated) {
