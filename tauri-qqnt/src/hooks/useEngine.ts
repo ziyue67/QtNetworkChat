@@ -280,7 +280,7 @@ export function useEngine(): UseEngineReturn {
         }],
         ['qqnt://server/fatal', (payload) => {
           const fatal = payload as { message?: string }
-          setError(`服务端致命错误：${fatal.message || '未知错误'}`)
+          setError(`本地引擎错误：${fatal.message || '未知错误'}`)
         }]
       ]
 
@@ -301,7 +301,7 @@ export function useEngine(): UseEngineReturn {
               ready: true,
               connecting: false,
               mock: true,
-              error: '未检测到本地 QQ NT 引擎，已临时进入 Mock 模式；可在设置页网络中调整地址后重连。'
+              error: '未检测到本地 QQ NT 引擎，已临时进入离线预览。'
             }
           })
         }, 4000)
@@ -310,7 +310,7 @@ export function useEngine(): UseEngineReturn {
       try {
         await sendCommand('ready', {})
       } catch {
-        // 后端未就绪，等 fallback 计时器进入 mock
+        // 引擎未就绪，等 fallback 计时器进入预览状态
       }
     }
 
@@ -342,13 +342,13 @@ export function useEngine(): UseEngineReturn {
       try {
         const ack = await connectServer(connectHost, connectPort)
         if (ack.status === 'error') {
-          setError(ack.error?.message || '连接服务器失败')
+          setError(ack.error?.message || '连接失败')
           return false
         }
         setEngine((prev) => ({ ...prev, connected: ack.payload?.connected ?? true, connecting: false }))
         return true
       } catch (err) {
-        const message = err instanceof Error ? err.message : '连接失败，请检查服务端是否已启动'
+        const message = err instanceof Error ? err.message : '连接失败，请检查本地引擎是否已启动'
         setError(message)
         return false
       }

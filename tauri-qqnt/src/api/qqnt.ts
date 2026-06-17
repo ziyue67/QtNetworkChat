@@ -44,7 +44,7 @@ export async function sendCommand<Payload, Result>(
   return invoke<QQNTAck<Result>>('qqnt_command', { payload: command })
 }
 
-// 兼容后端独立命令 wrapper（与 docs/qqnt-ipcv1.md 的统一入口并存）
+// 兼容独立命令 wrapper（与 docs/qqnt-ipcv1.md 的统一入口并存）
 export async function invokeCommand<Result>(command: string, args: Record<string, unknown>): Promise<Result> {
   return invoke<Result>(command, args)
 }

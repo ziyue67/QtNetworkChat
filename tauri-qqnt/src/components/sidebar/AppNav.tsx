@@ -45,7 +45,7 @@ export function AppNav() {
           <NavItem
             key={item.path}
             icon={<Icon size={22} strokeWidth={1.5} />}
-            label={item.mock ? `${item.label} · Mock` : item.label}
+            label={item.label}
             active={activeRoute === item.path}
             badge={item.id === 'messages' ? unreadTotal : undefined}
             mock={item.mock}

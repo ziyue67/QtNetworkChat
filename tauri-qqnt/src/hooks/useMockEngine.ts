@@ -56,7 +56,7 @@ const MOCK_MESSAGES: Record<string, Message[]> = {
       senderId: 'u-1001',
       senderName: '阿强',
       type: 'text',
-      content: '后端 ready 了吗？',
+      content: '客户端准备好了吗？',
       timestamp: Date.now() - 1000 * 60 * 60,
       status: 'sent'
     }
@@ -104,7 +104,7 @@ export function useMockEngine() {
           senderId: contact.id,
           senderName: contact.nickname,
           type: 'text',
-          content: `mock event at ${new Date().toLocaleTimeString()}`,
+          content: `离线预览消息 ${new Date().toLocaleTimeString()}`,
           timestamp: Date.now(),
           status: 'sent'
         }

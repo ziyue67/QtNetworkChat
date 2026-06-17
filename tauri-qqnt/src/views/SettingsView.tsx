@@ -1,4 +1,4 @@
-import { Settings, Moon, Sun, Monitor, Bell, FolderOpen, Shield, Info, Network } from 'lucide-react'
+import { Settings, Moon, Sun, Monitor, Bell, FolderOpen, Shield, Info } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useUIStore, type QQNTSettings } from '@/stores/uiStore'
@@ -11,7 +11,6 @@ const TABS = [
   { key: 'account', label: '账号', icon: Info },
   { key: 'notification', label: '通知', icon: Bell },
   { key: 'file', label: '文件', icon: FolderOpen },
-  { key: 'network', label: '网络', icon: Network },
   { key: 'e2e', label: 'E2E', icon: Shield },
   { key: 'about', label: '关于', icon: Info }
 ] as const
@@ -62,17 +61,6 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (checked: b
       checked={checked}
       onChange={(event) => onChange(event.currentTarget.checked)}
       className="accent-[var(--qq-primary)]"
-    />
-  )
-}
-
-function SmallInput({ value, onChange, type = 'text' }: { value: string; type?: string; onChange: (value: string) => void }) {
-  return (
-    <input
-      value={value}
-      type={type}
-      onChange={(event) => onChange(event.currentTarget.value)}
-      className="w-44 rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-2 py-1.5 text-xs text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
     />
   )
 }
@@ -194,25 +182,6 @@ export function SettingsView() {
             checked={settings.openFolderAfterDownload}
             onChange={(openFolderAfterDownload) => patchSettings({ openFolderAfterDownload })}
           />
-        </Row>
-      </div>
-    ),
-    network: (
-      <div>
-        <Row label="引擎地址">
-          <SmallInput value={settings.networkHost} onChange={(networkHost) => patchSettings({ networkHost })} />
-        </Row>
-        <Row label="引擎端口">
-          <SmallInput
-            value={String(settings.networkPort)}
-            type="number"
-            onChange={(value) => patchSettings({ networkPort: Number(value) || 16000 })}
-          />
-        </Row>
-        <Row label="说明">
-          <span className="max-w-72 text-right text-xs text-[var(--qq-text-secondary)]">
-            登录页不显示服务器配置；这里仅供登录后联调本地客户端引擎。
-          </span>
         </Row>
       </div>
     ),

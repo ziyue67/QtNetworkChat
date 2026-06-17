@@ -79,7 +79,7 @@ export function ContactsView() {
         id: `u-${keyword}`,
         nickname: `用户 ${keyword}`,
         status: 'online',
-        signature: '本地 Mock 搜索结果'
+        signature: '本地搜索结果'
       }
     }
     return null

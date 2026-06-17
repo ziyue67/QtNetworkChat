@@ -61,7 +61,7 @@ export function ContactCard({ contact, onSendMessage, isGroup = false }: Contact
                 ))}
               </div>
             ) : (
-              <p className="mt-3 text-xs text-[var(--qq-text-tertiary)]">等待后端同步成员列表</p>
+              <p className="mt-3 text-xs text-[var(--qq-text-tertiary)]">成员信息同步中</p>
             )}
           </div>
         ) : null}
