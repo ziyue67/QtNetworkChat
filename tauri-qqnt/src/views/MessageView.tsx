@@ -25,6 +25,19 @@ export function MessageView() {
     markRead(id)
   }
 
+  const deliver = async (content: string, clientId: string) => {
+    if (!activeSession) return
+    try {
+      const ack =
+        activeSession.type === 'group'
+          ? await sendGroupMessage(activeSession.id, content)
+          : await sendPrivateMessage(activeSession.id, content)
+      updateMessageStatus(activeSession.id, clientId, ack.status === 'ok' ? 'sent' : 'failed')
+    } catch {
+      updateMessageStatus(activeSession.id, clientId, 'failed')
+    }
+  }
+
   const handleSend = async (content: string) => {
     if (!activeSession || !currentUser) return
 
@@ -43,16 +56,14 @@ export function MessageView() {
     addMessage(activeSession.id, optimistic)
     updateSession(activeSession.id, { lastMessage: content, lastTime: optimistic.timestamp })
 
-    try {
-      const ack =
-        activeSession.type === 'group'
-          ? await sendGroupMessage(activeSession.id, content)
-          : await sendPrivateMessage(activeSession.id, content)
+    await deliver(content, clientId)
+  }
 
-      updateMessageStatus(activeSession.id, clientId, ack.status === 'ok' ? 'sent' : 'failed')
-    } catch {
-      updateMessageStatus(activeSession.id, clientId, 'failed')
-    }
+  const handleRetry = async (clientId: string) => {
+    const msg = activeMessages.find((m) => m.id === clientId)
+    if (!msg || msg.status !== 'failed' || !activeSession) return
+    updateMessageStatus(activeSession.id, clientId, 'sending')
+    await deliver(msg.content, clientId)
   }
 
   return (
@@ -64,6 +75,7 @@ export function MessageView() {
           messages={activeMessages}
           currentUser={currentUser}
           onSend={handleSend}
+          onRetry={handleRetry}
         />
       ) : (
         <main className="flex min-w-0 flex-1 items-center justify-center text-sm text-[var(--qq-text-secondary)]">
