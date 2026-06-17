@@ -354,13 +354,13 @@ pub async fn send_image(
 pub async fn cancel_transfer(
     state: State<'_, Arc<AppState>>,
     req_id: String,
-    transfer_id: Option<String>,
+    transfer_id: String,
 ) -> Result<Value, QQNTError> {
     call_engine_payload(
         state.inner(),
         "cancel_transfer",
         req_id,
-        json!({ "transferId": transfer_id }),
+        cancel_transfer_payload(transfer_id),
     )
     .await
 }
@@ -542,6 +542,10 @@ async fn send_file_like(
     .await
 }
 
+fn cancel_transfer_payload(transfer_id: String) -> Value {
+    json!({ "transferId": transfer_id })
+}
+
 async fn call_engine_payload(
     state: &Arc<AppState>,
     op: &str,
@@ -695,6 +699,13 @@ mod tests {
         assert_eq!(packet["payload"]["filePath"], "C:/tmp/a.txt");
         assert_eq!(packet["payload"]["receiverId"], "10001");
         assert!(packet["payload"].get("groupId").is_none());
+    }
+
+    #[test]
+    fn cancel_transfer_payload_requires_transfer_id() {
+        let payload = cancel_transfer_payload("transfer-1".to_string());
+
+        assert_eq!(payload["transferId"], "transfer-1");
     }
 
     #[test]
