@@ -49,6 +49,7 @@
     "e2e_identity_state",
     "e2e_rotation_request",
     "e2e_rotation_response",
+    "settings_synced",
     "notification",
     "error"
   ]

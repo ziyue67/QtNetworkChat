@@ -299,6 +299,7 @@ int main(int argc, char* argv[]) {
 | `file_error` | `{transferId, reason}` | 文件失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话 |
 | `e2e_identity_state` | `{peerId, trusted, fingerprint}` | E2E 身份 |
+| `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置同步；文件下载目录可影响 engine 接收文件保存位置 |
 | `notification` | `{title, body}` | 需要前端通知 |
 | `error` | `{message, source}` | 通用错误 |
 
@@ -767,6 +768,8 @@ npm run tauri build
 | 7.1 | 前端 `SettingsView`（通用/账号/通知/文件/网络/E2E/关于） | Kimi | 配置保存并影响 engine |
 | 7.2 | 个人资料编辑页 | Kimi | 昵称头像可修改 |
 | 7.3 | 8 个扩展页 mock 占位 | Kimi | 入口与 UI 完整 |
+
+> 后端已支持 `settings_sync` 校验、最近设置快照、`settings_synced` 事件，以及文件下载目录设置应用；前端可通过 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 影响 engine 接收文件保存位置。
 
 ### Phase 8：收尾
 

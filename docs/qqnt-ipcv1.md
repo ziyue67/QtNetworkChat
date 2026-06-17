@@ -149,6 +149,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `e2e_identity_state` | `{peerId, trusted, fingerprint}` | E2E 身份状态 |
 | `e2e_rotation_request` | `{peerId, agreement}` | 收到 E2E 会话轮换请求 |
 | `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | 收到 E2E 会话轮换回应 |
+| `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置已由 engine 接收；传 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 时同时应用接收文件下载目录 |
 | `notification` | `{title, body}` | 前端通知 |
 | `error` | `{message, source}` | 通用错误 |
 

@@ -55,6 +55,8 @@ private:
     QQNTClientBridge* m_bridge;
     QString m_account;
     QString m_password;
+    QJsonObject m_settings;
+    int m_settingsRevision;
     bool m_hasAccountInfo;
 };
 

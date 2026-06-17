@@ -1,10 +1,12 @@
 #include "qqnt_engine_command_router.h"
 
 #include "qqnt_client_bridge.h"
+#include "localfilemanager.h"
 
 #include <QByteArray>
 #include <QJsonArray>
 #include <QJsonValue>
+#include <QDir>
 #include <QVector>
 
 namespace {
@@ -53,11 +55,49 @@ MessageType resumeMessageTypeFromPayload(const QJsonObject& payload) {
     }
     return MessageType::File;
 }
+
+QString downloadDirFromSettings(const QJsonObject& settings) {
+    const QString direct = settings.value(QStringLiteral("fileDownloadDir")).toString().trimmed();
+    if (!direct.isEmpty()) {
+        return direct;
+    }
+
+    const QJsonObject files = settings.value(QStringLiteral("files")).toObject();
+    const QString nested = files.value(QStringLiteral("downloadDir")).toString().trimmed();
+    if (!nested.isEmpty()) {
+        return nested;
+    }
+
+    return files.value(QStringLiteral("downloadDirectory")).toString().trimmed();
+}
+
+bool applyDownloadDirSetting(const QJsonObject& settings, QString* appliedDownloadDir, QString* rejectReason) {
+    const QString requestedDir = downloadDirFromSettings(settings);
+    if (requestedDir.isEmpty()) {
+        return true;
+    }
+
+    const QString cleanedDir = QDir::cleanPath(requestedDir);
+    QDir dir(cleanedDir);
+    if (!dir.exists() && !QDir().mkpath(cleanedDir)) {
+        if (rejectReason) {
+            *rejectReason = QStringLiteral("Download directory cannot be created: %1").arg(cleanedDir);
+        }
+        return false;
+    }
+
+    LocalFileManager::setReceivedDownloadRootDirectory(cleanedDir);
+    if (appliedDownloadDir) {
+        *appliedDownloadDir = LocalFileManager::receivedDownloadRootDirectory();
+    }
+    return true;
+}
 }
 
 QQNTEngineCommandRouter::QQNTEngineCommandRouter(QQNTClientBridge* bridge)
     : QObject(bridge)
     , m_bridge(bridge)
+    , m_settingsRevision(0)
     , m_hasAccountInfo(false)
 {
 }
@@ -511,10 +551,39 @@ void QQNTEngineCommandRouter::handleProfileUpdate(const QString& op, const QStri
 }
 
 void QQNTEngineCommandRouter::handleSettingsSync(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    const QJsonValue settingsValue = payload.value(QStringLiteral("settings"));
+    if (!settingsValue.isObject()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_settings"),
+                               QStringLiteral("payload.settings must be an object."));
+        return;
+    }
+
+    const QJsonObject settings = settingsValue.toObject();
+    QString appliedDownloadDir;
+    QString rejectReason;
+    if (!applyDownloadDirSetting(settings, &appliedDownloadDir, &rejectReason)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("settings_apply_failed"),
+                               rejectReason.isEmpty() ? QStringLiteral("Settings could not be applied.") : rejectReason);
+        return;
+    }
+
+    m_settings = settings;
+    ++m_settingsRevision;
+
     QJsonObject response;
     response[QStringLiteral("accepted")] = true;
-    response[QStringLiteral("settings")] = payload.value(QStringLiteral("settings")).toObject();
+    response[QStringLiteral("revision")] = m_settingsRevision;
+    response[QStringLiteral("settings")] = m_settings;
+    if (!appliedDownloadDir.isEmpty()) {
+        response[QStringLiteral("appliedDownloadDir")] = appliedDownloadDir;
+    }
+
     m_bridge->sendAck(op, reqId, response);
+    m_bridge->sendEvent(QStringLiteral("settings_synced"), response);
 }
 
 void QQNTEngineCommandRouter::sendBoolAck(const QString& op,

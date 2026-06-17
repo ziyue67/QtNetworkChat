@@ -90,6 +90,7 @@ int main(int argc, char* argv[]) {
     process.start();
 
     bool ok = true;
+    bool sawSettingsSyncedEvent = false;
     ok = expect(process.waitForStarted(5000), "QQNTEngine should start") && ok;
     if (!ok) {
         return 1;
@@ -107,6 +108,10 @@ int main(int argc, char* argv[]) {
                 "cancel_transfer command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
+                "settings_sync command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid\",\"payload\":{\"settings\":\"bad\"}}\n"),
+                "invalid settings_sync command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
                 "missing field command should be written") && ok;
     process.closeWriteChannel();
@@ -118,6 +123,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-e2e"),
         QStringLiteral("smoke-cancel"),
         QStringLiteral("smoke-profile"),
+        QStringLiteral("smoke-settings"),
+        QStringLiteral("smoke-settings-invalid"),
         QStringLiteral("smoke-missing-field")
     };
 
@@ -149,6 +156,11 @@ int main(int argc, char* argv[]) {
         const QString type = object.value(QStringLiteral("type")).toString();
         if (type == QLatin1String("event")) {
             sawReadyEvent = object.value(QStringLiteral("event")).toString() == QLatin1String("ready") || sawReadyEvent;
+            if (object.value(QStringLiteral("event")).toString() == QLatin1String("settings_synced")) {
+                const QJsonObject payload = object.value(QStringLiteral("payload")).toObject();
+                sawSettingsSyncedEvent = payload.value(QStringLiteral("revision")).toInt() == 1
+                    && payload.value(QStringLiteral("settings")).toObject().value(QStringLiteral("notifications")).isObject();
+            }
             continue;
         }
 
@@ -196,6 +208,20 @@ int main(int argc, char* argv[]) {
                         "profile_update should return ok ack") && ok;
             ok = expect(payload.value(QStringLiteral("userName")).toString() == QLatin1String("Smoke User"),
                         "profile_update payload should echo updated user name") && ok;
+        } else if (reqId == QLatin1String("smoke-settings")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "settings_sync should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("accepted")).toBool(false),
+                        "settings_sync payload should be accepted") && ok;
+            ok = expect(payload.value(QStringLiteral("revision")).toInt() == 1,
+                        "settings_sync payload should include revision") && ok;
+            ok = expect(payload.value(QStringLiteral("settings")).toObject().value(QStringLiteral("files")).isObject(),
+                        "settings_sync payload should echo settings object") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "invalid settings_sync should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "invalid settings_sync should use invalid_settings code") && ok;
         } else if (reqId == QLatin1String("smoke-missing-field")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "missing required field should return error ack") && ok;
@@ -206,6 +232,7 @@ int main(int argc, char* argv[]) {
 
     ok = expect(protocolLineCount >= expectedAckReqIds.size() + 1, "QQNTEngine should emit startup event and command acks") && ok;
     ok = expect(sawReadyEvent, "QQNTEngine should emit startup ready event") && ok;
+    ok = expect(sawSettingsSyncedEvent, "QQNTEngine should emit settings_synced event") && ok;
     ok = expect(missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty(), "QQNTEngine should ack every smoke command") && ok;
     return ok ? 0 : 1;
 }
