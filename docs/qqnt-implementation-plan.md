@@ -677,7 +677,7 @@ npm run tauri build
 
 | 层 | 文件 | 验证点 |
 |---|---|---|
-| Engine stdout 纯净 | `tests/qqnt_engine_smoke_test.cpp` | 每行 stdout 都是合法 JSON |
+| Engine stdout 与命令契约 | `tests/qqnt_engine_smoke_test.cpp` + `tests/fixtures/protocol_contract.json` | 每行 stdout 都是合法 JSON；fixture 中每个命令都会被 `QQNTEngine` 路由且不会返回 `unknown_op` |
 | Engine ready/connect | 同上 | `ready` ack 含 `protocolVersion`；`connect` ack 正确 |
 | Server Redis 就绪 | `tests/qqnt_server_redis_test.cpp` | `isServiceReady=true` |
 | 跨实例消息路由 | 同上 | A 实例发布，B 实例通过 Redis 收到 |

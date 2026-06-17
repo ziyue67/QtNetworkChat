@@ -1,5 +1,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
@@ -13,6 +15,14 @@ namespace {
 bool expect(bool condition, const char* message) {
     if (!condition) {
         std::fprintf(stderr, "%s\n", message);
+        return false;
+    }
+    return true;
+}
+
+bool expect(bool condition, const QString& message) {
+    if (!condition) {
+        std::fprintf(stderr, "%s\n", message.toUtf8().constData());
         return false;
     }
     return true;
@@ -33,6 +43,39 @@ QJsonObject parseProtocolLine(const QByteArray& line, bool* ok) {
 
     *ok = true;
     return document.object();
+}
+
+QStringList readProtocolCommands(const QString& path, bool* ok) {
+    *ok = false;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        std::fprintf(stderr, "protocol contract fixture should be readable: %s\n", qPrintable(file.errorString()));
+        return {};
+    }
+
+    QJsonParseError error;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+        std::fprintf(stderr, "protocol contract fixture should be a JSON object: %s\n", qPrintable(error.errorString()));
+        return {};
+    }
+
+    QStringList commands;
+    const QJsonArray commandArray = document.object().value(QStringLiteral("commands")).toArray();
+    for (const QJsonValue& value : commandArray) {
+        const QString command = value.toString().trimmed();
+        if (!command.isEmpty()) {
+            commands.append(command);
+        }
+    }
+
+    if (commands.isEmpty()) {
+        std::fprintf(stderr, "protocol contract fixture should include commands\n");
+        return {};
+    }
+
+    *ok = true;
+    return commands;
 }
 
 QSet<QString> missingAckReqIds(const QSet<QString>& expectedAckReqIds, const QSet<QString>& seenAckReqIds) {
@@ -73,17 +116,103 @@ bool writeCommand(QProcess* process, const QByteArray& command) {
     process->write(command);
     return process->waitForBytesWritten(1000);
 }
+
+QString contractReqId(const QString& op) {
+    return QStringLiteral("contract-%1").arg(op);
+}
+
+QJsonObject contractProbePayload(const QString& op) {
+    QJsonObject payload;
+    if (op == QLatin1String("connect")) {
+        payload[QStringLiteral("host")] = QStringLiteral("127.0.0.1");
+        payload[QStringLiteral("port")] = 65535;
+    } else if (op == QLatin1String("login")) {
+        payload[QStringLiteral("account")] = QStringLiteral("smoke-account");
+        payload[QStringLiteral("password")] = QStringLiteral("smoke-password");
+    } else if (op == QLatin1String("register")) {
+        payload[QStringLiteral("account")] = QStringLiteral("smoke-register");
+        payload[QStringLiteral("password")] = QStringLiteral("smoke-password");
+        payload[QStringLiteral("userName")] = QStringLiteral("Smoke Register");
+    } else if (op == QLatin1String("set_user_info")) {
+        payload[QStringLiteral("userId")] = QStringLiteral("10000");
+        payload[QStringLiteral("userName")] = QStringLiteral("Smoke User");
+    } else if (op == QLatin1String("search_friend")) {
+        payload[QStringLiteral("account")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("send_friend_request")) {
+        payload[QStringLiteral("receiverId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("respond_friend_request")) {
+        payload[QStringLiteral("senderId")] = QStringLiteral("10001");
+        payload[QStringLiteral("accepted")] = false;
+    } else if (op == QLatin1String("send_private_message")) {
+        payload[QStringLiteral("receiverId")] = QStringLiteral("10001");
+        payload[QStringLiteral("content")] = QStringLiteral("hello from smoke");
+    } else if (op == QLatin1String("send_group_message")) {
+        payload[QStringLiteral("groupId")] = QStringLiteral("public");
+        payload[QStringLiteral("content")] = QStringLiteral("hello from smoke");
+    } else if (op == QLatin1String("create_group")) {
+        payload[QStringLiteral("groupName")] = QStringLiteral("Smoke Group");
+        payload[QStringLiteral("members")] = QJsonArray();
+        payload[QStringLiteral("announcement")] = QStringLiteral("Smoke announcement");
+    } else if (op == QLatin1String("update_group_announcement")) {
+        payload[QStringLiteral("groupId")] = QStringLiteral("public");
+        payload[QStringLiteral("announcement")] = QStringLiteral("Smoke announcement");
+    } else if (op == QLatin1String("update_group_member")) {
+        payload[QStringLiteral("groupId")] = QStringLiteral("public");
+        payload[QStringLiteral("memberId")] = QStringLiteral("10001");
+        payload[QStringLiteral("action")] = QStringLiteral("add");
+    } else if (op == QLatin1String("send_file") || op == QLatin1String("send_image")) {
+        payload[QStringLiteral("filePath")] = QStringLiteral("C:/tmp/qqnt-smoke-missing.bin");
+        payload[QStringLiteral("receiverId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("cancel_transfer")) {
+        payload[QStringLiteral("transferId")] = QStringLiteral("contract-transfer");
+    } else if (op == QLatin1String("query_resume")) {
+        payload[QStringLiteral("transferId")] = QStringLiteral("contract-transfer");
+        payload[QStringLiteral("filePath")] = QStringLiteral("C:/tmp/qqnt-smoke-missing.bin");
+    } else if (op == QLatin1String("e2e_status")) {
+        payload[QStringLiteral("peerId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("e2e_announce_identity") || op == QLatin1String("e2e_request_rotation")) {
+        payload[QStringLiteral("peerId")] = QStringLiteral("10001");
+    } else if (op == QLatin1String("e2e_pin_identity")) {
+        payload[QStringLiteral("peerId")] = QStringLiteral("10001");
+        payload[QStringLiteral("fingerprint")] = QStringLiteral("smoke-fingerprint");
+    } else if (op == QLatin1String("profile_update")) {
+        payload[QStringLiteral("userName")] = QStringLiteral("Contract Smoke User");
+    } else if (op == QLatin1String("settings_sync")) {
+        QJsonObject notifications;
+        notifications[QStringLiteral("desktop")] = false;
+        QJsonObject settings;
+        settings[QStringLiteral("notifications")] = notifications;
+        payload[QStringLiteral("settings")] = settings;
+    }
+    return payload;
+}
+
+bool writeJsonCommand(QProcess* process, const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QJsonObject command;
+    command[QStringLiteral("op")] = op;
+    command[QStringLiteral("reqId")] = reqId;
+    command[QStringLiteral("payload")] = payload;
+    QByteArray line = QJsonDocument(command).toJson(QJsonDocument::Compact);
+    line.push_back('\n');
+    return writeCommand(process, line);
+}
 }
 
 int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     const QStringList arguments = app.arguments();
-    if (arguments.size() < 2) {
-        std::fprintf(stderr, "usage: %s <QQNTEngine executable>\n", argv[0]);
+    if (arguments.size() < 3) {
+        std::fprintf(stderr, "usage: %s <QQNTEngine executable> <protocol contract fixture>\n", argv[0]);
         return 2;
     }
 
     const QString enginePath = arguments.at(1);
+    bool contractReadOk = false;
+    const QStringList contractCommands = readProtocolCommands(arguments.at(2), &contractReadOk);
+    if (!contractReadOk) {
+        return 1;
+    }
+
     QProcess process;
     process.setProgram(enginePath);
     process.setProcessChannelMode(QProcess::SeparateChannels);
@@ -124,9 +253,17 @@ int main(int argc, char* argv[]) {
                 "invalid settings_sync command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
                 "missing field command should be written") && ok;
+
+    QSet<QString> contractAckReqIds;
+    for (const QString& command : contractCommands) {
+        const QString reqId = contractReqId(command);
+        contractAckReqIds.insert(reqId);
+        ok = expect(writeJsonCommand(&process, command, reqId, contractProbePayload(command)),
+                    QStringLiteral("protocol contract command should be written: %1").arg(command)) && ok;
+    }
     process.closeWriteChannel();
 
-    const QSet<QString> expectedAckReqIds = {
+    QSet<QString> expectedAckReqIds = {
         QStringLiteral("smoke-ready"),
         QStringLiteral("smoke-users"),
         QStringLiteral("smoke-groups"),
@@ -142,6 +279,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-settings-invalid"),
         QStringLiteral("smoke-missing-field")
     };
+    expectedAckReqIds.unite(contractAckReqIds);
 
     QByteArray stdoutBytes;
     QByteArray stderrBytes;
@@ -154,6 +292,7 @@ int main(int argc, char* argv[]) {
     bool sawReadyEvent = false;
     QSet<QString> seenAckReqIds;
     int protocolLineCount = 0;
+    const int contractReqIdPrefixLength = QStringLiteral("contract-").size();
     const QList<QByteArray> lines = stdoutBytes.split('\n');
     for (const QByteArray& line : lines) {
         const QByteArray trimmed = line.trimmed();
@@ -173,8 +312,9 @@ int main(int argc, char* argv[]) {
             sawReadyEvent = object.value(QStringLiteral("event")).toString() == QLatin1String("ready") || sawReadyEvent;
             if (object.value(QStringLiteral("event")).toString() == QLatin1String("settings_synced")) {
                 const QJsonObject payload = object.value(QStringLiteral("payload")).toObject();
-                sawSettingsSyncedEvent = payload.value(QStringLiteral("revision")).toInt() == 1
-                    && payload.value(QStringLiteral("settings")).toObject().value(QStringLiteral("notifications")).isObject();
+                sawSettingsSyncedEvent = sawSettingsSyncedEvent
+                    || (payload.value(QStringLiteral("revision")).toInt() >= 1
+                        && payload.value(QStringLiteral("settings")).toObject().value(QStringLiteral("notifications")).isObject());
             }
             continue;
         }
@@ -267,6 +407,17 @@ int main(int argc, char* argv[]) {
                         "missing required field should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "missing required field should use missing_field code") && ok;
+        }
+
+        if (contractAckReqIds.contains(reqId)) {
+            const QString contractOp = reqId.mid(contractReqIdPrefixLength);
+            ok = expect(object.value(QStringLiteral("op")).toString() == contractOp,
+                        QStringLiteral("protocol contract ack should echo op: %1").arg(contractOp)) && ok;
+            if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")) {
+                const QString errorCode = object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString();
+                ok = expect(errorCode != QLatin1String("unknown_op"),
+                            QStringLiteral("protocol contract command should be routed, not unknown_op: %1").arg(contractOp)) && ok;
+            }
         }
     }
 

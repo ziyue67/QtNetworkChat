@@ -885,7 +885,7 @@ if(BUILD_TESTING)
         NAME QQNTEngineSmoke
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:qqnt_engine_smoke_test>
-            "-DTEST_ARGS=$<TARGET_FILE:QQNTEngine>"
+            "-DTEST_ARGS=$<TARGET_FILE:QQNTEngine>;${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/protocol_contract.json"
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )
