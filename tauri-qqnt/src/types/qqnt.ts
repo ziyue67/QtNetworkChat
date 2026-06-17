@@ -130,6 +130,71 @@ export interface SendImagePayload {
   groupId?: string
 }
 
+export interface FriendSearchPayload {
+  account: string
+}
+
+export interface SendFriendRequestPayload {
+  receiverId: string
+}
+
+export interface RespondFriendRequestPayload {
+  senderId: string
+  accepted: boolean
+}
+
+export interface CreateGroupPayload {
+  groupName: string
+  members: string[]
+  announcement?: string
+}
+
+export interface UpdateGroupAnnouncementPayload {
+  groupId: string
+  announcement: string
+}
+
+export interface UpdateGroupMemberPayload {
+  groupId: string
+  memberId: string
+  action: 'join' | 'leave' | 'kick' | 'set_admin' | 'unset_admin'
+}
+
+export interface CancelTransferPayload {
+  transferId: string
+}
+
+export interface QueryResumePayload {
+  filePath: string
+  transferId?: string
+  receiverId?: string
+}
+
+export interface ProfileUpdatePayload {
+  userName?: string
+  avatarBase64?: string
+  signature?: string
+}
+
+export type SettingsSyncPayload = Record<string, unknown>
+
+export interface E2EStatusPayload {
+  peerId: string
+}
+
+export interface E2EAnnouncePayload {
+  peerId: string
+}
+
+export interface E2EPinPayload {
+  peerId: string
+  fingerprint?: string
+}
+
+export interface E2ERotationPayload {
+  peerId: string
+}
+
 // 事件 payload
 export interface EngineReadyPayload {
   protocolVersion: number
@@ -222,6 +287,32 @@ export interface FileDonePayload {
 export interface FileErrorPayload {
   transferId: string
   reason: string
+}
+
+export interface E2ESessionStatePayload {
+  peerId: string
+  rotationRequired: boolean
+}
+
+export interface E2EIdentityStatePayload {
+  peerId: string
+  trusted: boolean
+  fingerprint?: string
+}
+
+export interface E2ERotationRequestPayload {
+  peerId: string
+  reason?: string
+}
+
+export interface E2ERotationResponsePayload {
+  peerId: string
+  accepted: boolean
+}
+
+export interface NotificationPayload {
+  title: string
+  body: string
 }
 
 export interface ServerFatalPayload {

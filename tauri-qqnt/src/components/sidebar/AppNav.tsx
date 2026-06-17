@@ -1,16 +1,4 @@
-import {
-  MessageSquare,
-  Users,
-  Globe,
-  Radio,
-  Mail,
-  FileText,
-  CalendarDays,
-  Video,
-  Star,
-  Wallet,
-  Settings
-} from 'lucide-react'
+import { MessageSquare, Users, Globe, Radio, Mail, FileText, CalendarDays, Video, Star, Wallet, Settings } from 'lucide-react'
 import { NavItem } from './NavItem'
 import { useUIStore } from '@/stores/uiStore'
 import { useNavigate } from 'react-router-dom'
@@ -18,14 +6,14 @@ import { useNavigate } from 'react-router-dom'
 const NAV_ITEMS = [
   { route: '/messages', label: '消息', icon: MessageSquare },
   { route: '/contacts', label: '联系人', icon: Users },
-  { route: '/spaces', label: '空间', icon: Globe },
-  { route: '/channels', label: '频道', icon: Radio },
-  { route: '/mail', label: '邮件', icon: Mail },
-  { route: '/docs', label: '文档', icon: FileText },
-  { route: '/calendar', label: '日历', icon: CalendarDays },
-  { route: '/meetings', label: '会议', icon: Video },
-  { route: '/favorites', label: '收藏', icon: Star },
-  { route: '/wallet', label: '钱包', icon: Wallet },
+  { route: '/spaces', label: '空间', icon: Globe, mock: true },
+  { route: '/channels', label: '频道', icon: Radio, mock: true },
+  { route: '/mail', label: '邮件', icon: Mail, mock: true },
+  { route: '/docs', label: '文档', icon: FileText, mock: true },
+  { route: '/calendar', label: '日历', icon: CalendarDays, mock: true },
+  { route: '/meetings', label: '会议', icon: Video, mock: true },
+  { route: '/favorites', label: '收藏', icon: Star, mock: true },
+  { route: '/wallet', label: '钱包', icon: Wallet, mock: true },
   { route: '/settings', label: '设置', icon: Settings }
 ]
 

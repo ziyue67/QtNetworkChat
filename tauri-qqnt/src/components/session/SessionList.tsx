@@ -1,12 +1,6 @@
 import type { Session } from '@/types/qqnt'
-import { Avatar } from '@/components/common/Avatar'
 import { cn } from '@/lib/utils'
-
-function formatTime(ts?: number) {
-  if (!ts) return ''
-  const d = new Date(ts)
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-}
+import { SessionItem } from './SessionItem'
 
 interface SessionListProps {
   sessions: Session[]
@@ -20,37 +14,21 @@ export function SessionList({ sessions, activeSessionId, onSelect }: SessionList
       <div className="flex h-[var(--qq-titlebar-height)] items-center border-b border-[var(--qq-border)] px-4">
         <h2 className="text-sm font-semibold text-[var(--qq-text)]">消息</h2>
       </div>
-      <div className="flex-1 overflow-y-auto py-2">
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            onClick={() => onSelect(session.id)}
-            className={cn(
-              'flex w-full items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--qq-bg-tertiary)]',
-              activeSessionId === session.id ? 'bg-[var(--qq-bg-tertiary)]' : 'bg-transparent'
-            )}
-          >
-            <Avatar fallback={session.name} size={44} />
-            <div className="min-w-0 flex-1 text-left">
-              <div className="flex items-center justify-between">
-                <span className="truncate text-sm font-medium text-[var(--qq-text)]">{session.name}</span>
-                {session.lastTime ? (
-                  <span className="text-xs text-[var(--qq-text-tertiary)]">{formatTime(session.lastTime)}</span>
-                ) : null}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="truncate text-xs text-[var(--qq-text-secondary)]">
-                  {session.lastMessage || '暂无消息'}
-                </span>
-                {session.unread > 0 ? (
-                  <span className="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--qq-danger)] px-1 text-xs text-white">
-                    {session.unread}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </button>
-        ))}
+      <div className={cn('flex-1 overflow-y-auto py-2', sessions.length === 0 && 'items-center justify-center')}>
+        {sessions.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center px-6 text-center text-xs text-[var(--qq-text-tertiary)]">
+            暂无会话
+          </div>
+        ) : (
+          sessions.map((session) => (
+            <SessionItem
+              key={session.id}
+              session={session}
+              active={activeSessionId === session.id}
+              onClick={() => onSelect(session.id)}
+            />
+          ))
+        )}
       </div>
     </aside>
   )

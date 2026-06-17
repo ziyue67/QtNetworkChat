@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, User } from 'lucide-react'
 import { Avatar } from '@/components/common/Avatar'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -22,7 +22,10 @@ export function ProfileView() {
   return (
     <div className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] p-6">
       <div className="w-full max-w-md rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] p-6 shadow-[var(--qq-shadow)]">
-        <h2 className="mb-6 text-base font-semibold text-[var(--qq-text)]">个人资料</h2>
+        <h2 className="mb-6 flex items-center gap-2 text-base font-semibold text-[var(--qq-text)]">
+          <User size={18} />
+          个人资料
+        </h2>
 
         <div className="mb-6 flex justify-center">
           <div className="relative">
@@ -34,6 +37,12 @@ export function ProfileView() {
         </div>
 
         <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">账号</label>
+            <div className="rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg-secondary)] px-3 py-2 text-sm text-[var(--qq-text-secondary)]">
+              {currentUser?.id || '-'}
+            </div>
+          </div>
           <div>
             <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">昵称</label>
             <input
@@ -70,7 +79,8 @@ export function ProfileView() {
           )}
           <button
             onClick={handleSave}
-            className="rounded-md bg-[var(--qq-primary)] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--qq-primary-hover)]"
+            disabled={!currentUser}
+            className="rounded-md bg-[var(--qq-primary)] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--qq-primary-hover)] disabled:opacity-50"
           >
             保存
           </button>

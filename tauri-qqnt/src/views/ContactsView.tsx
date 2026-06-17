@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
-import { Search, UserPlus, Users } from 'lucide-react'
+import { UserPlus, Users } from 'lucide-react'
 import { useContactStore } from '@/stores/contactStore'
 import { useSessionStore } from '@/stores/sessionStore'
+import { useUIStore } from '@/stores/uiStore'
 import { ContactList } from '@/components/contact/ContactList'
 import { ContactCard } from '@/components/contact/ContactCard'
 import { AddFriendModal } from '@/components/contact/AddFriendModal'
 import { CreateGroupModal } from '@/components/contact/CreateGroupModal'
+import { SearchBar } from '@/components/session/SearchBar'
 import type { Contact } from '@/types/qqnt'
 
 export function ContactsView() {
@@ -17,6 +19,7 @@ export function ContactsView() {
   const addGroup = useContactStore((state) => state.addGroup)
   const setSessions = useSessionStore((state) => state.setSessions)
   const sessions = useSessionStore((state) => state.sessions)
+  const setActiveRoute = useUIStore((state) => state.setActiveRoute)
   const [query, setQuery] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
@@ -53,7 +56,9 @@ export function ContactsView() {
         }
       ])
     }
-    // TODO: navigate to messages and activate session
+    setActiveRoute('/messages')
+    // eslint-disable-next-line no-console
+    console.log(`[ContactsView] navigate to session ${sessionId}`)
   }
 
   async function handleSearch(keyword: string): Promise<Contact | null> {
@@ -107,15 +112,7 @@ export function ContactsView() {
           </div>
         </div>
         <div className="border-b border-[var(--qq-border)] p-3">
-          <div className="flex items-center gap-2 rounded-lg bg-[var(--qq-bg)] px-3 py-2">
-            <Search size={14} className="text-[var(--qq-text-tertiary)]" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索联系人 / 群聊"
-              className="flex-1 bg-transparent text-sm text-[var(--qq-text)] outline-none placeholder:text-[var(--qq-text-tertiary)]"
-            />
-          </div>
+          <SearchBar value={query} onChange={setQuery} placeholder="搜索联系人 / 群聊" />
         </div>
         <div className="flex-1 overflow-y-auto py-2">
           <ContactList
