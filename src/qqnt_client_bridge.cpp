@@ -61,6 +61,30 @@ QString fileTransferDirectionForCategory(const QString& category, const QString&
         ? QStringLiteral("incoming")
         : QStringLiteral("outgoing");
 }
+
+QString notificationTitleForMessage(const Message& message) {
+    const QString senderName = message.senderName.trimmed();
+    if (!senderName.isEmpty()) {
+        return senderName;
+    }
+
+    const QString senderId = message.senderId.trimmed();
+    return senderId.isEmpty() ? QStringLiteral("QQ NT") : senderId;
+}
+
+QString notificationBodyForMessage(const Message& message) {
+    const QString content = message.content.trimmed();
+    if (!content.isEmpty()) {
+        return content;
+    }
+
+    const QString fileName = message.fileName.trimmed();
+    if (!fileName.isEmpty()) {
+        return QStringLiteral("%1: %2").arg(messageTypeName(message.type), fileName);
+    }
+
+    return QStringLiteral("New message");
+}
 }
 
 QQNTClientBridge::QQNTClientBridge(QObject* parent)
@@ -166,6 +190,13 @@ void QQNTClientBridge::sendEvent(const QString& event, const QJsonObject& payloa
     writeProtocolObject(envelope);
 }
 
+void QQNTClientBridge::sendNotification(const QString& title, const QString& body) {
+    QJsonObject payload;
+    payload[QStringLiteral("title")] = title;
+    payload[QStringLiteral("body")] = body;
+    sendEvent(QStringLiteral("notification"), payload);
+}
+
 void QQNTClientBridge::bindClientSignals() {
     connect(&m_client, &Client::connected, this, [this]() {
         QJsonObject payload;
@@ -212,6 +243,7 @@ void QQNTClientBridge::bindClientSignals() {
         payload[QStringLiteral("sessionId")] = sessionId;
         payload[QStringLiteral("message")] = messageToJson(message);
         sendEvent(QStringLiteral("message"), payload);
+        sendNotification(notificationTitleForMessage(message), notificationBodyForMessage(message));
     });
 
     connect(&m_client, &Client::userListUpdated, this, [this](const QVector<ChatUser>& users) {

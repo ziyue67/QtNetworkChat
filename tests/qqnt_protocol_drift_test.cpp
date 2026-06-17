@@ -37,6 +37,17 @@ bool readJsonObject(const QString& path, QJsonObject* object, const QString& lab
     return true;
 }
 
+bool readTextFile(const QString& path, QString* text, const QString& label) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        std::fprintf(stderr, "%s should be readable: %s\n", label.toUtf8().constData(), qPrintable(file.errorString()));
+        return false;
+    }
+
+    *text = QString::fromUtf8(file.readAll());
+    return true;
+}
+
 QStringList jsonStringArray(const QJsonObject& object, const QString& key) {
     QStringList values;
     const QJsonArray array = object.value(key).toArray();
@@ -217,6 +228,33 @@ QMap<QString, QString> extractMarkdownPayloads(const QString& markdown, const QS
     return payloads;
 }
 
+QStringList extractRegexCaptures(const QString& source, const QRegularExpression& pattern) {
+    QStringList values;
+    QRegularExpressionMatchIterator iterator = pattern.globalMatch(source);
+    while (iterator.hasNext()) {
+        const QRegularExpressionMatch match = iterator.next();
+        const QString value = match.captured(1).trimmed();
+        if (!value.isEmpty()) {
+            values.append(value);
+        }
+    }
+    return values;
+}
+
+QStringList extractCppCommandOps(const QString& source) {
+    const QRegularExpression routedOp(QStringLiteral("\\bop\\s*==\\s*QLatin1String\\(\\\"([^\\\"]+)\\\"\\)"));
+    return extractRegexCaptures(source, routedOp);
+}
+
+QStringList extractCppEventNames(const QStringList& sources) {
+    const QRegularExpression sentEvent(QStringLiteral("\\bsendEvent\\s*\\(\\s*QStringLiteral\\(\\\"([^\\\"]+)\\\"\\)"));
+    QStringList values;
+    for (const QString& source : sources) {
+        values.append(extractRegexCaptures(source, sentEvent));
+    }
+    return values;
+}
+
 bool validateReadyFixture(const QJsonObject& envelope) {
     bool ok = true;
     const QJsonObject payload = envelope.value(QStringLiteral("payload")).toObject();
@@ -239,8 +277,8 @@ bool validateReadyFixture(const QJsonObject& envelope) {
 int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     const QStringList arguments = app.arguments();
-    if (arguments.size() < 4) {
-        std::fprintf(stderr, "usage: %s <ready fixture> <protocol doc> <protocol contract fixture>\n", argv[0]);
+    if (arguments.size() < 6) {
+        std::fprintf(stderr, "usage: %s <ready fixture> <protocol doc> <protocol contract fixture> <router source> <bridge source>\n", argv[0]);
         return 2;
     }
 
@@ -260,6 +298,14 @@ int main(int argc, char* argv[]) {
     }
 
     const QString markdown = QString::fromUtf8(protocolDoc.readAll());
+    QString routerSource;
+    QString bridgeSource;
+    ok = readTextFile(arguments.at(4), &routerSource, QStringLiteral("router source")) && ok;
+    ok = readTextFile(arguments.at(5), &bridgeSource, QStringLiteral("bridge source")) && ok;
+    if (!ok) {
+        return 1;
+    }
+
     const QStringList documentedCommands = extractMarkdownTableKeys(markdown, QStringLiteral("## 5. 命令表"), QStringLiteral("`op`"));
     const QStringList documentedEvents = extractMarkdownTableKeys(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("`event`"));
     const QMap<QString, QString> documentedCommandPayloads =
@@ -270,6 +316,8 @@ int main(int argc, char* argv[]) {
     const QStringList expectedEvents = jsonStringArray(contractFixture, QStringLiteral("events"));
     const QMap<QString, QString> expectedCommandPayloads = jsonStringObject(contractFixture, QStringLiteral("commandPayloads"));
     const QMap<QString, QString> expectedEventPayloads = jsonStringObject(contractFixture, QStringLiteral("eventPayloads"));
+    const QStringList routedCppCommands = extractCppCommandOps(routerSource);
+    const QStringList emittedCppEvents = extractCppEventNames({routerSource, bridgeSource});
 
     ok = validateReadyFixture(readyFixture) && ok;
     ok = expect(contractFixture.value(QStringLiteral("protocolVersion")).toInt() == 1,
@@ -282,6 +330,8 @@ int main(int argc, char* argv[]) {
     ok = expectSameMap(documentedCommandPayloads, expectedCommandPayloads, QStringLiteral("documented command payloads")) && ok;
     ok = expectSameSet(documentedEvents, expectedEvents, QStringLiteral("documented events")) && ok;
     ok = expectSameMap(documentedEventPayloads, expectedEventPayloads, QStringLiteral("documented event payloads")) && ok;
+    ok = expectSameSet(routedCppCommands, expectedCommands, QStringLiteral("C++ routed commands")) && ok;
+    ok = expectSameSet(emittedCppEvents, expectedEvents, QStringLiteral("C++ emitted events")) && ok;
 
     return ok ? 0 : 1;
 }

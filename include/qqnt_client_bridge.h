@@ -37,6 +37,7 @@ public:
 
 private:
     void bindClientSignals();
+    void sendNotification(const QString& title, const QString& body);
     QJsonObject messageToJson(const Message& message) const;
     QString sessionIdForMessage(const Message& message) const;
     bool isKnownServerGroupId(const QString& groupId) const;
