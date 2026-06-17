@@ -1,8 +1,13 @@
 import { Minus, Square, X, Maximize2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-export function WindowControls() {
+interface WindowControlsProps {
+  variant?: 'full' | 'close-only'
+}
+
+export function WindowControls({ variant = 'full' }: WindowControlsProps) {
   const [isMaximized, setIsMaximized] = useState(false)
+  const showMinMax = variant === 'full'
 
   useEffect(() => {
     let unlisten: (() => void) | undefined
@@ -59,24 +64,28 @@ export function WindowControls() {
 
   return (
     <div className="flex h-full items-center" data-tauri-drag-region={false}>
-      <button
-        onClick={minimize}
-        className="flex h-10 w-12 items-center justify-center text-[var(--qq-text-secondary)] transition-colors hover:bg-[var(--qq-bg-tertiary)] hover:text-[var(--qq-text)]"
-        aria-label="最小化"
-      >
-        <Minus size={14} strokeWidth={1.5} />
-      </button>
-      <button
-        onClick={toggleMaximize}
-        className="flex h-10 w-12 items-center justify-center text-[var(--qq-text-secondary)] transition-colors hover:bg-[var(--qq-bg-tertiary)] hover:text-[var(--qq-text)]"
-        aria-label={isMaximized ? '还原' : '最大化'}
-      >
-        {isMaximized ? (
-          <Square size={12} strokeWidth={1.5} />
-        ) : (
-          <Maximize2 size={12} strokeWidth={1.5} />
-        )}
-      </button>
+      {showMinMax ? (
+        <>
+          <button
+            onClick={minimize}
+            className="flex h-10 w-12 items-center justify-center text-[var(--qq-text-secondary)] transition-colors hover:bg-[var(--qq-bg-tertiary)] hover:text-[var(--qq-text)]"
+            aria-label="最小化"
+          >
+            <Minus size={14} strokeWidth={1.5} />
+          </button>
+          <button
+            onClick={toggleMaximize}
+            className="flex h-10 w-12 items-center justify-center text-[var(--qq-text-secondary)] transition-colors hover:bg-[var(--qq-bg-tertiary)] hover:text-[var(--qq-text)]"
+            aria-label={isMaximized ? '还原' : '最大化'}
+          >
+            {isMaximized ? (
+              <Square size={12} strokeWidth={1.5} />
+            ) : (
+              <Maximize2 size={12} strokeWidth={1.5} />
+            )}
+          </button>
+        </>
+      ) : null}
       <button
         onClick={close}
         className="flex h-10 w-12 items-center justify-center text-[var(--qq-text-secondary)] transition-colors hover:bg-[var(--qq-danger)] hover:text-white"

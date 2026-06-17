@@ -1,8 +1,13 @@
 import { useAuthStore } from '@/stores/authStore'
 import { WindowControls } from './WindowControls'
 
-export function TitleBar() {
+interface TitleBarProps {
+  variant?: 'full' | 'close-only'
+}
+
+export function TitleBar({ variant = 'full' }: TitleBarProps) {
   const currentUser = useAuthStore((state) => state.currentUser)
+  const showUserInfo = variant === 'full'
 
   return (
     <header
@@ -17,13 +22,13 @@ export function TitleBar() {
           Q
         </div>
         <span className="text-sm font-medium text-[var(--qq-text)]">QQ NT</span>
-        {currentUser && (
+        {showUserInfo && currentUser ? (
           <span className="ml-2 text-xs text-[var(--qq-text-tertiary)]">
             {currentUser.nickname}
           </span>
-        )}
+        ) : null}
       </div>
-      <WindowControls />
+      <WindowControls variant={variant} />
     </header>
   )
 }

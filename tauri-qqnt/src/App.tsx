@@ -2,6 +2,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useTheme } from '@/hooks/useTheme'
+import { TitleBar } from '@/components/frame/TitleBar'
 import { MainLayout } from '@/views/MainLayout'
 import { LoginView } from '@/views/LoginView'
 import { MessageView } from '@/views/MessageView'
@@ -66,7 +67,12 @@ function LoginScreen() {
   if (isAuthenticated) {
     return <Navigate to="/messages" replace />
   }
-  return <LoginView />
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--qq-bg)]">
+      <TitleBar variant="close-only" />
+      <LoginView />
+    </div>
+  )
 }
 
 export default App
