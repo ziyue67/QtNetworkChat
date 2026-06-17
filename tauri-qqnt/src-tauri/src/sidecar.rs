@@ -10,6 +10,13 @@ use crate::bridge;
 use crate::error::QQNTError;
 use crate::state::AppState;
 
+#[cfg(test)]
+const ENGINE_SIDECAR_NAME: &str = "QQNTEngine";
+#[cfg(test)]
+const SERVER_SIDECAR_NAME: &str = "QQNTServer";
+const ENGINE_SIDECAR_PATH: &str = "binaries/QQNTEngine";
+const SERVER_SIDECAR_PATH: &str = "binaries/QQNTServer";
+
 pub fn start_engine(app: AppHandle, state: Arc<AppState>) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_engine(app.clone(), state.clone()).await {
@@ -31,7 +38,7 @@ pub fn start_server(app: AppHandle, state: Arc<AppState>) {
 async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
     let (mut receiver, child) = app
         .shell()
-        .sidecar("binaries/QQNTEngine")
+        .sidecar(ENGINE_SIDECAR_PATH)
         .map_err(|error| QQNTError::rust("engine_spawn_prepare_failed", error.to_string()))?
         .spawn()
         .map_err(|error| QQNTError::rust("engine_spawn_failed", error.to_string()))?;
@@ -53,7 +60,7 @@ async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
     let redis = redis_preflight(&app).await?;
     let mut command = app
         .shell()
-        .sidecar("binaries/QQNTServer")
+        .sidecar(SERVER_SIDECAR_PATH)
         .map_err(|error| QQNTError::rust("server_spawn_prepare_failed", error.to_string()))?
         .env("QTNETWORKCHAT_REDIS", "1")
         .env("QTNETWORKCHAT_REDIS_HOST", redis.host.as_str())
@@ -241,7 +248,51 @@ async fn read_resp_line(stream: &mut tokio::net::TcpStream) -> Result<String, QQ
 mod tests {
     use super::*;
 
+    use serde_json::Value;
     use tokio::net::TcpListener;
+
+    fn string_array<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+        value[key]
+            .as_array()
+            .expect("json key should be an array")
+            .iter()
+            .map(|item| item.as_str().expect("json array item should be a string"))
+            .collect()
+    }
+
+    #[test]
+    fn tauri_external_bins_match_rust_sidecars() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json should parse");
+        let mut actual = string_array(&config["bundle"], "externalBin");
+        let mut expected = vec![ENGINE_SIDECAR_PATH, SERVER_SIDECAR_PATH];
+
+        actual.sort_unstable();
+        expected.sort_unstable();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn copy_sidecars_defaults_match_rust_sidecars() {
+        let script = include_str!("../../../scripts/copy-sidecars.ps1");
+        let sidecar_param = script
+            .lines()
+            .find(|line| line.contains("[string[]]$Sidecars"))
+            .expect("copy-sidecars.ps1 should declare Sidecars defaults");
+
+        for sidecar in [ENGINE_SIDECAR_NAME, SERVER_SIDECAR_NAME] {
+            assert!(
+                sidecar_param.contains(&format!("'{sidecar}'")),
+                "copy-sidecars.ps1 default Sidecars should include {sidecar}"
+            );
+        }
+
+        assert!(
+            script.contains("$sidecar-$Triplet.exe"),
+            "copy-sidecars.ps1 should emit Tauri triplet-suffixed sidecar executables"
+        );
+    }
 
     #[tokio::test]
     async fn redis_ping_preflight_sends_auth_then_ping() {
