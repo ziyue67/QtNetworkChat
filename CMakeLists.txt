@@ -807,6 +807,30 @@ if(BUILD_TESTING)
     target_link_libraries(qqnt_server_redis_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
     qtnetworkchat_attach_production_adapter(qqnt_server_redis_test)
 
+    add_executable(qqnt_engine_end_to_end_test
+        tests/qqnt_engine_end_to_end_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
+        src/server.cpp
+        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
+        src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
+        src/redisclient.cpp
+        src/message.cpp
+        src/objectstore.cpp
+        src/heartbeatmonitor.cpp
+        include/server.h
+        include/client.h
+        include/redisclient.h
+        include/message.h
+        include/objectstore.h
+        include/chatuser.h
+        include/heartbeatmonitor.h
+    )
+    qtnetworkchat_target_include_dirs(qqnt_engine_end_to_end_test)
+    target_link_libraries(qqnt_engine_end_to_end_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(qqnt_engine_end_to_end_test)
+    add_dependencies(qqnt_engine_end_to_end_test QQNTEngine)
+
     add_executable(redis_cross_instance_chat_test
         tests/redis_cross_instance_chat_test.cpp
         src/server.cpp
@@ -861,6 +885,14 @@ if(BUILD_TESTING)
         NAME QQNTEngineSmoke
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:qqnt_engine_smoke_test>
+            "-DTEST_ARGS=$<TARGET_FILE:QQNTEngine>"
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME QQNTEngineEndToEnd
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:qqnt_engine_end_to_end_test>
             "-DTEST_ARGS=$<TARGET_FILE:QQNTEngine>"
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
