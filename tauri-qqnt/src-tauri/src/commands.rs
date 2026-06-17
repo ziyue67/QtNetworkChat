@@ -6,6 +6,7 @@ use tauri::State;
 
 use crate::bridge;
 use crate::error::QQNTError;
+use crate::protocol;
 use crate::state::AppState;
 
 #[tauri::command]
@@ -37,7 +38,9 @@ pub async fn engine_ready(
     state: State<'_, Arc<AppState>>,
     req_id: String,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(state.inner(), "ready", req_id, json!({})).await
+    let payload = call_engine_payload(state.inner(), "ready", req_id, json!({})).await?;
+    protocol::validate_ready_payload(&payload)?;
+    Ok(payload)
 }
 
 #[tauri::command]

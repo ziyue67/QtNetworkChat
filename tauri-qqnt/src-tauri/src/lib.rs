@@ -1,6 +1,7 @@
 pub mod bridge;
 pub mod commands;
 pub mod error;
+pub mod protocol;
 pub mod sidecar;
 pub mod state;
 

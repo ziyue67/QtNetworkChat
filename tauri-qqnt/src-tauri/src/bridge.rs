@@ -7,6 +7,7 @@ use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::oneshot;
 
 use crate::error::{QQNTError, QQNTResult};
+use crate::protocol;
 use crate::state::AppState;
 
 const ENGINE_TIMEOUT_SECONDS: u64 = 30;
@@ -147,9 +148,16 @@ fn dispatch_stdout_line(line: &[u8]) -> EngineDispatch {
                 }));
             };
 
+            let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
+            if event_name == "ready" {
+                if let Err(error) = protocol::validate_ready_payload(&payload) {
+                    return EngineDispatch::Error(json!(error));
+                }
+            };
+
             EngineDispatch::Event {
                 topic: format!("qqnt://engine/{event_name}"),
-                payload: packet.get("payload").cloned().unwrap_or_else(|| json!({})),
+                payload,
             }
         }
         _ => EngineDispatch::Error(json!({
@@ -224,10 +232,15 @@ mod tests {
     fn dispatches_protocol_contract_events_to_engine_topics() {
         let contract = protocol_contract();
         for event_name in string_array(&contract, "events") {
+            let payload = if event_name == "ready" {
+                json!({ "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION, "contractProbe": true })
+            } else {
+                json!({ "contractProbe": true })
+            };
             let line = json!({
                 "type": "event",
                 "event": event_name,
-                "payload": { "contractProbe": true }
+                "payload": payload
             })
             .to_string();
 
@@ -235,9 +248,24 @@ mod tests {
                 dispatch_stdout_line(line.as_bytes()),
                 EngineDispatch::Event {
                     topic: format!("qqnt://engine/{event_name}"),
-                    payload: json!({ "contractProbe": true }),
+                    payload,
                 }
             );
+        }
+    }
+
+    #[test]
+    fn dispatches_ready_protocol_mismatch_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"ready","payload":{"protocolVersion":2}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "protocol_version_mismatch");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
         }
     }
 
