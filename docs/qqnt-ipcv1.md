@@ -111,7 +111,7 @@
 | `respond_friend_request` | `{senderId, accepted}` | 接受或拒绝好友申请 |
 | `send_private_message` | `{receiverId, content}` | 发送私聊文本 |
 | `send_group_message` | `{groupId, content}` | 发送群聊文本 |
-| `create_group` | `{groupName, members, announcement?}` | 创建群聊 |
+| `create_group` | `{groupName, members?, announcement?}` | 创建私有群聊；`members` 为初始成员账号数组，服务端加入已存在账号 |
 | `update_group_announcement` | `{groupId, announcement}` | 更新群公告 |
 | `update_group_member` | `{groupId, memberId, action}` | 管理群成员 |
 | `send_file` | `{receiverId?, groupId?, filePath}` | 发送文件 |

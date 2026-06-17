@@ -8,6 +8,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -118,19 +119,26 @@ int main(int argc, char** argv) {
 
     QTcpSocket alice;
     QTcpSocket bob;
+    QTcpSocket carol;
     QByteArray aliceBuffer;
     QByteArray bobBuffer;
+    QByteArray carolBuffer;
 
     ok = expect(connectSocket(&alice, serverAPort), "alice should connect to server A") && ok;
     ok = expect(connectSocket(&bob, serverBPort), "bob should connect to server B") && ok;
+    ok = expect(connectSocket(&carol, serverAPort), "carol should connect to server A") && ok;
     ok = expect(loginSocket(&alice, QStringLiteral("970001"), QStringLiteral("AliceRedis")),
                 "alice should log in on server A") && ok;
     ok = expect(loginSocket(&bob, QStringLiteral("970002"), QStringLiteral("BobRedis")),
                 "bob should log in on server B") && ok;
+    ok = expect(loginSocket(&carol, QStringLiteral("970003"), QStringLiteral("CarolRedis")),
+                "carol should log in on server A") && ok;
     ok = expect(socketBufferContains(&alice, &aliceBuffer, QByteArrayLiteral("\"type\":\"login_success\""), 5000),
                 "alice should receive login success") && ok;
     ok = expect(socketBufferContains(&bob, &bobBuffer, QByteArrayLiteral("\"type\":\"login_success\""), 5000),
                 "bob should receive login success") && ok;
+    ok = expect(socketBufferContains(&carol, &carolBuffer, QByteArrayLiteral("\"type\":\"login_success\""), 5000),
+                "carol should receive login success") && ok;
 
     QJsonObject privateMessage;
     privateMessage["type"] = "private";
@@ -143,8 +151,30 @@ int main(int argc, char** argv) {
         return bobBuffer.contains("qqnt server redis routing works") && bobBuffer.contains("\"type\":\"private\"");
     }, 5000), "bob should receive the Redis-routed private message") && ok;
 
+    aliceBuffer.clear();
+    carolBuffer.clear();
+    QJsonObject privateGroupCreate;
+    privateGroupCreate["type"] = "server_group_create";
+    privateGroupCreate["groupName"] = "Redis Private Group";
+    privateGroupCreate["announcement"] = "Initial members should receive snapshots";
+    QJsonArray initialMembers;
+    initialMembers.append("970003");
+    privateGroupCreate["members"] = initialMembers;
+    ok = expect(writeJsonLine(&alice, privateGroupCreate), "alice should create a private group with an initial member") && ok;
+    ok = expect(socketBufferContains(&alice, &aliceBuffer, QByteArrayLiteral("\"type\":\"server_group_snapshot\""), 5000),
+                "alice should receive the created private group snapshot") && ok;
+    ok = expect(socketBufferContains(&carol, &carolBuffer, QByteArrayLiteral("\"type\":\"server_group_snapshot\""), 5000),
+                "carol should receive the created private group snapshot as an initial member") && ok;
+    ok = expect(aliceBuffer.contains("Redis Private Group"),
+                "alice snapshot should include the created private group") && ok;
+    ok = expect(carolBuffer.contains("Redis Private Group")
+                    && carolBuffer.contains("970003")
+                    && carolBuffer.contains("Initial members should receive snapshots"),
+                "carol snapshot should include the initial member and announcement") && ok;
+
     alice.disconnectFromHost();
     bob.disconnectFromHost();
+    carol.disconnectFromHost();
     serverA.stop();
     serverB.stop();
     redisEnv.stop();

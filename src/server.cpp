@@ -5,12 +5,14 @@
 #include "heartbeatmonitor.h"
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QCoreApplication>
 #include <QHostAddress>
 #include <QNetworkInterface>
 #include <QDataStream>
 #include <QJsonArray>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -82,6 +84,25 @@ QString serverGroupFilePolicy(const QString& groupType) {
     return groupType == QLatin1String("private")
         ? QStringLiteral("members-only")
         : QStringLiteral("public-members-only");
+}
+
+QStringList initialServerGroupMemberIds(const QJsonObject& obj, const QString& requesterId) {
+    QStringList memberIds;
+    const QJsonArray members = obj.value(QStringLiteral("members")).toArray();
+    for (const QJsonValue& memberValue : members) {
+        QString memberId = memberValue.toString().trimmed();
+        if (memberId.isEmpty() && memberValue.isObject()) {
+            const QJsonObject memberObject = memberValue.toObject();
+            memberId = memberObject.value(QStringLiteral("userId")).toString(
+                memberObject.value(QStringLiteral("account")).toString(
+                    memberObject.value(QStringLiteral("id")).toString())).trimmed();
+        }
+        if (memberId.isEmpty() || memberId == requesterId || memberIds.contains(memberId)) {
+            continue;
+        }
+        memberIds << memberId;
+    }
+    return memberIds;
 }
 
 bool e2eEnvelopeHeaderLooksSafe(const QJsonObject& header);
@@ -1909,6 +1930,10 @@ void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket)
         return;
     }
 
+    const QStringList requestedMemberIds = initialServerGroupMemberIds(obj, requester->id);
+    QStringList memberIdsForSnapshot{requester->id};
+    QJsonArray addedInitialMembers;
+    QJsonArray skippedInitialMemberIds;
     const QString groupId = QStringLiteral("private-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
     bool created = false;
     QString errorText;
@@ -1943,6 +1968,42 @@ void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket)
                 }
             }
 
+            if (errorText.isEmpty()) {
+                for (const QString& memberId : requestedMemberIds) {
+                    QSqlQuery accountQuery(db);
+                    accountQuery.prepare("SELECT COALESCE(user_name, '') FROM accounts WHERE account = ?");
+                    accountQuery.addBindValue(memberId);
+                    if (!accountQuery.exec()) {
+                        errorText = "创建群组失败：查询初始成员失败";
+                        break;
+                    }
+                    if (!accountQuery.next()) {
+                        skippedInitialMemberIds.append(memberId);
+                        continue;
+                    }
+
+                    const QString memberName = accountQuery.value(0).toString().trimmed().isEmpty()
+                        ? memberId
+                        : accountQuery.value(0).toString().trimmed();
+                    QSqlQuery initialMemberQuery(db);
+                    initialMemberQuery.prepare("INSERT INTO server_group_members(group_id, user_id, user_name, role, joined_at, updated_at) "
+                                               "VALUES(?, ?, ?, 'member', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+                    initialMemberQuery.addBindValue(groupId);
+                    initialMemberQuery.addBindValue(memberId);
+                    initialMemberQuery.addBindValue(memberName);
+                    if (!initialMemberQuery.exec()) {
+                        errorText = "创建群组失败：保存初始成员失败";
+                        break;
+                    }
+
+                    memberIdsForSnapshot << memberId;
+                    QJsonObject addedMember;
+                    addedMember[QStringLiteral("userId")] = memberId;
+                    addedMember[QStringLiteral("userName")] = memberName;
+                    addedInitialMembers.append(addedMember);
+                }
+            }
+
             if (errorText.isEmpty() && db.commit()) {
                 created = true;
             } else {
@@ -1961,19 +2022,34 @@ void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket)
         return;
     }
 
+    QJsonObject auditDetails{
+        {QStringLiteral("groupType"), QStringLiteral("private")},
+        {QStringLiteral("historyPolicy"), QStringLiteral("member-and-removed-readonly")},
+        {QStringLiteral("filePolicy"), QStringLiteral("members-only")},
+        {QStringLiteral("initialMemberCount"), addedInitialMembers.size()}
+    };
+    if (!addedInitialMembers.isEmpty()) {
+        auditDetails[QStringLiteral("initialMembers")] = addedInitialMembers;
+    }
+    if (!skippedInitialMemberIds.isEmpty()) {
+        auditDetails[QStringLiteral("skippedInitialMemberIds")] = skippedInitialMemberIds;
+    }
     recordServerGroupAuditEvent(groupId,
                                 QStringLiteral("create_private_group"),
                                 requester->id,
                                 requester->name,
                                 requester->id,
                                 requester->name,
-                                QJsonObject{
-                                    {QStringLiteral("groupType"), QStringLiteral("private")},
-                                    {QStringLiteral("historyPolicy"), QStringLiteral("member-and-removed-readonly")},
-                                    {QStringLiteral("filePolicy"), QStringLiteral("members-only")}
-                                });
+                                auditDetails);
     sendSystemNotice(socket, QString("私有群 %1 已创建").arg(groupName));
-    sendServerGroupSnapshot(requester->id, socket);
+    for (const QString& memberId : memberIdsForSnapshot) {
+        QTcpSocket* memberSocket = memberId == requester->id ? socket : m_userSockets.value(memberId);
+        if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+        if (memberId != requester->id) {
+            sendSystemNotice(memberSocket, QString("你已被加入私有群 %1").arg(groupName));
+        }
+        sendServerGroupSnapshot(memberId, memberSocket);
+    }
 }
 
 void Server::handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket) {

@@ -266,7 +266,7 @@ int main(int argc, char* argv[]) {
 | `respond_friend_request` | `{senderId, accepted}` | 接受/拒绝 |
 | `send_private_message` | `{receiverId, content}` | 私聊 |
 | `send_group_message` | `{groupId, content}` | 群聊 |
-| `create_group` | `{groupName, members[], announcement?}` | 建群 |
+| `create_group` | `{groupName, members?, announcement?}` | 建私有群；初始成员账号存在时随群创建加入 |
 | `update_group_announcement` | `{groupId, announcement}` | 改公告 |
 | `update_group_member` | `{groupId, memberId, action}` | 成员管理 |
 | `send_file` | `{receiverId/groupId, filePath}` | 发文件 |
@@ -751,6 +751,8 @@ npm run tauri build
 | 5.2 | 前端 `ContactsView` + `ContactCard` + `AddFriendModal` | Kimi | 在线状态正确，可加好友 |
 | 5.3 | Engine 群列表/建群/群消息/群成员管理 | GPT5.5 | 群聊消息同步 |
 | 5.4 | 前端群聊列表与群成员面板 | Kimi | 群消息收发正常 |
+
+> 后端已支持 `create_group.members[]` 作为可选初始成员账号数组；服务端建私有群时会把已存在账号加入群并向在线初始成员推送 `server_group_snapshot`。
 
 ### Phase 6：文件传输
 

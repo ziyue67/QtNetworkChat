@@ -2885,7 +2885,7 @@ bool Client::sendServerGroupMemberUpdate(const QString& groupId, const QString& 
     return sendJson(obj);
 }
 
-bool Client::createPrivateServerGroup(const QString& groupName, const QString& announcement) {
+bool Client::createPrivateServerGroup(const QString& groupName, const QString& announcement, const QStringList& initialMemberIds) {
     if (!isConnected() || groupName.trimmed().isEmpty()) return false;
 
     QJsonObject obj;
@@ -2895,6 +2895,19 @@ bool Client::createPrivateServerGroup(const QString& groupName, const QString& a
     obj["announcement"] = announcement.trimmed();
     obj["senderId"] = m_userId;
     obj["senderName"] = m_userName;
+    QJsonArray members;
+    QStringList seenMemberIds;
+    for (const QString& memberId : initialMemberIds) {
+        const QString normalizedMemberId = memberId.trimmed();
+        if (normalizedMemberId.isEmpty() || normalizedMemberId == m_userId || seenMemberIds.contains(normalizedMemberId)) {
+            continue;
+        }
+        seenMemberIds << normalizedMemberId;
+        members.append(normalizedMemberId);
+    }
+    if (!members.isEmpty()) {
+        obj["members"] = members;
+    }
     return sendJson(obj);
 }
 

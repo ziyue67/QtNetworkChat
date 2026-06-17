@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QDir>
+#include <QStringList>
 #include <QVector>
 
 namespace {
@@ -69,6 +70,24 @@ QString downloadDirFromSettings(const QJsonObject& settings) {
     }
 
     return files.value(QStringLiteral("downloadDirectory")).toString().trimmed();
+}
+
+QStringList memberIdsFromPayload(const QJsonObject& payload) {
+    QStringList memberIds;
+    const QJsonArray members = payload.value(QStringLiteral("members")).toArray();
+    for (const QJsonValue& memberValue : members) {
+        QString memberId = memberValue.toString().trimmed();
+        if (memberId.isEmpty() && memberValue.isObject()) {
+            const QJsonObject memberObject = memberValue.toObject();
+            memberId = memberObject.value(QStringLiteral("userId")).toString(
+                memberObject.value(QStringLiteral("account")).toString(
+                    memberObject.value(QStringLiteral("id")).toString())).trimmed();
+        }
+        if (!memberId.isEmpty() && !memberIds.contains(memberId)) {
+            memberIds << memberId;
+        }
+    }
+    return memberIds;
 }
 
 bool applyDownloadDirSetting(const QJsonObject& settings, QString* appliedDownloadDir, QString* rejectReason) {
@@ -346,7 +365,9 @@ void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString
     }
     sendBoolAck(op,
                 reqId,
-                m_bridge->client()->createPrivateServerGroup(groupName, payload.value(QStringLiteral("announcement")).toString()),
+                m_bridge->client()->createPrivateServerGroup(groupName,
+                                                            payload.value(QStringLiteral("announcement")).toString(),
+                                                            memberIdsFromPayload(payload)),
                 QStringLiteral("create_group_failed"),
                 QStringLiteral("Group creation requires an active server connection."));
 }

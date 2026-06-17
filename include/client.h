@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QMap>
 #include <QSet>
+#include <QStringList>
 #include <QVector>
 #include <QByteArray>
 #include "chatuser.h"
@@ -59,7 +60,7 @@ public:
     bool sendFriendResponse(const QString& receiverId, bool accepted);
     bool sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement);
     bool sendServerGroupMemberUpdate(const QString& groupId, const QString& memberId, const QString& action);
-    bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString());
+    bool createPrivateServerGroup(const QString& groupName, const QString& announcement = QString(), const QStringList& initialMemberIds = QStringList());
     bool sendServerGroupMessage(const QString& groupId, const QString& content);
     bool sendServerGroupFile(const QString& groupId, const QString& filePath);
     bool sendServerGroupImage(const QString& groupId, const QString& filePath);
