@@ -1,7 +1,24 @@
-export function Avatar({ src, alt, fallback, size = 40 }: { src?: string; alt?: string; fallback?: string; size?: number }) {
+import { cn } from '@/lib/utils'
+
+export function Avatar({
+  src,
+  alt,
+  fallback,
+  size = 40,
+  className
+}: {
+  src?: string
+  alt?: string
+  fallback?: string
+  size?: number
+  className?: string
+}) {
   return (
     <div
-      className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--qq-primary-soft)] text-[var(--qq-primary)] font-medium"
+      className={cn(
+        'flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--qq-primary-soft)] font-medium text-[var(--qq-primary)]',
+        className
+      )}
       style={{ width: size, height: size, fontSize: size * 0.4 }}
     >
       {src ? (

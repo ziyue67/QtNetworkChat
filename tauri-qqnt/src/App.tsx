@@ -2,6 +2,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useTheme } from '@/hooks/useTheme'
+import { useEngine } from '@/hooks/useEngine'
 import { TitleBar } from '@/components/frame/TitleBar'
 import { MainLayout } from '@/views/MainLayout'
 import { LoginView } from '@/views/LoginView'
@@ -18,6 +19,7 @@ import { MeetingView } from '@/views/MeetingView'
 import { FavoritesView } from '@/views/FavoritesView'
 import { WalletView } from '@/views/WalletView'
 import './styles/index.css'
+import type { UseEngineReturn } from '@/hooks/useEngine'
 
 const LOGIN_SIZE = { width: 300, height: 460 }
 const LOGIN_MIN_SIZE = { width: 300, height: 460 }
@@ -59,6 +61,7 @@ function useResizeForAuth(isAuthenticated: boolean) {
 
 function App() {
   useTheme()
+  const engine = useEngine()
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const [ready, setReady] = useState(false)
 
@@ -77,7 +80,7 @@ function App() {
       <Routes>
         <Route
           path="/login"
-          element={<LoginScreen />}
+          element={<LoginScreen engine={engine} />}
         />
         <Route
           path="/"
@@ -102,15 +105,27 @@ function App() {
   )
 }
 
-function LoginScreen() {
+function LoginScreen({ engine }: { engine: UseEngineReturn }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   if (isAuthenticated) {
     return <Navigate to="/messages" replace />
   }
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--qq-bg)]">
       <TitleBar variant="close-only" />
-      <LoginView />
+      <LoginView
+        loading={engine.engine.connecting || engine.engine.loggingIn}
+        error={engine.engine.error}
+        onLogin={async (account, password) => {
+          const ok = await engine.connect()
+          if (!ok) return
+          await engine.login(account, password)
+        }}
+        onRegister={async (account, password) => {
+          return engine.register(account, password, account)
+        }}
+      />
     </div>
   )
 }
