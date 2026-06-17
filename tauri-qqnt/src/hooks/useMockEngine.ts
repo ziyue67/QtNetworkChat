@@ -65,13 +65,14 @@ const MOCK_MESSAGES: Record<string, Message[]> = {
 
 export function useMockEngine() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const isMock = useAuthStore((state) => state.mock)
   const { setContacts, updatePresence } = useContactStore()
   const { setSessions, updateSession } = useSessionStore()
   const { setMessages, addMessage } = useMessageStore()
   const initialized = useRef(false)
 
   useEffect(() => {
-    if (!isAuthenticated || initialized.current) return
+    if (!isAuthenticated || initialized.current || !isMock) return
     initialized.current = true
 
     // Seed initial data
@@ -127,5 +128,5 @@ export function useMockEngine() {
     return () => {
       timers.forEach((t) => clearInterval(t))
     }
-  }, [isAuthenticated, setContacts, setSessions, setMessages, updateSession, updatePresence, addMessage])
+  }, [isAuthenticated, isMock, setContacts, setSessions, setMessages, updateSession, updatePresence, addMessage])
 }

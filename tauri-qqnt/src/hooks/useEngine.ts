@@ -37,11 +37,20 @@ export function useEngine(): UseEngineReturn {
 
   const loginStore = useAuthStore((state) => state.login)
   const logoutStore = useAuthStore((state) => state.logout)
+  const setMockStore = useAuthStore((state) => state.setMock)
   const serverHost = useAuthStore((state) => state.serverHost)
   const serverPort = useAuthStore((state) => state.serverPort)
 
   const timersRef = useRef<number[]>([])
   const mockRef = useRef(false)
+
+  const setMockIfNeeded = useCallback(
+    (mock: boolean) => {
+      mockRef.current = mock
+      setMockStore(mock)
+    },
+    [setMockStore]
+  )
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach((t) => window.clearTimeout(t))
@@ -62,7 +71,7 @@ export function useEngine(): UseEngineReturn {
         ['qqnt://engine/ready', (payload) => {
           const p = payload as EngineReadyPayload
           clearTimers()
-          mockRef.current = false
+          setMockIfNeeded(false)
           setEngine((prev) => ({
             ...prev,
             ready: true,
@@ -118,7 +127,7 @@ export function useEngine(): UseEngineReturn {
         window.setTimeout(() => {
           setEngine((prev) => {
             if (prev.ready) return prev
-            mockRef.current = true
+            setMockIfNeeded(true)
             return { ...prev, ready: true, connecting: false, mock: true }
           })
         }, 1500)
@@ -137,7 +146,7 @@ export function useEngine(): UseEngineReturn {
       clearTimers()
       unlisteners.forEach((u) => u())
     }
-  }, [clearTimers, loginStore, setError])
+  }, [clearTimers, loginStore, setError, setMockIfNeeded])
 
   const connect = useCallback(
     async (host?: string, port?: number) => {
@@ -181,6 +190,7 @@ export function useEngine(): UseEngineReturn {
         timersRef.current.push(
           window.setTimeout(() => {
             setEngine((prev) => ({ ...prev, loggingIn: false }))
+            setMockIfNeeded(true)
             loginStore({ id: account, nickname: account || 'QQ 用户', status: 'online' })
           }, 600)
         )
@@ -199,7 +209,7 @@ export function useEngine(): UseEngineReturn {
         setError(message)
       }
     },
-    [loginStore, setError]
+    [loginStore, setError, setMockIfNeeded]
   )
 
   const register = useCallback(
