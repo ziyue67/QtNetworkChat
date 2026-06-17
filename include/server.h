@@ -105,7 +105,7 @@ private:
     void handleRedisLargeFileOffer(const QJsonObject& event);
     void handleRedisLargeFileDelivered(const QJsonObject& event);
     void handleRedisLargeFileFailed(const QJsonObject& event);
-    bool deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket);
+    bool deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket, bool publishDeliveredReceipt = true);
     ChatUser* findUserBySocket(QTcpSocket* socket);
     bool ensureAccountDatabase() const;
     QJsonObject loadAccountsFromSqlite() const;
@@ -145,6 +145,8 @@ private:
     qint64 offlineAttachmentUsedBytes() const;
     bool hasOfflineAttachmentCapacity(qint64 incomingBytes) const;
     bool shouldPublishLargeFileOffer(const Message& msg) const;
+    bool shouldPublishServerGroupLargeFileOffer(const Message& msg, const QStringList& memberIds) const;
+    bool publishRedisServerGroupLargeFileOffer(const Message& msg, const QStringList& memberIds) const;
     QString objectStoreType() const;
     QString objectStoreRootDir() const;
     std::unique_ptr<ObjectStore> createConfiguredObjectStore(QString* error = nullptr) const;

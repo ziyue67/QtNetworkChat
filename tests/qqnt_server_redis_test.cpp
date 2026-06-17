@@ -1,5 +1,6 @@
 #include "server.h"
 #include "message.h"
+#include "objectstore.h"
 #include "test_redis_support.h"
 
 #include <QCoreApplication>
@@ -15,6 +16,7 @@
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTemporaryDir>
 #include <QThread>
 
 #include <functional>
@@ -46,6 +48,14 @@ quint16 freeLocalPort() {
     const quint16 port = probe.serverPort();
     probe.close();
     return port;
+}
+
+QByteArray makePatternPayload(int size) {
+    QByteArray payload(size, Qt::Uninitialized);
+    for (int i = 0; i < payload.size(); ++i) {
+        payload[i] = static_cast<char>('A' + (i % 26));
+    }
+    return payload;
 }
 
 bool connectSocket(QTcpSocket* socket, quint16 port) {
@@ -168,6 +178,13 @@ int main(int argc, char** argv) {
     ok = expect(redisError.isEmpty(), "fake Redis server should not fail to start") && ok;
     if (!ok) return 1;
     redisEnv.applyEnvironment();
+    qputenv("QTNETWORKCHAT_LARGE_FILE_ROUTING", "1");
+    qputenv("QTNETWORKCHAT_OBJECT_STORE", "filesystem");
+    qputenv("QTNETWORKCHAT_OBJECT_TTL_HOURS", "24");
+    QTemporaryDir objectRoot;
+    ok = expect(objectRoot.isValid(), "object store temp root should be available") && ok;
+    if (!ok) return 1;
+    qputenv("QTNETWORKCHAT_OBJECT_ROOT", objectRoot.path().toLocal8Bit());
 
     const quint16 serverAPort = freeLocalPort();
     const quint16 serverBPort = freeLocalPort();
@@ -307,11 +324,58 @@ int main(int argc, char** argv) {
         return drainGroupFileChunks(&bob, &bobBuffer, privateGroupId, privateGroupFileName, &bobGroupFilePayload);
     }, 700), "non-member bob should not receive the private group file") && ok;
 
+    const QString privateGroupLargeFileName = QStringLiteral("redis-private-group-large-file.bin");
+    const QByteArray privateGroupLargeFilePayload = makePatternPayload(1024 * 1024 + 4096);
+    const QString privateGroupLargeFileHash = QString::fromLatin1(
+        QCryptographicHash::hash(privateGroupLargeFilePayload, QCryptographicHash::Sha256).toHex());
+    constexpr qint64 privateGroupLargeChunkSize = 256LL * 1024;
+    const qint64 privateGroupLargeChunkCount =
+        (privateGroupLargeFilePayload.size() + privateGroupLargeChunkSize - 1) / privateGroupLargeChunkSize;
+    QByteArray carolGroupLargeFilePayload;
+    QByteArray bobGroupLargeFilePayload;
+    bool carolReceivedGroupLargeFile = false;
+    QMetaObject::Connection carolLargeFileAckConnection = QObject::connect(&carol, &QTcpSocket::readyRead, &app, [&] {
+        if (drainGroupFileChunks(&carol, &carolBuffer, privateGroupId, privateGroupLargeFileName, &carolGroupLargeFilePayload)
+            && carolGroupLargeFilePayload == privateGroupLargeFilePayload) {
+            carolReceivedGroupLargeFile = true;
+        }
+    });
+    aliceBuffer.clear();
+    bobBuffer.clear();
+    carolBuffer.clear();
+    QJsonObject privateGroupLargeFile;
+    privateGroupLargeFile["type"] = "file";
+    privateGroupLargeFile["messageType"] = static_cast<int>(MessageType::File);
+    privateGroupLargeFile["groupId"] = privateGroupId;
+    privateGroupLargeFile["content"] = QStringLiteral("sent file: redis-private-group-large-file.bin");
+    privateGroupLargeFile["fileName"] = privateGroupLargeFileName;
+    privateGroupLargeFile["fileSize"] = QString::number(privateGroupLargeFilePayload.size());
+    privateGroupLargeFile["fileHash"] = privateGroupLargeFileHash;
+    privateGroupLargeFile["chunkSize"] = QString::number(privateGroupLargeChunkSize);
+    privateGroupLargeFile["chunkCount"] = QString::number(privateGroupLargeChunkCount);
+    privateGroupLargeFile["fileData"] = QString::fromLatin1(privateGroupLargeFilePayload.toBase64());
+    ok = expect(writeJsonLine(&alice, privateGroupLargeFile), "alice should send a private group large file") && ok;
+    ok = expect(waitFor([&] {
+        if (drainGroupFileChunks(&carol, &carolBuffer, privateGroupId, privateGroupLargeFileName, &carolGroupLargeFilePayload)
+            && carolGroupLargeFilePayload == privateGroupLargeFilePayload) {
+            carolReceivedGroupLargeFile = true;
+        }
+        return carolReceivedGroupLargeFile;
+    }, 9000), "carol should receive the Redis object-routed private group large file") && ok;
+    QObject::disconnect(carolLargeFileAckConnection);
+    ok = expect(!waitFor([&] {
+        return drainGroupFileChunks(&bob, &bobBuffer, privateGroupId, privateGroupLargeFileName, &bobGroupLargeFilePayload);
+    }, 700), "non-member bob should not receive the private group large file") && ok;
+
     alice.disconnectFromHost();
     bob.disconnectFromHost();
     carol.disconnectFromHost();
     serverA.stop();
     serverB.stop();
     redisEnv.stop();
+    qunsetenv("QTNETWORKCHAT_LARGE_FILE_ROUTING");
+    qunsetenv("QTNETWORKCHAT_OBJECT_STORE");
+    qunsetenv("QTNETWORKCHAT_OBJECT_ROOT");
+    qunsetenv("QTNETWORKCHAT_OBJECT_TTL_HOURS");
     return ok ? 0 : 1;
 }

@@ -758,6 +758,8 @@ void logRedisLargeFileRouteEvent(const QString& eventName,
     appendStringField("transferId");
     appendStringField("objectKey");
     appendStringField("receiverId");
+    appendStringField("groupId");
+    appendStringField("targetUserId");
     appendStringField("fileHash");
     appendStringField("fileName");
     appendStringField("messageType");
@@ -793,6 +795,26 @@ QJsonObject largeFileRouteLogMetadata(QJsonObject metadata,
         metadata["operation"] = trimmedOperation;
     }
     return metadata;
+}
+
+void copyLargeFileRouteContext(QJsonObject* target, const QJsonObject& source) {
+    if (!target) return;
+    const QStringList keys = {
+        QStringLiteral("deliveryState"),
+        QStringLiteral("groupId"),
+        QStringLiteral("targetUserId")
+    };
+    for (const QString& key : keys) {
+        const QString value = source.value(key).toString().trimmed();
+        if (!value.isEmpty()) {
+            (*target)[key] = value;
+        }
+    }
+}
+
+bool isServerGroupLargeFileOffer(const QJsonObject& event) {
+    return event.value("deliveryState").toString() == QLatin1String("server-group-file")
+        || !event.value("groupId").toString().trimmed().isEmpty();
 }
 
 bool looksLikeSha256Hex(const QString& value) {
@@ -2782,6 +2804,8 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
     }
 
     QString deliveryState = "broadcast";
+    bool serverGroupLargeFileOfferEligible = false;
+    bool serverGroupLargeFileOfferPublished = false;
     if (!routedGroupId.isEmpty() && routedGroupId != QLatin1String("public")) {
         msg.receiverId = routedGroupId;
         deliveryState = "server-group-file";
@@ -2820,6 +2844,10 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
             if (memberSocket && memberSocket->state() == QAbstractSocket::ConnectedState) {
                 sendServerGroupSnapshot(memberId, memberSocket);
             }
+        }
+        serverGroupLargeFileOfferEligible = shouldPublishServerGroupLargeFileOffer(msg, memberIds);
+        if (serverGroupLargeFileOfferEligible) {
+            serverGroupLargeFileOfferPublished = publishRedisServerGroupLargeFileOffer(msg, memberIds);
         }
     } else if (!msg.receiverId.isEmpty()) {
         QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
@@ -2865,8 +2893,15 @@ void Server::handleFile(const QJsonObject& obj, QTcpSocket* socket) {
         sendSystemNotice(socket, QStringLiteral("文件发送失败：Redis 路由不可用，请等待服务恢复。"));
         return;
     }
-    if (deliveryState == "server-group-file" && m_redisService->isEnabled() && !redisPublished) {
-        sendSystemNotice(socket, QStringLiteral("群文件跨实例路由失败：其他实例成员可能未收到。"));
+    if (deliveryState == "server-group-file" && m_redisService->isEnabled()) {
+        const bool isLargeServerGroupPayload =
+            (msg.type == MessageType::File || msg.type == MessageType::Image)
+            && msg.fileData.size() > kRedisPubSubFileMaxBytes;
+        const bool redisRouteExpected = !isLargeServerGroupPayload || serverGroupLargeFileOfferEligible;
+        const bool redisRouteDelivered = redisPublished || serverGroupLargeFileOfferPublished;
+        if (redisRouteExpected && !redisRouteDelivered) {
+            sendSystemNotice(socket, QStringLiteral("群文件跨实例路由失败：其他实例成员可能未收到。"));
+        }
     }
 }
 
@@ -3285,6 +3320,7 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
     event["expiresAt"] = offlinePayload["objectStoreExpiresAt"].toString();
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     appendE2EFileFields(&event, offlinePayload);
+    copyLargeFileRouteContext(&event, offlinePayload);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
@@ -3319,6 +3355,7 @@ bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
     event["objectKey"] = offer["objectKey"].toString();
     event["receiverId"] = offer["receiverId"].toString();
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    copyLargeFileRouteContext(&event, offer);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
@@ -3351,6 +3388,7 @@ bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 con
     event["fileHash"] = offer["fileHash"].toString();
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     appendE2EFileFields(&event, offer);
+    copyLargeFileRouteContext(&event, offer);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
@@ -3385,6 +3423,7 @@ bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString
     event["reason"] = reason.left(160);
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     appendE2EFileFields(&event, offer);
+    copyLargeFileRouteContext(&event, offer);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
     if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
@@ -3559,15 +3598,7 @@ void Server::handleRedisLargeFileOffer(const QJsonObject& event) {
     if (event["instanceId"].toString() == m_instanceId) return;
     if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return;
 
-    const QString receiverId = event["receiverId"].toString().trimmed();
-    if (receiverId.isEmpty()) return;
-
-    QTcpSocket* targetSocket = m_userSockets.value(receiverId);
-    if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
-        return;
-    }
-
-    if (deliverRedisLargeFileOffer(event, targetSocket)) {
+    auto messageFromOffer = [&event](const QString& receiverId) {
         Message msg;
         msg.senderId = event["senderId"].toString();
         msg.senderName = event["senderName"].toString();
@@ -3595,7 +3626,53 @@ void Server::handleRedisLargeFileOffer(const QJsonObject& event) {
             }
         }
         msg.timestamp = QDateTime::currentDateTime();
-        emit newMessage(msg);
+        return msg;
+    };
+
+    if (isServerGroupLargeFileOffer(event)) {
+        QString groupId = event.value("groupId").toString().trimmed();
+        if (groupId.isEmpty()) {
+            groupId = event.value("receiverId").toString().trimmed();
+        }
+        const QString senderId = event.value("senderId").toString().trimmed();
+        if (groupId.isEmpty() || groupId == QLatin1String("public") || senderId.isEmpty()) return;
+
+        const QStringList memberIds = serverGroupMemberIds(groupId);
+        if (memberIds.isEmpty()) return;
+        bool deliveredAny = false;
+        for (const QString& memberId : memberIds) {
+            if (memberId.isEmpty() || memberId == senderId) continue;
+            QTcpSocket* memberSocket = m_userSockets.value(memberId);
+            if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+            if (!isServerGroupMember(groupId, memberId)) continue;
+
+            QJsonObject targetedEvent = event;
+            targetedEvent["receiverId"] = groupId;
+            targetedEvent["groupId"] = groupId;
+            targetedEvent["targetUserId"] = memberId;
+            if (deliverRedisLargeFileOffer(targetedEvent, memberSocket, false)) {
+                deliveredAny = true;
+            } else {
+                qWarning() << "Redis private group large file delivery failed"
+                           << groupId << memberId << event.value("fileName").toString();
+            }
+        }
+        if (deliveredAny) {
+            emit newMessage(messageFromOffer(groupId));
+        }
+        return;
+    }
+
+    const QString receiverId = event["receiverId"].toString().trimmed();
+    if (receiverId.isEmpty()) return;
+
+    QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+    if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
+        return;
+    }
+
+    if (deliverRedisLargeFileOffer(event, targetSocket)) {
+        emit newMessage(messageFromOffer(receiverId));
     }
 }
 
@@ -3650,7 +3727,7 @@ void Server::handleRedisLargeFileFailed(const QJsonObject& event) {
                                 event["reason"].toString());
 }
 
-bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket) {
+bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* socket, bool publishDeliveredReceipt) {
     QPointer<QTcpSocket> socketGuard(socket);
     auto logDeliveryFailure = [this, &event](const QString& reason, qint64 bytes = 0) {
         logRedisLargeFileRouteEvent(QStringLiteral("offer_delivery"),
@@ -3659,8 +3736,10 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
                                     reason,
                                     bytes);
     };
-    auto failOffer = [this, &event](const QString& reason) {
-        publishRedisLargeFileFailed(event, reason);
+    auto failOffer = [this, &event, publishDeliveredReceipt](const QString& reason) {
+        if (publishDeliveredReceipt) {
+            publishRedisLargeFileFailed(event, reason);
+        }
         return false;
     };
 
@@ -3820,7 +3899,9 @@ bool Server::deliverRedisLargeFileOffer(const QJsonObject& event, QTcpSocket* so
         }
     }
 
-    publishRedisLargeFileDelivered(event, fileSize);
+    if (publishDeliveredReceipt) {
+        publishRedisLargeFileDelivered(event, fileSize);
+    }
     return true;
 }
 
@@ -4486,6 +4567,106 @@ bool Server::shouldPublishLargeFileOffer(const Message& msg) const {
     if (msg.fileSize <= 0 || msg.chunkSize <= 0 || msg.chunkCount <= 0) return false;
     if (msg.chunkCount != (msg.fileSize + msg.chunkSize - 1) / msg.chunkSize) return false;
     return looksLikeSha256Hex(msg.fileHash);
+}
+
+bool Server::shouldPublishServerGroupLargeFileOffer(const Message& msg, const QStringList& memberIds) const {
+    if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return false;
+    if (!m_redisService->isEnabled()) return false;
+    if (msg.receiverId.isEmpty() || msg.receiverId == QLatin1String("public")) return false;
+    if (msg.fileData.isEmpty() || msg.fileData.size() <= kRedisPubSubFileMaxBytes) return false;
+    if (msg.type != MessageType::File && msg.type != MessageType::Image) return false;
+    if (msg.fileSize <= 0 || msg.chunkSize <= 0 || msg.chunkCount <= 0) return false;
+    if (msg.chunkCount != (msg.fileSize + msg.chunkSize - 1) / msg.chunkSize) return false;
+    if (!looksLikeSha256Hex(msg.fileHash)) return false;
+    if (!createConfiguredObjectStore()) return false;
+
+    for (const QString& memberId : memberIds) {
+        if (memberId.isEmpty() || memberId == msg.senderId) continue;
+        QTcpSocket* localSocket = m_userSockets.value(memberId, nullptr);
+        if (localSocket && localSocket->state() == QAbstractSocket::ConnectedState) continue;
+        bool redisOnline = false;
+        if (isRedisUserOnline(memberId, &redisOnline) && redisOnline) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Server::publishRedisServerGroupLargeFileOffer(const Message& msg, const QStringList& memberIds) const {
+    if (!shouldPublishServerGroupLargeFileOffer(msg, memberIds)) return false;
+
+    QString objectStoreError;
+    std::unique_ptr<ObjectStore> objectStore = createConfiguredObjectStore(&objectStoreError);
+    QString objectKey;
+    QString objectHash;
+    QString objectError;
+    const QString extension = QFileInfo(msg.fileName).suffix();
+    if (!objectStore
+        || !objectStore->writeObject(msg.fileData, &objectKey, &objectHash, &objectError, extension)
+        || objectHash.compare(msg.fileHash.trimmed(), Qt::CaseInsensitive) != 0) {
+        if (objectStore && !objectKey.isEmpty()) {
+            objectStore->removeObject(objectKey);
+        }
+        QJsonObject logMeta;
+        logMeta["deliveryState"] = QStringLiteral("server-group-file");
+        logMeta["groupId"] = msg.receiverId;
+        logMeta["receiverId"] = msg.receiverId;
+        logMeta["transferId"] = msg.transferId;
+        logMeta["fileName"] = msg.fileName;
+        logMeta["messageType"] = msg.type == MessageType::Image ? QStringLiteral("Image") : QStringLiteral("File");
+        if (!objectKey.isEmpty()) {
+            logMeta["objectKey"] = objectKey;
+        }
+        const QString writeFailureReason =
+            objectStoreWriteFailureReasonForLog(objectStoreType(),
+                                                static_cast<bool>(objectStore),
+                                                objectError.isEmpty() ? objectStoreError : objectError,
+                                                msg.fileHash,
+                                                objectHash);
+        logRedisLargeFileRouteEvent(QStringLiteral("object_write"),
+                                    QStringLiteral("skipped"),
+                                    largeFileRouteLogMetadata(logMeta, objectStoreType(), QStringLiteral("write")),
+                                    writeFailureReason,
+                                    msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+        qWarning() << "Private group large file object routing skipped because object write/validation failed"
+                   << msg.receiverId << msg.fileName << writeFailureReason;
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["type"] = QStringLiteral("file");
+    obj["messageType"] = static_cast<int>(msg.type);
+    obj["senderId"] = msg.senderId;
+    obj["senderName"] = msg.senderName;
+    obj["senderAvatar"] = msg.senderAvatar;
+    obj["receiverId"] = msg.receiverId;
+    obj["groupId"] = msg.receiverId;
+    obj["deliveryState"] = QStringLiteral("server-group-file");
+    obj["content"] = msg.content;
+    obj["fileName"] = msg.fileName;
+    obj["transferId"] = msg.transferId;
+    obj["fileSize"] = QString::number(msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+    obj["fileHash"] = msg.fileHash;
+    obj["chunkSize"] = QString::number(msg.chunkSize);
+    obj["chunkCount"] = QString::number(msg.chunkCount);
+    obj["objectStoreKey"] = objectKey;
+    obj["objectStoreHash"] = objectHash;
+    obj["objectStoreCreatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    obj["objectStoreExpiresAt"] = QDateTime::currentDateTimeUtc().addMSecs(objectStoreTtlMs()).toString(Qt::ISODate);
+    appendE2EFields(&obj, msg);
+
+    const bool published = publishRedisLargeFileOffer(obj);
+    if (!published && objectStore) {
+        const bool removedObject = objectStore->removeObject(objectKey);
+        QJsonObject logMeta = obj;
+        logRedisLargeFileRouteEvent(QStringLiteral("object_delete"),
+                                    removedObject ? QStringLiteral("deleted") : QStringLiteral("retained"),
+                                    largeFileRouteLogMetadata(logMeta, objectStoreType(), QStringLiteral("delete")),
+                                    removedObject ? QStringLiteral("publish-failed")
+                                                  : objectStoreRemoveFailureReasonForLog(objectStoreType(), objectStore->lastRemoveFailureReason()),
+                                    msg.fileSize > 0 ? msg.fileSize : msg.fileData.size());
+    }
+    return published;
 }
 
 QString Server::objectStoreType() const {

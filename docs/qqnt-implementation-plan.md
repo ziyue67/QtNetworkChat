@@ -684,6 +684,7 @@ npm run tauri build
 | 跨实例群快照刷新 | 同上 | 建私有群时远端在线初始成员通过 Redis 收到群快照 |
 | 跨实例私有群消息 | 同上 | 远端在线私有群成员收到群消息，同实例非成员不收到 |
 | 跨实例私有群小文件 | 同上 | 远端在线私有群成员收到 Redis Pub/Sub 可承载的小文件分片，同实例非成员不收到 |
+| 跨实例私有群大文件 | 同上 | 远端在线私有群成员收到 object-store large_file_offer 分片，同实例非成员不收到 |
 | 协议漂移 | `tests/qqnt_protocol_drift_test.cpp` + `tests/fixtures/ready.json` | 三端都能解析同一份 fixture |
 | Rust Bridge mock | `tests/qqnt_bridge_rust_test.rs` | reqId 关联与事件广播 |
 | 前端 store | `src/stores/*.test.ts` | 会话排序、未读、乐观发送 |
@@ -758,6 +759,7 @@ npm run tauri build
 > 后端已支持 `create_group.members[]` 作为可选初始成员账号数组；服务端建私有群时会把已存在账号加入群，向本实例在线成员直接推送 `server_group_snapshot`，并通过 Redis 内部刷新事件通知其他实例上的在线初始成员。
 > 私有群文本消息已接入 Redis 跨实例路由；远端实例会按 SQLite 群成员关系只推送给本实例在线成员，非成员不会收到。
 > 私有群小文件/图片已接入 Redis 跨实例路由；远端实例会按群成员关系把 Pub/Sub 负载分片发送给本实例在线成员，非成员不会收到。
+> 私有群大文件/图片已接入 Redis 对象路由；发送实例写入 object store 并发布 `large_file_offer`，远端实例按群成员关系投递给本实例在线成员，群 fanout 不发送一对一 delivered 清理回执，对象保留到 TTL 清理。
 
 ### Phase 6：文件传输
 
