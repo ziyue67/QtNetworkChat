@@ -116,6 +116,7 @@ public:
     QString lastLoginError() const { return m_loginError; }
     QString currentOutgoingTransferId() const { return m_currentOutgoingTransferId; }
     QVector<ChatUser> onlineUsers() const { return m_onlineUsers; }
+    QVector<ChatUser> friends() const { return m_friends; }
     QString transportSecurityDescription() const;
     bool hasServerGroupSnapshot() const { return m_hasServerGroupSnapshot; }
     QJsonArray serverGroups() const { return m_serverGroups; }
@@ -128,6 +129,7 @@ signals:
     void userJoined(const QString& userId, const QString& userName);
     void userLeft(const QString& userId, const QString& userName);
     void userListUpdated(const QVector<ChatUser>& users);
+    void friendListUpdated(const QVector<ChatUser>& friends);
     void loginSucceeded();
     void loginFailed(const QString& reason);
     void friendRequestReceived(const QString& senderId, const QString& senderName);
@@ -177,6 +179,9 @@ private:
     void handleServerMessage(const QJsonObject& obj);
     void handleIncomingFileChunk(const QJsonObject& obj);
     bool sendJson(const QJsonObject& obj);
+    ChatUser friendCandidateForId(const QString& userId, const QString& fallbackName = QString()) const;
+    void addOrUpdateFriend(const QString& userId, const QString& fallbackName = QString());
+    void refreshFriendPresenceFromOnlineUsers();
     bool sendFileChunkAck(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason = QString(), qint64 receivedBytes = 0);
     bool sendFilePayload(const QString& filePath,
                          const QString& receiverId,
@@ -285,6 +290,8 @@ private:
     QString m_serverHost;
     quint16 m_serverPort;
     QVector<ChatUser> m_onlineUsers;
+    QVector<ChatUser> m_friends;
+    QMap<QString, QString> m_pendingIncomingFriendNames;
     QByteArray m_buffer;
     quint16 m_reconnectAttempts;
     QMap<QString, PendingIncomingFileTransfer> m_incomingFileTransfers;

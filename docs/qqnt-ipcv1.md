@@ -137,6 +137,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `user_list` | `{users}` | 在线用户列表 |
 | `user_joined` | `{userId, userName}` | 用户上线 |
 | `user_left` | `{userId, userName}` | 用户下线 |
+| `friend_list` | `{friends}` | 好友列表快照 |
 | `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请发送、收到或回应 |
 | `friend_search_result` | `{found, userId, userName, online}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |

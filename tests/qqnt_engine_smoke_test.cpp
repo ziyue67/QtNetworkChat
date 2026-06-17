@@ -229,6 +229,8 @@ int main(int argc, char* argv[]) {
                 "ready command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"get_user_list\",\"reqId\":\"smoke-users\",\"payload\":{}}\n"),
                 "get_user_list command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"get_friend_list\",\"reqId\":\"smoke-friends\",\"payload\":{}}\n"),
+                "get_friend_list command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"get_group_list\",\"reqId\":\"smoke-groups\",\"payload\":{}}\n"),
                 "get_group_list command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
@@ -266,6 +268,7 @@ int main(int argc, char* argv[]) {
     QSet<QString> expectedAckReqIds = {
         QStringLiteral("smoke-ready"),
         QStringLiteral("smoke-users"),
+        QStringLiteral("smoke-friends"),
         QStringLiteral("smoke-groups"),
         QStringLiteral("smoke-e2e"),
         QStringLiteral("smoke-cancel-missing"),
@@ -343,6 +346,15 @@ int main(int argc, char* argv[]) {
                         "get_user_list should return ok ack") && ok;
             ok = expect(payload.value(QStringLiteral("users")).isArray(),
                         "get_user_list payload should include users array") && ok;
+            ok = expect(!payload.contains(QStringLiteral("friends")),
+                        "get_user_list payload should not alias friends") && ok;
+        } else if (reqId == QLatin1String("smoke-friends")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
+                        "get_friend_list should return ok ack") && ok;
+            ok = expect(payload.value(QStringLiteral("friends")).isArray(),
+                        "get_friend_list payload should include friends array") && ok;
+            ok = expect(!payload.contains(QStringLiteral("users")),
+                        "get_friend_list payload should not alias users") && ok;
         } else if (reqId == QLatin1String("smoke-groups")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "get_group_list should return ok ack") && ok;

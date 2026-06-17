@@ -139,6 +139,17 @@ QJsonObject QQNTClientBridge::userListPayload() const {
     return payload;
 }
 
+QJsonObject QQNTClientBridge::friendListPayload() const {
+    QJsonArray friendArray;
+    for (const ChatUser& user : m_client.friends()) {
+        friendArray.append(userToJson(user));
+    }
+
+    QJsonObject payload;
+    payload[QStringLiteral("friends")] = friendArray;
+    return payload;
+}
+
 QJsonObject QQNTClientBridge::groupListPayload() const {
     QJsonObject payload;
     payload[QStringLiteral("groups")] = m_client.serverGroups();
@@ -254,6 +265,16 @@ void QQNTClientBridge::bindClientSignals() {
         QJsonObject payload;
         payload[QStringLiteral("users")] = userArray;
         sendEvent(QStringLiteral("user_list"), payload);
+    });
+
+    connect(&m_client, &Client::friendListUpdated, this, [this](const QVector<ChatUser>& friends) {
+        QJsonArray friendArray;
+        for (const ChatUser& user : friends) {
+            friendArray.append(userToJson(user));
+        }
+        QJsonObject payload;
+        payload[QStringLiteral("friends")] = friendArray;
+        sendEvent(QStringLiteral("friend_list"), payload);
     });
 
     connect(&m_client, &Client::userJoined, this, [this](const QString& userId, const QString& userName) {

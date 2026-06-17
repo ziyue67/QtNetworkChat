@@ -25,6 +25,7 @@ public:
 
     QJsonObject readyPayload() const;
     QJsonObject userListPayload() const;
+    QJsonObject friendListPayload() const;
     QJsonObject groupListPayload() const;
     void setConnectionTarget(const QString& host, quint16 port);
     void sendAck(const QString& op, const QString& reqId, const QJsonObject& payload = QJsonObject());

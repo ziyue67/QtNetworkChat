@@ -170,6 +170,72 @@ public:
         return !m_userId.isEmpty();
     }
 
+    bool hasFriendRequestFrom(const QString& expectedSenderId) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("friend_event")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (payload.value(QStringLiteral("type")).toString() == QLatin1String("request_received")
+                && payload.value(QStringLiteral("senderId")).toString() == expectedSenderId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasFriendResponseFrom(const QString& expectedSenderId, bool expectedAccepted) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("friend_event")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (payload.value(QStringLiteral("type")).toString() == QLatin1String("response_received")
+                && payload.value(QStringLiteral("senderId")).toString() == expectedSenderId
+                && payload.value(QStringLiteral("accepted")).toBool() == expectedAccepted) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasFriendListEntry(const QString& expectedUserId, const QString& expectedName = QString()) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("friend_list")) {
+                continue;
+            }
+            const QJsonArray friends = event.value(QStringLiteral("payload")).toObject().value(QStringLiteral("friends")).toArray();
+            for (const QJsonValue& value : friends) {
+                const QJsonObject friendObject = value.toObject();
+                if (friendObject.value(QStringLiteral("id")).toString() != expectedUserId) {
+                    continue;
+                }
+                return expectedName.isEmpty()
+                    || friendObject.value(QStringLiteral("name")).toString() == expectedName;
+            }
+        }
+        return false;
+    }
+
+    bool friendListAckContains(const QString& reqId, const QString& expectedUserId, const QString& expectedName = QString()) const {
+        const auto it = m_acks.constFind(reqId);
+        if (it == m_acks.constEnd()
+            || it.value().value(QStringLiteral("status")).toString() != QLatin1String("ok")) {
+            return false;
+        }
+
+        const QJsonArray friends = it.value().value(QStringLiteral("payload")).toObject().value(QStringLiteral("friends")).toArray();
+        for (const QJsonValue& value : friends) {
+            const QJsonObject friendObject = value.toObject();
+            if (friendObject.value(QStringLiteral("id")).toString() != expectedUserId) {
+                continue;
+            }
+            return expectedName.isEmpty()
+                || friendObject.value(QStringLiteral("name")).toString() == expectedName;
+        }
+        return false;
+    }
+
     bool hasPrivateMessage(const QString& expectedContent,
                            const QString& expectedSenderId,
                            const QString& expectedReceiverId) const {
@@ -445,6 +511,40 @@ int main(int argc, char* argv[]) {
         return alice.hasGroupSnapshot(QStringLiteral("public"))
             && bob.hasGroupSnapshot(QStringLiteral("public"));
     }, {&alice, &bob}), "both QQNTEngine processes should receive the public group snapshot") && ok;
+
+    QJsonObject friendRequestPayload;
+    friendRequestPayload[QStringLiteral("receiverId")] = bob.userId();
+    ok = expect(alice.writeCommand(makeCommand(QStringLiteral("send_friend_request"),
+                                               QStringLiteral("alice-send-friend-request"),
+                                               friendRequestPayload)),
+                "alice friend request command should be written") && ok;
+    ok = expect(waitFor([&] {
+        return alice.hasOkAck(QStringLiteral("alice-send-friend-request"))
+            && bob.hasFriendRequestFrom(alice.userId());
+    }, {&alice, &bob}), "bob QQNTEngine should receive alice friend request") && ok;
+
+    QJsonObject friendResponsePayload;
+    friendResponsePayload[QStringLiteral("senderId")] = alice.userId();
+    friendResponsePayload[QStringLiteral("accepted")] = true;
+    ok = expect(bob.writeCommand(makeCommand(QStringLiteral("respond_friend_request"),
+                                             QStringLiteral("bob-accept-friend-request"),
+                                             friendResponsePayload)),
+                "bob friend response command should be written") && ok;
+    ok = expect(waitFor([&] {
+        return bob.hasOkAck(QStringLiteral("bob-accept-friend-request"))
+            && alice.hasFriendResponseFrom(bob.userId(), true)
+            && alice.hasFriendListEntry(bob.userId(), QStringLiteral("Bob Engine E2E"))
+            && bob.hasFriendListEntry(alice.userId(), QStringLiteral("Alice Engine E2E"));
+    }, {&alice, &bob}), "both QQNTEngine processes should update friend list after acceptance") && ok;
+
+    ok = expect(alice.writeCommand(makeCommand(QStringLiteral("get_friend_list"), QStringLiteral("alice-get-friends"))),
+                "alice get_friend_list command should be written") && ok;
+    ok = expect(bob.writeCommand(makeCommand(QStringLiteral("get_friend_list"), QStringLiteral("bob-get-friends"))),
+                "bob get_friend_list command should be written") && ok;
+    ok = expect(waitFor([&] {
+        return alice.friendListAckContains(QStringLiteral("alice-get-friends"), bob.userId(), QStringLiteral("Bob Engine E2E"))
+            && bob.friendListAckContains(QStringLiteral("bob-get-friends"), alice.userId(), QStringLiteral("Alice Engine E2E"));
+    }, {&alice, &bob}), "get_friend_list should return accepted friends") && ok;
 
     const QString privateContent = QStringLiteral("qqnt engine e2e private message");
     QJsonObject messagePayload;

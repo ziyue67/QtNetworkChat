@@ -954,6 +954,91 @@ void Client::setAvatarData(const QByteArray& pngData) {
     m_avatarBase64 = avatarBase64FromPngData(pngData);
 }
 
+ChatUser Client::friendCandidateForId(const QString& userId, const QString& fallbackName) const {
+    const QString normalizedUserId = userId.trimmed();
+    ChatUser candidate;
+    if (normalizedUserId.isEmpty() || normalizedUserId == m_userId) {
+        return candidate;
+    }
+
+    for (const ChatUser& user : m_onlineUsers) {
+        if (user.id == normalizedUserId) {
+            candidate = user;
+            if (candidate.name.trimmed().isEmpty()) {
+                const QString normalizedName = fallbackName.trimmed();
+                candidate.name = normalizedName.isEmpty() ? normalizedUserId : normalizedName;
+            }
+            candidate.isOnline = true;
+            return candidate;
+        }
+    }
+
+    candidate.id = normalizedUserId;
+    const QString normalizedName = fallbackName.trimmed();
+    candidate.name = normalizedName.isEmpty() ? normalizedUserId : normalizedName;
+    candidate.isOnline = false;
+    return candidate;
+}
+
+void Client::addOrUpdateFriend(const QString& userId, const QString& fallbackName) {
+    const ChatUser candidate = friendCandidateForId(userId, fallbackName);
+    if (candidate.id.isEmpty()) {
+        return;
+    }
+
+    for (ChatUser& friendUser : m_friends) {
+        if (friendUser.id != candidate.id) {
+            continue;
+        }
+        if (friendUser.name == candidate.name
+            && friendUser.avatar == candidate.avatar
+            && friendUser.isOnline == candidate.isOnline
+            && friendUser.lastActive == candidate.lastActive) {
+            return;
+        }
+        friendUser = candidate;
+        emit friendListUpdated(m_friends);
+        return;
+    }
+
+    m_friends.append(candidate);
+    emit friendListUpdated(m_friends);
+}
+
+void Client::refreshFriendPresenceFromOnlineUsers() {
+    bool changed = false;
+    for (ChatUser& friendUser : m_friends) {
+        bool foundOnline = false;
+        for (const ChatUser& user : m_onlineUsers) {
+            if (user.id != friendUser.id) {
+                continue;
+            }
+            foundOnline = true;
+            ChatUser updated = user;
+            updated.isOnline = true;
+            if (updated.name.trimmed().isEmpty()) {
+                updated.name = friendUser.name;
+            }
+            if (friendUser.name != updated.name
+                || friendUser.avatar != updated.avatar
+                || friendUser.isOnline != updated.isOnline
+                || friendUser.lastActive != updated.lastActive) {
+                friendUser = updated;
+                changed = true;
+            }
+            break;
+        }
+        if (!foundOnline && friendUser.isOnline) {
+            friendUser.isOnline = false;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        emit friendListUpdated(m_friends);
+    }
+}
+
 bool Client::sendAvatarUpdate(const QByteArray& pngData) {
     setAvatarData(pngData);
     if (!isConnected()) {
@@ -969,6 +1054,7 @@ bool Client::sendAvatarUpdate(const QByteArray& pngData) {
 }
 
 void Client::setAccountInfo(const QString& account, const QString& password, bool registerMode) {
+    const bool accountChanged = m_account != account;
     m_account = account;
     m_password = password;
     m_registerMode = registerMode;
@@ -979,6 +1065,10 @@ void Client::setAccountInfo(const QString& account, const QString& password, boo
     m_cancelOutgoingTransfer = false;
     m_serverGroups = QJsonArray();
     m_removedServerGroups = QJsonArray();
+    if (accountChanged) {
+        m_friends.clear();
+        m_pendingIncomingFriendNames.clear();
+    }
     m_loginError.clear();
 }
 
@@ -2845,7 +2935,15 @@ bool Client::sendFriendResponse(const QString& receiverId, bool accepted) {
     obj["senderName"] = m_userName;
     obj["receiverId"] = receiverId;
     obj["accepted"] = accepted;
-    return sendJson(obj);
+    const bool sent = sendJson(obj);
+    if (sent) {
+        const QString normalizedReceiverId = receiverId.trimmed();
+        if (accepted) {
+            addOrUpdateFriend(normalizedReceiverId, m_pendingIncomingFriendNames.value(normalizedReceiverId));
+        }
+        m_pendingIncomingFriendNames.remove(normalizedReceiverId);
+    }
+    return sent;
 }
 
 bool Client::sendServerGroupAnnouncementUpdate(const QString& groupId, const QString& announcement) {
@@ -4314,6 +4412,7 @@ void Client::handleServerMessage(const QJsonObject& obj) {
             m_onlineUsers.append(user);
         }
         emit userListUpdated(m_onlineUsers);
+        refreshFriendPresenceFromOnlineUsers();
         return;
     }
 
@@ -4554,12 +4653,23 @@ void Client::handleServerMessage(const QJsonObject& obj) {
     }
 
     if (type == "friend_request") {
-        emit friendRequestReceived(obj["senderId"].toString(), obj["senderName"].toString());
+        const QString senderId = obj["senderId"].toString().trimmed();
+        const QString senderName = obj["senderName"].toString().trimmed();
+        if (!senderId.isEmpty()) {
+            m_pendingIncomingFriendNames.insert(senderId, senderName);
+        }
+        emit friendRequestReceived(senderId, senderName);
         return;
     }
 
     if (type == "friend_response") {
-        emit friendResponseReceived(obj["senderId"].toString(), obj["senderName"].toString(), obj["accepted"].toBool());
+        const QString senderId = obj["senderId"].toString().trimmed();
+        const QString senderName = obj["senderName"].toString().trimmed();
+        const bool accepted = obj["accepted"].toBool();
+        if (accepted) {
+            addOrUpdateFriend(senderId, senderName);
+        }
+        emit friendResponseReceived(senderId, senderName, accepted);
         return;
     }
 

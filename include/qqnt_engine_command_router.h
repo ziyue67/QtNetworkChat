@@ -21,6 +21,7 @@ private:
     void handleDisconnect(const QString& op, const QString& reqId);
     void handleSetUserInfo(const QString& op, const QString& reqId, const QJsonObject& payload);
     void handleGetUserList(const QString& op, const QString& reqId);
+    void handleGetFriendList(const QString& op, const QString& reqId);
     void handleGetGroupList(const QString& op, const QString& reqId);
     void handleSearchFriend(const QString& op, const QString& reqId, const QJsonObject& payload);
     void handleSendFriendRequest(const QString& op, const QString& reqId, const QJsonObject& payload);

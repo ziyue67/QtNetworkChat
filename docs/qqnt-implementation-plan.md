@@ -289,6 +289,7 @@ int main(int argc, char* argv[]) {
 | `login_result` | `{success, userId, userName, error?}` | 登录结果 |
 | `user_list` | `{users[]}` | 在线列表 |
 | `user_joined` / `user_left` | `{userId, userName}` | 上下线 |
+| `friend_list` | `{friends[]}` | 好友列表快照 |
 | `friend_event` | `{type, senderId, senderName, accepted?}` | 好友申请/回应 |
 | `friend_search_result` | `{found, userId, userName, online}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |

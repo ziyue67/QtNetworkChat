@@ -147,8 +147,10 @@ void QQNTEngineCommandRouter::route(const QJsonObject& command) {
         handleDisconnect(op, reqId);
     } else if (op == QLatin1String("set_user_info")) {
         handleSetUserInfo(op, reqId, payload);
-    } else if (op == QLatin1String("get_user_list") || op == QLatin1String("get_friend_list")) {
+    } else if (op == QLatin1String("get_user_list")) {
         handleGetUserList(op, reqId);
+    } else if (op == QLatin1String("get_friend_list")) {
+        handleGetFriendList(op, reqId);
     } else if (op == QLatin1String("get_group_list")) {
         handleGetGroupList(op, reqId);
     } else if (op == QLatin1String("search_friend")) {
@@ -276,9 +278,11 @@ void QQNTEngineCommandRouter::handleSetUserInfo(const QString& op, const QString
 }
 
 void QQNTEngineCommandRouter::handleGetUserList(const QString& op, const QString& reqId) {
-    QJsonObject payload = m_bridge->userListPayload();
-    payload[QStringLiteral("friends")] = payload.value(QStringLiteral("users")).toArray();
-    m_bridge->sendAck(op, reqId, payload);
+    m_bridge->sendAck(op, reqId, m_bridge->userListPayload());
+}
+
+void QQNTEngineCommandRouter::handleGetFriendList(const QString& op, const QString& reqId) {
+    m_bridge->sendAck(op, reqId, m_bridge->friendListPayload());
 }
 
 void QQNTEngineCommandRouter::handleGetGroupList(const QString& op, const QString& reqId) {
