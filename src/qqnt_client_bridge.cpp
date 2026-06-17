@@ -1,6 +1,7 @@
 #include "qqnt_client_bridge.h"
 
 #include "chatuser.h"
+#include "filetransferstatus.h"
 #include "message.h"
 #include "qqnt_engine_command_router.h"
 #include "qtnetworkchat_version.h"
@@ -37,6 +38,28 @@ void writeProtocolObject(const QJsonObject& object) {
     std::fwrite(data.constData(), 1, static_cast<size_t>(data.size()), stdout);
     std::fputc('\n', stdout);
     std::fflush(stdout);
+}
+
+bool isFileTransferDoneCategory(const QString& category) {
+    return category == QLatin1String("completed")
+        || category == QLatin1String("receive-completed")
+        || category == QLatin1String("receive-saved");
+}
+
+bool isFileTransferProgressOnlyCategory(const QString& category) {
+    return category == QLatin1String("prepared")
+        || category == QLatin1String("resumed")
+        || category == QLatin1String("receive-started");
+}
+
+QString fileTransferDirectionForCategory(const QString& category, const QString& direction) {
+    const QString trimmedDirection = direction.trimmed();
+    if (!trimmedDirection.isEmpty()) {
+        return trimmedDirection;
+    }
+    return category.startsWith(QLatin1String("receive-"))
+        ? QStringLiteral("incoming")
+        : QStringLiteral("outgoing");
 }
 }
 
@@ -270,14 +293,38 @@ void QQNTClientBridge::bindClientSignals() {
         sendEvent(QStringLiteral("file_progress"), payload);
     });
 
-    connect(&m_client, &Client::fileTransferStatusChanged, this, [this](const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes) {
+    connect(&m_client, &Client::fileTransferStatusChanged, this, [this](const QString& fileName,
+                                                                          const QString& transferId,
+                                                                          const QString& reason,
+                                                                          qint64 receivedBytes,
+                                                                          qint64 totalBytes,
+                                                                          const QString& direction,
+                                                                          const QString& filePath,
+                                                                          bool terminal) {
+        const FileTransferStatusInfo info = describeFileTransferReason(reason);
+        if (!terminal || isFileTransferProgressOnlyCategory(info.category)) {
+            return;
+        }
+
+        const QString resolvedDirection = fileTransferDirectionForCategory(info.category, direction);
+        if (reason.trimmed().isEmpty() || isFileTransferDoneCategory(info.category)) {
+            QJsonObject payload;
+            payload[QStringLiteral("transferId")] = transferId;
+            payload[QStringLiteral("fileName")] = fileName;
+            payload[QStringLiteral("filePath")] = filePath;
+            payload[QStringLiteral("direction")] = resolvedDirection;
+            sendEvent(QStringLiteral("file_done"), payload);
+            return;
+        }
+
         QJsonObject payload;
-        payload[QStringLiteral("fileName")] = fileName;
         payload[QStringLiteral("transferId")] = transferId;
         payload[QStringLiteral("reason")] = reason;
+        payload[QStringLiteral("fileName")] = fileName;
+        payload[QStringLiteral("direction")] = resolvedDirection;
         payload[QStringLiteral("bytes")] = QString::number(receivedBytes);
         payload[QStringLiteral("total")] = QString::number(totalBytes);
-        sendEvent(reason.isEmpty() ? QStringLiteral("file_done") : QStringLiteral("file_error"), payload);
+        sendEvent(QStringLiteral("file_error"), payload);
     });
 
     connect(&m_client, &Client::serverGroupSnapshotReceived, this, [this](const QJsonArray& groups) {

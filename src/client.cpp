@@ -3521,7 +3521,10 @@ bool Client::resumeSavedOutgoingTransfer(QString* rejectReason, int timeoutMs) {
                                        state["transferId"].toString(),
                                        reason,
                                        0,
-                                       state["fileSize"].toVariant().toLongLong());
+                                       state["fileSize"].toVariant().toLongLong(),
+                                       QStringLiteral("outgoing"),
+                                       state["filePath"].toString(),
+                                       true);
         emit connectionError(QStringLiteral("未完成发送需要重新发送：%1").arg(reason));
         return false;
     }
@@ -3829,7 +3832,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                    transferId,
                                    resumeMode ? QStringLiteral("transfer-resumed") : QStringLiteral("transfer-prepared"),
                                    resumeMode ? resumeConfirmedBytes : 0,
-                                   plainFileSize);
+                                   plainFileSize,
+                                   QStringLiteral("outgoing"),
+                                   stateFilePath,
+                                   false);
     if (!e2eFileRequired
         && !saveOutgoingTransferState(transferId,
                                       stateFilePath,
@@ -3893,7 +3899,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                            transferId,
                                            QStringLiteral("transfer-completed"),
                                            sentBytes,
-                                           plainFileSize);
+                                           plainFileSize,
+                                           QStringLiteral("outgoing"),
+                                           stateFilePath,
+                                           true);
         }
         return completed;
     }
@@ -3982,13 +3991,27 @@ bool Client::sendFilePayload(const QString& filePath,
             }
             if (!ackRejectReason.isEmpty()) {
                 if (isRetriableFileChunkRejectReason(ackRejectReason) && attempt < kChunkSendMaxAttempts) {
-                    emit fileTransferStatusChanged(displayFileName, transferId, ackRejectReason, sentBytes, plainFileSize);
+                    emit fileTransferStatusChanged(displayFileName,
+                                                   transferId,
+                                                   ackRejectReason,
+                                                   sentBytes,
+                                                   plainFileSize,
+                                                   QStringLiteral("outgoing"),
+                                                   stateFilePath,
+                                                   false);
                     emit connectionError(fileTransferUserMessage(ackRejectReason,
                         QString("文件分片暂时被拒绝，正在重试：%1").arg(ackRejectReason)) + QStringLiteral("，正在重试"));
                     ackRejectReason.clear();
                     continue;
                 }
-                emit fileTransferStatusChanged(displayFileName, transferId, ackRejectReason, sentBytes, plainFileSize);
+                emit fileTransferStatusChanged(displayFileName,
+                                               transferId,
+                                               ackRejectReason,
+                                               sentBytes,
+                                               plainFileSize,
+                                               QStringLiteral("outgoing"),
+                                               stateFilePath,
+                                               true);
                 emit connectionError(fileTransferUserMessage(ackRejectReason,
                     QString("文件分片发送被拒绝：%1").arg(ackRejectReason)));
                 file.close();
@@ -4065,7 +4088,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                                    transferId,
                                                    QStringLiteral("transfer-completed"),
                                                    sentBytes,
-                                                   plainFileSize);
+                                                   plainFileSize,
+                                                   QStringLiteral("outgoing"),
+                                                   stateFilePath,
+                                                   true);
                 }
                 return completed;
             }
@@ -4076,7 +4102,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                            transferId,
                                            QStringLiteral("chunk-ack-timeout"),
                                            sentBytes,
-                                           plainFileSize);
+                                           plainFileSize,
+                                           QStringLiteral("outgoing"),
+                                           stateFilePath,
+                                           true);
             emit connectionError(fileTransferUserMessage(QStringLiteral("chunk-ack-timeout"),
                 QString("文件分片发送超时：%1 第 %2/%3 片").arg(displayFileName).arg(chunkIndex + 1).arg(wireChunkCount)));
             file.close();
@@ -4101,7 +4130,10 @@ bool Client::sendFilePayload(const QString& filePath,
                                        transferId,
                                        QStringLiteral("transfer-completed"),
                                        sentBytes,
-                                       plainFileSize);
+                                       plainFileSize,
+                                       QStringLiteral("outgoing"),
+                                       stateFilePath,
+                                       true);
     }
     return completed;
 }
@@ -4530,7 +4562,14 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
             sendFileChunkAck(transferId, chunkIndex, false, reason);
             m_incomingFileTransfers.remove(transferId);
         }
-        emit fileTransferStatusChanged(fileName, transferId, reason, receivedBytes, fileSize);
+        emit fileTransferStatusChanged(fileName,
+                                       transferId,
+                                       reason,
+                                       receivedBytes,
+                                       fileSize,
+                                       QStringLiteral("incoming"),
+                                       QString(),
+                                       true);
         emit connectionError("文件分片接收失败：" + reason);
     };
 
@@ -4590,7 +4629,10 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
                                        transferId,
                                        QStringLiteral("receive-started"),
                                        0,
-                                       pending.fileSize);
+                                       pending.fileSize,
+                                       QStringLiteral("incoming"),
+                                       QString(),
+                                       false);
     } else if (pending.fileSize != fileSize
                || pending.chunkSize != chunkSize
                || pending.chunkCount != chunkCount
@@ -4670,7 +4712,10 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
                                    transferId,
                                    QStringLiteral("receive-completed"),
                                    fileData.size(),
-                                   fileSize);
+                                   fileSize,
+                                   QStringLiteral("incoming"),
+                                   QString(),
+                                   true);
     fullFile["fileData"] = QString::fromLatin1(fileData.toBase64());
     handleServerMessage(fullFile);
 }

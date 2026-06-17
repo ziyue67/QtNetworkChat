@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -240,6 +241,52 @@ public:
         return false;
     }
 
+    bool hasFileDone(const QString& expectedFileName, const QString& expectedDirection, const QString& expectedFilePath = QString()) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("file_done")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (payload.value(QStringLiteral("fileName")).toString() != expectedFileName
+                || payload.value(QStringLiteral("direction")).toString() != expectedDirection
+                || payload.value(QStringLiteral("transferId")).toString().trimmed().isEmpty()
+                || !payload.contains(QStringLiteral("filePath"))) {
+                continue;
+            }
+            if (!expectedFilePath.isEmpty()
+                && payload.value(QStringLiteral("filePath")).toString() != expectedFilePath) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    bool hasFileError() const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() == QLatin1String("file_error")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    QString fileEventSummary() const {
+        QStringList lines;
+        for (const QJsonObject& event : m_events) {
+            const QString eventName = event.value(QStringLiteral("event")).toString();
+            if (eventName != QLatin1String("file_progress")
+                && eventName != QLatin1String("file_done")
+                && eventName != QLatin1String("file_error")) {
+                continue;
+            }
+            lines << QStringLiteral("%1 %2")
+                .arg(eventName,
+                     QString::fromUtf8(QJsonDocument(event.value(QStringLiteral("payload")).toObject()).toJson(QJsonDocument::Compact)));
+        }
+        return lines.join(QLatin1Char('\n'));
+    }
+
     QString userId() const { return m_userId; }
     QString label() const { return m_label; }
     QString stderrText() const { return QString::fromLocal8Bit(m_stderr); }
@@ -416,8 +463,15 @@ int main(int argc, char* argv[]) {
                 "alice group file command should be written") && ok;
     ok = expect(waitFor([&] {
         return alice.hasOkAck(QStringLiteral("alice-group-file"))
-            && alice.hasFileProgress(groupFileName, QStringLiteral("outgoing"));
-    }, {&alice, &bob}), "alice QQNTEngine should emit group file progress with a transfer id") && ok;
+            && alice.hasFileProgress(groupFileName, QStringLiteral("outgoing"))
+            && bob.hasFileProgress(groupFileName, QStringLiteral("incoming"))
+            && alice.hasFileDone(groupFileName,
+                                 QStringLiteral("outgoing"),
+                                 QFileInfo(groupFilePath).absoluteFilePath())
+            && bob.hasFileDone(groupFileName, QStringLiteral("incoming"));
+    }, {&alice, &bob}), "QQNTEngine should emit completed group file IPC events with transfer ids") && ok;
+    ok = expect(!alice.hasFileError(), "alice QQNTEngine should not emit file_error for a completed group file") && ok;
+    ok = expect(!bob.hasFileError(), "bob QQNTEngine should not emit file_error for a completed group file") && ok;
 
     alice.pump();
     bob.pump();
@@ -432,6 +486,14 @@ int main(int argc, char* argv[]) {
         }
         if (!bobStderr.isEmpty()) {
             std::fprintf(stderr, "bob stderr:\n%s\n", qPrintable(bobStderr));
+        }
+        const QString aliceFileEvents = alice.fileEventSummary();
+        const QString bobFileEvents = bob.fileEventSummary();
+        if (!aliceFileEvents.isEmpty()) {
+            std::fprintf(stderr, "alice file events:\n%s\n", qPrintable(aliceFileEvents));
+        }
+        if (!bobFileEvents.isEmpty()) {
+            std::fprintf(stderr, "bob file events:\n%s\n", qPrintable(bobFileEvents));
         }
     }
 

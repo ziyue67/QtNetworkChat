@@ -57,6 +57,12 @@ private:
     void sendServerGroupMemberUpdated(QTcpSocket* socket, const QString& groupId, const QString& memberId, const QString& action) const;
     void sendToUser(const Message& msg);
     bool sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket);
+    bool sendFileChunkAndWaitForAck(QTcpSocket* socket,
+                                    const QByteArray& data,
+                                    const QString& transferId,
+                                    qint64 chunkIndex,
+                                    QString* rejectReason = nullptr,
+                                    qint64* receivedBytes = nullptr);
     void handleLogin(const QJsonObject& obj, QTcpSocket* socket);
     void handleMessage(const QJsonObject& obj, QTcpSocket* socket = nullptr);
     void handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket);
@@ -71,7 +77,6 @@ private:
     void handleFileChunk(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileTransferResumeQuery(const QJsonObject& obj, QTcpSocket* socket);
     void handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket);
-    bool waitForFileChunkAck(QTcpSocket* socket, const QString& transferId, qint64 chunkIndex, QString* rejectReason = nullptr, qint64* receivedBytes = nullptr);
     void cleanupExpiredFileTransfers();
     bool ensureRedisReadyForStartup();
     void tryRecoverRedisCommandAvailability();
