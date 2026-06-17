@@ -1318,6 +1318,7 @@ QJsonObject Server::databaseHealthSnapshot() const {
                 QStringLiteral("messages"),
                 QStringLiteral("offline_messages"),
                 QStringLiteral("friend_events"),
+                QStringLiteral("server_friends"),
                 QStringLiteral("server_groups"),
                 QStringLiteral("server_group_members"),
                 QStringLiteral("server_group_removed_members"),
@@ -2640,12 +2641,46 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
         return;
     }
 
-    QString receiverId = obj["receiverId"].toString();
-    const QString senderId = obj["senderId"].toString();
-    const QString senderName = obj["senderName"].toString();
+    QString receiverId = obj["receiverId"].toString().trimmed();
+    ChatUser* authenticatedSender = findUserBySocket(socket);
+    QString senderId = authenticatedSender ? authenticatedSender->id : obj["senderId"].toString().trimmed();
+    QString senderName = authenticatedSender ? authenticatedSender->name : obj["senderName"].toString().trimmed();
+    if (senderName.trimmed().isEmpty()) {
+        senderName = senderId;
+    }
+
+    QJsonObject forwarded = obj;
+    forwarded["senderId"] = senderId;
+    forwarded["senderName"] = senderName;
+    forwarded["receiverId"] = receiverId;
+    const bool accepted = forwarded["accepted"].toBool(false);
     QTcpSocket* targetSocket = m_userSockets.value(receiverId);
+
+    if (type == "friend_response" && accepted && !senderId.isEmpty() && !receiverId.isEmpty() && senderId != receiverId) {
+        QString receiverName = receiverId;
+        if (ChatUser* receiverUser = targetSocket ? findUserBySocket(targetSocket) : nullptr) {
+            receiverName = receiverUser->name.trimmed().isEmpty() ? receiverId : receiverUser->name;
+        } else {
+            const QJsonObject accounts = loadAccountsFromSqlite();
+            const QJsonObject receiverAccount = accounts.value(receiverId).toObject();
+            receiverName = receiverAccount.value("userName").toString(receiverName).trimmed();
+            if (senderName.trimmed().isEmpty() || senderName == senderId) {
+                const QJsonObject senderAccount = accounts.value(senderId).toObject();
+                senderName = senderAccount.value("userName").toString(senderName).trimmed();
+                forwarded["senderName"] = senderName.isEmpty() ? senderId : senderName;
+            }
+        }
+        saveAcceptedFriendshipToSqlite(senderId,
+                                      senderName.isEmpty() ? senderId : senderName,
+                                      receiverId,
+                                      receiverName.isEmpty() ? receiverId : receiverName);
+    }
+
     if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) {
-        saveFriendEventToSqlite(type, senderId, senderName, receiverId, QString(), "target_offline", obj["accepted"].toBool(false));
+        saveFriendEventToSqlite(type, senderId, senderName, receiverId, QString(), "target_offline", accepted);
+        if (type == "friend_response" && accepted && socket && socket->state() == QAbstractSocket::ConnectedState) {
+            sendFriendListSnapshot(senderId, socket);
+        }
         if (type == "friend_request" && socket && socket->state() == QAbstractSocket::ConnectedState) {
             QJsonObject response;
             response["type"] = "friend_request_sent";
@@ -2657,9 +2692,9 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
         }
         return;
     }
-    saveFriendEventToSqlite(type, senderId, senderName, receiverId, QString(), "delivered", obj["accepted"].toBool(false));
+    saveFriendEventToSqlite(type, senderId, senderName, receiverId, QString(), "delivered", accepted);
 
-    QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    QByteArray data = QJsonDocument(forwarded).toJson(QJsonDocument::Compact);
     targetSocket->write(data);
     targetSocket->write("\n");
     targetSocket->flush();
@@ -2672,6 +2707,13 @@ void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
         socket->write(QJsonDocument(response).toJson(QJsonDocument::Compact));
         socket->write("\n");
         socket->flush();
+    }
+
+    if (type == "friend_response" && accepted) {
+        if (socket && socket->state() == QAbstractSocket::ConnectedState) {
+            sendFriendListSnapshot(senderId, socket);
+        }
+        sendFriendListSnapshot(receiverId, targetSocket);
     }
 }
 
@@ -3195,6 +3237,7 @@ void Server::refreshConnectedClientViews() {
             continue;
         }
         sendUserList(clientSocket);
+        sendFriendListSnapshot(it.value().id, clientSocket);
         sendServerGroupSnapshot(it.value().id, clientSocket);
     }
 }
@@ -4329,6 +4372,98 @@ bool Server::saveFriendEventToSqlite(const QString& eventType,
     return ok;
 }
 
+bool Server::saveAcceptedFriendshipToSqlite(const QString& userId,
+                                        const QString& userName,
+                                        const QString& friendId,
+                                        const QString& friendName) const {
+    const QString normalizedUserId = userId.trimmed();
+    const QString normalizedFriendId = friendId.trimmed();
+    if (normalizedUserId.isEmpty() || normalizedFriendId.isEmpty() || normalizedUserId == normalizedFriendId || !ensureAccountDatabase()) {
+        return false;
+    }
+
+    const QString normalizedUserName = userName.trimmed().isEmpty() ? normalizedUserId : userName.trimmed();
+    const QString normalizedFriendName = friendName.trimmed().isEmpty() ? normalizedFriendId : friendName.trimmed();
+    const QString connectionName = "server_friends_write_" + QString::number(reinterpret_cast<quintptr>(this));
+    bool ok = false;
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName) && db.transaction()) {
+            auto upsertFriend = [&db](const QString& ownerId, const QString& peerId, const QString& peerName) {
+                QSqlQuery query(db);
+                query.prepare(insertReplaceSql(
+                    QStringLiteral("server_friends"),
+                    {QStringLiteral("user_id"), QStringLiteral("friend_id"), QStringLiteral("friend_name"), QStringLiteral("updated_at")},
+                    {QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("?"), QStringLiteral("CURRENT_TIMESTAMP")},
+                    {QStringLiteral("user_id"), QStringLiteral("friend_id")},
+                    {QStringLiteral("friend_name = EXCLUDED.friend_name"), QStringLiteral("updated_at = EXCLUDED.updated_at")}));
+                query.addBindValue(ownerId);
+                query.addBindValue(peerId);
+                query.addBindValue(peerName);
+                return query.exec();
+            };
+
+            ok = upsertFriend(normalizedUserId, normalizedFriendId, normalizedFriendName)
+                && upsertFriend(normalizedFriendId, normalizedUserId, normalizedUserName);
+            ok = ok ? db.commit() : false;
+            if (!ok) {
+                db.rollback();
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    return ok;
+}
+
+QVector<ChatUser> Server::loadFriendListFromSqlite(const QString& userId) const {
+    QVector<ChatUser> friends;
+    const QString normalizedUserId = userId.trimmed();
+    if (normalizedUserId.isEmpty() || !ensureAccountDatabase()) return friends;
+
+    const QString connectionName = "server_friends_read_"
+        + QString::number(reinterpret_cast<quintptr>(this)) + "_"
+        + QString::number(qHash(normalizedUserId));
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare("SELECT f.friend_id, "
+                          "COALESCE(NULLIF(a.user_name, ''), NULLIF(f.friend_name, ''), f.friend_id), "
+                          "COALESCE(a.avatar, ''), "
+                          "COALESCE(f.updated_at, f.created_at, '') "
+                          "FROM server_friends f "
+                          "LEFT JOIN accounts a ON a.account = f.friend_id "
+                          "WHERE f.user_id = ? "
+                          "ORDER BY LOWER(COALESCE(NULLIF(a.user_name, ''), NULLIF(f.friend_name, ''), f.friend_id)), f.friend_id");
+            query.addBindValue(normalizedUserId);
+            if (query.exec()) {
+                while (query.next()) {
+                    ChatUser user;
+                    user.id = query.value(0).toString().trimmed();
+                    if (user.id.isEmpty()) {
+                        continue;
+                    }
+                    user.name = query.value(1).toString().trimmed();
+                    if (user.name.isEmpty()) {
+                        user.name = user.id;
+                    }
+                    user.avatar = query.value(2).toString();
+                    const QString updatedAt = query.value(3).toString().trimmed();
+                    user.lastActive = QDateTime::fromString(updatedAt, Qt::ISODate);
+                    if (!user.lastActive.isValid()) {
+                        user.lastActive = QDateTime::fromString(updatedAt, QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+                    }
+                    friends.append(user);
+                }
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    return friends;
+}
+
 bool Server::ensureAccountDatabase() const {
     QString connectionName = "accounts_init_" + QString::number(reinterpret_cast<quintptr>(this));
     bool ok = false;
@@ -4401,6 +4536,15 @@ bool Server::ensureAccountDatabase() const {
                                                  "created_at TEXT DEFAULT CURRENT_TIMESTAMP)"));
             }
             if (ok) {
+                ok = query.exec("CREATE TABLE IF NOT EXISTS server_friends ("
+                                "user_id TEXT NOT NULL, "
+                                "friend_id TEXT NOT NULL, "
+                                "friend_name TEXT, "
+                                "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+                                "PRIMARY KEY(user_id, friend_id))");
+            }
+            if (ok) {
                 ok = query.exec("CREATE TABLE IF NOT EXISTS server_groups ("
                                 "group_id TEXT PRIMARY KEY, "
                                 "group_name TEXT NOT NULL, "
@@ -4471,6 +4615,7 @@ bool Server::ensureAccountDatabase() const {
                 query.exec("CREATE INDEX IF NOT EXISTS idx_offline_receiver ON offline_messages(receiver_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_sender ON friend_events(sender_id, id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_friend_events_receiver ON friend_events(receiver_id, id)");
+                query.exec("CREATE INDEX IF NOT EXISTS idx_server_friends_user ON server_friends(user_id, friend_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_members_user ON server_group_members(user_id, group_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_removed_members_user ON server_group_removed_members(user_id, group_id)");
                 query.exec("CREATE INDEX IF NOT EXISTS idx_server_group_announcements_group ON server_group_announcements(group_id, id)");
@@ -5797,6 +5942,46 @@ void Server::sendUserList(QTcpSocket* socket) {
     }
     obj["users"] = users;
 
+    socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
+
+void Server::sendFriendListSnapshot(const QString& userId, QTcpSocket* socket) const {
+    const QString normalizedUserId = userId.trimmed();
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState || normalizedUserId.isEmpty()) {
+        return;
+    }
+
+    QJsonArray friendsArray;
+    const QVector<ChatUser> friends = loadFriendListFromSqlite(normalizedUserId);
+    for (const ChatUser& friendUser : friends) {
+        const QString friendId = friendUser.id.trimmed();
+        if (friendId.isEmpty() || friendId == normalizedUserId) {
+            continue;
+        }
+
+        bool online = m_userSockets.contains(friendId);
+        if (!online) {
+            bool redisOnline = false;
+            online = isRedisUserOnline(friendId, &redisOnline) && redisOnline;
+        }
+
+        QJsonObject friendObj;
+        friendObj["id"] = friendId;
+        friendObj["name"] = friendUser.name.trimmed().isEmpty() ? friendId : friendUser.name.trimmed();
+        friendObj["avatar"] = friendUser.avatar;
+        friendObj["online"] = online;
+        if (friendUser.lastActive.isValid()) {
+            friendObj["lastActive"] = friendUser.lastActive.toUTC().toString(Qt::ISODateWithMs);
+        }
+        friendsArray.append(friendObj);
+    }
+
+    QJsonObject obj;
+    obj["type"] = "friend_list";
+    obj["friends"] = friendsArray;
+    obj["generatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();

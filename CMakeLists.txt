@@ -425,6 +425,29 @@ if(BUILD_TESTING)
     target_link_libraries(server_group_member_update_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
     qtnetworkchat_attach_production_adapter(server_group_member_update_test)
 
+    add_executable(server_friend_persistence_test
+        tests/server_friend_persistence_test.cpp
+        ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
+        src/server.cpp
+        ${QTNETWORKCHAT_REDIS_SERVICE_SOURCES}
+        src/client.cpp
+        ${QTNETWORKCHAT_CLIENT_SUPPORT_SOURCES}
+        src/redisclient.cpp
+        src/message.cpp
+        src/objectstore.cpp
+        src/heartbeatmonitor.cpp
+        include/server.h
+        include/client.h
+        include/redisclient.h
+        include/message.h
+        include/objectstore.h
+        include/chatuser.h
+        include/heartbeatmonitor.h
+    )
+    qtnetworkchat_target_include_dirs(server_friend_persistence_test)
+    target_link_libraries(server_friend_persistence_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql)
+    qtnetworkchat_attach_production_adapter(server_friend_persistence_test)
+
     add_executable(account_password_kdf_test
         tests/account_password_kdf_test.cpp
         ${QTNETWORKCHAT_TEST_REDIS_SUPPORT_SOURCES}
@@ -1048,6 +1071,13 @@ if(BUILD_TESTING)
         NAME ServerGroupMemberUpdateProtocol
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:server_group_member_update_test>
+            -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
+    )
+    add_test(
+        NAME ServerFriendPersistenceProtocol
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXE=$<TARGET_FILE:server_friend_persistence_test>
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

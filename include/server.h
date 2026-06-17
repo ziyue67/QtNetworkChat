@@ -54,6 +54,7 @@ private slots:
 private:
     void broadcastMessage(const Message& msg, QTcpSocket* excludeSocket = nullptr);
     void sendUserList(QTcpSocket* socket);
+    void sendFriendListSnapshot(const QString& userId, QTcpSocket* socket) const;
     void sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) const;
     void sendServerGroupMemberUpdated(QTcpSocket* socket, const QString& groupId, const QString& memberId, const QString& action) const;
     void sendToUser(const Message& msg);
@@ -133,6 +134,11 @@ private:
                                  const QString& queryAccount,
                                  const QString& eventState,
                                  bool accepted = false) const;
+    bool saveAcceptedFriendshipToSqlite(const QString& userId,
+                                        const QString& userName,
+                                        const QString& friendId,
+                                        const QString& friendName) const;
+    QVector<ChatUser> loadFriendListFromSqlite(const QString& userId) const;
     QString generateAccountId(const QJsonObject& accounts) const;
     QString accountDbPath() const;
     QJsonObject loadAccounts() const;

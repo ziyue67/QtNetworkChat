@@ -968,7 +968,7 @@ ChatUser Client::friendCandidateForId(const QString& userId, const QString& fall
                 const QString normalizedName = fallbackName.trimmed();
                 candidate.name = normalizedName.isEmpty() ? normalizedUserId : normalizedName;
             }
-            candidate.isOnline = true;
+            candidate.isOnline = user.isOnline;
             return candidate;
         }
     }
@@ -1015,7 +1015,7 @@ void Client::refreshFriendPresenceFromOnlineUsers() {
             }
             foundOnline = true;
             ChatUser updated = user;
-            updated.isOnline = true;
+            updated.isOnline = user.isOnline;
             if (updated.name.trimmed().isEmpty()) {
                 updated.name = friendUser.name;
             }
@@ -4413,6 +4413,37 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         }
         emit userListUpdated(m_onlineUsers);
         refreshFriendPresenceFromOnlineUsers();
+        return;
+    }
+
+    if (type == "friend_list") {
+        QVector<ChatUser> friends;
+        const QJsonArray friendsArray = obj["friends"].toArray();
+        friends.reserve(friendsArray.size());
+        for (const QJsonValue& value : friendsArray) {
+            const QJsonObject friendObject = value.toObject();
+            const QString friendId = friendObject["id"].toString().trimmed();
+            if (friendId.isEmpty() || friendId == m_userId) {
+                continue;
+            }
+
+            ChatUser friendUser;
+            friendUser.id = friendId;
+            friendUser.name = friendObject["name"].toString().trimmed();
+            if (friendUser.name.isEmpty()) {
+                friendUser.name = friendId;
+            }
+            friendUser.avatar = friendObject["avatar"].toString();
+            friendUser.isOnline = friendObject["online"].toBool(false);
+            friendUser.lastActive = QDateTime::fromString(friendObject["lastActive"].toString(), Qt::ISODateWithMs);
+            if (!friendUser.lastActive.isValid()) {
+                friendUser.lastActive = QDateTime::fromString(friendObject["lastActive"].toString(), Qt::ISODate);
+            }
+            friends.append(friendUser);
+        }
+        m_friends = friends;
+        refreshFriendPresenceFromOnlineUsers();
+        emit friendListUpdated(m_friends);
         return;
     }
 
