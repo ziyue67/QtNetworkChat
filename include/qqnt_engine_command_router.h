@@ -31,7 +31,7 @@ private:
     void handleUpdateGroupAnnouncement(const QString& op, const QString& reqId, const QJsonObject& payload);
     void handleUpdateGroupMember(const QString& op, const QString& reqId, const QJsonObject& payload);
     void handleSendFileLike(const QString& op, const QString& reqId, const QJsonObject& payload, bool imageMode);
-    void handleCancelTransfer(const QString& op, const QString& reqId);
+    void handleCancelTransfer(const QString& op, const QString& reqId, const QJsonObject& payload);
     void handleQueryResume(const QString& op, const QString& reqId, const QJsonObject& payload);
     void handleE2EStatus(const QString& op, const QString& reqId, const QJsonObject& payload);
     void handleE2EAnnounceIdentity(const QString& op, const QString& reqId, const QJsonObject& payload);

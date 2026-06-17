@@ -111,6 +111,7 @@ public:
     QString currentUserName() const { return m_userName; }
     bool currentLoginWasRegister() const { return m_loginWasRegister; }
     QString lastLoginError() const { return m_loginError; }
+    QString currentOutgoingTransferId() const { return m_currentOutgoingTransferId; }
     QVector<ChatUser> onlineUsers() const { return m_onlineUsers; }
     QString transportSecurityDescription() const;
     bool hasServerGroupSnapshot() const { return m_hasServerGroupSnapshot; }

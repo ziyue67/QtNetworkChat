@@ -104,8 +104,10 @@ int main(int argc, char* argv[]) {
                 "get_group_list command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
                 "e2e_status command should be written") && ok;
-    ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel\",\"payload\":{}}\n"),
-                "cancel_transfer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-missing\",\"payload\":{}}\n"),
+                "cancel_transfer missing field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-inactive\",\"payload\":{\"transferId\":\"smoke-transfer\"}}\n"),
+                "cancel_transfer inactive command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
@@ -121,7 +123,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-users"),
         QStringLiteral("smoke-groups"),
         QStringLiteral("smoke-e2e"),
-        QStringLiteral("smoke-cancel"),
+        QStringLiteral("smoke-cancel-missing"),
+        QStringLiteral("smoke-cancel-inactive"),
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-settings"),
         QStringLiteral("smoke-settings-invalid"),
@@ -198,11 +201,16 @@ int main(int argc, char* argv[]) {
                         "e2e_status should return ok ack") && ok;
             ok = expect(payload.value(QStringLiteral("localIdentity")).isObject(),
                         "e2e_status payload should include local identity object") && ok;
-        } else if (reqId == QLatin1String("smoke-cancel")) {
-            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
-                        "cancel_transfer should return ok ack") && ok;
-            ok = expect(payload.value(QStringLiteral("cancelled")).toBool(false),
-                        "cancel_transfer payload should confirm cancellation") && ok;
+        } else if (reqId == QLatin1String("smoke-cancel-missing")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "cancel_transfer missing transferId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "cancel_transfer missing transferId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-cancel-inactive")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "cancel_transfer without active transfer should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("transfer_not_active"),
+                        "cancel_transfer without active transfer should use transfer_not_active code") && ok;
         } else if (reqId == QLatin1String("smoke-profile")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "profile_update should return ok ack") && ok;

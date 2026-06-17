@@ -172,7 +172,7 @@ void QQNTEngineCommandRouter::route(const QJsonObject& command) {
     } else if (op == QLatin1String("send_image")) {
         handleSendFileLike(op, reqId, payload, true);
     } else if (op == QLatin1String("cancel_transfer")) {
-        handleCancelTransfer(op, reqId);
+        handleCancelTransfer(op, reqId, payload);
     } else if (op == QLatin1String("query_resume")) {
         handleQueryResume(op, reqId, payload);
     } else if (op == QLatin1String("e2e_status")) {
@@ -418,11 +418,34 @@ void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QStrin
                 QStringLiteral("File send requires an active server connection and readable file."));
 }
 
-void QQNTEngineCommandRouter::handleCancelTransfer(const QString& op, const QString& reqId) {
+void QQNTEngineCommandRouter::handleCancelTransfer(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    QString transferId;
+    if (!requireString(payload, QStringLiteral("transferId"), &transferId, op, reqId)) {
+        return;
+    }
+
+    const QString activeTransferId = m_bridge->client()->currentOutgoingTransferId().trimmed();
+    if (activeTransferId.isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("transfer_not_active"),
+                               QStringLiteral("No outgoing file transfer is active."));
+        return;
+    }
+
+    if (transferId != activeTransferId) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("transfer_mismatch"),
+                               QStringLiteral("Requested transferId does not match the active outgoing transfer."));
+        return;
+    }
+
     m_bridge->client()->cancelCurrentOutgoingTransfer();
-    QJsonObject payload;
-    payload[QStringLiteral("cancelled")] = true;
-    m_bridge->sendAck(op, reqId, payload);
+    QJsonObject response;
+    response[QStringLiteral("cancelled")] = true;
+    response[QStringLiteral("transferId")] = transferId;
+    m_bridge->sendAck(op, reqId, response);
 }
 
 void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString& reqId, const QJsonObject& payload) {
