@@ -117,7 +117,7 @@
 | `send_file` | `{receiverId?, groupId?, filePath}` | 发送文件 |
 | `send_image` | `{receiverId?, groupId?, filePath}` | 发送图片 |
 | `cancel_transfer` | `{transferId}` | 取消文件传输 |
-| `query_resume` | `{filePath, transferId, receiverId?}` | 查询断点续传状态 |
+| `query_resume` | `{transferId, filePath?, receiverId?, contentType?}` | 查询断点续传状态；提供 `filePath` 时按状态继续发送 |
 | `e2e_status` | `{peerId}` | 查询 E2E 会话状态 |
 | `e2e_announce_identity` | `{peerId}` | 公告身份密钥 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定或更新身份指纹 |

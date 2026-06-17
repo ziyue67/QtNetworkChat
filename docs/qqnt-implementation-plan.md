@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
 | `send_file` | `{receiverId/groupId, filePath}` | 发文件 |
 | `send_image` | `{receiverId/groupId, filePath}` | 发图片 |
 | `cancel_transfer` | `{transferId}` | 取消 |
-| `query_resume` | `{filePath, transferId, receiverId?}` | 续传查询 |
+| `query_resume` | `{transferId, filePath?, receiverId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送 |
 | `e2e_status` | `{peerId}` | E2E 状态 |
 | `e2e_announce_identity` | `{peerId}` | 身份公告 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定身份 |
@@ -758,7 +758,7 @@ npm run tauri build
 | 6.1 | Engine 文件/图片发送 + 进度事件 | GPT5.5 | 进度条更新 |
 | 6.2 | 前端 `FileMessage` + 下载/打开目录 | Kimi | 文件可接收 |
 | 6.3 | 取消传输 | Kimi | 前端取消后端停止 |
-| 6.4 | 断点续传查询与恢复 | GPT5.5 | 重发按续传状态继续 |
+| 6.4 | 断点续传查询与恢复 | GPT5.5 | `query_resume` 可只查状态，也可带 `filePath` 按续传状态继续发送 |
 
 ### Phase 7：设置与扩展
 

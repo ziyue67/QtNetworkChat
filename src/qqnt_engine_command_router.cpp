@@ -5,6 +5,55 @@
 #include <QByteArray>
 #include <QJsonArray>
 #include <QJsonValue>
+#include <QVector>
+
+namespace {
+QJsonObject makeResumeStatePayload(const QString& transferId,
+                                   qint64 confirmedBytes,
+                                   qint64 nextChunkIndex,
+                                   qint64 fileSize,
+                                   qint64 chunkSize,
+                                   qint64 chunkCount,
+                                   const QString& fileHash,
+                                   const QVector<qint64>& receivedChunks,
+                                   bool resumed) {
+    QJsonArray chunks;
+    for (qint64 chunk : receivedChunks) {
+        chunks.append(QString::number(chunk));
+    }
+
+    QJsonObject response;
+    response[QStringLiteral("canResume")] = true;
+    response[QStringLiteral("transferId")] = transferId;
+    response[QStringLiteral("confirmedBytes")] = QString::number(confirmedBytes);
+    response[QStringLiteral("nextChunkIndex")] = QString::number(nextChunkIndex);
+    response[QStringLiteral("fileSize")] = QString::number(fileSize);
+    response[QStringLiteral("chunkSize")] = QString::number(chunkSize);
+    response[QStringLiteral("chunkCount")] = QString::number(chunkCount);
+    response[QStringLiteral("fileHash")] = fileHash;
+    response[QStringLiteral("receivedChunks")] = chunks;
+    response[QStringLiteral("resumed")] = resumed;
+    response[QStringLiteral("mode")] = resumed ? QStringLiteral("resume") : QStringLiteral("query");
+    return response;
+}
+
+MessageType resumeMessageTypeFromPayload(const QJsonObject& payload) {
+    const QJsonValue messageTypeValue = payload.value(QStringLiteral("messageType"));
+    if (messageTypeValue.isDouble()
+        && messageTypeValue.toInt() == static_cast<int>(MessageType::Image)) {
+        return MessageType::Image;
+    }
+
+    const QString textType = payload.value(QStringLiteral("contentType"))
+        .toString(messageTypeValue.toString())
+        .trimmed()
+        .toLower();
+    if (textType == QLatin1String("image")) {
+        return MessageType::Image;
+    }
+    return MessageType::File;
+}
+}
 
 QQNTEngineCommandRouter::QQNTEngineCommandRouter(QQNTClientBridge* bridge)
     : QObject(bridge)
@@ -346,22 +395,49 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
         return;
     }
 
-    QJsonArray chunks;
-    for (qint64 chunk : receivedChunks) {
-        chunks.append(QString::number(chunk));
+    const QString filePath = payload.value(QStringLiteral("filePath")).toString().trimmed();
+    if (filePath.isEmpty()) {
+        m_bridge->sendAck(op,
+                          reqId,
+                          makeResumeStatePayload(transferId,
+                                                 confirmedBytes,
+                                                 nextChunkIndex,
+                                                 fileSize,
+                                                 chunkSize,
+                                                 chunkCount,
+                                                 fileHash,
+                                                 receivedChunks,
+                                                 false));
+        return;
     }
 
-    QJsonObject response;
-    response[QStringLiteral("canResume")] = true;
-    response[QStringLiteral("transferId")] = transferId;
-    response[QStringLiteral("confirmedBytes")] = QString::number(confirmedBytes);
-    response[QStringLiteral("nextChunkIndex")] = QString::number(nextChunkIndex);
-    response[QStringLiteral("fileSize")] = QString::number(fileSize);
-    response[QStringLiteral("chunkSize")] = QString::number(chunkSize);
-    response[QStringLiteral("chunkCount")] = QString::number(chunkCount);
-    response[QStringLiteral("fileHash")] = fileHash;
-    response[QStringLiteral("receivedChunks")] = chunks;
-    m_bridge->sendAck(op, reqId, response);
+    QString resumeRejectReason;
+    const QString receiverId = payload.value(QStringLiteral("receiverId")).toString().trimmed();
+    const MessageType messageType = resumeMessageTypeFromPayload(payload);
+    if (!m_bridge->client()->queryAndResumeFileTransfer(filePath,
+                                                        transferId,
+                                                        receiverId,
+                                                        messageType,
+                                                        &resumeRejectReason,
+                                                        5000)) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("resume_transfer_failed"),
+                               resumeRejectReason.isEmpty() ? QStringLiteral("Resume transfer failed.") : resumeRejectReason);
+        return;
+    }
+
+    m_bridge->sendAck(op,
+                      reqId,
+                      makeResumeStatePayload(transferId,
+                                             confirmedBytes,
+                                             nextChunkIndex,
+                                             fileSize,
+                                             chunkSize,
+                                             chunkCount,
+                                             fileHash,
+                                             receivedChunks,
+                                             true));
 }
 
 void QQNTEngineCommandRouter::handleE2EStatus(const QString& op, const QString& reqId, const QJsonObject& payload) {
