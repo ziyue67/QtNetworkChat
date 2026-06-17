@@ -13,7 +13,7 @@ cmake --build build-qt6-mingw --target QQNTEngine QQNTServer
 Run the focused backend validation used by this branch:
 
 ```powershell
-ctest --test-dir build-qt6-mingw -R "(QQNTEngineSmoke|QQNTProtocolDrift|QQNTServerRedis|RedisServerReadiness|RedisStartupRequirement)" --output-on-failure
+ctest --test-dir build-qt6-mingw -R "(QQNTEngineSmoke|QQNTEngineEndToEnd|QQNTProtocolDrift|QQNTServerRedis|RedisServerReadiness|RedisStartupRequirement)" --output-on-failure
 ```
 
 Run the Tauri Rust bridge tests:
