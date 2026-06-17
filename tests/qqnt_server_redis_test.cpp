@@ -82,6 +82,24 @@ bool socketBufferContains(QTcpSocket* socket, QByteArray* buffer, const QByteArr
     buffer->append(socket->readAll());
     return buffer->contains(needle);
 }
+
+QString extractGroupIdFromSnapshot(const QByteArray& buffer, const QString& groupName) {
+    const QList<QByteArray> lines = buffer.split('\n');
+    for (const QByteArray& line : lines) {
+        const QJsonDocument doc = QJsonDocument::fromJson(line.trimmed());
+        if (!doc.isObject()) continue;
+        const QJsonObject root = doc.object();
+        if (root.value("type").toString() != QLatin1String("server_group_snapshot")) continue;
+        const QJsonArray groups = root.value("groups").toArray();
+        for (const QJsonValue& groupValue : groups) {
+            const QJsonObject group = groupValue.toObject();
+            if (group.value("groupName").toString() == groupName) {
+                return group.value("groupId").toString();
+            }
+        }
+    }
+    return QString();
+}
 }
 
 int main(int argc, char** argv) {
@@ -179,6 +197,28 @@ int main(int argc, char** argv) {
                     && carolBuffer.contains("970003")
                     && carolBuffer.contains("Initial members should receive snapshots"),
                 "carol snapshot should include the initial member and announcement") && ok;
+
+    const QString privateGroupId = extractGroupIdFromSnapshot(aliceBuffer, QStringLiteral("Redis Private Group"));
+    ok = expect(!privateGroupId.isEmpty(), "created private group id should be available from snapshot") && ok;
+    const QString privateGroupText = QStringLiteral("Redis private group text should cross instances");
+    aliceBuffer.clear();
+    bobBuffer.clear();
+    carolBuffer.clear();
+    QJsonObject privateGroupMessage;
+    privateGroupMessage["type"] = "server_group_message";
+    privateGroupMessage["groupId"] = privateGroupId;
+    privateGroupMessage["content"] = privateGroupText;
+    ok = expect(writeJsonLine(&alice, privateGroupMessage), "alice should send a private group message") && ok;
+    ok = expect(waitFor([&] {
+        carolBuffer.append(carol.readAll());
+        return carolBuffer.contains(QByteArrayLiteral("\"type\":\"server_group_message\""))
+            && carolBuffer.contains(privateGroupId.toUtf8())
+            && carolBuffer.contains(privateGroupText.toUtf8());
+    }, 5000), "carol should receive the Redis-routed private group message") && ok;
+    ok = expect(!waitFor([&] {
+        bobBuffer.append(bob.readAll());
+        return bobBuffer.contains(privateGroupText.toUtf8());
+    }, 700), "non-member bob should not receive the private group message") && ok;
 
     alice.disconnectFromHost();
     bob.disconnectFromHost();

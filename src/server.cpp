@@ -2147,6 +2147,10 @@ void Server::handleServerGroupMessage(const QJsonObject& obj, QTcpSocket* socket
         memberSocket->flush();
     }
     saveMessageToSqlite(msg, QStringLiteral("server-group"));
+    const bool redisPublished = publishRedisMessageEvent(msg, QStringLiteral("server-group"));
+    if (m_redisService->isEnabled() && !redisPublished) {
+        sendSystemNotice(socket, QStringLiteral("群消息跨实例路由失败：其他实例成员可能未收到。"));
+    }
     emit newMessage(msg);
 }
 
@@ -3438,6 +3442,7 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
 
     const QJsonObject messageObj = event["message"].toObject();
     if (messageObj.isEmpty()) return;
+    const QString deliveryState = event.value("deliveryState").toString();
 
     const Message msg = Message::fromJson(QJsonDocument(messageObj).toJson(QJsonDocument::Compact));
     if (msg.senderId.isEmpty()) return;
@@ -3450,6 +3455,23 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     if (msg.receiverId.isEmpty()) {
         broadcastMessage(msg);
     } else {
+        if (deliveryState == QLatin1String("server-group") && msg.type == MessageType::Text) {
+            const QStringList groupMemberIds = serverGroupMemberIds(msg.receiverId);
+            if (!groupMemberIds.isEmpty()) {
+                for (const QString& memberId : groupMemberIds) {
+                    QTcpSocket* memberSocket = m_userSockets.value(memberId);
+                    if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
+                    QJsonObject forwarded = QJsonDocument::fromJson(msg.toJson()).object();
+                    forwarded["type"] = "server_group_message";
+                    forwarded["groupId"] = msg.receiverId;
+                    memberSocket->write(QJsonDocument(forwarded).toJson(QJsonDocument::Compact));
+                    memberSocket->write("\n");
+                    memberSocket->flush();
+                }
+                emit newMessage(msg);
+                return;
+            }
+        }
         QTcpSocket* targetSocket = m_userSockets.value(msg.receiverId);
         if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
             sendToUser(msg);
