@@ -613,7 +613,12 @@ fn ack_payload(packet: Value, op: &str) -> Result<Value, QQNTError> {
         ));
     }
 
-    Ok(packet.get("payload").cloned().unwrap_or_else(|| json!({})))
+    let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
+    if op == "ready" {
+        protocol::validate_ready_payload(&payload)?;
+    }
+
+    Ok(payload)
 }
 
 #[cfg(test)]
@@ -777,6 +782,23 @@ mod tests {
 
         assert_eq!(error.code, "login_failed");
         assert_eq!(error.source, "engine");
+    }
+
+    #[test]
+    fn ack_payload_validates_ready_protocol_version() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "ready",
+                "reqId": "req-ready",
+                "status": "ok",
+                "payload": { "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION + 1 }
+            }),
+            "ready",
+        )
+        .expect_err("ready ack protocol mismatch should fail");
+
+        assert_eq!(error.code, "protocol_version_mismatch");
     }
 
     #[test]
