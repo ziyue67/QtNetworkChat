@@ -130,6 +130,14 @@ export interface SendImagePayload {
   groupId?: string
 }
 
+export interface QueryResumePayload {
+  transferId: string
+  filePath?: string
+  receiverId?: string
+  groupId?: string
+  contentType?: 'file' | 'image'
+}
+
 // 事件 payload
 export interface EngineReadyPayload {
   protocolVersion: number

@@ -112,6 +112,10 @@ int main(int argc, char* argv[]) {
                 "send_file missing target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_image\",\"reqId\":\"smoke-file-ambiguous-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.png\",\"receiverId\":\"10001\",\"groupId\":\"public\"}}\n"),
                 "send_image ambiguous target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-missing-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
+                "query_resume missing target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-ambiguous-target\",\"payload\":{\"transferId\":\"resume-transfer\",\"filePath\":\"C:/tmp/missing.txt\",\"receiverId\":\"10001\",\"groupId\":\"public\"}}\n"),
+                "query_resume ambiguous target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
@@ -131,6 +135,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-cancel-inactive"),
         QStringLiteral("smoke-file-missing-target"),
         QStringLiteral("smoke-file-ambiguous-target"),
+        QStringLiteral("smoke-resume-missing-target"),
+        QStringLiteral("smoke-resume-ambiguous-target"),
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-settings"),
         QStringLiteral("smoke-settings-invalid"),
@@ -227,6 +233,16 @@ int main(int argc, char* argv[]) {
                         "send_image with two targets should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("ambiguous_target"),
                         "send_image with two targets should use ambiguous_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-missing-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume without target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "query_resume without target should use missing_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-ambiguous-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with two targets should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("ambiguous_target"),
+                        "query_resume with two targets should use ambiguous_target code") && ok;
         } else if (reqId == QLatin1String("smoke-profile")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "profile_update should return ok ack") && ok;

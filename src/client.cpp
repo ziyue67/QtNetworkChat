@@ -2964,7 +2964,8 @@ bool Client::resumeFileTransfer(const QString& filePath,
                                 qint64 confirmedBytes,
                                 qint64 nextChunkIndex,
                                 const QString& receiverId,
-                                MessageType messageType) {
+                                MessageType messageType,
+                                const QString& serverGroupId) {
     const QString trimmedTransferId = transferId.trimmed();
     if (trimmedTransferId.isEmpty() || confirmedBytes < 0 || nextChunkIndex < 0) {
         return false;
@@ -2976,7 +2977,15 @@ bool Client::resumeFileTransfer(const QString& filePath,
     const QString contentPrefix = messageType == MessageType::Image
         ? "发送了图片: "
         : "发送了文件: ";
-    return sendFilePayload(filePath, receiverId, messageType, contentPrefix, trimmedTransferId, confirmedBytes, nextChunkIndex);
+    return sendFilePayload(filePath,
+                           receiverId,
+                           messageType,
+                           contentPrefix,
+                           trimmedTransferId,
+                           confirmedBytes,
+                           nextChunkIndex,
+                           QVector<qint64>(),
+                           serverGroupId);
 }
 
 bool Client::queryAndResumeFileTransfer(const QString& filePath,
@@ -2984,7 +2993,8 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
                                         const QString& receiverId,
                                         MessageType messageType,
                                         QString* rejectReason,
-                                        int timeoutMs) {
+                                        int timeoutMs,
+                                        const QString& serverGroupId) {
     if (rejectReason) rejectReason->clear();
     if (messageType != MessageType::File && messageType != MessageType::Image) {
         if (rejectReason) *rejectReason = "续传类型非法";
@@ -3092,7 +3102,8 @@ bool Client::queryAndResumeFileTransfer(const QString& filePath,
                            trimmedTransferId,
                            confirmedBytes,
                            firstMissingChunkIndex,
-                           receivedChunks);
+                           receivedChunks,
+                           serverGroupId);
 }
 
 bool Client::queryFileTransferResumeState(const QString& transferId,
@@ -3146,7 +3157,8 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
                                        const QString& fileHash,
                                        qint64 fileSize,
                                        qint64 chunkCount,
-                                       const QJsonObject& recoveryPolicy) {
+                                       const QJsonObject& recoveryPolicy,
+                                       const QString& serverGroupId) {
     const QString trimmedTransferId = transferId.trimmed();
     const QString trimmedFileHash = fileHash.trimmed();
     if (trimmedTransferId.isEmpty()
@@ -3162,6 +3174,7 @@ bool Client::saveOutgoingTransferState(const QString& transferId,
     state["transferId"] = trimmedTransferId;
     state["filePath"] = QFileInfo(filePath).absoluteFilePath();
     state["receiverId"] = receiverId;
+    state["groupId"] = serverGroupId.trimmed();
     state["messageType"] = static_cast<int>(messageType);
     state["fileHash"] = trimmedFileHash;
     state["fileSize"] = QString::number(fileSize);
@@ -3338,6 +3351,7 @@ QJsonObject Client::savedOutgoingTransferRecoveryStatus() const {
         status["filePath"] = state.value("filePath").toString();
     }
     status["receiverId"] = state.value("receiverId").toString();
+    status["groupId"] = state.value("groupId").toString();
     status["messageType"] = state.value("messageType").toInt();
     status["fileHash"] = state.value("fileHash").toString();
     status["fileSize"] = state.value("fileSize").toString();
@@ -3590,7 +3604,8 @@ bool Client::resumeSavedOutgoingTransfer(QString* rejectReason, int timeoutMs) {
         state["receiverId"].toString(),
         messageType,
         &resumeReason,
-        timeoutMs);
+        timeoutMs,
+        state.value("groupId").toString());
     if (!resumed) {
         if (rejectReason) *rejectReason = resumeReason.isEmpty() ? "发送任务恢复失败" : resumeReason;
         return false;
@@ -3610,6 +3625,9 @@ void Client::cancelCurrentOutgoingTransfer() {
         obj["senderId"] = m_userId;
         obj["senderName"] = m_userName;
         obj["receiverId"] = m_currentOutgoingReceiverId;
+        if (!m_currentOutgoingGroupId.isEmpty()) {
+            obj["groupId"] = m_currentOutgoingGroupId;
+        }
         obj["fileName"] = m_currentOutgoingFileName;
         sendJson(obj);
     }
@@ -3646,12 +3664,14 @@ bool Client::sendFilePayload(const QString& filePath,
     m_cancelOutgoingTransfer = false;
     m_currentOutgoingTransferId.clear();
     m_currentOutgoingReceiverId.clear();
+    m_currentOutgoingGroupId.clear();
     m_currentOutgoingFileName.clear();
     struct OutgoingTransferCleanup {
         Client* client;
         ~OutgoingTransferCleanup() {
             client->m_currentOutgoingTransferId.clear();
             client->m_currentOutgoingReceiverId.clear();
+            client->m_currentOutgoingGroupId.clear();
             client->m_currentOutgoingFileName.clear();
         }
     } cleanup{this};
@@ -3840,6 +3860,7 @@ bool Client::sendFilePayload(const QString& filePath,
     if (!e2eFileRequired && !file.open(QIODevice::ReadOnly)) return false;
     m_currentOutgoingTransferId = transferId;
     m_currentOutgoingReceiverId = receiverId;
+    m_currentOutgoingGroupId = trimmedServerGroupId;
     m_currentOutgoingFileName = displayFileName;
     emit fileTransferStatusChanged(displayFileName,
                                    transferId,
@@ -3856,7 +3877,9 @@ bool Client::sendFilePayload(const QString& filePath,
                                       messageType,
                                       wireFileHash,
                                       wireFileSize,
-                                      wireChunkCount)) {
+                                      wireChunkCount,
+                                      QJsonObject(),
+                                      trimmedServerGroupId)) {
         file.close();
         return false;
     }
@@ -3894,7 +3917,8 @@ bool Client::sendFilePayload(const QString& filePath,
                                        wireFileHash,
                                        wireFileSize,
                                        wireChunkCount,
-                                       recoveryPolicy)) {
+                                       recoveryPolicy,
+                                       trimmedServerGroupId)) {
             removeE2EFileResumeCache(transferId);
             file.close();
             return false;

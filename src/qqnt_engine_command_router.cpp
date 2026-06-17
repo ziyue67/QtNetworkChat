@@ -476,6 +476,23 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
     QString fileHash;
     QVector<qint64> receivedChunks;
     QString rejectReason;
+    const QString filePath = payload.value(QStringLiteral("filePath")).toString().trimmed();
+    const QString groupId = payload.value(QStringLiteral("groupId")).toString().trimmed();
+    const QString receiverId = payload.value(QStringLiteral("receiverId")).toString().trimmed();
+    if (!filePath.isEmpty() && groupId.isEmpty() && receiverId.isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("missing_target"),
+                               QStringLiteral("Resume transfer requires exactly one of receiverId or groupId."));
+        return;
+    }
+    if (!filePath.isEmpty() && !groupId.isEmpty() && !receiverId.isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("ambiguous_target"),
+                               QStringLiteral("Resume transfer target must not include both receiverId and groupId."));
+        return;
+    }
     if (!m_bridge->client()->queryFileTransferResumeState(transferId,
                                                           &confirmedBytes,
                                                           &nextChunkIndex,
@@ -493,7 +510,6 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
         return;
     }
 
-    const QString filePath = payload.value(QStringLiteral("filePath")).toString().trimmed();
     if (filePath.isEmpty()) {
         m_bridge->sendAck(op,
                           reqId,
@@ -510,14 +526,14 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
     }
 
     QString resumeRejectReason;
-    const QString receiverId = payload.value(QStringLiteral("receiverId")).toString().trimmed();
     const MessageType messageType = resumeMessageTypeFromPayload(payload);
     if (!m_bridge->client()->queryAndResumeFileTransfer(filePath,
                                                         transferId,
                                                         receiverId,
                                                         messageType,
                                                         &resumeRejectReason,
-                                                        5000)) {
+                                                        5000,
+                                                        groupId)) {
         m_bridge->sendErrorAck(op,
                                reqId,
                                QStringLiteral("resume_transfer_failed"),

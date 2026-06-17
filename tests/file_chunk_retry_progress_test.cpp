@@ -187,6 +187,7 @@ public:
     int resumeQueries() const { return m_resumeQueries; }
     qint64 acknowledgedBytes() const { return m_acknowledgedBytes; }
     QVector<qint64> resumedChunkIndexes() const { return m_resumedChunkIndexes; }
+    QString lastResumedGroupId() const { return m_lastResumedGroupId; }
     qint64 resumedAcknowledgedBytes() const { return m_resumedAcknowledgedBytes; }
     QVector<qint64> autoResumeChunkIndexes() const { return m_autoResumeChunkIndexes; }
     int autoResumeQueries() const { return m_autoResumeQueries; }
@@ -621,6 +622,7 @@ private:
             || transferId == QString::fromLatin1(kCrossConnectionSavedResumeTransferId)
             || transferId == QString::fromLatin1(kGapResumeTransferId)) {
             m_resumedChunkIndexes.append(chunkIndex);
+            m_lastResumedGroupId = message.value("groupId").toString();
             m_resumedAcknowledgedBytes = receivedBytes;
             QJsonObject ack;
             ack["type"] = "file_chunk_ack";
@@ -704,6 +706,7 @@ private:
     int m_resumeQueries = 0;
     qint64 m_acknowledgedBytes = 0;
     QVector<qint64> m_resumedChunkIndexes;
+    QString m_lastResumedGroupId;
     qint64 m_resumedAcknowledgedBytes = 0;
     qint64 m_resumeFileSize = 0;
     QString m_resumeFileHash;
@@ -1023,6 +1026,8 @@ int main(int argc, char** argv) {
                 "persisted state should include the absolute file path") && ok;
     ok = expect(persistedState["receiverId"].toString() == "960002",
                 "persisted state should include the receiver id") && ok;
+    ok = expect(persistedState["groupId"].toString().isEmpty(),
+                "private persisted state should keep an empty group id") && ok;
     ok = expect(persistedState["messageType"].toInt() == static_cast<int>(MessageType::Image),
                 "persisted state should include the message type") && ok;
     ok = expect(persistedState["fileHash"].toString() == resumeFileHash,
@@ -1082,6 +1087,33 @@ int main(int argc, char** argv) {
                 "successful saved transfer recovery should not expose a reject reason") && ok;
     ok = expect(!sender.loadOutgoingTransferState(nullptr),
                 "successful saved transfer recovery should clear persisted state") && ok;
+
+    ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kQueryAndResumeTransferId),
+                                                 resumeFilePath,
+                                                 QString(),
+                                                 MessageType::File,
+                                                 resumeFileHash,
+                                                 resumeFileSize,
+                                                 resumeChunkCount,
+                                                 QJsonObject(),
+                                                 "group-resume-1"),
+                "sender should persist a group target for saved transfer recovery") && ok;
+    QJsonObject groupPersistedState;
+    ok = expect(sender.loadOutgoingTransferState(&groupPersistedState),
+                "sender should load group-targeted outgoing transfer resume metadata") && ok;
+    ok = expect(groupPersistedState["receiverId"].toString().isEmpty(),
+                "group persisted state should keep an empty receiver id") && ok;
+    ok = expect(groupPersistedState["groupId"].toString() == "group-resume-1",
+                "group persisted state should include the group id") && ok;
+    QString groupSavedResumeReason;
+    ok = expect(sender.resumeSavedOutgoingTransfer(&groupSavedResumeReason, 5000),
+                "sender should resume saved transfer with a group target") && ok;
+    ok = expect(server.lastResumedGroupId() == "group-resume-1",
+                "saved group transfer recovery should preserve the group id on resumed chunks") && ok;
+    ok = expect(groupSavedResumeReason.isEmpty(),
+                "successful group saved transfer recovery should not expose a reject reason") && ok;
+    ok = expect(!sender.loadOutgoingTransferState(nullptr),
+                "successful group saved transfer recovery should clear persisted state") && ok;
 
     ok = expect(sender.saveOutgoingTransferState(QString::fromLatin1(kCrossConnectionSavedResumeTransferId),
                                                  resumeFilePath,

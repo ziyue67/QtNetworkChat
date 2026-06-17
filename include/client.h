@@ -71,13 +71,15 @@ public:
                             qint64 confirmedBytes,
                             qint64 nextChunkIndex,
                             const QString& receiverId = QString(),
-                            MessageType messageType = MessageType::File);
+                            MessageType messageType = MessageType::File,
+                            const QString& serverGroupId = QString());
     bool queryAndResumeFileTransfer(const QString& filePath,
                                     const QString& transferId,
                                     const QString& receiverId = QString(),
                                     MessageType messageType = MessageType::File,
                                     QString* rejectReason = nullptr,
-                                    int timeoutMs = 5000);
+                                    int timeoutMs = 5000,
+                                    const QString& serverGroupId = QString());
     bool queryFileTransferResumeState(const QString& transferId,
                                       qint64* confirmedBytes = nullptr,
                                       qint64* nextChunkIndex = nullptr,
@@ -95,7 +97,8 @@ public:
                                    const QString& fileHash,
                                    qint64 fileSize,
                                    qint64 chunkCount,
-                                   const QJsonObject& recoveryPolicy = QJsonObject());
+                                   const QJsonObject& recoveryPolicy = QJsonObject(),
+                                   const QString& serverGroupId = QString());
     bool loadOutgoingTransferState(QJsonObject* state) const;
     QJsonObject savedOutgoingTransferRecoveryStatus() const;
     bool clearOutgoingTransferState();
@@ -289,6 +292,7 @@ private:
     bool m_cancelOutgoingTransfer;
     QString m_currentOutgoingTransferId;
     QString m_currentOutgoingReceiverId;
+    QString m_currentOutgoingGroupId;
     QString m_currentOutgoingFileName;
     QJsonArray m_serverGroups;
     QJsonArray m_removedServerGroups;

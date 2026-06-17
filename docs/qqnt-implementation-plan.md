@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
 | `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
 | `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
 | `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
-| `query_resume` | `{transferId, filePath?, receiverId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送 |
+| `query_resume` | `{transferId, filePath?, receiverId xor groupId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送，恢复发送目标必须二选一 |
 | `e2e_status` | `{peerId?}` | E2E 状态；省略时返回本机身份，提供时追加会话与对端身份 |
 | `e2e_announce_identity` | `{peerId}` | 身份公告 |
 | `e2e_pin_identity` | `{peerId, fingerprint?}` | 固定身份 |
@@ -768,9 +768,9 @@ npm run tauri build
 | 6.1 | Engine 文件/图片发送 + 进度事件 | GPT5.5 | 进度条更新 |
 | 6.2 | 前端 `FileMessage` + 下载/打开目录 | Kimi | 文件可接收 |
 | 6.3 | 取消传输 | Kimi/GPT5.5 | 前端传入当前 `transferId` 后，Engine 校验并停止当前发送任务 |
-| 6.4 | 断点续传查询与恢复 | GPT5.5 | `query_resume` 可只查状态，也可带 `filePath` 按续传状态继续发送 |
+| 6.4 | 断点续传查询与恢复 | GPT5.5 | `query_resume` 可只查状态，也可带 `filePath` 和 `receiverId`/`groupId` 二选一目标按续传状态继续发送 |
 
-> 后端已支持 `send_file`/`send_image`、`file_progress`/`file_done`/`file_error` 事件、`query_resume` 查询与恢复；文件/图片发送目标按 `receiverId`/`groupId` 二选一校验；`cancel_transfer` 按当前活动 `transferId` 校验，缺失、无活动或不匹配时返回错误 ack。
+> 后端已支持 `send_file`/`send_image`、`file_progress`/`file_done`/`file_error` 事件、`query_resume` 查询与恢复；文件/图片发送和续传恢复目标按 `receiverId`/`groupId` 二选一校验，群文件续传会保留 `groupId`；`cancel_transfer` 按当前活动 `transferId` 校验，缺失、无活动或不匹配时返回错误 ack。
 
 ### Phase 7：设置与扩展
 

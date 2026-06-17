@@ -372,13 +372,14 @@ pub async fn query_resume(
     transfer_id: String,
     file_path: Option<String>,
     receiver_id: Option<String>,
+    group_id: Option<String>,
     content_type: Option<String>,
 ) -> Result<Value, QQNTError> {
     call_engine_payload(
         state.inner(),
         "query_resume",
         req_id,
-        query_resume_payload(transfer_id, file_path, receiver_id, content_type),
+        query_resume_payload(transfer_id, file_path, receiver_id, group_id, content_type),
     )
     .await
 }
@@ -547,12 +548,14 @@ fn query_resume_payload(
     transfer_id: String,
     file_path: Option<String>,
     receiver_id: Option<String>,
+    group_id: Option<String>,
     content_type: Option<String>,
 ) -> Value {
     json!({
         "transferId": transfer_id,
         "filePath": file_path,
         "receiverId": receiver_id,
+        "groupId": group_id,
         "contentType": content_type
     })
 }
@@ -728,12 +731,14 @@ mod tests {
                 "transfer-1".to_string(),
                 Some("C:/tmp/a.png".to_string()),
                 None,
+                Some("group-1".to_string()),
                 Some("image".to_string()),
             ),
         );
 
         assert_eq!(packet["payload"]["transferId"], "transfer-1");
         assert_eq!(packet["payload"]["filePath"], "C:/tmp/a.png");
+        assert_eq!(packet["payload"]["groupId"], "group-1");
         assert_eq!(packet["payload"]["contentType"], "image");
         assert!(packet["payload"].get("receiverId").is_none());
     }
