@@ -63,7 +63,7 @@ export function WindowControls({ variant = 'full' }: WindowControlsProps) {
   }
 
   return (
-    <div className="flex h-full items-center" data-tauri-drag-region={false}>
+    <div className="flex h-full items-center" onMouseDown={(event) => event.stopPropagation()}>
       {showMinMax ? (
         <>
           <button

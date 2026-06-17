@@ -344,8 +344,19 @@ export interface User {
   signature?: string
 }
 
+export interface QQNTAppEntry {
+  id: string
+  icon: string
+  label: string
+  path: string
+  mock: boolean
+}
+
 export interface Contact extends User {
   remark?: string
+  announcement?: string
+  memberCount?: number
+  members?: Contact[]
 }
 
 export interface Session {
@@ -362,6 +373,8 @@ export interface Session {
 
 export interface Message {
   id: string
+  messageId?: string
+  clientMessageId?: string
   sessionId: string
   senderId: string
   senderName: string
@@ -379,6 +392,7 @@ export interface FileInfo {
   mime: string
   progress: number
   path?: string
+  error?: string
 }
 
 export interface EngineState {

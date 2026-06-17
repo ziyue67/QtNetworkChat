@@ -18,6 +18,12 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
   const [localError, setLocalError] = useState('')
   const [registeredHint, setRegisteredHint] = useState(false)
 
+  function switchMode(nextMode: AuthMode) {
+    setMode(nextMode)
+    setLocalError('')
+    setRegisteredHint(false)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLocalError('')
@@ -50,54 +56,22 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
   const displayError = localError || error
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] py-3">
+    <div className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] px-4 pb-5 pt-3">
       <form
         onSubmit={handleSubmit}
-        className="w-[calc(100%-32px)] rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] p-5 shadow-[var(--qq-shadow)]"
+        className="flex h-full w-full flex-col rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] px-5 pb-4 pt-5 shadow-[var(--qq-shadow)]"
       >
-        <div className="mb-3 flex items-center justify-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--qq-primary)] text-sm font-bold text-white">
+        <div className="flex flex-col items-center">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--qq-primary)] text-lg font-bold text-white shadow-sm">
             Q
           </div>
-          <h1 className="text-base font-semibold text-[var(--qq-text)]">QQ NT</h1>
+          <h1 className="mt-2 text-base font-semibold text-[var(--qq-text)]">QQ NT</h1>
+          <p className="mt-1 text-xs text-[var(--qq-text-secondary)]">
+            {mode === 'login' ? '账号密码登录' : '注册 QQ NT 账号'}
+          </p>
         </div>
 
-        <div className="mb-3 flex rounded-lg bg-[var(--qq-bg-tertiary)] p-1">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('login')
-              setLocalError('')
-              setRegisteredHint(false)
-            }}
-            className={cn(
-              'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
-              mode === 'login'
-                ? 'bg-[var(--qq-surface)] text-[var(--qq-text)] shadow-sm'
-                : 'text-[var(--qq-text-secondary)] hover:text-[var(--qq-text)]'
-            )}
-          >
-            账号密码登录
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode('register')
-              setLocalError('')
-              setRegisteredHint(false)
-            }}
-            className={cn(
-              'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
-              mode === 'register'
-                ? 'bg-[var(--qq-surface)] text-[var(--qq-text)] shadow-sm'
-                : 'text-[var(--qq-text-secondary)] hover:text-[var(--qq-text)]'
-            )}
-          >
-            注册账号
-          </button>
-        </div>
-
-        <div className="space-y-2.5">
+        <div className="mt-4 space-y-2.5">
           <div>
             <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">账号</label>
             <input
@@ -134,17 +108,19 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
           ) : null}
         </div>
 
-        {displayError ? (
-          <p className="mt-2 text-center text-xs text-[var(--qq-danger)]">{displayError}</p>
-        ) : null}
-        {registeredHint ? (
-          <p className="mt-2 text-center text-xs text-[var(--qq-success)]">注册成功，请登录</p>
-        ) : null}
+        <div className="min-h-6">
+          {displayError ? (
+            <p className="mt-2 text-center text-xs text-[var(--qq-danger)]">{displayError}</p>
+          ) : null}
+          {registeredHint ? (
+            <p className="mt-2 text-center text-xs text-[var(--qq-success)]">注册成功，请登录</p>
+          ) : null}
+        </div>
 
         <button
           type="submit"
           disabled={loading}
-          className="mt-3 w-full rounded-md bg-[var(--qq-primary)] py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--qq-primary-hover)] disabled:opacity-60"
+          className="mt-auto w-full rounded-md bg-[var(--qq-primary)] py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--qq-primary-hover)] disabled:opacity-60"
         >
           {loading
             ? mode === 'login'
@@ -154,6 +130,32 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
               ? '登录'
               : '注册'}
         </button>
+
+        <div className="mt-3 flex items-center justify-center gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => switchMode('login')}
+            disabled={loading}
+            className={cn(
+              'transition-colors hover:text-[var(--qq-primary)] disabled:opacity-60',
+              mode === 'login' ? 'font-medium text-[var(--qq-primary)]' : 'text-[var(--qq-text-secondary)]'
+            )}
+          >
+            账号密码登录
+          </button>
+          <span className="text-[var(--qq-text-tertiary)]">|</span>
+          <button
+            type="button"
+            onClick={() => switchMode('register')}
+            disabled={loading}
+            className={cn(
+              'transition-colors hover:text-[var(--qq-primary)] disabled:opacity-60',
+              mode === 'register' ? 'font-medium text-[var(--qq-primary)]' : 'text-[var(--qq-text-secondary)]'
+            )}
+          >
+            注册账号
+          </button>
+        </div>
       </form>
     </div>
   )

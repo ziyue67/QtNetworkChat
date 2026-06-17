@@ -30,4 +30,18 @@ describe('messageStore', () => {
 
     expect(useMessageStore.getState().messages['10001'][0].status).toBe('failed')
   })
+
+  it('deduplicates backend echoes by clientMessageId', () => {
+    useMessageStore.getState().addMessage('10001', { ...message, clientMessageId: 'client-1' })
+    useMessageStore.getState().addMessage('10001', {
+      ...message,
+      id: 'server-1',
+      messageId: 'server-1',
+      clientMessageId: 'client-1',
+      status: 'sent'
+    })
+
+    expect(useMessageStore.getState().messages['10001']).toHaveLength(1)
+    expect(useMessageStore.getState().messages['10001'][0]).toMatchObject({ id: 'server-1', status: 'sent' })
+  })
 })

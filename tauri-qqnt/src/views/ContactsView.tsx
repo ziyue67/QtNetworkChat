@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { UserPlus, Users } from 'lucide-react'
 import { useContactStore } from '@/stores/contactStore'
 import { useSessionStore } from '@/stores/sessionStore'
@@ -8,6 +9,7 @@ import { ContactCard } from '@/components/contact/ContactCard'
 import { AddFriendModal } from '@/components/contact/AddFriendModal'
 import { CreateGroupModal } from '@/components/contact/CreateGroupModal'
 import { SearchBar } from '@/components/session/SearchBar'
+import { createGroup, searchFriend, sendFriendRequest } from '@/api/qqnt'
 import type { Contact } from '@/types/qqnt'
 
 export function ContactsView() {
@@ -23,6 +25,7 @@ export function ContactsView() {
   const [query, setQuery] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const navigate = useNavigate()
 
   const selectedContact = useMemo(() => {
     return [...contacts, ...groups].find((c) => c.id === selectedId) || null
@@ -57,34 +60,58 @@ export function ContactsView() {
       ])
     }
     setActiveRoute('/messages')
-    // eslint-disable-next-line no-console
-    console.log(`[ContactsView] navigate to session ${sessionId}`)
+    navigate('/messages')
   }
 
   async function handleSearch(keyword: string): Promise<Contact | null> {
-    // 真实后端接入后换成 api/qqnt.searchFriend
-    await new Promise((resolve) => setTimeout(resolve, 400))
-    if (keyword.length < 3) return null
-    return {
-      id: `u-${keyword}`,
-      nickname: `用户 ${keyword}`,
-      status: 'online',
-      signature: '这是 mock 搜索结果'
+    try {
+      const ack = await searchFriend(keyword)
+      if (ack.status === 'ok' && ack.payload?.found && ack.payload.userId && ack.payload.userName) {
+        return {
+          id: ack.payload.userId,
+          nickname: ack.payload.userName,
+          status: ack.payload.online ? 'online' : 'offline'
+        }
+      }
+    } catch {
+      if (keyword.length < 3) return null
+      return {
+        id: `u-${keyword}`,
+        nickname: `用户 ${keyword}`,
+        status: 'online',
+        signature: '本地 Mock 搜索结果'
+      }
     }
+    return null
   }
 
   async function handleAdd(contact: Contact): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    try {
+      const ack = await sendFriendRequest(contact.id)
+      if (ack.status === 'error') throw new Error(ack.error?.message || '发送好友请求失败')
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
     addContact(contact)
   }
 
   async function handleCreate(name: string, members: string[]): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    let groupId = `g-${Date.now()}`
+    const selectedMembers = contacts.filter((contact) => members.includes(contact.id))
+    try {
+      const ack = await createGroup(name, members)
+      if (ack.status === 'error') throw new Error(ack.error?.message || '创建群聊失败')
+      groupId = ack.payload?.groupId || groupId
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    }
     const group: Contact = {
-      id: `g-${Date.now()}`,
+      id: groupId,
       nickname: name,
       status: 'online',
-      signature: `${members.length} 名成员`
+      signature: `${members.length} 名成员`,
+      memberCount: members.length,
+      members: selectedMembers
     }
     addGroup(group)
   }

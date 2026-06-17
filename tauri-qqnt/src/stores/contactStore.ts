@@ -29,7 +29,9 @@ export const useContactStore = create<ContactState>((set) => ({
     }),
   addGroup: (group) =>
     set((state) => {
-      if (state.groups.some((g) => g.id === group.id)) return state
+      if (state.groups.some((g) => g.id === group.id)) {
+        return { groups: state.groups.map((g) => (g.id === group.id ? { ...g, ...group } : g)) }
+      }
       return { groups: [...state.groups, group] }
     }),
   updatePresence: (id, status) =>

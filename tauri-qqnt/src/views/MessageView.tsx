@@ -3,7 +3,8 @@ import { useMessageStore } from '@/stores/messageStore'
 import { useAuthStore } from '@/stores/authStore'
 import { SessionList } from '@/components/session/SessionList'
 import { ChatPanel } from '@/components/chat/ChatPanel'
-import { sendPrivateMessage, sendGroupMessage, newReqId } from '@/api/qqnt'
+import { cancelTransfer, sendPrivateMessage, sendGroupMessage, newReqId } from '@/api/qqnt'
+import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener'
 import type { Message } from '@/types/qqnt'
 
 export function MessageView() {
@@ -66,6 +67,22 @@ export function MessageView() {
     await deliver(msg.content, clientId)
   }
 
+  const handleCancelFile = async (transferId: string) => {
+    try {
+      await cancelTransfer(transferId)
+    } finally {
+      if (activeSessionId) updateMessageStatus(activeSessionId, transferId, 'failed')
+    }
+  }
+
+  const handleDownloadFile = async (message: Message) => {
+    if (message.fileInfo?.path) await openPath(message.fileInfo.path)
+  }
+
+  const handleOpenFolder = async (message: Message) => {
+    if (message.fileInfo?.path) await revealItemInDir(message.fileInfo.path)
+  }
+
   return (
     <div className="flex h-full w-full bg-[var(--qq-bg)]">
       <SessionList sessions={sessions} activeSessionId={activeSessionId} onSelect={handleSelect} />
@@ -76,6 +93,9 @@ export function MessageView() {
           currentUser={currentUser}
           onSend={handleSend}
           onRetry={handleRetry}
+          onCancelFile={handleCancelFile}
+          onDownloadFile={handleDownloadFile}
+          onOpenFolder={handleOpenFolder}
         />
       ) : (
         <main className="flex min-w-0 flex-1 items-center justify-center text-sm text-[var(--qq-text-secondary)]">

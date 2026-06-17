@@ -8,6 +8,9 @@ interface MessageListProps {
   messages: Message[]
   currentUser: User | null
   onRetry?: (id: string) => void
+  onCancelFile?: (id: string) => void
+  onDownloadFile?: (message: Message) => void
+  onOpenFolder?: (message: Message) => void
 }
 
 const LINE_HEIGHT = 20
@@ -26,17 +29,25 @@ function MessageItem({
 }: {
   index: number
   style: React.CSSProperties
-  data: { messages: Message[]; currentUser: User | null; onRetry?: (id: string) => void }
+  data: MessageListProps
 }) {
   const msg = data.messages[index]
   return (
     <div style={style}>
-      <MessageBubble message={msg} isSelf={msg.senderId === data.currentUser?.id} onRetry={data.onRetry} />
+      <MessageBubble
+        message={msg}
+        isSelf={msg.senderId === data.currentUser?.id}
+        onRetry={data.onRetry}
+        onCancelFile={data.onCancelFile}
+        onDownloadFile={data.onDownloadFile}
+        onOpenFolder={data.onOpenFolder}
+      />
     </div>
   )
 }
 
-export function MessageList({ messages, currentUser, onRetry }: MessageListProps) {
+export function MessageList(props: MessageListProps) {
+  const { messages } = props
   const listRef = useRef<List>(null)
   const sizeMap = useRef<Record<number, number>>({})
 
@@ -71,7 +82,7 @@ export function MessageList({ messages, currentUser, onRetry }: MessageListProps
               width={width}
               itemCount={messages.length}
               itemSize={getItemSize}
-              itemData={{ messages, currentUser, onRetry }}
+              itemData={props}
             >
               {MessageItem}
             </List>

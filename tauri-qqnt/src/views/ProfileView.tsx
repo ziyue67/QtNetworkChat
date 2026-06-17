@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Camera, User } from 'lucide-react'
 import { Avatar } from '@/components/common/Avatar'
 import { useAuthStore } from '@/stores/authStore'
+import { profileUpdate } from '@/api/qqnt'
 
 export function ProfileView() {
   const currentUser = useAuthStore((state) => state.currentUser)
@@ -10,13 +11,27 @@ export function ProfileView() {
   const [signature, setSignature] = useState(currentUser?.signature || '')
   const [avatar, setAvatar] = useState(currentUser?.avatar || '')
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
-  function handleSave() {
-    if (currentUser) {
-      setCurrentUser({ ...currentUser, nickname, signature, avatar })
+  async function handleSave() {
+    if (!currentUser) return
+    setError('')
+    const nextUser = { ...currentUser, nickname, signature, avatar }
+    setCurrentUser(nextUser)
+    try {
+      const ack = await profileUpdate({ userName: nickname, signature, avatarBase64: avatar })
+      if (ack.status === 'error') throw new Error(ack.error?.message || '资料同步失败')
       setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '资料已保存到本地，等待引擎同步')
+      setSaved(true)
     }
+    window.setTimeout(() => setSaved(false), 2000)
+  }
+
+  function handleAvatarClick() {
+    const nextAvatar = window.prompt('头像 URL 或 Base64', avatar)
+    if (nextAvatar !== null) setAvatar(nextAvatar)
   }
 
   return (
@@ -30,7 +45,10 @@ export function ProfileView() {
         <div className="mb-6 flex justify-center">
           <div className="relative">
             <Avatar src={avatar} fallback={nickname} size={96} className="h-24 w-24 text-3xl" />
-            <button className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--qq-bg-tertiary)] text-[var(--qq-text-secondary)] shadow-sm hover:bg-[var(--qq-border)]">
+            <button
+              onClick={handleAvatarClick}
+              className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--qq-bg-tertiary)] text-[var(--qq-text-secondary)] shadow-sm hover:bg-[var(--qq-border)]"
+            >
               <Camera size={14} />
             </button>
           </div>
@@ -47,7 +65,7 @@ export function ProfileView() {
             <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">昵称</label>
             <input
               value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
+              onChange={(event) => setNickname(event.target.value)}
               className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
             />
           </div>
@@ -55,28 +73,27 @@ export function ProfileView() {
             <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">个性签名</label>
             <input
               value={signature}
-              onChange={(e) => setSignature(e.target.value)}
+              onChange={(event) => setSignature(event.target.value)}
               placeholder="编辑个性签名"
               className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">头像 URL</label>
+            <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">头像 URL / Base64</label>
             <input
               value={avatar}
-              onChange={(e) => setAvatar(e.target.value)}
+              onChange={(event) => setAvatar(event.target.value)}
               placeholder="https://..."
               className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
             />
           </div>
         </div>
 
-        <div className="mt-6 flex items-center justify-between">
-          {saved ? (
-            <span className="text-xs text-[var(--qq-success)]">已保存</span>
-          ) : (
-            <span />
-          )}
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <div className="min-w-0 text-xs">
+            {error ? <span className="text-[var(--qq-warning)]">{error}</span> : null}
+            {!error && saved ? <span className="text-[var(--qq-success)]">已保存</span> : null}
+          </div>
           <button
             onClick={handleSave}
             disabled={!currentUser}

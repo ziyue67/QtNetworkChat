@@ -13,9 +13,12 @@ interface MessageBubbleProps {
   message: Message
   isSelf: boolean
   onRetry?: (id: string) => void
+  onCancelFile?: (id: string) => void
+  onDownloadFile?: (message: Message) => void
+  onOpenFolder?: (message: Message) => void
 }
 
-export function MessageBubble({ message, isSelf, onRetry }: MessageBubbleProps) {
+export function MessageBubble({ message, isSelf, onRetry, onCancelFile, onDownloadFile, onOpenFolder }: MessageBubbleProps) {
   const isFile = message.type === 'file' || message.type === 'image'
   const statusText =
     message.status === 'sending'
@@ -36,7 +39,13 @@ export function MessageBubble({ message, isSelf, onRetry }: MessageBubbleProps) 
         )}
       >
         {isFile ? (
-          <FileMessage message={message} isSelf={isSelf} />
+          <FileMessage
+            message={message}
+            isSelf={isSelf}
+            onCancel={onCancelFile}
+            onDownload={onDownloadFile}
+            onOpenFolder={onOpenFolder}
+          />
         ) : (
           <p>{message.content}</p>
         )}

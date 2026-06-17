@@ -32,14 +32,27 @@ describe('sessionStore', () => {
     useSessionStore.getState().markRead('10001')
 
     expect(useSessionStore.getState().activeSessionId).toBe('10001')
-    expect(useSessionStore.getState().sessions[0].unread).toBe(0)
+    expect(useSessionStore.getState().sessions.find((session) => session.id === '10001')?.unread).toBe(0)
   })
 
   it('updates session metadata without changing other sessions', () => {
     useSessionStore.getState().setSessions(sessions)
     useSessionStore.getState().updateSession('10001', { lastMessage: 'new', unread: 1 })
 
-    expect(useSessionStore.getState().sessions[0]).toMatchObject({ lastMessage: 'new', unread: 1 })
-    expect(useSessionStore.getState().sessions[1].name).toBe('前端小队')
+    expect(useSessionStore.getState().sessions.find((session) => session.id === '10001')).toMatchObject({
+      lastMessage: 'new',
+      unread: 1
+    })
+    expect(useSessionStore.getState().sessions.find((session) => session.id === 'g-100')?.name).toBe('前端小队')
+  })
+
+  it('sorts pinned sessions before newest regular sessions', () => {
+    useSessionStore.getState().setSessions([
+      { ...sessions[0], lastTime: 300 },
+      { ...sessions[1], lastTime: 100 },
+      { id: '10002', type: 'private', name: 'Bob', lastTime: 500, unread: 0, pinned: false }
+    ])
+
+    expect(useSessionStore.getState().sessions.map((session) => session.id)).toEqual(['g-100', '10002', '10001'])
   })
 })
