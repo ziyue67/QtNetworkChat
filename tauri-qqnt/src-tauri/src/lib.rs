@@ -56,3 +56,79 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use serde_json::Value;
+
+    const GENERIC_COMMAND: &str = "qqnt_command";
+
+    fn protocol_contract() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../tests/fixtures/protocol_contract.json"
+        ))
+        .expect("protocol contract fixture should parse")
+    }
+
+    fn contract_commands() -> BTreeSet<String> {
+        protocol_contract()["commands"]
+            .as_array()
+            .expect("protocol contract commands should be an array")
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .expect("protocol contract command should be a string")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    fn registered_commands() -> BTreeSet<&'static str> {
+        let source = include_str!("lib.rs");
+        let handler_start = source
+            .find("tauri::generate_handler![")
+            .expect("Tauri generate_handler block should exist");
+        let handler_source = &source[handler_start..];
+        let handler_end = handler_source
+            .find("])")
+            .expect("Tauri generate_handler block should close");
+
+        handler_source[..handler_end]
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("commands::")
+                    .map(|name| name.trim_end_matches(',').trim())
+            })
+            .collect()
+    }
+
+    fn protocol_op_for_command(command: &str) -> Option<&str> {
+        match command {
+            GENERIC_COMMAND => None,
+            "engine_ready" => Some("ready"),
+            "connect_server" => Some("connect"),
+            "register_account" => Some("register"),
+            "disconnect_server" => Some("disconnect"),
+            command => Some(command),
+        }
+    }
+
+    #[test]
+    fn tauri_handler_registration_covers_protocol_contract() {
+        let registered = registered_commands();
+        assert!(
+            registered.contains(GENERIC_COMMAND),
+            "generic qqnt_command should remain registered"
+        );
+
+        let actual: BTreeSet<String> = registered
+            .iter()
+            .filter_map(|command| protocol_op_for_command(command).map(str::to_string))
+            .collect();
+
+        assert_eq!(actual, contract_commands());
+    }
+}
