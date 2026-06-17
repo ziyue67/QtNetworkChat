@@ -226,6 +226,20 @@ public:
         return false;
     }
 
+    bool hasNotification(const QString& expectedBody) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("notification")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (!payload.value(QStringLiteral("title")).toString().trimmed().isEmpty()
+                && payload.value(QStringLiteral("body")).toString() == expectedBody) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool hasFileProgress(const QString& expectedFileName, const QString& expectedDirection) const {
         for (const QJsonObject& event : m_events) {
             if (event.value(QStringLiteral("event")).toString() != QLatin1String("file_progress")) {
@@ -283,6 +297,17 @@ public:
             lines << QStringLiteral("%1 %2")
                 .arg(eventName,
                      QString::fromUtf8(QJsonDocument(event.value(QStringLiteral("payload")).toObject()).toJson(QJsonDocument::Compact)));
+        }
+        return lines.join(QLatin1Char('\n'));
+    }
+
+    QString notificationEventSummary() const {
+        QStringList lines;
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("notification")) {
+                continue;
+            }
+            lines << QString::fromUtf8(QJsonDocument(event.value(QStringLiteral("payload")).toObject()).toJson(QJsonDocument::Compact));
         }
         return lines.join(QLatin1Char('\n'));
     }
@@ -432,7 +457,8 @@ int main(int argc, char* argv[]) {
                 "alice private message command should be written") && ok;
     ok = expect(waitFor([&] {
         return alice.hasOkAck(QStringLiteral("alice-private-message"))
-            && bob.hasPrivateMessage(privateContent, alice.userId(), bob.userId());
+            && bob.hasPrivateMessage(privateContent, alice.userId(), bob.userId())
+            && bob.hasNotification(privateContent);
     }, {&alice, &bob}), "bob QQNTEngine should emit the private message event") && ok;
 
     const QString groupId = QStringLiteral("public");
@@ -446,7 +472,8 @@ int main(int argc, char* argv[]) {
                 "alice group message command should be written") && ok;
     ok = expect(waitFor([&] {
         return alice.hasOkAck(QStringLiteral("alice-group-message"))
-            && bob.hasGroupMessage(groupContent, alice.userId(), groupId);
+            && bob.hasGroupMessage(groupContent, alice.userId(), groupId)
+            && bob.hasNotification(groupContent);
     }, {&alice, &bob}), "bob QQNTEngine should emit the group message event with a group session id") && ok;
 
     QTemporaryDir tempDir;
@@ -489,11 +516,15 @@ int main(int argc, char* argv[]) {
         }
         const QString aliceFileEvents = alice.fileEventSummary();
         const QString bobFileEvents = bob.fileEventSummary();
+        const QString bobNotifications = bob.notificationEventSummary();
         if (!aliceFileEvents.isEmpty()) {
             std::fprintf(stderr, "alice file events:\n%s\n", qPrintable(aliceFileEvents));
         }
         if (!bobFileEvents.isEmpty()) {
             std::fprintf(stderr, "bob file events:\n%s\n", qPrintable(bobFileEvents));
+        }
+        if (!bobNotifications.isEmpty()) {
+            std::fprintf(stderr, "bob notifications:\n%s\n", qPrintable(bobNotifications));
         }
     }
 
