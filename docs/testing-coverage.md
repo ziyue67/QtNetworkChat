@@ -6,7 +6,7 @@ This branch validates the QQNT backend through focused CTest targets, Rust bridg
 
 - `QQNTEngineSmoke` verifies headless engine startup, stdout NDJSON cleanliness, `ready`, and basic command acknowledgements.
 - `QQNTEngineEndToEnd` verifies two real `QQNTEngine` processes can register, connect through `QQNTServer`, and deliver a private message over Redis routing.
-- `QQNTProtocolDrift` verifies that docs, C++ fixtures, and Rust bridge expectations agree on protocol version and command/event coverage.
+- `QQNTProtocolDrift` verifies that docs, C++ fixtures, and Rust bridge expectations agree on protocol version, command/event coverage, and command payload shapes.
 - `QQNTServerRedis`, `RedisServerReadiness`, and `RedisStartupRequirement` verify Redis-backed server readiness and routing behavior.
 - `cargo test` under `tauri-qqnt/src-tauri` verifies Rust command wrappers, bridge parsing, event forwarding, and protocol-version guards.
 - `npm run tauri build` verifies the Tauri bundle path and produces the local NSIS installer after the sidecars are built.

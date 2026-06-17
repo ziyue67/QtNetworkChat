@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStringList>
@@ -48,6 +49,18 @@ QStringList jsonStringArray(const QJsonObject& object, const QString& key) {
     return values;
 }
 
+QMap<QString, QString> jsonStringObject(const QJsonObject& object, const QString& key) {
+    QMap<QString, QString> values;
+    const QJsonObject nestedObject = object.value(key).toObject();
+    for (auto it = nestedObject.constBegin(); it != nestedObject.constEnd(); ++it) {
+        const QString text = it.value().toString().trimmed();
+        if (!it.key().trimmed().isEmpty() && !text.isEmpty()) {
+            values.insert(it.key().trimmed(), text);
+        }
+    }
+    return values;
+}
+
 QSet<QString> toSet(const QStringList& values) {
     return QSet<QString>(values.cbegin(), values.cend());
 }
@@ -67,6 +80,44 @@ bool expectSameSet(const QStringList& actual, const QStringList& expected, const
     ok = expect(missing.isEmpty(), QStringLiteral("%1 missing: %2").arg(label, QStringList(missing.values()).join(QStringLiteral(", ")))) && ok;
     ok = expect(extra.isEmpty(), QStringLiteral("%1 extra: %2").arg(label, QStringList(extra.values()).join(QStringLiteral(", ")))) && ok;
     return ok;
+}
+
+bool expectSameMap(const QMap<QString, QString>& actual, const QMap<QString, QString>& expected, const QString& label) {
+    bool ok = true;
+    ok = expectSameSet(actual.keys(), expected.keys(), label + QStringLiteral(" keys")) && ok;
+    for (auto it = expected.constBegin(); it != expected.constEnd(); ++it) {
+        if (!actual.contains(it.key())) {
+            continue;
+        }
+        ok = expect(actual.value(it.key()) == it.value(),
+                    QStringLiteral("%1 mismatch for %2: expected '%3', got '%4'")
+                        .arg(label, it.key(), it.value(), actual.value(it.key()))) && ok;
+    }
+    return ok;
+}
+
+QStringList splitMarkdownTableRow(const QString& line) {
+    QString trimmed = line.trimmed();
+    if (trimmed.startsWith(QLatin1Char('|'))) {
+        trimmed.remove(0, 1);
+    }
+    if (trimmed.endsWith(QLatin1Char('|'))) {
+        trimmed.chop(1);
+    }
+
+    QStringList cells;
+    for (const QString& cell : trimmed.split(QLatin1Char('|'))) {
+        cells.append(cell.trimmed());
+    }
+    return cells;
+}
+
+QString untickCell(const QString& cell) {
+    QString value = cell.trimmed();
+    if (value.startsWith(QLatin1Char('`')) && value.endsWith(QLatin1Char('`')) && value.size() >= 2) {
+        value = value.mid(1, value.size() - 2);
+    }
+    return value.trimmed();
 }
 
 QStringList extractMarkdownTableKeys(const QString& markdown, const QString& heading, const QString& keyColumnName) {
@@ -106,6 +157,63 @@ QStringList extractMarkdownTableKeys(const QString& markdown, const QString& hea
     }
 
     return values;
+}
+
+QMap<QString, QString> extractMarkdownCommandPayloads(const QString& markdown) {
+    const QString heading = QStringLiteral("## 5. 命令表");
+    const int headingIndex = markdown.indexOf(heading);
+    if (headingIndex < 0) {
+        return {};
+    }
+
+    const int nextHeadingIndex = markdown.indexOf(QStringLiteral("\n## "), headingIndex + heading.size());
+    const QString section = nextHeadingIndex < 0 ? markdown.mid(headingIndex) : markdown.mid(headingIndex, nextHeadingIndex - headingIndex);
+    const QStringList lines = section.split(QLatin1Char('\n'));
+    QMap<QString, QString> payloads;
+    int opColumn = -1;
+    int payloadColumn = -1;
+    bool inTable = false;
+
+    for (const QString& rawLine : lines) {
+        const QString line = rawLine.trimmed();
+        if (!inTable) {
+            if (line.startsWith(QLatin1Char('|')) && line.contains(QStringLiteral("`op`")) && line.contains(QStringLiteral("`payload`"))) {
+                const QStringList headers = splitMarkdownTableRow(line);
+                for (int index = 0; index < headers.size(); ++index) {
+                    const QString header = untickCell(headers.at(index));
+                    if (header == QStringLiteral("op")) {
+                        opColumn = index;
+                    } else if (header == QStringLiteral("payload")) {
+                        payloadColumn = index;
+                    }
+                }
+                inTable = opColumn >= 0 && payloadColumn >= 0;
+            }
+            continue;
+        }
+
+        if (!line.startsWith(QLatin1Char('|'))) {
+            if (!payloads.isEmpty()) {
+                break;
+            }
+            continue;
+        }
+        if (line.contains(QStringLiteral("---"))) {
+            continue;
+        }
+
+        const QStringList cells = splitMarkdownTableRow(line);
+        if (opColumn >= cells.size() || payloadColumn >= cells.size()) {
+            continue;
+        }
+        const QString op = untickCell(cells.at(opColumn));
+        const QString payload = untickCell(cells.at(payloadColumn));
+        if (!op.isEmpty() && !payload.isEmpty()) {
+            payloads.insert(op, payload);
+        }
+    }
+
+    return payloads;
 }
 
 bool validateReadyFixture(const QJsonObject& envelope) {
@@ -153,15 +261,19 @@ int main(int argc, char* argv[]) {
     const QString markdown = QString::fromUtf8(protocolDoc.readAll());
     const QStringList documentedCommands = extractMarkdownTableKeys(markdown, QStringLiteral("## 5. 命令表"), QStringLiteral("`op`"));
     const QStringList documentedEvents = extractMarkdownTableKeys(markdown, QStringLiteral("## 6. 主动事件表"), QStringLiteral("`event`"));
+    const QMap<QString, QString> documentedCommandPayloads = extractMarkdownCommandPayloads(markdown);
     const QStringList expectedCommands = jsonStringArray(contractFixture, QStringLiteral("commands"));
     const QStringList expectedEvents = jsonStringArray(contractFixture, QStringLiteral("events"));
+    const QMap<QString, QString> expectedCommandPayloads = jsonStringObject(contractFixture, QStringLiteral("commandPayloads"));
 
     ok = validateReadyFixture(readyFixture) && ok;
     ok = expect(contractFixture.value(QStringLiteral("protocolVersion")).toInt() == 1,
                 QStringLiteral("protocol contract fixture should pin protocol version 1")) && ok;
     ok = expectUnique(expectedCommands, QStringLiteral("protocol contract commands")) && ok;
     ok = expectUnique(expectedEvents, QStringLiteral("protocol contract events")) && ok;
+    ok = expectSameSet(expectedCommandPayloads.keys(), expectedCommands, QStringLiteral("protocol contract command payloads")) && ok;
     ok = expectSameSet(documentedCommands, expectedCommands, QStringLiteral("documented commands")) && ok;
+    ok = expectSameMap(documentedCommandPayloads, expectedCommandPayloads, QStringLiteral("documented command payloads")) && ok;
     ok = expectSameSet(documentedEvents, expectedEvents, QStringLiteral("documented events")) && ok;
 
     return ok ? 0 : 1;
