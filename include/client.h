@@ -129,9 +129,9 @@ signals:
     void friendSearchResult(const QString& account, const QString& userId, const QString& userName, bool found, bool online, bool exactMatch, int matchCount, const QString& matchReason);
     void friendRequestSent(const QString& receiverId, bool delivered);
     void friendResponseReceived(const QString& senderId, const QString& senderName, bool accepted);
-    void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes);
+    void fileTransferProgress(const QString& fileName, qint64 bytesPrepared, qint64 totalBytes, const QString& transferId = QString());
     void fileTransferPrepared(const QString& fileName, qint64 totalBytes, qint64 chunkSize, qint64 chunkCount, const QString& fileHash);
-    void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes);
+    void fileReceiveProgress(const QString& fileName, qint64 bytesReceived, qint64 totalBytes, const QString& transferId = QString());
     void fileTransferStatusChanged(const QString& fileName, const QString& transferId, const QString& reason, qint64 receivedBytes, qint64 totalBytes);
     void fileChunkAckReceived(const QString& transferId, qint64 chunkIndex, bool accepted, const QString& reason, qint64 receivedBytes);
     void fileTransferResumeStateReceived(const QString& transferId,

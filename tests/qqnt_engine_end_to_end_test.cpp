@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -15,6 +16,7 @@
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QThread>
+#include <QTemporaryDir>
 
 #include <cstdio>
 #include <functional>
@@ -27,6 +29,15 @@ bool expect(bool condition, const char* message) {
         return false;
     }
     return true;
+}
+
+bool writeSmallFile(const QString& filePath) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+    const QByteArray payload("qqnt-engine-e2e-file-payload");
+    return file.write(payload) == payload.size();
 }
 
 quint16 freeLocalPort() {
@@ -214,6 +225,21 @@ public:
         return false;
     }
 
+    bool hasFileProgress(const QString& expectedFileName, const QString& expectedDirection) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("file_progress")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (payload.value(QStringLiteral("fileName")).toString() == expectedFileName
+                && payload.value(QStringLiteral("direction")).toString() == expectedDirection
+                && !payload.value(QStringLiteral("transferId")).toString().trimmed().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     QString userId() const { return m_userId; }
     QString label() const { return m_label; }
     QString stderrText() const { return QString::fromLocal8Bit(m_stderr); }
@@ -375,6 +401,23 @@ int main(int argc, char* argv[]) {
         return alice.hasOkAck(QStringLiteral("alice-group-message"))
             && bob.hasGroupMessage(groupContent, alice.userId(), groupId);
     }, {&alice, &bob}), "bob QQNTEngine should emit the group message event with a group session id") && ok;
+
+    QTemporaryDir tempDir;
+    ok = expect(tempDir.isValid(), "temporary directory should be available for group file send") && ok;
+    const QString groupFileName = QStringLiteral("qqnt-engine-e2e-file.txt");
+    const QString groupFilePath = tempDir.filePath(groupFileName);
+    ok = expect(writeSmallFile(groupFilePath), "group file payload should be created") && ok;
+    QJsonObject filePayload;
+    filePayload[QStringLiteral("groupId")] = groupId;
+    filePayload[QStringLiteral("filePath")] = groupFilePath;
+    ok = expect(alice.writeCommand(makeCommand(QStringLiteral("send_file"),
+                                               QStringLiteral("alice-group-file"),
+                                               filePayload)),
+                "alice group file command should be written") && ok;
+    ok = expect(waitFor([&] {
+        return alice.hasOkAck(QStringLiteral("alice-group-file"))
+            && alice.hasFileProgress(groupFileName, QStringLiteral("outgoing"));
+    }, {&alice, &bob}), "alice QQNTEngine should emit group file progress with a transfer id") && ok;
 
     alice.pump();
     bob.pump();

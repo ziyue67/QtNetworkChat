@@ -250,8 +250,9 @@ void QQNTClientBridge::bindClientSignals() {
         sendEvent(QStringLiteral("friend_event"), payload);
     });
 
-    connect(&m_client, &Client::fileTransferProgress, this, [this](const QString& fileName, qint64 bytes, qint64 total) {
+    connect(&m_client, &Client::fileTransferProgress, this, [this](const QString& fileName, qint64 bytes, qint64 total, const QString& transferId) {
         QJsonObject payload;
+        payload[QStringLiteral("transferId")] = transferId;
         payload[QStringLiteral("fileName")] = fileName;
         payload[QStringLiteral("bytes")] = QString::number(bytes);
         payload[QStringLiteral("total")] = QString::number(total);
@@ -259,8 +260,9 @@ void QQNTClientBridge::bindClientSignals() {
         sendEvent(QStringLiteral("file_progress"), payload);
     });
 
-    connect(&m_client, &Client::fileReceiveProgress, this, [this](const QString& fileName, qint64 bytes, qint64 total) {
+    connect(&m_client, &Client::fileReceiveProgress, this, [this](const QString& fileName, qint64 bytes, qint64 total, const QString& transferId) {
         QJsonObject payload;
+        payload[QStringLiteral("transferId")] = transferId;
         payload[QStringLiteral("fileName")] = fileName;
         payload[QStringLiteral("bytes")] = QString::number(bytes);
         payload[QStringLiteral("total")] = QString::number(total);

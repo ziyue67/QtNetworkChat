@@ -3686,7 +3686,7 @@ bool Client::sendFilePayload(const QString& filePath,
         qint64 preparedBytes = 0;
         plainFileSize = fileInfo.size();
         plainChunkCount = (plainFileSize + kTransferChunkBytes - 1) / kTransferChunkBytes;
-        emit fileTransferProgress(displayFileName, 0, plainFileSize);
+        emit fileTransferProgress(displayFileName, 0, plainFileSize, transferId);
 
         while (!file.atEnd()) {
             if (m_cancelOutgoingTransfer) {
@@ -3700,7 +3700,7 @@ bool Client::sendFilePayload(const QString& filePath,
             }
             hasher.addData(chunk);
             preparedBytes += chunk.size();
-            emit fileTransferProgress(displayFileName, preparedBytes, plainFileSize);
+            emit fileTransferProgress(displayFileName, preparedBytes, plainFileSize, transferId);
             if (m_cancelOutgoingTransfer) {
                 file.close();
                 return false;
@@ -3883,7 +3883,7 @@ bool Client::sendFilePayload(const QString& filePath,
     }
     qint64 sentBytes = resumeMode ? resumeConfirmedBytes : 0;
     qint64 chunkIndex = resumeMode ? resolvedResumeNextChunkIndex : 0;
-    emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+    emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
     if (chunkIndex == wireChunkCount) {
         file.close();
         const bool completed = sentBytes == wireFileSize;
@@ -3920,7 +3920,7 @@ bool Client::sendFilePayload(const QString& filePath,
         if (receivedChunkIndexes.contains(chunkIndex)) {
             sentBytes = qMax(sentBytes, qMin(wireFileSize, (chunkIndex + 1) * kTransferChunkBytes));
             ++chunkIndex;
-            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
             continue;
         }
 
@@ -4032,7 +4032,7 @@ bool Client::sendFilePayload(const QString& filePath,
                             if (firstMissingChunkIndex == wireChunkCount) {
                                 sentBytes = wireFileSize;
                                 chunkIndex = wireChunkCount;
-                                emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+                                emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
                                 advancedByResumeState = true;
                                 acknowledged = true;
                                 break;
@@ -4046,7 +4046,7 @@ bool Client::sendFilePayload(const QString& filePath,
                                                                      wireFileSize,
                                                                      wireChunkCount));
                             chunkIndex = firstMissingChunkIndex;
-                            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+                            emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
                             advancedByResumeState = true;
                             acknowledged = true;
                             break;
@@ -4091,7 +4091,7 @@ bool Client::sendFilePayload(const QString& filePath,
             markE2EFileChunkSent(receiverId);
         }
         ++chunkIndex;
-        emit fileTransferProgress(displayFileName, sentBytes, plainFileSize);
+        emit fileTransferProgress(displayFileName, sentBytes, plainFileSize, transferId);
     }
     file.close();
     const bool completed = sentBytes == wireFileSize && chunkIndex == wireChunkCount;
@@ -4611,7 +4611,7 @@ void Client::handleIncomingFileChunk(const QJsonObject& obj) {
         failTransfer("累计分片大小超过声明文件大小");
         return;
     }
-    emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, pending.fileSize);
+    emit fileReceiveProgress(obj["fileName"].toString(), pending.receivedBytes, pending.fileSize, transferId);
     if (pending.receivedIndexes.size() < pending.chunkCount) {
         sendFileChunkAck(transferId, chunkIndex, true, QString(), pending.receivedBytes);
         return;

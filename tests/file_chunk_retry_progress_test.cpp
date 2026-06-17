@@ -918,12 +918,14 @@ int main(int argc, char** argv) {
 
     QVector<qint64> progressValues;
     QMap<QString, QVector<qint64>> progressByFileName;
+    QMap<QString, QStringList> progressTransferIdsByFileName;
     QStringList connectionErrors;
     QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString&, qint64 bytesPrepared, qint64) {
         progressValues.append(bytesPrepared);
     });
-    QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString& fileName, qint64 bytesPrepared, qint64) {
+    QObject::connect(&sender, &Client::fileTransferProgress, &app, [&](const QString& fileName, qint64 bytesPrepared, qint64, const QString& transferId) {
         progressByFileName[fileName].append(bytesPrepared);
+        progressTransferIdsByFileName[fileName].append(transferId);
     });
     QObject::connect(&sender, &Client::connectionError, &app, [&](const QString& error) {
         connectionErrors.append(error);
@@ -941,6 +943,10 @@ int main(int argc, char** argv) {
                     && fileSpecificProgress.first() == 0
                     && fileSpecificProgress.last() == server.acknowledgedBytes(),
                 "file-specific progress tracking should converge to the acknowledged byte count") && ok;
+    QStringList fileSpecificTransferIds = progressTransferIdsByFileName.value(QFileInfo(filePath).fileName());
+    fileSpecificTransferIds.removeDuplicates();
+    ok = expect(fileSpecificTransferIds.size() == 1 && !fileSpecificTransferIds.first().trimmed().isEmpty(),
+                "file-specific progress should carry one stable non-empty transfer id") && ok;
 
     const QString invalidAckProgressPath = tempDir.filePath(QString::fromLatin1(kInvalidAckProgressFileName));
     ok = expect(writeSmallFile(invalidAckProgressPath),
