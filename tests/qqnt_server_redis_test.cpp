@@ -126,7 +126,7 @@ int main(int argc, char** argv) {
 
     ok = expect(connectSocket(&alice, serverAPort), "alice should connect to server A") && ok;
     ok = expect(connectSocket(&bob, serverBPort), "bob should connect to server B") && ok;
-    ok = expect(connectSocket(&carol, serverAPort), "carol should connect to server A") && ok;
+    ok = expect(connectSocket(&carol, serverBPort), "carol should connect to server B") && ok;
     ok = expect(loginSocket(&alice, QStringLiteral("970001"), QStringLiteral("AliceRedis")),
                 "alice should log in on server A") && ok;
     ok = expect(loginSocket(&bob, QStringLiteral("970002"), QStringLiteral("BobRedis")),
@@ -161,10 +161,18 @@ int main(int argc, char** argv) {
     initialMembers.append("970003");
     privateGroupCreate["members"] = initialMembers;
     ok = expect(writeJsonLine(&alice, privateGroupCreate), "alice should create a private group with an initial member") && ok;
-    ok = expect(socketBufferContains(&alice, &aliceBuffer, QByteArrayLiteral("\"type\":\"server_group_snapshot\""), 5000),
-                "alice should receive the created private group snapshot") && ok;
-    ok = expect(socketBufferContains(&carol, &carolBuffer, QByteArrayLiteral("\"type\":\"server_group_snapshot\""), 5000),
-                "carol should receive the created private group snapshot as an initial member") && ok;
+    ok = expect(waitFor([&] {
+        aliceBuffer.append(alice.readAll());
+        return aliceBuffer.contains(QByteArrayLiteral("\"type\":\"server_group_snapshot\""))
+            && aliceBuffer.contains(QByteArrayLiteral("Redis Private Group"))
+            && aliceBuffer.contains(QByteArrayLiteral("Initial members should receive snapshots"));
+    }, 5000), "alice should receive the created private group snapshot") && ok;
+    ok = expect(waitFor([&] {
+        carolBuffer.append(carol.readAll());
+        return carolBuffer.contains(QByteArrayLiteral("\"type\":\"server_group_snapshot\""))
+            && carolBuffer.contains(QByteArrayLiteral("Redis Private Group"))
+            && carolBuffer.contains(QByteArrayLiteral("Initial members should receive snapshots"));
+    }, 5000), "carol should receive the Redis-routed private group snapshot as an initial member") && ok;
     ok = expect(aliceBuffer.contains("Redis Private Group"),
                 "alice snapshot should include the created private group") && ok;
     ok = expect(carolBuffer.contains("Redis Private Group")

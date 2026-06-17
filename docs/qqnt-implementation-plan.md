@@ -681,6 +681,7 @@ npm run tauri build
 | Engine ready/connect | 同上 | `ready` ack 含 `protocolVersion`；`connect` ack 正确 |
 | Server Redis 就绪 | `tests/qqnt_server_redis_test.cpp` | `isServiceReady=true` |
 | 跨实例消息路由 | 同上 | A 实例发布，B 实例通过 Redis 收到 |
+| 跨实例群快照刷新 | 同上 | 建私有群时远端在线初始成员通过 Redis 收到群快照 |
 | 协议漂移 | `tests/qqnt_protocol_drift_test.cpp` + `tests/fixtures/ready.json` | 三端都能解析同一份 fixture |
 | Rust Bridge mock | `tests/qqnt_bridge_rust_test.rs` | reqId 关联与事件广播 |
 | 前端 store | `src/stores/*.test.ts` | 会话排序、未读、乐观发送 |
@@ -752,7 +753,7 @@ npm run tauri build
 | 5.3 | Engine 群列表/建群/群消息/群成员管理 | GPT5.5 | 群聊消息同步 |
 | 5.4 | 前端群聊列表与群成员面板 | Kimi | 群消息收发正常 |
 
-> 后端已支持 `create_group.members[]` 作为可选初始成员账号数组；服务端建私有群时会把已存在账号加入群并向在线初始成员推送 `server_group_snapshot`。
+> 后端已支持 `create_group.members[]` 作为可选初始成员账号数组；服务端建私有群时会把已存在账号加入群，向本实例在线成员直接推送 `server_group_snapshot`，并通过 Redis 内部刷新事件通知其他实例上的在线初始成员。
 
 ### Phase 6：文件传输
 

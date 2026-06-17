@@ -1932,6 +1932,7 @@ void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket)
 
     const QStringList requestedMemberIds = initialServerGroupMemberIds(obj, requester->id);
     QStringList memberIdsForSnapshot{requester->id};
+    QStringList addedInitialMemberIds;
     QJsonArray addedInitialMembers;
     QJsonArray skippedInitialMemberIds;
     const QString groupId = QStringLiteral("private-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
@@ -1997,6 +1998,7 @@ void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket)
                     }
 
                     memberIdsForSnapshot << memberId;
+                    addedInitialMemberIds << memberId;
                     QJsonObject addedMember;
                     addedMember[QStringLiteral("userId")] = memberId;
                     addedMember[QStringLiteral("userName")] = memberName;
@@ -2042,14 +2044,16 @@ void Server::handleServerGroupCreate(const QJsonObject& obj, QTcpSocket* socket)
                                 requester->name,
                                 auditDetails);
     sendSystemNotice(socket, QString("私有群 %1 已创建").arg(groupName));
+    const QString initialMemberNotice = QString("你已被加入私有群 %1").arg(groupName);
     for (const QString& memberId : memberIdsForSnapshot) {
         QTcpSocket* memberSocket = memberId == requester->id ? socket : m_userSockets.value(memberId);
         if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
         if (memberId != requester->id) {
-            sendSystemNotice(memberSocket, QString("你已被加入私有群 %1").arg(groupName));
+            sendSystemNotice(memberSocket, initialMemberNotice);
         }
         sendServerGroupSnapshot(memberId, memberSocket);
     }
+    publishRedisServerGroupSnapshotRefresh(addedInitialMemberIds, groupId, initialMemberNotice);
 }
 
 void Server::handleProfileUpdate(const QJsonObject& obj, QTcpSocket* socket) {
@@ -3108,6 +3112,40 @@ bool Server::publishRedisPresenceEvent(const QString& userId, const QString& act
                                    QJsonDocument(event).toJson(QJsonDocument::Compact));
 }
 
+bool Server::publishRedisServerGroupSnapshotRefresh(const QStringList& userIds, const QString& groupId, const QString& notice) const {
+    if (!m_redisService->isEnabled() || groupId.trimmed().isEmpty()) return false;
+    const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
+
+    QJsonArray userIdArray;
+    QStringList normalizedUserIds;
+    for (const QString& userId : userIds) {
+        const QString normalizedUserId = userId.trimmed();
+        if (normalizedUserId.isEmpty() || normalizedUserIds.contains(normalizedUserId)) {
+            continue;
+        }
+        normalizedUserIds << normalizedUserId;
+        userIdArray.append(normalizedUserId);
+    }
+    if (userIdArray.isEmpty()) return false;
+
+    QJsonObject event;
+    event["eventType"] = QStringLiteral("server_group_snapshot_refresh");
+    event["instanceId"] = m_instanceId;
+    event["groupId"] = groupId.trimmed();
+    event["userIds"] = userIdArray;
+    event["notice"] = notice.left(200);
+    event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    if (eventPayload.size() > kRedisPubSubEventMaxBytes) {
+        qWarning() << "Skip Redis server group snapshot refresh because encoded payload is too large:"
+                   << eventPayload.size()
+                   << "limit:" << kRedisPubSubEventMaxBytes;
+        return false;
+    }
+    return m_redisService->publish(QStringLiteral("messages"), eventPayload);
+}
+
 void Server::refreshConnectedClientViews() {
     for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
         QTcpSocket* clientSocket = it.key();
@@ -3370,6 +3408,10 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
 
     const QJsonObject event = doc.object();
     const QString eventType = event["eventType"].toString();
+    if (eventType == "server_group_snapshot_refresh") {
+        handleRedisServerGroupSnapshotRefresh(event);
+        return;
+    }
     if (eventType == "e2e_control") {
         handleRedisE2EControlEvent(event);
         return;
@@ -3417,6 +3459,33 @@ void Server::handleRedisMessageEvent(const QByteArray& payload) {
     }
 
     emit newMessage(msg);
+}
+
+void Server::handleRedisServerGroupSnapshotRefresh(const QJsonObject& event) {
+    if (event["instanceId"].toString() == m_instanceId) return;
+
+    const QString groupId = event.value("groupId").toString().trimmed();
+    if (groupId.isEmpty()) return;
+
+    const QString notice = event.value("notice").toString().trimmed();
+    QStringList userIds;
+    const QJsonArray userIdArray = event.value("userIds").toArray();
+    for (const QJsonValue& userIdValue : userIdArray) {
+        const QString userId = userIdValue.toString().trimmed();
+        if (!userId.isEmpty() && !userIds.contains(userId)) {
+            userIds << userId;
+        }
+    }
+
+    for (const QString& userId : userIds) {
+        QTcpSocket* targetSocket = m_userSockets.value(userId);
+        if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) continue;
+        if (!isServerGroupMember(groupId, userId)) continue;
+        if (!notice.isEmpty()) {
+            sendSystemNotice(targetSocket, notice);
+        }
+        sendServerGroupSnapshot(userId, targetSocket);
+    }
 }
 
 void Server::handleRedisE2EControlEvent(const QJsonObject& event) {

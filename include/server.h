@@ -8,6 +8,7 @@
 #include <QVector>
 #include <QSet>
 #include <QJsonObject>
+#include <QStringList>
 #include "chatuser.h"
 #include "message.h"
 #include <functional>
@@ -88,6 +89,7 @@ private:
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
     bool publishRedisPresenceEvent(const QString& userId, const QString& action) const;
+    bool publishRedisServerGroupSnapshotRefresh(const QStringList& userIds, const QString& groupId, const QString& notice) const;
     void refreshConnectedClientViews();
     bool isRedisUserOnline(const QString& userId, bool* online = nullptr) const;
     bool canPublishRedisMessageEvent(const Message& msg, const QString& deliveryState) const;
@@ -98,6 +100,7 @@ private:
     bool publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 confirmedBytes) const;
     bool publishRedisLargeFileFailed(const QJsonObject& offer, const QString& reason) const;
     void handleRedisMessageEvent(const QByteArray& payload);
+    void handleRedisServerGroupSnapshotRefresh(const QJsonObject& event);
     void handleRedisE2EControlEvent(const QJsonObject& event);
     void handleRedisLargeFileOffer(const QJsonObject& event);
     void handleRedisLargeFileDelivered(const QJsonObject& event);
