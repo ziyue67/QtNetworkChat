@@ -73,8 +73,9 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
 
         <div className="mt-4 space-y-2.5">
           <div>
-            <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">账号</label>
+            <label htmlFor="qqnt-account" className="mb-1 block text-xs text-[var(--qq-text-secondary)]">账号</label>
             <input
+              id="qqnt-account"
               value={account}
               onChange={(e) => setAccount(e.target.value)}
               className="w-full rounded-md border border-[var(--qq-border)] bg-[var(--qq-bg)] px-3 py-2 text-sm text-[var(--qq-text)] outline-none focus:border-[var(--qq-primary)]"
@@ -83,8 +84,9 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">密码</label>
+            <label htmlFor="qqnt-password" className="mb-1 block text-xs text-[var(--qq-text-secondary)]">密码</label>
             <input
+              id="qqnt-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -95,8 +97,9 @@ export function LoginView({ loading, error, onLogin, onRegister }: LoginViewProp
           </div>
           {mode === 'register' ? (
             <div>
-              <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">确认密码</label>
+              <label htmlFor="qqnt-confirm-password" className="mb-1 block text-xs text-[var(--qq-text-secondary)]">确认密码</label>
               <input
+                id="qqnt-confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

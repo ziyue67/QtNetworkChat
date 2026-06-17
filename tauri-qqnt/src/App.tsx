@@ -21,10 +21,10 @@ import { WalletView } from '@/views/WalletView'
 import './styles/index.css'
 import type { UseEngineReturn } from '@/hooks/useEngine'
 
-const LOGIN_SIZE = { width: 300, height: 460 }
-const LOGIN_MIN_SIZE = { width: 300, height: 460 }
-const MAIN_SIZE = { width: 1100, height: 740 }
-const MAIN_MIN_SIZE = { width: 860, height: 540 }
+export const LOGIN_SIZE = { width: 300, height: 460 }
+export const LOGIN_MIN_SIZE = { width: 300, height: 460 }
+export const MAIN_SIZE = { width: 1100, height: 740 }
+export const MAIN_MIN_SIZE = { width: 860, height: 540 }
 
 function useResizeForAuth(isAuthenticated: boolean) {
   useEffect(() => {
