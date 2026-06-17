@@ -108,6 +108,10 @@ int main(int argc, char* argv[]) {
                 "cancel_transfer missing field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-inactive\",\"payload\":{\"transferId\":\"smoke-transfer\"}}\n"),
                 "cancel_transfer inactive command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_file\",\"reqId\":\"smoke-file-missing-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.txt\"}}\n"),
+                "send_file missing target command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_image\",\"reqId\":\"smoke-file-ambiguous-target\",\"payload\":{\"filePath\":\"C:/tmp/missing.png\",\"receiverId\":\"10001\",\"groupId\":\"public\"}}\n"),
+                "send_image ambiguous target command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
@@ -125,6 +129,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-e2e"),
         QStringLiteral("smoke-cancel-missing"),
         QStringLiteral("smoke-cancel-inactive"),
+        QStringLiteral("smoke-file-missing-target"),
+        QStringLiteral("smoke-file-ambiguous-target"),
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-settings"),
         QStringLiteral("smoke-settings-invalid"),
@@ -211,6 +217,16 @@ int main(int argc, char* argv[]) {
                         "cancel_transfer without active transfer should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("transfer_not_active"),
                         "cancel_transfer without active transfer should use transfer_not_active code") && ok;
+        } else if (reqId == QLatin1String("smoke-file-missing-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_file without target should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
+                        "send_file without target should use missing_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-file-ambiguous-target")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_image with two targets should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("ambiguous_target"),
+                        "send_image with two targets should use ambiguous_target code") && ok;
         } else if (reqId == QLatin1String("smoke-profile")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "profile_update should return ok ack") && ok;

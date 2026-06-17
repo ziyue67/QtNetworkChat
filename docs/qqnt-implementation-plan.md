@@ -269,8 +269,8 @@ int main(int argc, char* argv[]) {
 | `create_group` | `{groupName, members?, announcement?}` | 建私有群；初始成员账号存在时随群创建加入 |
 | `update_group_announcement` | `{groupId, announcement}` | 改公告 |
 | `update_group_member` | `{groupId, memberId, action}` | 成员管理 |
-| `send_file` | `{receiverId/groupId, filePath}` | 发文件 |
-| `send_image` | `{receiverId/groupId, filePath}` | 发图片 |
+| `send_file` | `{receiverId xor groupId, filePath}` | 发文件；目标必须二选一 |
+| `send_image` | `{receiverId xor groupId, filePath}` | 发图片；目标必须二选一 |
 | `cancel_transfer` | `{transferId}` | 取消当前活动发送；`transferId` 必须匹配当前传输，成功回显 `{cancelled, transferId}` |
 | `query_resume` | `{transferId, filePath?, receiverId?, contentType?}` | 续传查询；带 `filePath` 时恢复发送 |
 | `e2e_status` | `{peerId}` | E2E 状态 |
@@ -770,7 +770,7 @@ npm run tauri build
 | 6.3 | 取消传输 | Kimi/GPT5.5 | 前端传入当前 `transferId` 后，Engine 校验并停止当前发送任务 |
 | 6.4 | 断点续传查询与恢复 | GPT5.5 | `query_resume` 可只查状态，也可带 `filePath` 按续传状态继续发送 |
 
-> 后端已支持 `send_file`/`send_image`、`file_progress`/`file_done`/`file_error` 事件、`query_resume` 查询与恢复；`cancel_transfer` 按当前活动 `transferId` 校验，缺失、无活动或不匹配时返回错误 ack。
+> 后端已支持 `send_file`/`send_image`、`file_progress`/`file_done`/`file_error` 事件、`query_resume` 查询与恢复；文件/图片发送目标按 `receiverId`/`groupId` 二选一校验；`cancel_transfer` 按当前活动 `transferId` 校验，缺失、无活动或不匹配时返回错误 ack。
 
 ### Phase 7：设置与扩展
 

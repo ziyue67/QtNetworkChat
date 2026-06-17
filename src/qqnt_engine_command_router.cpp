@@ -408,6 +408,20 @@ void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QStrin
 
     const QString groupId = payload.value(QStringLiteral("groupId")).toString().trimmed();
     const QString receiverId = payload.value(QStringLiteral("receiverId")).toString().trimmed();
+    if (groupId.isEmpty() && receiverId.isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("missing_target"),
+                               QStringLiteral("File send requires exactly one of receiverId or groupId."));
+        return;
+    }
+    if (!groupId.isEmpty() && !receiverId.isEmpty()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("ambiguous_target"),
+                               QStringLiteral("File send target must not include both receiverId and groupId."));
+        return;
+    }
     const bool accepted = groupId.isEmpty()
         ? (imageMode ? m_bridge->client()->sendImage(filePath, receiverId) : m_bridge->client()->sendFile(filePath, receiverId))
         : (imageMode ? m_bridge->client()->sendServerGroupImage(groupId, filePath) : m_bridge->client()->sendServerGroupFile(groupId, filePath));

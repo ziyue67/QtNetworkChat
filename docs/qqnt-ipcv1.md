@@ -114,8 +114,8 @@
 | `create_group` | `{groupName, members?, announcement?}` | 创建私有群聊；`members` 为初始成员账号数组，服务端加入已存在账号 |
 | `update_group_announcement` | `{groupId, announcement}` | 更新群公告 |
 | `update_group_member` | `{groupId, memberId, action}` | 管理群成员 |
-| `send_file` | `{receiverId?, groupId?, filePath}` | 发送文件 |
-| `send_image` | `{receiverId?, groupId?, filePath}` | 发送图片 |
+| `send_file` | `{receiverId xor groupId, filePath}` | 发送文件；必须且只能提供一个目标，缺失返回 `missing_target`，同时提供返回 `ambiguous_target` |
+| `send_image` | `{receiverId xor groupId, filePath}` | 发送图片；必须且只能提供一个目标，缺失返回 `missing_target`，同时提供返回 `ambiguous_target` |
 | `cancel_transfer` | `{transferId}` | 取消当前活动文件传输；`transferId` 必须匹配当前发送任务，成功返回 `{cancelled, transferId}`，无活动返回 `transfer_not_active`，不匹配返回 `transfer_mismatch` |
 | `query_resume` | `{transferId, filePath?, receiverId?, contentType?}` | 查询断点续传状态；提供 `filePath` 时按状态继续发送 |
 | `e2e_status` | `{peerId}` | 查询 E2E 会话状态 |
