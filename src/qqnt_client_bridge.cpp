@@ -224,6 +224,14 @@ void QQNTClientBridge::bindClientSignals() {
         sendEvent(QStringLiteral("friend_event"), payload);
     });
 
+    connect(&m_client, &Client::friendRequestSent, this, [this](const QString& receiverId, bool delivered) {
+        QJsonObject payload;
+        payload[QStringLiteral("type")] = QStringLiteral("request_sent");
+        payload[QStringLiteral("receiverId")] = receiverId;
+        payload[QStringLiteral("delivered")] = delivered;
+        sendEvent(QStringLiteral("friend_event"), payload);
+    });
+
     connect(&m_client, &Client::friendSearchResult, this, [this](const QString&, const QString& userId, const QString& userName, bool found, bool online, bool, int, const QString& reason) {
         QJsonObject payload;
         payload[QStringLiteral("found")] = found;
@@ -287,6 +295,22 @@ void QQNTClientBridge::bindClientSignals() {
         QJsonObject payload = status;
         payload[QStringLiteral("peerId")] = peerId;
         sendEvent(QStringLiteral("e2e_identity_state"), payload);
+    });
+
+    connect(&m_client, &Client::e2eSessionRotationRequested, this, [this](const QString& peerId, const QJsonObject& agreement) {
+        QJsonObject payload;
+        payload[QStringLiteral("peerId")] = peerId;
+        payload[QStringLiteral("agreement")] = agreement;
+        sendEvent(QStringLiteral("e2e_rotation_request"), payload);
+    });
+
+    connect(&m_client, &Client::e2eSessionRotationResponded, this, [this](const QString& peerId, const QJsonObject& agreement, bool accepted, const QString& reason) {
+        QJsonObject payload;
+        payload[QStringLiteral("peerId")] = peerId;
+        payload[QStringLiteral("agreement")] = agreement;
+        payload[QStringLiteral("accepted")] = accepted;
+        payload[QStringLiteral("reason")] = reason;
+        sendEvent(QStringLiteral("e2e_rotation_response"), payload);
     });
 }
 

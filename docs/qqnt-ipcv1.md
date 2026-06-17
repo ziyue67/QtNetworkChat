@@ -137,7 +137,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `user_list` | `{users}` | 在线用户列表 |
 | `user_joined` | `{userId, userName}` | 用户上线 |
 | `user_left` | `{userId, userName}` | 用户下线 |
-| `friend_event` | `{type, senderId, senderName, accepted?}` | 好友申请或回应 |
+| `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请发送、收到或回应 |
 | `friend_search_result` | `{found, userId, userName, online}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups}` | 群组快照 |
@@ -147,6 +147,8 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `file_error` | `{transferId, reason}` | 文件传输失败 |
 | `e2e_session_state` | `{peerId, rotationRequired}` | E2E 会话状态 |
 | `e2e_identity_state` | `{peerId, trusted, fingerprint}` | E2E 身份状态 |
+| `e2e_rotation_request` | `{peerId, agreement}` | 收到 E2E 会话轮换请求 |
+| `e2e_rotation_response` | `{peerId, agreement, accepted, reason?}` | 收到 E2E 会话轮换回应 |
 | `notification` | `{title, body}` | 前端通知 |
 | `error` | `{message, source}` | 通用错误 |
 
