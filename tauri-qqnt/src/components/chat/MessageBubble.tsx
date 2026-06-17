@@ -1,4 +1,5 @@
 import { Avatar } from '@/components/common/Avatar'
+import { FileMessage } from './FileMessage'
 import { cn } from '@/lib/utils'
 import type { Message } from '@/types/qqnt'
 
@@ -15,6 +16,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isSelf, onRetry }: MessageBubbleProps) {
+  const isFile = message.type === 'file' || message.type === 'image'
   const statusText =
     message.status === 'sending'
       ? '发送中...'
@@ -33,7 +35,11 @@ export function MessageBubble({ message, isSelf, onRetry }: MessageBubbleProps) 
           message.status === 'failed' ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
         )}
       >
-        <p>{message.content}</p>
+        {isFile ? (
+          <FileMessage message={message} isSelf={isSelf} />
+        ) : (
+          <p>{message.content}</p>
+        )}
         <span className="mt-1 block text-[10px] opacity-70">{statusText}</span>
       </div>
     </div>
