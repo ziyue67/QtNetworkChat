@@ -383,6 +383,8 @@ void QQNTClientBridge::bindClientSignals() {
     connect(&m_client, &Client::serverGroupSnapshotReceived, this, [this](const QJsonArray& groups) {
         QJsonObject payload;
         payload[QStringLiteral("groups")] = groups;
+        payload[QStringLiteral("removedGroups")] = m_client.removedServerGroups();
+        payload[QStringLiteral("hasSnapshot")] = m_client.hasServerGroupSnapshot();
         sendEvent(QStringLiteral("group_snapshot"), payload);
     });
 

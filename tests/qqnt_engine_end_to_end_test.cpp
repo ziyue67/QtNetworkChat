@@ -270,6 +270,80 @@ public:
         return false;
     }
 
+    QString activeGroupIdByName(const QString& expectedGroupName) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("group_snapshot")) {
+                continue;
+            }
+            const QJsonArray groups = event.value(QStringLiteral("payload")).toObject().value(QStringLiteral("groups")).toArray();
+            for (const QJsonValue& value : groups) {
+                const QJsonObject group = value.toObject();
+                if (group.value(QStringLiteral("groupName")).toString() == expectedGroupName
+                    && group.value(QStringLiteral("membershipState")).toString() == QLatin1String("active")) {
+                    return group.value(QStringLiteral("groupId")).toString();
+                }
+            }
+        }
+        return QString();
+    }
+
+    bool hasGroupSnapshotContractFields(const QString& expectedGroupId) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("group_snapshot")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (!payload.value(QStringLiteral("hasSnapshot")).toBool(false)
+                || !payload.value(QStringLiteral("groups")).isArray()
+                || !payload.value(QStringLiteral("removedGroups")).isArray()) {
+                continue;
+            }
+            const QJsonArray groups = payload.value(QStringLiteral("groups")).toArray();
+            for (const QJsonValue& value : groups) {
+                if (value.toObject().value(QStringLiteral("groupId")).toString() == expectedGroupId) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool hasRemovedGroupSnapshot(const QString& expectedGroupId) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("group_snapshot")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (!payload.value(QStringLiteral("hasSnapshot")).toBool(false)
+                || !payload.value(QStringLiteral("groups")).isArray()
+                || !payload.value(QStringLiteral("removedGroups")).isArray()) {
+                continue;
+            }
+            bool stillActive = false;
+            const QJsonArray groups = payload.value(QStringLiteral("groups")).toArray();
+            for (const QJsonValue& value : groups) {
+                if (value.toObject().value(QStringLiteral("groupId")).toString() == expectedGroupId) {
+                    stillActive = true;
+                    break;
+                }
+            }
+            if (stillActive) {
+                continue;
+            }
+            const QJsonArray removedGroups = payload.value(QStringLiteral("removedGroups")).toArray();
+            for (const QJsonValue& value : removedGroups) {
+                const QJsonObject group = value.toObject();
+                if (group.value(QStringLiteral("groupId")).toString() == expectedGroupId
+                    && group.value(QStringLiteral("membershipState")).toString() == QLatin1String("removed")
+                    && !group.value(QStringLiteral("canSend")).toBool(true)
+                    && group.value(QStringLiteral("canReadHistory")).toBool(false)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     bool hasGroupMessage(const QString& expectedContent,
                          const QString& expectedSenderId,
                          const QString& expectedGroupId) const {
@@ -511,6 +585,10 @@ int main(int argc, char* argv[]) {
         return alice.hasGroupSnapshot(QStringLiteral("public"))
             && bob.hasGroupSnapshot(QStringLiteral("public"));
     }, {&alice, &bob}), "both QQNTEngine processes should receive the public group snapshot") && ok;
+    ok = expect(waitFor([&] {
+        return alice.hasGroupSnapshotContractFields(QStringLiteral("public"))
+            && bob.hasGroupSnapshotContractFields(QStringLiteral("public"));
+    }, {&alice, &bob}), "group_snapshot events should include removedGroups and hasSnapshot contract fields") && ok;
 
     QJsonObject friendRequestPayload;
     friendRequestPayload[QStringLiteral("receiverId")] = bob.userId();
@@ -599,6 +677,43 @@ int main(int argc, char* argv[]) {
     }, {&alice, &bob}), "QQNTEngine should emit completed group file IPC events with transfer ids") && ok;
     ok = expect(!alice.hasFileError(), "alice QQNTEngine should not emit file_error for a completed group file") && ok;
     ok = expect(!bob.hasFileError(), "bob QQNTEngine should not emit file_error for a completed group file") && ok;
+
+    const QString privateGroupName = QStringLiteral("Engine E2E private %1").arg(suffix);
+    QJsonObject createGroupPayload;
+    createGroupPayload[QStringLiteral("groupName")] = privateGroupName;
+    createGroupPayload[QStringLiteral("announcement")] = QStringLiteral("Engine E2E private group");
+    QJsonArray privateGroupMembers;
+    privateGroupMembers.append(bob.userId());
+    createGroupPayload[QStringLiteral("members")] = privateGroupMembers;
+    ok = expect(alice.writeCommand(makeCommand(QStringLiteral("create_group"),
+                                               QStringLiteral("alice-create-private-group"),
+                                               createGroupPayload)),
+                "alice private group create command should be written") && ok;
+    QString privateGroupId;
+    ok = expect(waitFor([&] {
+        const QString alicePrivateGroupId = alice.activeGroupIdByName(privateGroupName);
+        const QString bobPrivateGroupId = bob.activeGroupIdByName(privateGroupName);
+        if (alicePrivateGroupId.isEmpty() || alicePrivateGroupId != bobPrivateGroupId) {
+            return false;
+        }
+        privateGroupId = alicePrivateGroupId;
+        return alice.hasOkAck(QStringLiteral("alice-create-private-group"))
+            && alice.hasGroupSnapshotContractFields(privateGroupId)
+            && bob.hasGroupSnapshotContractFields(privateGroupId);
+    }, {&alice, &bob}), "private group snapshots should include contract fields for owner and invited member") && ok;
+
+    QJsonObject removeMemberPayload;
+    removeMemberPayload[QStringLiteral("groupId")] = privateGroupId;
+    removeMemberPayload[QStringLiteral("memberId")] = bob.userId();
+    removeMemberPayload[QStringLiteral("action")] = QStringLiteral("remove");
+    ok = expect(alice.writeCommand(makeCommand(QStringLiteral("update_group_member"),
+                                               QStringLiteral("alice-remove-bob-private"),
+                                               removeMemberPayload)),
+                "alice remove private group member command should be written") && ok;
+    ok = expect(waitFor([&] {
+        return alice.hasOkAck(QStringLiteral("alice-remove-bob-private"))
+            && bob.hasRemovedGroupSnapshot(privateGroupId);
+    }, {&alice, &bob}), "removed group member should receive removedGroups in group_snapshot event") && ok;
 
     alice.pump();
     bob.pump();

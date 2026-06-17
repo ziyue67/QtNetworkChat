@@ -95,7 +95,7 @@
     "friend_event": "{type, senderId?, senderName?, receiverId?, accepted?, delivered?}",
     "friend_search_result": "{found, userId, userName, online}",
     "message": "{sessionId, message}",
-    "group_snapshot": "{groups}",
+    "group_snapshot": "{groups, removedGroups, hasSnapshot}",
     "group_member_updated": "{groupId, memberId, action}",
     "file_progress": "{transferId, fileName, bytes, total, direction}",
     "file_done": "{transferId, fileName, filePath, direction}",
