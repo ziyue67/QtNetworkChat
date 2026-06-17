@@ -372,16 +372,13 @@ pub async fn query_resume(
     transfer_id: String,
     file_path: Option<String>,
     receiver_id: Option<String>,
+    content_type: Option<String>,
 ) -> Result<Value, QQNTError> {
     call_engine_payload(
         state.inner(),
         "query_resume",
         req_id,
-        json!({
-            "transferId": transfer_id,
-            "filePath": file_path,
-            "receiverId": receiver_id
-        }),
+        query_resume_payload(transfer_id, file_path, receiver_id, content_type),
     )
     .await
 }
@@ -546,6 +543,20 @@ fn cancel_transfer_payload(transfer_id: String) -> Value {
     json!({ "transferId": transfer_id })
 }
 
+fn query_resume_payload(
+    transfer_id: String,
+    file_path: Option<String>,
+    receiver_id: Option<String>,
+    content_type: Option<String>,
+) -> Value {
+    json!({
+        "transferId": transfer_id,
+        "filePath": file_path,
+        "receiverId": receiver_id,
+        "contentType": content_type
+    })
+}
+
 async fn call_engine_payload(
     state: &Arc<AppState>,
     op: &str,
@@ -706,6 +717,25 @@ mod tests {
         let payload = cancel_transfer_payload("transfer-1".to_string());
 
         assert_eq!(payload["transferId"], "transfer-1");
+    }
+
+    #[test]
+    fn query_resume_payload_preserves_content_type() {
+        let packet = command_packet(
+            "query_resume",
+            "req-3".to_string(),
+            query_resume_payload(
+                "transfer-1".to_string(),
+                Some("C:/tmp/a.png".to_string()),
+                None,
+                Some("image".to_string()),
+            ),
+        );
+
+        assert_eq!(packet["payload"]["transferId"], "transfer-1");
+        assert_eq!(packet["payload"]["filePath"], "C:/tmp/a.png");
+        assert_eq!(packet["payload"]["contentType"], "image");
+        assert!(packet["payload"].get("receiverId").is_none());
     }
 
     #[test]
