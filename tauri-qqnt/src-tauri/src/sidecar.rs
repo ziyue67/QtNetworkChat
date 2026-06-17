@@ -236,3 +236,76 @@ async fn read_resp_line(stream: &mut tokio::net::TcpStream) -> Result<String, QQ
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn redis_ping_preflight_sends_auth_then_ping() {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("mock Redis should bind");
+        let port = listener
+            .local_addr()
+            .expect("mock Redis should have a local address")
+            .port();
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("client should connect");
+            let mut buffer = [0_u8; 256];
+            let read = socket.read(&mut buffer).await.expect("AUTH should read");
+            let auth = String::from_utf8_lossy(&buffer[..read]);
+            assert!(auth.contains("AUTH"));
+            assert!(auth.contains("secret"));
+            socket
+                .write_all(b"+OK\r\n")
+                .await
+                .expect("AUTH should reply");
+
+            let read = socket.read(&mut buffer).await.expect("PING should read");
+            let ping = String::from_utf8_lossy(&buffer[..read]);
+            assert!(ping.contains("PING"));
+            socket
+                .write_all(b"+PONG\r\n")
+                .await
+                .expect("PING should reply");
+        });
+
+        ping_redis("127.0.0.1", port, Some("secret"))
+            .await
+            .expect("mock Redis PING should pass");
+        server.await.expect("mock Redis task should finish");
+    }
+
+    #[tokio::test]
+    async fn redis_ping_preflight_rejects_non_pong_reply() {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("mock Redis should bind");
+        let port = listener
+            .local_addr()
+            .expect("mock Redis should have a local address")
+            .port();
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("client should connect");
+            let mut buffer = [0_u8; 128];
+            let read = socket.read(&mut buffer).await.expect("PING should read");
+            let ping = String::from_utf8_lossy(&buffer[..read]);
+            assert!(ping.contains("PING"));
+            socket
+                .write_all(b"-ERR unavailable\r\n")
+                .await
+                .expect("PING should reply with error");
+        });
+
+        let error = ping_redis("127.0.0.1", port, None)
+            .await
+            .expect_err("non-PONG reply should fail preflight");
+        assert_eq!(error.code, "redis_ping_failed");
+        server.await.expect("mock Redis task should finish");
+    }
+}
