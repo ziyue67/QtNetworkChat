@@ -1,11 +1,27 @@
 [CmdletBinding()]
 param(
-    [string]$BuildDir = (Join-Path $PSScriptRoot '..\build'),
-    [string]$OutDir = (Join-Path $PSScriptRoot '..\tauri-qqnt\src-tauri\binaries'),
-    [string]$Triplet = $env:TAURI_TARGET_TRIPLE
+    [string]$BuildDir,
+    [string]$OutDir,
+    [string]$Triplet = $env:TAURI_TARGET_TRIPLE,
+    [string[]]$Sidecars = @('QQNTEngine', 'QQNTServer')
 )
 
 $ErrorActionPreference = 'Stop'
+
+$scriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($scriptRoot)) {
+    $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if ([string]::IsNullOrWhiteSpace($scriptRoot)) {
+    $scriptRoot = (Get-Location).Path
+}
+
+if ([string]::IsNullOrWhiteSpace($BuildDir)) {
+    $BuildDir = Join-Path $scriptRoot '..\build'
+}
+if ([string]::IsNullOrWhiteSpace($OutDir)) {
+    $OutDir = Join-Path $scriptRoot '..\tauri-qqnt\src-tauri\binaries'
+}
 
 if ([string]::IsNullOrWhiteSpace($Triplet)) {
     try {
@@ -27,10 +43,9 @@ $resolvedOutDir = [System.IO.Path]::GetFullPath($OutDir)
 
 New-Item -ItemType Directory -Force -Path $resolvedOutDir | Out-Null
 
-$sidecars = @('QQNTEngine', 'QQNTServer')
 $configDirs = @('', 'Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel')
 
-foreach ($sidecar in $sidecars) {
+foreach ($sidecar in $Sidecars) {
     $source = $null
 
     foreach ($configDir in $configDirs) {
@@ -47,7 +62,7 @@ foreach ($sidecar in $sidecars) {
     }
 
     if (-not $source) {
-        throw "Missing sidecar '$sidecar.exe' under '$resolvedBuildDir'. Build QQNTEngine and QQNTServer first, or pass -BuildDir."
+        throw "Missing sidecar '$sidecar.exe' under '$resolvedBuildDir'. Build $sidecar first, or pass -BuildDir."
     }
 
     $destination = Join-Path $resolvedOutDir "$sidecar-$Triplet.exe"

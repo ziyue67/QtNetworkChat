@@ -1,5 +1,6 @@
 #include "server.h"
 #include "objectstore.h"
+#include "qqnt_redis_service.h"
 #include "redisclient.h"
 #include "heartbeatmonitor.h"
 #include <QJsonDocument>
@@ -1124,8 +1125,7 @@ QString pendingFileTransferKey(const QString& senderId, const QString& transferI
 Server::Server(QObject* parent)
     : QObject(parent)
     , m_tcpServer(createServerSocket(this))
-    , m_redisClient(new RedisClient(this))
-    , m_redisSubscriber(new RedisSubscriber(this))
+    , m_redisService(new QQNTRedisService(this))
     , m_transferCleanupTimer(new QTimer(this))
     , m_offlineAttachmentCleanupTimer(new QTimer(this))
     , m_heartbeatMonitor(new HeartbeatMonitor(this))
@@ -1133,13 +1133,13 @@ Server::Server(QObject* parent)
     , m_tlsEnabled(m_tcpServer->property("tlsEnabled").toBool())
     , m_instanceId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
-    m_redisClient->configureFromEnvironment();
-    m_redisSubscriber->configureFromEnvironment();
-    connect(m_redisSubscriber, &RedisSubscriber::messageReceived, this, [this](const RedisClient::PubSubMessage& message) {
+    m_redisService->configureFromEnvironment();
+    connect(m_redisService, &QQNTRedisService::messageReceived, this, [this](const RedisClient::PubSubMessage& message) {
         handleRedisMessageEvent(message.payload);
     });
-    connect(m_redisSubscriber, &RedisSubscriber::subscriptionStateChanged, this, [this](bool subscribed) {
-        updateRedisSubscriberAvailability(subscribed, subscribed ? QString() : m_redisSubscriber->lastError());
+    connect(m_redisService, &QQNTRedisService::readinessChanged, this, [this](bool ready, const QString& reason) {
+        m_serviceReady = ready;
+        m_serviceReadinessReason = reason;
     });
 
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::onNewConnection);
@@ -1345,14 +1345,12 @@ void Server::stop() {
     m_stopping = true;
     m_serviceReady = false;
     m_serviceReadinessReason = QStringLiteral("server-stopped");
-    m_redisCommandReady = false;
-    m_redisSubscriberReady = false;
     m_transferCleanupTimer->stop();
     m_offlineAttachmentCleanupTimer->stop();
-    m_redisSubscriber->disconnectFromServer();
     for (const ChatUser& user : m_clients.values()) {
         clearRedisPresence(user.id);
     }
+    m_redisService->shutdown();
     const QList<QTcpSocket*> sockets = m_clients.keys();
     for (QTcpSocket* socket : sockets) {
         if (!socket) {
@@ -1500,95 +1498,55 @@ void Server::onClientDisconnected() {
 }
 
 bool Server::ensureRedisReadyForStartup() {
-    if (!m_redisClient->isEnabled()) {
+    QString error;
+    if (!m_redisService->initialize(&error)) {
         m_serviceReady = false;
-        m_serviceReadinessReason = QStringLiteral("redis-required");
-        qWarning() << "Redis is required for server startup; set QTNETWORKCHAT_REDIS=1";
+        m_serviceReadinessReason = m_redisService->readinessReason();
+        if (m_serviceReadinessReason == QStringLiteral("redis-required")) {
+            qWarning() << "Redis is required for server startup; set QTNETWORKCHAT_REDIS=1";
+        } else {
+            qWarning() << "Redis startup check failed:" << error;
+        }
         return false;
     }
 
-    if (!m_redisClient->connectToServer()) {
-        m_serviceReady = false;
-        m_serviceReadinessReason = QStringLiteral("redis-connect-failed");
-        qWarning() << "Redis startup check failed:" << m_redisClient->lastError();
-        return false;
-    }
     qDebug() << "Redis presence service enabled";
-    m_redisCommandReady = true;
-
-    if (!m_redisSubscriber->subscribe("messages")) {
-        m_serviceReady = false;
-        m_serviceReadinessReason = QStringLiteral("redis-subscribe-failed");
-        qWarning() << "Redis Pub/Sub subscriber startup check failed:" << m_redisSubscriber->lastError();
-        return false;
-    }
     qDebug() << "Redis Pub/Sub subscriber enabled";
-    m_redisSubscriberReady = true;
     refreshServiceReadiness();
     return true;
 }
 
 void Server::updateRedisCommandAvailability(bool available, const QString& reason) {
-    m_redisCommandReady = available;
-    if (!available) {
-        const QString failureReason = reason.trimmed().isEmpty()
-            ? QStringLiteral("redis-command-unavailable")
-            : reason.trimmed();
-        if (m_serviceReadinessReason != failureReason || m_serviceReady) {
-            qWarning() << "Redis command channel became unavailable:" << failureReason;
-        }
-        m_serviceReadinessReason = failureReason;
+    const bool wasReady = m_serviceReady;
+    m_redisService->setCommandAvailability(available, reason);
+    if (!available && wasReady) {
+        qWarning() << "Redis command channel became unavailable:" << m_redisService->readinessReason();
     }
     refreshServiceReadiness();
 }
 
 void Server::updateRedisSubscriberAvailability(bool available, const QString& reason) {
-    m_redisSubscriberReady = available;
-    if (!available) {
-        const QString failureReason = reason.trimmed().isEmpty()
-            ? QStringLiteral("redis-subscriber-unavailable")
-            : reason.trimmed();
-        if (m_serviceReadinessReason != failureReason || m_serviceReady) {
-            qWarning() << "Redis subscriber channel became unavailable:" << failureReason;
-        }
-        m_serviceReadinessReason = failureReason;
+    const bool wasReady = m_serviceReady;
+    m_redisService->setSubscriberAvailability(available, reason);
+    if (!available && wasReady) {
+        qWarning() << "Redis subscriber channel became unavailable:" << m_redisService->readinessReason();
     }
     refreshServiceReadiness();
 }
 
 void Server::refreshServiceReadiness() {
-    const bool ready = m_redisCommandReady && m_redisSubscriberReady;
-    m_serviceReady = ready;
-    if (ready) {
-        m_serviceReadinessReason.clear();
-        return;
-    }
-
-    if (!m_redisCommandReady && m_serviceReadinessReason.isEmpty()) {
-        m_serviceReadinessReason = QStringLiteral("redis-command-unavailable");
-    } else if (!m_redisSubscriberReady && m_serviceReadinessReason.isEmpty()) {
-        m_serviceReadinessReason = QStringLiteral("redis-subscriber-unavailable");
-    }
+    m_serviceReady = m_redisService->isReady();
+    m_serviceReadinessReason = m_redisService->readinessReason();
 }
 
 void Server::tryRecoverRedisCommandAvailability() {
-    if (m_redisCommandReady || !m_redisClient || !m_redisClient->isEnabled()) {
-        return;
-    }
-
-    if (m_redisClient->ping() || m_redisClient->connectToServer()) {
-        updateRedisCommandAvailability(true);
-    }
+    m_redisService->recoverCommandAvailability();
+    refreshServiceReadiness();
 }
 
 void Server::tryRecoverRedisSubscriberAvailability() {
-    if (m_redisSubscriberReady || !m_redisSubscriber || !m_redisSubscriber->isEnabled()) {
-        return;
-    }
-
-    if (m_redisSubscriber->subscribe(QStringLiteral("messages"))) {
-        updateRedisSubscriberAvailability(true);
-    }
+    m_redisService->recoverSubscriberAvailability();
+    refreshServiceReadiness();
 }
 
 bool Server::ensureServiceReady(QTcpSocket* socket, const QString& action) {
@@ -3046,25 +3004,19 @@ void Server::handleFileTransferCancel(const QJsonObject& obj, QTcpSocket* socket
 }
 
 void Server::refreshRedisPresence(const ChatUser& user) {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return;
-    if (!m_redisClient->setPresence(user.id, user.name)) {
-        updateRedisCommandAvailability(false, m_redisClient->lastError());
-        return;
-    }
+    if (!m_redisService->isEnabled()) return;
+    if (!m_redisService->setPresence(user.id, user.name)) return;
     publishRedisPresenceEvent(user.id, QStringLiteral("online"));
 }
 
 void Server::clearRedisPresence(const QString& userId) {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return;
-    if (!m_redisClient->clearPresence(userId)) {
-        updateRedisCommandAvailability(false, m_redisClient->lastError());
-        return;
-    }
+    if (!m_redisService->isEnabled()) return;
+    if (!m_redisService->clearPresence(userId)) return;
     publishRedisPresenceEvent(userId, QStringLiteral("offline"));
 }
 
 bool Server::publishRedisPresenceEvent(const QString& userId, const QString& action) const {
-    if (!m_redisClient || !m_redisClient->isEnabled() || userId.trimmed().isEmpty()) {
+    if (!m_redisService->isEnabled() || userId.trimmed().isEmpty()) {
         return false;
     }
 
@@ -3074,12 +3026,8 @@ bool Server::publishRedisPresenceEvent(const QString& userId, const QString& act
     event["userId"] = userId.trimmed();
     event["action"] = action.trimmed().isEmpty() ? QStringLiteral("online") : action.trimmed();
     event["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    const bool published = m_redisClient->publish(QStringLiteral("messages"),
-                                                  QJsonDocument(event).toJson(QJsonDocument::Compact));
-    if (!published) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
-    return published;
+    return m_redisService->publish(QStringLiteral("messages"),
+                                   QJsonDocument(event).toJson(QJsonDocument::Compact));
 }
 
 void Server::refreshConnectedClientViews() {
@@ -3095,16 +3043,12 @@ void Server::refreshConnectedClientViews() {
 
 bool Server::isRedisUserOnline(const QString& userId, bool* online) const {
     if (online) *online = false;
-    if (!m_redisClient || !m_redisClient->isEnabled() || userId.isEmpty()) return false;
-    const bool ok = m_redisClient->queryPresence(userId, online);
-    if (!ok) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
-    return ok;
+    if (!m_redisService->isEnabled() || userId.isEmpty()) return false;
+    return m_redisService->queryPresence(userId, online);
 }
 
 bool Server::canPublishRedisMessageEvent(const Message& msg, const QString& deliveryState) const {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
 
     const bool isRedisFilePayload =
         (msg.type == MessageType::File || msg.type == MessageType::Image)
@@ -3129,7 +3073,7 @@ bool Server::canPublishRedisMessageEvent(const Message& msg, const QString& deli
 }
 
 bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliveryState) {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     tryRecoverRedisCommandAvailability();
     if (!canPublishRedisMessageEvent(msg, deliveryState)) return false;
 
@@ -3151,15 +3095,11 @@ bool Server::publishRedisMessageEvent(const Message& msg, const QString& deliver
                    << "limit:" << kRedisPubSubEventMaxBytes;
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
-    if (!published) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
-    return published;
+    return m_redisService->publish("messages", eventPayload);
 }
 
 bool Server::publishRedisE2EControlEvent(const QJsonObject& forwarded) const {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
     const QString receiverId = forwarded.value("receiverId").toString().trimmed();
     if (receiverId.isEmpty()) return false;
@@ -3179,15 +3119,11 @@ bool Server::publishRedisE2EControlEvent(const QJsonObject& forwarded) const {
                    << "limit:" << kRedisPubSubEventMaxBytes;
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
-    if (!published) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
-    return published;
+    return m_redisService->publish("messages", eventPayload);
 }
 
 bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     const QString objectKey = offlinePayload["objectStoreKey"].toString().trimmed();
@@ -3239,20 +3175,17 @@ bool Server::publishRedisLargeFileOffer(const QJsonObject& offlinePayload) const
                                     fileSize);
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
-    if (!published) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("offer"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? QString() : m_redisClient->lastError(),
+                                published ? QString() : m_redisService->lastError(),
                                 fileSize);
     return published;
 }
 
 bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     QJsonObject event;
@@ -3272,19 +3205,16 @@ bool Server::publishRedisLargeFileClaim(const QJsonObject& offer) const {
                                     QStringLiteral("payload-too-large"));
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
-    if (!published) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("claim"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? QString() : m_redisClient->lastError());
+                                published ? QString() : m_redisService->lastError());
     return published;
 }
 
 bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 confirmedBytes) const {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     QJsonObject event;
@@ -3308,20 +3238,17 @@ bool Server::publishRedisLargeFileDelivered(const QJsonObject& offer, qint64 con
                                     confirmedBytes);
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
-    if (!published) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("delivered"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? QString() : m_redisClient->lastError(),
+                                published ? QString() : m_redisService->lastError(),
                                 confirmedBytes);
     return published;
 }
 
 bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString& reason) const {
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
     QJsonObject event;
@@ -3344,14 +3271,11 @@ bool Server::publishRedisLargeFileFailed(const QJsonObject& offer, const QString
                                     QStringLiteral("payload-too-large"));
         return false;
     }
-    const bool published = m_redisClient->publish("messages", eventPayload);
-    if (!published) {
-        const_cast<Server*>(this)->updateRedisCommandAvailability(false, m_redisClient->lastError());
-    }
+    const bool published = m_redisService->publish("messages", eventPayload);
     logRedisLargeFileRouteEvent(QStringLiteral("failed"),
                                 published ? QStringLiteral("published") : QStringLiteral("publish-failed"),
                                 largeFileRouteLogMetadata(event, objectStoreType(), QStringLiteral("publish")),
-                                published ? reason : m_redisClient->lastError());
+                                published ? reason : m_redisService->lastError());
     return published;
 }
 
@@ -4368,7 +4292,7 @@ bool Server::hasOfflineAttachmentCapacity(qint64 incomingBytes) const {
 
 bool Server::shouldPublishLargeFileOffer(const Message& msg) const {
     if (!envEnabled("QTNETWORKCHAT_LARGE_FILE_ROUTING")) return false;
-    if (!m_redisClient || !m_redisClient->isEnabled()) return false;
+    if (!m_redisService->isEnabled()) return false;
     if (!isRedisUserOnline(msg.receiverId)) return false;
     if (msg.receiverId.isEmpty() || msg.fileData.isEmpty()) return false;
     if (msg.type != MessageType::File && msg.type != MessageType::Image) return false;
@@ -5441,9 +5365,9 @@ void Server::sendUserList(QTcpSocket* socket) {
     QSet<QString> onlineIds;
     QMap<QString, QString> onlineNames;
     QJsonArray users;
-    if (m_redisClient && m_redisClient->isEnabled()) {
+    if (m_redisService->isEnabled()) {
         QList<RedisClient::Presence> redisUsers;
-        if (m_redisClient->fetchOnlinePresence(&redisUsers)) {
+        if (m_redisService->fetchOnlinePresence(&redisUsers)) {
             for (const RedisClient::Presence& user : redisUsers) {
                 const QString userId = user.userId.trimmed();
                 if (userId.isEmpty()) {
@@ -5454,8 +5378,6 @@ void Server::sendUserList(QTcpSocket* socket) {
                     onlineNames.insert(userId, user.userName.trimmed());
                 }
             }
-        } else {
-            updateRedisCommandAvailability(false, m_redisClient->lastError());
         }
     }
 

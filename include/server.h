@@ -15,8 +15,7 @@
 
 class QTimer;
 class ObjectStore;
-class RedisClient;
-class RedisSubscriber;
+class QQNTRedisService;
 class HeartbeatMonitor;
 struct LargeFileDeliveredReceiptDecision;
 
@@ -175,8 +174,7 @@ private:
     };
 
     QTcpServer* m_tcpServer;
-    RedisClient* m_redisClient;
-    RedisSubscriber* m_redisSubscriber;
+    QQNTRedisService* m_redisService;
     QTimer* m_transferCleanupTimer;
     QTimer* m_offlineAttachmentCleanupTimer;
     HeartbeatMonitor* m_heartbeatMonitor;
@@ -185,8 +183,6 @@ private:
     QString m_instanceId;
     bool m_serviceReady = false;
     QString m_serviceReadinessReason;
-    bool m_redisCommandReady = false;
-    bool m_redisSubscriberReady = false;
     bool m_stopping = false;
     QMap<QTcpSocket*, ChatUser> m_clients;          // socket -> user
     QMap<QString, QTcpSocket*> m_userSockets;       // userId -> socket
