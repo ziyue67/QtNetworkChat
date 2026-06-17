@@ -14,10 +14,10 @@
       {
         "title": "QQ NT",
         "label": "main",
-        "width": 1100,
-        "height": 740,
-        "minWidth": 860,
-        "minHeight": 540,
+        "width": 300,
+        "height": 460,
+        "minWidth": 300,
+        "minHeight": 460,
         "decorations": false,
         "transparent": false,
         "center": true,
@@ -41,6 +41,6 @@
       "icons/icon.ico"
     ],
     "resources": [],
-    "externalBin": []
+    "externalBin": ["binaries/QQNTEngine", "binaries/QQNTServer"]
   }
 }

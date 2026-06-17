@@ -58,19 +58,19 @@ export function LoginView({ onLogin }: LoginViewProps) {
   }
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] p-6">
+    <div className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] py-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] p-8 shadow-[var(--qq-shadow)]"
+        className="w-[calc(100%-32px)] rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] p-6 shadow-[var(--qq-shadow)]"
       >
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--qq-primary)] text-lg font-bold text-white">
+        <div className="mb-4 flex items-center justify-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--qq-primary)] text-base font-bold text-white">
             Q
           </div>
-          <h1 className="text-xl font-semibold text-[var(--qq-text)]">QQ NT</h1>
+          <h1 className="text-lg font-semibold text-[var(--qq-text)]">QQ NT</h1>
         </div>
 
-        <div className="mb-6 flex rounded-lg bg-[var(--qq-bg-tertiary)] p-1">
+        <div className="mb-4 flex rounded-lg bg-[var(--qq-bg-tertiary)] p-1">
           <button
             type="button"
             onClick={() => {
@@ -79,7 +79,7 @@ export function LoginView({ onLogin }: LoginViewProps) {
               setRegisteredHint(false)
             }}
             className={cn(
-              'flex-1 rounded-md py-1.5 text-sm font-medium transition-colors',
+              'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
               mode === 'login'
                 ? 'bg-[var(--qq-surface)] text-[var(--qq-text)] shadow-sm'
                 : 'text-[var(--qq-text-secondary)] hover:text-[var(--qq-text)]'
@@ -95,7 +95,7 @@ export function LoginView({ onLogin }: LoginViewProps) {
               setRegisteredHint(false)
             }}
             className={cn(
-              'flex-1 rounded-md py-1.5 text-sm font-medium transition-colors',
+              'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
               mode === 'register'
                 ? 'bg-[var(--qq-surface)] text-[var(--qq-text)] shadow-sm'
                 : 'text-[var(--qq-text-secondary)] hover:text-[var(--qq-text)]'
@@ -105,7 +105,7 @@ export function LoginView({ onLogin }: LoginViewProps) {
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div>
             <label className="mb-1 block text-xs text-[var(--qq-text-secondary)]">账号</label>
             <input
@@ -140,16 +140,16 @@ export function LoginView({ onLogin }: LoginViewProps) {
         </div>
 
         {error ? (
-          <p className="mt-4 text-center text-xs text-[var(--qq-danger)]">{error}</p>
+          <p className="mt-3 text-center text-xs text-[var(--qq-danger)]">{error}</p>
         ) : null}
         {registeredHint ? (
-          <p className="mt-4 text-center text-xs text-[var(--qq-success)]">注册成功，请登录</p>
+          <p className="mt-3 text-center text-xs text-[var(--qq-success)]">注册成功，请登录</p>
         ) : null}
 
         <button
           type="submit"
           disabled={loading}
-          className="mt-6 w-full rounded-md bg-[var(--qq-primary)] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--qq-primary-hover)] disabled:opacity-60"
+          className="mt-4 w-full rounded-md bg-[var(--qq-primary)] py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--qq-primary-hover)] disabled:opacity-60"
         >
           {loading
             ? mode === 'login'

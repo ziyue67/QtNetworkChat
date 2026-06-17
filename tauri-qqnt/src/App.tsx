@@ -19,6 +19,43 @@ import { FavoritesView } from '@/views/FavoritesView'
 import { WalletView } from '@/views/WalletView'
 import './styles/index.css'
 
+const LOGIN_SIZE = { width: 300, height: 460 }
+const LOGIN_MIN_SIZE = { width: 300, height: 460 }
+const MAIN_SIZE = { width: 1100, height: 740 }
+const MAIN_MIN_SIZE = { width: 860, height: 540 }
+
+function useResizeForAuth(isAuthenticated: boolean) {
+  useEffect(() => {
+    let mounted = true
+
+    async function resize() {
+      try {
+        const [{ getCurrentWindow }, { LogicalSize }] = await Promise.all([
+          import('@tauri-apps/api/window'),
+          import('@tauri-apps/api/dpi')
+        ])
+        const win = getCurrentWindow()
+        const size = isAuthenticated ? MAIN_SIZE : LOGIN_SIZE
+        const minSize = isAuthenticated ? MAIN_MIN_SIZE : LOGIN_MIN_SIZE
+
+        if (!mounted) return
+        await win.setMinSize(new LogicalSize(minSize.width, minSize.height))
+        await win.setSize(new LogicalSize(size.width, size.height))
+        if (isAuthenticated) {
+          await win.center()
+        }
+      } catch {
+        // Not running inside Tauri (e.g. browser preview).
+      }
+    }
+
+    resize()
+    return () => {
+      mounted = false
+    }
+  }, [isAuthenticated])
+}
+
 function App() {
   useTheme()
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -27,6 +64,8 @@ function App() {
   useEffect(() => {
     setReady(true)
   }, [])
+
+  useResizeForAuth(isAuthenticated)
 
   if (!ready) {
     return <div className="h-full w-full bg-[var(--qq-bg)]" />
