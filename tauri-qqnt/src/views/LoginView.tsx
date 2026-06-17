@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { X } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { cn } from '@/lib/utils'
 
@@ -17,6 +18,15 @@ export function LoginView({ onLogin }: LoginViewProps) {
   const [error, setError] = useState('')
   const [registeredHint, setRegisteredHint] = useState(false)
   const login = useAuthStore((state) => state.login)
+
+  async function closeWindow() {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      await getCurrentWindow().close()
+    } catch {
+      // Not running inside Tauri (e.g. browser preview).
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -61,8 +71,18 @@ export function LoginView({ onLogin }: LoginViewProps) {
     <div className="flex h-full w-full items-center justify-center bg-[var(--qq-bg)] p-6">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] p-8 shadow-[var(--qq-shadow)]"
+        className="relative w-full max-w-sm rounded-xl border border-[var(--qq-border)] bg-[var(--qq-surface)] p-8 shadow-[var(--qq-shadow)]"
       >
+        <button
+          type="button"
+          onClick={closeWindow}
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-[var(--qq-text-tertiary)] transition-colors hover:bg-[var(--qq-bg-tertiary)] hover:text-[var(--qq-text)]"
+          aria-label="关闭"
+          title="关闭"
+        >
+          <X size={16} strokeWidth={1.5} />
+        </button>
+
         <div className="mb-6 flex items-center justify-center gap-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--qq-primary)] text-lg font-bold text-white">
             Q
