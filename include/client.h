@@ -145,6 +145,7 @@ signals:
                                          const QVector<qint64>& receivedChunks,
                                          const QString& reason);
     void serverGroupSnapshotReceived(const QJsonArray& groups);
+    void serverGroupMemberUpdated(const QString& groupId, const QString& memberId, const QString& action);
     void e2eSessionStateChanged(const QString& peerId, const QJsonObject& status);
     void e2eIdentityStateChanged(const QString& peerId, const QJsonObject& status);
     void e2eSessionRotationRequested(const QString& peerId, const QJsonObject& agreement);

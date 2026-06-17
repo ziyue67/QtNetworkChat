@@ -2455,6 +2455,7 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
         QTcpSocket* memberSocket = m_userSockets.value(userId);
         if (!memberSocket || memberSocket->state() != QAbstractSocket::ConnectedState) continue;
         sendSystemNotice(memberSocket, notice);
+        sendServerGroupMemberUpdated(memberSocket, groupId, memberId, action);
         sendServerGroupSnapshot(userId, memberSocket);
     }
 }
@@ -5429,6 +5430,19 @@ void Server::sendUserList(QTcpSocket* socket) {
     }
     obj["users"] = users;
 
+    socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    socket->write("\n");
+    socket->flush();
+}
+
+void Server::sendServerGroupMemberUpdated(QTcpSocket* socket, const QString& groupId, const QString& memberId, const QString& action) const {
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
+
+    QJsonObject obj;
+    obj["type"] = "server_group_member_updated";
+    obj["groupId"] = groupId;
+    obj["memberId"] = memberId;
+    obj["action"] = action;
     socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     socket->write("\n");
     socket->flush();

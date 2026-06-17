@@ -54,6 +54,7 @@ private:
     void broadcastMessage(const Message& msg, QTcpSocket* excludeSocket = nullptr);
     void sendUserList(QTcpSocket* socket);
     void sendServerGroupSnapshot(const QString& userId, QTcpSocket* socket) const;
+    void sendServerGroupMemberUpdated(QTcpSocket* socket, const QString& groupId, const QString& memberId, const QString& action) const;
     void sendToUser(const Message& msg);
     bool sendChunkedFileToSocket(const Message& msg, QTcpSocket* socket);
     void handleLogin(const QJsonObject& obj, QTcpSocket* socket);

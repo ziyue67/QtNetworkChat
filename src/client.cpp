@@ -4459,6 +4459,13 @@ void Client::handleServerMessage(const QJsonObject& obj) {
         return;
     }
 
+    if (type == "server_group_member_updated") {
+        emit serverGroupMemberUpdated(obj["groupId"].toString(),
+                                      obj["memberId"].toString(),
+                                      obj["action"].toString());
+        return;
+    }
+
     if (type == "friend_search_result") {
         emit friendSearchResult(
             obj["account"].toString(),

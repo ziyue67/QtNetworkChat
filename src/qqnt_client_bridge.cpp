@@ -285,6 +285,14 @@ void QQNTClientBridge::bindClientSignals() {
         sendEvent(QStringLiteral("group_snapshot"), payload);
     });
 
+    connect(&m_client, &Client::serverGroupMemberUpdated, this, [this](const QString& groupId, const QString& memberId, const QString& action) {
+        QJsonObject payload;
+        payload[QStringLiteral("groupId")] = groupId;
+        payload[QStringLiteral("memberId")] = memberId;
+        payload[QStringLiteral("action")] = action;
+        sendEvent(QStringLiteral("group_member_updated"), payload);
+    });
+
     connect(&m_client, &Client::e2eSessionStateChanged, this, [this](const QString& peerId, const QJsonObject& status) {
         QJsonObject payload = status;
         payload[QStringLiteral("peerId")] = peerId;
