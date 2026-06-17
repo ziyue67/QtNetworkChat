@@ -869,7 +869,7 @@ if(BUILD_TESTING)
         NAME QQNTProtocolDrift
         COMMAND ${CMAKE_COMMAND}
             -DTEST_EXE=$<TARGET_FILE:qqnt_protocol_drift_test>
-            "-DTEST_ARGS=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ready.json"
+            "-DTEST_ARGS=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ready.json;${CMAKE_CURRENT_SOURCE_DIR}/docs/qqnt-ipcv1.md;${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/protocol_contract.json"
             -DQT_BIN_DIR=$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_qt_test.cmake
     )

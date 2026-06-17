@@ -599,6 +599,67 @@ fn ack_payload(packet: Value, op: &str) -> Result<Value, QQNTError> {
 mod tests {
     use super::*;
 
+    const TYPED_COMMAND_OPS: &[&str] = &[
+        "ready",
+        "connect",
+        "disconnect",
+        "login",
+        "register",
+        "logout",
+        "set_user_info",
+        "get_user_list",
+        "get_friend_list",
+        "get_group_list",
+        "search_friend",
+        "send_friend_request",
+        "respond_friend_request",
+        "send_private_message",
+        "send_group_message",
+        "create_group",
+        "update_group_announcement",
+        "update_group_member",
+        "send_file",
+        "send_image",
+        "cancel_transfer",
+        "query_resume",
+        "e2e_status",
+        "e2e_announce_identity",
+        "e2e_pin_identity",
+        "e2e_request_rotation",
+        "profile_update",
+        "settings_sync",
+    ];
+
+    fn protocol_contract() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../tests/fixtures/protocol_contract.json"
+        ))
+        .expect("protocol contract fixture should parse")
+    }
+
+    fn string_array<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+        value[key]
+            .as_array()
+            .expect("protocol contract key should be an array")
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .expect("protocol contract value should be a string")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn typed_command_wrappers_cover_protocol_contract() {
+        let contract = protocol_contract();
+        let mut expected = string_array(&contract, "commands");
+        let mut actual = TYPED_COMMAND_OPS.to_vec();
+        expected.sort_unstable();
+        actual.sort_unstable();
+
+        assert_eq!(actual, expected);
+    }
+
     #[test]
     fn command_packet_keeps_protocol_field_names() {
         let packet = command_packet(

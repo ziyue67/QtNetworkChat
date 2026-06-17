@@ -171,6 +171,25 @@ mod tests {
     use super::*;
     use crate::state::AppState;
 
+    fn protocol_contract() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../tests/fixtures/protocol_contract.json"
+        ))
+        .expect("protocol contract fixture should parse")
+    }
+
+    fn string_array<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+        value[key]
+            .as_array()
+            .expect("protocol contract key should be an array")
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .expect("protocol contract value should be a string")
+            })
+            .collect()
+    }
+
     #[test]
     fn dispatches_ack_by_req_id() {
         let dispatch = dispatch_stdout_line(
@@ -199,6 +218,27 @@ mod tests {
                 payload: json!({ "sessionId": "10001" }),
             }
         );
+    }
+
+    #[test]
+    fn dispatches_protocol_contract_events_to_engine_topics() {
+        let contract = protocol_contract();
+        for event_name in string_array(&contract, "events") {
+            let line = json!({
+                "type": "event",
+                "event": event_name,
+                "payload": { "contractProbe": true }
+            })
+            .to_string();
+
+            assert_eq!(
+                dispatch_stdout_line(line.as_bytes()),
+                EngineDispatch::Event {
+                    topic: format!("qqnt://engine/{event_name}"),
+                    payload: json!({ "contractProbe": true }),
+                }
+            );
+        }
     }
 
     #[test]
