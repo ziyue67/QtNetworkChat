@@ -104,15 +104,18 @@ pub async fn handle_engine_event(app: &AppHandle, state: &Arc<AppState>, event: 
         CommandEvent::Error(message) => {
             let error = QQNTError::rust("engine_process_error", message);
             state.engine.set_last_error(error.clone()).await;
+            fail_pending_engine_requests(state, &error.code, &error.message).await;
             let _ = app.emit("qqnt://engine/error", error);
         }
         CommandEvent::Terminated(payload) => {
             *state.engine.child.lock().await = None;
+            let message = "QQNTEngine sidecar terminated.";
+            fail_pending_engine_requests(state, "engine_terminated", message).await;
             let _ = app.emit(
                 "qqnt://engine/error",
                 json!({
                     "code": "engine_terminated",
-                    "message": "QQNTEngine sidecar terminated.",
+                    "message": message,
                     "source": "rust",
                     "codeValue": payload.code,
                     "signal": payload.signal
@@ -197,6 +200,26 @@ fn dispatch_stdout_line(line: &[u8]) -> EngineDispatch {
 async fn handle_ack(state: &Arc<AppState>, req_id: &str, packet: Value) {
     if let Some(sender) = state.engine.pending.lock().await.remove(req_id) {
         let _ = sender.send(packet);
+    }
+}
+
+pub(crate) async fn fail_pending_engine_requests(state: &Arc<AppState>, code: &str, message: &str) {
+    let pending = {
+        let mut pending = state.engine.pending.lock().await;
+        pending.drain().collect::<Vec<_>>()
+    };
+
+    for (req_id, sender) in pending {
+        let _ = sender.send(json!({
+            "type": "ack",
+            "reqId": req_id,
+            "status": "error",
+            "error": {
+                "code": code,
+                "message": message,
+                "source": "rust"
+            }
+        }));
     }
 }
 
@@ -696,5 +719,43 @@ mod tests {
 
         assert_eq!(error.code, "engine_channel_closed");
         assert!(state.engine.pending.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fail_pending_engine_requests_resolves_and_clears_all_pending() {
+        let state = Arc::new(AppState::new());
+        let (first_sender, first_receiver) = oneshot::channel();
+        let (second_sender, second_receiver) = oneshot::channel();
+        {
+            let mut pending = state.engine.pending.lock().await;
+            pending.insert("req-first".to_string(), first_sender);
+            pending.insert("req-second".to_string(), second_sender);
+        }
+
+        fail_pending_engine_requests(
+            &state,
+            "engine_terminated",
+            "QQNTEngine sidecar terminated.",
+        )
+        .await;
+
+        assert!(state.engine.pending.lock().await.is_empty());
+        let first_packet = first_receiver
+            .await
+            .expect("first pending request should receive failure ack");
+        let second_packet = second_receiver
+            .await
+            .expect("second pending request should receive failure ack");
+
+        assert_eq!(first_packet["type"], "ack");
+        assert_eq!(first_packet["reqId"], "req-first");
+        assert_eq!(first_packet["status"], "error");
+        assert_eq!(first_packet["error"]["code"], "engine_terminated");
+        assert_eq!(first_packet["error"]["source"], "rust");
+        assert_eq!(second_packet["reqId"], "req-second");
+        assert_eq!(
+            second_packet["error"]["message"],
+            "QQNTEngine sidecar terminated."
+        );
     }
 }

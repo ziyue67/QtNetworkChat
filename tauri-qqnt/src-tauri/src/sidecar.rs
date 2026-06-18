@@ -50,10 +50,12 @@ async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
     }
 
     *state.engine.child.lock().await = None;
-    Err(QQNTError::rust(
+    let error = QQNTError::rust(
         "engine_event_stream_closed",
         "QQNTEngine event stream closed.",
-    ))
+    );
+    bridge::fail_pending_engine_requests(&state, &error.code, &error.message).await;
+    Err(error)
 }
 
 async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTError> {
