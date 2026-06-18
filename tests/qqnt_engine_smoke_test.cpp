@@ -258,6 +258,11 @@ bool expectExactAcceptedPayload(const QString& op, const QJsonObject& payload) {
     return ok;
 }
 
+bool expectExactPayloadFieldCount(const QString& op, const QJsonObject& payload, int expectedFields) {
+    return expect(payload.size() == expectedFields,
+                  QStringLiteral("%1 contract payload should include exactly %2 fields").arg(op).arg(expectedFields));
+}
+
 bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload) {
     bool ok = true;
 
@@ -309,9 +314,11 @@ bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload)
     } else if (op == QLatin1String("send_private_message")) {
         ok = expectNonEmptyStringField(op, payload, QStringLiteral("receiverId")) && ok;
     } else if (op == QLatin1String("cancel_transfer")) {
+        ok = expectExactPayloadFieldCount(op, payload, 2) && ok;
         ok = expectTrueBoolField(op, payload, QStringLiteral("cancelled")) && ok;
         ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
     } else if (op == QLatin1String("query_resume")) {
+        ok = expectExactPayloadFieldCount(op, payload, 11) && ok;
         ok = expectTrueBoolField(op, payload, QStringLiteral("canResume")) && ok;
         ok = expectNonEmptyStringField(op, payload, QStringLiteral("transferId")) && ok;
         ok = expectUnsignedIntegerStringField(op, payload, QStringLiteral("confirmedBytes")) && ok;

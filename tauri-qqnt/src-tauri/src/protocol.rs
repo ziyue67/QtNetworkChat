@@ -156,6 +156,7 @@ fn validate_send_private_message_ack_payload(payload: &Value) -> QQNTResult<()> 
 fn validate_cancel_transfer_ack_payload(payload: &Value) -> QQNTResult<()> {
     require_true_bool_field(payload, "cancelled", "cancel_transfer")?;
     require_non_empty_string_field(payload, "transferId", "cancel_transfer")?;
+    require_exact_object_fields(payload, &["cancelled", "transferId"], "cancel_transfer")?;
 
     Ok(())
 }
@@ -172,6 +173,23 @@ fn validate_query_resume_ack_payload(payload: &Value) -> QQNTResult<()> {
     require_unsigned_integer_string_array_field(payload, "receivedChunks", "query_resume")?;
     require_bool_field(payload, "resumed", "query_resume")?;
     require_one_of_string_field(payload, "mode", &["query", "resume"], "query_resume")?;
+    require_exact_object_fields(
+        payload,
+        &[
+            "canResume",
+            "transferId",
+            "confirmedBytes",
+            "nextChunkIndex",
+            "fileSize",
+            "chunkSize",
+            "chunkCount",
+            "fileHash",
+            "receivedChunks",
+            "resumed",
+            "mode",
+        ],
+        "query_resume",
+    )?;
 
     Ok(())
 }
@@ -583,6 +601,11 @@ fn validate_file_progress_payload(payload: &Value) -> QQNTResult<()> {
     )?;
     require_unsigned_integer_string_field(payload, "bytes", "file_progress")?;
     require_unsigned_integer_string_field(payload, "total", "file_progress")?;
+    require_exact_object_fields(
+        payload,
+        &["transferId", "fileName", "bytes", "total", "direction"],
+        "file_progress",
+    )?;
 
     Ok(())
 }
@@ -592,6 +615,11 @@ fn validate_file_done_payload(payload: &Value) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "fileName", "file_done")?;
     require_one_of_string_field(payload, "direction", &["incoming", "outgoing"], "file_done")?;
     require_string_field(payload, "filePath", "file_done")?;
+    require_exact_object_fields(
+        payload,
+        &["transferId", "fileName", "filePath", "direction"],
+        "file_done",
+    )?;
 
     Ok(())
 }
@@ -608,6 +636,18 @@ fn validate_file_error_payload(payload: &Value) -> QQNTResult<()> {
     )?;
     require_unsigned_integer_string_field(payload, "bytes", "file_error")?;
     require_unsigned_integer_string_field(payload, "total", "file_error")?;
+    require_exact_object_fields(
+        payload,
+        &[
+            "transferId",
+            "fileName",
+            "reason",
+            "bytes",
+            "total",
+            "direction",
+        ],
+        "file_error",
+    )?;
 
     Ok(())
 }
@@ -2048,6 +2088,24 @@ mod tests {
     }
 
     #[test]
+    fn file_progress_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "file_progress",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "bytes": "128",
+                "total": "256",
+                "direction": "outgoing",
+                "extra": true
+            }),
+        )
+        .expect_err("file_progress with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_file_progress_payload");
+    }
+
+    #[test]
     fn file_done_payload_accepts_contract_fields() {
         validate_event_payload(
             "file_done",
@@ -2088,6 +2146,23 @@ mod tests {
             }),
         )
         .expect_err("file_done with unknown direction should fail");
+
+        assert_eq!(error.code, "invalid_file_done_payload");
+    }
+
+    #[test]
+    fn file_done_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "file_done",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "filePath": "C:/tmp/report.zip",
+                "direction": "incoming",
+                "extra": true
+            }),
+        )
+        .expect_err("file_done with extra fields should fail");
 
         assert_eq!(error.code, "invalid_file_done_payload");
     }
@@ -2152,6 +2227,25 @@ mod tests {
             }),
         )
         .expect_err("file_error with numeric counters should fail");
+
+        assert_eq!(error.code, "invalid_file_error_payload");
+    }
+
+    #[test]
+    fn file_error_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "file_error",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "reason": "cancelled",
+                "direction": "outgoing",
+                "bytes": "128",
+                "total": "256",
+                "extra": true
+            }),
+        )
+        .expect_err("file_error with extra fields should fail");
 
         assert_eq!(error.code, "invalid_file_error_payload");
     }
@@ -2556,6 +2650,21 @@ mod tests {
     }
 
     #[test]
+    fn cancel_transfer_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "cancel_transfer",
+            &json!({
+                "cancelled": true,
+                "transferId": "transfer-1",
+                "extra": true
+            }),
+        )
+        .expect_err("cancel_transfer ack with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_cancel_transfer_payload");
+    }
+
+    #[test]
     fn query_resume_ack_payload_accepts_contract_fields() {
         validate_command_ack_payload(
             "query_resume",
@@ -2594,6 +2703,30 @@ mod tests {
             }),
         )
         .expect_err("query_resume ack without receivedChunks should fail");
+
+        assert_eq!(error.code, "invalid_query_resume_payload");
+    }
+
+    #[test]
+    fn query_resume_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "query_resume",
+            &json!({
+                "canResume": true,
+                "transferId": "transfer-1",
+                "confirmedBytes": "128",
+                "nextChunkIndex": "2",
+                "fileSize": "1024",
+                "chunkSize": "64",
+                "chunkCount": "16",
+                "fileHash": "abc123",
+                "receivedChunks": ["0", "1"],
+                "resumed": false,
+                "mode": "query",
+                "extra": true
+            }),
+        )
+        .expect_err("query_resume ack with extra fields should fail");
 
         assert_eq!(error.code, "invalid_query_resume_payload");
     }

@@ -431,15 +431,13 @@ mod tests {
                 "fileName": "contract.bin",
                 "bytes": "128",
                 "total": "256",
-                "direction": "outgoing",
-                "contractProbe": true
+                "direction": "outgoing"
             }),
             "file_done" => json!({
                 "transferId": "contract-transfer",
                 "fileName": "contract.bin",
                 "filePath": "C:/tmp/contract.bin",
-                "direction": "incoming",
-                "contractProbe": true
+                "direction": "incoming"
             }),
             "file_error" => json!({
                 "transferId": "contract-transfer",
@@ -447,8 +445,7 @@ mod tests {
                 "reason": "cancelled",
                 "bytes": "128",
                 "total": "256",
-                "direction": "outgoing",
-                "contractProbe": true
+                "direction": "outgoing"
             }),
             "e2e_session_state" => json!({
                 "peerId": "10002",
