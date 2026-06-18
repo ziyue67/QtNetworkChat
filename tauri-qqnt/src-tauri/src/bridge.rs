@@ -58,10 +58,38 @@ pub async fn call_engine(state: &Arc<AppState>, command: Value) -> QQNTResult<Va
         return Err(error);
     }
 
-    tokio::time::timeout(Duration::from_secs(ENGINE_TIMEOUT_SECONDS), receiver)
-        .await
-        .map_err(|_| QQNTError::rust("engine_timeout", "QQNTEngine did not ack before timeout."))?
-        .map_err(|_| QQNTError::rust("engine_channel_closed", "QQNTEngine ack channel closed."))
+    wait_for_engine_ack(
+        state,
+        &req_id,
+        receiver,
+        Duration::from_secs(ENGINE_TIMEOUT_SECONDS),
+    )
+    .await
+}
+
+async fn wait_for_engine_ack(
+    state: &Arc<AppState>,
+    req_id: &str,
+    receiver: oneshot::Receiver<Value>,
+    timeout: Duration,
+) -> QQNTResult<Value> {
+    match tokio::time::timeout(timeout, receiver).await {
+        Ok(Ok(packet)) => Ok(packet),
+        Ok(Err(_)) => {
+            state.engine.pending.lock().await.remove(req_id);
+            Err(QQNTError::rust(
+                "engine_channel_closed",
+                "QQNTEngine ack channel closed.",
+            ))
+        }
+        Err(_) => {
+            state.engine.pending.lock().await.remove(req_id);
+            Err(QQNTError::rust(
+                "engine_timeout",
+                "QQNTEngine did not ack before timeout.",
+            ))
+        }
+    }
 }
 
 pub async fn handle_engine_event(app: &AppHandle, state: &Arc<AppState>, event: CommandEvent) {
@@ -628,6 +656,45 @@ mod tests {
 
         let packet = receiver.await.expect("pending receiver should resolve");
         assert_eq!(packet["reqId"], "req-42");
+        assert!(state.engine.pending.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn wait_for_engine_ack_clears_pending_on_timeout() {
+        let state = Arc::new(AppState::new());
+        let (sender, receiver) = oneshot::channel();
+        state
+            .engine
+            .pending
+            .lock()
+            .await
+            .insert("req-timeout".to_string(), sender);
+
+        let error = wait_for_engine_ack(&state, "req-timeout", receiver, Duration::from_millis(1))
+            .await
+            .expect_err("missing ack should time out");
+
+        assert_eq!(error.code, "engine_timeout");
+        assert!(state.engine.pending.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn wait_for_engine_ack_clears_pending_on_closed_channel() {
+        let state = Arc::new(AppState::new());
+        let (sender, receiver) = oneshot::channel();
+        state
+            .engine
+            .pending
+            .lock()
+            .await
+            .insert("req-closed".to_string(), sender);
+        state.engine.pending.lock().await.remove("req-closed");
+
+        let error = wait_for_engine_ack(&state, "req-closed", receiver, Duration::from_secs(1))
+            .await
+            .expect_err("dropped sender should close ack channel");
+
+        assert_eq!(error.code, "engine_channel_closed");
         assert!(state.engine.pending.lock().await.is_empty());
     }
 }
