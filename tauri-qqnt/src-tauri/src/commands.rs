@@ -350,7 +350,7 @@ pub async fn e2e_announce_identity(
     req_id: String,
     peer_id: String,
 ) -> Result<Value, QQNTError> {
-    let payload = e2e_peer_payload(peer_id)?;
+    let payload = e2e_peer_payload("e2e_announce_identity", peer_id)?;
 
     call_engine_payload(state.inner(), "e2e_announce_identity", req_id, payload).await
 }
@@ -373,7 +373,7 @@ pub async fn e2e_request_rotation(
     req_id: String,
     peer_id: String,
 ) -> Result<Value, QQNTError> {
-    let payload = e2e_peer_payload(peer_id)?;
+    let payload = e2e_peer_payload("e2e_request_rotation", peer_id)?;
 
     call_engine_payload(state.inner(), "e2e_request_rotation", req_id, payload).await
 }
@@ -498,9 +498,9 @@ fn e2e_status_payload(peer_id: Option<String>) -> Result<Value, QQNTError> {
     Ok(payload)
 }
 
-fn e2e_peer_payload(peer_id: String) -> Result<Value, QQNTError> {
+fn e2e_peer_payload(op: &str, peer_id: String) -> Result<Value, QQNTError> {
     let payload = json!({ "peerId": peer_id });
-    validate_e2e_peer_command_payload(&payload)?;
+    validate_e2e_peer_command_payload(op, &payload)?;
     Ok(payload)
 }
 
@@ -542,12 +542,13 @@ async fn send_file_like(
     receiver_id: Option<String>,
     group_id: Option<String>,
 ) -> Result<Value, QQNTError> {
-    let payload = send_file_like_payload(file_path, receiver_id, group_id)?;
+    let payload = send_file_like_payload(op, file_path, receiver_id, group_id)?;
 
     call_engine_payload(state, op, req_id, payload).await
 }
 
 fn send_file_like_payload(
+    op: &str,
     file_path: String,
     receiver_id: Option<String>,
     group_id: Option<String>,
@@ -557,7 +558,7 @@ fn send_file_like_payload(
         "receiverId": receiver_id,
         "groupId": group_id
     });
-    validate_file_transfer_command_payload(&payload)?;
+    validate_file_transfer_command_payload(op, &payload)?;
     Ok(payload)
 }
 
@@ -692,6 +693,7 @@ fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
             "Command must be a JSON object.",
         ));
     };
+    require_command_envelope_fields(command_object)?;
 
     let has_non_empty_string = |field: &str| {
         command_object
@@ -749,7 +751,7 @@ fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> 
         "send_private_message" => validate_send_private_message_command_payload(payload),
         "e2e_status" => validate_e2e_status_command_payload(payload),
         "e2e_announce_identity" | "e2e_request_rotation" => {
-            validate_e2e_peer_command_payload(payload)
+            validate_e2e_peer_command_payload(op, payload)
         }
         "e2e_pin_identity" => validate_e2e_pin_identity_command_payload(payload),
         "profile_update" => validate_profile_update_command_payload(payload),
@@ -757,7 +759,7 @@ fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> 
         "send_group_message" => validate_send_group_message_command_payload(payload),
         "create_group" => validate_create_group_command_payload(payload),
         "update_group_announcement" => validate_update_group_announcement_command_payload(payload),
-        "send_file" | "send_image" => validate_file_transfer_command_payload(payload),
+        "send_file" | "send_image" => validate_file_transfer_command_payload(op, payload),
         "cancel_transfer" => validate_cancel_transfer_command_payload(payload),
         "query_resume" => validate_query_resume_command_payload(payload),
         "update_group_member" => validate_update_group_member_command_payload(payload),
@@ -780,6 +782,7 @@ fn require_empty_command_payload(op: &str, payload: &Value) -> Result<(), QQNTEr
 }
 
 fn validate_connect_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("connect", payload, &["host", "port"])?;
     require_non_empty_command_string_field(payload, "host")?;
     require_command_tcp_port(payload, "port")?;
     Ok(())
@@ -789,6 +792,13 @@ fn validate_login_like_command_payload(
     payload: &Value,
     register_mode: bool,
 ) -> Result<(), QQNTError> {
+    let op = if register_mode { "register" } else { "login" };
+    let allowed_fields = if register_mode {
+        &["account", "password", "userName"][..]
+    } else {
+        &["account", "password"][..]
+    };
+    require_command_payload_fields(op, payload, allowed_fields)?;
     require_non_empty_command_string_field(payload, "account")?;
     require_non_empty_command_string_field(payload, "password")?;
     if register_mode {
@@ -798,55 +808,65 @@ fn validate_login_like_command_payload(
 }
 
 fn validate_set_user_info_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("set_user_info", payload, &["userId", "userName"])?;
     require_non_empty_command_string_field(payload, "userId")?;
     require_non_empty_command_string_field(payload, "userName")?;
     Ok(())
 }
 
 fn validate_search_friend_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("search_friend", payload, &["account"])?;
     require_non_empty_command_string_field(payload, "account")?;
     Ok(())
 }
 
 fn validate_send_friend_request_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("send_friend_request", payload, &["receiverId"])?;
     require_non_empty_command_string_field(payload, "receiverId")?;
     Ok(())
 }
 
 fn validate_respond_friend_request_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("respond_friend_request", payload, &["senderId", "accepted"])?;
     require_non_empty_command_string_field(payload, "senderId")?;
     require_command_bool_field(payload, "accepted")?;
     Ok(())
 }
 
 fn validate_send_private_message_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("send_private_message", payload, &["receiverId", "content"])?;
     require_non_empty_command_string_field(payload, "receiverId")?;
     require_non_empty_command_string_field(payload, "content")?;
     Ok(())
 }
 
 fn validate_cancel_transfer_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("cancel_transfer", payload, &["transferId"])?;
     require_non_empty_command_string_field(payload, "transferId")?;
     Ok(())
 }
 
 fn validate_e2e_status_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("e2e_status", payload, &["peerId"])?;
     optional_command_string_field(payload, "peerId", "invalid_peer_id")?;
     Ok(())
 }
 
-fn validate_e2e_peer_command_payload(payload: &Value) -> Result<(), QQNTError> {
+fn validate_e2e_peer_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields(op, payload, &["peerId"])?;
     require_non_empty_command_string_field(payload, "peerId")?;
     Ok(())
 }
 
 fn validate_e2e_pin_identity_command_payload(payload: &Value) -> Result<(), QQNTError> {
-    validate_e2e_peer_command_payload(payload)?;
+    require_command_payload_fields("e2e_pin_identity", payload, &["peerId", "fingerprint"])?;
+    require_non_empty_command_string_field(payload, "peerId")?;
     optional_command_string_field(payload, "fingerprint", "invalid_fingerprint")?;
     Ok(())
 }
 
 fn validate_profile_update_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("profile_update", payload, &["userName", "avatarBase64"])?;
     optional_command_string_field(payload, "userName", "invalid_profile_field")?;
     let avatar_base64 =
         optional_command_string_field(payload, "avatarBase64", "invalid_profile_field")?;
@@ -860,6 +880,7 @@ fn validate_profile_update_command_payload(payload: &Value) -> Result<(), QQNTEr
 }
 
 fn validate_settings_sync_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("settings_sync", payload, &["settings"])?;
     let Some(settings_value) = payload.get("settings") else {
         return Err(QQNTError::rust(
             "invalid_settings",
@@ -895,18 +916,29 @@ fn validate_settings_sync_command_payload(payload: &Value) -> Result<(), QQNTErr
 }
 
 fn validate_send_group_message_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields("send_group_message", payload, &["groupId", "content"])?;
     require_non_empty_command_string_field(payload, "groupId")?;
     require_non_empty_command_string_field(payload, "content")?;
     Ok(())
 }
 
 fn validate_create_group_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields(
+        "create_group",
+        payload,
+        &["groupName", "members", "announcement"],
+    )?;
     require_non_empty_command_string_field(payload, "groupName")?;
     optional_command_string_field(payload, "announcement", "invalid_announcement")?;
     validate_create_group_members(payload)
 }
 
 fn validate_update_group_announcement_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields(
+        "update_group_announcement",
+        payload,
+        &["groupId", "announcement"],
+    )?;
     require_non_empty_command_string_field(payload, "groupId")?;
     require_command_string_field(payload, "announcement")?;
     Ok(())
@@ -975,7 +1007,8 @@ fn validate_create_group_member_id(member_id: &str) -> Result<(), QQNTError> {
     ))
 }
 
-fn validate_file_transfer_command_payload(payload: &Value) -> Result<(), QQNTError> {
+fn validate_file_transfer_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields(op, payload, &["filePath", "receiverId", "groupId"])?;
     require_non_empty_command_string_field(payload, "filePath")?;
     let receiver_id = optional_command_target_string_field(payload, "receiverId")?;
     let group_id = optional_command_target_string_field(payload, "groupId")?;
@@ -988,6 +1021,17 @@ fn validate_file_transfer_command_payload(payload: &Value) -> Result<(), QQNTErr
 }
 
 fn validate_query_resume_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields(
+        "query_resume",
+        payload,
+        &[
+            "transferId",
+            "filePath",
+            "receiverId",
+            "groupId",
+            "contentType",
+        ],
+    )?;
     require_non_empty_command_string_field(payload, "transferId")?;
     let file_path = optional_command_string_field(payload, "filePath", "invalid_file_path")?;
     let content_type =
@@ -1039,6 +1083,11 @@ fn validate_required_command_target(
 }
 
 fn validate_update_group_member_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_command_payload_fields(
+        "update_group_member",
+        payload,
+        &["groupId", "memberId", "action"],
+    )?;
     require_non_empty_command_string_field(payload, "groupId")?;
     require_non_empty_command_string_field(payload, "memberId")?;
     let action = require_non_empty_command_string_field(payload, "action")?;
@@ -1050,6 +1099,49 @@ fn validate_update_group_member_command_payload(payload: &Value) -> Result<(), Q
         "invalid_action",
         "update_group_member action must be add, remove, promote_admin, or demote_admin.",
     ))
+}
+
+fn require_command_envelope_fields(
+    command_object: &serde_json::Map<String, Value>,
+) -> Result<(), QQNTError> {
+    for field in command_object.keys() {
+        if ["op", "reqId", "payload"].contains(&field.as_str()) {
+            continue;
+        }
+
+        return Err(QQNTError::rust(
+            "invalid_command",
+            format!("Command contains unsupported field: {field}."),
+        ));
+    }
+
+    Ok(())
+}
+
+fn require_command_payload_fields(
+    op: &str,
+    payload: &Value,
+    allowed_fields: &[&str],
+) -> Result<(), QQNTError> {
+    let Some(payload_object) = payload.as_object() else {
+        return Err(QQNTError::rust(
+            "invalid_payload",
+            "Command payload must be an object.",
+        ));
+    };
+
+    for field in payload_object.keys() {
+        if allowed_fields.contains(&field.as_str()) {
+            continue;
+        }
+
+        return Err(QQNTError::rust(
+            "invalid_payload",
+            format!("Command payload for {op} contains unsupported field: {field}."),
+        ));
+    }
+
+    Ok(())
 }
 
 fn optional_command_target_string_field<'a>(
@@ -1451,6 +1543,20 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_extra_envelope_field() {
+        let error = validate_generic_command(&json!({
+            "op": "ready",
+            "reqId": "req-ready",
+            "payload": {},
+            "debug": true
+        }))
+        .expect_err("generic command envelope should reject unsupported fields");
+
+        assert_eq!(error.code, "invalid_command");
+        assert!(error.message.contains("debug"));
+    }
+
+    #[test]
     fn generic_command_rejects_missing_op() {
         let error = validate_generic_command(&json!({
             "reqId": "req-1",
@@ -1497,6 +1603,23 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_extra_connect_payload_field() {
+        let error = validate_generic_command(&json!({
+            "op": "connect",
+            "reqId": "req-connect",
+            "payload": {
+                "host": "127.0.0.1",
+                "port": 8888,
+                "debug": true
+            }
+        }))
+        .expect_err("generic connect should reject unsupported payload fields");
+
+        assert_eq!(error.code, "invalid_payload");
+        assert!(error.message.contains("debug"));
+    }
+
+    #[test]
     fn generic_command_rejects_connect_missing_port() {
         let error = validate_generic_command(&json!({
             "op": "connect",
@@ -1525,6 +1648,23 @@ mod tests {
 
             assert_eq!(error.code, "invalid_target");
         }
+    }
+
+    #[test]
+    fn generic_command_rejects_extra_login_payload_field() {
+        let error = validate_generic_command(&json!({
+            "op": "login",
+            "reqId": "req-login",
+            "payload": {
+                "account": "10001",
+                "password": "secret",
+                "rememberMe": true
+            }
+        }))
+        .expect_err("generic login should reject unsupported payload fields");
+
+        assert_eq!(error.code, "invalid_payload");
+        assert!(error.message.contains("rememberMe"));
     }
 
     #[test]
@@ -1622,6 +1762,23 @@ mod tests {
         .expect_err("generic friend response should require accepted boolean");
 
         assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_extra_private_message_payload_field() {
+        let error = validate_generic_command(&json!({
+            "op": "send_private_message",
+            "reqId": "req-private-message",
+            "payload": {
+                "receiverId": "10001",
+                "content": "hello",
+                "debug": true
+            }
+        }))
+        .expect_err("generic private message should reject unsupported payload fields");
+
+        assert_eq!(error.code, "invalid_payload");
+        assert!(error.message.contains("debug"));
     }
 
     #[test]
@@ -1819,6 +1976,22 @@ mod tests {
 
             assert_eq!(error.code, "invalid_settings");
         }
+    }
+
+    #[test]
+    fn generic_command_rejects_extra_settings_sync_payload_field() {
+        let error = validate_generic_command(&json!({
+            "op": "settings_sync",
+            "reqId": "req-settings",
+            "payload": {
+                "settings": {},
+                "debug": true
+            }
+        }))
+        .expect_err("generic settings_sync should reject unsupported payload fields");
+
+        assert_eq!(error.code, "invalid_payload");
+        assert!(error.message.contains("debug"));
     }
 
     #[test]
@@ -2145,6 +2318,22 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_extra_query_resume_payload_field() {
+        let error = validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {
+                "transferId": "transfer-1",
+                "debug": true
+            }
+        }))
+        .expect_err("generic query_resume should reject unsupported payload fields");
+
+        assert_eq!(error.code, "invalid_payload");
+        assert!(error.message.contains("debug"));
+    }
+
+    #[test]
     fn generic_command_rejects_query_resume_invalid_file_path() {
         let error = validate_generic_command(&json!({
             "op": "query_resume",
@@ -2447,7 +2636,7 @@ mod tests {
     #[test]
     fn e2e_payloads_validate_optional_and_required_peer_fields() {
         let status = e2e_status_payload(None).expect("e2e_status may omit peerId");
-        let announce_error = e2e_peer_payload(" ".to_string())
+        let announce_error = e2e_peer_payload("e2e_announce_identity", " ".to_string())
             .expect_err("typed e2e peer command should require peerId");
         let pin_peer_error = e2e_pin_identity_payload("".to_string(), None)
             .expect_err("typed e2e_pin_identity payload should require peerId");
@@ -2633,8 +2822,13 @@ mod tests {
         let packet = command_packet(
             "send_file",
             "req-2".to_string(),
-            send_file_like_payload("C:/tmp/a.txt".to_string(), Some("10001".to_string()), None)
-                .expect("valid send_file payload should pass"),
+            send_file_like_payload(
+                "send_file",
+                "C:/tmp/a.txt".to_string(),
+                Some("10001".to_string()),
+                None,
+            )
+            .expect("valid send_file payload should pass"),
         );
 
         assert_eq!(packet["payload"]["filePath"], "C:/tmp/a.txt");
@@ -2645,6 +2839,7 @@ mod tests {
     #[test]
     fn send_file_like_payload_rejects_ambiguous_target() {
         let error = send_file_like_payload(
+            "send_file",
             "C:/tmp/a.txt".to_string(),
             Some("10001".to_string()),
             Some("group-1".to_string()),
@@ -2656,17 +2851,26 @@ mod tests {
 
     #[test]
     fn send_file_like_payload_rejects_blank_target() {
-        let error =
-            send_file_like_payload("C:/tmp/a.txt".to_string(), Some("   ".to_string()), None)
-                .expect_err("typed send_file payload should reject blank target");
+        let error = send_file_like_payload(
+            "send_file",
+            "C:/tmp/a.txt".to_string(),
+            Some("   ".to_string()),
+            None,
+        )
+        .expect_err("typed send_file payload should reject blank target");
 
         assert_eq!(error.code, "missing_target");
     }
 
     #[test]
     fn send_file_like_payload_requires_file_path() {
-        let error = send_file_like_payload(" ".to_string(), Some("10001".to_string()), None)
-            .expect_err("typed send_file payload should require filePath");
+        let error = send_file_like_payload(
+            "send_file",
+            " ".to_string(),
+            Some("10001".to_string()),
+            None,
+        )
+        .expect_err("typed send_file payload should require filePath");
 
         assert_eq!(error.code, "missing_field");
     }
