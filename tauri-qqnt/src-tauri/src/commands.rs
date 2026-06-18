@@ -14,6 +14,7 @@ pub async fn qqnt_command(
     state: State<'_, Arc<AppState>>,
     payload: Value,
 ) -> Result<Value, QQNTError> {
+    validate_generic_command(&payload)?;
     bridge::call_engine(state.inner(), payload).await
 }
 
@@ -619,6 +620,45 @@ fn ack_payload(packet: Value, op: &str) -> Result<Value, QQNTError> {
     Ok(payload)
 }
 
+fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
+    let Some(command_object) = command.as_object() else {
+        return Err(QQNTError::rust(
+            "invalid_command",
+            "Command must be a JSON object.",
+        ));
+    };
+
+    let has_non_empty_string = |field: &str| {
+        command_object
+            .get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+
+    if !has_non_empty_string("op") {
+        return Err(QQNTError::rust("missing_op", "Command op is required."));
+    }
+
+    if !has_non_empty_string("reqId") {
+        return Err(QQNTError::rust(
+            "missing_req_id",
+            "Command reqId is required.",
+        ));
+    }
+
+    if command_object
+        .get("payload")
+        .is_some_and(|payload| !payload.is_object())
+    {
+        return Err(QQNTError::rust(
+            "invalid_payload",
+            "Command payload must be an object.",
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -740,6 +780,70 @@ mod tests {
         assert_eq!(packet["payload"]["filePath"], "C:/tmp/a.txt");
         assert_eq!(packet["payload"]["receiverId"], "10001");
         assert!(packet["payload"].get("groupId").is_none());
+    }
+
+    #[test]
+    fn generic_command_accepts_object_payload() {
+        validate_generic_command(&json!({
+            "op": "send_private_message",
+            "reqId": "req-1",
+            "payload": {
+                "receiverId": "10001",
+                "content": "hello"
+            }
+        }))
+        .expect("generic command with object payload should pass");
+    }
+
+    #[test]
+    fn generic_command_allows_omitted_payload() {
+        validate_generic_command(&json!({
+            "op": "ready",
+            "reqId": "req-ready"
+        }))
+        .expect("generic command may omit payload");
+    }
+
+    #[test]
+    fn generic_command_rejects_non_object_envelope() {
+        let error = validate_generic_command(&json!("bad"))
+            .expect_err("generic command envelope must be an object");
+
+        assert_eq!(error.code, "invalid_command");
+    }
+
+    #[test]
+    fn generic_command_rejects_missing_op() {
+        let error = validate_generic_command(&json!({
+            "reqId": "req-1",
+            "payload": {}
+        }))
+        .expect_err("generic command without op should fail");
+
+        assert_eq!(error.code, "missing_op");
+    }
+
+    #[test]
+    fn generic_command_rejects_missing_req_id() {
+        let error = validate_generic_command(&json!({
+            "op": "ready",
+            "payload": {}
+        }))
+        .expect_err("generic command without reqId should fail");
+
+        assert_eq!(error.code, "missing_req_id");
+    }
+
+    #[test]
+    fn generic_command_rejects_non_object_payload() {
+        let error = validate_generic_command(&json!({
+            "op": "search_friend",
+            "reqId": "req-2",
+            "payload": "bad"
+        }))
+        .expect_err("generic command payload must be an object");
+
+        assert_eq!(error.code, "invalid_payload");
     }
 
     #[test]
