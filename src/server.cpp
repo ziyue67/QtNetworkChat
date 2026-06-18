@@ -2565,6 +2565,7 @@ void Server::handleServerGroupMemberUpdate(const QJsonObject& obj, QTcpSocket* s
         sendServerGroupMemberUpdated(memberSocket, groupId, memberId, action);
         sendServerGroupSnapshot(userId, memberSocket);
     }
+    publishRedisServerGroupSnapshotRefresh(affectedUserIds, groupId, notice, memberId, action);
 }
 
 void Server::handleFriendEvent(const QJsonObject& obj, QTcpSocket* socket) {
@@ -3196,7 +3197,11 @@ bool Server::publishRedisPresenceEvent(const QString& userId, const QString& act
                                    QJsonDocument(event).toJson(QJsonDocument::Compact));
 }
 
-bool Server::publishRedisServerGroupSnapshotRefresh(const QStringList& userIds, const QString& groupId, const QString& notice) const {
+bool Server::publishRedisServerGroupSnapshotRefresh(const QStringList& userIds,
+                                                    const QString& groupId,
+                                                    const QString& notice,
+                                                    const QString& memberId,
+                                                    const QString& memberAction) const {
     if (!m_redisService->isEnabled() || groupId.trimmed().isEmpty()) return false;
     const_cast<Server*>(this)->tryRecoverRedisCommandAvailability();
 
@@ -3218,6 +3223,12 @@ bool Server::publishRedisServerGroupSnapshotRefresh(const QStringList& userIds, 
     event["groupId"] = groupId.trimmed();
     event["userIds"] = userIdArray;
     event["notice"] = notice.left(200);
+    const QString normalizedMemberId = memberId.trimmed();
+    const QString normalizedMemberAction = memberAction.trimmed().toLower();
+    if (!normalizedMemberId.isEmpty() && !normalizedMemberAction.isEmpty()) {
+        event["memberId"] = normalizedMemberId;
+        event["memberAction"] = normalizedMemberAction;
+    }
     event["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
 
     const QByteArray eventPayload = QJsonDocument(event).toJson(QJsonDocument::Compact);
@@ -3604,9 +3615,15 @@ void Server::handleRedisServerGroupSnapshotRefresh(const QJsonObject& event) {
     for (const QString& userId : userIds) {
         QTcpSocket* targetSocket = m_userSockets.value(userId);
         if (!targetSocket || targetSocket->state() != QAbstractSocket::ConnectedState) continue;
-        if (!isServerGroupMember(groupId, userId)) continue;
+        const bool isActiveMember = isServerGroupMember(groupId, userId);
+        if (!isActiveMember && !isServerGroupRemovedMember(groupId, userId)) continue;
         if (!notice.isEmpty()) {
             sendSystemNotice(targetSocket, notice);
+        }
+        const QString memberId = event.value("memberId").toString().trimmed();
+        const QString memberAction = event.value("memberAction").toString().trimmed().toLower();
+        if (isActiveMember && !memberId.isEmpty() && !memberAction.isEmpty()) {
+            sendServerGroupMemberUpdated(targetSocket, groupId, memberId, memberAction);
         }
         sendServerGroupSnapshot(userId, targetSocket);
     }
@@ -4218,6 +4235,32 @@ bool Server::isServerGroupMember(const QString& groupId, const QString& userId) 
         if (openAccountDatabaseConnection(db, connectionName)) {
             QSqlQuery query(db);
             query.prepare("SELECT COUNT(*) FROM server_group_members WHERE group_id = ? AND user_id = ?");
+            query.addBindValue(groupId);
+            query.addBindValue(userId);
+            if (query.exec() && query.next()) {
+                exists = query.value(0).toInt() > 0;
+            }
+            db.close();
+        }
+    }
+    releaseAccountDatabase(connectionName);
+    return exists;
+}
+
+bool Server::isServerGroupRemovedMember(const QString& groupId, const QString& userId) const {
+    if (groupId.isEmpty() || userId.isEmpty() || !ensureAccountDatabase()) return false;
+
+    const QString connectionName = "server_group_removed_membership_check_"
+        + QString::number(reinterpret_cast<quintptr>(this)) + "_"
+        + QString::number(qHash(groupId + "|" + userId));
+    bool exists = false;
+    {
+        QSqlDatabase db = openAccountDatabase(connectionName);
+        if (openAccountDatabaseConnection(db, connectionName)) {
+            QSqlQuery query(db);
+            query.prepare("SELECT COUNT(*) FROM server_group_removed_members r "
+                          "LEFT JOIN server_group_members m ON m.group_id = r.group_id AND m.user_id = r.user_id "
+                          "WHERE r.group_id = ? AND r.user_id = ? AND m.user_id IS NULL");
             query.addBindValue(groupId);
             query.addBindValue(userId);
             if (query.exec() && query.next()) {

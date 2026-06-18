@@ -90,7 +90,11 @@ private:
     void refreshRedisPresence(const ChatUser& user);
     void clearRedisPresence(const QString& userId);
     bool publishRedisPresenceEvent(const QString& userId, const QString& action) const;
-    bool publishRedisServerGroupSnapshotRefresh(const QStringList& userIds, const QString& groupId, const QString& notice) const;
+    bool publishRedisServerGroupSnapshotRefresh(const QStringList& userIds,
+                                                const QString& groupId,
+                                                const QString& notice,
+                                                const QString& memberId = QString(),
+                                                const QString& memberAction = QString()) const;
     void refreshConnectedClientViews();
     bool isRedisUserOnline(const QString& userId, bool* online = nullptr) const;
     bool canPublishRedisMessageEvent(const Message& msg, const QString& deliveryState) const;
@@ -118,6 +122,7 @@ private:
     bool recordUserSessionToSqlite(const ChatUser& user, const QString& eventName) const;
     bool recordDefaultGroupMembership(const ChatUser& user) const;
     bool isServerGroupMember(const QString& groupId, const QString& userId) const;
+    bool isServerGroupRemovedMember(const QString& groupId, const QString& userId) const;
     QStringList serverGroupMemberIds(const QString& groupId) const;
     bool recordServerGroupAuditEvent(const QString& groupId,
                                      const QString& action,
