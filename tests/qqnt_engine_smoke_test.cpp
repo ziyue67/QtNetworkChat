@@ -391,6 +391,8 @@ int main(int argc, char* argv[]) {
                 "connect missing host command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-invalid-port\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":70000}}\n"),
                 "connect invalid port command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-user-name\",\"payload\":{\"account\":\"smoke-register\",\"password\":\"smoke-password\"}}\n"),
+                "register missing userName command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_status\",\"reqId\":\"smoke-e2e\",\"payload\":{}}\n"),
                 "e2e_status command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-missing\",\"payload\":{}}\n"),
@@ -454,6 +456,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-groups"),
         QStringLiteral("smoke-connect-missing-host"),
         QStringLiteral("smoke-connect-invalid-port"),
+        QStringLiteral("smoke-register-missing-user-name"),
         QStringLiteral("smoke-e2e"),
         QStringLiteral("smoke-e2e-announce-missing"),
         QStringLiteral("smoke-e2e-pin-invalid-fingerprint"),
@@ -570,6 +573,11 @@ int main(int argc, char* argv[]) {
                         "connect with invalid port should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
                         "connect with invalid port should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-register-missing-user-name")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "register without userName should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "register without userName should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-e2e")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "e2e_status should return ok ack") && ok;

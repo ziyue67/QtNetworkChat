@@ -224,10 +224,11 @@ void QQNTEngineCommandRouter::handleLogin(const QString& op, const QString& reqI
     }
 
     if (registerMode) {
-        const QString userName = payload.value(QStringLiteral("userName")).toString().trimmed();
-        if (!userName.isEmpty()) {
-            m_bridge->client()->setUserInfo(QString(), userName);
+        QString userName;
+        if (!requireString(payload, QStringLiteral("userName"), &userName, op, reqId)) {
+            return;
         }
+        m_bridge->client()->setUserInfo(QString(), userName);
     }
 
     m_account = account;
