@@ -387,6 +387,12 @@ int main(int argc, char* argv[]) {
                 "get_friend_list command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"get_group_list\",\"reqId\":\"smoke-groups\",\"payload\":{}}\n"),
                 "get_group_list command should be written") && ok;
+    ok = expect(writeCommand(&process, "not-json\n"),
+                "invalid JSON line should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"reqId\":\"smoke-missing-op\",\"payload\":{}}\n"),
+                "missing op command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"payload\":{}}\n"),
+                "missing reqId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-missing-host\",\"payload\":{\"port\":8888}}\n"),
                 "connect missing host command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-invalid-port\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":70000}}\n"),
@@ -468,6 +474,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-users"),
         QStringLiteral("smoke-friends"),
         QStringLiteral("smoke-groups"),
+        QStringLiteral("smoke-missing-op"),
         QStringLiteral("smoke-connect-missing-host"),
         QStringLiteral("smoke-connect-invalid-port"),
         QStringLiteral("smoke-register-missing-user-name"),
@@ -514,6 +521,8 @@ int main(int argc, char* argv[]) {
 
     bool sawReadyEvent = false;
     QSet<QString> seenAckReqIds;
+    bool sawInvalidJsonAck = false;
+    bool sawMissingReqIdAck = false;
     int protocolLineCount = 0;
     const int contractReqIdPrefixLength = QStringLiteral("contract-").size();
     const QList<QByteArray> lines = stdoutBytes.split('\n');
@@ -549,6 +558,21 @@ int main(int argc, char* argv[]) {
         const QString reqId = object.value(QStringLiteral("reqId")).toString();
         seenAckReqIds.insert(reqId);
         const QJsonObject payload = object.value(QStringLiteral("payload")).toObject();
+        const QJsonObject error = object.value(QStringLiteral("error")).toObject();
+        const QString errorCode = error.value(QStringLiteral("code")).toString();
+
+        if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")
+            && object.value(QStringLiteral("op")).toString().isEmpty()
+            && reqId.isEmpty()
+            && errorCode == QLatin1String("invalid_json")) {
+            sawInvalidJsonAck = true;
+        }
+        if (object.value(QStringLiteral("status")).toString() == QLatin1String("error")
+            && object.value(QStringLiteral("op")).toString() == QLatin1String("ready")
+            && reqId.isEmpty()
+            && errorCode == QLatin1String("missing_req_id")) {
+            sawMissingReqIdAck = true;
+        }
 
         if (reqId == QLatin1String("smoke-ready")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
@@ -584,6 +608,11 @@ int main(int argc, char* argv[]) {
                         "get_group_list payload should include removedGroups array") && ok;
             ok = expect(payload.value(QStringLiteral("hasSnapshot")).isBool(),
                         "get_group_list payload should include hasSnapshot boolean") && ok;
+        } else if (reqId == QLatin1String("smoke-missing-op")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "missing op command should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("missing_op"),
+                        "missing op command should use missing_op code") && ok;
         } else if (reqId == QLatin1String("smoke-connect-missing-host")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "connect without host should return error ack") && ok;
@@ -771,6 +800,8 @@ int main(int argc, char* argv[]) {
 
     ok = expect(protocolLineCount >= expectedAckReqIds.size() + 1, "QQNTEngine should emit startup event and command acks") && ok;
     ok = expect(sawReadyEvent, "QQNTEngine should emit startup ready event") && ok;
+    ok = expect(sawInvalidJsonAck, "QQNTEngine should ack invalid JSON lines with invalid_json") && ok;
+    ok = expect(sawMissingReqIdAck, "QQNTEngine should ack missing reqId commands with missing_req_id") && ok;
     ok = expect(sawSettingsSyncedEvent, "QQNTEngine should emit settings_synced event") && ok;
     ok = expect(missingAckReqIds(expectedAckReqIds, seenAckReqIds).isEmpty(), "QQNTEngine should ack every smoke command") && ok;
     return ok ? 0 : 1;
