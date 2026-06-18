@@ -1570,6 +1570,33 @@ mod tests {
     }
 
     #[test]
+    fn friend_event_payload_accepts_request_sent() {
+        validate_event_payload(
+            "friend_event",
+            &json!({
+                "type": "request_sent",
+                "receiverId": "10002",
+                "delivered": true
+            }),
+        )
+        .expect("friend_event request_sent should pass");
+    }
+
+    #[test]
+    fn friend_event_payload_accepts_response_received() {
+        validate_event_payload(
+            "friend_event",
+            &json!({
+                "type": "response_received",
+                "senderId": "10002",
+                "senderName": "Bob",
+                "accepted": false
+            }),
+        )
+        .expect("friend_event response_received should pass");
+    }
+
+    #[test]
     fn friend_event_payload_requires_shape_for_type() {
         let error = validate_event_payload(
             "friend_event",
@@ -1579,6 +1606,21 @@ mod tests {
             }),
         )
         .expect_err("request_sent without delivered should fail");
+
+        assert_eq!(error.code, "invalid_friend_event_payload");
+    }
+
+    #[test]
+    fn friend_event_payload_rejects_unknown_type() {
+        let error = validate_event_payload(
+            "friend_event",
+            &json!({
+                "type": "request_pending",
+                "senderId": "10002",
+                "senderName": "Bob"
+            }),
+        )
+        .expect_err("unknown friend_event type should fail");
 
         assert_eq!(error.code, "invalid_friend_event_payload");
     }

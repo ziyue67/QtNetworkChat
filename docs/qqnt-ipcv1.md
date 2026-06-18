@@ -175,7 +175,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `user_joined` | `{userId, userName}` | 用户上线 |
 | `user_left` | `{userId, userName}` | 用户下线 |
 | `friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
-| `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请发送、收到或回应 |
+| `friend_event` | `{type=request_received, senderId, senderName} / {type=request_sent, receiverId, delivered} / {type=response_received, senderId, senderName, accepted}` | 好友申请发送、收到或回应 |
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群组快照；`removedGroups` 保留被移出群后的只读历史标记 |
@@ -190,6 +190,16 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `settings_synced` | `{accepted, revision, settings, appliedDownloadDir?}` | 设置已由 engine 接收；`revision` 从 1 开始递增；传 `settings.files.downloadDir`、`settings.files.downloadDirectory` 或 `settings.fileDownloadDir` 时同时应用接收文件下载目录 |
 | `notification` | `{title, body}` | 前端通知 |
 | `error` | `{message, source}` | 通用错误 |
+
+### 好友事件分支
+
+`friend_event.type` 必须是以下三种之一，字段按分支固定校验：
+
+| `type` | 必填字段 | 说明 |
+|---|---|---|
+| `request_received` | `senderId`, `senderName` | 当前账号收到好友申请 |
+| `request_sent` | `receiverId`, `delivered` | 当前账号发出的好友申请已被后端接收或投递；`delivered` 表示是否送达在线对端 |
+| `response_received` | `senderId`, `senderName`, `accepted` | 当前账号收到好友申请回应；`accepted` 表示接受或拒绝 |
 
 ## 7. 用户模型最小字段
 

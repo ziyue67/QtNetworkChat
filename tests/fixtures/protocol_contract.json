@@ -122,7 +122,7 @@
     "user_joined": "{userId, userName}",
     "user_left": "{userId, userName}",
     "friend_list": "{friends: UserSummary[]}",
-    "friend_event": "{type, senderId?, senderName?, receiverId?, accepted?, delivered?}",
+    "friend_event": "{type=request_received, senderId, senderName} / {type=request_sent, receiverId, delivered} / {type=response_received, senderId, senderName, accepted}",
     "friend_search_result": "{found, userId, userName, online, reason?}",
     "message": "{sessionId, message}",
     "group_snapshot": "{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}",

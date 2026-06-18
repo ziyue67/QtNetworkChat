@@ -293,7 +293,7 @@ int main(int argc, char* argv[]) {
 | `user_joined` | `{userId, userName}` | 上线 |
 | `user_left` | `{userId, userName}` | 下线 |
 | `friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
-| `friend_event` | `{type, senderId?, senderName?, receiverId?, accepted?, delivered?}` | 好友申请/回应 |
+| `friend_event` | `{type=request_received, senderId, senderName} / {type=request_sent, receiverId, delivered} / {type=response_received, senderId, senderName, accepted}` | 好友申请/回应 |
 | `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |

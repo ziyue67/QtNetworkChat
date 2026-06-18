@@ -184,6 +184,21 @@ public:
         return false;
     }
 
+    bool hasFriendRequestSentTo(const QString& expectedReceiverId) const {
+        for (const QJsonObject& event : m_events) {
+            if (event.value(QStringLiteral("event")).toString() != QLatin1String("friend_event")) {
+                continue;
+            }
+            const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+            if (payload.value(QStringLiteral("type")).toString() == QLatin1String("request_sent")
+                && payload.value(QStringLiteral("receiverId")).toString() == expectedReceiverId
+                && payload.value(QStringLiteral("delivered")).isBool()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool hasFriendResponseFrom(const QString& expectedSenderId, bool expectedAccepted) const {
         for (const QJsonObject& event : m_events) {
             if (event.value(QStringLiteral("event")).toString() != QLatin1String("friend_event")) {
@@ -598,8 +613,9 @@ int main(int argc, char* argv[]) {
                 "alice friend request command should be written") && ok;
     ok = expect(waitFor([&] {
         return alice.hasOkAck(QStringLiteral("alice-send-friend-request"))
+            && alice.hasFriendRequestSentTo(bob.userId())
             && bob.hasFriendRequestFrom(alice.userId());
-    }, {&alice, &bob}), "bob QQNTEngine should receive alice friend request") && ok;
+    }, {&alice, &bob}), "QQNTEngine should emit request_sent and request_received friend events") && ok;
 
     QJsonObject friendResponsePayload;
     friendResponsePayload[QStringLiteral("senderId")] = alice.userId();
