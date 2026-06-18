@@ -12,6 +12,7 @@ interface ChatPanelProps {
   onDownloadFile?: (message: Message) => void
   onOpenFolder?: (message: Message) => void
   loading?: boolean
+  dragActive?: boolean
 }
 
 export function ChatPanel({
@@ -23,7 +24,8 @@ export function ChatPanel({
   onCancelFile,
   onDownloadFile,
   onOpenFolder,
-  loading
+  loading,
+  dragActive
 }: ChatPanelProps) {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -38,7 +40,12 @@ export function ChatPanel({
         onDownloadFile={onDownloadFile}
         onOpenFolder={onOpenFolder}
       />
-      <Composer onSend={onSend} disabled={loading || !currentUser} />
+      <Composer
+        onSend={onSend}
+        disabled={loading || !currentUser}
+        canSendFiles={Boolean(currentUser)}
+        dragActive={dragActive}
+      />
     </main>
   )
 }

@@ -72,4 +72,31 @@ describe('messageStore', () => {
       fileInfo: { id: 'transfer-1', size: 2048, progress: 50 }
     })
   })
+
+  it('transitions optimistic file messages from client id to transfer id', () => {
+    useMessageStore.getState().setMessages('10001', [
+      {
+        ...message,
+        id: 'client-file-1',
+        type: 'file',
+        content: 'report.zip',
+        fileInfo: {
+          id: 'client-file-1',
+          name: 'report.zip',
+          size: 0,
+          mime: 'application/octet-stream',
+          progress: 0
+        }
+      }
+    ])
+
+    useMessageStore.getState().updateFileMessage('client-file-1', { id: 'transfer-1' }, 'sending')
+    useMessageStore.getState().updateFileMessage('transfer-1', { progress: 75 }, 'sending')
+    useMessageStore.getState().updateMessageStatus('10001', 'transfer-1', 'failed')
+
+    expect(useMessageStore.getState().messages['10001'][0]).toMatchObject({
+      status: 'failed',
+      fileInfo: { id: 'transfer-1', progress: 75 }
+    })
+  })
 })

@@ -1,12 +1,12 @@
 import { create } from 'zustand'
-import type { Message } from '@/types/qqnt'
+import type { FileInfo, Message } from '@/types/qqnt'
 
 interface MessageState {
   messages: Record<string, Message[]>
   addMessage: (sessionId: string, message: Message) => void
   setMessages: (sessionId: string, messages: Message[]) => void
   updateMessageStatus: (sessionId: string, id: string, status: Message['status']) => void
-  updateFileMessage: (transferId: string, patch: Partial<Message['fileInfo']>, status?: Message['status']) => void
+  updateFileMessage: (transferId: string, patch: Partial<FileInfo>, status?: Message['status']) => void
 }
 
 function sameMessage(left: Message, right: Message) {
@@ -15,6 +15,15 @@ function sameMessage(left: Message, right: Message) {
       (left.messageId && left.messageId === right.messageId) ||
       (left.clientMessageId && left.clientMessageId === right.clientMessageId) ||
       (left.fileInfo?.id && left.fileInfo.id === right.fileInfo?.id)
+  )
+}
+
+function messageHasIdentifier(message: Message, identifier: string) {
+  return Boolean(
+    message.id === identifier ||
+      message.messageId === identifier ||
+      message.clientMessageId === identifier ||
+      message.fileInfo?.id === identifier
   )
 }
 
@@ -56,7 +65,7 @@ export const useMessageStore = create<MessageState>((set) => ({
       messages: {
         ...state.messages,
         [sessionId]: (state.messages[sessionId] || []).map((message) =>
-          message.id === id ? { ...message, status } : message
+          messageHasIdentifier(message, id) ? { ...message, status } : message
         )
       }
     })),
@@ -66,11 +75,11 @@ export const useMessageStore = create<MessageState>((set) => ({
         Object.entries(state.messages).map(([sessionId, sessionMessages]) => [
           sessionId,
           sessionMessages.map((message) => {
-            if (message.fileInfo?.id !== transferId) return message
+            if (!messageHasIdentifier(message, transferId) || !message.fileInfo) return message
             return {
               ...message,
               status: status ?? message.status,
-              fileInfo: { ...message.fileInfo, ...patch, id: transferId }
+              fileInfo: { ...message.fileInfo, ...patch, id: patch.id ?? message.fileInfo.id }
             }
           })
         ])
