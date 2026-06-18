@@ -389,6 +389,8 @@ int main(int argc, char* argv[]) {
                 "get_group_list command should be written") && ok;
     ok = expect(writeCommand(&process, "not-json\n"),
                 "invalid JSON line should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"   \",\"reqId\":\"smoke-blank-op\",\"payload\":{}}\n"),
+                "blank op command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"reqId\":\"smoke-missing-op\",\"payload\":{}}\n"),
                 "missing op command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"ready\",\"payload\":{}}\n"),
@@ -457,6 +459,10 @@ int main(int argc, char* argv[]) {
                 "create_group invalid members command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-entry\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[10001]}}\n"),
                 "create_group invalid member entry command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-member-objects\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[\"10001\",{\"account\":\"10002\"},{\"id\":\"10003\"}],\"announcement\":\"\"}}\n"),
+                "create_group member object command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-object\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[{\"userId\":10001}]}}\n"),
+                "create_group invalid member object command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-announcement\",\"payload\":{\"groupName\":\"Smoke Group\",\"announcement\":true}}\n"),
                 "create_group invalid announcement command should be written") && ok;
 
@@ -474,6 +480,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-users"),
         QStringLiteral("smoke-friends"),
         QStringLiteral("smoke-groups"),
+        QStringLiteral("smoke-blank-op"),
         QStringLiteral("smoke-missing-op"),
         QStringLiteral("smoke-connect-missing-host"),
         QStringLiteral("smoke-connect-invalid-port"),
@@ -507,6 +514,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-group-member-invalid-action"),
         QStringLiteral("smoke-create-group-invalid-members"),
         QStringLiteral("smoke-create-group-invalid-member-entry"),
+        QStringLiteral("smoke-create-group-member-objects"),
+        QStringLiteral("smoke-create-group-invalid-member-object"),
         QStringLiteral("smoke-create-group-invalid-announcement")
     };
     expectedAckReqIds.unite(contractAckReqIds);
@@ -608,6 +617,11 @@ int main(int argc, char* argv[]) {
                         "get_group_list payload should include removedGroups array") && ok;
             ok = expect(payload.value(QStringLiteral("hasSnapshot")).isBool(),
                         "get_group_list payload should include hasSnapshot boolean") && ok;
+        } else if (reqId == QLatin1String("smoke-blank-op")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "blank op command should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("missing_op"),
+                        "blank op command should use missing_op code") && ok;
         } else if (reqId == QLatin1String("smoke-missing-op")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "missing op command should return error ack") && ok;
@@ -777,6 +791,16 @@ int main(int argc, char* argv[]) {
                         "create_group with non-string member entry should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
                         "create_group with non-string member entry should use invalid_members code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-member-objects")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with member objects should pass validation and reach the client") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("create_group_failed"),
+                        "create_group with member objects should fail only because the engine is offline") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-member-object")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with invalid member object field should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
+                        "create_group with invalid member object field should use invalid_members code") && ok;
         } else if (reqId == QLatin1String("smoke-create-group-invalid-announcement")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "create_group with non-string announcement should return error ack") && ok;
