@@ -467,6 +467,14 @@ int main(int argc, char* argv[]) {
                 "send_private_message missing receiverId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-empty-content\",\"payload\":{\"receiverId\":\"10001\",\"content\":\"\"}}\n"),
                 "send_private_message empty content command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_group_message\",\"reqId\":\"smoke-group-message-missing-group\",\"payload\":{\"content\":\"hello\"}}\n"),
+                "send_group_message missing groupId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_group_message\",\"reqId\":\"smoke-group-message-empty-content\",\"payload\":{\"groupId\":\"public\",\"content\":\"\"}}\n"),
+                "send_group_message empty content command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-missing-name\",\"payload\":{}}\n"),
+                "create_group missing groupName command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing-group\",\"payload\":{\"announcement\":\"hello\"}}\n"),
+                "update_group_announcement missing groupId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing\",\"payload\":{\"groupId\":\"public\"}}\n"),
                 "update_group_announcement missing announcement command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-missing-group\",\"payload\":{\"memberId\":\"10001\",\"action\":\"add\"}}\n"),
@@ -536,6 +544,10 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-friend-response-missing-accepted"),
         QStringLiteral("smoke-private-message-missing-receiver"),
         QStringLiteral("smoke-private-message-empty-content"),
+        QStringLiteral("smoke-group-message-missing-group"),
+        QStringLiteral("smoke-group-message-empty-content"),
+        QStringLiteral("smoke-create-group-missing-name"),
+        QStringLiteral("smoke-group-announcement-missing-group"),
         QStringLiteral("smoke-group-announcement-missing"),
         QStringLiteral("smoke-group-member-missing-group"),
         QStringLiteral("smoke-group-member-missing-member"),
@@ -836,6 +848,26 @@ int main(int argc, char* argv[]) {
                         "send_private_message empty content should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "send_private_message empty content should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-message-missing-group")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_group_message missing groupId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_group_message missing groupId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-message-empty-content")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_group_message empty content should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_group_message empty content should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-missing-name")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group missing groupName should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "create_group missing groupName should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-announcement-missing-group")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_announcement missing groupId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "update_group_announcement missing groupId should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-group-announcement-missing")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "update_group_announcement missing announcement should return error ack") && ok;
