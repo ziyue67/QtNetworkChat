@@ -423,10 +423,14 @@ int main(int argc, char* argv[]) {
                 "connect missing host command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-invalid-port\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":70000}}\n"),
                 "connect invalid port command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"connect\",\"reqId\":\"smoke-connect-extra-field\",\"payload\":{\"host\":\"127.0.0.1\",\"port\":65535,\"debug\":true}}\n"),
+                "connect extra field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-missing-account\",\"payload\":{\"password\":\"smoke-password\"}}\n"),
                 "login missing account command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-missing-password\",\"payload\":{\"account\":\"smoke-account\"}}\n"),
                 "login missing password command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"login\",\"reqId\":\"smoke-login-extra-field\",\"payload\":{\"account\":\"smoke-account\",\"password\":\"smoke-password\",\"debug\":true}}\n"),
+                "login extra field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-account\",\"payload\":{\"password\":\"smoke-password\",\"userName\":\"Smoke Register\"}}\n"),
                 "register missing account command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"register\",\"reqId\":\"smoke-register-missing-password\",\"payload\":{\"account\":\"smoke-register\",\"userName\":\"Smoke Register\"}}\n"),
@@ -491,6 +495,8 @@ int main(int argc, char* argv[]) {
                 "query_resume spaced contentType command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-target-without-file-path\",\"payload\":{\"transferId\":\"resume-transfer\",\"receiverId\":\"10001\"}}\n"),
                 "query_resume target without filePath command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"query_resume\",\"reqId\":\"smoke-resume-extra-field\",\"payload\":{\"transferId\":\"resume-transfer\",\"debug\":true}}\n"),
+                "query_resume extra field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile\",\"payload\":{\"userName\":\"Smoke User\"}}\n"),
                 "profile_update command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"profile_update\",\"reqId\":\"smoke-profile-invalid-field\",\"payload\":{\"avatarBase64\":42}}\n"),
@@ -501,6 +507,8 @@ int main(int argc, char* argv[]) {
                 "unknown command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true},\"files\":{\"autoDownload\":false}}}}\n"),
                 "settings_sync command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-extra-field\",\"payload\":{\"settings\":{\"notifications\":{\"desktop\":true}},\"debug\":true}}\n"),
+                "settings_sync extra field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid\",\"payload\":{\"settings\":\"bad\"}}\n"),
                 "invalid settings_sync command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-file-download-dir\",\"payload\":{\"settings\":{\"fileDownloadDir\":false}}}\n"),
@@ -531,6 +539,8 @@ int main(int argc, char* argv[]) {
                 "send_private_message missing receiverId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-empty-content\",\"payload\":{\"receiverId\":\"10001\",\"content\":\"\"}}\n"),
                 "send_private_message empty content command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-extra-field\",\"payload\":{\"receiverId\":\"10001\",\"content\":\"hello\",\"debug\":true}}\n"),
+                "send_private_message extra field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_group_message\",\"reqId\":\"smoke-group-message-missing-group\",\"payload\":{\"content\":\"hello\"}}\n"),
                 "send_group_message missing groupId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"send_group_message\",\"reqId\":\"smoke-group-message-empty-content\",\"payload\":{\"groupId\":\"public\",\"content\":\"\"}}\n"),
@@ -585,8 +595,10 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-missing-op"),
         QStringLiteral("smoke-connect-missing-host"),
         QStringLiteral("smoke-connect-invalid-port"),
+        QStringLiteral("smoke-connect-extra-field"),
         QStringLiteral("smoke-login-missing-account"),
         QStringLiteral("smoke-login-missing-password"),
+        QStringLiteral("smoke-login-extra-field"),
         QStringLiteral("smoke-register-missing-account"),
         QStringLiteral("smoke-register-missing-password"),
         QStringLiteral("smoke-register-missing-user-name"),
@@ -614,11 +626,13 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-resume-uppercase-content-type"),
         QStringLiteral("smoke-resume-spaced-content-type"),
         QStringLiteral("smoke-resume-target-without-file-path"),
+        QStringLiteral("smoke-resume-extra-field"),
         QStringLiteral("smoke-profile"),
         QStringLiteral("smoke-profile-invalid-field"),
         QStringLiteral("smoke-profile-invalid-avatar"),
         QStringLiteral("smoke-unknown-op"),
         QStringLiteral("smoke-settings"),
+        QStringLiteral("smoke-settings-extra-field"),
         QStringLiteral("smoke-settings-invalid"),
         QStringLiteral("smoke-settings-invalid-download-dir"),
         QStringLiteral("smoke-settings-invalid-file-download-dir"),
@@ -634,6 +648,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-friend-response-missing-accepted"),
         QStringLiteral("smoke-private-message-missing-receiver"),
         QStringLiteral("smoke-private-message-empty-content"),
+        QStringLiteral("smoke-private-message-extra-field"),
         QStringLiteral("smoke-group-message-missing-group"),
         QStringLiteral("smoke-group-message-empty-content"),
         QStringLiteral("smoke-create-group-missing-name"),
@@ -783,6 +798,11 @@ int main(int argc, char* argv[]) {
                         "connect with invalid port should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
                         "connect with invalid port should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-connect-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "connect with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "connect with extra field should use invalid_payload code") && ok;
         } else if (reqId == QLatin1String("smoke-login-missing-account")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "login without account should return error ack") && ok;
@@ -793,6 +813,11 @@ int main(int argc, char* argv[]) {
                         "login without password should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "login without password should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-login-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "login with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "login with extra field should use invalid_payload code") && ok;
         } else if (reqId == QLatin1String("smoke-register-missing-account")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "register without account should return error ack") && ok;
@@ -953,6 +978,11 @@ int main(int argc, char* argv[]) {
                         "query_resume with target and no filePath should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
                         "query_resume with target and no filePath should use invalid_target code") && ok;
+        } else if (reqId == QLatin1String("smoke-resume-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "query_resume with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "query_resume with extra field should use invalid_payload code") && ok;
         } else if (reqId == QLatin1String("smoke-profile")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("ok"),
                         "profile_update should return ok ack") && ok;
@@ -982,6 +1012,11 @@ int main(int argc, char* argv[]) {
                         "settings_sync payload should include revision") && ok;
             ok = expect(payload.value(QStringLiteral("settings")).toObject().value(QStringLiteral("files")).isObject(),
                         "settings_sync payload should echo settings object") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "settings_sync with extra field should use invalid_payload code") && ok;
         } else if (reqId == QLatin1String("smoke-settings-invalid")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "invalid settings_sync should return error ack") && ok;
@@ -1057,6 +1092,11 @@ int main(int argc, char* argv[]) {
                         "send_private_message empty content should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "send_private_message empty content should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-private-message-extra-field")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_private_message with extra field should return error ack") && ok;
+            ok = expect(errorCode == QLatin1String("invalid_payload"),
+                        "send_private_message with extra field should use invalid_payload code") && ok;
         } else if (reqId == QLatin1String("smoke-group-message-missing-group")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "send_group_message missing groupId should return error ack") && ok;

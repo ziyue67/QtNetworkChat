@@ -338,6 +338,13 @@ void QQNTEngineCommandRouter::handleReady(const QString& op, const QString& reqI
 }
 
 void QQNTEngineCommandRouter::handleLogin(const QString& op, const QString& reqId, const QJsonObject& payload, bool registerMode) {
+    const QStringList allowedFields = registerMode
+        ? QStringList{QStringLiteral("account"), QStringLiteral("password"), QStringLiteral("userName")}
+        : QStringList{QStringLiteral("account"), QStringLiteral("password")};
+    if (!requireOnlyFields(payload, allowedFields, op, reqId)) {
+        return;
+    }
+
     QString account;
     QString password;
     if (!requireString(payload, QStringLiteral("account"), &account, op, reqId)
@@ -366,6 +373,10 @@ void QQNTEngineCommandRouter::handleLogin(const QString& op, const QString& reqI
 }
 
 void QQNTEngineCommandRouter::handleConnect(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("host"), QStringLiteral("port")}, op, reqId)) {
+        return;
+    }
+
     QString host;
     quint16 port = 0;
     if (!requireString(payload, QStringLiteral("host"), &host, op, reqId)
@@ -404,6 +415,10 @@ void QQNTEngineCommandRouter::handleDisconnect(const QString& op, const QString&
 }
 
 void QQNTEngineCommandRouter::handleSetUserInfo(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("userId"), QStringLiteral("userName")}, op, reqId)) {
+        return;
+    }
+
     QString userId;
     QString userName;
     if (!requireString(payload, QStringLiteral("userId"), &userId, op, reqId)
@@ -427,6 +442,10 @@ void QQNTEngineCommandRouter::handleGetGroupList(const QString& op, const QStrin
 }
 
 void QQNTEngineCommandRouter::handleSearchFriend(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("account")}, op, reqId)) {
+        return;
+    }
+
     QString account;
     if (!requireString(payload, QStringLiteral("account"), &account, op, reqId)) {
         return;
@@ -439,6 +458,10 @@ void QQNTEngineCommandRouter::handleSearchFriend(const QString& op, const QStrin
 }
 
 void QQNTEngineCommandRouter::handleSendFriendRequest(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("receiverId")}, op, reqId)) {
+        return;
+    }
+
     QString receiverId;
     if (!requireString(payload, QStringLiteral("receiverId"), &receiverId, op, reqId)) {
         return;
@@ -451,6 +474,10 @@ void QQNTEngineCommandRouter::handleSendFriendRequest(const QString& op, const Q
 }
 
 void QQNTEngineCommandRouter::handleRespondFriendRequest(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("senderId"), QStringLiteral("accepted")}, op, reqId)) {
+        return;
+    }
+
     QString senderId;
     bool accepted = false;
     if (!requireString(payload, QStringLiteral("senderId"), &senderId, op, reqId)
@@ -465,6 +492,10 @@ void QQNTEngineCommandRouter::handleRespondFriendRequest(const QString& op, cons
 }
 
 void QQNTEngineCommandRouter::handleSendPrivateMessage(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("receiverId"), QStringLiteral("content")}, op, reqId)) {
+        return;
+    }
+
     QString receiverId;
     QString content;
     if (!requireString(payload, QStringLiteral("receiverId"), &receiverId, op, reqId)
@@ -488,6 +519,10 @@ void QQNTEngineCommandRouter::handleSendPrivateMessage(const QString& op, const 
 }
 
 void QQNTEngineCommandRouter::handleSendGroupMessage(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("groupId"), QStringLiteral("content")}, op, reqId)) {
+        return;
+    }
+
     QString groupId;
     QString content;
     if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
@@ -502,6 +537,13 @@ void QQNTEngineCommandRouter::handleSendGroupMessage(const QString& op, const QS
 }
 
 void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload,
+                           {QStringLiteral("groupName"), QStringLiteral("members"), QStringLiteral("announcement")},
+                           op,
+                           reqId)) {
+        return;
+    }
+
     QString groupName;
     if (!requireString(payload, QStringLiteral("groupName"), &groupName, op, reqId)) {
         return;
@@ -542,6 +584,10 @@ void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString
 }
 
 void QQNTEngineCommandRouter::handleUpdateGroupAnnouncement(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("groupId"), QStringLiteral("announcement")}, op, reqId)) {
+        return;
+    }
+
     QString groupId;
     QString announcement;
     if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
@@ -556,6 +602,10 @@ void QQNTEngineCommandRouter::handleUpdateGroupAnnouncement(const QString& op, c
 }
 
 void QQNTEngineCommandRouter::handleUpdateGroupMember(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("groupId"), QStringLiteral("memberId"), QStringLiteral("action")}, op, reqId)) {
+        return;
+    }
+
     QString groupId;
     QString memberId;
     if (!requireString(payload, QStringLiteral("groupId"), &groupId, op, reqId)
@@ -589,6 +639,10 @@ void QQNTEngineCommandRouter::handleUpdateGroupMember(const QString& op, const Q
 }
 
 void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QString& reqId, const QJsonObject& payload, bool imageMode) {
+    if (!requireOnlyFields(payload, {QStringLiteral("filePath"), QStringLiteral("receiverId"), QStringLiteral("groupId")}, op, reqId)) {
+        return;
+    }
+
     QString filePath;
     if (!requireString(payload, QStringLiteral("filePath"), &filePath, op, reqId)) {
         return;
@@ -625,6 +679,10 @@ void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QStrin
 }
 
 void QQNTEngineCommandRouter::handleCancelTransfer(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("transferId")}, op, reqId)) {
+        return;
+    }
+
     QString transferId;
     if (!requireString(payload, QStringLiteral("transferId"), &transferId, op, reqId)) {
         return;
@@ -655,6 +713,17 @@ void QQNTEngineCommandRouter::handleCancelTransfer(const QString& op, const QStr
 }
 
 void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload,
+                           {QStringLiteral("transferId"),
+                            QStringLiteral("filePath"),
+                            QStringLiteral("receiverId"),
+                            QStringLiteral("groupId"),
+                            QStringLiteral("contentType")},
+                           op,
+                           reqId)) {
+        return;
+    }
+
     QString transferId;
     if (!requireString(payload, QStringLiteral("transferId"), &transferId, op, reqId)) {
         return;
@@ -781,6 +850,10 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
 }
 
 void QQNTEngineCommandRouter::handleE2EStatus(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("peerId")}, op, reqId)) {
+        return;
+    }
+
     QString peerId;
     if (!optionalStringField(payload,
                              QStringLiteral("peerId"),
@@ -802,6 +875,10 @@ void QQNTEngineCommandRouter::handleE2EStatus(const QString& op, const QString& 
 }
 
 void QQNTEngineCommandRouter::handleE2EAnnounceIdentity(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("peerId")}, op, reqId)) {
+        return;
+    }
+
     QString peerId;
     if (!requireString(payload, QStringLiteral("peerId"), &peerId, op, reqId)) {
         return;
@@ -815,6 +892,10 @@ void QQNTEngineCommandRouter::handleE2EAnnounceIdentity(const QString& op, const
 }
 
 void QQNTEngineCommandRouter::handleE2EPinIdentity(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("peerId"), QStringLiteral("fingerprint")}, op, reqId)) {
+        return;
+    }
+
     QString peerId;
     if (!requireString(payload, QStringLiteral("peerId"), &peerId, op, reqId)) {
         return;
@@ -837,6 +918,10 @@ void QQNTEngineCommandRouter::handleE2EPinIdentity(const QString& op, const QStr
 }
 
 void QQNTEngineCommandRouter::handleE2ERequestRotation(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("peerId")}, op, reqId)) {
+        return;
+    }
+
     QString peerId;
     if (!requireString(payload, QStringLiteral("peerId"), &peerId, op, reqId)) {
         return;
@@ -850,6 +935,10 @@ void QQNTEngineCommandRouter::handleE2ERequestRotation(const QString& op, const 
 }
 
 void QQNTEngineCommandRouter::handleProfileUpdate(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("userName"), QStringLiteral("avatarBase64")}, op, reqId)) {
+        return;
+    }
+
     QString userName;
     QString avatarBase64;
     if (!optionalStringField(payload,
@@ -900,6 +989,10 @@ void QQNTEngineCommandRouter::handleProfileUpdate(const QString& op, const QStri
 }
 
 void QQNTEngineCommandRouter::handleSettingsSync(const QString& op, const QString& reqId, const QJsonObject& payload) {
+    if (!requireOnlyFields(payload, {QStringLiteral("settings")}, op, reqId)) {
+        return;
+    }
+
     const QJsonValue settingsValue = payload.value(QStringLiteral("settings"));
     if (!settingsValue.isObject()) {
         m_bridge->sendErrorAck(op,
@@ -1069,5 +1162,23 @@ bool QQNTEngineCommandRouter::optionalTargetString(const QJsonObject& payload,
     }
 
     *value = value->trimmed();
+    return true;
+}
+
+bool QQNTEngineCommandRouter::requireOnlyFields(const QJsonObject& payload,
+                                                const QStringList& allowedFields,
+                                                const QString& op,
+                                                const QString& reqId) const {
+    for (const QString& field : payload.keys()) {
+        if (allowedFields.contains(field)) {
+            continue;
+        }
+
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_payload"),
+                               QStringLiteral("Command payload for %1 contains unsupported field: %2.").arg(op, field));
+        return false;
+    }
     return true;
 }

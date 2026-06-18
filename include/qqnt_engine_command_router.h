@@ -3,6 +3,7 @@
 
 #include <QJsonObject>
 #include <QObject>
+#include <QStringList>
 
 class QQNTClientBridge;
 
@@ -78,6 +79,10 @@ private:
                               QString* value,
                               const QString& op,
                               const QString& reqId) const;
+    bool requireOnlyFields(const QJsonObject& payload,
+                           const QStringList& allowedFields,
+                           const QString& op,
+                           const QString& reqId) const;
 
     QQNTClientBridge* m_bridge;
     QString m_account;
