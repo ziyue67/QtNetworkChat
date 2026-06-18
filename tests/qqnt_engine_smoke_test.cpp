@@ -457,8 +457,16 @@ int main(int argc, char* argv[]) {
                 "invalid payload command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
                 "missing field command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_friend_request\",\"reqId\":\"smoke-friend-request-missing-receiver\",\"payload\":{}}\n"),
+                "send_friend_request missing receiverId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"respond_friend_request\",\"reqId\":\"smoke-friend-response-missing-sender\",\"payload\":{\"accepted\":true}}\n"),
+                "respond_friend_request missing senderId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"respond_friend_request\",\"reqId\":\"smoke-friend-response-missing-accepted\",\"payload\":{\"senderId\":\"10001\"}}\n"),
                 "respond_friend_request missing accepted command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-missing-receiver\",\"payload\":{\"content\":\"hello\"}}\n"),
+                "send_private_message missing receiverId command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"send_private_message\",\"reqId\":\"smoke-private-message-empty-content\",\"payload\":{\"receiverId\":\"10001\",\"content\":\"\"}}\n"),
+                "send_private_message empty content command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing\",\"payload\":{\"groupId\":\"public\"}}\n"),
                 "update_group_announcement missing announcement command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-missing-group\",\"payload\":{\"memberId\":\"10001\",\"action\":\"add\"}}\n"),
@@ -523,7 +531,11 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-settings-invalid-download-dir"),
         QStringLiteral("smoke-invalid-payload"),
         QStringLiteral("smoke-missing-field"),
+        QStringLiteral("smoke-friend-request-missing-receiver"),
+        QStringLiteral("smoke-friend-response-missing-sender"),
         QStringLiteral("smoke-friend-response-missing-accepted"),
+        QStringLiteral("smoke-private-message-missing-receiver"),
+        QStringLiteral("smoke-private-message-empty-content"),
         QStringLiteral("smoke-group-announcement-missing"),
         QStringLiteral("smoke-group-member-missing-group"),
         QStringLiteral("smoke-group-member-missing-member"),
@@ -799,11 +811,31 @@ int main(int argc, char* argv[]) {
                         "missing required field should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "missing required field should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-friend-request-missing-receiver")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_friend_request missing receiverId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_friend_request missing receiverId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-friend-response-missing-sender")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "respond_friend_request missing senderId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "respond_friend_request missing senderId should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-friend-response-missing-accepted")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "respond_friend_request missing accepted should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "respond_friend_request missing accepted should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-private-message-missing-receiver")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_private_message missing receiverId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_private_message missing receiverId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-private-message-empty-content")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "send_private_message empty content should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "send_private_message empty content should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-group-announcement-missing")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "update_group_announcement missing announcement should return error ack") && ok;
