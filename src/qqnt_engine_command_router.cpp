@@ -378,6 +378,14 @@ void QQNTEngineCommandRouter::handleCreateGroup(const QString& op, const QString
     if (!requireString(payload, QStringLiteral("groupName"), &groupName, op, reqId)) {
         return;
     }
+    const QJsonValue membersValue = payload.value(QStringLiteral("members"));
+    if (!membersValue.isUndefined() && !membersValue.isArray()) {
+        m_bridge->sendErrorAck(op,
+                               reqId,
+                               QStringLiteral("invalid_members"),
+                               QStringLiteral("create_group members must be an array when provided."));
+        return;
+    }
     sendBoolAck(op,
                 reqId,
                 m_bridge->client()->createPrivateServerGroup(groupName,

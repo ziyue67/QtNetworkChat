@@ -421,6 +421,8 @@ int main(int argc, char* argv[]) {
                 "respond_friend_request missing accepted command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_announcement\",\"reqId\":\"smoke-group-announcement-missing\",\"payload\":{\"groupId\":\"public\"}}\n"),
                 "update_group_announcement missing announcement command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-members\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":\"10001\"}}\n"),
+                "create_group invalid members command should be written") && ok;
 
     QSet<QString> contractAckReqIds;
     for (const QString& command : contractCommands) {
@@ -452,7 +454,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("smoke-invalid-payload"),
         QStringLiteral("smoke-missing-field"),
         QStringLiteral("smoke-friend-response-missing-accepted"),
-        QStringLiteral("smoke-group-announcement-missing")
+        QStringLiteral("smoke-group-announcement-missing"),
+        QStringLiteral("smoke-create-group-invalid-members")
     };
     expectedAckReqIds.unite(contractAckReqIds);
 
@@ -625,6 +628,11 @@ int main(int argc, char* argv[]) {
                         "update_group_announcement missing announcement should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "update_group_announcement missing announcement should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-create-group-invalid-members")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "create_group with non-array members should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_members"),
+                        "create_group with non-array members should use invalid_members code") && ok;
         }
 
         if (contractAckReqIds.contains(reqId)) {
