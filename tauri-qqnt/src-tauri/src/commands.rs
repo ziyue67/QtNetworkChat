@@ -1788,6 +1788,46 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_group_message_missing_group_id() {
+        let error = validate_generic_command(&json!({
+            "op": "send_group_message",
+            "reqId": "req-group-message",
+            "payload": {
+                "content": "hello"
+            }
+        }))
+        .expect_err("generic send_group_message groupId is required");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_create_group_missing_name() {
+        let error = validate_generic_command(&json!({
+            "op": "create_group",
+            "reqId": "req-create-group",
+            "payload": {}
+        }))
+        .expect_err("generic create_group groupName is required");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn generic_command_rejects_group_announcement_missing_group_id() {
+        let error = validate_generic_command(&json!({
+            "op": "update_group_announcement",
+            "reqId": "req-announcement",
+            "payload": {
+                "announcement": "hello"
+            }
+        }))
+        .expect_err("generic update_group_announcement groupId is required");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
     fn generic_command_accepts_file_transfer_target() {
         validate_generic_command(&json!({
             "op": "send_file",
@@ -1861,6 +1901,20 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_rejects_file_transfer_missing_file_path() {
+        let error = validate_generic_command(&json!({
+            "op": "send_file",
+            "reqId": "req-file",
+            "payload": {
+                "receiverId": "10001"
+            }
+        }))
+        .expect_err("generic send_file filePath is required");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
     fn generic_command_accepts_query_resume_query_only() {
         validate_generic_command(&json!({
             "op": "query_resume",
@@ -1870,6 +1924,18 @@ mod tests {
             }
         }))
         .expect("query_resume may query by transferId only");
+    }
+
+    #[test]
+    fn generic_command_rejects_query_resume_missing_transfer_id() {
+        let error = validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {}
+        }))
+        .expect_err("generic query_resume transferId is required");
+
+        assert_eq!(error.code, "missing_field");
     }
 
     #[test]
@@ -2199,6 +2265,22 @@ mod tests {
     }
 
     #[test]
+    fn send_group_message_payload_requires_group_id() {
+        let error = send_group_message_payload(" ".to_string(), "hello".to_string())
+            .expect_err("typed send_group_message payload should require groupId");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
+    fn create_group_payload_requires_group_name() {
+        let error = create_group_payload("".to_string(), None, None)
+            .expect_err("typed create_group payload should require groupName");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
     fn create_group_payload_preserves_members_and_announcement() {
         let packet = command_packet(
             "create_group",
@@ -2240,6 +2322,14 @@ mod tests {
 
         assert_eq!(packet["payload"]["groupId"], "group-1");
         assert_eq!(packet["payload"]["announcement"], "");
+    }
+
+    #[test]
+    fn update_group_announcement_payload_requires_group_id() {
+        let error = update_group_announcement_payload(" ".to_string(), "hello".to_string())
+            .expect_err("typed update_group_announcement payload should require groupId");
+
+        assert_eq!(error.code, "missing_field");
     }
 
     #[test]
@@ -2300,6 +2390,14 @@ mod tests {
     }
 
     #[test]
+    fn send_file_like_payload_requires_file_path() {
+        let error = send_file_like_payload(" ".to_string(), Some("10001".to_string()), None)
+            .expect_err("typed send_file payload should require filePath");
+
+        assert_eq!(error.code, "missing_field");
+    }
+
+    #[test]
     fn query_resume_payload_accepts_query_only() {
         let packet = command_packet(
             "query_resume",
@@ -2354,6 +2452,14 @@ mod tests {
         .expect_err("typed query_resume resume payload should reject blank targets");
 
         assert_eq!(error.code, "missing_target");
+    }
+
+    #[test]
+    fn query_resume_payload_requires_transfer_id() {
+        let error = query_resume_payload(" ".to_string(), None, None, None, None)
+            .expect_err("typed query_resume payload should require transferId");
+
+        assert_eq!(error.code, "missing_field");
     }
 
     #[test]
