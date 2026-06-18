@@ -52,7 +52,10 @@ pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<(
         "settings_synced" => validate_settings_synced_payload(payload, "settings_synced"),
         "notification" => validate_notification_payload(payload),
         "error" => validate_error_payload(payload),
-        _ => Ok(()),
+        _ => Err(QQNTError::rust(
+            "unknown_event",
+            format!("QQNTEngine emitted unknown event {event_name}."),
+        )),
     }
 }
 
@@ -84,7 +87,10 @@ pub fn validate_command_ack_payload(op: &str, payload: &Value) -> QQNTResult<()>
         "e2e_status" => validate_e2e_status_ack_payload(payload),
         "profile_update" => validate_profile_update_ack_payload(payload),
         "settings_sync" => validate_settings_synced_payload(payload, "settings_sync"),
-        _ => Ok(()),
+        _ => Err(QQNTError::rust(
+            "unknown_ack_op",
+            format!("QQNTEngine returned ack for unknown op {op}."),
+        )),
     }
 }
 
@@ -957,6 +963,22 @@ mod tests {
             validate_event_payload(event_name, &payload)
                 .unwrap_or_else(|error| panic!("{event_name} event sample should pass: {error:?}"));
         }
+    }
+
+    #[test]
+    fn event_payload_rejects_unknown_event() {
+        let error = validate_event_payload("future_event", &json!({}))
+            .expect_err("unknown event should fail");
+
+        assert_eq!(error.code, "unknown_event");
+    }
+
+    #[test]
+    fn command_ack_payload_rejects_unknown_op() {
+        let error = validate_command_ack_payload("future_command", &json!({}))
+            .expect_err("unknown command ack op should fail");
+
+        assert_eq!(error.code, "unknown_ack_op");
     }
 
     #[test]

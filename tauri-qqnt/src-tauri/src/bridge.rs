@@ -457,6 +457,20 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_unknown_contract_event_as_error() {
+        let dispatch =
+            dispatch_stdout_line(br#"{"type":"event","event":"future_event","payload":{}}"#);
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "unknown_event");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn dispatches_invalid_group_snapshot_payload_as_error() {
         let dispatch = dispatch_stdout_line(
             br#"{"type":"event","event":"group_snapshot","payload":{"groups":[],"hasSnapshot":true}}"#,
