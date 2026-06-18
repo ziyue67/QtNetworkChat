@@ -11,6 +11,12 @@ function Assert-Contains([string]$Text, [string]$Needle) {
     }
 }
 
+function Assert-NotContains([string]$Text, [string]$Needle) {
+    if ($Text.Contains($Needle)) {
+        throw "Unexpected README IA text: $Needle"
+    }
+}
+
 function Assert-Equals([object]$Actual, [object]$Expected, [string]$Label) {
     if ($Actual -ne $Expected) {
         throw ("Unexpected {0}: expected '{1}', got '{2}'" -f $Label, $Expected, $Actual)
@@ -121,6 +127,7 @@ Assert-Contains $branchPlan '`codex/qqnt-backend`'
 Assert-Contains $branchPlan '`codex/qqnt-frontend`'
 Assert-Contains $branchPlan "tauri-qqnt/src-tauri/"
 Assert-Contains $branchPlan "tauri-qqnt/src/"
+Assert-NotContains $branchPlan '`tauri-qqnt/tauri.conf.json`'
 
 $coverage = Read-Utf8Text $coveragePath
 Assert-Contains $coverage "npm run tauri build"

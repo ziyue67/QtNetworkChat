@@ -215,7 +215,7 @@ docs/qqnt-ipcv1.md                     # 协议契约
 | `tauri-qqnt/src/**/*` | ❌ 不修改 | ✅ 全权负责 |
 | `tauri-qqnt/src-tauri/**/*` | ✅ 全权负责 | ❌ 不修改 |
 | `tauri-qqnt/package.json` | 可新增脚本/依赖 | 可新增脚本/依赖 |
-| `tauri-qqnt/tauri.conf.json` | 窗口、externalBin 配置 | 只读 |
+| `tauri-qqnt/src-tauri/tauri.conf.json` | 窗口、externalBin 配置 | 只读 |
 | `include/qqnt_*`、`src/qqnt_*`、`tools/qqnt_*` | ✅ 全权负责 | ❌ 不修改 |
 | `CMakeLists.txt`、`tests/qqnt_*` | ✅ 全权负责 | ❌ 不修改 |
 | `docs/qqnt-ipcv1.md` | 维护协议 | 只读 |
