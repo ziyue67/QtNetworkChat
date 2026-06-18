@@ -15,7 +15,7 @@ import { NavItem } from './NavItem'
 import { useUIStore } from '@/stores/uiStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { APP_ENTRIES, type AppIconName } from '@/config/appEntries'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 const ICONS: Record<AppIconName, typeof MessageSquare> = {
   MessageIcon: MessageSquare,
@@ -35,7 +35,11 @@ export function AppNav() {
   const activeRoute = useUIStore((state) => state.activeRoute)
   const setActiveRoute = useUIStore((state) => state.setActiveRoute)
   const unreadTotal = useSessionStore((state) => state.sessions.reduce((sum, session) => sum + session.unread, 0))
+  const location = useLocation()
   const navigate = useNavigate()
+  const currentRoute = APP_ENTRIES.some((entry) => entry.path === location.pathname)
+    ? location.pathname
+    : activeRoute
 
   return (
     <nav className="flex h-full w-[var(--qq-sidebar-width)] flex-col items-center gap-1 border-r border-[var(--qq-border)] bg-[var(--qq-bg-secondary)] py-3">
@@ -46,7 +50,7 @@ export function AppNav() {
             key={item.path}
             icon={<Icon size={22} strokeWidth={1.5} />}
             label={item.label}
-            active={activeRoute === item.path}
+            active={currentRoute === item.path}
             badge={item.id === 'messages' ? unreadTotal : undefined}
             mock={item.mock}
             onClick={() => {

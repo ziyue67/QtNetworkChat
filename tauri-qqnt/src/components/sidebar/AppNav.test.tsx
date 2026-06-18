@@ -17,4 +17,15 @@ describe('AppNav', () => {
     }
     expect(container.textContent).not.toContain('Mock')
   })
+
+  it('highlights the current route after direct navigation', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <AppNav />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByTitle('设置').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTitle('消息').getAttribute('aria-current')).toBeNull()
+  })
 })

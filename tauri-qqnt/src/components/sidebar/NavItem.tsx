@@ -13,6 +13,7 @@ export function NavItem({ icon, label, active, badge, mock, onClick }: NavItemPr
   return (
     <button
       onClick={onClick}
+      aria-current={active ? 'page' : undefined}
       className={cn(
         'group flex w-full flex-col items-center justify-center gap-1 rounded-lg px-2 py-2.5 text-[var(--qq-text-tertiary)] transition-colors',
         active
