@@ -1629,23 +1629,39 @@ mod tests {
 
     #[test]
     fn generic_command_rejects_e2e_announce_missing_peer_id() {
-        let error = validate_generic_command(&json!({
-            "op": "e2e_announce_identity",
-            "reqId": "req-e2e-announce",
-            "payload": {
-                "peerId": ""
-            }
-        }))
-        .expect_err("generic e2e_announce_identity should require peerId");
+        for (op, payload) in [
+            ("e2e_announce_identity", json!({})),
+            ("e2e_announce_identity", json!({ "peerId": "" })),
+            ("e2e_request_rotation", json!({})),
+            ("e2e_request_rotation", json!({ "peerId": "   " })),
+        ] {
+            let error = validate_generic_command(&json!({
+                "op": op,
+                "reqId": "req-e2e-peer",
+                "payload": payload
+            }))
+            .expect_err("generic e2e peer commands should require peerId");
 
-        assert_eq!(error.code, "missing_field");
+            assert_eq!(error.code, "missing_field");
+        }
     }
 
     #[test]
     fn generic_command_rejects_e2e_pin_invalid_fingerprint() {
+        for payload in [json!({}), json!({ "peerId": " " })] {
+            let error = validate_generic_command(&json!({
+                "op": "e2e_pin_identity",
+                "reqId": "req-e2e-pin",
+                "payload": payload
+            }))
+            .expect_err("generic e2e_pin_identity should require peerId");
+
+            assert_eq!(error.code, "missing_field");
+        }
+
         let error = validate_generic_command(&json!({
             "op": "e2e_pin_identity",
-            "reqId": "req-e2e-pin",
+            "reqId": "req-e2e-pin-fingerprint",
             "payload": {
                 "peerId": "10001",
                 "fingerprint": false
@@ -2263,11 +2279,14 @@ mod tests {
         let status = e2e_status_payload(None).expect("e2e_status may omit peerId");
         let announce_error = e2e_peer_payload(" ".to_string())
             .expect_err("typed e2e peer command should require peerId");
+        let pin_peer_error = e2e_pin_identity_payload("".to_string(), None)
+            .expect_err("typed e2e_pin_identity payload should require peerId");
         let pin_payload = e2e_pin_identity_payload("10001".to_string(), Some("".to_string()))
             .expect("empty fingerprint is allowed for local clearing");
 
         assert!(status.get("peerId").is_none());
         assert_eq!(announce_error.code, "missing_field");
+        assert_eq!(pin_peer_error.code, "missing_field");
         assert_eq!(pin_payload["fingerprint"], "");
     }
 

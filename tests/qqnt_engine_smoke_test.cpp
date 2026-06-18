@@ -423,8 +423,18 @@ int main(int argc, char* argv[]) {
                 "e2e_status invalid peerId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-missing\",\"payload\":{}}\n"),
                 "e2e_announce_identity missing peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_announce_identity\",\"reqId\":\"smoke-e2e-announce-blank\",\"payload\":{\"peerId\":\"   \"}}\n"),
+                "e2e_announce_identity blank peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-missing-peer\",\"payload\":{}}\n"),
+                "e2e_pin_identity missing peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-blank-peer\",\"payload\":{\"peerId\":\"   \"}}\n"),
+                "e2e_pin_identity blank peer command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"e2e_pin_identity\",\"reqId\":\"smoke-e2e-pin-invalid-fingerprint\",\"payload\":{\"peerId\":\"10001\",\"fingerprint\":false}}\n"),
                 "e2e_pin_identity invalid fingerprint command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_request_rotation\",\"reqId\":\"smoke-e2e-rotation-missing-peer\",\"payload\":{}}\n"),
+                "e2e_request_rotation missing peer command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"e2e_request_rotation\",\"reqId\":\"smoke-e2e-rotation-blank-peer\",\"payload\":{\"peerId\":\"   \"}}\n"),
+                "e2e_request_rotation blank peer command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-missing\",\"payload\":{}}\n"),
                 "cancel_transfer missing field command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"cancel_transfer\",\"reqId\":\"smoke-cancel-inactive\",\"payload\":{\"transferId\":\"smoke-transfer\"}}\n"),
@@ -761,11 +771,36 @@ int main(int argc, char* argv[]) {
                         "e2e_announce_identity missing peerId should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
                         "e2e_announce_identity missing peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-announce-blank")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_announce_identity blank peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_announce_identity blank peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-pin-missing-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_pin_identity missing peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_pin_identity missing peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-pin-blank-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_pin_identity blank peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_pin_identity blank peerId should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-e2e-pin-invalid-fingerprint")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "e2e_pin_identity with non-string fingerprint should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_fingerprint"),
                         "e2e_pin_identity with non-string fingerprint should use invalid_fingerprint code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-rotation-missing-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_request_rotation missing peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_request_rotation missing peerId should use missing_field code") && ok;
+        } else if (reqId == QLatin1String("smoke-e2e-rotation-blank-peer")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "e2e_request_rotation blank peerId should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_field"),
+                        "e2e_request_rotation blank peerId should use missing_field code") && ok;
         } else if (reqId == QLatin1String("smoke-cancel-missing")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "cancel_transfer missing transferId should return error ack") && ok;
