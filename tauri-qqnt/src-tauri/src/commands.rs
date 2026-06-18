@@ -665,7 +665,7 @@ fn ack_payload(packet: Value, op: &str, req_id: &str) -> Result<Value, QQNTError
 
     if packet.get("status").and_then(Value::as_str) == Some("error") {
         let error = packet.get("error").cloned().unwrap_or_else(|| json!({}));
-        return Err(QQNTError::new(
+        let mut mapped_error = QQNTError::new(
             error
                 .get("code")
                 .and_then(Value::as_str)
@@ -678,7 +678,11 @@ fn ack_payload(packet: Value, op: &str, req_id: &str) -> Result<Value, QQNTError
                 .get("source")
                 .and_then(Value::as_str)
                 .unwrap_or("engine"),
-        ));
+        );
+        if let Some(details) = error.get("details").cloned() {
+            mapped_error = mapped_error.with_details(details);
+        }
+        return Err(mapped_error);
     }
 
     let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
@@ -1349,6 +1353,16 @@ fn validate_generic_error_ack(packet: &Value) -> Result<(), QQNTError> {
                 format!("QQNTEngine error ack must include non-empty {field} string."),
             ));
         }
+    }
+
+    if error
+        .get("details")
+        .is_some_and(|details| !details.is_object())
+    {
+        return Err(QQNTError::rust(
+            "invalid_ack_error",
+            "QQNTEngine error ack details must be an object when provided.",
+        ));
     }
 
     Ok(())
@@ -2453,7 +2467,10 @@ mod tests {
                 "error": {
                     "code": "missing_target",
                     "message": "File target is required.",
-                    "source": "engine"
+                    "source": "engine",
+                    "details": {
+                        "targetFields": ["receiverId", "groupId"]
+                    }
                 }
             }),
             "send_file",
@@ -2529,6 +2546,29 @@ mod tests {
             "req-file",
         )
         .expect_err("generic error ack must include complete error object");
+
+        assert_eq!(error.code, "invalid_ack_error");
+    }
+
+    #[test]
+    fn generic_ack_packet_rejects_non_object_error_details() {
+        let error = validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "send_file",
+                "reqId": "req-file",
+                "status": "error",
+                "error": {
+                    "code": "missing_target",
+                    "message": "File target is required.",
+                    "source": "engine",
+                    "details": "receiverId"
+                }
+            }),
+            "send_file",
+            "req-file",
+        )
+        .expect_err("generic error ack details must be an object");
 
         assert_eq!(error.code, "invalid_ack_error");
     }
@@ -3052,6 +3092,38 @@ mod tests {
 
         assert_eq!(error.code, "login_failed");
         assert_eq!(error.source, "engine");
+    }
+
+    #[test]
+    fn ack_payload_maps_engine_error_ack_details() {
+        let error = ack_payload(
+            json!({
+                "type": "ack",
+                "op": "send_file",
+                "reqId": "req-file",
+                "status": "error",
+                "error": {
+                    "code": "missing_target",
+                    "message": "File target is required.",
+                    "source": "engine",
+                    "details": {
+                        "targetFields": ["receiverId", "groupId"]
+                    }
+                }
+            }),
+            "send_file",
+            "req-file",
+        )
+        .expect_err("engine error ack should map optional details to QQNTError");
+
+        assert_eq!(error.code, "missing_target");
+        assert_eq!(error.source, "engine");
+        assert_eq!(
+            error.details,
+            Some(json!({
+                "targetFields": ["receiverId", "groupId"]
+            }))
+        );
     }
 
     #[test]

@@ -77,9 +77,19 @@
 {
   "code": "engine_timeout",
   "message": "engine timeout",
-  "source": "rust"
+  "source": "rust",
+  "details": {
+    "timeoutMs": 30000
+  }
 }
 ```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---:|---|
+| `code` | non-empty string | 是 | 稳定错误码 |
+| `message` | non-empty string | 是 | 可展示或记录的错误说明 |
+| `source` | non-empty string | 是 | 错误来源，如 `rust`、`engine`、`server` |
+| `details` | object | 否 | 结构化诊断信息；Rust 会在 typed command 错误返回中原样透传 |
 
 ## 4. Ready 握手
 
