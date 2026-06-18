@@ -6,6 +6,7 @@ import type {
   ConnectPayload,
   LoginPayload,
   RegisterPayload,
+  AuthAckPayload,
   SendPrivateMessagePayload,
   SendGroupMessagePayload,
   SendFilePayload,
@@ -58,11 +59,11 @@ export async function disconnectServer() {
 }
 
 export async function login(account: string, password: string) {
-  return sendCommand<LoginPayload, LoginResult>('login', { account, password })
+  return sendCommand<LoginPayload, AuthAckPayload>('login', { account, password })
 }
 
 export async function register(account: string, password: string, userName: string) {
-  return sendCommand<RegisterPayload, RegisterResult>('register', { account, password, userName })
+  return sendCommand<RegisterPayload, AuthAckPayload>('register', { account, password, userName })
 }
 
 export async function logout() {
@@ -178,18 +179,6 @@ interface ConnectionResult {
   connected: boolean
   host: string
   port: number
-}
-
-interface LoginResult {
-  success: boolean
-  userId?: string
-  userName?: string
-}
-
-interface RegisterResult {
-  success: boolean
-  userId?: string
-  userName?: string
 }
 
 interface SendMessageResult {

@@ -35,13 +35,33 @@ import type {
 import { EXPECTED_PROTOCOL_VERSION } from '@/types/qqnt'
 
 export const ENGINE_UNAVAILABLE_MESSAGE = '未检测到本地 QQ NT 引擎，请从 Tauri 客户端启动并确认本地引擎运行。'
+const AUTH_BEFORE_CONNECT_MESSAGE = '请先提交账号密码，再连接本地聊天服务。'
+const AUTH_BEFORE_CONNECT_RAW_MESSAGE = 'Send login or register credentials before connect'
+
+export interface AuthHandshakeResult {
+  ok: boolean
+  requiresConnect: boolean
+}
 
 export interface UseEngineReturn {
   engine: EngineState
   connect: (host?: string, port?: number) => Promise<boolean>
-  login: (account: string, password: string) => Promise<void>
-  register: (account: string, password: string, userName: string) => Promise<boolean>
+  login: (account: string, password: string) => Promise<AuthHandshakeResult>
+  register: (account: string, password: string, userName: string) => Promise<AuthHandshakeResult>
   logout: () => void
+}
+
+function userFacingError(message: string) {
+  return message.includes(AUTH_BEFORE_CONNECT_RAW_MESSAGE)
+    ? AUTH_BEFORE_CONNECT_MESSAGE
+    : message
+}
+
+function connectionFailureMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  return message.includes(AUTH_BEFORE_CONNECT_RAW_MESSAGE)
+    ? userFacingError(message)
+    : ENGINE_UNAVAILABLE_MESSAGE
 }
 
 function asContact(userId: string, userName: string, online = false): Contact {
@@ -261,7 +281,7 @@ export function useEngine(): UseEngineReturn {
               status: 'online'
             })
           } else {
-            setError(result.error?.message || '登录失败')
+            setError(userFacingError(result.error?.message || '登录失败'))
           }
         }],
         ['qqnt://engine/user_list', (payload) => handleUserList(payload as UserListPayload)],
@@ -277,11 +297,11 @@ export function useEngine(): UseEngineReturn {
         ['qqnt://engine/file_error', (payload) => handleFileError(payload as FileErrorPayload)],
         ['qqnt://engine/error', (payload) => {
           const error = payload as { message?: string }
-          setError(error.message || '引擎错误')
+          setError(userFacingError(error.message || '引擎错误'))
         }],
         ['qqnt://server/fatal', (payload) => {
           const fatal = payload as { message?: string }
-          setError(`本地引擎错误：${fatal.message || '未知错误'}`)
+          setError(`本地引擎错误：${userFacingError(fatal.message || '未知错误')}`)
         }]
       ]
 
@@ -322,13 +342,13 @@ export function useEngine(): UseEngineReturn {
       try {
         const ack = await connectServer(connectHost, connectPort)
         if (ack.status === 'error') {
-          setError(ack.error?.message || '连接失败')
+          setError(userFacingError(ack.error?.message || '连接失败'))
           return false
         }
         setEngine((prev) => ({ ...prev, connected: ack.payload?.connected ?? true, connecting: false }))
         return true
-      } catch {
-        setError(ENGINE_UNAVAILABLE_MESSAGE)
+      } catch (err) {
+        setError(connectionFailureMessage(err))
         return false
       }
     },
@@ -336,38 +356,54 @@ export function useEngine(): UseEngineReturn {
   )
 
   const login = useCallback(
-    async (account: string, password: string) => {
+    async (account: string, password: string): Promise<AuthHandshakeResult> => {
       setEngine((prev) => ({ ...prev, loggingIn: true, error: undefined }))
 
       try {
         const ack = await apiLogin(account, password)
         if (ack.status === 'error') {
-          setError(ack.error?.message || '登录失败')
+          setError(userFacingError(ack.error?.message || '登录失败'))
+          return { ok: false, requiresConnect: false }
         }
+        const result = {
+          ok: ack.payload?.accepted ?? true,
+          requiresConnect: ack.payload?.requiresConnect ?? true
+        }
+        if (!result.ok || !result.requiresConnect) {
+          setEngine((prev) => ({ ...prev, loggingIn: false }))
+        }
+        return result
       } catch (err) {
         const message = err instanceof Error ? err.message : '登录请求失败'
-        setError(message)
+        setError(userFacingError(message))
+        return { ok: false, requiresConnect: false }
       }
     },
     [setError]
   )
 
   const register = useCallback(
-    async (account: string, password: string, userName: string): Promise<boolean> => {
+    async (account: string, password: string, userName: string): Promise<AuthHandshakeResult> => {
       setEngine((prev) => ({ ...prev, loggingIn: true, error: undefined }))
 
       try {
         const ack = await apiRegister(account, password, userName)
-        setEngine((prev) => ({ ...prev, loggingIn: false }))
         if (ack.status === 'error') {
-          setError(ack.error?.message || '注册失败')
-          return false
+          setError(userFacingError(ack.error?.message || '注册失败'))
+          return { ok: false, requiresConnect: false }
         }
-        return true
+        const result = {
+          ok: ack.payload?.accepted ?? true,
+          requiresConnect: ack.payload?.requiresConnect ?? true
+        }
+        if (!result.ok || !result.requiresConnect) {
+          setEngine((prev) => ({ ...prev, loggingIn: false }))
+        }
+        return result
       } catch (err) {
         const message = err instanceof Error ? err.message : '注册请求失败'
-        setError(message)
-        return false
+        setError(userFacingError(message))
+        return { ok: false, requiresConnect: false }
       }
     },
     [setError]

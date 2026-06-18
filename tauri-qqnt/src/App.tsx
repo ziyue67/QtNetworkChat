@@ -103,6 +103,19 @@ function App() {
   )
 }
 
+export async function submitLogin(engine: UseEngineReturn, account: string, password: string) {
+  const auth = await engine.login(account, password)
+  if (!auth.ok || !auth.requiresConnect) return
+  await engine.connect()
+}
+
+export async function submitRegister(engine: UseEngineReturn, account: string, password: string) {
+  const auth = await engine.register(account, password, account)
+  if (!auth.ok) return false
+  if (!auth.requiresConnect) return true
+  return engine.connect()
+}
+
 function LoginScreen({ engine }: { engine: UseEngineReturn }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   if (isAuthenticated) {
@@ -115,16 +128,8 @@ function LoginScreen({ engine }: { engine: UseEngineReturn }) {
       <LoginView
         loading={engine.engine.connecting || engine.engine.loggingIn}
         error={engine.engine.error}
-        onLogin={async (account, password) => {
-          const ok = await engine.connect()
-          if (!ok) return
-          await engine.login(account, password)
-        }}
-        onRegister={async (account, password) => {
-          const ok = await engine.connect()
-          if (!ok) return false
-          return engine.register(account, password, account)
-        }}
+        onLogin={(account, password) => submitLogin(engine, account, password)}
+        onRegister={(account, password) => submitRegister(engine, account, password)}
       />
     </div>
   )

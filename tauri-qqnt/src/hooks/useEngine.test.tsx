@@ -1,12 +1,16 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { connectServer, login as apiLogin, sendCommand } from '@/api/qqnt'
+import { connectServer, login as apiLogin, register as apiRegister, sendCommand } from '@/api/qqnt'
 import { useAuthStore } from '@/stores/authStore'
 import { ENGINE_UNAVAILABLE_MESSAGE, useEngine } from './useEngine'
 
 type EventCallback = (event: { payload: unknown }) => void
 
-const listenMock = vi.fn((_event: string, _handler: EventCallback) => Promise.resolve(vi.fn()))
+const eventHandlers = new Map<string, EventCallback>()
+const listenMock = vi.fn((event: string, handler: EventCallback) => {
+  eventHandlers.set(event, handler)
+  return Promise.resolve(() => eventHandlers.delete(event))
+})
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: (event: string, handler: EventCallback) => listenMock(event, handler)
@@ -22,6 +26,34 @@ vi.mock('@/api/qqnt', () => ({
 describe('useEngine', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    eventHandlers.clear()
+    vi.mocked(sendCommand).mockResolvedValue({
+      type: 'ack',
+      op: 'ready',
+      reqId: 'ready',
+      status: 'ok'
+    })
+    vi.mocked(connectServer).mockResolvedValue({
+      type: 'ack',
+      op: 'connect',
+      reqId: 'connect',
+      status: 'ok',
+      payload: { connected: true, host: '127.0.0.1', port: 16000 }
+    })
+    vi.mocked(apiLogin).mockResolvedValue({
+      type: 'ack',
+      op: 'login',
+      reqId: 'login',
+      status: 'ok',
+      payload: { accepted: true, requiresConnect: true, mode: 'login' }
+    })
+    vi.mocked(apiRegister).mockResolvedValue({
+      type: 'ack',
+      op: 'register',
+      reqId: 'register',
+      status: 'ok',
+      payload: { accepted: true, requiresConnect: true, mode: 'register' }
+    })
     useAuthStore.setState({
       isAuthenticated: false,
       currentUser: null,
@@ -60,5 +92,68 @@ describe('useEngine', () => {
     expect(apiLogin).toHaveBeenCalledWith('10001', 'secret')
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
     expect(useAuthStore.getState().mock).toBe(false)
+  })
+
+  it('returns the login handshake ack without authenticating before login_result', async () => {
+    const { result } = renderHook(() => useEngine())
+
+    await act(async () => {
+      const auth = await result.current.login('10001', 'secret')
+      expect(auth).toEqual({ ok: true, requiresConnect: true })
+    })
+
+    expect(apiLogin).toHaveBeenCalledWith('10001', 'secret')
+    expect(useAuthStore.getState().isAuthenticated).toBe(false)
+  })
+
+  it('returns the register handshake ack before the connect step', async () => {
+    const { result } = renderHook(() => useEngine())
+
+    await act(async () => {
+      const auth = await result.current.register('10002', 'secret', 'Alice')
+      expect(auth).toEqual({ ok: true, requiresConnect: true })
+    })
+
+    expect(apiRegister).toHaveBeenCalledWith('10002', 'secret', 'Alice')
+    expect(useAuthStore.getState().isAuthenticated).toBe(false)
+  })
+
+  it('maps auth-before-connect failures to the Chinese login error', async () => {
+    vi.mocked(connectServer).mockRejectedValueOnce(
+      new Error('Send login or register credentials before connect.')
+    )
+
+    const { result } = renderHook(() => useEngine())
+
+    await act(async () => {
+      const connected = await result.current.connect()
+      expect(connected).toBe(false)
+    })
+
+    await waitFor(() => {
+      expect(result.current.engine.error).toBe('请先提交账号密码，再连接本地聊天服务。')
+    })
+  })
+
+  it('authenticates only after the engine emits login_result', async () => {
+    const { result } = renderHook(() => useEngine())
+
+    await waitFor(() => {
+      expect(eventHandlers.has('qqnt://engine/login_result')).toBe(true)
+    })
+
+    await act(async () => {
+      await result.current.login('10003', 'secret')
+      eventHandlers.get('qqnt://engine/login_result')?.({
+        payload: {
+          success: true,
+          userId: '10003',
+          userName: 'Alice'
+        }
+      })
+    })
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(true)
+    expect(useAuthStore.getState().currentUser?.id).toBe('10003')
   })
 })

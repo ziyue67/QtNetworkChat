@@ -106,6 +106,12 @@ export interface RegisterPayload {
   userName: string
 }
 
+export interface AuthAckPayload {
+  accepted: boolean
+  requiresConnect: boolean
+  mode: 'login' | 'register'
+}
+
 export interface LogoutPayload {}
 
 export interface SendPrivateMessagePayload {
