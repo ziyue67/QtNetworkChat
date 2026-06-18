@@ -673,6 +673,15 @@ mod tests {
             .collect()
     }
 
+    fn object_keys<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+        value[key]
+            .as_object()
+            .expect("protocol contract key should be an object")
+            .keys()
+            .map(|item| item.as_str())
+            .collect()
+    }
+
     #[test]
     fn typed_command_wrappers_cover_protocol_contract() {
         let contract = protocol_contract();
@@ -682,6 +691,21 @@ mod tests {
         actual.sort_unstable();
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn command_payload_contract_covers_protocol_commands() {
+        let contract = protocol_contract();
+        let mut commands = string_array(&contract, "commands");
+        let mut command_payloads = object_keys(&contract, "commandPayloads");
+        let mut typed_ops = TYPED_COMMAND_OPS.to_vec();
+
+        commands.sort_unstable();
+        command_payloads.sort_unstable();
+        typed_ops.sort_unstable();
+
+        assert_eq!(command_payloads, commands);
+        assert_eq!(typed_ops, commands);
     }
 
     #[test]
