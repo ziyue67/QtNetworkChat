@@ -1816,18 +1816,20 @@ mod tests {
 
     #[test]
     fn generic_command_rejects_update_group_member_unknown_action() {
-        let error = validate_generic_command(&json!({
-            "op": "update_group_member",
-            "reqId": "req-group-member",
-            "payload": {
-                "groupId": "group-1",
-                "memberId": "10002",
-                "action": "ban"
-            }
-        }))
-        .expect_err("generic update_group_member with unknown action should fail");
+        for action in ["ban", "set_admin", "unset_admin"] {
+            let error = validate_generic_command(&json!({
+                "op": "update_group_member",
+                "reqId": "req-group-member",
+                "payload": {
+                    "groupId": "group-1",
+                    "memberId": "10002",
+                    "action": action
+                }
+            }))
+            .expect_err("generic update_group_member with unsupported action should fail");
 
-        assert_eq!(error.code, "invalid_action");
+            assert_eq!(error.code, "invalid_action");
+        }
     }
 
     #[test]
@@ -2651,14 +2653,18 @@ mod tests {
 
     #[test]
     fn update_group_member_payload_rejects_unknown_action() {
-        let error = update_group_member_payload(
-            "group-1".to_string(),
-            "10002".to_string(),
-            "ban".to_string(),
-        )
-        .expect_err("typed update_group_member should reject unknown actions before engine call");
+        for action in ["ban", "set_admin", "unset_admin"] {
+            let error = update_group_member_payload(
+                "group-1".to_string(),
+                "10002".to_string(),
+                action.to_string(),
+            )
+            .expect_err(
+                "typed update_group_member should reject unsupported actions before engine call",
+            );
 
-        assert_eq!(error.code, "invalid_action");
+            assert_eq!(error.code, "invalid_action");
+        }
     }
 
     #[test]

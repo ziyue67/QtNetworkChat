@@ -214,14 +214,6 @@ bool normalizeGroupMemberAction(const QString& action, QString* normalizedAction
         *normalizedAction = text;
         return true;
     }
-    if (text == QLatin1String("set_admin")) {
-        *normalizedAction = QStringLiteral("promote_admin");
-        return true;
-    }
-    if (text == QLatin1String("unset_admin")) {
-        *normalizedAction = QStringLiteral("demote_admin");
-        return true;
-    }
 
     normalizedAction->clear();
     return false;

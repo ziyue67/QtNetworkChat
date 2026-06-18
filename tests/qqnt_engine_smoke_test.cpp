@@ -517,6 +517,10 @@ int main(int argc, char* argv[]) {
                 "update_group_member missing memberId command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-invalid-action\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"ban\"}}\n"),
                 "update_group_member invalid action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-legacy-set-admin\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"set_admin\"}}\n"),
+                "update_group_member legacy set_admin action command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"update_group_member\",\"reqId\":\"smoke-group-member-legacy-unset-admin\",\"payload\":{\"groupId\":\"public\",\"memberId\":\"10001\",\"action\":\"unset_admin\"}}\n"),
+                "update_group_member legacy unset_admin action command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-members\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":\"10001\"}}\n"),
                 "create_group invalid members command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"create_group\",\"reqId\":\"smoke-create-group-invalid-member-entry\",\"payload\":{\"groupName\":\"Smoke Group\",\"members\":[10001]}}\n"),
@@ -1016,6 +1020,16 @@ int main(int argc, char* argv[]) {
                         "update_group_member with invalid action should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
                         "update_group_member with invalid action should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-legacy-set-admin")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with set_admin should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with set_admin should use invalid_action code") && ok;
+        } else if (reqId == QLatin1String("smoke-group-member-legacy-unset-admin")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "update_group_member with unset_admin should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_action"),
+                        "update_group_member with unset_admin should use invalid_action code") && ok;
         } else if (reqId == QLatin1String("smoke-create-group-invalid-members")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "create_group with non-array members should return error ack") && ok;
