@@ -1688,20 +1688,101 @@ mod tests {
 
     #[test]
     fn generic_command_rejects_settings_sync_invalid_download_dir() {
-        let error = validate_generic_command(&json!({
-            "op": "settings_sync",
-            "reqId": "req-settings",
-            "payload": {
-                "settings": {
-                    "files": {
-                        "downloadDir": 42
-                    }
+        for settings in [
+            json!({ "fileDownloadDir": false }),
+            json!({ "files": "bad" }),
+            json!({
+                "files": {
+                    "downloadDir": 42
                 }
-            }
-        }))
-        .expect_err("generic settings_sync downloadDir must be a string when provided");
+            }),
+            json!({
+                "files": {
+                    "downloadDirectory": 42
+                }
+            }),
+        ] {
+            let error = validate_generic_command(&json!({
+                "op": "settings_sync",
+                "reqId": "req-settings",
+                "payload": {
+                    "settings": settings
+                }
+            }))
+            .expect_err("generic settings_sync download directory fields must be valid");
 
-        assert_eq!(error.code, "invalid_settings");
+            assert_eq!(error.code, "invalid_settings");
+        }
+    }
+
+    #[test]
+    fn generic_command_accepts_settings_sync_download_dir_aliases() {
+        for settings in [
+            json!({ "fileDownloadDir": "C:/tmp/downloads" }),
+            json!({
+                "files": {
+                    "downloadDir": "C:/tmp/downloads"
+                }
+            }),
+            json!({
+                "files": {
+                    "downloadDirectory": "C:/tmp/downloads"
+                }
+            }),
+        ] {
+            validate_generic_command(&json!({
+                "op": "settings_sync",
+                "reqId": "req-settings",
+                "payload": {
+                    "settings": settings
+                }
+            }))
+            .expect("generic settings_sync should accept supported download directory aliases");
+        }
+    }
+
+    #[test]
+    fn generic_command_allows_settings_sync_blank_download_dir_aliases() {
+        for settings in [
+            json!({ "fileDownloadDir": "   " }),
+            json!({
+                "files": {
+                    "downloadDir": ""
+                }
+            }),
+            json!({
+                "files": {
+                    "downloadDirectory": " "
+                }
+            }),
+        ] {
+            validate_generic_command(&json!({
+                "op": "settings_sync",
+                "reqId": "req-settings",
+                "payload": {
+                    "settings": settings
+                }
+            }))
+            .expect("generic settings_sync should allow blank download directory aliases");
+        }
+    }
+
+    #[test]
+    fn generic_command_rejects_settings_sync_invalid_settings_shape() {
+        for payload in [
+            json!({}),
+            json!({ "settings": null }),
+            json!({ "settings": "bad" }),
+        ] {
+            let error = validate_generic_command(&json!({
+                "op": "settings_sync",
+                "reqId": "req-settings",
+                "payload": payload
+            }))
+            .expect_err("generic settings_sync should require object settings");
+
+            assert_eq!(error.code, "invalid_settings");
+        }
     }
 
     #[test]
@@ -2327,7 +2408,13 @@ mod tests {
             .expect_err("settings.fileDownloadDir must be a string when provided");
         let files_error = settings_sync_payload(json!({ "files": "bad" }))
             .expect_err("settings.files must be an object when provided");
-        let nested_error = settings_sync_payload(json!({
+        let nested_download_dir_error = settings_sync_payload(json!({
+            "files": {
+                "downloadDir": 42
+            }
+        }))
+        .expect_err("settings.files.downloadDir must be a string when provided");
+        let nested_download_directory_error = settings_sync_payload(json!({
             "files": {
                 "downloadDirectory": 42
             }
@@ -2336,7 +2423,8 @@ mod tests {
 
         assert_eq!(direct_error.code, "invalid_settings");
         assert_eq!(files_error.code, "invalid_settings");
-        assert_eq!(nested_error.code, "invalid_settings");
+        assert_eq!(nested_download_dir_error.code, "invalid_settings");
+        assert_eq!(nested_download_directory_error.code, "invalid_settings");
     }
 
     #[test]

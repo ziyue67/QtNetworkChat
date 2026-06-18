@@ -477,8 +477,14 @@ int main(int argc, char* argv[]) {
                 "settings_sync command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid\",\"payload\":{\"settings\":\"bad\"}}\n"),
                 "invalid settings_sync command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-file-download-dir\",\"payload\":{\"settings\":{\"fileDownloadDir\":false}}}\n"),
+                "settings_sync invalid fileDownloadDir command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-files\",\"payload\":{\"settings\":{\"files\":\"bad\"}}}\n"),
+                "settings_sync invalid files command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-download-dir\",\"payload\":{\"settings\":{\"files\":{\"downloadDir\":42}}}}\n"),
                 "settings_sync invalid downloadDir command should be written") && ok;
+    ok = expect(writeCommand(&process, "{\"op\":\"settings_sync\",\"reqId\":\"smoke-settings-invalid-download-directory\",\"payload\":{\"settings\":{\"files\":{\"downloadDirectory\":42}}}}\n"),
+                "settings_sync invalid downloadDirectory command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-invalid-payload\",\"payload\":\"bad\"}\n"),
                 "invalid payload command should be written") && ok;
     ok = expect(writeCommand(&process, "{\"op\":\"search_friend\",\"reqId\":\"smoke-missing-field\",\"payload\":{}}\n"),
@@ -910,11 +916,26 @@ int main(int argc, char* argv[]) {
                         "invalid settings_sync should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
                         "invalid settings_sync should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid-file-download-dir")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with non-string fileDownloadDir should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync with non-string fileDownloadDir should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid-files")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with non-object files should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync with non-object files should use invalid_settings code") && ok;
         } else if (reqId == QLatin1String("smoke-settings-invalid-download-dir")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "settings_sync with non-string downloadDir should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
                         "settings_sync with non-string downloadDir should use invalid_settings code") && ok;
+        } else if (reqId == QLatin1String("smoke-settings-invalid-download-directory")) {
+            ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
+                        "settings_sync with non-string downloadDirectory should return error ack") && ok;
+            ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_settings"),
+                        "settings_sync with non-string downloadDirectory should use invalid_settings code") && ok;
         } else if (reqId == QLatin1String("smoke-invalid-payload")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "non-object payload should return error ack") && ok;
