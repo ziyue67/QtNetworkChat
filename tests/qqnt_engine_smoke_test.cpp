@@ -263,6 +263,22 @@ bool expectExactPayloadFieldCount(const QString& op, const QJsonObject& payload,
                   QStringLiteral("%1 contract payload should include exactly %2 fields").arg(op).arg(expectedFields));
 }
 
+bool expectTargetFieldsDetails(const QJsonObject& error, const char* message) {
+    const QJsonArray targetFields = error.value(QStringLiteral("details"))
+        .toObject()
+        .value(QStringLiteral("targetFields"))
+        .toArray();
+    QSet<QString> fields;
+    for (const QJsonValue& value : targetFields) {
+        fields.insert(value.toString());
+    }
+
+    return expect(fields.contains(QStringLiteral("receiverId"))
+                      && fields.contains(QStringLiteral("groupId"))
+                      && fields.size() == 2,
+                  message);
+}
+
 bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload) {
     bool ok = true;
 
@@ -908,6 +924,8 @@ int main(int argc, char* argv[]) {
                         "send_file without target should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
                         "send_file without target should use missing_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "send_file without target should include target field details") && ok;
         } else if (reqId == QLatin1String("smoke-file-blank-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "send_file with blank target should return error ack") && ok;
@@ -918,6 +936,8 @@ int main(int argc, char* argv[]) {
                         "send_image with two targets should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("ambiguous_target"),
                         "send_image with two targets should use ambiguous_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "send_image with two targets should include target field details") && ok;
         } else if (reqId == QLatin1String("smoke-file-invalid-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "send_file with non-string target should return error ack") && ok;
@@ -933,6 +953,8 @@ int main(int argc, char* argv[]) {
                         "query_resume without target should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("missing_target"),
                         "query_resume without target should use missing_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "query_resume without target should include target field details") && ok;
         } else if (reqId == QLatin1String("smoke-resume-blank-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "query_resume with blank target should return error ack") && ok;
@@ -943,6 +965,8 @@ int main(int argc, char* argv[]) {
                         "query_resume with two targets should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("ambiguous_target"),
                         "query_resume with two targets should use ambiguous_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "query_resume with two targets should include target field details") && ok;
         } else if (reqId == QLatin1String("smoke-resume-invalid-target")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "query_resume with non-string target should return error ack") && ok;
@@ -978,6 +1002,8 @@ int main(int argc, char* argv[]) {
                         "query_resume with target and no filePath should return error ack") && ok;
             ok = expect(object.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString() == QLatin1String("invalid_target"),
                         "query_resume with target and no filePath should use invalid_target code") && ok;
+            ok = expectTargetFieldsDetails(object.value(QStringLiteral("error")).toObject(),
+                                           "query_resume target without filePath should include target field details") && ok;
         } else if (reqId == QLatin1String("smoke-resume-extra-field")) {
             ok = expect(object.value(QStringLiteral("status")).toString() == QLatin1String("error"),
                         "query_resume with extra field should return error ack") && ok;

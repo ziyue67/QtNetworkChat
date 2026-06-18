@@ -33,7 +33,8 @@ public:
                       const QString& reqId,
                       const QString& code,
                       const QString& message,
-                      const QString& source = QStringLiteral("engine"));
+                      const QString& source = QStringLiteral("engine"),
+                      const QJsonObject& details = QJsonObject());
     void sendEvent(const QString& event, const QJsonObject& payload = QJsonObject());
 
 private:

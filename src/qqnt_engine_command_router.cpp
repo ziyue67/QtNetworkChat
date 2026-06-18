@@ -231,6 +231,16 @@ bool isEmptyPayloadCommand(const QString& op) {
         || op == QLatin1String("get_friend_list")
         || op == QLatin1String("get_group_list");
 }
+
+QJsonObject targetFieldsErrorDetails() {
+    QJsonArray targetFields;
+    targetFields.append(QStringLiteral("receiverId"));
+    targetFields.append(QStringLiteral("groupId"));
+
+    QJsonObject details;
+    details[QStringLiteral("targetFields")] = targetFields;
+    return details;
+}
 }
 
 QQNTEngineCommandRouter::QQNTEngineCommandRouter(QQNTClientBridge* bridge)
@@ -658,14 +668,18 @@ void QQNTEngineCommandRouter::handleSendFileLike(const QString& op, const QStrin
         m_bridge->sendErrorAck(op,
                                reqId,
                                QStringLiteral("missing_target"),
-                               QStringLiteral("File send requires exactly one of receiverId or groupId."));
+                               QStringLiteral("File send requires exactly one of receiverId or groupId."),
+                               QStringLiteral("engine"),
+                               targetFieldsErrorDetails());
         return;
     }
     if (!groupId.isEmpty() && !receiverId.isEmpty()) {
         m_bridge->sendErrorAck(op,
                                reqId,
                                QStringLiteral("ambiguous_target"),
-                               QStringLiteral("File send target must not include both receiverId and groupId."));
+                               QStringLiteral("File send target must not include both receiverId and groupId."),
+                               QStringLiteral("engine"),
+                               targetFieldsErrorDetails());
         return;
     }
     const bool accepted = groupId.isEmpty()
@@ -771,21 +785,27 @@ void QQNTEngineCommandRouter::handleQueryResume(const QString& op, const QString
         m_bridge->sendErrorAck(op,
                                reqId,
                                QStringLiteral("invalid_target"),
-                               QStringLiteral("query_resume receiverId/groupId may only be provided with filePath."));
+                               QStringLiteral("query_resume receiverId/groupId may only be provided with filePath."),
+                               QStringLiteral("engine"),
+                               targetFieldsErrorDetails());
         return;
     }
     if (!filePath.isEmpty() && groupId.isEmpty() && receiverId.isEmpty()) {
         m_bridge->sendErrorAck(op,
                                reqId,
                                QStringLiteral("missing_target"),
-                               QStringLiteral("Resume transfer requires exactly one of receiverId or groupId."));
+                               QStringLiteral("Resume transfer requires exactly one of receiverId or groupId."),
+                               QStringLiteral("engine"),
+                               targetFieldsErrorDetails());
         return;
     }
     if (!filePath.isEmpty() && !groupId.isEmpty() && !receiverId.isEmpty()) {
         m_bridge->sendErrorAck(op,
                                reqId,
                                QStringLiteral("ambiguous_target"),
-                               QStringLiteral("Resume transfer target must not include both receiverId and groupId."));
+                               QStringLiteral("Resume transfer target must not include both receiverId and groupId."),
+                               QStringLiteral("engine"),
+                               targetFieldsErrorDetails());
         return;
     }
     if (!m_bridge->client()->queryFileTransferResumeState(transferId,

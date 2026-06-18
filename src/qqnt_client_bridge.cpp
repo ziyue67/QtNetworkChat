@@ -167,11 +167,15 @@ void QQNTClientBridge::sendErrorAck(const QString& op,
                                     const QString& reqId,
                                     const QString& code,
                                     const QString& message,
-                                    const QString& source) {
+                                    const QString& source,
+                                    const QJsonObject& details) {
     QJsonObject error;
     error[QStringLiteral("code")] = code;
     error[QStringLiteral("message")] = message;
     error[QStringLiteral("source")] = source;
+    if (!details.isEmpty()) {
+        error[QStringLiteral("details")] = details;
+    }
 
     QJsonObject envelope;
     envelope[QStringLiteral("type")] = QStringLiteral("ack");
