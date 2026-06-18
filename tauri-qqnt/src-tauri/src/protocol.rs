@@ -382,9 +382,9 @@ fn validate_login_result_payload(payload: &Value) -> QQNTResult<()> {
         return Ok(());
     }
 
-    require_string_field(payload, "userId", "login_result")?;
+    require_non_empty_string_field(payload, "userId", "login_result")?;
     require_string_field(payload, "userName", "login_result")?;
-    require_optional_bool_field(payload, "registered", "login_result")?;
+    require_bool_field(payload, "registered", "login_result")?;
     require_optional_string_field(payload, "error", "login_result")?;
 
     Ok(())
@@ -1441,6 +1441,37 @@ mod tests {
             }),
         )
         .expect_err("failed login_result without error should fail");
+
+        assert_eq!(error.code, "invalid_login_result_payload");
+    }
+
+    #[test]
+    fn login_result_payload_requires_registered_on_success() {
+        let error = validate_event_payload(
+            "login_result",
+            &json!({
+                "success": true,
+                "userId": "10001",
+                "userName": "Alice"
+            }),
+        )
+        .expect_err("successful login_result without registered should fail");
+
+        assert_eq!(error.code, "invalid_login_result_payload");
+    }
+
+    #[test]
+    fn login_result_payload_requires_non_empty_user_id_on_success() {
+        let error = validate_event_payload(
+            "login_result",
+            &json!({
+                "success": true,
+                "userId": " ",
+                "userName": "Alice",
+                "registered": false
+            }),
+        )
+        .expect_err("successful login_result without userId should fail");
 
         assert_eq!(error.code, "invalid_login_result_payload");
     }

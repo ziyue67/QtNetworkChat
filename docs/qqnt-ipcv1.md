@@ -170,7 +170,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 |---|---|---|
 | `ready` | `{protocolVersion, version, qtVersion, e2eStatus}` | 引擎初始化完成 |
 | `connection_state` | `{connected, host, port}` | TCP 连接状态变化 |
-| `login_result` | `{success, userId?, userName?, registered?, error?}` | 登录结果 |
+| `login_result` | `{success=true, userId, userName, registered} / {success=false, error}` | 登录结果 |
 | `user_list` | `{users: UserSummary[]}` | 在线用户列表 |
 | `user_joined` | `{userId, userName}` | 用户上线 |
 | `user_left` | `{userId, userName}` | 用户下线 |
@@ -200,6 +200,15 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `request_received` | `senderId`, `senderName` | 当前账号收到好友申请 |
 | `request_sent` | `receiverId`, `delivered` | 当前账号发出的好友申请已被后端接收或投递；`delivered` 表示是否送达在线对端 |
 | `response_received` | `senderId`, `senderName`, `accepted` | 当前账号收到好友申请回应；`accepted` 表示接受或拒绝 |
+
+### 登录结果分支
+
+`login_result.success` 决定登录结果字段形状：
+
+| `success` | 必填字段 | 说明 |
+|---|---|---|
+| `true` | `userId`, `userName`, `registered` | 登录或注册成功；`registered` 表示本次成功是否来自注册流程 |
+| `false` | `error` | 登录或注册失败原因；失败分支不要求用户字段 |
 
 ## 7. 用户模型最小字段
 

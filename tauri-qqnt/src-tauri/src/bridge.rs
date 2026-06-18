@@ -659,6 +659,21 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_invalid_login_result_success_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"login_result","payload":{"success":true,"userId":"10001","userName":"Alice"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_login_result_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn dispatches_invalid_message_payload_as_error() {
         let dispatch = dispatch_stdout_line(
             br#"{"type":"event","event":"message","payload":{"sessionId":"10001"}}"#,

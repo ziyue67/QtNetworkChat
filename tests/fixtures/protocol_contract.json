@@ -117,7 +117,7 @@
   "eventPayloads": {
     "ready": "{protocolVersion, version, qtVersion, e2eStatus}",
     "connection_state": "{connected, host, port}",
-    "login_result": "{success, userId?, userName?, registered?, error?}",
+    "login_result": "{success=true, userId, userName, registered} / {success=false, error}",
     "user_list": "{users: UserSummary[]}",
     "user_joined": "{userId, userName}",
     "user_left": "{userId, userName}",
