@@ -232,7 +232,7 @@ pub async fn create_group(
     state: State<'_, Arc<AppState>>,
     req_id: String,
     group_name: String,
-    members: Option<Vec<String>>,
+    members: Option<Vec<Value>>,
     announcement: Option<String>,
 ) -> Result<Value, QQNTError> {
     let payload = create_group_payload(group_name, members, announcement)?;
@@ -578,7 +578,7 @@ fn send_group_message_payload(group_id: String, content: String) -> Result<Value
 
 fn create_group_payload(
     group_name: String,
-    members: Option<Vec<String>>,
+    members: Option<Vec<Value>>,
     announcement: Option<String>,
 ) -> Result<Value, QQNTError> {
     let payload = compact_payload(json!({
@@ -2461,7 +2461,7 @@ mod tests {
             "req-create-group".to_string(),
             create_group_payload(
                 "team".to_string(),
-                Some(vec!["10001".to_string(), "10002".to_string()]),
+                Some(vec![json!("10001"), json!({ "account": "10002" })]),
                 Some("hello".to_string()),
             )
             .expect("valid create_group payload should pass"),
@@ -2469,7 +2469,7 @@ mod tests {
 
         assert_eq!(packet["payload"]["groupName"], "team");
         assert_eq!(packet["payload"]["members"][0], "10001");
-        assert_eq!(packet["payload"]["members"][1], "10002");
+        assert_eq!(packet["payload"]["members"][1]["account"], "10002");
         assert_eq!(packet["payload"]["announcement"], "hello");
     }
 
@@ -2477,7 +2477,7 @@ mod tests {
     fn create_group_payload_rejects_empty_member_entry() {
         let error = create_group_payload(
             "team".to_string(),
-            Some(vec!["10001".to_string(), " ".to_string()]),
+            Some(vec![json!("10001"), json!(" ")]),
             None,
         )
         .expect_err("typed create_group payload should reject empty member ids");
