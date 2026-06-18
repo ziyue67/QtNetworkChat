@@ -294,7 +294,7 @@ int main(int argc, char* argv[]) {
 | `user_left` | `{userId, userName}` | 下线 |
 | `friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
 | `friend_event` | `{type=request_received, senderId, senderName} / {type=request_sent, receiverId, delivered} / {type=response_received, senderId, senderName, accepted}` | 好友申请/回应 |
-| `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索结果 |
+| `friend_search_result` | `{found=true, userId, userName, online, reason?} / {found=false, reason}` | 搜索结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群快照，含被移出群后的只读历史标记 |
 | `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变更；`action` 为精确小写枚举值 |

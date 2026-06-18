@@ -392,7 +392,15 @@ fn validate_login_result_payload(payload: &Value) -> QQNTResult<()> {
 
 fn validate_friend_search_result_payload(payload: &Value) -> QQNTResult<()> {
     require_bool_field(payload, "found", "friend_search_result")?;
-    require_string_field(payload, "userId", "friend_search_result")?;
+    if payload.get("found").and_then(Value::as_bool) == Some(false) {
+        require_non_empty_string_field(payload, "reason", "friend_search_result")?;
+        require_optional_string_field(payload, "userId", "friend_search_result")?;
+        require_optional_string_field(payload, "userName", "friend_search_result")?;
+        require_optional_bool_field(payload, "online", "friend_search_result")?;
+        return Ok(());
+    }
+
+    require_non_empty_string_field(payload, "userId", "friend_search_result")?;
     require_string_field(payload, "userName", "friend_search_result")?;
     require_bool_field(payload, "online", "friend_search_result")?;
     require_optional_string_field(payload, "reason", "friend_search_result")?;
@@ -1489,6 +1497,38 @@ mod tests {
             }),
         )
         .expect("friend_search_result should accept empty identity fields when not found");
+    }
+
+    #[test]
+    fn friend_search_result_payload_requires_reason_when_not_found() {
+        let error = validate_event_payload(
+            "friend_search_result",
+            &json!({
+                "found": false,
+                "userId": "",
+                "userName": "",
+                "online": false
+            }),
+        )
+        .expect_err("not-found friend_search_result without reason should fail");
+
+        assert_eq!(error.code, "invalid_friend_search_result_payload");
+    }
+
+    #[test]
+    fn friend_search_result_payload_requires_non_empty_user_id_when_found() {
+        let error = validate_event_payload(
+            "friend_search_result",
+            &json!({
+                "found": true,
+                "userId": " ",
+                "userName": "Bob",
+                "online": true
+            }),
+        )
+        .expect_err("found friend_search_result without userId should fail");
+
+        assert_eq!(error.code, "invalid_friend_search_result_payload");
     }
 
     #[test]

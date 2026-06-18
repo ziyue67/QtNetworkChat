@@ -176,7 +176,7 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 | `user_left` | `{userId, userName}` | 用户下线 |
 | `friend_list` | `{friends: UserSummary[]}` | 好友列表快照 |
 | `friend_event` | `{type=request_received, senderId, senderName} / {type=request_sent, receiverId, delivered} / {type=response_received, senderId, senderName, accepted}` | 好友申请发送、收到或回应 |
-| `friend_search_result` | `{found, userId, userName, online, reason?}` | 搜索好友结果 |
+| `friend_search_result` | `{found=true, userId, userName, online, reason?} / {found=false, reason}` | 搜索好友结果 |
 | `message` | `{sessionId, message}` | 新消息 |
 | `group_snapshot` | `{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}` | 群组快照；`removedGroups` 保留被移出群后的只读历史标记 |
 | `group_member_updated` | `{groupId, memberId, action=add/remove/promote_admin/demote_admin}` | 群成员变化；`action` 为精确小写枚举值 |
@@ -209,6 +209,15 @@ Rust 收到 `event` 后统一按 `qqnt://engine/<event>` 转发给前端。
 |---|---|---|
 | `true` | `userId`, `userName`, `registered` | 登录或注册成功；`registered` 表示本次成功是否来自注册流程 |
 | `false` | `error` | 登录或注册失败原因；失败分支不要求用户字段 |
+
+### 好友搜索结果分支
+
+`friend_search_result.found` 决定搜索结果字段形状：
+
+| `found` | 必填字段 | 说明 |
+|---|---|---|
+| `true` | `userId`, `userName`, `online` | 找到账号；`reason` 可补充精确或模糊匹配说明 |
+| `false` | `reason` | 未找到账号或资料；用户字段不作为失败分支必填 |
 
 ## 7. 用户模型最小字段
 

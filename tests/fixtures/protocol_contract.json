@@ -123,7 +123,7 @@
     "user_left": "{userId, userName}",
     "friend_list": "{friends: UserSummary[]}",
     "friend_event": "{type=request_received, senderId, senderName} / {type=request_sent, receiverId, delivered} / {type=response_received, senderId, senderName, accepted}",
-    "friend_search_result": "{found, userId, userName, online, reason?}",
+    "friend_search_result": "{found=true, userId, userName, online, reason?} / {found=false, reason}",
     "message": "{sessionId, message}",
     "group_snapshot": "{groups: GroupSummary[], removedGroups: RemovedGroupSummary[], hasSnapshot}",
     "group_member_updated": "{groupId, memberId, action=add/remove/promote_admin/demote_admin}",

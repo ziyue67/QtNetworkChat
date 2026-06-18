@@ -748,6 +748,21 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_invalid_friend_search_result_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"friend_search_result","payload":{"found":false,"userId":"","userName":"","online":false}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_friend_search_result_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn dispatches_invalid_group_member_updated_payload_as_error() {
         let dispatch = dispatch_stdout_line(
             br#"{"type":"event","event":"group_member_updated","payload":{"groupId":"group-1","memberId":"10002"}}"#,
