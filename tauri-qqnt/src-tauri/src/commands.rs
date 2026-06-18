@@ -735,7 +735,10 @@ fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
 }
 
 fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
-    match op.trim() {
+    let op = op.trim();
+    match op {
+        "ready" | "disconnect" | "logout" | "get_user_list" | "get_friend_list"
+        | "get_group_list" => Ok(()),
         "connect" => validate_connect_command_payload(payload),
         "login" => validate_login_like_command_payload(payload, false),
         "register" => validate_login_like_command_payload(payload, true),
@@ -758,7 +761,10 @@ fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> 
         "cancel_transfer" => validate_cancel_transfer_command_payload(payload),
         "query_resume" => validate_query_resume_command_payload(payload),
         "update_group_member" => validate_update_group_member_command_payload(payload),
-        _ => Ok(()),
+        _ => Err(QQNTError::rust(
+            "unknown_op",
+            format!("Unsupported command: {op}."),
+        )),
     }
 }
 
@@ -1396,6 +1402,18 @@ mod tests {
             "reqId": "req-ready"
         }))
         .expect("generic command may omit payload");
+    }
+
+    #[test]
+    fn generic_command_rejects_unknown_op() {
+        let error = validate_generic_command(&json!({
+            "op": "future_command",
+            "reqId": "req-future",
+            "payload": {}
+        }))
+        .expect_err("generic command should reject unknown op");
+
+        assert_eq!(error.code, "unknown_op");
     }
 
     #[test]
