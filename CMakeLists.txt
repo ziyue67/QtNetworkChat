@@ -203,6 +203,18 @@ add_custom_command(TARGET QtNetworkChat POST_BUILD
     VERBATIM
 )
 
+function(qtnetworkchat_copy_sidecar target_name)
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND powershell -ExecutionPolicy Bypass -File
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/copy-sidecars.ps1
+            -BuildDir $<TARGET_FILE_DIR:${target_name}>
+            -QtBinDir $<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>
+            -Sidecars ${target_name}
+        COMMENT "Copying ${target_name} sidecar into Tauri binaries"
+        VERBATIM
+    )
+endfunction()
+
 add_executable(sqlite_to_postgres_migrator
     tools/sqlite_to_postgres_migrator.cpp
 )
