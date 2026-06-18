@@ -386,7 +386,7 @@ pub async fn query_resume(
         state.inner(),
         "query_resume",
         req_id,
-        query_resume_payload(transfer_id, file_path, receiver_id, group_id, content_type),
+        query_resume_payload(transfer_id, file_path, receiver_id, group_id, content_type)?,
     )
     .await
 }
@@ -534,17 +534,23 @@ async fn send_file_like(
     receiver_id: Option<String>,
     group_id: Option<String>,
 ) -> Result<Value, QQNTError> {
-    call_engine_payload(
-        state,
-        op,
-        req_id,
-        json!({
-            "filePath": file_path,
-            "receiverId": receiver_id,
-            "groupId": group_id
-        }),
-    )
-    .await
+    let payload = send_file_like_payload(file_path, receiver_id, group_id)?;
+
+    call_engine_payload(state, op, req_id, payload).await
+}
+
+fn send_file_like_payload(
+    file_path: String,
+    receiver_id: Option<String>,
+    group_id: Option<String>,
+) -> Result<Value, QQNTError> {
+    let payload = json!({
+        "filePath": file_path,
+        "receiverId": receiver_id,
+        "groupId": group_id
+    });
+    validate_file_transfer_command_payload(&payload)?;
+    Ok(payload)
 }
 
 fn cancel_transfer_payload(transfer_id: String) -> Value {
@@ -557,14 +563,16 @@ fn query_resume_payload(
     receiver_id: Option<String>,
     group_id: Option<String>,
     content_type: Option<String>,
-) -> Value {
-    json!({
+) -> Result<Value, QQNTError> {
+    let payload = json!({
         "transferId": transfer_id,
         "filePath": file_path,
         "receiverId": receiver_id,
         "groupId": group_id,
         "contentType": content_type
-    })
+    });
+    validate_query_resume_command_payload(&payload)?;
+    Ok(payload)
 }
 
 fn update_group_member_payload(
@@ -683,9 +691,70 @@ fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
 
 fn validate_command_payload(op: &str, payload: &Value) -> Result<(), QQNTError> {
     match op.trim() {
+        "send_file" | "send_image" => validate_file_transfer_command_payload(payload),
+        "query_resume" => validate_query_resume_command_payload(payload),
         "update_group_member" => validate_update_group_member_command_payload(payload),
         _ => Ok(()),
     }
+}
+
+fn validate_file_transfer_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "filePath")?;
+    let receiver_id = optional_command_target_string_field(payload, "receiverId")?;
+    let group_id = optional_command_target_string_field(payload, "groupId")?;
+    validate_required_command_target(
+        receiver_id,
+        group_id,
+        "File send requires exactly one of receiverId or groupId.",
+        "File send target must not include both receiverId and groupId.",
+    )
+}
+
+fn validate_query_resume_command_payload(payload: &Value) -> Result<(), QQNTError> {
+    require_non_empty_command_string_field(payload, "transferId")?;
+    let file_path = optional_command_string_field(payload, "filePath", "invalid_file_path")?;
+    let content_type =
+        optional_command_string_field(payload, "contentType", "invalid_content_type")?;
+    let normalized_content_type = content_type.trim().to_ascii_lowercase();
+    if !normalized_content_type.is_empty()
+        && !matches!(normalized_content_type.as_str(), "file" | "image")
+    {
+        return Err(QQNTError::rust(
+            "invalid_content_type",
+            "query_resume contentType must be file or image when provided.",
+        ));
+    }
+
+    let receiver_id = optional_command_target_string_field(payload, "receiverId")?;
+    let group_id = optional_command_target_string_field(payload, "groupId")?;
+    if !file_path.trim().is_empty() {
+        validate_required_command_target(
+            receiver_id,
+            group_id,
+            "Resume transfer requires exactly one of receiverId or groupId.",
+            "Resume transfer target must not include both receiverId and groupId.",
+        )?;
+    }
+
+    Ok(())
+}
+
+fn validate_required_command_target(
+    receiver_id: &str,
+    group_id: &str,
+    missing_message: &str,
+    ambiguous_message: &str,
+) -> Result<(), QQNTError> {
+    let has_receiver_id = !receiver_id.trim().is_empty();
+    let has_group_id = !group_id.trim().is_empty();
+    if !has_receiver_id && !has_group_id {
+        return Err(QQNTError::rust("missing_target", missing_message));
+    }
+    if has_receiver_id && has_group_id {
+        return Err(QQNTError::rust("ambiguous_target", ambiguous_message));
+    }
+
+    Ok(())
 }
 
 fn validate_update_group_member_command_payload(payload: &Value) -> Result<(), QQNTError> {
@@ -700,6 +769,28 @@ fn validate_update_group_member_command_payload(payload: &Value) -> Result<(), Q
         "invalid_action",
         "update_group_member action must be add, remove, promote_admin, or demote_admin.",
     ))
+}
+
+fn optional_command_target_string_field<'a>(
+    payload: &'a Value,
+    field: &str,
+) -> Result<&'a str, QQNTError> {
+    optional_command_string_field(payload, field, "invalid_target")
+}
+
+fn optional_command_string_field<'a>(
+    payload: &'a Value,
+    field: &str,
+    error_code: &str,
+) -> Result<&'a str, QQNTError> {
+    match payload.get(field) {
+        None | Some(Value::Null) => Ok(""),
+        Some(Value::String(value)) => Ok(value.as_str()),
+        _ => Err(QQNTError::rust(
+            error_code,
+            format!("payload.{field} must be a string when provided."),
+        )),
+    }
 }
 
 fn require_non_empty_command_string_field<'a>(
@@ -1024,6 +1115,121 @@ mod tests {
     }
 
     #[test]
+    fn generic_command_accepts_file_transfer_target() {
+        validate_generic_command(&json!({
+            "op": "send_file",
+            "reqId": "req-file",
+            "payload": {
+                "filePath": "C:/tmp/a.txt",
+                "receiverId": "10001"
+            }
+        }))
+        .expect("generic send_file with one target should pass");
+    }
+
+    #[test]
+    fn generic_command_rejects_file_transfer_missing_target() {
+        let error = validate_generic_command(&json!({
+            "op": "send_file",
+            "reqId": "req-file",
+            "payload": {
+                "filePath": "C:/tmp/a.txt"
+            }
+        }))
+        .expect_err("generic send_file without target should fail");
+
+        assert_eq!(error.code, "missing_target");
+    }
+
+    #[test]
+    fn generic_command_rejects_file_transfer_ambiguous_target() {
+        let error = validate_generic_command(&json!({
+            "op": "send_image",
+            "reqId": "req-image",
+            "payload": {
+                "filePath": "C:/tmp/a.png",
+                "receiverId": "10001",
+                "groupId": "group-1"
+            }
+        }))
+        .expect_err("generic send_image with both targets should fail");
+
+        assert_eq!(error.code, "ambiguous_target");
+    }
+
+    #[test]
+    fn generic_command_rejects_file_transfer_invalid_target() {
+        let error = validate_generic_command(&json!({
+            "op": "send_file",
+            "reqId": "req-file",
+            "payload": {
+                "filePath": "C:/tmp/a.txt",
+                "receiverId": 10001
+            }
+        }))
+        .expect_err("generic send_file target must be a string");
+
+        assert_eq!(error.code, "invalid_target");
+    }
+
+    #[test]
+    fn generic_command_accepts_query_resume_query_only() {
+        validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {
+                "transferId": "transfer-1"
+            }
+        }))
+        .expect("query_resume may query by transferId only");
+    }
+
+    #[test]
+    fn generic_command_rejects_query_resume_invalid_file_path() {
+        let error = validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {
+                "transferId": "transfer-1",
+                "filePath": 1
+            }
+        }))
+        .expect_err("query_resume filePath must be a string when provided");
+
+        assert_eq!(error.code, "invalid_file_path");
+    }
+
+    #[test]
+    fn generic_command_rejects_query_resume_invalid_content_type() {
+        let error = validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {
+                "transferId": "transfer-1",
+                "contentType": "video"
+            }
+        }))
+        .expect_err("query_resume contentType is limited to file/image");
+
+        assert_eq!(error.code, "invalid_content_type");
+    }
+
+    #[test]
+    fn generic_command_rejects_query_resume_resume_missing_target() {
+        let error = validate_generic_command(&json!({
+            "op": "query_resume",
+            "reqId": "req-resume",
+            "payload": {
+                "transferId": "transfer-1",
+                "filePath": "C:/tmp/a.txt"
+            }
+        }))
+        .expect_err("query_resume resume mode requires a target");
+
+        assert_eq!(error.code, "missing_target");
+    }
+
+    #[test]
     fn generic_ack_packet_accepts_matching_ok_ack() {
         validate_generic_ack_packet(
             &json!({
@@ -1148,7 +1354,8 @@ mod tests {
                 None,
                 Some("group-1".to_string()),
                 Some("image".to_string()),
-            ),
+            )
+            .expect("valid query_resume payload should pass"),
         );
 
         assert_eq!(packet["payload"]["transferId"], "transfer-1");
@@ -1156,6 +1363,75 @@ mod tests {
         assert_eq!(packet["payload"]["groupId"], "group-1");
         assert_eq!(packet["payload"]["contentType"], "image");
         assert!(packet["payload"].get("receiverId").is_none());
+    }
+
+    #[test]
+    fn send_file_like_payload_preserves_single_target() {
+        let packet = command_packet(
+            "send_file",
+            "req-2".to_string(),
+            send_file_like_payload("C:/tmp/a.txt".to_string(), Some("10001".to_string()), None)
+                .expect("valid send_file payload should pass"),
+        );
+
+        assert_eq!(packet["payload"]["filePath"], "C:/tmp/a.txt");
+        assert_eq!(packet["payload"]["receiverId"], "10001");
+        assert!(packet["payload"].get("groupId").is_none());
+    }
+
+    #[test]
+    fn send_file_like_payload_rejects_ambiguous_target() {
+        let error = send_file_like_payload(
+            "C:/tmp/a.txt".to_string(),
+            Some("10001".to_string()),
+            Some("group-1".to_string()),
+        )
+        .expect_err("typed send_file payload should reject both targets");
+
+        assert_eq!(error.code, "ambiguous_target");
+    }
+
+    #[test]
+    fn query_resume_payload_accepts_query_only() {
+        let packet = command_packet(
+            "query_resume",
+            "req-3".to_string(),
+            query_resume_payload("transfer-1".to_string(), None, None, None, None)
+                .expect("query-only resume payload should pass"),
+        );
+
+        assert_eq!(packet["payload"]["transferId"], "transfer-1");
+        assert!(packet["payload"].get("filePath").is_none());
+        assert!(packet["payload"].get("receiverId").is_none());
+        assert!(packet["payload"].get("groupId").is_none());
+    }
+
+    #[test]
+    fn query_resume_payload_rejects_invalid_content_type() {
+        let error = query_resume_payload(
+            "transfer-1".to_string(),
+            None,
+            None,
+            None,
+            Some("video".to_string()),
+        )
+        .expect_err("typed query_resume payload should reject unsupported contentType");
+
+        assert_eq!(error.code, "invalid_content_type");
+    }
+
+    #[test]
+    fn query_resume_payload_rejects_resume_missing_target() {
+        let error = query_resume_payload(
+            "transfer-1".to_string(),
+            Some("C:/tmp/a.txt".to_string()),
+            None,
+            None,
+            Some("file".to_string()),
+        )
+        .expect_err("typed query_resume resume payload should require a target");
+
+        assert_eq!(error.code, "missing_target");
     }
 
     #[test]
