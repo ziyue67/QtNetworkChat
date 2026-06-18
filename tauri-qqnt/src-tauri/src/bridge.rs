@@ -102,38 +102,70 @@ async fn wait_for_engine_ack(
     }
 }
 
-pub async fn handle_engine_event(app: &AppHandle, state: &Arc<AppState>, event: CommandEvent) {
+pub async fn handle_engine_event(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    event: CommandEvent,
+) -> bool {
     match event {
-        CommandEvent::Stdout(line) => handle_stdout_line(app, state, line).await,
+        CommandEvent::Stdout(line) => {
+            handle_stdout_line(app, state, line).await;
+            false
+        }
         CommandEvent::Stderr(line) => {
             let message = String::from_utf8_lossy(&line).trim().to_string();
             if !message.is_empty() {
                 let _ = app.emit("qqnt://engine/log", json!({ "message": message }));
             }
+            false
         }
         CommandEvent::Error(message) => {
             let error = QQNTError::rust("engine_process_error", message);
             state.engine.set_last_error(error.clone()).await;
             fail_pending_engine_requests(state, &error.code, &error.message).await;
             let _ = app.emit("qqnt://engine/error", error);
+            false
         }
         CommandEvent::Terminated(payload) => {
             *state.engine.child.lock().await = None;
-            let message = "QQNTEngine sidecar terminated.";
-            fail_pending_engine_requests(state, "engine_terminated", message).await;
-            let _ = app.emit(
-                "qqnt://engine/error",
-                json!({
-                    "code": "engine_terminated",
-                    "message": message,
-                    "source": "rust",
-                    "codeValue": payload.code,
-                    "signal": payload.signal
-                }),
-            );
+            let error = engine_terminated_error(payload.code, payload.signal);
+            state.engine.set_last_error(error.clone()).await;
+            fail_pending_engine_requests(state, &error.code, &error.message).await;
+            let _ = app.emit("qqnt://engine/error", sidecar_termination_payload(&error));
+            true
         }
-        _ => {}
+        _ => false,
     }
+}
+
+pub(crate) fn engine_terminated_error(code: Option<i32>, signal: Option<i32>) -> QQNTError {
+    QQNTError::rust("engine_terminated", "QQNTEngine sidecar terminated.").with_details(json!({
+        "codeValue": code,
+        "signal": signal
+    }))
+}
+
+fn sidecar_termination_payload(error: &QQNTError) -> Value {
+    let mut payload = serde_json::to_value(error).unwrap_or_else(|_| {
+        json!({
+            "code": error.code,
+            "message": error.message,
+            "source": error.source
+        })
+    });
+
+    if let (Some(details), Some(object)) = (&error.details, payload.as_object_mut()) {
+        object.insert(
+            "codeValue".to_string(),
+            details.get("codeValue").cloned().unwrap_or(Value::Null),
+        );
+        object.insert(
+            "signal".to_string(),
+            details.get("signal").cloned().unwrap_or(Value::Null),
+        );
+    }
+
+    payload
 }
 
 async fn handle_stdout_line(app: &AppHandle, state: &Arc<AppState>, line: Vec<u8>) {
@@ -1068,6 +1100,27 @@ mod tests {
 
         assert_eq!(error.code, "engine_channel_closed");
         assert!(state.engine.pending.lock().await.is_empty());
+    }
+
+    #[test]
+    fn engine_termination_error_keeps_state_and_event_fields_aligned() {
+        let error = engine_terminated_error(Some(7), None);
+        let value =
+            serde_json::to_value(&error).expect("engine termination error should serialize");
+        let event = sidecar_termination_payload(&error);
+
+        assert_eq!(value["code"], "engine_terminated");
+        assert_eq!(value["message"], "QQNTEngine sidecar terminated.");
+        assert_eq!(value["source"], "rust");
+        assert_eq!(value["details"]["codeValue"], 7);
+        assert!(value["details"]["signal"].is_null());
+
+        assert_eq!(event["code"], value["code"]);
+        assert_eq!(event["message"], value["message"]);
+        assert_eq!(event["source"], value["source"]);
+        assert_eq!(event["details"], value["details"]);
+        assert_eq!(event["codeValue"], 7);
+        assert!(event["signal"].is_null());
     }
 
     #[tokio::test]

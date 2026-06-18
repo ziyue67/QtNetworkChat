@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::{process::CommandEvent, ShellExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -46,7 +46,9 @@ async fn run_engine(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
     *state.engine.child.lock().await = Some(child);
 
     while let Some(event) = receiver.recv().await {
-        bridge::handle_engine_event(&app, &state, event).await;
+        if bridge::handle_engine_event(&app, &state, event).await {
+            return Ok(());
+        }
     }
 
     *state.engine.child.lock().await = None;
@@ -98,7 +100,9 @@ async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
     );
 
     while let Some(event) = receiver.recv().await {
-        handle_server_event(&app, &state, event).await;
+        if handle_server_event(&app, &state, event).await {
+            return Ok(());
+        }
     }
 
     *state.server.child.lock().await = None;
@@ -108,33 +112,29 @@ async fn run_server(app: AppHandle, state: Arc<AppState>) -> Result<(), QQNTErro
     ))
 }
 
-async fn handle_server_event(app: &AppHandle, state: &Arc<AppState>, event: CommandEvent) {
+async fn handle_server_event(app: &AppHandle, state: &Arc<AppState>, event: CommandEvent) -> bool {
     match event {
         CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
             let message = String::from_utf8_lossy(&line).trim().to_string();
             if !message.is_empty() {
                 let _ = app.emit("qqnt://server/log", json!({ "message": message }));
             }
+            false
         }
         CommandEvent::Error(message) => {
             let error = QQNTError::rust("server_process_error", message);
             state.server.set_last_error(error.clone()).await;
             let _ = app.emit("qqnt://server/fatal", error);
+            false
         }
         CommandEvent::Terminated(payload) => {
             *state.server.child.lock().await = None;
-            let _ = app.emit(
-                "qqnt://server/fatal",
-                json!({
-                    "code": "server_terminated",
-                    "message": "QQNTServer sidecar terminated.",
-                    "source": "rust",
-                    "codeValue": payload.code,
-                    "signal": payload.signal
-                }),
-            );
+            let error = server_terminated_error(payload.code, payload.signal);
+            state.server.set_last_error(error.clone()).await;
+            let _ = app.emit("qqnt://server/fatal", sidecar_termination_payload(&error));
+            true
         }
-        _ => {}
+        _ => false,
     }
 }
 
@@ -167,6 +167,36 @@ fn redis_unavailable_error(host: &str, port: u16, cause: &QQNTError) -> QQNTErro
             "cause": cause
         }),
     )
+}
+
+fn server_terminated_error(code: Option<i32>, signal: Option<i32>) -> QQNTError {
+    QQNTError::rust("server_terminated", "QQNTServer sidecar terminated.").with_details(json!({
+        "codeValue": code,
+        "signal": signal
+    }))
+}
+
+fn sidecar_termination_payload(error: &QQNTError) -> Value {
+    let mut payload = serde_json::to_value(error).unwrap_or_else(|_| {
+        json!({
+            "code": error.code,
+            "message": error.message,
+            "source": error.source
+        })
+    });
+
+    if let (Some(details), Some(object)) = (&error.details, payload.as_object_mut()) {
+        object.insert(
+            "codeValue".to_string(),
+            details.get("codeValue").cloned().unwrap_or(Value::Null),
+        );
+        object.insert(
+            "signal".to_string(),
+            details.get("signal").cloned().unwrap_or(Value::Null),
+        );
+    }
+
+    payload
 }
 
 async fn ping_redis(host: &str, port: u16, password: Option<&str>) -> Result<(), QQNTError> {
@@ -432,5 +462,26 @@ mod tests {
         assert_eq!(value["details"]["cause"]["code"], "redis_connect_failed");
         assert_eq!(value["details"]["cause"]["message"], "connection refused");
         assert_eq!(value["details"]["cause"]["source"], "rust");
+    }
+
+    #[test]
+    fn server_termination_error_keeps_state_and_event_fields_aligned() {
+        let error = server_terminated_error(Some(2), Some(15));
+        let value =
+            serde_json::to_value(&error).expect("server termination error should serialize");
+        let event = sidecar_termination_payload(&error);
+
+        assert_eq!(value["code"], "server_terminated");
+        assert_eq!(value["message"], "QQNTServer sidecar terminated.");
+        assert_eq!(value["source"], "rust");
+        assert_eq!(value["details"]["codeValue"], 2);
+        assert_eq!(value["details"]["signal"], 15);
+
+        assert_eq!(event["code"], value["code"]);
+        assert_eq!(event["message"], value["message"]);
+        assert_eq!(event["source"], value["source"]);
+        assert_eq!(event["details"], value["details"]);
+        assert_eq!(event["codeValue"], 2);
+        assert_eq!(event["signal"], 15);
     }
 }
