@@ -361,8 +361,7 @@ mod tests {
                 "userId": "10002",
                 "userName": "Bob",
                 "online": true,
-                "reason": "",
-                "contractProbe": true
+                "reason": ""
             }),
             "user_list" => json!({
                 "users": [{
@@ -371,8 +370,7 @@ mod tests {
                     "avatar": "",
                     "online": true,
                     "lastActive": ""
-                }],
-                "contractProbe": true
+                }]
             }),
             "friend_list" => json!({
                 "friends": [{
@@ -381,24 +379,20 @@ mod tests {
                     "avatar": "",
                     "online": true,
                     "lastActive": ""
-                }],
-                "contractProbe": true
+                }]
             }),
             "user_joined" => json!({
                 "userId": "10002",
-                "userName": "Bob",
-                "contractProbe": true
+                "userName": "Bob"
             }),
             "user_left" => json!({
                 "userId": "10002",
-                "userName": "Bob",
-                "contractProbe": true
+                "userName": "Bob"
             }),
             "friend_event" => json!({
                 "type": "request_received",
                 "senderId": "10002",
-                "senderName": "Bob",
-                "contractProbe": true
+                "senderName": "Bob"
             }),
             "message" => json!({
                 "sessionId": "10001",
@@ -417,14 +411,12 @@ mod tests {
             "group_snapshot" => json!({
                 "groups": [group_contract_item()],
                 "removedGroups": [removed_group_contract_item()],
-                "hasSnapshot": true,
-                "contractProbe": true
+                "hasSnapshot": true
             }),
             "group_member_updated" => json!({
                 "groupId": "group-1",
                 "memberId": "10002",
-                "action": "add",
-                "contractProbe": true
+                "action": "add"
             }),
             "file_progress" => json!({
                 "transferId": "contract-transfer",

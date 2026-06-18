@@ -238,6 +238,11 @@ fn validate_group_collection_payload(payload: &Value, contract_name: &str) -> QQ
         GroupMembershipState::Removed,
     )?;
     require_bool_field(payload, "hasSnapshot", contract_name)?;
+    require_exact_object_fields(
+        payload,
+        &["groups", "removedGroups", "hasSnapshot"],
+        contract_name,
+    )?;
 
     Ok(())
 }
@@ -298,11 +303,56 @@ fn validate_group_item_payload(
         GroupMembershipState::Active => {
             require_group_member_array_field(payload, "members", contract_name)?;
             require_group_audit_event_array_field(payload, "auditEvents", contract_name)?;
+            require_exact_object_fields(
+                payload,
+                &[
+                    "groupId",
+                    "groupName",
+                    "announcement",
+                    "ownerId",
+                    "groupType",
+                    "membershipState",
+                    "historyPolicy",
+                    "filePolicy",
+                    "canSend",
+                    "canSendFiles",
+                    "canReadHistory",
+                    "historyVisibility",
+                    "historyReadOnly",
+                    "historyRetainedAfterRemoval",
+                    "members",
+                    "auditEvents",
+                ],
+                contract_name,
+            )?;
         }
         GroupMembershipState::Removed => {
             require_string_field(payload, "removedBy", contract_name)?;
             require_string_field(payload, "removedByName", contract_name)?;
             require_string_field(payload, "removedAt", contract_name)?;
+            require_exact_object_fields(
+                payload,
+                &[
+                    "groupId",
+                    "groupName",
+                    "announcement",
+                    "ownerId",
+                    "groupType",
+                    "membershipState",
+                    "historyPolicy",
+                    "filePolicy",
+                    "canSend",
+                    "canSendFiles",
+                    "canReadHistory",
+                    "historyVisibility",
+                    "historyReadOnly",
+                    "historyRetainedAfterRemoval",
+                    "removedBy",
+                    "removedByName",
+                    "removedAt",
+                ],
+                contract_name,
+            )?;
         }
     }
 
@@ -344,6 +394,7 @@ fn validate_group_member_item_payload(payload: &Value, contract_name: &str) -> Q
         &["owner", "admin", "member"],
         contract_name,
     )?;
+    require_exact_object_fields(payload, &["userId", "userName", "role"], contract_name)?;
 
     Ok(())
 }
@@ -382,6 +433,19 @@ fn validate_group_audit_event_item_payload(payload: &Value, contract_name: &str)
     require_string_field(payload, "targetUserName", contract_name)?;
     require_object_field(payload, "details", contract_name)?;
     require_string_field(payload, "createdAt", contract_name)?;
+    require_exact_object_fields(
+        payload,
+        &[
+            "action",
+            "actorId",
+            "actorName",
+            "targetUserId",
+            "targetUserName",
+            "details",
+            "createdAt",
+        ],
+        contract_name,
+    )?;
 
     Ok(())
 }
@@ -416,6 +480,11 @@ fn validate_friend_search_result_payload(payload: &Value) -> QQNTResult<()> {
         require_optional_string_field(payload, "userId", "friend_search_result")?;
         require_optional_string_field(payload, "userName", "friend_search_result")?;
         require_optional_bool_field(payload, "online", "friend_search_result")?;
+        require_only_object_fields(
+            payload,
+            &["found", "userId", "userName", "online", "reason"],
+            "friend_search_result",
+        )?;
         return Ok(());
     }
 
@@ -423,18 +492,25 @@ fn validate_friend_search_result_payload(payload: &Value) -> QQNTResult<()> {
     require_string_field(payload, "userName", "friend_search_result")?;
     require_bool_field(payload, "online", "friend_search_result")?;
     require_optional_string_field(payload, "reason", "friend_search_result")?;
+    require_only_object_fields(
+        payload,
+        &["found", "userId", "userName", "online", "reason"],
+        "friend_search_result",
+    )?;
 
     Ok(())
 }
 
 fn validate_user_list_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
     require_user_array_field(payload, "users", contract_name)?;
+    require_exact_object_fields(payload, &["users"], contract_name)?;
 
     Ok(())
 }
 
 fn validate_friend_list_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
     require_user_array_field(payload, "friends", contract_name)?;
+    require_exact_object_fields(payload, &["friends"], contract_name)?;
 
     Ok(())
 }
@@ -467,6 +543,11 @@ fn validate_user_item_payload(payload: &Value, contract_name: &str) -> QQNTResul
     require_string_field(payload, "avatar", contract_name)?;
     require_bool_field(payload, "online", contract_name)?;
     require_string_field(payload, "lastActive", contract_name)?;
+    require_exact_object_fields(
+        payload,
+        &["id", "name", "avatar", "online", "lastActive"],
+        contract_name,
+    )?;
 
     Ok(())
 }
@@ -474,6 +555,7 @@ fn validate_user_item_payload(payload: &Value, contract_name: &str) -> QQNTResul
 fn validate_user_presence_payload(payload: &Value, contract_name: &str) -> QQNTResult<()> {
     require_non_empty_string_field(payload, "userId", contract_name)?;
     require_string_field(payload, "userName", contract_name)?;
+    require_exact_object_fields(payload, &["userId", "userName"], contract_name)?;
 
     Ok(())
 }
@@ -485,15 +567,30 @@ fn validate_friend_event_payload(payload: &Value) -> QQNTResult<()> {
         Some("request_received") => {
             require_non_empty_string_field(payload, "senderId", "friend_event")?;
             require_string_field(payload, "senderName", "friend_event")?;
+            require_exact_object_fields(
+                payload,
+                &["type", "senderId", "senderName"],
+                "friend_event",
+            )?;
         }
         Some("request_sent") => {
             require_non_empty_string_field(payload, "receiverId", "friend_event")?;
             require_bool_field(payload, "delivered", "friend_event")?;
+            require_exact_object_fields(
+                payload,
+                &["type", "receiverId", "delivered"],
+                "friend_event",
+            )?;
         }
         Some("response_received") => {
             require_non_empty_string_field(payload, "senderId", "friend_event")?;
             require_string_field(payload, "senderName", "friend_event")?;
             require_bool_field(payload, "accepted", "friend_event")?;
+            require_exact_object_fields(
+                payload,
+                &["type", "senderId", "senderName", "accepted"],
+                "friend_event",
+            )?;
         }
         _ => {
             return Err(QQNTError::rust(
@@ -661,6 +758,11 @@ fn validate_group_member_updated_payload(payload: &Value) -> QQNTResult<()> {
         &["add", "remove", "promote_admin", "demote_admin"],
         "group_member_updated",
     )?;
+    require_exact_object_fields(
+        payload,
+        &["groupId", "memberId", "action"],
+        "group_member_updated",
+    )?;
 
     Ok(())
 }
@@ -711,6 +813,34 @@ fn require_exact_object_fields(
         format!(
             "QQNTEngine {contract_name} payload must only include {}.",
             expected_fields.join(", ")
+        ),
+    ))
+}
+
+fn require_only_object_fields(
+    payload: &Value,
+    allowed_fields: &[&str],
+    contract_name: &str,
+) -> QQNTResult<()> {
+    let Some(map) = payload.as_object() else {
+        return Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!("QQNTEngine {contract_name} payload must be an object."),
+        ));
+    };
+
+    if map
+        .keys()
+        .all(|field| allowed_fields.contains(&field.as_str()))
+    {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!(
+            "QQNTEngine {contract_name} payload must only include {}.",
+            allowed_fields.join(", ")
         ),
     ))
 }
@@ -1613,6 +1743,23 @@ mod tests {
     }
 
     #[test]
+    fn friend_search_result_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "friend_search_result",
+            &json!({
+                "found": true,
+                "userId": "10002",
+                "userName": "Bob",
+                "online": true,
+                "debug": true
+            }),
+        )
+        .expect_err("friend_search_result with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_friend_search_result_payload");
+    }
+
+    #[test]
     fn user_list_payload_accepts_users_array() {
         validate_event_payload(
             "user_list",
@@ -1678,6 +1825,20 @@ mod tests {
     }
 
     #[test]
+    fn user_list_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "user_list",
+            &json!({
+                "users": [],
+                "generatedAt": "2026-06-18T10:00:00Z"
+            }),
+        )
+        .expect_err("user_list with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_user_list_payload");
+    }
+
+    #[test]
     fn friend_list_payload_rejects_missing_online() {
         let error = validate_event_payload(
             "friend_list",
@@ -1696,6 +1857,22 @@ mod tests {
     }
 
     #[test]
+    fn friend_list_payload_rejects_extra_friend_fields() {
+        let mut friend = user_contract_item();
+        friend["source"] = json!("server");
+
+        let error = validate_event_payload(
+            "friend_list",
+            &json!({
+                "friends": [friend]
+            }),
+        )
+        .expect_err("friend_list with extra friend fields should fail");
+
+        assert_eq!(error.code, "invalid_friend_list_payload");
+    }
+
+    #[test]
     fn user_joined_payload_requires_user_id() {
         let error = validate_event_payload(
             "user_joined",
@@ -1706,6 +1883,21 @@ mod tests {
         .expect_err("user_joined without userId should fail");
 
         assert_eq!(error.code, "invalid_user_joined_payload");
+    }
+
+    #[test]
+    fn user_left_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "user_left",
+            &json!({
+                "userId": "10002",
+                "userName": "Bob",
+                "online": false
+            }),
+        )
+        .expect_err("user_left with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_user_left_payload");
     }
 
     #[test]
@@ -1763,6 +1955,22 @@ mod tests {
     }
 
     #[test]
+    fn friend_event_payload_rejects_extra_branch_fields() {
+        let error = validate_event_payload(
+            "friend_event",
+            &json!({
+                "type": "request_sent",
+                "receiverId": "10002",
+                "delivered": true,
+                "senderName": "Bob"
+            }),
+        )
+        .expect_err("friend_event branch with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_friend_event_payload");
+    }
+
+    #[test]
     fn friend_event_payload_rejects_unknown_type() {
         let error = validate_event_payload(
             "friend_event",
@@ -1787,6 +1995,22 @@ mod tests {
             }),
         )
         .expect_err("group_member_updated without action should fail");
+
+        assert_eq!(error.code, "invalid_group_member_updated_payload");
+    }
+
+    #[test]
+    fn group_member_updated_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "group_member_updated",
+            &json!({
+                "groupId": "group-1",
+                "memberId": "10002",
+                "action": "add",
+                "role": "admin"
+            }),
+        )
+        .expect_err("group_member_updated with extra fields should fail");
 
         assert_eq!(error.code, "invalid_group_member_updated_payload");
     }
@@ -2004,6 +2228,22 @@ mod tests {
             }),
         )
         .expect("group_snapshot with empty collections should pass");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_extra_fields() {
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": true,
+                "generatedAt": "2026-06-18T10:00:00Z"
+            }),
+        )
+        .expect_err("group_snapshot with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
     }
 
     #[test]
@@ -2442,6 +2682,24 @@ mod tests {
     }
 
     #[test]
+    fn group_snapshot_payload_rejects_extra_group_fields() {
+        let mut group = group_contract_item();
+        group["debug"] = json!(true);
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with extra group fields should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
     fn group_snapshot_payload_rejects_wrong_membership_bucket() {
         let error = validate_event_payload(
             "group_snapshot",
@@ -2493,6 +2751,24 @@ mod tests {
     }
 
     #[test]
+    fn group_snapshot_payload_rejects_extra_member_fields() {
+        let mut group = group_contract_item();
+        group["members"][0]["lastActive"] = json!("2026-06-18T10:00:00Z");
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with extra member fields should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
     fn group_snapshot_payload_rejects_bad_audit_details() {
         let mut group = group_contract_item();
         group["auditEvents"][0]["details"] = json!("created");
@@ -2511,6 +2787,24 @@ mod tests {
     }
 
     #[test]
+    fn group_snapshot_payload_rejects_extra_audit_fields() {
+        let mut group = group_contract_item();
+        group["auditEvents"][0]["sequence"] = json!(1);
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [group],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with extra audit fields should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
     fn group_snapshot_payload_rejects_removed_group_without_removed_at() {
         let mut group = removed_group_contract_item();
         group.as_object_mut().unwrap().remove("removedAt");
@@ -2524,6 +2818,24 @@ mod tests {
             }),
         )
         .expect_err("group_snapshot removed group without removedAt should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_rejects_extra_removed_group_fields() {
+        let mut group = removed_group_contract_item();
+        group["members"] = json!([]);
+
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [],
+                "removedGroups": [group],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot with extra removed group fields should fail");
 
         assert_eq!(error.code, "invalid_group_snapshot_payload");
     }
@@ -2832,6 +3144,20 @@ mod tests {
     }
 
     #[test]
+    fn get_user_list_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "get_user_list",
+            &json!({
+                "users": [],
+                "friends": []
+            }),
+        )
+        .expect_err("get_user_list ack with extra fields should fail");
+
+        assert_eq!(error.code, "invalid_get_user_list_payload");
+    }
+
+    #[test]
     fn get_friend_list_ack_payload_requires_friends_array() {
         let error = validate_command_ack_payload(
             "get_friend_list",
@@ -2840,6 +3166,20 @@ mod tests {
             }),
         )
         .expect_err("get_friend_list ack without friends array should fail");
+
+        assert_eq!(error.code, "invalid_get_friend_list_payload");
+    }
+
+    #[test]
+    fn get_friend_list_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "get_friend_list",
+            &json!({
+                "friends": [],
+                "users": []
+            }),
+        )
+        .expect_err("get_friend_list ack with extra fields should fail");
 
         assert_eq!(error.code, "invalid_get_friend_list_payload");
     }
@@ -2873,6 +3213,22 @@ mod tests {
             }),
         )
         .expect_err("get_group_list ack without removedGroups should fail");
+
+        assert_eq!(error.code, "invalid_get_group_list_payload");
+    }
+
+    #[test]
+    fn get_group_list_ack_payload_rejects_extra_fields() {
+        let error = validate_command_ack_payload(
+            "get_group_list",
+            &json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": false,
+                "generatedAt": "2026-06-18T10:00:00Z"
+            }),
+        )
+        .expect_err("get_group_list ack with extra fields should fail");
 
         assert_eq!(error.code, "invalid_get_group_list_payload");
     }

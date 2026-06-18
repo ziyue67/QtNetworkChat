@@ -287,14 +287,17 @@ bool validateOkContractAckPayload(const QString& op, const QJsonObject& payload)
                || op == QLatin1String("set_user_info")) {
         ok = expectEmptyPayload(op, payload) && ok;
     } else if (op == QLatin1String("get_user_list")) {
+        ok = expectExactPayloadFieldCount(op, payload, 1) && ok;
         ok = expectArrayField(op, payload, QStringLiteral("users")) && ok;
         ok = expect(!payload.contains(QStringLiteral("friends")),
                     "get_user_list contract payload should not alias friends") && ok;
     } else if (op == QLatin1String("get_friend_list")) {
+        ok = expectExactPayloadFieldCount(op, payload, 1) && ok;
         ok = expectArrayField(op, payload, QStringLiteral("friends")) && ok;
         ok = expect(!payload.contains(QStringLiteral("users")),
                     "get_friend_list contract payload should not alias users") && ok;
     } else if (op == QLatin1String("get_group_list")) {
+        ok = expectExactPayloadFieldCount(op, payload, 3) && ok;
         ok = expectArrayField(op, payload, QStringLiteral("groups")) && ok;
         ok = expectArrayField(op, payload, QStringLiteral("removedGroups")) && ok;
         ok = expectBoolField(op, payload, QStringLiteral("hasSnapshot")) && ok;
