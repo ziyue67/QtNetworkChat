@@ -11,7 +11,7 @@
 
 ## 2. 命令包络
 
-前端通过 Tauri `invoke('qqnt_command', { payload })` 把命令交给 Rust，Rust 原样转为 NDJSON 写入 `QQNTEngine`。
+前端通过 Tauri `invoke('qqnt_command', { payload })` 把命令交给 Rust；Rust 先校验命令包络，再转为 NDJSON 写入 `QQNTEngine`，并在返回前校验 `ack` 包络。
 
 ```json
 {

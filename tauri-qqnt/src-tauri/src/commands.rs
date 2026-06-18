@@ -15,7 +15,21 @@ pub async fn qqnt_command(
     payload: Value,
 ) -> Result<Value, QQNTError> {
     validate_generic_command(&payload)?;
-    bridge::call_engine(state.inner(), payload).await
+    let op = payload
+        .get("op")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let req_id = payload
+        .get("reqId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    let packet = bridge::call_engine(state.inner(), payload).await?;
+    validate_generic_ack_packet(&packet, &op, &req_id)?;
+
+    Ok(packet)
 }
 
 #[derive(Debug, Serialize)]
@@ -659,6 +673,82 @@ fn validate_generic_command(command: &Value) -> Result<(), QQNTError> {
     Ok(())
 }
 
+fn validate_generic_ack_packet(
+    packet: &Value,
+    expected_op: &str,
+    expected_req_id: &str,
+) -> Result<(), QQNTError> {
+    let Some(packet_object) = packet.as_object() else {
+        return Err(QQNTError::rust(
+            "invalid_ack",
+            "QQNTEngine ack must be a JSON object.",
+        ));
+    };
+
+    let has_matching_string = |field: &str, expected: &str| {
+        packet_object
+            .get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value == expected)
+    };
+
+    if !has_matching_string("type", "ack")
+        || !has_matching_string("op", expected_op)
+        || !has_matching_string("reqId", expected_req_id)
+    {
+        return Err(QQNTError::rust(
+            "unexpected_ack",
+            format!("QQNTEngine returned an unexpected ack for {expected_op}."),
+        ));
+    }
+
+    if packet_object
+        .get("payload")
+        .is_some_and(|payload| !payload.is_object())
+    {
+        return Err(QQNTError::rust(
+            "invalid_ack_payload",
+            "QQNTEngine ack payload must be an object.",
+        ));
+    }
+
+    match packet_object.get("status").and_then(Value::as_str) {
+        Some("ok") => {
+            let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
+            protocol::validate_command_ack_payload(expected_op, &payload)
+        }
+        Some("error") => validate_generic_error_ack(packet),
+        _ => Err(QQNTError::rust(
+            "invalid_ack_status",
+            "QQNTEngine ack status must be ok or error.",
+        )),
+    }
+}
+
+fn validate_generic_error_ack(packet: &Value) -> Result<(), QQNTError> {
+    let Some(error) = packet.get("error").and_then(Value::as_object) else {
+        return Err(QQNTError::rust(
+            "invalid_ack_error",
+            "QQNTEngine error ack must include an error object.",
+        ));
+    };
+
+    for field in ["code", "message", "source"] {
+        if !error
+            .get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return Err(QQNTError::rust(
+                "invalid_ack_error",
+                format!("QQNTEngine error ack must include non-empty {field} string."),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -844,6 +934,113 @@ mod tests {
         .expect_err("generic command payload must be an object");
 
         assert_eq!(error.code, "invalid_payload");
+    }
+
+    #[test]
+    fn generic_ack_packet_accepts_matching_ok_ack() {
+        validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "send_private_message",
+                "reqId": "req-message",
+                "status": "ok",
+                "payload": { "receiverId": "10001" }
+            }),
+            "send_private_message",
+            "req-message",
+        )
+        .expect("matching generic ok ack should pass");
+    }
+
+    #[test]
+    fn generic_ack_packet_accepts_matching_error_ack() {
+        validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "send_file",
+                "reqId": "req-file",
+                "status": "error",
+                "error": {
+                    "code": "missing_target",
+                    "message": "File target is required.",
+                    "source": "engine"
+                }
+            }),
+            "send_file",
+            "req-file",
+        )
+        .expect("matching generic error ack should pass through");
+    }
+
+    #[test]
+    fn generic_ack_packet_rejects_mismatched_op() {
+        let error = validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "login",
+                "reqId": "req-1",
+                "status": "ok",
+                "payload": { "accepted": true, "requiresConnect": true, "mode": "login" }
+            }),
+            "connect",
+            "req-1",
+        )
+        .expect_err("generic ack op must match command op");
+
+        assert_eq!(error.code, "unexpected_ack");
+    }
+
+    #[test]
+    fn generic_ack_packet_rejects_missing_status() {
+        let error = validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "ready",
+                "reqId": "req-ready",
+                "payload": { "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION }
+            }),
+            "ready",
+            "req-ready",
+        )
+        .expect_err("generic ack must include status");
+
+        assert_eq!(error.code, "invalid_ack_status");
+    }
+
+    #[test]
+    fn generic_ack_packet_rejects_invalid_payload_shape() {
+        let error = validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "search_friend",
+                "reqId": "req-search",
+                "status": "ok",
+                "payload": "bad"
+            }),
+            "search_friend",
+            "req-search",
+        )
+        .expect_err("generic ack payload must be an object");
+
+        assert_eq!(error.code, "invalid_ack_payload");
+    }
+
+    #[test]
+    fn generic_ack_packet_rejects_malformed_error_ack() {
+        let error = validate_generic_ack_packet(
+            &json!({
+                "type": "ack",
+                "op": "send_file",
+                "reqId": "req-file",
+                "status": "error",
+                "error": { "code": "missing_target", "source": "engine" }
+            }),
+            "send_file",
+            "req-file",
+        )
+        .expect_err("generic error ack must include complete error object");
+
+        assert_eq!(error.code, "invalid_ack_error");
     }
 
     #[test]
