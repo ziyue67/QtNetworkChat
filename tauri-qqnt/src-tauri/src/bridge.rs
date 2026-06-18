@@ -149,11 +149,9 @@ fn dispatch_stdout_line(line: &[u8]) -> EngineDispatch {
             };
 
             let payload = packet.get("payload").cloned().unwrap_or_else(|| json!({}));
-            if event_name == "ready" {
-                if let Err(error) = protocol::validate_ready_payload(&payload) {
-                    return EngineDispatch::Error(json!(error));
-                }
-            };
+            if let Err(error) = protocol::validate_event_payload(event_name, &payload) {
+                return EngineDispatch::Error(json!(error));
+            }
 
             EngineDispatch::Event {
                 topic: format!("qqnt://engine/{event_name}"),
@@ -198,6 +196,22 @@ mod tests {
             .collect()
     }
 
+    fn contract_event_payload(event_name: &str) -> Value {
+        match event_name {
+            "ready" => json!({
+                "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION,
+                "contractProbe": true
+            }),
+            "group_snapshot" => json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": true,
+                "contractProbe": true
+            }),
+            _ => json!({ "contractProbe": true }),
+        }
+    }
+
     #[test]
     fn dispatches_ack_by_req_id() {
         let dispatch = dispatch_stdout_line(
@@ -232,11 +246,7 @@ mod tests {
     fn dispatches_protocol_contract_events_to_engine_topics() {
         let contract = protocol_contract();
         for event_name in string_array(&contract, "events") {
-            let payload = if event_name == "ready" {
-                json!({ "protocolVersion": protocol::EXPECTED_PROTOCOL_VERSION, "contractProbe": true })
-            } else {
-                json!({ "contractProbe": true })
-            };
+            let payload = contract_event_payload(event_name);
             let line = json!({
                 "type": "event",
                 "event": event_name,
@@ -263,6 +273,21 @@ mod tests {
         match dispatch {
             EngineDispatch::Error(error) => {
                 assert_eq!(error["code"], "protocol_version_mismatch");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_group_snapshot_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"group_snapshot","payload":{"groups":[],"hasSnapshot":true}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_group_snapshot_payload");
                 assert_eq!(error["source"], "rust");
             }
             other => panic!("expected error dispatch, got {other:?}"),

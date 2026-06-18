@@ -24,6 +24,38 @@ pub fn validate_ready_payload(payload: &Value) -> QQNTResult<()> {
     Ok(())
 }
 
+pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<()> {
+    match event_name {
+        "ready" => validate_ready_payload(payload),
+        "group_snapshot" => validate_group_snapshot_payload(payload),
+        _ => Ok(()),
+    }
+}
+
+fn validate_group_snapshot_payload(payload: &Value) -> QQNTResult<()> {
+    require_array_field(payload, "groups", "group_snapshot")?;
+    require_array_field(payload, "removedGroups", "group_snapshot")?;
+    if !matches!(payload.get("hasSnapshot"), Some(Value::Bool(_))) {
+        return Err(QQNTError::rust(
+            "invalid_group_snapshot_payload",
+            "QQNTEngine group_snapshot payload must include hasSnapshot boolean.",
+        ));
+    }
+
+    Ok(())
+}
+
+fn require_array_field(payload: &Value, field: &str, event_name: &str) -> QQNTResult<()> {
+    if matches!(payload.get(field), Some(Value::Array(_))) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{event_name}_payload"),
+        format!("QQNTEngine {event_name} payload must include {field} array."),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +82,47 @@ mod tests {
             validate_ready_payload(&json!({})).expect_err("missing protocol version should fail");
 
         assert_eq!(error.code, "missing_protocol_version");
+    }
+
+    #[test]
+    fn group_snapshot_payload_accepts_contract_fields() {
+        validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect("group_snapshot with contract fields should pass");
+    }
+
+    #[test]
+    fn group_snapshot_payload_requires_removed_groups() {
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [],
+                "hasSnapshot": true
+            }),
+        )
+        .expect_err("group_snapshot without removedGroups should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
+    }
+
+    #[test]
+    fn group_snapshot_payload_requires_has_snapshot_boolean() {
+        let error = validate_event_payload(
+            "group_snapshot",
+            &json!({
+                "groups": [],
+                "removedGroups": [],
+                "hasSnapshot": "yes"
+            }),
+        )
+        .expect_err("group_snapshot without boolean hasSnapshot should fail");
+
+        assert_eq!(error.code, "invalid_group_snapshot_payload");
     }
 }
