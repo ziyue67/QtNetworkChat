@@ -28,6 +28,9 @@ pub fn validate_event_payload(event_name: &str, payload: &Value) -> QQNTResult<(
     match event_name {
         "ready" => validate_ready_payload(payload),
         "group_snapshot" => validate_group_collection_payload(payload, "group_snapshot"),
+        "file_progress" => validate_file_progress_payload(payload),
+        "file_done" => validate_file_done_payload(payload),
+        "file_error" => validate_file_error_payload(payload),
         _ => Ok(()),
     }
 }
@@ -53,6 +56,32 @@ fn validate_group_collection_payload(payload: &Value, contract_name: &str) -> QQ
     Ok(())
 }
 
+fn validate_file_progress_payload(payload: &Value) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "transferId", "file_progress")?;
+    require_non_empty_string_field(payload, "fileName", "file_progress")?;
+    require_non_empty_string_field(payload, "direction", "file_progress")?;
+    require_string_or_number_field(payload, "bytes", "file_progress")?;
+    require_string_or_number_field(payload, "total", "file_progress")?;
+
+    Ok(())
+}
+
+fn validate_file_done_payload(payload: &Value) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "transferId", "file_done")?;
+    require_non_empty_string_field(payload, "fileName", "file_done")?;
+    require_non_empty_string_field(payload, "direction", "file_done")?;
+    require_string_field(payload, "filePath", "file_done")?;
+
+    Ok(())
+}
+
+fn validate_file_error_payload(payload: &Value) -> QQNTResult<()> {
+    require_non_empty_string_field(payload, "transferId", "file_error")?;
+    require_non_empty_string_field(payload, "reason", "file_error")?;
+
+    Ok(())
+}
+
 fn require_array_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
     if matches!(payload.get(field), Some(Value::Array(_))) {
         return Ok(());
@@ -62,6 +91,52 @@ fn require_array_field(payload: &Value, field: &str, contract_name: &str) -> QQN
         format!("invalid_{contract_name}_payload"),
         format!("QQNTEngine {contract_name} payload must include {field} array."),
     ))
+}
+
+fn require_non_empty_string_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    if matches!(
+        payload.get(field).and_then(Value::as_str),
+        Some(value) if !value.trim().is_empty()
+    ) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include non-empty {field} string."),
+    ))
+}
+
+fn require_string_field(payload: &Value, field: &str, contract_name: &str) -> QQNTResult<()> {
+    if matches!(payload.get(field), Some(Value::String(_))) {
+        return Ok(());
+    }
+
+    Err(QQNTError::rust(
+        format!("invalid_{contract_name}_payload"),
+        format!("QQNTEngine {contract_name} payload must include {field} string."),
+    ))
+}
+
+fn require_string_or_number_field(
+    payload: &Value,
+    field: &str,
+    contract_name: &str,
+) -> QQNTResult<()> {
+    match payload.get(field) {
+        Some(Value::Number(_)) => Ok(()),
+        Some(Value::String(value)) if !value.trim().is_empty() => Ok(()),
+        _ => Err(QQNTError::rust(
+            format!("invalid_{contract_name}_payload"),
+            format!(
+                "QQNTEngine {contract_name} payload must include {field} as a string or number."
+            ),
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -103,6 +178,111 @@ mod tests {
             }),
         )
         .expect("group_snapshot with contract fields should pass");
+    }
+
+    #[test]
+    fn file_progress_payload_accepts_contract_fields() {
+        validate_event_payload(
+            "file_progress",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "bytes": "128",
+                "total": 256,
+                "direction": "outgoing"
+            }),
+        )
+        .expect("file_progress with contract fields should pass");
+    }
+
+    #[test]
+    fn file_progress_payload_requires_transfer_id() {
+        let error = validate_event_payload(
+            "file_progress",
+            &json!({
+                "fileName": "report.zip",
+                "bytes": "128",
+                "total": "256",
+                "direction": "outgoing"
+            }),
+        )
+        .expect_err("file_progress without transferId should fail");
+
+        assert_eq!(error.code, "invalid_file_progress_payload");
+    }
+
+    #[test]
+    fn file_progress_payload_requires_total() {
+        let error = validate_event_payload(
+            "file_progress",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "bytes": "128",
+                "direction": "outgoing"
+            }),
+        )
+        .expect_err("file_progress without total should fail");
+
+        assert_eq!(error.code, "invalid_file_progress_payload");
+    }
+
+    #[test]
+    fn file_done_payload_accepts_contract_fields() {
+        validate_event_payload(
+            "file_done",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "filePath": "C:/tmp/report.zip",
+                "direction": "incoming"
+            }),
+        )
+        .expect("file_done with contract fields should pass");
+    }
+
+    #[test]
+    fn file_done_payload_requires_file_path_field() {
+        let error = validate_event_payload(
+            "file_done",
+            &json!({
+                "transferId": "transfer-1",
+                "fileName": "report.zip",
+                "direction": "incoming"
+            }),
+        )
+        .expect_err("file_done without filePath should fail");
+
+        assert_eq!(error.code, "invalid_file_done_payload");
+    }
+
+    #[test]
+    fn file_error_payload_accepts_contract_fields_and_extras() {
+        validate_event_payload(
+            "file_error",
+            &json!({
+                "transferId": "transfer-1",
+                "reason": "cancelled",
+                "fileName": "report.zip",
+                "direction": "outgoing",
+                "bytes": "128",
+                "total": "256"
+            }),
+        )
+        .expect("file_error with contract fields and extras should pass");
+    }
+
+    #[test]
+    fn file_error_payload_requires_reason() {
+        let error = validate_event_payload(
+            "file_error",
+            &json!({
+                "transferId": "transfer-1"
+            }),
+        )
+        .expect_err("file_error without reason should fail");
+
+        assert_eq!(error.code, "invalid_file_error_payload");
     }
 
     #[test]

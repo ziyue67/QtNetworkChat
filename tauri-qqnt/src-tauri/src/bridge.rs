@@ -208,6 +208,26 @@ mod tests {
                 "hasSnapshot": true,
                 "contractProbe": true
             }),
+            "file_progress" => json!({
+                "transferId": "contract-transfer",
+                "fileName": "contract.bin",
+                "bytes": "128",
+                "total": "256",
+                "direction": "outgoing",
+                "contractProbe": true
+            }),
+            "file_done" => json!({
+                "transferId": "contract-transfer",
+                "fileName": "contract.bin",
+                "filePath": "C:/tmp/contract.bin",
+                "direction": "incoming",
+                "contractProbe": true
+            }),
+            "file_error" => json!({
+                "transferId": "contract-transfer",
+                "reason": "cancelled",
+                "contractProbe": true
+            }),
             _ => json!({ "contractProbe": true }),
         }
     }
@@ -288,6 +308,51 @@ mod tests {
         match dispatch {
             EngineDispatch::Error(error) => {
                 assert_eq!(error["code"], "invalid_group_snapshot_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_file_progress_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"file_progress","payload":{"transferId":"transfer-1","fileName":"contract.bin","bytes":"128","direction":"outgoing"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_file_progress_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_file_done_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"file_done","payload":{"transferId":"transfer-1","fileName":"contract.bin","direction":"incoming"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_file_done_payload");
+                assert_eq!(error["source"], "rust");
+            }
+            other => panic!("expected error dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatches_invalid_file_error_payload_as_error() {
+        let dispatch = dispatch_stdout_line(
+            br#"{"type":"event","event":"file_error","payload":{"transferId":"transfer-1"}}"#,
+        );
+
+        match dispatch {
+            EngineDispatch::Error(error) => {
+                assert_eq!(error["code"], "invalid_file_error_payload");
                 assert_eq!(error["source"], "rust");
             }
             other => panic!("expected error dispatch, got {other:?}"),
